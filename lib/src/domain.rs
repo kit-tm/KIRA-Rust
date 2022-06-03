@@ -1,5 +1,7 @@
 use std::ops::BitXor;
 
+use rand::Rng;
+
 pub const DEFAULT_SIZE: usize = 14;
 
 /// A NodeID with default SIZE of 112 Bits (14 Byte) as default value as proposed in the design paper.
@@ -38,6 +40,16 @@ impl<const SIZE: usize> NodeID<SIZE> {
 
         let mut inner = [0u8; SIZE];
         inner[SIZE - 1] = 1u8;
+        Self { inner }
+    }
+
+    #[cfg(feature = "rand")]
+    pub fn random() -> Self {
+        let mut inner = [0u8; SIZE];
+        let mut rng = rand::thread_rng();
+        while inner == Self::one().inner || inner == Self::zero().inner {
+            rng.fill(&mut inner[..SIZE]);
+        }
         Self { inner }
     }
 
@@ -242,5 +254,13 @@ mod tests {
             NodeID::from([1u8, 0u8]) ^ NodeID::from([0u8, 1u8]),
             NodeID::from([1u8, 1u8])
         );
+    }
+
+    #[cfg(feature = "rand")]
+    #[test]
+    fn rand_construction_smoke_test() {
+        let random = NodeID::<128>::random();
+        assert!(!random.is_zero());
+        assert!(!random.is_one());
     }
 }

@@ -5,8 +5,9 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
-default = ["hex"]
+default = ["hex", "rand"]
 
 [dependencies]
 # Hexadecimal Output formatting of NodeIDs. Non-Optional as basic functionality for a NodeID.
 hex = { version = "0.4.3", optional = true }
+rand = { version = "0.8.5", optional = true }
