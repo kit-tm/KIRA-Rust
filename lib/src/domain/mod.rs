@@ -7,7 +7,7 @@ pub use path::Path;
 
 pub const DEFAULT_ID_SIZE: usize = 14;
 
-mod const_node_id;
+pub mod const_node_id;
 mod path;
 
 /// Components implementing this trait represent an Node-Id.
