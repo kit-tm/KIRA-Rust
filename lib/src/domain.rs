@@ -16,6 +16,7 @@ pub const DEFAULT_SIZE: usize = 14;
 ///     - What should be the "default" value for a NodeID?
 #[derive(Debug, Clone, Eq)]
 pub struct NodeID<const SIZE: usize = DEFAULT_SIZE> {
+    // Sorted from MSB to LSB (Big Endian representation)
     inner: [u8; SIZE],
 }
 
@@ -72,6 +73,50 @@ impl<const SIZE: usize> NodeID<SIZE> {
     pub const fn size(&self) -> usize {
         SIZE
     }
+
+    /// Implements calculating the shared prefix length by bits.
+    pub fn shared_prefix_bits(&self, other: &Self) -> usize {
+        self.shared_prefix_len(other, 1)
+    }
+
+    /// Returns the shared prefix length in number of groups of bits.
+    ///
+    /// # Notes
+    ///
+    /// The RoutingSim implementation uses another algorithm which uses [GMP](https://gmplib.org)
+    /// and works with limbs.
+    /// This algorithm uses basic operations for computing the shared prefix.
+    /// As this function is used every time a package arrives optimizing it may be
+    /// worth the effort.
+    pub fn shared_prefix_len(&self, other: &Self, bits_per_group: usize) -> usize {
+        if self == other {
+            return SIZE / bits_per_group;
+        }
+
+        let xor: Self = self ^ other;
+        let mut byte_index = 0;
+        let mut not_zero_byte = None;
+        for i in xor.inner {
+            match i {
+                0 => byte_index += 1,
+                i => {
+                    not_zero_byte = Some(i);
+                    break;
+                }
+            }
+        }
+        let mut in_byte_index = 0;
+        if let Some(mut not_zero_byte) = not_zero_byte {
+            while not_zero_byte != 0 {
+                in_byte_index += 1;
+                not_zero_byte >>= 1;
+            }
+            in_byte_index = 8 - in_byte_index;
+        }
+        let bit_index = byte_index * 8 + in_byte_index;
+
+        return bit_index / bits_per_group;
+    }
 }
 
 /// Creates a [NodeID] from a byte array. The resulting [NodeID] has the same size as the given array.
@@ -99,15 +144,23 @@ impl<const SIZE: usize> AsRef<[u8]> for NodeID<SIZE> {
 
 // ============ Operations ============
 
-impl<const SIZE: usize> BitXor for NodeID<SIZE> {
-    type Output = Self;
+impl<'a, const SIZE: usize> BitXor for &'a NodeID<SIZE> {
+    type Output = NodeID<SIZE>;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
         let mut result = [0u8; SIZE];
         for (i, item) in result.iter_mut().enumerate() {
             *item = self.inner[i] ^ rhs.inner[i];
         }
-        Self { inner: result }
+        NodeID { inner: result }
+    }
+}
+
+impl<const SIZE: usize> BitXor for NodeID<SIZE> {
+    type Output = NodeID<SIZE>;
+
+    fn bitxor(self, rhs: Self) -> Self::Output {
+        &self ^ &rhs
     }
 }
 
@@ -227,6 +280,14 @@ mod tests {
         assert!(NodeID::from(0u128).is_zero());
     }
 
+    #[cfg(feature = "rand")]
+    #[test]
+    fn rand_construction_smoke_test() {
+        let random = NodeID::<128>::random();
+        assert!(!random.is_zero());
+        assert!(!random.is_one());
+    }
+
     #[test]
     fn from_array() {
         assert!(NodeID::from([0u8; 5]).is_zero());
@@ -254,16 +315,47 @@ mod tests {
     #[test]
     fn node_id_xor_works() {
         assert_eq!(
-            NodeID::from([1u8, 0u8]) ^ NodeID::from([0u8, 1u8]),
+            &NodeID::from([1u8, 0u8]) ^ &NodeID::from([0u8, 1u8]),
             NodeID::from([1u8, 1u8])
         );
     }
 
-    #[cfg(feature = "rand")]
     #[test]
-    fn rand_construction_smoke_test() {
-        let random = NodeID::<128>::random();
-        assert!(!random.is_zero());
-        assert!(!random.is_one());
+    fn prefix_bits_smoke_test() {
+        let zero = NodeID::<1>::zero();
+        let one = NodeID::<1>::one();
+
+        assert_eq!(zero.shared_prefix_bits(&one), 7);
+
+        let zero = NodeID::<16>::zero();
+        let one = NodeID::<16>::one();
+
+        assert_eq!(zero.shared_prefix_bits(&one), 16 * 8 - 1);
+
+        let one = NodeID::<4>::one();
+        let valid = NodeID::from([0, 0b10000000, 0xFF, 0]);
+
+        assert_eq!(one.shared_prefix_bits(&valid), 8);
+    }
+
+    #[test]
+    fn prefix_length_smoke_test() {
+        let zero = NodeID::<1>::zero();
+        let one = NodeID::<1>::one();
+
+        assert_eq!(zero.shared_prefix_len(&one, 1), 7);
+        assert_eq!(zero.shared_prefix_len(&one, 2), 3);
+        assert_eq!(zero.shared_prefix_len(&one, 3), 2);
+
+        let zero = NodeID::<16>::zero();
+        let one = NodeID::<16>::one();
+
+        assert_eq!(zero.shared_prefix_len(&one, 1), 127);
+        assert_eq!(zero.shared_prefix_len(&one, 2), 63);
+
+        let one = NodeID::<4>::one();
+        let valid = NodeID::from([0, 0b10000000, 0xFF, 0]);
+
+        assert_eq!(one.shared_prefix_len(&valid, 8), 1);
     }
 }
