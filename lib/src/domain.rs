@@ -1,11 +1,6 @@
-use std::fmt::{Display, Formatter, LowerHex, UpperHex};
 use std::ops::BitXor;
-use std::str::FromStr;
-
-use hex::FromHexError;
 
 pub const DEFAULT_SIZE: usize = 14;
-const SHORT_OUTPUT_LENGTH: usize = 8;
 
 /// A NodeID with default SIZE of 112 Bits (14 Byte) as default value as proposed in the design paper.
 /// This implementation supports and NodeID with a given byte size.
@@ -59,7 +54,7 @@ impl<const SIZE: usize> NodeID<SIZE> {
         self.inner[..(SIZE - 1)] == [0u8; SIZE][..SIZE - 1] && self.inner[SIZE - 1] == 1u8
     }
 
-    pub const fn len(&self) -> usize {
+    pub const fn size(&self) -> usize {
         SIZE
     }
 }
@@ -87,44 +82,6 @@ impl<const SIZE: usize> AsRef<[u8]> for NodeID<SIZE> {
     }
 }
 
-impl<const SIZE: usize> FromStr for NodeID<SIZE> {
-    type Err = FromHexError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut inner = [0u8; SIZE];
-        hex::decode_to_slice(s, &mut inner)?;
-        Ok(Self { inner })
-    }
-}
-
-// ============ Output Formatters ============
-
-impl<const SIZE: usize> LowerHex for NodeID<SIZE> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match (f.precision(), f.alternate()) {
-            (Some(precision), _) => write!(f, "{}", &hex::encode(self)[..precision]),
-            (None, true) => write!(f, "{}", &hex::encode(self)[..SHORT_OUTPUT_LENGTH]),
-            (None, false) => write!(f, "{}", hex::encode(self)),
-        }
-    }
-}
-
-impl<const SIZE: usize> UpperHex for NodeID<SIZE> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match (f.precision(), f.alternate()) {
-            (Some(precision), _) => write!(f, "{}", &hex::encode_upper(self)[..precision]),
-            (None, true) => write!(f, "{}", &hex::encode_upper(self)[..SHORT_OUTPUT_LENGTH]),
-            (None, false) => write!(f, "{}", hex::encode_upper(self)),
-        }
-    }
-}
-
-impl<const SIZE: usize> Display for NodeID<SIZE> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        UpperHex::fmt(self, f)
-    }
-}
-
 // ============ Operations ============
 
 impl<const SIZE: usize> BitXor for NodeID<SIZE> {
@@ -132,8 +89,8 @@ impl<const SIZE: usize> BitXor for NodeID<SIZE> {
 
     fn bitxor(self, rhs: Self) -> Self::Output {
         let mut result = [0u8; SIZE];
-        for i in 0..SIZE {
-            result[i] = self.inner[i] ^ rhs.inner[i];
+        for (i, item) in result.iter_mut().enumerate() {
+            *item = self.inner[i] ^ rhs.inner[i];
         }
         Self { inner: result }
     }
@@ -145,11 +102,85 @@ impl<const SIZE: usize> PartialEq for NodeID<SIZE> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::error::Error;
+#[cfg(feature = "hex")]
+mod hex {
+    use std::fmt::{Display, Formatter, LowerHex, UpperHex};
     use std::str::FromStr;
 
+    use hex::FromHexError;
+
+    use crate::domain::NodeID;
+
+    const SHORT_OUTPUT_LENGTH: usize = 8;
+
+    impl<const SIZE: usize> FromStr for NodeID<SIZE> {
+        type Err = FromHexError;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            let mut inner = [0u8; SIZE];
+            hex::decode_to_slice(s, &mut inner)?;
+            Ok(Self { inner })
+        }
+    }
+
+    // ============ Output Formatters ============
+
+    impl<const SIZE: usize> LowerHex for NodeID<SIZE> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            match (f.precision(), f.alternate()) {
+                (Some(precision), _) => write!(f, "{}", &hex::encode(self)[..precision]),
+                (None, true) => write!(f, "{}", &hex::encode(self)[..SHORT_OUTPUT_LENGTH]),
+                (None, false) => write!(f, "{}", hex::encode(self)),
+            }
+        }
+    }
+
+    impl<const SIZE: usize> UpperHex for NodeID<SIZE> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            match (f.precision(), f.alternate()) {
+                (Some(precision), _) => write!(f, "{}", &hex::encode_upper(self)[..precision]),
+                (None, true) => write!(f, "{}", &hex::encode_upper(self)[..SHORT_OUTPUT_LENGTH]),
+                (None, false) => write!(f, "{}", hex::encode_upper(self)),
+            }
+        }
+    }
+
+    impl<const SIZE: usize> Display for NodeID<SIZE> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            UpperHex::fmt(self, f)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::error::Error;
+        use std::str::FromStr;
+
+        use crate::domain::NodeID;
+
+        #[test]
+        fn from_hex_string() -> Result<(), Box<dyn Error>> {
+            let raw = "0123456789ABCDEF";
+            let id: NodeID<8> = raw.parse()?;
+            assert_eq!(id.size(), 8);
+            assert_eq!(format!("{:X}", id), raw);
+            assert_eq!(format!("{:x}", id), raw.to_lowercase());
+
+            // Invalid bit length -> Has to be multiple of 8
+            assert!(NodeID::<2>::from_str("012").is_err());
+            assert!(NodeID::<3>::from_str("012").is_err());
+
+            // Invalid byte length -> const generic and input size have to be the same
+            assert!(NodeID::<2>::from_str("0123").is_ok());
+            assert!(NodeID::<3>::from_str("0123").is_err());
+
+            Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
     use crate::domain::NodeID;
 
     // Basic construction Operations. Testing basic construction.
@@ -184,27 +215,6 @@ mod tests {
     #[test]
     fn from_array() {
         assert!(NodeID::from([0u8; 5]).is_zero());
-    }
-
-    // Formatting tests
-
-    #[test]
-    fn from_hex_string() -> Result<(), Box<dyn Error>> {
-        let raw = "0123456789ABCDEF";
-        let id: NodeID<8> = raw.parse()?;
-        assert_eq!(id.len(), 8);
-        assert_eq!(format!("{:X}", id), raw);
-        assert_eq!(format!("{:x}", id), raw.to_lowercase());
-
-        // Invalid bit length -> Has to be multiple of 8
-        assert!(NodeID::<2>::from_str("012").is_err());
-        assert!(NodeID::<3>::from_str("012").is_err());
-
-        // Invalid byte length -> const generic and input size have to be the same
-        assert!(NodeID::<2>::from_str("0123").is_ok());
-        assert!(NodeID::<3>::from_str("0123").is_err());
-
-        Ok(())
     }
 
     // Equality Tests
