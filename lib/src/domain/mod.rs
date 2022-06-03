@@ -3,10 +3,12 @@ use std::ops::BitXor;
 
 // To change default NodeId simply change this
 pub use const_node_id::ConstNodeId as NodeId;
+pub use path::Path;
 
 pub const DEFAULT_ID_SIZE: usize = 14;
 
 mod const_node_id;
+mod path;
 
 /// Components implementing this trait represent an Node-Id.
 ///
