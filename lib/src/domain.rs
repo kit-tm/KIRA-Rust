@@ -43,6 +43,9 @@ impl<const SIZE: usize> NodeID<SIZE> {
         Self { inner }
     }
 
+    /// Creates a random [NodeID].
+    /// The generated [NodeID] is guaranteed to not be equal to [NodeID::one] or [NodeID::zero].
+    #[doc_cfg::doc_cfg(feature = "rand")]
     #[cfg(feature = "rand")]
     pub fn random() -> Self {
         let mut inner = [0u8; SIZE];
