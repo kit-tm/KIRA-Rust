@@ -6,6 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+# For Time Computations in general
+chrono = "0.4.19"
 # Hexadecimal Output formatting of NodeIDs. Non-Optional as basic functionality for a NodeID.
 hex = "0.4.3"
 # Random NodeId generation

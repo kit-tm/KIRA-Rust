@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
-use r2kad_lib::domain::{Id, NodeId};
+use r2kad_lib::domain::NodeId;
 
 fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("node_id_shared_prefix_bits");
