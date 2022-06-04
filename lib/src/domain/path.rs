@@ -7,8 +7,8 @@ use crate::domain::Id;
 /// A Path of [Id]s.
 ///
 /// As Paths don't have a fixed length, a [Vec] has to be used here.
-#[derive(Debug, Eq)]
-pub struct Path<I: Id> {
+#[derive(Debug)]
+pub struct Path<I> {
     inner: Vec<I>,
 }
 
@@ -16,13 +16,13 @@ pub struct Path<I: Id> {
 ///
 /// It may be advised to shrink the [Vec] to its length
 /// with [Vec::shrink_to_fit]
-impl<I: Id> From<Vec<I>> for Path<I> {
+impl<I> From<Vec<I>> for Path<I> {
     fn from(vec: Vec<I>) -> Self {
         Self { inner: vec }
     }
 }
 
-impl<I: Id> From<&[I]> for Path<I> {
+impl<I: Clone> From<&[I]> for Path<I> {
     fn from(slice: &[I]) -> Self {
         Self {
             inner: Vec::from(slice),
@@ -30,7 +30,7 @@ impl<I: Id> From<&[I]> for Path<I> {
     }
 }
 
-impl<I: Id, const SIZE: usize> From<[I; SIZE]> for Path<I> {
+impl<I, const SIZE: usize> From<[I; SIZE]> for Path<I> {
     fn from(raw: [I; SIZE]) -> Self {
         Self {
             inner: Vec::from(raw),
@@ -38,7 +38,7 @@ impl<I: Id, const SIZE: usize> From<[I; SIZE]> for Path<I> {
     }
 }
 
-impl<I: Id> Path<I> {
+impl<I> Path<I> {
     /// Creates an empty [Path].
     pub const fn empty() -> Self {
         Path { inner: Vec::new() }
@@ -61,7 +61,7 @@ impl<I: Id> Path<I> {
 }
 
 /// [Clone] is only implemented, if the Id Type also implements [Clone].
-impl<I: Id + Clone> Clone for Path<I> {
+impl<I: Clone> Clone for Path<I> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -71,7 +71,7 @@ impl<I: Id + Clone> Clone for Path<I> {
 
 // ============ Formatting ============
 
-impl<I: Id + Display> Display for Path<I> {
+impl<I: Display> Display for Path<I> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "<")?;
         let length = self.inner.len();
@@ -87,7 +87,7 @@ impl<I: Id + Display> Display for Path<I> {
 
 // ============ Equality ============
 
-impl<I: Id> PartialEq for Path<I> {
+impl<I: Eq> PartialEq<Self> for Path<I> {
     fn eq(&self, other: &Self) -> bool {
         if self.len() != other.len() {
             return false;
@@ -100,6 +100,8 @@ impl<I: Id> PartialEq for Path<I> {
         true
     }
 }
+
+impl<I: Eq> Eq for Path<I> {}
 
 // ============ Indexing ============
 
