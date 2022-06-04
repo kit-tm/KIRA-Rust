@@ -2,13 +2,13 @@ use std::fmt::{Display, Formatter};
 use std::ops::Index;
 use std::slice::SliceIndex;
 
-use crate::domain::Id;
+use crate::domain::Path;
 
 /// A Path of [Id]s.
 ///
-/// As Paths don't have a fixed length, a [Vec] has to be used here.
+/// This implementation is backed by a [Vec].
 #[derive(Debug)]
-pub struct Path<I> {
+pub struct VecPath<I> {
     inner: Vec<I>,
 }
 
@@ -16,13 +16,13 @@ pub struct Path<I> {
 ///
 /// It may be advised to shrink the [Vec] to its length
 /// with [Vec::shrink_to_fit]
-impl<I> From<Vec<I>> for Path<I> {
+impl<I> From<Vec<I>> for VecPath<I> {
     fn from(vec: Vec<I>) -> Self {
         Self { inner: vec }
     }
 }
 
-impl<I: Clone> From<&[I]> for Path<I> {
+impl<I: Clone> From<&[I]> for VecPath<I> {
     fn from(slice: &[I]) -> Self {
         Self {
             inner: Vec::from(slice),
@@ -30,7 +30,7 @@ impl<I: Clone> From<&[I]> for Path<I> {
     }
 }
 
-impl<I, const SIZE: usize> From<[I; SIZE]> for Path<I> {
+impl<I, const SIZE: usize> From<[I; SIZE]> for VecPath<I> {
     fn from(raw: [I; SIZE]) -> Self {
         Self {
             inner: Vec::from(raw),
@@ -38,10 +38,10 @@ impl<I, const SIZE: usize> From<[I; SIZE]> for Path<I> {
     }
 }
 
-impl<I> Path<I> {
-    /// Creates an empty [Path].
+impl<I> VecPath<I> {
+    /// Creates an empty [VecPath].
     pub const fn empty() -> Self {
-        Path { inner: Vec::new() }
+        VecPath { inner: Vec::new() }
     }
 
     /// Returns if the path is empty.
@@ -53,15 +53,10 @@ impl<I> Path<I> {
     pub fn len(&self) -> usize {
         self.inner.len()
     }
-
-    /// Reverses the [Path] in-place.
-    pub fn reverse(&mut self) {
-        self.inner.reverse();
-    }
 }
 
 /// [Clone] is only implemented, if the Id Type also implements [Clone].
-impl<I: Clone> Clone for Path<I> {
+impl<I: Clone> Clone for VecPath<I> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -71,7 +66,7 @@ impl<I: Clone> Clone for Path<I> {
 
 // ============ Formatting ============
 
-impl<I: Display> Display for Path<I> {
+impl<I: Display> Display for VecPath<I> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "<")?;
         let length = self.inner.len();
@@ -87,7 +82,7 @@ impl<I: Display> Display for Path<I> {
 
 // ============ Equality ============
 
-impl<I: Eq> PartialEq<Self> for Path<I> {
+impl<I: Eq> PartialEq<Self> for VecPath<I> {
     fn eq(&self, other: &Self) -> bool {
         if self.len() != other.len() {
             return false;
@@ -101,13 +96,12 @@ impl<I: Eq> PartialEq<Self> for Path<I> {
     }
 }
 
-impl<I: Eq> Eq for Path<I> {}
+impl<I: Eq> Eq for VecPath<I> {}
 
 // ============ Indexing ============
 
-impl<I, Idx> Index<Idx> for Path<I>
+impl<I, Idx> Index<Idx> for VecPath<I>
 where
-    I: Id,
     Idx: SliceIndex<[I]>,
 {
     type Output = Idx::Output;
@@ -117,14 +111,22 @@ where
     }
 }
 
+// ============ Actual Path Functionality ============
+
+impl<I: Clone + Display + Eq> Path for VecPath<I> {
+    fn reverse(&mut self) {
+        self.inner.reverse();
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::domain::NodeId;
     use crate::domain::Path;
+    use crate::domain::{NodeId, VecPath};
 
     #[test]
     fn index_smoke_test() {
-        let indexed = Path::from([
+        let indexed = VecPath::from([
             NodeId::<1>::from([0]),
             NodeId::<1>::from([1]),
             NodeId::<1>::from([2]),
@@ -146,7 +148,7 @@ mod tests {
 
     #[test]
     fn equality() {
-        let path = Path::from([
+        let path = VecPath::from([
             NodeId::<1>::from([15]),
             NodeId::<1>::from([14]),
             NodeId::<1>::from([13]),
@@ -154,7 +156,7 @@ mod tests {
 
         assert_eq!(
             path,
-            Path::from([
+            VecPath::from([
                 NodeId::<1>::from([15]),
                 NodeId::<1>::from([14]),
                 NodeId::<1>::from([13]),
@@ -162,7 +164,7 @@ mod tests {
         );
         assert_ne!(
             path,
-            Path::from([
+            VecPath::from([
                 NodeId::<1>::from([13]),
                 NodeId::<1>::from([14]),
                 NodeId::<1>::from([15]),
@@ -172,7 +174,7 @@ mod tests {
 
     #[test]
     fn reverse() {
-        let path = Path::from([
+        let path = VecPath::from([
             NodeId::<1>::from([15]),
             NodeId::<1>::from([14]),
             NodeId::<1>::from([13]),
@@ -183,7 +185,7 @@ mod tests {
         assert_ne!(path, reversed);
         assert_eq!(
             reversed,
-            Path::from([
+            VecPath::from([
                 NodeId::<1>::from([13]),
                 NodeId::<1>::from([14]),
                 NodeId::<1>::from([15]),
