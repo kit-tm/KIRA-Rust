@@ -1,5 +1,9 @@
 use std::fmt::Debug;
+use std::fmt::{Display, Formatter, LowerHex, UpperHex};
 use std::ops::BitXor;
+use std::str::FromStr;
+
+use hex::FromHexError;
 
 use crate::domain::{Id, DEFAULT_ID_SIZE};
 
@@ -46,8 +50,6 @@ impl<const SIZE: usize> ConstNodeId<SIZE> {
 
     /// Creates a random [ConstNodeId].
     /// The generated [ConstNodeId] is guaranteed to not be equal to [ConstNodeId::one] or [ConstNodeId::zero].
-    #[doc_cfg::doc_cfg(feature = "rand")]
-    #[cfg(feature = "rand")]
     pub fn random() -> Self {
         let mut inner = [0u8; SIZE];
         let mut rng = rand::thread_rng();
@@ -169,88 +171,73 @@ impl<const SIZE: usize> Id for ConstNodeId<SIZE> {
     }
 }
 
-#[cfg(feature = "hex")]
-mod hex {
-    use std::fmt::{Display, Formatter, LowerHex, UpperHex};
-    use std::str::FromStr;
+const SHORT_OUTPUT_LENGTH: usize = 8;
 
-    use hex::FromHexError;
+impl<const SIZE: usize> FromStr for ConstNodeId<SIZE> {
+    type Err = FromHexError;
 
-    use super::ConstNodeId;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut inner = [0u8; SIZE];
+        hex::decode_to_slice(s, &mut inner)?;
+        Ok(Self { inner })
+    }
+}
 
-    const SHORT_OUTPUT_LENGTH: usize = 8;
+// ============ Output Formatters ============
 
-    impl<const SIZE: usize> FromStr for ConstNodeId<SIZE> {
-        type Err = FromHexError;
-
-        fn from_str(s: &str) -> Result<Self, Self::Err> {
-            let mut inner = [0u8; SIZE];
-            hex::decode_to_slice(s, &mut inner)?;
-            Ok(Self { inner })
+impl<const SIZE: usize> LowerHex for ConstNodeId<SIZE> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match (f.precision(), f.alternate()) {
+            (Some(precision), _) => write!(f, "{}", &hex::encode(self)[..precision]),
+            (None, true) => write!(f, "{}", &hex::encode(self)[..SHORT_OUTPUT_LENGTH]),
+            (None, false) => write!(f, "{}", hex::encode(self)),
         }
     }
+}
 
-    // ============ Output Formatters ============
-
-    impl<const SIZE: usize> LowerHex for ConstNodeId<SIZE> {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            match (f.precision(), f.alternate()) {
-                (Some(precision), _) => write!(f, "{}", &hex::encode(self)[..precision]),
-                (None, true) => write!(f, "{}", &hex::encode(self)[..SHORT_OUTPUT_LENGTH]),
-                (None, false) => write!(f, "{}", hex::encode(self)),
-            }
+impl<const SIZE: usize> UpperHex for ConstNodeId<SIZE> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match (f.precision(), f.alternate()) {
+            (Some(precision), _) => write!(f, "{}", &hex::encode_upper(self)[..precision]),
+            (None, true) => write!(f, "{}", &hex::encode_upper(self)[..SHORT_OUTPUT_LENGTH]),
+            (None, false) => write!(f, "{}", hex::encode_upper(self)),
         }
     }
+}
 
-    impl<const SIZE: usize> UpperHex for ConstNodeId<SIZE> {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            match (f.precision(), f.alternate()) {
-                (Some(precision), _) => write!(f, "{}", &hex::encode_upper(self)[..precision]),
-                (None, true) => write!(f, "{}", &hex::encode_upper(self)[..SHORT_OUTPUT_LENGTH]),
-                (None, false) => write!(f, "{}", hex::encode_upper(self)),
-            }
-        }
-    }
-
-    impl<const SIZE: usize> Display for ConstNodeId<SIZE> {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            UpperHex::fmt(self, f)
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use std::error::Error;
-        use std::str::FromStr;
-
-        use super::ConstNodeId;
-
-        #[test]
-        fn from_hex_string() -> Result<(), Box<dyn Error>> {
-            let raw = "0123456789ABCDEF";
-            let id: ConstNodeId<8> = raw.parse()?;
-            assert_eq!(id.size(), 8);
-            assert_eq!(format!("{:X}", id), raw);
-            assert_eq!(format!("{:x}", id), raw.to_lowercase());
-
-            // Invalid bit length -> Has to be multiple of 8
-            assert!(ConstNodeId::<2>::from_str("012").is_err());
-            assert!(ConstNodeId::<3>::from_str("012").is_err());
-
-            // Invalid byte length -> const generic and input size have to be the same
-            assert!(ConstNodeId::<2>::from_str("0123").is_ok());
-            assert!(ConstNodeId::<3>::from_str("0123").is_err());
-
-            Ok(())
-        }
+impl<const SIZE: usize> Display for ConstNodeId<SIZE> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        UpperHex::fmt(self, f)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+    use std::str::FromStr;
+
     use crate::domain::Id;
 
     use super::ConstNodeId;
+
+    #[test]
+    fn from_hex_string() -> Result<(), Box<dyn Error>> {
+        let raw = "0123456789ABCDEF";
+        let id: ConstNodeId<8> = raw.parse()?;
+        assert_eq!(id.size(), 8);
+        assert_eq!(format!("{:X}", id), raw);
+        assert_eq!(format!("{:x}", id), raw.to_lowercase());
+
+        // Invalid bit length -> Has to be multiple of 8
+        assert!(ConstNodeId::<2>::from_str("012").is_err());
+        assert!(ConstNodeId::<3>::from_str("012").is_err());
+
+        // Invalid byte length -> const generic and input size have to be the same
+        assert!(ConstNodeId::<2>::from_str("0123").is_ok());
+        assert!(ConstNodeId::<3>::from_str("0123").is_err());
+
+        Ok(())
+    }
 
     // Basic construction Operations. Testing basic construction.
 
