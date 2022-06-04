@@ -13,3 +13,6 @@ install-daemon:
 
 doc-lib:
 	cargo +nightly doc --features unstable-doc-cfg --package r2kad-lib --open
+
+bench:
+	cargo bench
