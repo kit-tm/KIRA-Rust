@@ -28,12 +28,12 @@ pub struct NodeId<const SIZE: usize = DEFAULT_ID_SIZE> {
 
 /// Constant initializers and functions related to them.
 impl<const SIZE: usize> NodeId<SIZE> {
-    /// Creating a [ConstNodeId] with the numerical value of 0.
+    /// Creating a [NodeId] with the numerical value of 0.
     pub const fn zero() -> Self {
         Self { inner: [0u8; SIZE] }
     }
 
-    /// Creating a [ConstNodeId] with the numerical value of 1.
+    /// Creating a [NodeId] with the numerical value of 1.
     ///
     /// # Panics
     ///
@@ -48,8 +48,8 @@ impl<const SIZE: usize> NodeId<SIZE> {
         Self { inner }
     }
 
-    /// Creates a random [ConstNodeId].
-    /// The generated [ConstNodeId] is guaranteed to not be equal to [ConstNodeId::one] or [ConstNodeId::zero].
+    /// Creates a random [NodeId].
+    /// The generated [NodeId] is guaranteed to not be equal to [NodeId::one] or [NodeId::zero].
     pub fn random() -> Self {
         let mut inner = [0u8; SIZE];
         let mut rng = rand::thread_rng();
@@ -59,12 +59,12 @@ impl<const SIZE: usize> NodeId<SIZE> {
         Self { inner }
     }
 
-    /// Checks if the [ConstNodeId] is equal to the numerical value of 0;
+    /// Checks if the [NodeId] is equal to the numerical value of 0;
     pub fn is_zero(&self) -> bool {
         self.inner == [0u8; SIZE]
     }
 
-    /// Checks if the [ConstNodeId] is equal to the numerical value of 1;
+    /// Checks if the [NodeId] is equal to the numerical value of 1;
     pub fn is_one(&self) -> bool {
         if SIZE == 0 {
             return false;
@@ -121,7 +121,7 @@ impl<const SIZE: usize> NodeId<SIZE> {
     }
 }
 
-/// Creates a [ConstNodeId] from a byte array. The resulting [ConstNodeId] has the same size as the given array.
+/// Creates a [NodeId] from a byte array. The resulting [NodeId] has the same size as the given array.
 impl<const SIZE: usize> From<[u8; SIZE]> for NodeId<SIZE> {
     fn from(inner: [u8; SIZE]) -> Self {
         Self { inner }

@@ -4,7 +4,7 @@ use std::slice::SliceIndex;
 
 use crate::domain::{NodeId, DEFAULT_ID_SIZE};
 
-/// A Path of [Id]s.
+/// A Path of [NodeId]s.
 ///
 /// This implementation is backed by a [Vec].
 #[derive(Debug, Clone)]
@@ -12,7 +12,7 @@ pub struct Path<const ID_SIZE: usize = DEFAULT_ID_SIZE> {
     inner: Vec<NodeId<ID_SIZE>>,
 }
 
-/// Converts a Vector of [Id]s to a Path.
+/// Converts a Vector of [NodeId]s to a Path.
 ///
 /// It may be advised to shrink the [Vec] to its length
 /// with [Vec::shrink_to_fit]
@@ -41,7 +41,7 @@ impl<const PATH_SIZE: usize, const ID_SIZE: usize> From<[NodeId<ID_SIZE>; PATH_S
 }
 
 impl<const ID_SIZE: usize> Path<ID_SIZE> {
-    /// Creates an empty [VecPath].
+    /// Creates an empty [Path].
     pub const fn empty() -> Self {
         Path { inner: Vec::new() }
     }
