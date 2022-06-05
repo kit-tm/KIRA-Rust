@@ -22,7 +22,11 @@ impl<const ID_SIZE: usize> Display for InsertionError<ID_SIZE> {
 
 impl<const ID_SIZE: usize> Error for InsertionError<ID_SIZE> {}
 
-/// A [Bucket] with fixed size used in the [RoutingTable]
+/// A [Bucket] with fixed size used in the [RoutingTable].
+///
+/// The current implementation is backed by a [Vec] which can make problems
+/// with memory locality.
+/// TODO: Check if this is a performance overhead
 #[derive(Debug)]
 pub struct Bucket<const ID_SIZE: usize> {
     inner: Vec<Contact<ID_SIZE>>,
