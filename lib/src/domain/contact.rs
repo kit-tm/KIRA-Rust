@@ -9,6 +9,15 @@ pub struct Age(usize);
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct StateSeqNr(usize);
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub struct Timestamp(DateTime<Utc>);
+
+impl From<DateTime<Utc>> for Timestamp {
+    fn from(time: DateTime<Utc>) -> Self {
+        Self(time)
+    }
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum State {
     Valid,
@@ -39,7 +48,7 @@ pub struct RediscoveryData {
 pub struct Contact {
     state: State,
     age: Age,
-    last_seen: DateTime<Utc>,
+    last_seen: Timestamp,
     path: Path,
     state_seq_nr: StateSeqNr,
 }
@@ -49,7 +58,7 @@ impl Contact {
         Self {
             state: State::Valid,
             age,
-            last_seen: Utc::now(),
+            last_seen: Timestamp::from(Utc::now()),
             path,
             state_seq_nr,
         }
@@ -71,15 +80,15 @@ impl Contact {
         &self.age
     }
 
-    pub fn last_seen(&self) -> &DateTime<Utc> {
+    pub fn last_seen(&self) -> &Timestamp {
         &self.last_seen
     }
 
     pub fn set_last_seen_now(&mut self) {
-        self.last_seen = Utc::now();
+        self.last_seen = Timestamp::from(Utc::now());
     }
 
-    pub fn last_seen_mut(&mut self) -> &mut DateTime<Utc> {
+    pub fn last_seen_mut(&mut self) -> &mut Timestamp {
         &mut self.last_seen
     }
 
