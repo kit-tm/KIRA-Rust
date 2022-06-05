@@ -22,6 +22,23 @@ impl<const ID_SIZE: usize> Display for InsertionError<ID_SIZE> {
 
 impl<const ID_SIZE: usize> Error for InsertionError<ID_SIZE> {}
 
+#[derive(Debug)]
+pub enum ReplacementError<const ID_SIZE: usize> {
+    NotFound(NodeId<ID_SIZE>),
+    DuplicateId(NodeId<ID_SIZE>),
+}
+
+impl<const ID_SIZE: usize> Display for ReplacementError<ID_SIZE> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound(id) => write!(f, "No contact to replace with id {}", id),
+            Self::DuplicateId(id) => write!(f, "Contact with id {} already in bucket", id),
+        }
+    }
+}
+
+impl<const ID_SIZE: usize> Error for ReplacementError<ID_SIZE> {}
+
 /// A [Bucket] with fixed size used in the [RoutingTable].
 ///
 /// The current implementation is backed by a [Vec] which can make problems
@@ -105,13 +122,25 @@ impl<const ID_SIZE: usize> Bucket<ID_SIZE> {
 
     /// Replaces a [Contact] with the given [NodeId] with another [Contact].
     /// Returns if the Replacement was successful.
-    pub fn replace(&mut self, replace_id: &NodeId<ID_SIZE>, with: Contact<ID_SIZE>) -> bool {
-        if let Some(place) = self.get_mut(replace_id) {
-            *place = with;
-            return true;
+    pub fn replace(
+        &mut self,
+        replace_id: &NodeId<ID_SIZE>,
+        with: Contact<ID_SIZE>,
+    ) -> Result<(), ReplacementError<ID_SIZE>> {
+        if !self.contains(replace_id) {
+            return Err(ReplacementError::NotFound(replace_id.clone()));
         }
 
-        false
+        if self.contains(with.id()) {
+            return Err(ReplacementError::DuplicateId(replace_id.clone()));
+        }
+
+        let contact = self.get_mut(replace_id);
+        // We checked before
+        assert!(contact.is_some());
+        *contact.unwrap() = with;
+
+        Ok(())
     }
 
     /// Removes a [Contact] from the [Bucket] returning it if present.
@@ -156,10 +185,10 @@ impl<I> Iterator for Iter<I> {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::{Age, Bucket, Contact, NodeId, Path, StateSeqNr};
+    use crate::domain::{Age, Bucket, Contact, NodeId, Path, ReplacementError, StateSeqNr};
 
     #[test]
-    fn smoke_test() {
+    fn insert_test() {
         let mut bucket = Bucket::with_size::<2>();
 
         assert!(bucket.is_empty());
@@ -196,5 +225,38 @@ mod tests {
         assert!(bucket.contains(second_contact.id()));
         assert_eq!(bucket.get(contact.id()), Some(&contact));
         assert_eq!(bucket.get(second_contact.id()), Some(&second_contact));
+    }
+
+    #[test]
+    fn test_replacement() {
+        let mut bucket = Bucket::with_size::<2>();
+
+        assert!(bucket.is_empty());
+        assert!(!bucket.is_full());
+
+        let contact = Contact::new(
+            NodeId::from([0, 1]),
+            Age::from(0),
+            Path::empty(),
+            StateSeqNr::from(0),
+        );
+
+        assert!(matches!(
+            bucket.replace(&NodeId::from([0, 1]), contact.clone()),
+            Err(ReplacementError::NotFound(_))
+        ));
+
+        assert!(bucket.insert(contact.clone()).is_ok());
+
+        let contact_two = Contact::new(
+            NodeId::from([0, 2]),
+            Age::from(0),
+            Path::empty(),
+            StateSeqNr::from(0),
+        );
+
+        assert!(bucket.replace(contact.id(), contact_two.clone()).is_ok());
+        assert_eq!(bucket.len(), 1);
+        assert!(bucket.contains(contact_two.id()));
     }
 }
