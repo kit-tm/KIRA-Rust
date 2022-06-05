@@ -151,6 +151,37 @@ impl<const ID_SIZE: usize> Bucket<ID_SIZE> {
 
         None
     }
+
+    /// Splits a [Bucket] by moving contacts into another [Bucket].
+    ///
+    /// The **predicate** must only return *true* if the
+    /// given [Contact] should be moved to the other [Bucket].
+    ///
+    /// Returns an [InsertionError] if inserting into the new [Bucket]
+    /// fails for any reason.
+    pub fn split<F>(
+        &mut self,
+        other: &mut Bucket<ID_SIZE>,
+        mut predicate: F,
+    ) -> Result<(), InsertionError<ID_SIZE>>
+    where
+        F: FnMut(&Contact<ID_SIZE>) -> bool,
+    {
+        let indices = self
+            .inner
+            .iter()
+            .enumerate()
+            .flat_map(|(index, contact)| match predicate(contact) {
+                true => Some(index),
+                false => None,
+            })
+            .collect::<Vec<_>>();
+        for i in indices {
+            other.insert(self.inner.swap_remove(i))?;
+        }
+
+        Ok(())
+    }
 }
 
 impl<'a, const ID_SIZE: usize> IntoIterator for &'a Bucket<ID_SIZE> {
@@ -258,5 +289,40 @@ mod tests {
         assert!(bucket.replace(contact.id(), contact_two.clone()).is_ok());
         assert_eq!(bucket.len(), 1);
         assert!(bucket.contains(contact_two.id()));
+    }
+
+    #[test]
+    fn split() {
+        let mut bucket = Bucket::with_size::<2>();
+
+        let contact = Contact::new(
+            NodeId::from([0, 1]),
+            Age::from(0),
+            Path::empty(),
+            StateSeqNr::from(0),
+        );
+        assert!(bucket.insert(contact.clone()).is_ok());
+
+        let second_contact = Contact::new(
+            NodeId::from([0, 2]),
+            Age::from(0),
+            Path::empty(),
+            StateSeqNr::from(0),
+        );
+        assert!(bucket.insert(second_contact.clone()).is_ok());
+
+        let mut other = Bucket::with_size::<2>();
+
+        assert!(bucket
+            .split(&mut other, |contact| contact.id() == second_contact.id())
+            .is_ok());
+
+        assert_eq!(bucket.len(), 1);
+        assert!(bucket.contains(contact.id()));
+        assert!(!bucket.contains(second_contact.id()));
+
+        assert_eq!(other.len(), 1);
+        assert!(!other.contains(contact.id()));
+        assert!(other.contains(second_contact.id()));
     }
 }
