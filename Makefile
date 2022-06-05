@@ -12,7 +12,7 @@ install-daemon:
 	cargo install --path=daemon
 
 doc-lib:
-	cargo +nightly doc --features unstable-doc-cfg --package r2kad-lib --open
+	cargo doc --package r2kad-lib --open
 
 bench:
 	cargo bench
