@@ -1,6 +1,7 @@
+use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::{Display, Formatter, LowerHex, UpperHex};
-use std::ops::BitXor;
+use std::ops::{BitXor, Bound, RangeBounds};
 use std::str::FromStr;
 
 use hex::FromHexError;
@@ -77,7 +78,7 @@ impl<const SIZE: usize> NodeId<SIZE> {
     }
 
     /// Returns the shared prefix length in number of bits
-    pub fn shared_prefix_bits(&self, other: &Self) -> usize {
+    pub fn shared_prefix_bits(&self, other: &Self) -> Result<SharedPrefix<SIZE>, GroupingError> {
         self.shared_prefix_len(other, 1)
     }
 
@@ -90,12 +91,31 @@ impl<const SIZE: usize> NodeId<SIZE> {
     /// This algorithm uses basic operations for computing the shared prefix.
     /// As this function is used every time a package arrives optimizing it may be
     /// worth the effort.
-    pub fn shared_prefix_len(&self, other: &Self, bits_per_group: usize) -> usize {
-        if self == other {
-            return SIZE / bits_per_group;
+    ///
+    /// # Panics
+    ///
+    /// When *bits_per_group* > SIZE.
+    pub fn shared_prefix_len(
+        &self,
+        other: &Self,
+        bits_per_group: usize,
+    ) -> Result<SharedPrefix<SIZE>, GroupingError> {
+        if bits_per_group > SIZE {
+            return Err(GroupingError::Invalid {
+                group_size: bits_per_group,
+                id_size: SIZE,
+            });
         }
 
         let xor: Self = self ^ other;
+
+        if self == other {
+            return Ok(SharedPrefix {
+                xor,
+                value: SIZE / bits_per_group,
+            });
+        }
+
         let mut byte_index = 0;
         let mut not_zero_byte = None;
         for i in xor.inner {
@@ -117,9 +137,114 @@ impl<const SIZE: usize> NodeId<SIZE> {
         }
         let bit_index = byte_index * 8 + in_byte_index;
 
-        bit_index / bits_per_group
+        Ok(SharedPrefix {
+            value: bit_index / bits_per_group,
+            xor,
+        })
+    }
+
+    /// Returns a number representing the bits in the given range from least significant
+    /// to most significant bit.
+    pub fn bits<T: RangeBounds<usize>>(&self, range: T) -> Result<usize, InvalidBitRange> {
+        match (range.start_bound(), range.end_bound()) {
+            (Bound::Unbounded, Bound::Unbounded) => Err(InvalidBitRange),
+            (Bound::Unbounded, Bound::Excluded(val)) => {
+                if val - 1 > 8 {
+                    Err(InvalidBitRange)
+                } else {
+                    Ok(())
+                }
+            }
+            (Bound::Unbounded, Bound::Included(val)) => {
+                if *val > 8 {
+                    Err(InvalidBitRange)
+                } else {
+                    Ok(())
+                }
+            }
+            (Bound::Included(start), Bound::Excluded(end)) => {
+                if end - start > 8 {
+                    Err(InvalidBitRange)
+                } else {
+                    Ok(())
+                }
+            }
+            (start, end) => panic!("Invalid Range: {:?} .. {:?}", start, end),
+        }?;
+
+        // Indexing requires inverting the index as id is sorted from MSB to LSB
+        // and range is starting from LSB.
+        let (byte_start_pos, byte_start_offset) = match range.start_bound() {
+            Bound::Unbounded => (SIZE, 8),
+            Bound::Excluded(val) => (SIZE - (val - 1) / 8, 8 - (val - 1) % 8),
+            Bound::Included(val) => (SIZE - val / 8, 8 - val % 8),
+        };
+
+        let (byte_end_pos, byte_end_offset) = match range.end_bound() {
+            Bound::Unbounded => (0, 0),
+            Bound::Excluded(val) => (SIZE - (val - 1) / 8, (val - 1) % 8),
+            Bound::Included(val) => (SIZE - val / 8, val % 8),
+        };
+
+        let mut result = 0usize;
+        // Copy MSB
+        result |=
+            ((&self.inner[byte_end_pos] << (8 - byte_end_offset)) >> byte_end_offset) as usize;
+        // Copy all bytes not affected by offsets
+        for i in byte_end_pos..byte_start_pos {
+            let byte = &self.inner[i];
+            result <<= 8;
+            result |= *byte as usize;
+        }
+        // Copy LSB
+        result <<= byte_start_offset;
+        result |= (&self.inner[byte_start_pos] >> byte_start_offset) as usize;
+        Ok(result)
     }
 }
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct InvalidBitRange;
+
+impl Display for InvalidBitRange {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Invalid Bit Range: Has to be at max 64 bits long and start < end"
+        )
+    }
+}
+
+impl Error for InvalidBitRange {}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct SharedPrefix<const SIZE: usize> {
+    pub xor: NodeId<SIZE>,
+    pub value: usize,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum GroupingError {
+    Invalid { group_size: usize, id_size: usize },
+}
+
+impl Display for GroupingError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Invalid {
+                group_size,
+                id_size,
+            } => write!(
+                f,
+                "Invalid Grouping: Has to be <= {}, but was {}",
+                id_size * 8,
+                group_size
+            ),
+        }
+    }
+}
+
+impl Error for GroupingError {}
 
 /// Creates a [NodeId] from a byte array. The resulting [NodeId] has the same size as the given array.
 impl<const SIZE: usize> From<[u8; SIZE]> for NodeId<SIZE> {
@@ -217,6 +342,8 @@ mod tests {
     use std::error::Error;
     use std::str::FromStr;
 
+    use crate::domain::SharedPrefix;
+
     use super::NodeId;
 
     #[test]
@@ -312,12 +439,24 @@ mod tests {
         let zero = NodeId::<1>::zero();
         let one = NodeId::<1>::one();
 
-        assert_eq!(zero.shared_prefix_bits(&one), 7);
+        assert_eq!(
+            zero.shared_prefix_bits(&one),
+            Ok(SharedPrefix {
+                xor: zero ^ one,
+                value: 7,
+            })
+        );
 
         let zero = NodeId::<16>::zero();
         let one = NodeId::<16>::one();
 
-        assert_eq!(zero.shared_prefix_bits(&one), 16 * 8 - 1);
+        assert_eq!(
+            zero.shared_prefix_bits(&one),
+            Ok(SharedPrefix {
+                value: 16 * 8 - 1,
+                xor: zero ^ one,
+            })
+        );
 
         let one = NodeId::<4>::one();
         let valid = NodeId::from([0, 0b10000000, 0xFF, 0]);
@@ -344,5 +483,13 @@ mod tests {
         let valid = NodeId::from([0, 0b10000000, 0xFF, 0]);
 
         assert_eq!(one.shared_prefix_len(&valid, 8), 1);
+    }
+
+    #[test]
+    fn test_bit_range() {
+        let zero = NodeId::<1>::zero();
+        let bits = zero.bits((..));
+        assert!(bits.is_ok());
+        assert_eq!(bits.unwrap(), 0);
     }
 }
