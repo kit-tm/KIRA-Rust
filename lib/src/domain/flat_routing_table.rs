@@ -127,16 +127,6 @@ impl<const ID_SIZE: usize, const ACC: usize> FlatRoutingTable<ID_SIZE, ACC> {
     }
 }
 
-pub struct ClosestIter<'a, const ID_SIZE: usize>(std::slice::Iter<'a, Contact<ID_SIZE>>);
-
-impl<'a, const ID_SIZE: usize> Iterator for ClosestIter<'a, ID_SIZE> {
-    type Item = &'a Contact<ID_SIZE>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next()
-    }
-}
-
 pub struct Iter<'a, const ID_SIZE: usize, const ACC: usize> {
     table: &'a FlatRoutingTable<ID_SIZE, ACC>,
     index: (usize, usize),
@@ -175,7 +165,6 @@ impl<'a, const ID_SIZE: usize, const ACC: usize> Iterator for Iter<'a, ID_SIZE, 
 impl<'a, const ID_SIZE: usize, const ACC: usize> RoutingTable<'a, ID_SIZE>
     for FlatRoutingTable<ID_SIZE, ACC>
 {
-    type ClosestIter = ClosestIter<'a, ID_SIZE>;
     type Iter = Iter<'a, ID_SIZE, ACC>;
 
     fn add(&'a mut self, contact: Contact<ID_SIZE>) -> Result<(), AddError<ID_SIZE>> {
@@ -208,10 +197,6 @@ impl<'a, const ID_SIZE: usize, const ACC: usize> RoutingTable<'a, ID_SIZE>
     fn get_mut(&'a mut self, id: &NodeId<ID_SIZE>) -> Option<&mut Contact<ID_SIZE>> {
         let bucket = self.bucket_mut(id);
         bucket.get_mut(id)
-    }
-
-    fn get_closest_iter(&'a self, _id: &NodeId<ID_SIZE>) -> Self::ClosestIter {
-        todo!()
     }
 
     fn contains(&'a self, id: &NodeId<ID_SIZE>) -> bool {

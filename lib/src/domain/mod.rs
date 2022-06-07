@@ -35,7 +35,6 @@ impl<const ID_SIZE: usize> Display for AddError<ID_SIZE> {
 impl<const ID_SIZE: usize> Error for AddError<ID_SIZE> {}
 
 pub trait RoutingTable<'a, const ID_SIZE: usize> {
-    type ClosestIter: Iterator<Item = &'a Contact<ID_SIZE>>;
     type Iter: Iterator<Item = &'a Contact<ID_SIZE>>;
 
     /// Add a new [Contact] to the [RoutingTable].
@@ -52,9 +51,6 @@ pub trait RoutingTable<'a, const ID_SIZE: usize> {
 
     /// Returns a mutable reference to an existing [Contact] if present.
     fn get_mut(&'a mut self, id: &NodeId<ID_SIZE>) -> Option<&mut Contact<ID_SIZE>>;
-
-    /// Returns an [Iterator] over the closest [Contact]s of a [NodeId].
-    fn get_closest_iter(&'a self, id: &NodeId<ID_SIZE>) -> Self::ClosestIter;
 
     /// Returns if a [Contact] with a given [NodeId] is present in the [RoutingTable].
     fn contains(&'a self, id: &NodeId<ID_SIZE>) -> bool;
