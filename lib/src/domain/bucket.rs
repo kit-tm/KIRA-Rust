@@ -102,7 +102,7 @@ impl<const ID_SIZE: usize> Bucket<ID_SIZE> {
 
     /// Returns a mutable reference to the place of the [Contact] with the given [NodeId]
     /// if present in the [Bucket].
-    fn get_mut(&mut self, id: &NodeId<ID_SIZE>) -> Option<&mut Contact<ID_SIZE>> {
+    pub fn get_mut(&mut self, id: &NodeId<ID_SIZE>) -> Option<&mut Contact<ID_SIZE>> {
         self.inner.iter_mut().find(|contact| contact.id() == id)
     }
 
@@ -181,6 +181,15 @@ impl<const ID_SIZE: usize> Bucket<ID_SIZE> {
         }
 
         Ok(())
+    }
+
+    /// Returns an iterator over the contacts in this bucket.
+    pub fn iter(&self) -> std::slice::Iter<'_, Contact<ID_SIZE>> {
+        self.inner.iter()
+    }
+
+    pub(crate) fn get_by_index(&self, index: usize) -> Option<&Contact<ID_SIZE>> {
+        self.inner.get(index)
     }
 }
 

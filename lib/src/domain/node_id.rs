@@ -275,11 +275,11 @@ impl<'a, const SIZE: usize> BitXor for &'a NodeId<SIZE> {
     type Output = NodeId<SIZE>;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
-        if self == NodeId::zero() {
-            return rhs;
+        if self == &NodeId::zero() {
+            return rhs.clone();
         }
-        if rhs == NodeId::zero() {
-            return self;
+        if rhs == &NodeId::zero() {
+            return self.clone();
         }
 
         let mut result = [0u8; SIZE];
