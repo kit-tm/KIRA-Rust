@@ -275,6 +275,13 @@ impl<'a, const SIZE: usize> BitXor for &'a NodeId<SIZE> {
     type Output = NodeId<SIZE>;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
+        if self == NodeId::zero() {
+            return rhs;
+        }
+        if rhs == NodeId::zero() {
+            return self;
+        }
+
         let mut result = [0u8; SIZE];
         for (i, item) in result.iter_mut().enumerate() {
             *item = self.inner[i] ^ rhs.inner[i];
