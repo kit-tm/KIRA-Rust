@@ -10,6 +10,9 @@ use crate::domain::{
 /// A [RoutingTable] implemented as flat array of [Bucket]s.
 ///
 /// This [RoutingTable] has a root [NodeId] which the distance is computed to.
+///
+/// This kind of [RoutingTable] is only working with Physical Neighbor Selection
+/// and Proximity Routing.
 #[derive(Debug)]
 pub struct FlatRoutingTable<
     const ID_SIZE: usize,
