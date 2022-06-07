@@ -1,7 +1,8 @@
 use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::{Display, Formatter, LowerHex, UpperHex};
-use std::ops::{BitXor, Bound, RangeBounds};
+use std::num::NonZeroUsize;
+use std::ops::BitXor;
 use std::str::FromStr;
 
 use hex::FromHexError;
@@ -100,7 +101,7 @@ impl<const SIZE: usize> NodeId<SIZE> {
         other: &Self,
         bits_per_group: usize,
     ) -> Result<SharedPrefix<SIZE>, GroupingError> {
-        if bits_per_group > SIZE {
+        if bits_per_group > SIZE * 8 {
             return Err(GroupingError::Invalid {
                 group_size: bits_per_group,
                 id_size: SIZE,
@@ -143,84 +144,83 @@ impl<const SIZE: usize> NodeId<SIZE> {
         })
     }
 
-    /// Returns a number representing the bits in the given range from least significant
-    /// to most significant bit.
-    pub fn bits<T: RangeBounds<usize>>(&self, range: T) -> Result<usize, InvalidBitRange> {
-        match (range.start_bound(), range.end_bound()) {
-            (Bound::Unbounded, Bound::Unbounded) => Err(InvalidBitRange),
-            (Bound::Unbounded, Bound::Excluded(val)) => {
-                if val - 1 > 8 {
-                    Err(InvalidBitRange)
-                } else {
-                    Ok(())
-                }
-            }
-            (Bound::Unbounded, Bound::Included(val)) => {
-                if *val > 8 {
-                    Err(InvalidBitRange)
-                } else {
-                    Ok(())
-                }
-            }
-            (Bound::Included(start), Bound::Excluded(end)) => {
-                if end - start > 8 {
-                    Err(InvalidBitRange)
-                } else {
-                    Ok(())
-                }
-            }
-            (start, end) => panic!("Invalid Range: {:?} .. {:?}", start, end),
-        }?;
+    /// Returns the bit started from LSB. Either 0 or 1
+    fn bit(&self, bit_index: usize) -> Result<u8, BitIndexOutOfBounds> {
+        let byte = bit_index / 8;
+        if byte > SIZE {
+            return Err(BitIndexOutOfBounds);
+        }
+        let byte_offset = bit_index % 8;
 
-        // Indexing requires inverting the index as id is sorted from MSB to LSB
-        // and range is starting from LSB.
-        let (byte_start_pos, byte_start_offset) = match range.start_bound() {
-            Bound::Unbounded => (SIZE, 8),
-            Bound::Excluded(val) => (SIZE - (val - 1) / 8, 8 - (val - 1) % 8),
-            Bound::Included(val) => (SIZE - val / 8, 8 - val % 8),
-        };
+        let byte = SIZE - 1 - byte;
+        let byte_offset = 8 - byte_offset;
 
-        let (byte_end_pos, byte_end_offset) = match range.end_bound() {
-            Bound::Unbounded => (0, 0),
-            Bound::Excluded(val) => (SIZE - (val - 1) / 8, (val - 1) % 8),
-            Bound::Included(val) => (SIZE - val / 8, val % 8),
-        };
+        let byte = self.inner[byte];
+
+        Ok((byte << (byte_offset - 1)) >> 7)
+    }
+
+    /// Returns a number representing the bits from an inclusive position from LSB to MSB.
+    pub fn bits(
+        &self,
+        from_bit_index: usize,
+        num_bits: NonZeroUsize,
+    ) -> Result<usize, BitIndexOutOfBounds> {
+        let num_bits = num_bits.get();
+        if num_bits > std::mem::size_of::<usize>() * 8 {
+            return Err(BitIndexOutOfBounds);
+        }
 
         let mut result = 0usize;
-        // Copy MSB
-        result |=
-            ((&self.inner[byte_end_pos] << (8 - byte_end_offset)) >> byte_end_offset) as usize;
-        // Copy all bytes not affected by offsets
-        for i in byte_end_pos..byte_start_pos {
-            let byte = &self.inner[i];
-            result <<= 8;
-            result |= *byte as usize;
+
+        for index in 0..num_bits {
+            result <<= 1;
+            result |= self.bit(from_bit_index + (num_bits - 1 - index))? as usize;
         }
-        // Copy LSB
-        result <<= byte_start_offset;
-        result |= (&self.inner[byte_start_pos] >> byte_start_offset) as usize;
+
         Ok(result)
     }
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct InvalidBitRange;
+pub struct BitIndexOutOfBounds;
 
-impl Display for InvalidBitRange {
+impl Display for BitIndexOutOfBounds {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Invalid Bit Range: Has to be at max 64 bits long and start < end"
-        )
+        write!(f, "Bit Index out of bounds")
     }
 }
 
-impl Error for InvalidBitRange {}
+impl Error for BitIndexOutOfBounds {}
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct SharedPrefix<const SIZE: usize> {
-    pub xor: NodeId<SIZE>,
-    pub value: usize,
+    pub(crate) xor: NodeId<SIZE>,
+    pub(crate) value: usize,
+}
+
+impl<const SIZE: usize> From<SharedPrefix<SIZE>> for usize {
+    fn from(prefix: SharedPrefix<SIZE>) -> Self {
+        prefix.value
+    }
+}
+
+impl<const SIZE: usize> SharedPrefix<SIZE> {
+    pub fn into_xor(self) -> NodeId<SIZE> {
+        self.xor
+    }
+
+    pub fn xor(&self) -> &NodeId<SIZE> {
+        &self.xor
+    }
+
+    pub fn value(&self) -> usize {
+        self.value
+    }
+
+    pub fn into_value(self) -> usize {
+        self.value
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -340,6 +340,7 @@ impl<const SIZE: usize> Display for NodeId<SIZE> {
 #[cfg(test)]
 mod tests {
     use std::error::Error;
+    use std::num::NonZeroUsize;
     use std::str::FromStr;
 
     use crate::domain::SharedPrefix;
@@ -440,28 +441,25 @@ mod tests {
         let one = NodeId::<1>::one();
 
         assert_eq!(
-            zero.shared_prefix_bits(&one),
-            Ok(SharedPrefix {
-                xor: zero ^ one,
-                value: 7,
-            })
+            zero.shared_prefix_bits(&one).map(SharedPrefix::into_value),
+            Ok(7)
         );
 
         let zero = NodeId::<16>::zero();
         let one = NodeId::<16>::one();
 
         assert_eq!(
-            zero.shared_prefix_bits(&one),
-            Ok(SharedPrefix {
-                value: 16 * 8 - 1,
-                xor: zero ^ one,
-            })
+            zero.shared_prefix_bits(&one).map(SharedPrefix::into_value),
+            Ok(16 * 8 - 1)
         );
 
         let one = NodeId::<4>::one();
         let valid = NodeId::from([0, 0b10000000, 0xFF, 0]);
 
-        assert_eq!(one.shared_prefix_bits(&valid), 8);
+        assert_eq!(
+            one.shared_prefix_bits(&valid).map(|prefix| prefix.value),
+            Ok(8)
+        );
     }
 
     #[test]
@@ -469,27 +467,93 @@ mod tests {
         let zero = NodeId::<1>::zero();
         let one = NodeId::<1>::one();
 
-        assert_eq!(zero.shared_prefix_len(&one, 1), 7);
-        assert_eq!(zero.shared_prefix_len(&one, 2), 3);
-        assert_eq!(zero.shared_prefix_len(&one, 3), 2);
+        assert_eq!(
+            zero.shared_prefix_len(&one, 1)
+                .map(SharedPrefix::into_value),
+            Ok(7)
+        );
+        assert_eq!(
+            zero.shared_prefix_len(&one, 2)
+                .map(SharedPrefix::into_value),
+            Ok(3)
+        );
+        assert_eq!(
+            zero.shared_prefix_len(&one, 3)
+                .map(SharedPrefix::into_value),
+            Ok(2)
+        );
 
         let zero = NodeId::<16>::zero();
         let one = NodeId::<16>::one();
 
-        assert_eq!(zero.shared_prefix_len(&one, 1), 127);
-        assert_eq!(zero.shared_prefix_len(&one, 2), 63);
+        assert_eq!(
+            zero.shared_prefix_len(&one, 1)
+                .map(SharedPrefix::into_value),
+            Ok(127)
+        );
+        assert_eq!(
+            zero.shared_prefix_len(&one, 2)
+                .map(SharedPrefix::into_value),
+            Ok(63)
+        );
 
         let one = NodeId::<4>::one();
         let valid = NodeId::from([0, 0b10000000, 0xFF, 0]);
 
-        assert_eq!(one.shared_prefix_len(&valid, 8), 1);
+        assert_eq!(
+            one.shared_prefix_len(&valid, 8)
+                .map(SharedPrefix::into_value),
+            Ok(1)
+        );
     }
 
     #[test]
-    fn test_bit_range() {
-        let zero = NodeId::<1>::zero();
-        let bits = zero.bits((..));
-        assert!(bits.is_ok());
-        assert_eq!(bits.unwrap(), 0);
+    fn test_single_bits() {
+        let value = NodeId::<1>::from([0b01101110]);
+        assert_eq!(value.bits(0, NonZeroUsize::new(1).unwrap()), Ok(0));
+        assert_eq!(value.bits(1, NonZeroUsize::new(1).unwrap()), Ok(1));
+        assert_eq!(value.bits(2, NonZeroUsize::new(1).unwrap()), Ok(1));
+        assert_eq!(value.bits(3, NonZeroUsize::new(1).unwrap()), Ok(1));
+        assert_eq!(value.bits(4, NonZeroUsize::new(1).unwrap()), Ok(0));
+        assert_eq!(value.bits(5, NonZeroUsize::new(1).unwrap()), Ok(1));
+        assert_eq!(value.bits(6, NonZeroUsize::new(1).unwrap()), Ok(1));
+        assert_eq!(value.bits(7, NonZeroUsize::new(1).unwrap()), Ok(0));
+    }
+
+    #[test]
+    fn test_multiple_bits_in_same_byte() {
+        let value = NodeId::<1>::from([0b01101110]);
+        assert_eq!(value.bits(0, NonZeroUsize::new(8).unwrap()), Ok(0b01101110));
+    }
+
+    #[test]
+    fn test_multiple_bits_through_multiply_bytes() {
+        let value = NodeId::from([0b01101110, 0b10110100]);
+        assert_eq!(value.bits(4, NonZeroUsize::new(8).unwrap()), Ok(0b11101011));
+    }
+
+    #[test]
+    fn test_out_of_bounds() {
+        let value = NodeId::from([0b01101110, 0b10110100]);
+        assert!(value.bits(20, NonZeroUsize::new(8).unwrap()).is_err());
+    }
+
+    #[test]
+    fn test_multiple_bits_starting_in_higher_byte() {
+        let value = NodeId::from([0b01101110, 0b10110100, 0b10110100, 0b10110100]);
+        assert_eq!(value.bits(17, NonZeroUsize::new(7).unwrap()), Ok(0b1011010));
+    }
+
+    #[test]
+    fn test_get_bit() {
+        let zero = NodeId::<1>::from([0b01101110]);
+        assert_eq!(zero.bit(0), Ok(0));
+        assert_eq!(zero.bit(1), Ok(1));
+        assert_eq!(zero.bit(2), Ok(1));
+        assert_eq!(zero.bit(3), Ok(1));
+        assert_eq!(zero.bit(4), Ok(0));
+        assert_eq!(zero.bit(5), Ok(1));
+        assert_eq!(zero.bit(6), Ok(1));
+        assert_eq!(zero.bit(7), Ok(0));
     }
 }

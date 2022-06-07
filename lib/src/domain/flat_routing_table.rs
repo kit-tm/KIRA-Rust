@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use crate::domain::{Bucket, Contact, GroupingError, NodeId, RoutingTable, SharedPrefix};
 
 /// A [RoutingTable] implemented as flat array of [Bucket]s.
@@ -11,7 +13,7 @@ pub struct FlatRoutingTable<const ID_SIZE: usize, const ACC: usize = 1> {
 
 impl<const ID_SIZE: usize, const ACC: usize> FlatRoutingTable<ID_SIZE, ACC> {
     /// Creates a [RoutingTable] with 0 capacity.
-    pub const fn new(root: NodeId<ID_SIZE>) -> Result<Self, GroupingError> {
+    pub fn new(root: NodeId<ID_SIZE>) -> Result<Self, GroupingError> {
         Self::with_buckets(root, Vec::new())
     }
 
@@ -22,11 +24,13 @@ impl<const ID_SIZE: usize, const ACC: usize> FlatRoutingTable<ID_SIZE, ACC> {
         Self::with_buckets(root, Vec::with_capacity(ID_SIZE * 8))
     }
 
+    // As soon as 'const where restrictions' are supported
+    // this can be converted to a const function.
     fn with_buckets(
         root: NodeId<ID_SIZE>,
         buckets: Vec<Bucket<ID_SIZE>>,
     ) -> Result<Self, GroupingError> {
-        if ACC < ID_SIZE {
+        if ACC < ID_SIZE || ACC == 0 {
             return Err(GroupingError::Invalid {
                 id_size: ID_SIZE,
                 group_size: ACC,
@@ -48,12 +52,12 @@ impl<const ID_SIZE: usize, const ACC: usize> FlatRoutingTable<ID_SIZE, ACC> {
         // bitindex is now the index of the LSB of the first non-zero digit in delta
         let bitindex = ID_SIZE - (prefix_len + 1) * ACC;
         // This is my key
-        if bitindex < 0 {
+        if bitindex == 0 {
             return self.buckets.len() - 1;
         }
 
         // bitindex is the LSB of the first non-zero digit, so digit must not be zero
-        assert_ne!(xor.bits(bitindex..ACC), Ok(0));
+        assert_ne!(xor.bits(bitindex, NonZeroUsize::new(ACC).unwrap()), Ok(0));
 
         todo!()
     }
