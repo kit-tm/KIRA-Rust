@@ -50,6 +50,14 @@ impl<const SIZE: usize> NodeId<SIZE> {
         Self { inner }
     }
 
+    /// Returns the maximum representable [NodeId] for the given Byte size.
+    /// This is equal to all bits in a [NodeId] == 1.
+    pub const fn max_value() -> Self {
+        Self {
+            inner: [0b11111111; SIZE],
+        }
+    }
+
     /// Creates a random [NodeId].
     /// The generated [NodeId] is guaranteed to not be equal to [NodeId::one] or [NodeId::zero].
     pub fn random() -> Self {
