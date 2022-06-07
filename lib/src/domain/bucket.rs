@@ -44,38 +44,30 @@ impl<const ID_SIZE: usize> Error for ReplacementError<ID_SIZE> {}
 /// The current implementation is backed by a [Vec] which can make problems
 /// with memory locality.
 /// TODO: Check if this is a performance overhead
-#[derive(Debug, Eq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Bucket<const ID_SIZE: usize> {
-    id: usize,
     inner: Vec<Contact<ID_SIZE>>,
 }
 
-impl<const ID_SIZE: usize> PartialEq for Bucket<ID_SIZE> {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
+impl<const ID_SIZE: usize> Default for Bucket<ID_SIZE> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 impl<const ID_SIZE: usize> Bucket<ID_SIZE> {
     /// Create a new [Bucket] with size of [DEFAULT_BUCKET_SIZE].
-    pub fn new(index: usize) -> Self {
+    pub fn new() -> Self {
         Self {
-            id: index,
             inner: Vec::with_capacity(DEFAULT_BUCKET_SIZE),
         }
     }
 
     /// Create a new [Bucket] with a given size.
-    pub fn with_size<const SIZE: usize>(index: usize) -> Self {
+    pub fn with_size<const SIZE: usize>() -> Self {
         Self {
-            id: index,
             inner: Vec::with_capacity(SIZE),
         }
-    }
-
-    /// Returns the unique id of the [Bucket].
-    pub fn id(&self) -> usize {
-        self.id
     }
 
     /// Returns if the [Bucket] contains any [Contact].
@@ -237,7 +229,7 @@ mod tests {
 
     #[test]
     fn insert_test() {
-        let mut bucket = Bucket::with_size::<2>(0);
+        let mut bucket = Bucket::with_size::<2>();
 
         assert!(bucket.is_empty());
         assert!(!bucket.is_full());
@@ -277,7 +269,7 @@ mod tests {
 
     #[test]
     fn test_replacement() {
-        let mut bucket = Bucket::with_size::<2>(0);
+        let mut bucket = Bucket::with_size::<2>();
 
         assert!(bucket.is_empty());
         assert!(!bucket.is_full());
@@ -310,7 +302,7 @@ mod tests {
 
     #[test]
     fn split() {
-        let mut bucket = Bucket::with_size::<2>(0);
+        let mut bucket = Bucket::with_size::<2>();
 
         let contact = Contact::new(
             NodeId::from([0, 1]),
@@ -328,7 +320,7 @@ mod tests {
         );
         assert!(bucket.insert(second_contact.clone()).is_ok());
 
-        let mut other = Bucket::with_size::<2>(0);
+        let mut other = Bucket::with_size::<2>();
 
         assert!(bucket
             .split(&mut other, |contact| contact.id() == second_contact.id())

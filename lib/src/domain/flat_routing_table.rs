@@ -25,7 +25,7 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
 {
     /// Creates a [RoutingTable] with 0 capacity.
     pub fn new(root: NodeId<ID_SIZE>) -> Result<Self, GroupingError> {
-        Self::with_buckets(root, vec![Bucket::with_size::<BUCKET_SIZE>(0)])
+        Self::with_buckets(root, vec![Bucket::with_size::<BUCKET_SIZE>()])
     }
 
     /// Create a [RoutingTable] with the capacity of its maximum possible number of buckets.
@@ -33,7 +33,7 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
     /// That is equal to the [NodeId] Size in Bits.
     pub fn with_full_capacity(root: NodeId<ID_SIZE>) -> Result<Self, GroupingError> {
         let mut buckets = Vec::with_capacity(ID_SIZE * 8);
-        buckets.push(Bucket::with_size::<BUCKET_SIZE>(0));
+        buckets.push(Bucket::with_size::<BUCKET_SIZE>());
         Self::with_buckets(root, buckets)
     }
 
@@ -136,11 +136,6 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
         let index = self.get_bucket_index(of);
         &mut self.buckets[index]
     }
-
-    /// Checks if the [Bucket] can be split.
-    fn is_splittable(&self, bucket: &Bucket<ID_SIZE>) -> bool {
-        self.buckets.len() < Self::max_buckets() && bucket != self.buckets.last().unwrap()
-    }
 }
 
 pub struct Iter<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize> {
@@ -234,30 +229,18 @@ impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize> Routi
         }
 
         let bucket_index = self.get_bucket_index(id);
-        if bucket_index == self.buckets.last().unwrap().id() {
+        if bucket_index != self.buckets.len() - 1 {
             return Err(UnsplittableBucket);
         }
-        let deeper_bucket_id = bucket_index + 1;
+        let bucket = self.buckets.remove(bucket_index);
 
-        let bucket = self.buckets.get_mut(bucket_index).unwrap();
+        self.buckets.push(Bucket::with_size::<BUCKET_SIZE>());
+        self.buckets.push(Bucket::with_size::<BUCKET_SIZE>());
 
-        // Move to deeper bucket if calculated index is not the one we move out of
-        let move_to_deeper_bucket = |contact: &Contact<ID_SIZE>| {
-            let index = self.get_bucket_index(contact.id());
-            index != bucket_index
-        };
-
-        // Create bucket and add for index calculations to include the new bucket
-        self.buckets
-            .push(Bucket::with_size::<BUCKET_SIZE>(deeper_bucket_id));
-        let deeper = self.buckets.last_mut().unwrap();
-
-        // Move the elements into the new bucket if necessary
-        if let Err(e) = bucket.split(deeper, move_to_deeper_bucket) {
-            panic!(
-                "Failed to insert into empty bucket from bucket with same size: {}",
-                e
-            );
+        for contact in bucket {
+            if let Err(e) = self.add(contact) {
+                panic!("Error inserting after splitting last bucket: {}", e);
+            }
         }
 
         Ok(())
