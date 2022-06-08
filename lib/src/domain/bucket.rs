@@ -6,12 +6,12 @@ use crate::domain::{Contact, NodeId};
 pub const DEFAULT_BUCKET_SIZE: usize = 20;
 
 #[derive(Debug)]
-pub enum InsertionError<const ID_SIZE: usize> {
+pub enum BucketInsetionError<const ID_SIZE: usize> {
     DuplicateId(NodeId<ID_SIZE>),
     Full,
 }
 
-impl<const ID_SIZE: usize> Display for InsertionError<ID_SIZE> {
+impl<const ID_SIZE: usize> Display for BucketInsetionError<ID_SIZE> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Full => write!(f, "Tried inserting into full bucket"),
@@ -20,15 +20,15 @@ impl<const ID_SIZE: usize> Display for InsertionError<ID_SIZE> {
     }
 }
 
-impl<const ID_SIZE: usize> Error for InsertionError<ID_SIZE> {}
+impl<const ID_SIZE: usize> Error for BucketInsetionError<ID_SIZE> {}
 
 #[derive(Debug)]
-pub enum ReplacementError<const ID_SIZE: usize> {
+pub enum BucketReplacementError<const ID_SIZE: usize> {
     NotFound(NodeId<ID_SIZE>),
     DuplicateId(NodeId<ID_SIZE>),
 }
 
-impl<const ID_SIZE: usize> Display for ReplacementError<ID_SIZE> {
+impl<const ID_SIZE: usize> Display for BucketReplacementError<ID_SIZE> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotFound(id) => write!(f, "No contact to replace with id {}", id),
@@ -37,7 +37,7 @@ impl<const ID_SIZE: usize> Display for ReplacementError<ID_SIZE> {
     }
 }
 
-impl<const ID_SIZE: usize> Error for ReplacementError<ID_SIZE> {}
+impl<const ID_SIZE: usize> Error for BucketReplacementError<ID_SIZE> {}
 
 /// A [Bucket] with fixed size used in the [crate::domain::RoutingTable].
 ///
@@ -107,13 +107,16 @@ impl<const ID_SIZE: usize> Bucket<ID_SIZE> {
     }
 
     /// Tries to insert a [Contact] into the [Bucket].
-    pub fn insert(&mut self, contact: Contact<ID_SIZE>) -> Result<(), InsertionError<ID_SIZE>> {
+    pub fn insert(
+        &mut self,
+        contact: Contact<ID_SIZE>,
+    ) -> Result<(), BucketInsetionError<ID_SIZE>> {
         if self.contains(contact.id()) {
-            return Err(InsertionError::DuplicateId(contact.into_id()));
+            return Err(BucketInsetionError::DuplicateId(contact.into_id()));
         }
 
         if self.is_full() {
-            return Err(InsertionError::Full);
+            return Err(BucketInsetionError::Full);
         }
 
         self.inner.push(contact);
@@ -126,13 +129,13 @@ impl<const ID_SIZE: usize> Bucket<ID_SIZE> {
         &mut self,
         replace_id: &NodeId<ID_SIZE>,
         with: Contact<ID_SIZE>,
-    ) -> Result<(), ReplacementError<ID_SIZE>> {
+    ) -> Result<(), BucketReplacementError<ID_SIZE>> {
         if !self.contains(replace_id) {
-            return Err(ReplacementError::NotFound(replace_id.clone()));
+            return Err(BucketReplacementError::NotFound(replace_id.clone()));
         }
 
         if self.contains(with.id()) {
-            return Err(ReplacementError::DuplicateId(replace_id.clone()));
+            return Err(BucketReplacementError::DuplicateId(replace_id.clone()));
         }
 
         let contact = self.get_mut(replace_id);
@@ -163,7 +166,7 @@ impl<const ID_SIZE: usize> Bucket<ID_SIZE> {
         &mut self,
         other: &mut Bucket<ID_SIZE>,
         mut predicate: F,
-    ) -> Result<(), InsertionError<ID_SIZE>>
+    ) -> Result<(), BucketInsetionError<ID_SIZE>>
     where
         F: FnMut(&Contact<ID_SIZE>) -> bool,
     {
@@ -225,7 +228,7 @@ impl<I> Iterator for Iter<I> {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::{Age, Bucket, Contact, NodeId, Path, ReplacementError, StateSeqNr};
+    use crate::domain::{Age, Bucket, BucketReplacementError, Contact, NodeId, Path, StateSeqNr};
 
     #[test]
     fn insert_test() {
@@ -283,7 +286,7 @@ mod tests {
 
         assert!(matches!(
             bucket.replace(&NodeId::from([0, 1]), contact.clone()),
-            Err(ReplacementError::NotFound(_))
+            Err(BucketReplacementError::NotFound(_))
         ));
 
         assert!(bucket.insert(contact.clone()).is_ok());

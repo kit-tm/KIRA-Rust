@@ -35,15 +35,50 @@ impl<const ID_SIZE: usize> Display for AddError<ID_SIZE> {
 impl<const ID_SIZE: usize> Error for AddError<ID_SIZE> {}
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct UnsplittableBucket;
+pub enum BucketSplitError {
+    Unsplittable,
+    MaxBucketsReached,
+}
 
-impl Display for UnsplittableBucket {
+impl Display for BucketSplitError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Bucket can't be split")
+        match self {
+            Self::Unsplittable => write!(f, "RoutingTable restricts splitting this bucket"),
+            Self::MaxBucketsReached => write!(f, "Reached maximum number of buckets"),
+        }
     }
 }
 
-impl Error for UnsplittableBucket {}
+impl Error for BucketSplitError {}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum InsertionError<const ID_SIZE: usize> {
+    Add(AddError<ID_SIZE>),
+    BucketSplit(BucketSplitError),
+}
+
+impl<const ID_SIZE: usize> Display for InsertionError<ID_SIZE> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Add(err) => write!(f, "{}", err),
+            Self::BucketSplit(err) => write!(f, "{}", err),
+        }
+    }
+}
+
+impl<const ID_SIZE: usize> Error for InsertionError<ID_SIZE> {}
+
+impl<const ID_SIZE: usize> From<AddError<ID_SIZE>> for InsertionError<ID_SIZE> {
+    fn from(add_err: AddError<ID_SIZE>) -> Self {
+        Self::Add(add_err)
+    }
+}
+
+impl<const ID_SIZE: usize> From<BucketSplitError> for InsertionError<ID_SIZE> {
+    fn from(err: BucketSplitError) -> Self {
+        Self::BucketSplit(err)
+    }
+}
 
 pub trait RoutingTable<'a, const ID_SIZE: usize> {
     type Iter: Iterator<Item = &'a Contact<ID_SIZE>>;
@@ -56,22 +91,22 @@ pub trait RoutingTable<'a, const ID_SIZE: usize> {
     /// This doesn't perform any decision making if a bucket has to be split or another
     /// contact has to be replaced.
     /// This is entirely up to the caller.
-    fn add(&'a mut self, contact: Contact<ID_SIZE>) -> Result<(), AddError<ID_SIZE>>;
+    fn add(&mut self, contact: Contact<ID_SIZE>) -> Result<(), AddError<ID_SIZE>>;
 
     /// Removes an existing [Contact] and returns it if present.
-    fn remove(&'a mut self, id: &NodeId<ID_SIZE>) -> Option<Contact<ID_SIZE>>;
+    fn remove(&mut self, id: &NodeId<ID_SIZE>) -> Option<Contact<ID_SIZE>>;
 
     /// Returns an existing [Contact] if present.
-    fn contact(&'a self, id: &NodeId<ID_SIZE>) -> Option<&Contact<ID_SIZE>>;
+    fn contact(&self, id: &NodeId<ID_SIZE>) -> Option<&Contact<ID_SIZE>>;
 
     /// Returns a random [Contact] if the [RoutingTable] is not empty.
-    fn random_contact(&'a self) -> Option<&Contact<ID_SIZE>>;
+    fn random_contact(&self) -> Option<&Contact<ID_SIZE>>;
 
     /// Returns a mutable reference to an existing [Contact] if present.
-    fn contact_mut(&'a mut self, id: &NodeId<ID_SIZE>) -> Option<&mut Contact<ID_SIZE>>;
+    fn contact_mut(&mut self, id: &NodeId<ID_SIZE>) -> Option<&mut Contact<ID_SIZE>>;
 
     /// Returns if a [Contact] with a given [NodeId] is present in the [RoutingTable].
-    fn contains(&'a self, id: &NodeId<ID_SIZE>) -> bool;
+    fn contains(&self, id: &NodeId<ID_SIZE>) -> bool;
 
     /// Returns an [Iterator] over all [Contact]s in this [RoutingTable].
     fn contacts_iter(&'a self) -> Self::Iter;
@@ -80,5 +115,37 @@ pub trait RoutingTable<'a, const ID_SIZE: usize> {
     /// The [Contact]s in the [Bucket] will be inserted in the appropriate [Bucket]s.
     ///
     /// This doesn't require a [Contact] inside the [Bucket] with the id.
-    fn split_bucket(&'a mut self, id: &NodeId<ID_SIZE>) -> Result<(), UnsplittableBucket>;
+    fn split_bucket(&mut self, id: &NodeId<ID_SIZE>) -> Result<(), BucketSplitError>;
+
+    /// Inserts a [Contact] into the table by splitting the [Bucket] until
+    /// Insertion succeeds or splitting failed.
+    fn insert(&mut self, contact: Contact<ID_SIZE>) -> Result<(), InsertionError<ID_SIZE>> {
+        match self.add(contact.clone()) {
+            Ok(()) => Ok(()),
+            Err(AddError::NotAdded) => {
+                self.split_bucket(contact.id())?;
+                self.insert(contact)
+            }
+            Err(err) => Err(InsertionError::Add(err)),
+        }
+    }
+
+    /// Extends the [RoutingTable] with [Contact]s with an option to ignore errors.
+    ///
+    /// Will not return an [Error] if *drop_on_error* is *true*.
+    fn extend<I: IntoIterator<Item = Contact<ID_SIZE>>>(
+        &mut self,
+        drop_on_error: bool,
+        iter: I,
+    ) -> Result<(), InsertionError<ID_SIZE>> {
+        for contact in iter {
+            // On Error: Either ignore or return
+            match (self.insert(contact), drop_on_error) {
+                (Ok(()), _) | (Err(_), true) => {}
+                (Err(e), false) => return Err(e),
+            }
+        }
+
+        Ok(())
+    }
 }

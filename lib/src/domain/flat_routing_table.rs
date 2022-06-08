@@ -3,8 +3,8 @@ use std::num::NonZeroUsize;
 use rand::Rng;
 
 use crate::domain::{
-    AddError, Bucket, Contact, GroupingError, InsertionError, NodeId, RoutingTable, SharedPrefix,
-    UnsplittableBucket, DEFAULT_BUCKET_SIZE,
+    AddError, Bucket, BucketSplitError, Contact, GroupingError, NodeId, RoutingTable, SharedPrefix,
+    DEFAULT_BUCKET_SIZE,
 };
 
 /// A [RoutingTable] implemented as flat array of [Bucket]s.
@@ -192,39 +192,41 @@ impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize> Routi
 {
     type Iter = Iter<'a, ID_SIZE, BUCKET_SIZE, ACC>;
 
-    fn add(&'a mut self, contact: Contact<ID_SIZE>) -> Result<(), AddError<ID_SIZE>> {
+    fn add(&mut self, contact: Contact<ID_SIZE>) -> Result<(), AddError<ID_SIZE>> {
         let bucket = self.bucket_mut(contact.id());
 
         match bucket.insert(contact) {
-            Err(InsertionError::<ID_SIZE>::Full) => Err(AddError::NotAdded),
-            Err(InsertionError::<ID_SIZE>::DuplicateId(id)) => Err(AddError::AlreadyExists(id)),
+            Err(super::bucket::BucketInsetionError::<ID_SIZE>::Full) => Err(AddError::NotAdded),
+            Err(super::bucket::BucketInsetionError::<ID_SIZE>::DuplicateId(id)) => {
+                Err(AddError::AlreadyExists(id))
+            }
             Ok(_) => Ok(()),
         }
     }
 
-    fn remove(&'a mut self, id: &NodeId<ID_SIZE>) -> Option<Contact<ID_SIZE>> {
+    fn remove(&mut self, id: &NodeId<ID_SIZE>) -> Option<Contact<ID_SIZE>> {
         let bucket = self.bucket_mut(id);
         // NOTE: Maybe restructuring the RoutingTable here
         bucket.remove(id)
     }
 
-    fn contact(&'a self, id: &NodeId<ID_SIZE>) -> Option<&Contact<ID_SIZE>> {
+    fn contact(&self, id: &NodeId<ID_SIZE>) -> Option<&Contact<ID_SIZE>> {
         let bucket = self.bucket(id);
         bucket.get(id)
     }
 
-    fn random_contact(&'a self) -> Option<&Contact<ID_SIZE>> {
+    fn random_contact(&self) -> Option<&Contact<ID_SIZE>> {
         let mut rng = rand::thread_rng();
         let random_contact = rng.gen_range(0..self.num_contacts());
         self.contacts_iter().nth(random_contact)
     }
 
-    fn contact_mut(&'a mut self, id: &NodeId<ID_SIZE>) -> Option<&mut Contact<ID_SIZE>> {
+    fn contact_mut(&mut self, id: &NodeId<ID_SIZE>) -> Option<&mut Contact<ID_SIZE>> {
         let bucket = self.bucket_mut(id);
         bucket.get_mut(id)
     }
 
-    fn contains(&'a self, id: &NodeId<ID_SIZE>) -> bool {
+    fn contains(&self, id: &NodeId<ID_SIZE>) -> bool {
         let bucket = self.bucket(id);
         bucket.contains(id)
     }
@@ -233,14 +235,14 @@ impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize> Routi
         Iter::new(self)
     }
 
-    fn split_bucket(&'a mut self, id: &NodeId<ID_SIZE>) -> Result<(), UnsplittableBucket> {
+    fn split_bucket(&mut self, id: &NodeId<ID_SIZE>) -> Result<(), BucketSplitError> {
         if self.buckets.len() >= Self::max_buckets() {
-            return Err(UnsplittableBucket);
+            return Err(BucketSplitError::MaxBucketsReached);
         }
 
         let bucket_index = self.get_bucket_index(id);
         if bucket_index != self.buckets.len() - 1 {
-            return Err(UnsplittableBucket);
+            return Err(BucketSplitError::Unsplittable);
         }
         let bucket = self.buckets.remove(bucket_index);
 
@@ -261,7 +263,9 @@ impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize> Routi
 mod routing_tests {
     use std::error::Error;
 
-    use crate::domain::{Age, Contact, FlatRoutingTable, NodeId, Path, RoutingTable, StateSeqNr};
+    use crate::domain::{
+        AddError, Age, Contact, FlatRoutingTable, NodeId, Path, RoutingTable, StateSeqNr,
+    };
 
     #[test]
     fn test_add() -> Result<(), Box<dyn Error>> {
@@ -275,6 +279,50 @@ mod routing_tests {
         );
 
         assert_eq!(table.add(contact), Ok(()));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_full() -> Result<(), Box<dyn Error>> {
+        let mut table = FlatRoutingTable::<1, 1, 1>::new(NodeId::<1>::zero())?;
+
+        table.add(Contact::new(
+            NodeId::from([1]),
+            Age::from(0),
+            Path::empty(),
+            StateSeqNr::from(0),
+        ))?;
+
+        assert_eq!(
+            table.add(Contact::new(
+                NodeId::from([2]),
+                Age::from(0),
+                Path::empty(),
+                StateSeqNr::from(0),
+            )),
+            Err(AddError::NotAdded)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_split() -> Result<(), Box<dyn Error>> {
+        // Split should move contacts accordingly and bucket_index should change
+
+        let mut table = FlatRoutingTable::<1, 1, 1>::new(NodeId::<1>::zero())?;
+
+        table.add(Contact::new(
+            NodeId::one(),
+            Age::from(0),
+            Path::empty(),
+            StateSeqNr::from(0),
+        ))?;
+
+        assert_eq!(table.split_bucket(&NodeId::one()), Ok(()));
+
+        assert_eq!(table.get_bucket_index(&NodeId::one()), 1);
 
         Ok(())
     }
