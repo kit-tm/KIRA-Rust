@@ -82,14 +82,21 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
         self.buckets.iter().flat_map(|bucket| bucket.iter()).count()
     }
 
+    fn get_bucket_index(&self, of: &NodeId<ID_SIZE>) -> usize {
+        Self::get_bucket_index_for(of, &self.root, self.num_buckets())
+    }
+
     /// Returns the index of the [Bucket] the id should be in related
     /// to the current state of the [RoutingTable].
-    fn get_bucket_index(&self, of: &NodeId<ID_SIZE>) -> usize {
+    fn get_bucket_index_for(
+        of: &NodeId<ID_SIZE>,
+        for_root: &NodeId<ID_SIZE>,
+        num_buckets: usize,
+    ) -> usize {
         let SharedPrefix {
             xor: delta,
             value: prefix_len,
-        } = self
-            .root
+        } = for_root
             .shared_prefix_len(of, ACC)
             .expect("GroupingError after checking");
 
@@ -97,7 +104,7 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
         let bit_index = (ID_SIZE * 8).checked_sub((prefix_len + 1) * ACC);
         let bit_index = match bit_index {
             // This is the root key
-            None => return self.buckets.len() - 1, // Always at least one bucket present
+            None => return num_buckets - 1, // Always at least one bucket present
             Some(bit_index) => bit_index,
         };
 
@@ -124,7 +131,7 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
                 .expect("invalid index");
         assert!(index <= Self::max_buckets());
 
-        index.min(self.buckets.len() - 1) // Always at least one bucket present
+        index.min(num_buckets - 1) // Always at least one bucket present
     }
 
     /// Returns the Bucket the [NodeId] should be located in based on the
