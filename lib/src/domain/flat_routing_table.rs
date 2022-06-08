@@ -3,8 +3,8 @@ use std::num::NonZeroUsize;
 use rand::Rng;
 
 use crate::domain::{
-    AddError, Bucket, BucketSplitError, Contact, GroupingError, NodeId, RoutingTable, SharedPrefix,
-    DEFAULT_BUCKET_SIZE,
+    AddError, Bucket, BucketSplitError, Contact, GroupingError, NodeId, ReplacementError,
+    RoutingTable, SharedPrefix, DEFAULT_BUCKET_SIZE,
 };
 
 /// A [RoutingTable] implemented as flat array of [Bucket]s.
@@ -208,6 +208,15 @@ impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize> Routi
         let bucket = self.bucket_mut(id);
         // NOTE: Maybe restructuring the RoutingTable here
         bucket.remove(id)
+    }
+
+    fn replace(
+        &mut self,
+        id: &NodeId<ID_SIZE>,
+        with: Contact<ID_SIZE>,
+    ) -> Result<(), ReplacementError<ID_SIZE>> {
+        let bucket = self.bucket_mut(id);
+        bucket.replace(id, with)
     }
 
     fn contact(&self, id: &NodeId<ID_SIZE>) -> Option<&Contact<ID_SIZE>> {

@@ -96,6 +96,13 @@ pub trait RoutingTable<'a, const ID_SIZE: usize> {
     /// Removes an existing [Contact] and returns it if present.
     fn remove(&mut self, id: &NodeId<ID_SIZE>) -> Option<Contact<ID_SIZE>>;
 
+    /// Replaces a [Contact] and returns the replaced one.
+    fn replace(
+        &mut self,
+        id: &NodeId<ID_SIZE>,
+        with: Contact<ID_SIZE>,
+    ) -> Result<(), ReplacementError<ID_SIZE>>;
+
     /// Returns an existing [Contact] if present.
     fn contact(&self, id: &NodeId<ID_SIZE>) -> Option<&Contact<ID_SIZE>>;
 

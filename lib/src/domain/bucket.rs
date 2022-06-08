@@ -23,12 +23,12 @@ impl<const ID_SIZE: usize> Display for BucketInsetionError<ID_SIZE> {
 impl<const ID_SIZE: usize> Error for BucketInsetionError<ID_SIZE> {}
 
 #[derive(Debug)]
-pub enum BucketReplacementError<const ID_SIZE: usize> {
+pub enum ReplacementError<const ID_SIZE: usize> {
     NotFound(NodeId<ID_SIZE>),
     DuplicateId(NodeId<ID_SIZE>),
 }
 
-impl<const ID_SIZE: usize> Display for BucketReplacementError<ID_SIZE> {
+impl<const ID_SIZE: usize> Display for ReplacementError<ID_SIZE> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotFound(id) => write!(f, "No contact to replace with id {}", id),
@@ -37,7 +37,7 @@ impl<const ID_SIZE: usize> Display for BucketReplacementError<ID_SIZE> {
     }
 }
 
-impl<const ID_SIZE: usize> Error for BucketReplacementError<ID_SIZE> {}
+impl<const ID_SIZE: usize> Error for ReplacementError<ID_SIZE> {}
 
 /// A [Bucket] with fixed size used in the [crate::domain::RoutingTable].
 ///
@@ -129,13 +129,13 @@ impl<const ID_SIZE: usize> Bucket<ID_SIZE> {
         &mut self,
         replace_id: &NodeId<ID_SIZE>,
         with: Contact<ID_SIZE>,
-    ) -> Result<(), BucketReplacementError<ID_SIZE>> {
+    ) -> Result<(), ReplacementError<ID_SIZE>> {
         if !self.contains(replace_id) {
-            return Err(BucketReplacementError::NotFound(replace_id.clone()));
+            return Err(ReplacementError::NotFound(replace_id.clone()));
         }
 
         if self.contains(with.id()) {
-            return Err(BucketReplacementError::DuplicateId(replace_id.clone()));
+            return Err(ReplacementError::DuplicateId(replace_id.clone()));
         }
 
         let contact = self.get_mut(replace_id);
@@ -228,7 +228,7 @@ impl<I> Iterator for Iter<I> {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::{Age, Bucket, BucketReplacementError, Contact, NodeId, Path, StateSeqNr};
+    use crate::domain::{Age, Bucket, Contact, NodeId, Path, ReplacementError, StateSeqNr};
 
     #[test]
     fn insert_test() {
@@ -286,7 +286,7 @@ mod tests {
 
         assert!(matches!(
             bucket.replace(&NodeId::from([0, 1]), contact.clone()),
-            Err(BucketReplacementError::NotFound(_))
+            Err(ReplacementError::NotFound(_))
         ));
 
         assert!(bucket.insert(contact.clone()).is_ok());
