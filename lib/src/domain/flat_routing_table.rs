@@ -224,10 +224,12 @@ impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize> Routi
         bucket.get(id)
     }
 
-    fn random_contact(&self) -> Option<&Contact<ID_SIZE>> {
+    fn random_id(&self) -> Option<&NodeId<ID_SIZE>> {
         let mut rng = rand::thread_rng();
         let random_contact = rng.gen_range(0..self.num_contacts());
-        self.contacts_iter().nth(random_contact)
+        self.contacts_iter()
+            .nth(random_contact)
+            .map(|contact| contact.id())
     }
 
     fn contact_mut(&mut self, id: &NodeId<ID_SIZE>) -> Option<&mut Contact<ID_SIZE>> {
