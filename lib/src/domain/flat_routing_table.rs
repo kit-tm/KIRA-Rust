@@ -19,7 +19,7 @@ pub struct FlatRoutingTable<
     const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE,
     const ACC: usize = 1,
 > {
-    buckets: Vec<Bucket<ID_SIZE>>,
+    buckets: Vec<Bucket<ID_SIZE, BUCKET_SIZE>>,
     root: NodeId<ID_SIZE>,
 }
 
@@ -28,7 +28,7 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
 {
     /// Creates a [RoutingTable] with 0 capacity.
     pub fn new(root: NodeId<ID_SIZE>) -> Result<Self, GroupingError> {
-        Self::with_buckets(root, vec![Bucket::with_size::<BUCKET_SIZE>()])
+        Self::with_buckets(root, vec![Bucket::new()])
     }
 
     /// Create a [RoutingTable] with the capacity of its maximum possible number of buckets.
@@ -36,7 +36,7 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
     /// That is equal to the [NodeId] Size in Bits.
     pub fn with_full_capacity(root: NodeId<ID_SIZE>) -> Result<Self, GroupingError> {
         let mut buckets = Vec::with_capacity(ID_SIZE * 8);
-        buckets.push(Bucket::with_size::<BUCKET_SIZE>());
+        buckets.push(Bucket::new());
         Self::with_buckets(root, buckets)
     }
 
@@ -44,7 +44,7 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
     // this can be converted to a const function.
     fn with_buckets(
         root: NodeId<ID_SIZE>,
-        buckets: Vec<Bucket<ID_SIZE>>,
+        buckets: Vec<Bucket<ID_SIZE, BUCKET_SIZE>>,
     ) -> Result<Self, GroupingError> {
         if ACC < ID_SIZE || ACC == 0 {
             return Err(GroupingError::Invalid {
@@ -136,13 +136,13 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
 
     /// Returns the Bucket the [NodeId] should be located in based on the
     /// current state of the [RoutingTable].
-    fn bucket(&self, of: &NodeId<ID_SIZE>) -> &Bucket<ID_SIZE> {
+    fn bucket(&self, of: &NodeId<ID_SIZE>) -> &Bucket<ID_SIZE, BUCKET_SIZE> {
         let index = self.get_bucket_index(of);
         &self.buckets[index]
     }
 
     /// Returns a mutable reference to the [Bucket] for the given [NodeId].
-    fn bucket_mut(&mut self, of: &NodeId<ID_SIZE>) -> &mut Bucket<ID_SIZE> {
+    fn bucket_mut(&mut self, of: &NodeId<ID_SIZE>) -> &mut Bucket<ID_SIZE, BUCKET_SIZE> {
         let index = self.get_bucket_index(of);
         &mut self.buckets[index]
     }
@@ -257,8 +257,8 @@ impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize> Routi
         }
         let bucket = self.buckets.remove(bucket_index);
 
-        self.buckets.push(Bucket::with_size::<BUCKET_SIZE>());
-        self.buckets.push(Bucket::with_size::<BUCKET_SIZE>());
+        self.buckets.push(Bucket::new());
+        self.buckets.push(Bucket::new());
 
         for contact in bucket {
             if let Err(e) = self.add(contact) {
