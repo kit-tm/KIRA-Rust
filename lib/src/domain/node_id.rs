@@ -152,8 +152,8 @@ impl<const SIZE: usize> NodeId<SIZE> {
         })
     }
 
-    /// Returns the bit started from LSB. Either 0 or 1
-    fn bit(&self, bit_index: usize) -> Result<u8, BitIndexOutOfBounds> {
+    /// Returns the bit at the index starting from LSB. Returns either 0 or 1.
+    pub fn bit(&self, bit_index: usize) -> Result<u8, BitIndexOutOfBounds> {
         let byte = bit_index / 8;
         if byte > SIZE {
             return Err(BitIndexOutOfBounds);
