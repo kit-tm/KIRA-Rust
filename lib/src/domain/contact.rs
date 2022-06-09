@@ -64,6 +64,7 @@ pub struct Contact<const ID_SIZE: usize = DEFAULT_ID_SIZE> {
     last_seen: Timestamp,
     path: Path<ID_SIZE>,
     state_seq_nr: StateSeqNr,
+    redisc_state: RediscoveryState,
 }
 
 impl<const ID_SIZE: usize> Contact<ID_SIZE> {
@@ -80,6 +81,7 @@ impl<const ID_SIZE: usize> Contact<ID_SIZE> {
             last_seen: Timestamp::from(Utc::now()),
             path,
             state_seq_nr,
+            redisc_state: RediscoveryState::None,
         }
     }
 
@@ -133,5 +135,13 @@ impl<const ID_SIZE: usize> Contact<ID_SIZE> {
 
     pub fn state_seq_nr_mut(&mut self) -> &mut StateSeqNr {
         &mut self.state_seq_nr
+    }
+
+    pub fn rediscovery_state(&self) -> &RediscoveryState {
+        &self.redisc_state
+    }
+
+    pub fn rediscovery_state_mut(&mut self) -> &mut RediscoveryState {
+        &mut self.redisc_state
     }
 }
