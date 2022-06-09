@@ -195,8 +195,22 @@ impl<const ID_SIZE: usize, const SIZE: usize> Bucket<ID_SIZE, SIZE> {
         self.contacts.iter().flatten()
     }
 
+    /// Returns an mutable iterator over the contacts in this bucket.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Contact<ID_SIZE>> {
+        self.contacts.iter_mut().flatten()
+    }
+
     pub(crate) fn get_by_index(&self, index: usize) -> Option<&Contact<ID_SIZE>> {
         self.contacts.index(index).as_ref()
+    }
+}
+
+impl<'a, const ID_SIZE: usize, const SIZE: usize> IntoIterator for &'a mut Bucket<ID_SIZE, SIZE> {
+    type Item = &'a mut Contact<ID_SIZE>;
+    type IntoIter = Iter<&'a mut Contact<ID_SIZE>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Iter(self.contacts.iter_mut().flatten().rev().collect())
     }
 }
 

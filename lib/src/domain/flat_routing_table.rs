@@ -133,19 +133,6 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
 
         index.min(num_buckets - 1) // Always at least one bucket present
     }
-
-    /// Returns the Bucket the [NodeId] should be located in based on the
-    /// current state of the [RoutingTable].
-    fn bucket(&self, of: &NodeId<ID_SIZE>) -> &Bucket<ID_SIZE, BUCKET_SIZE> {
-        let index = self.get_bucket_index(of);
-        &self.buckets[index]
-    }
-
-    /// Returns a mutable reference to the [Bucket] for the given [NodeId].
-    fn bucket_mut(&mut self, of: &NodeId<ID_SIZE>) -> &mut Bucket<ID_SIZE, BUCKET_SIZE> {
-        let index = self.get_bucket_index(of);
-        &mut self.buckets[index]
-    }
 }
 
 pub struct Iter<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize> {
@@ -187,10 +174,14 @@ impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize> Itera
     }
 }
 
-impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, ID_SIZE>
-    for FlatRoutingTable<ID_SIZE, BUCKET_SIZE, ACC>
+impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
+    RoutingTable<'a, ID_SIZE, BUCKET_SIZE> for FlatRoutingTable<ID_SIZE, BUCKET_SIZE, ACC>
 {
     type Iter = Iter<'a, ID_SIZE, BUCKET_SIZE, ACC>;
+
+    fn root(&self) -> &NodeId<ID_SIZE> {
+        &self.root
+    }
 
     fn add(&mut self, contact: Contact<ID_SIZE>) -> Result<(), AddError<ID_SIZE>> {
         let bucket = self.bucket_mut(contact.id());
@@ -267,6 +258,16 @@ impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize> Routi
         }
 
         Ok(())
+    }
+
+    fn bucket(&self, of: &NodeId<ID_SIZE>) -> &Bucket<ID_SIZE, BUCKET_SIZE> {
+        let index = self.get_bucket_index(of);
+        &self.buckets[index]
+    }
+
+    fn bucket_mut(&mut self, of: &NodeId<ID_SIZE>) -> &mut Bucket<ID_SIZE, BUCKET_SIZE> {
+        let index = self.get_bucket_index(of);
+        &mut self.buckets[index]
     }
 }
 

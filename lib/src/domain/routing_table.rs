@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::domain::{Contact, NodeId, ReplacementError};
+use crate::domain::{Bucket, Contact, NodeId, ReplacementError};
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum AddError<const ID_SIZE: usize> {
@@ -66,8 +66,11 @@ impl<const ID_SIZE: usize> From<BucketSplitError> for InsertionError<ID_SIZE> {
     }
 }
 
-pub trait RoutingTable<'a, const ID_SIZE: usize> {
+pub trait RoutingTable<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize> {
     type Iter: Iterator<Item = &'a Contact<ID_SIZE>>;
+
+    /// Returns the root [NodeId] of the [RoutingTable].
+    fn root(&self) -> &NodeId<ID_SIZE>;
 
     /// Add a new [Contact] to the [RoutingTable].
     ///
@@ -109,6 +112,13 @@ pub trait RoutingTable<'a, const ID_SIZE: usize> {
     ///
     /// This doesn't require a [Contact] inside the [Bucket] with the id.
     fn split_bucket(&mut self, id: &NodeId<ID_SIZE>) -> Result<(), BucketSplitError>;
+
+    /// Returns the Bucket the [NodeId] should be located in based on the
+    /// current state of the [RoutingTable].
+    fn bucket(&self, of: &NodeId<ID_SIZE>) -> &Bucket<ID_SIZE, BUCKET_SIZE>;
+
+    /// Returns a mutable reference to the [Bucket] for the given [NodeId].
+    fn bucket_mut(&mut self, of: &NodeId<ID_SIZE>) -> &mut Bucket<ID_SIZE, BUCKET_SIZE>;
 
     /// Inserts a [Contact] into the table by splitting the [Bucket] until
     /// Insertion succeeds or splitting failed.

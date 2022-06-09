@@ -10,6 +10,7 @@ edition = "2021"
 chrono = "0.4.19"
 # Hexadecimal Output formatting of NodeIDs. Non-Optional as basic functionality for a NodeID.
 hex = "0.4.3"
+log = "0.4.17"
 # Random NodeId generation
 rand = "0.8.5"
 

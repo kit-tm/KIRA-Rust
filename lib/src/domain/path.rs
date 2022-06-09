@@ -58,6 +58,10 @@ impl<const ID_SIZE: usize> Path<ID_SIZE> {
     pub fn is_empty(&self) -> bool {
         self.ids.is_empty()
     }
+    /// Returns if the [Path] contains the [NodeId].
+    pub fn contains(&self, id: &NodeId<ID_SIZE>) -> bool {
+        self.ids.contains(id)
+    }
 }
 
 // ============ Formatting ============
