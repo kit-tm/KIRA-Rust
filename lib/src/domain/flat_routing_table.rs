@@ -196,8 +196,8 @@ impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize> Routi
         let bucket = self.bucket_mut(contact.id());
 
         match bucket.insert(contact) {
-            Err(super::bucket::BucketInsetionError::<ID_SIZE>::Full) => Err(AddError::NotAdded),
-            Err(super::bucket::BucketInsetionError::<ID_SIZE>::DuplicateId(id)) => {
+            Err(super::bucket::BucketInsertionError::<ID_SIZE>::Full) => Err(AddError::NotAdded),
+            Err(super::bucket::BucketInsertionError::<ID_SIZE>::DuplicateId(id)) => {
                 Err(AddError::AlreadyExists(id))
             }
             Ok(_) => Ok(()),

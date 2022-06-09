@@ -23,7 +23,7 @@ pub const DEFAULT_ID_SIZE: usize = 14;
 #[derive(Debug, Clone, Eq)]
 pub struct NodeId<const SIZE: usize = DEFAULT_ID_SIZE> {
     // Sorted from MSB to LSB (Big Endian representation)
-    inner: [u8; SIZE],
+    bytes: [u8; SIZE],
 }
 
 // ============ Initializers ============
@@ -32,7 +32,7 @@ pub struct NodeId<const SIZE: usize = DEFAULT_ID_SIZE> {
 impl<const SIZE: usize> NodeId<SIZE> {
     /// Creating a [NodeId] with the numerical value of 0.
     pub const fn zero() -> Self {
-        Self { inner: [0u8; SIZE] }
+        Self { bytes: [0u8; SIZE] }
     }
 
     /// Creating a [NodeId] with the numerical value of 1.
@@ -47,14 +47,14 @@ impl<const SIZE: usize> NodeId<SIZE> {
 
         let mut inner = [0u8; SIZE];
         inner[SIZE - 1] = 1u8;
-        Self { inner }
+        Self { bytes: inner }
     }
 
     /// Returns the maximum representable [NodeId] for the given Byte size.
     /// This is equal to all bits in a [NodeId] == 1.
     pub const fn max_value() -> Self {
         Self {
-            inner: [0b11111111; SIZE],
+            bytes: [0b11111111; SIZE],
         }
     }
 
@@ -63,15 +63,15 @@ impl<const SIZE: usize> NodeId<SIZE> {
     pub fn random() -> Self {
         let mut inner = [0u8; SIZE];
         let mut rng = rand::thread_rng();
-        while inner == Self::one().inner || inner == Self::zero().inner {
+        while inner == Self::one().bytes || inner == Self::zero().bytes {
             rand::Rng::fill(&mut rng, &mut inner[..SIZE]);
         }
-        Self { inner }
+        Self { bytes: inner }
     }
 
     /// Checks if the [NodeId] is equal to the numerical value of 0;
     pub fn is_zero(&self) -> bool {
-        self.inner == [0u8; SIZE]
+        self.bytes == [0u8; SIZE]
     }
 
     /// Checks if the [NodeId] is equal to the numerical value of 1;
@@ -79,7 +79,7 @@ impl<const SIZE: usize> NodeId<SIZE> {
         if SIZE == 0 {
             return false;
         }
-        self.inner[..(SIZE - 1)] == [0u8; SIZE][..SIZE - 1] && self.inner[SIZE - 1] == 1u8
+        self.bytes[..(SIZE - 1)] == [0u8; SIZE][..SIZE - 1] && self.bytes[SIZE - 1] == 1u8
     }
 
     pub const fn size(&self) -> usize {
@@ -127,7 +127,7 @@ impl<const SIZE: usize> NodeId<SIZE> {
 
         let mut byte_index = 0;
         let mut not_zero_byte = None;
-        for i in xor.inner {
+        for i in xor.bytes {
             match i {
                 0 => byte_index += 1,
                 i => {
@@ -163,7 +163,7 @@ impl<const SIZE: usize> NodeId<SIZE> {
         let byte = SIZE - 1 - byte;
         let byte_offset = 8 - byte_offset;
 
-        let byte = self.inner[byte];
+        let byte = self.bytes[byte];
 
         Ok((byte << (byte_offset - 1)) >> 7)
     }
@@ -257,14 +257,14 @@ impl Error for GroupingError {}
 /// Creates a [NodeId] from a byte array. The resulting [NodeId] has the same size as the given array.
 impl<const SIZE: usize> From<[u8; SIZE]> for NodeId<SIZE> {
     fn from(inner: [u8; SIZE]) -> Self {
-        Self { inner }
+        Self { bytes: inner }
     }
 }
 
 impl From<u128> for NodeId<16> {
     fn from(val: u128) -> Self {
         Self {
-            inner: val.to_be_bytes(),
+            bytes: val.to_be_bytes(),
         }
     }
 }
@@ -273,7 +273,7 @@ impl From<u128> for NodeId<16> {
 
 impl<const SIZE: usize> AsRef<[u8]> for NodeId<SIZE> {
     fn as_ref(&self) -> &[u8] {
-        self.inner.as_ref()
+        self.bytes.as_ref()
     }
 }
 
@@ -292,9 +292,9 @@ impl<'a, const SIZE: usize> BitXor for &'a NodeId<SIZE> {
 
         let mut result = [0u8; SIZE];
         for (i, item) in result.iter_mut().enumerate() {
-            *item = self.inner[i] ^ rhs.inner[i];
+            *item = self.bytes[i] ^ rhs.bytes[i];
         }
-        NodeId { inner: result }
+        NodeId { bytes: result }
     }
 }
 
@@ -308,7 +308,7 @@ impl<const SIZE: usize> BitXor for NodeId<SIZE> {
 
 impl<const SIZE: usize> PartialEq for NodeId<SIZE> {
     fn eq(&self, other: &Self) -> bool {
-        self.inner == other.inner
+        self.bytes == other.bytes
     }
 }
 
@@ -320,7 +320,7 @@ impl<const SIZE: usize> FromStr for NodeId<SIZE> {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut inner = [0u8; SIZE];
         hex::decode_to_slice(s, &mut inner)?;
-        Ok(Self { inner })
+        Ok(Self { bytes: inner })
     }
 }
 

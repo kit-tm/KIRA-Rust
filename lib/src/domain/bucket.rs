@@ -7,12 +7,12 @@ use crate::domain::{Contact, NodeId};
 pub const DEFAULT_BUCKET_SIZE: usize = 20;
 
 #[derive(Debug)]
-pub enum BucketInsetionError<const ID_SIZE: usize> {
+pub enum BucketInsertionError<const ID_SIZE: usize> {
     DuplicateId(NodeId<ID_SIZE>),
     Full,
 }
 
-impl<const ID_SIZE: usize> Display for BucketInsetionError<ID_SIZE> {
+impl<const ID_SIZE: usize> Display for BucketInsertionError<ID_SIZE> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Full => write!(f, "Tried inserting into full bucket"),
@@ -21,7 +21,7 @@ impl<const ID_SIZE: usize> Display for BucketInsetionError<ID_SIZE> {
     }
 }
 
-impl<const ID_SIZE: usize> Error for BucketInsetionError<ID_SIZE> {}
+impl<const ID_SIZE: usize> Error for BucketInsertionError<ID_SIZE> {}
 
 #[derive(Debug)]
 pub enum ReplacementError<const ID_SIZE: usize> {
@@ -47,7 +47,7 @@ impl<const ID_SIZE: usize> Error for ReplacementError<ID_SIZE> {}
 /// TODO: Check if this is a performance overhead
 #[derive(Debug, Eq, PartialEq)]
 pub struct Bucket<const ID_SIZE: usize, const SIZE: usize = DEFAULT_BUCKET_SIZE> {
-    inner: [Option<Contact<ID_SIZE>>; SIZE],
+    contacts: [Option<Contact<ID_SIZE>>; SIZE],
 }
 
 impl<const ID_SIZE: usize, const SIZE: usize> Default for Bucket<ID_SIZE, SIZE> {
@@ -61,23 +61,23 @@ impl<const ID_SIZE: usize, const SIZE: usize> Bucket<ID_SIZE, SIZE> {
     pub fn new() -> Self {
         Self {
             // Workaround for Contact not implementing Copy
-            inner: [(); SIZE].map(|_| Option::default()),
+            contacts: [(); SIZE].map(|_| Option::default()),
         }
     }
 
     /// Returns if the [Bucket] contains any [Contact].
     pub fn is_empty(&self) -> bool {
-        !self.inner.iter().any(|entry| entry.is_some())
+        !self.contacts.iter().any(|entry| entry.is_some())
     }
 
     /// Returns if the [Bucket] has reached it's maximum size.
     pub fn is_full(&self) -> bool {
-        !self.inner.iter().any(|entry| entry.is_none())
+        !self.contacts.iter().any(|entry| entry.is_none())
     }
 
     /// Gets a [Contact] in the [Bucket] by [NodeId].
     pub fn get(&self, id: &NodeId<ID_SIZE>) -> Option<&Contact<ID_SIZE>> {
-        self.inner
+        self.contacts
             .iter()
             .flatten()
             .find(|contact| contact.id() == id)
@@ -85,17 +85,17 @@ impl<const ID_SIZE: usize, const SIZE: usize> Bucket<ID_SIZE, SIZE> {
 
     /// Returns the number of [Contact]s in the [Bucket].
     pub fn len(&self) -> usize {
-        self.inner.iter().flatten().count()
+        self.contacts.iter().flatten().count()
     }
 
     /// Returns the maximum size of the [Bucket].
-    pub const fn size(&self) -> usize {
+    pub const fn max_size(&self) -> usize {
         SIZE
     }
 
     /// Returns if a [Contact] with a given [NodeId] is in the [Bucket].
     pub fn contains(&self, id: &NodeId<ID_SIZE>) -> bool {
-        self.inner
+        self.contacts
             .iter()
             .flatten()
             .any(|contact| contact.id() == id)
@@ -104,23 +104,23 @@ impl<const ID_SIZE: usize, const SIZE: usize> Bucket<ID_SIZE, SIZE> {
     /// Returns a mutable reference to the place of the [Contact] with the given [NodeId]
     /// if present in the [Bucket].
     pub fn get_mut(&mut self, id: &NodeId<ID_SIZE>) -> Option<&mut Contact<ID_SIZE>> {
-        self.inner
+        self.contacts
             .iter_mut()
             .flatten()
             .find(|contact| contact.id() == id)
     }
 
     fn empty_entry_mut(&mut self) -> Option<&mut Option<Contact<ID_SIZE>>> {
-        self.inner.iter_mut().find(|entry| entry.is_none())
+        self.contacts.iter_mut().find(|entry| entry.is_none())
     }
 
     /// Tries to insert a [Contact] into the [Bucket].
     pub fn insert(
         &mut self,
         contact: Contact<ID_SIZE>,
-    ) -> Result<(), BucketInsetionError<ID_SIZE>> {
+    ) -> Result<(), BucketInsertionError<ID_SIZE>> {
         if self.contains(contact.id()) {
-            return Err(BucketInsetionError::DuplicateId(contact.into_id()));
+            return Err(BucketInsertionError::DuplicateId(contact.into_id()));
         }
 
         match self.empty_entry_mut() {
@@ -128,7 +128,7 @@ impl<const ID_SIZE: usize, const SIZE: usize> Bucket<ID_SIZE, SIZE> {
                 *entry = Some(contact);
                 Ok(())
             }
-            None => Err(BucketInsetionError::Full),
+            None => Err(BucketInsertionError::Full),
         }
     }
 
@@ -157,7 +157,7 @@ impl<const ID_SIZE: usize, const SIZE: usize> Bucket<ID_SIZE, SIZE> {
 
     /// Removes a [Contact] from the [Bucket] returning it if present.
     pub fn remove(&mut self, id: &NodeId<ID_SIZE>) -> Option<Contact<ID_SIZE>> {
-        self.inner.iter_mut().find_map(|contact| {
+        self.contacts.iter_mut().find_map(|contact| {
             if contact.is_some() && contact.as_ref().unwrap().id() == id {
                 contact.take()
             } else {
@@ -177,11 +177,11 @@ impl<const ID_SIZE: usize, const SIZE: usize> Bucket<ID_SIZE, SIZE> {
         &mut self,
         other: &mut Bucket<ID_SIZE, OTHER_SIZE>,
         mut predicate: F,
-    ) -> Result<(), BucketInsetionError<ID_SIZE>>
+    ) -> Result<(), BucketInsertionError<ID_SIZE>>
     where
         F: FnMut(&Contact<ID_SIZE>) -> bool,
     {
-        for contact in &mut self.inner {
+        for contact in &mut self.contacts {
             if contact.is_some() && predicate(contact.as_ref().unwrap()) {
                 other.insert(contact.take().unwrap())?;
             }
@@ -192,11 +192,11 @@ impl<const ID_SIZE: usize, const SIZE: usize> Bucket<ID_SIZE, SIZE> {
 
     /// Returns an iterator over the contacts in this bucket.
     pub fn iter(&self) -> impl Iterator<Item = &Contact<ID_SIZE>> {
-        self.inner.iter().flatten()
+        self.contacts.iter().flatten()
     }
 
     pub(crate) fn get_by_index(&self, index: usize) -> Option<&Contact<ID_SIZE>> {
-        self.inner.index(index).as_ref()
+        self.contacts.index(index).as_ref()
     }
 }
 
@@ -205,7 +205,7 @@ impl<'a, const ID_SIZE: usize, const SIZE: usize> IntoIterator for &'a Bucket<ID
     type IntoIter = Iter<&'a Contact<ID_SIZE>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        Iter(self.inner.iter().flatten().rev().collect())
+        Iter(self.contacts.iter().flatten().rev().collect())
     }
 }
 
@@ -214,7 +214,7 @@ impl<const ID_SIZE: usize, const SIZE: usize> IntoIterator for Bucket<ID_SIZE, S
     type IntoIter = Iter<Contact<ID_SIZE>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        let mut inner = Vec::from_iter(self.inner.into_iter().flatten());
+        let mut inner = Vec::from_iter(self.contacts.into_iter().flatten());
         inner.reverse();
         Iter(inner)
     }

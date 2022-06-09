@@ -9,7 +9,7 @@ use crate::domain::{NodeId, DEFAULT_ID_SIZE};
 /// This implementation is backed by a [Vec].
 #[derive(Debug, Clone)]
 pub struct Path<const ID_SIZE: usize = DEFAULT_ID_SIZE> {
-    inner: Vec<NodeId<ID_SIZE>>,
+    ids: Vec<NodeId<ID_SIZE>>,
 }
 
 /// Converts a Vector of [NodeId]s to a Path.
@@ -18,14 +18,14 @@ pub struct Path<const ID_SIZE: usize = DEFAULT_ID_SIZE> {
 /// with [Vec::shrink_to_fit]
 impl<const ID_SIZE: usize> From<Vec<NodeId<ID_SIZE>>> for Path<ID_SIZE> {
     fn from(vec: Vec<NodeId<ID_SIZE>>) -> Self {
-        Self { inner: vec }
+        Self { ids: vec }
     }
 }
 
 impl<const ID_SIZE: usize> From<&[NodeId<ID_SIZE>]> for Path<ID_SIZE> {
     fn from(slice: &[NodeId<ID_SIZE>]) -> Self {
         Self {
-            inner: Vec::from(slice),
+            ids: Vec::from(slice),
         }
     }
 }
@@ -35,7 +35,7 @@ impl<const PATH_SIZE: usize, const ID_SIZE: usize> From<[NodeId<ID_SIZE>; PATH_S
 {
     fn from(raw: [NodeId<ID_SIZE>; PATH_SIZE]) -> Self {
         Self {
-            inner: Vec::from(raw),
+            ids: Vec::from(raw),
         }
     }
 }
@@ -43,20 +43,20 @@ impl<const PATH_SIZE: usize, const ID_SIZE: usize> From<[NodeId<ID_SIZE>; PATH_S
 impl<const ID_SIZE: usize> Path<ID_SIZE> {
     /// Creates an empty [Path].
     pub const fn empty() -> Self {
-        Path { inner: Vec::new() }
+        Path { ids: Vec::new() }
     }
 
     /// Reverses the [Path] in-place.
     pub fn reverse(&mut self) {
-        self.inner.reverse();
+        self.ids.reverse();
     }
     /// Length of the [Path] in numbers of Nodes.
     pub fn len(&self) -> usize {
-        self.inner.len()
+        self.ids.len()
     }
     /// Returns if the Path is empty.
     pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
+        self.ids.is_empty()
     }
 }
 
@@ -65,8 +65,8 @@ impl<const ID_SIZE: usize> Path<ID_SIZE> {
 impl<const ID_SIZE: usize> Display for Path<ID_SIZE> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "<")?;
-        let length = self.inner.len();
-        for (index, id) in self.inner.iter().enumerate() {
+        let length = self.ids.len();
+        for (index, id) in self.ids.iter().enumerate() {
             write!(f, "{}", id)?;
             if index < length - 1 {
                 write!(f, ",")?;
@@ -83,7 +83,7 @@ impl<const ID_SIZE: usize> PartialEq<Self> for Path<ID_SIZE> {
         if self.len() != other.len() {
             return false;
         }
-        for (left, right) in self.inner.iter().zip(other.inner.iter()) {
+        for (left, right) in self.ids.iter().zip(other.ids.iter()) {
             if left != right {
                 return false;
             }
@@ -103,7 +103,7 @@ where
     type Output = Idx::Output;
 
     fn index(&self, index: Idx) -> &Self::Output {
-        self.inner.index(index)
+        self.ids.index(index)
     }
 }
 
