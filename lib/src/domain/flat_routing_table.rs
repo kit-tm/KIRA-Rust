@@ -338,4 +338,80 @@ mod routing_tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_insert_to_max_buckets() -> Result<(), Box<dyn Error>> {
+        let mut table = FlatRoutingTable::<1, 1, 1>::new(NodeId::<1>::zero())?;
+
+        table.insert(Contact::new(
+            NodeId::from([0b00000001]),
+            Age::from(0),
+            Path::empty(),
+            StateSeqNr::from(0),
+        ))?;
+
+        table.insert(Contact::new(
+            NodeId::from([0b00000010]),
+            Age::from(0),
+            Path::empty(),
+            StateSeqNr::from(0),
+        ))?;
+
+        table.insert(Contact::new(
+            NodeId::from([0b00000100]),
+            Age::from(0),
+            Path::empty(),
+            StateSeqNr::from(0),
+        ))?;
+
+        table.insert(Contact::new(
+            NodeId::from([0b00001000]),
+            Age::from(0),
+            Path::empty(),
+            StateSeqNr::from(0),
+        ))?;
+
+        table.insert(Contact::new(
+            NodeId::from([0b00010000]),
+            Age::from(0),
+            Path::empty(),
+            StateSeqNr::from(0),
+        ))?;
+
+        table.insert(Contact::new(
+            NodeId::from([0b00100000]),
+            Age::from(0),
+            Path::empty(),
+            StateSeqNr::from(0),
+        ))?;
+
+        table.insert(Contact::new(
+            NodeId::from([0b01000000]),
+            Age::from(0),
+            Path::empty(),
+            StateSeqNr::from(0),
+        ))?;
+
+        table.insert(Contact::new(
+            NodeId::from([0b10000000]),
+            Age::from(0),
+            Path::empty(),
+            StateSeqNr::from(0),
+        ))?;
+
+        assert!(table
+            .insert(Contact::new(
+                NodeId::from([0b00010111]),
+                Age::from(0),
+                Path::empty(),
+                StateSeqNr::from(0)
+            ))
+            .is_err());
+        assert_eq!(
+            table.num_buckets(),
+            FlatRoutingTable::<1, 1, 1>::max_buckets()
+        );
+
+        Ok(())
+    }
 }
