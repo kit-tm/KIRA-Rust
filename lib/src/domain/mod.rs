@@ -8,6 +8,7 @@ pub use node_id::*;
 pub use neighbor_table::*;
 pub use neighbor_hash_table::*;
 pub use path::*;
+pub use path_simplifier::*;
 pub use path_validator::*;
 pub use routing_table::*;
 
@@ -20,6 +21,7 @@ mod neighbor_table;
 mod neighbor_hash_table;
 mod node_id;
 mod path;
+mod path_simplifier;
 mod path_validator;
 mod routing_table;
 

@@ -102,18 +102,29 @@ impl<const ID_SIZE: usize> Path<ID_SIZE> {
         }
     }
 
-    /// Replace a part of the [Path] with a slice of [NodeId]s and return it.
-    pub fn with_interval_replaced<P: AsRef<[NodeId<ID_SIZE>]>>(
-        &self,
+    /// Replaces an interval in the [Path] with other [NodeId]s.
+    pub fn replace_interval<P: AsRef<[NodeId<ID_SIZE>]>>(
+        &mut self,
         start_index: usize,
         end_index: usize,
         part: P,
-    ) -> Path<ID_SIZE> {
-        let mut path = Path::from(&self[..start_index]);
-        path.ids.extend(part.as_ref().iter().cloned());
-        path.ids
-            .extend((&self.ids[(end_index + 1)..]).iter().cloned());
-        path
+    ) {
+        if start_index > end_index {
+            panic!("Start index has to be <= end index");
+        }
+        // Remove all elements to replace
+        for _ in 0..(end_index - start_index + 1) {
+            self.ids.remove(start_index);
+        }
+        for id in part.as_ref().iter().cloned() {
+            self.ids.insert(start_index, id);
+        }
+    }
+
+    /// Returns an [Iterator] over its elements from start
+    /// to end.
+    pub fn iter(&self) -> impl Iterator<Item=&NodeId<ID_SIZE>> {
+        self.ids.iter()
     }
 }
 
@@ -352,8 +363,8 @@ mod tests {
     }
 
     #[test]
-    fn with_interval_replaced() {
-        let path = Path::from([
+    fn replace_interval() {
+        let mut path = Path::from([
             NodeId::<1>::from([1]),
             NodeId::<1>::from([2]),
             NodeId::<1>::from([3]),
@@ -362,8 +373,10 @@ mod tests {
             NodeId::<1>::from([6]),
         ]);
 
+        path.replace_interval(1, 3, &[NodeId::zero()]);
+
         assert_eq!(
-            path.with_interval_replaced(1, 3, &[NodeId::zero()]),
+            path,
             Path::from([
                 NodeId::<1>::from([1]),
                 NodeId::<1>::from([0]),
@@ -371,27 +384,46 @@ mod tests {
                 NodeId::<1>::from([6]),
             ])
         );
+    }
+
+    #[test]
+    fn replace_interval_start() {
+        let mut path = Path::from([
+            NodeId::<1>::from([1]),
+            NodeId::<1>::from([2]),
+            NodeId::<1>::from([3]),
+            NodeId::<1>::from([4]),
+            NodeId::<1>::from([5]),
+            NodeId::<1>::from([6]),
+        ]);
+
+        path.replace_interval(0, 3, &[NodeId::zero()]);
 
         assert_eq!(
-            path.with_interval_replaced(0, 3, &[NodeId::zero()]),
+            path,
             Path::from([
                 NodeId::<1>::from([0]),
                 NodeId::<1>::from([5]),
                 NodeId::<1>::from([6]),
             ])
         );
+    }
+
+    #[test]
+    fn replace_interval_end() {
+        let mut path = Path::from([
+            NodeId::<1>::from([1]),
+            NodeId::<1>::from([2]),
+            NodeId::<1>::from([3]),
+            NodeId::<1>::from([4]),
+            NodeId::<1>::from([5]),
+            NodeId::<1>::from([6]),
+        ]);
+
+        path.replace_interval(3, 5, &[NodeId::zero()]);
 
         assert_eq!(
-            path.with_interval_replaced(0, 3, &[NodeId::zero()]),
-            Path::from([
-                NodeId::<1>::from([0]),
-                NodeId::<1>::from([5]),
-                NodeId::<1>::from([6]),
-            ])
-        );
-
-        assert_eq!(
-            path.with_interval_replaced(3, 5, &[NodeId::zero()]),
+            path,
             Path::from([
                 NodeId::<1>::from([1]),
                 NodeId::<1>::from([2]),

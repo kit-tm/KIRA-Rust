@@ -4,6 +4,12 @@ use super::{Path, RoutingTable, NeighborTable};
 
 pub struct PathValidator<const ID_SIZE: usize>(pub Path<ID_SIZE>);
 
+impl<const ID_SIZE: usize> From<Path<ID_SIZE>> for PathValidator<ID_SIZE> {
+    fn from(path: Path<ID_SIZE>) -> Self {
+        Self(path)
+    }
+}
+
 impl<const ID_SIZE: usize> Deref for PathValidator<ID_SIZE> {
     type Target = Path<ID_SIZE>;
 
