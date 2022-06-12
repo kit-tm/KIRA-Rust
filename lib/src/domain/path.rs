@@ -62,6 +62,45 @@ impl<const ID_SIZE: usize> Path<ID_SIZE> {
     pub fn contains(&self, id: &NodeId<ID_SIZE>) -> bool {
         self.ids.contains(id)
     }
+    /// Returns the first entry in the [Path].
+    pub fn first(&self) -> Option<&NodeId<ID_SIZE>> {
+        self.ids.first()
+    }
+    /// Remove all entries inside the interval [start_index, end_index).
+    /// Note that the end_index is excluded.
+    fn remove_in(&mut self, start_index: usize, end_index: usize) {
+        assert!(end_index > start_index);
+        assert!(end_index <= self.ids.len());
+        let num = end_index - start_index;
+        for _ in 0..num {
+            self.ids.remove(start_index);
+        }
+    }
+    /// Simpplify the [Path] by removing cycles.
+    pub fn simplify(&mut self) {
+        if self.len() < 2 {
+            return;
+        }
+
+        let mut iter = self.ids.clone().into_iter();
+        let mut index = 0;
+        while let Some(id) = iter.next() {
+            if index == self.ids.len() {
+                // skipped enough to have reached the last element
+                break;
+            }
+            let remaining_ids = &self.ids[(index + 1)..];
+            let pos = remaining_ids
+                .iter()
+                .position(|duplicate_id| duplicate_id == &id);
+            if let Some(end) = pos {
+                let end = index + 1 + end;
+                iter.nth(end - index - 1);
+                self.remove_in(index, end);
+            }
+            index += 1;
+        }
+    }
 }
 
 // ============ Formatting ============
@@ -182,5 +221,119 @@ mod tests {
                 NodeId::<1>::from([15]),
             ])
         )
+    }
+
+    #[test]
+    fn remove_in() {
+        let mut path = Path::from([
+            NodeId::<1>::from([1]),
+            NodeId::<1>::from([2]),
+            NodeId::<1>::from([3]),
+            NodeId::<1>::from([4]),
+            NodeId::<1>::from([5]),
+        ]);
+
+        path.remove_in(1, 3);
+
+        assert_eq!(
+            path,
+            Path::from([
+                NodeId::<1>::from([1]),
+                NodeId::<1>::from([4]),
+                NodeId::<1>::from([5]),
+            ])
+        );
+
+        path.remove_in(1, 2);
+
+        assert_eq!(
+            path,
+            Path::from([NodeId::<1>::from([1]), NodeId::<1>::from([5]),])
+        );
+    }
+
+    #[test]
+    fn path_simplify() {
+        let mut path = Path::from([
+            NodeId::<1>::from([1]),
+            NodeId::<1>::from([2]),
+            NodeId::<1>::from([3]),
+            NodeId::<1>::from([2]),
+            NodeId::<1>::from([5]),
+        ]);
+
+        path.simplify();
+
+        assert_eq!(
+            path,
+            Path::from([
+                NodeId::<1>::from([1]),
+                NodeId::<1>::from([2]),
+                NodeId::<1>::from([5]),
+            ])
+        );
+    }
+
+    #[test]
+    fn path_simplify_start() {
+        let mut path = Path::from([
+            NodeId::<1>::from([1]),
+            NodeId::<1>::from([2]),
+            NodeId::<1>::from([1]),
+            NodeId::<1>::from([4]),
+            NodeId::<1>::from([5]),
+        ]);
+
+        path.simplify();
+
+        assert_eq!(
+            path,
+            Path::from([
+                NodeId::<1>::from([1]),
+                NodeId::<1>::from([4]),
+                NodeId::<1>::from([5]),
+            ])
+        );
+    }
+
+    #[test]
+    fn path_simplify_end() {
+        let mut path = Path::from([
+            NodeId::<1>::from([1]),
+            NodeId::<1>::from([2]),
+            NodeId::<1>::from([3]),
+            NodeId::<1>::from([4]),
+            NodeId::<1>::from([3]),
+        ]);
+
+        path.simplify();
+
+        assert_eq!(
+            path,
+            Path::from([
+                NodeId::<1>::from([1]),
+                NodeId::<1>::from([2]),
+                NodeId::<1>::from([3]),
+            ])
+        );
+    }
+
+    #[test]
+    fn path_simplify_multiple() {
+        let mut path = Path::from([
+            NodeId::<1>::from([1]),
+            NodeId::<1>::from([2]),
+            NodeId::<1>::from([1]),
+            NodeId::<1>::from([3]),
+            NodeId::<1>::from([4]),
+            NodeId::<1>::from([3]),
+        ]);
+
+        path.simplify();
+
+        assert_eq!(
+            path,
+            Path::from([NodeId::<1>::from([1]), NodeId::<1>::from([3]),])
+        );
     }
 }

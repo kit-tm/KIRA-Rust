@@ -20,7 +20,7 @@ pub const DEFAULT_ID_SIZE: usize = 14;
 /// TODO:
 ///     - Evaluate performance gains by using const generics?
 ///     - What should be the "default" value for a NodeId?
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone, Eq, Hash)]
 pub struct NodeId<const SIZE: usize = DEFAULT_ID_SIZE> {
     // Sorted from MSB to LSB (Big Endian representation)
     bytes: [u8; SIZE],
