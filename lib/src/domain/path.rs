@@ -77,7 +77,7 @@ impl<const ID_SIZE: usize> Path<ID_SIZE> {
         }
     }
     /// Simpplify the [Path] by removing cycles.
-    pub fn simplify(&mut self) {
+    pub fn remove_cycles(&mut self) {
         if self.len() < 2 {
             return;
         }
@@ -100,6 +100,20 @@ impl<const ID_SIZE: usize> Path<ID_SIZE> {
             }
             index += 1;
         }
+    }
+
+    /// Replace a part of the [Path] with a slice of [NodeId]s and return it.
+    pub fn with_interval_replaced<P: AsRef<[NodeId<ID_SIZE>]>>(
+        &self,
+        start_index: usize,
+        end_index: usize,
+        part: P,
+    ) -> Path<ID_SIZE> {
+        let mut path = Path::from(&self[..start_index]);
+        path.ids.extend(part.as_ref().iter().cloned());
+        path.ids
+            .extend((&self.ids[(end_index + 1)..]).iter().cloned());
+        path
     }
 }
 
@@ -262,7 +276,7 @@ mod tests {
             NodeId::<1>::from([5]),
         ]);
 
-        path.simplify();
+        path.remove_cycles();
 
         assert_eq!(
             path,
@@ -284,7 +298,7 @@ mod tests {
             NodeId::<1>::from([5]),
         ]);
 
-        path.simplify();
+        path.remove_cycles();
 
         assert_eq!(
             path,
@@ -306,7 +320,7 @@ mod tests {
             NodeId::<1>::from([3]),
         ]);
 
-        path.simplify();
+        path.remove_cycles();
 
         assert_eq!(
             path,
@@ -329,11 +343,61 @@ mod tests {
             NodeId::<1>::from([3]),
         ]);
 
-        path.simplify();
+        path.remove_cycles();
 
         assert_eq!(
             path,
             Path::from([NodeId::<1>::from([1]), NodeId::<1>::from([3]),])
+        );
+    }
+
+    #[test]
+    fn with_interval_replaced() {
+        let path = Path::from([
+            NodeId::<1>::from([1]),
+            NodeId::<1>::from([2]),
+            NodeId::<1>::from([3]),
+            NodeId::<1>::from([4]),
+            NodeId::<1>::from([5]),
+            NodeId::<1>::from([6]),
+        ]);
+
+        assert_eq!(
+            path.with_interval_replaced(1, 3, &[NodeId::zero()]),
+            Path::from([
+                NodeId::<1>::from([1]),
+                NodeId::<1>::from([0]),
+                NodeId::<1>::from([5]),
+                NodeId::<1>::from([6]),
+            ])
+        );
+
+        assert_eq!(
+            path.with_interval_replaced(0, 3, &[NodeId::zero()]),
+            Path::from([
+                NodeId::<1>::from([0]),
+                NodeId::<1>::from([5]),
+                NodeId::<1>::from([6]),
+            ])
+        );
+
+        assert_eq!(
+            path.with_interval_replaced(0, 3, &[NodeId::zero()]),
+            Path::from([
+                NodeId::<1>::from([0]),
+                NodeId::<1>::from([5]),
+                NodeId::<1>::from([6]),
+            ])
+        );
+
+        assert_eq!(
+            path.with_interval_replaced(3, 5, &[NodeId::zero()]),
+            Path::from([
+                NodeId::<1>::from([1]),
+                NodeId::<1>::from([2]),
+                NodeId::<1>::from([3]),
+                NodeId::<1>::from([0]),
+            ])
         );
     }
 }
