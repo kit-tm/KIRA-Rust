@@ -55,7 +55,10 @@ pub struct RediscoveryData<const ID_SIZE: usize = DEFAULT_ID_SIZE> {
     retry_counter: usize,
 }
 
-/// A Contact as represented in the RoutingTable.
+/// A [Contact] as represented in the [RoutingTable].
+/// 
+/// The [Path] of a [Contact] is guaranteed to end with the [Contact]s
+/// [NodeId].
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Contact<const ID_SIZE: usize = DEFAULT_ID_SIZE> {
     id: NodeId<ID_SIZE>,
@@ -68,12 +71,17 @@ pub struct Contact<const ID_SIZE: usize = DEFAULT_ID_SIZE> {
 }
 
 impl<const ID_SIZE: usize> Contact<ID_SIZE> {
+    /// Creates a new [Contact] with default values.
+    /// 
+    /// The [Path] is not allowed to end with the given [NodeId]
+    /// for the [Contact] but won't be checked.
     pub fn new(
         id: NodeId<ID_SIZE>,
         age: Age,
         path: Path<ID_SIZE>,
         state_seq_nr: StateSeqNr,
     ) -> Self {
+        assert!(path.last() != Some(&id));
         Self {
             id,
             state: State::Valid,
@@ -121,12 +129,22 @@ impl<const ID_SIZE: usize> Contact<ID_SIZE> {
         &mut self.last_seen
     }
 
+    /// Returns the [Path] to the [Contact] without the
+    /// [NodeId] of the [Contact] itself as last element.
     pub fn path(&self) -> &Path<ID_SIZE> {
         &self.path
     }
 
     pub fn path_mut(&mut self) -> &mut Path<ID_SIZE> {
         &mut self.path
+    }
+
+    /// Returns the [Path] to the [Contact] ending with the [NodeId] 
+    /// of the [Contact] itself.
+    pub fn whole_path(&self) -> Path<ID_SIZE> {
+        let mut path = self.path.clone();
+        path.push(self.id.clone());
+        path
     }
 
     pub fn state_seq_nr(&self) -> &StateSeqNr {

@@ -20,7 +20,7 @@ pub const DEFAULT_ID_SIZE: usize = 14;
 /// TODO:
 ///     - Evaluate performance gains by using const generics?
 ///     - What should be the "default" value for a NodeId?
-#[derive(Debug, Clone, Eq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct NodeId<const SIZE: usize = DEFAULT_ID_SIZE> {
     // Sorted from MSB to LSB (Big Endian representation)
     bytes: [u8; SIZE],
@@ -121,7 +121,7 @@ impl<const SIZE: usize> NodeId<SIZE> {
         if self == other {
             return Ok(SharedPrefix {
                 xor,
-                value: SIZE / bits_per_group,
+                value: SIZE * 8 / bits_per_group,
             });
         }
 
@@ -306,12 +306,6 @@ impl<const SIZE: usize> BitXor for NodeId<SIZE> {
     }
 }
 
-impl<const SIZE: usize> PartialEq for NodeId<SIZE> {
-    fn eq(&self, other: &Self) -> bool {
-        self.bytes == other.bytes
-    }
-}
-
 const SHORT_OUTPUT_LENGTH: usize = 8;
 
 impl<const SIZE: usize> FromStr for NodeId<SIZE> {
@@ -474,6 +468,17 @@ mod tests {
         assert_eq!(
             one.shared_prefix_bits(&valid).map(|prefix| prefix.value),
             Ok(8)
+        );
+    }
+
+    #[test]
+    fn prefix_len_self() {
+        assert_eq!(
+            NodeId::<1>::zero().shared_prefix_len(&NodeId::zero(), 1),
+            Ok(SharedPrefix {
+                xor: NodeId::zero(),
+                value: 8
+            })
         );
     }
 

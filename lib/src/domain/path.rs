@@ -66,6 +66,14 @@ impl<const ID_SIZE: usize> Path<ID_SIZE> {
     pub fn first(&self) -> Option<&NodeId<ID_SIZE>> {
         self.ids.first()
     }
+    /// Returns the last entry in the [Path].
+    pub fn last(&self) -> Option<&NodeId<ID_SIZE>> {
+        self.ids.last()
+    }
+    /// Pushs a [NodeId] to the end of the [Path].
+    pub fn push(&mut self, id: NodeId<ID_SIZE>) {
+        self.ids.push(id);
+    }
     /// Remove all entries inside the interval [start_index, end_index).
     /// Note that the end_index is excluded.
     fn remove_in(&mut self, start_index: usize, end_index: usize) {
@@ -103,7 +111,7 @@ impl<const ID_SIZE: usize> Path<ID_SIZE> {
     }
 
     /// Replaces an interval in the [Path] with other [NodeId]s.
-    pub fn replace_interval<P: AsRef<[NodeId<ID_SIZE>]>>(
+    pub fn replace_interval<P: IntoIterator<Item=NodeId<ID_SIZE>>>(
         &mut self,
         start_index: usize,
         end_index: usize,
@@ -116,8 +124,8 @@ impl<const ID_SIZE: usize> Path<ID_SIZE> {
         for _ in 0..(end_index - start_index + 1) {
             self.ids.remove(start_index);
         }
-        for id in part.as_ref().iter().cloned() {
-            self.ids.insert(start_index, id);
+        for (i, id) in part.into_iter().enumerate() {
+            self.ids.insert(start_index + i, id);
         }
     }
 
@@ -125,6 +133,14 @@ impl<const ID_SIZE: usize> Path<ID_SIZE> {
     /// to end.
     pub fn iter(&self) -> impl Iterator<Item=&NodeId<ID_SIZE>> {
         self.ids.iter()
+    }
+}
+
+// ============ Conversions ============
+
+impl<const ID_SIZE: usize> AsRef<[NodeId<ID_SIZE>]> for Path<ID_SIZE> {
+    fn as_ref(&self) -> &[NodeId<ID_SIZE>] {
+        self.ids.as_ref()
     }
 }
 
@@ -172,6 +188,17 @@ where
 
     fn index(&self, index: Idx) -> &Self::Output {
         self.ids.index(index)
+    }
+}
+
+// ============ Iteration ============
+
+impl<const ID_SIZE: usize> IntoIterator for Path<ID_SIZE> {
+    type Item = NodeId<ID_SIZE>;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.ids.into_iter()
     }
 }
 
@@ -373,13 +400,14 @@ mod tests {
             NodeId::<1>::from([6]),
         ]);
 
-        path.replace_interval(1, 3, &[NodeId::zero()]);
+        path.replace_interval(1, 3, [NodeId::zero(), NodeId::one()]);
 
         assert_eq!(
             path,
             Path::from([
                 NodeId::<1>::from([1]),
                 NodeId::<1>::from([0]),
+                NodeId::<1>::from([1]),
                 NodeId::<1>::from([5]),
                 NodeId::<1>::from([6]),
             ])
@@ -397,12 +425,13 @@ mod tests {
             NodeId::<1>::from([6]),
         ]);
 
-        path.replace_interval(0, 3, &[NodeId::zero()]);
+        path.replace_interval(0, 3, [NodeId::zero(), NodeId::one()]);
 
         assert_eq!(
             path,
             Path::from([
                 NodeId::<1>::from([0]),
+                NodeId::<1>::from([1]),
                 NodeId::<1>::from([5]),
                 NodeId::<1>::from([6]),
             ])
@@ -420,7 +449,7 @@ mod tests {
             NodeId::<1>::from([6]),
         ]);
 
-        path.replace_interval(3, 5, &[NodeId::zero()]);
+        path.replace_interval(3, 5, [NodeId::zero(), NodeId::one()]);
 
         assert_eq!(
             path,
@@ -429,6 +458,7 @@ mod tests {
                 NodeId::<1>::from([2]),
                 NodeId::<1>::from([3]),
                 NodeId::<1>::from([0]),
+                NodeId::<1>::from([1]),
             ])
         );
     }

@@ -6,6 +6,14 @@ pub struct Interface {
     id: String,
 }
 
+impl Interface {
+    pub fn new(id: String) -> Self {
+        Self {
+            id
+        }
+    }
+}
+
 /// Maps [NodeId]s to [Interface]s.
 pub trait NeighborTable<const ID_SIZE: usize> {
     /// Returns the [Interface] for a [NodeId] if present.
