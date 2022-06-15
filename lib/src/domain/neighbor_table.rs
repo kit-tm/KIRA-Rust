@@ -1,4 +1,4 @@
-use super::{Contact, NodeId};
+use super::NodeId;
 
 /// Represents a physical interface.
 #[derive(Debug, PartialEq, Eq, Clone)]
