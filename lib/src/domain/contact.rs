@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 
-use crate::domain::{Link, NodeId, Path, DEFAULT_ID_SIZE};
+use crate::domain::{Link, NodeId, Path};
 
 /// Specifies in milliseconds how long ago the sender heard about the contact.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
@@ -30,29 +30,28 @@ impl From<DateTime<Utc>> for Timestamp {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum State {
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum State<const ID_SIZE: usize> {
     Valid,
-    Rediscovering,
+    Rediscovering(RediscoveryState<ID_SIZE>),
     Invalid,
     Dead,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub enum RediscoveryState<const ID_SIZE: usize = DEFAULT_ID_SIZE> {
-    None,
-    Urgent(RediscoveryData<ID_SIZE>),
-    Regular(RediscoveryData<ID_SIZE>),
-    Slow(RediscoveryData<ID_SIZE>),
+pub enum RediscoveryType {
+    Urgent,
+    Regular,
+    Slow,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct RediscoveryData<const ID_SIZE: usize = DEFAULT_ID_SIZE> {
-    failed_link: Link<ID_SIZE>,
-    time: Timestamp,
-    failed_link_list: Vec<Link<ID_SIZE>>,
-    via_contacts: Vec<NodeId<ID_SIZE>>,
-    retry_counter: usize,
+pub struct RediscoveryState<const ID_SIZE: usize> {
+    pub typ: RediscoveryType,
+    pub time: Timestamp,
+    pub failed_link_list: Vec<Link<ID_SIZE>>,
+    pub via_contacts: Vec<NodeId<ID_SIZE>>,
+    pub retry_counter: usize,
 }
 
 /// A [Contact] as represented in the [RoutingTable].
@@ -60,14 +59,13 @@ pub struct RediscoveryData<const ID_SIZE: usize = DEFAULT_ID_SIZE> {
 /// The [Path] of a [Contact] is guaranteed to end with the [Contact]s
 /// [NodeId].
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Contact<const ID_SIZE: usize = DEFAULT_ID_SIZE> {
+pub struct Contact<const ID_SIZE: usize> {
     id: NodeId<ID_SIZE>,
-    state: State,
+    state: State<ID_SIZE>,
     age: Age,
     last_seen: Timestamp,
     path: Path<ID_SIZE>,
     state_seq_nr: StateSeqNr,
-    rediscovery_state: RediscoveryState,
 }
 
 impl<const ID_SIZE: usize> Contact<ID_SIZE> {
@@ -89,7 +87,6 @@ impl<const ID_SIZE: usize> Contact<ID_SIZE> {
             last_seen: Timestamp::from(Utc::now()),
             path,
             state_seq_nr,
-            rediscovery_state: RediscoveryState::None,
         }
     }
 
@@ -101,11 +98,11 @@ impl<const ID_SIZE: usize> Contact<ID_SIZE> {
         self.id
     }
 
-    pub fn state(&self) -> &State {
+    pub fn state(&self) -> &State<ID_SIZE> {
         &self.state
     }
 
-    pub fn state_mut(&mut self) -> &mut State {
+    pub fn state_mut(&mut self) -> &mut State<ID_SIZE> {
         &mut self.state
     }
 
@@ -153,13 +150,5 @@ impl<const ID_SIZE: usize> Contact<ID_SIZE> {
 
     pub fn state_seq_nr_mut(&mut self) -> &mut StateSeqNr {
         &mut self.state_seq_nr
-    }
-
-    pub fn rediscovery_state(&self) -> &RediscoveryState {
-        &self.rediscovery_state
-    }
-
-    pub fn rediscovery_state_mut(&mut self) -> &mut RediscoveryState {
-        &mut self.rediscovery_state
     }
 }

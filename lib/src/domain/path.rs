@@ -4,6 +4,8 @@ use std::slice::SliceIndex;
 
 use crate::domain::{NodeId, DEFAULT_ID_SIZE};
 
+use super::Link;
+
 /// A Path of [NodeId]s.
 ///
 /// This implementation is backed by a [Vec].
@@ -62,6 +64,12 @@ impl<const ID_SIZE: usize> Path<ID_SIZE> {
     pub fn contains(&self, id: &NodeId<ID_SIZE>) -> bool {
         self.ids.contains(id)
     }
+    /// Returns if the [Path] contains the [Link].
+    pub fn contains_link(&self, link: &Link<ID_SIZE>) -> bool {
+        self.ids.iter()
+            .zip(self.ids.iter().skip(1))
+            .any(|(first, second)| first == &link.0 && second == &link.1)
+    }
     /// Returns the first entry in the [Path].
     pub fn first(&self) -> Option<&NodeId<ID_SIZE>> {
         self.ids.first()
@@ -73,6 +81,10 @@ impl<const ID_SIZE: usize> Path<ID_SIZE> {
     /// Pushs a [NodeId] to the end of the [Path].
     pub fn push(&mut self, id: NodeId<ID_SIZE>) {
         self.ids.push(id);
+    }
+    /// Removes the last [NodeId] and returns it.
+    pub fn pop(&mut self) -> Option<NodeId<ID_SIZE>> {
+        self.ids.pop()
     }
     /// Remove all entries inside the interval [start_index, end_index).
     /// Note that the end_index is excluded.

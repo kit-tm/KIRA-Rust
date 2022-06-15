@@ -2,15 +2,15 @@ use std::ops::{Deref, DerefMut};
 
 use super::{NeighborTable, Path, RoutingTable};
 
-pub struct PathSimplifier<const ID_SIZE: usize>(Path<ID_SIZE>);
+pub struct PathSimplifier<'a, const ID_SIZE: usize>(&'a mut Path<ID_SIZE>);
 
-impl<const ID_SIZE: usize> From<Path<ID_SIZE>> for PathSimplifier<ID_SIZE> {
-    fn from(path: Path<ID_SIZE>) -> Self {
+impl<'a, const ID_SIZE: usize> From<&'a mut Path<ID_SIZE>> for PathSimplifier<'a, ID_SIZE> {
+    fn from(path: &'a mut Path<ID_SIZE>) -> Self {
         Self(path)
     }
 }
 
-impl<const ID_SIZE: usize> Deref for PathSimplifier<ID_SIZE> {
+impl<const ID_SIZE: usize> Deref for PathSimplifier<'_, ID_SIZE> {
     type Target = Path<ID_SIZE>;
 
     fn deref(&self) -> &Self::Target {
@@ -18,19 +18,19 @@ impl<const ID_SIZE: usize> Deref for PathSimplifier<ID_SIZE> {
     }
 }
 
-impl<const ID_SIZE: usize> DerefMut for PathSimplifier<ID_SIZE> {
+impl<const ID_SIZE: usize> DerefMut for PathSimplifier<'_, ID_SIZE> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl<const ID_SIZE: usize> PathSimplifier<ID_SIZE> {
+impl<const ID_SIZE: usize> PathSimplifier<'_, ID_SIZE> {
     /// Simplifies the [Path] by replacing parts of it with known
     /// shorter [Path]s.
     pub fn simplify<'a, RT, NT, const BUCKET_SIZE: usize>(
         &mut self,
-        routing_table: RT,
-        neighbor_table: NT,
+        routing_table: &RT,
+        neighbor_table: &NT,
     ) where
         RT: RoutingTable<'a, ID_SIZE, BUCKET_SIZE>,
         NT: NeighborTable<ID_SIZE>,
@@ -102,9 +102,10 @@ mod tests {
             NodeId::from([0b10101010]),
         ]);
 
-        let mut simplifier = PathSimplifier::from(path.clone());
+        let mut cloned = path.clone();
+        let mut simplifier = PathSimplifier::from(&mut cloned);
 
-        simplifier.simplify(routing_table, neighbor_table);
+        simplifier.simplify(&routing_table, &neighbor_table);
 
         assert_ne!(*simplifier, path);
         assert_eq!(
@@ -128,9 +129,10 @@ mod tests {
             NodeId::from([0]),
         ]);
 
-        let mut simplifier = PathSimplifier::from(path.clone());
+        let mut cloned = path.clone();
+        let mut simplifier = PathSimplifier::from(&mut cloned);
 
-        simplifier.simplify(routing_table, neighbor_table);
+        simplifier.simplify(&routing_table, &neighbor_table);
 
         assert_ne!(*simplifier, path);
         assert_eq!(*simplifier, Path::from([NodeId::from([0]),]));
@@ -158,9 +160,10 @@ mod tests {
             NodeId::from([4]),
         ]);
 
-        let mut simplifier = PathSimplifier::from(path.clone());
+        let mut cloned = path.clone();
+        let mut simplifier = PathSimplifier::from(&mut cloned);
 
-        simplifier.simplify(routing_table, neighbor_table);
+        simplifier.simplify(&routing_table, &neighbor_table);
 
         assert_ne!(*simplifier, path);
         assert_eq!(
@@ -197,9 +200,10 @@ mod tests {
             NodeId::from([1]),
         ]);
 
-        let mut simplifier = PathSimplifier::from(path.clone());
+        let mut cloned = path.clone();
+        let mut simplifier = PathSimplifier::from(&mut cloned);
 
-        simplifier.simplify(routing_table, neighbor_table);
+        simplifier.simplify(&routing_table, &neighbor_table);
 
         assert_ne!(*simplifier, path);
         assert_eq!(

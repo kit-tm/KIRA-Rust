@@ -25,5 +25,4 @@ mod path_simplifier;
 mod path_validator;
 mod routing_table;
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Link<const ID_SIZE: usize>(NodeId<ID_SIZE>, NodeId<ID_SIZE>);
+pub type Link<const ID_SIZE: usize> = (NodeId<ID_SIZE>, NodeId<ID_SIZE>);
