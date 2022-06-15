@@ -1,4 +1,4 @@
-use super::{StateSeqNr, Age, NodeId};
+use super::{Age, NodeId, StateSeqNr};
 
 /// Value for Entries for the [DiscoveryTable] containing [Contact] information without the [Path].
 pub struct DiscoveryData<const ID_SIZE: usize> {
@@ -11,7 +11,11 @@ pub struct DiscoveryData<const ID_SIZE: usize> {
 pub trait DiscoveryTable<const ID_SIZE: usize> {
     /// Adds a [DiscoveryData] to the [DiscoveryTable] returning the previous
     /// [DiscoveryData] for the [NodeId] if present.
-    fn add(&self, id: NodeId<ID_SIZE>, entry: DiscoveryData<ID_SIZE>) -> Option<DiscoveryData<ID_SIZE>>;
+    fn add(
+        &self,
+        id: NodeId<ID_SIZE>,
+        entry: DiscoveryData<ID_SIZE>,
+    ) -> Option<DiscoveryData<ID_SIZE>>;
     /// Removes [DiscoveryData] from the [DiscoveryTable] by [NodeId] and returns it.
     fn remove(&mut self, id: &NodeId<ID_SIZE>) -> Option<DiscoveryData<ID_SIZE>>;
 }

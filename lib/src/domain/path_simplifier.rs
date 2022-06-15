@@ -204,10 +204,7 @@ mod tests {
         assert_ne!(*simplifier, path);
         assert_eq!(
             *simplifier,
-            Path::from([
-                NodeId::zero(),
-                NodeId::from([1]),
-            ])
+            Path::from([NodeId::zero(), NodeId::from([1]),])
         );
 
         Ok(())

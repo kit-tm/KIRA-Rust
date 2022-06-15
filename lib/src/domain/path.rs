@@ -111,7 +111,7 @@ impl<const ID_SIZE: usize> Path<ID_SIZE> {
     }
 
     /// Replaces an interval in the [Path] with other [NodeId]s.
-    pub fn replace_interval<P: IntoIterator<Item=NodeId<ID_SIZE>>>(
+    pub fn replace_interval<P: IntoIterator<Item = NodeId<ID_SIZE>>>(
         &mut self,
         start_index: usize,
         end_index: usize,
@@ -131,7 +131,7 @@ impl<const ID_SIZE: usize> Path<ID_SIZE> {
 
     /// Returns an [Iterator] over its elements from start
     /// to end.
-    pub fn iter(&self) -> impl Iterator<Item=&NodeId<ID_SIZE>> {
+    pub fn iter(&self) -> impl Iterator<Item = &NodeId<ID_SIZE>> {
         self.ids.iter()
     }
 }

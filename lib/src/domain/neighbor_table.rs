@@ -8,9 +8,7 @@ pub struct Interface {
 
 impl Interface {
     pub fn new(id: String) -> Self {
-        Self {
-            id
-        }
+        Self { id }
     }
 }
 

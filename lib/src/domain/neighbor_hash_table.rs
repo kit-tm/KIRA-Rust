@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 
-use super::{NodeId, Interface, NeighborTable};
-
+use super::{Interface, NeighborTable, NodeId};
 
 #[derive(Debug)]
 pub struct NeighborHashTable<const ID_SIZE: usize> {
-    table: HashMap<NodeId<ID_SIZE>, Interface>
+    table: HashMap<NodeId<ID_SIZE>, Interface>,
 }
 
 impl<const ID_SIZE: usize> Default for NeighborHashTable<ID_SIZE> {
@@ -18,7 +17,7 @@ impl<const ID_SIZE: usize> NeighborHashTable<ID_SIZE> {
     /// Creates a new empty [NeighborHashTable].
     pub fn new() -> Self {
         Self {
-            table: HashMap::new()
+            table: HashMap::new(),
         }
     }
 }

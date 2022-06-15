@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use super::{Path, RoutingTable, NeighborTable};
+use super::{NeighborTable, Path, RoutingTable};
 
 pub struct PathValidator<const ID_SIZE: usize>(pub Path<ID_SIZE>);
 
@@ -20,22 +20,26 @@ impl<const ID_SIZE: usize> Deref for PathValidator<ID_SIZE> {
 
 impl<const ID_SIZE: usize> PathValidator<ID_SIZE> {
     /// Returns if the [Path] is valid to be inserted into the [RoutingTable].
-    /// 
+    ///
     /// Valid means:
-    /// 
+    ///
     /// - The first [NodeId] in [Path] is a neighbor
-    /// - 
+    /// -
     pub fn validate<'a, RT, NT, const BUCKET_SIZE: usize>(
         &self,
         routing_table: RT,
         neighbor_table: NT,
     ) -> bool
-        where
-            RT: RoutingTable<'a, ID_SIZE, BUCKET_SIZE>,
-            NT: NeighborTable<ID_SIZE>,
+    where
+        RT: RoutingTable<'a, ID_SIZE, BUCKET_SIZE>,
+        NT: NeighborTable<ID_SIZE>,
     {
         // First node id is a neighbor
-        let first = self.0.first().and_then(|id| routing_table.contact(id)).map(|contact| contact.id());
+        let first = self
+            .0
+            .first()
+            .and_then(|id| routing_table.contact(id))
+            .map(|contact| contact.id());
         if first.is_none() || !neighbor_table.contains(first.unwrap()) {
             return false;
         }
