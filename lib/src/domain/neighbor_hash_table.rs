@@ -35,3 +35,13 @@ impl<const ID_SIZE: usize> NeighborTable<ID_SIZE> for NeighborHashTable<ID_SIZE>
         self.table.contains_key(id)
     }
 }
+
+impl<'a, const ID_SIZE: usize> IntoIterator for &'a NeighborHashTable<ID_SIZE> {
+    type Item = (&'a NodeId<ID_SIZE>, &'a Interface);
+
+    type IntoIter = std::collections::hash_map::Iter<'a, NodeId<ID_SIZE>, Interface>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.table.iter()
+    }
+}

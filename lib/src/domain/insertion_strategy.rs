@@ -1,8 +1,11 @@
 use std::marker::PhantomData;
 
-use crate::domain::{AddError, Contact, InsertionError, NodeId, RoutingTable, RediscoveryType, RediscoveryState, State};
+use crate::domain::{
+    AddError, Contact, InsertionError, NodeId, RediscoveryState, RediscoveryType, RoutingTable,
+    State,
+};
 
-use super::{NeighborTable, PathSimplifier};
+use super::{Interface, NeighborTable, PathSimplifier};
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum InsertionStrategyResult<const ID_SIZE: usize> {
@@ -22,6 +25,7 @@ pub trait InsertionStrategy<'a, RT, NT, const ID_SIZE: usize, const BUCKET_SIZE:
 where
     RT: RoutingTable<'a, ID_SIZE, BUCKET_SIZE>,
     NT: NeighborTable<ID_SIZE>,
+    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Interface)>,
 {
     /// Insert the [Contact] into the [RoutingTable].
     ///
@@ -81,15 +85,14 @@ impl<
         // Otherwise the seq_nr is equal
 
         // Drop if seq_nr is equal and contact is valid
-        if existing.state() != &crate::domain::State::Valid
-        {
+        if existing.state() != &crate::domain::State::Valid {
             return InsertionStrategyResult::Dropped;
         }
         // Drop if same seq_nr but Age is older
         if contact.age() < existing.age() {
             return InsertionStrategyResult::Dropped;
         }
-        // Drop if state is not valid and the new info doesn't avoid 
+        // Drop if state is not valid and the new info doesn't avoid
         // all failed links
         if let State::Rediscovering(rds) = existing.state() {
             for link in &rds.failed_link_list {
@@ -149,6 +152,7 @@ impl<'a, RT, NT, const ID_SIZE: usize, const BUCKET_SIZE: usize>
 where
     RT: RoutingTable<'a, ID_SIZE, BUCKET_SIZE>,
     NT: NeighborTable<ID_SIZE>,
+    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Interface)>,
 {
     fn insert(
         &mut self,
@@ -165,7 +169,7 @@ where
             None | Some(false) => return InsertionStrategyResult::Dropped,
             Some(true) => {}
         };
-        
+
         // remove cycles and simplify
         // Uses the Path containing the id of the contact
         // itself to include it in the process

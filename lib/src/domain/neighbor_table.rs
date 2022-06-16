@@ -13,7 +13,10 @@ impl Interface {
 }
 
 /// Maps [NodeId]s to [Interface]s.
-pub trait NeighborTable<const ID_SIZE: usize> {
+pub trait NeighborTable<const ID_SIZE: usize>
+where
+    for<'a> &'a Self: IntoIterator<Item = (&'a NodeId<ID_SIZE>, &'a Interface)>,
+{
     /// Returns the [Interface] for a [NodeId] if present.
     fn get(&self, id: &NodeId<ID_SIZE>) -> Option<&Interface>;
     /// Adds a Mapping to the table returning the [Interface] previously mapped to the [NodeId].

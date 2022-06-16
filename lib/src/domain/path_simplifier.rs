@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use super::{NeighborTable, Path, RoutingTable};
+use super::{Interface, NeighborTable, NodeId, Path, RoutingTable};
 
 pub struct PathSimplifier<'a, const ID_SIZE: usize>(&'a mut Path<ID_SIZE>);
 
@@ -14,7 +14,7 @@ impl<const ID_SIZE: usize> Deref for PathSimplifier<'_, ID_SIZE> {
     type Target = Path<ID_SIZE>;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.0
     }
 }
 
@@ -34,6 +34,7 @@ impl<const ID_SIZE: usize> PathSimplifier<'_, ID_SIZE> {
     ) where
         RT: RoutingTable<'a, ID_SIZE, BUCKET_SIZE>,
         NT: NeighborTable<ID_SIZE>,
+        for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Interface)>,
     {
         // Already a neighbor, can't be shortened
         if self.0.len() <= 1 {

@@ -66,7 +66,8 @@ impl<const ID_SIZE: usize> Path<ID_SIZE> {
     }
     /// Returns if the [Path] contains the [Link].
     pub fn contains_link(&self, link: &Link<ID_SIZE>) -> bool {
-        self.ids.iter()
+        self.ids
+            .iter()
             .zip(self.ids.iter().skip(1))
             .any(|(first, second)| first == &link.0 && second == &link.1)
     }
