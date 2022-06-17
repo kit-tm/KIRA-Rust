@@ -5,11 +5,19 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+# All dependencies are well picked and although just a few have versions 1.x
+# they are considered stable enough to use in production by the Rust Community.
+# Nevertheless any new dependency should be weighted for its value over
+# a custom implementation.
+
 [dependencies]
 # For Time Computations in general
 chrono = "0.4.19"
+# Support for Timeouts and Channel communication between different Threads
+crossbeam-channel = "0.5.5"
 # Hexadecimal Output formatting of NodeIDs. Non-Optional as basic functionality for a NodeID.
 hex = "0.4.3"
+# Logging facade supporting many concrete implementations in binaries
 log = "0.4.17"
 # Random NodeId generation
 rand = "0.8.5"

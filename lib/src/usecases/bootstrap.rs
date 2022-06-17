@@ -1,10 +1,10 @@
-use std::{error::Error, fmt::Display, marker::PhantomData, time::Duration};
+use std::{error::Error, fmt::Display, marker::PhantomData, time::{Duration, Instant}};
 
 use crate::{
     domain::{DiscoveryTable, Interface, NeighborTable, NodeId, RoutingTable},
     messaging::{
         FindNodeReqData, HelloMessage, Message, MessageReceiver, MessageSender, Nonce,
-        PNDiscRspData, ReqRspMessage,
+        PNDiscRspData, ReqRspMessage, FindNodeRspData,
     },
 };
 
@@ -88,11 +88,37 @@ where
         }
 
         // TODO: Wait for Responses or timeout
+        let mut pn_disc_req = Vec::new();
+        
+        // DRY Adding to vec
+        let mut filter_then_add = |message: Message<ID_SIZE>| {
+            // Only collect bidirectional connectivity requests
+            if let Message::PNDiscReq(data) = message {
+                pn_disc_req.push(data);
+            }
+        };
 
-        // Wait for Neighbors to response
-        // TODO: Move this to runtime
-        std::thread::sleep(config.max_neighbor_response_duration);
-
+        // Measure time to abort after timeout was reached
+        let start = Instant::now();
+        let mut timeout_duration = config.max_neighbor_response_duration;
+        while let Ok(Some(message)) = self.receiver.recv_timeout(Some(timeout_duration)) {
+            // Only collect bidirectional connectivity requests
+            filter_then_add(message);
+            // Read all if some messages are received as batch
+            // Possibly reduces calculation of elapsed time
+            while let Ok(Some(message)) = self.receiver.try_recv() {
+                filter_then_add(message);
+            }
+            
+            // Finish if tiimeout was reached
+            let elapsed = start.elapsed();
+            if elapsed >= config.max_neighbor_response_duration {
+                break;
+            }
+            // Otherwise calc new read timeout
+            timeout_duration = config.max_neighbor_response_duration - elapsed;
+        }
+        
         // Send PNDiscRsp to all neighbors discovered.
         // It's assumed, that all Neighbors answered with a PNDiscReq
         // after receiving the Hello Message.
@@ -104,12 +130,11 @@ where
             .into_iter()
             .map(|(id, _)| id.clone())
             .collect::<Vec<_>>();
-        for (id, _) in &self.neighbor_table {
+        while let Some(ReqRspMessage { id, source, .. }) = pn_disc_req.pop() {
             if let Err(e) = self.sender.send(ReqRspMessage {
-                // TODO: Register Nonce
-                id: Nonce::random(),
+                id,
                 source: self.routing_table.root().clone(),
-                destination: id.clone(),
+                destination: source,
                 data: PNDiscRspData {
                     contacts: neighbors.clone(),
                 },
@@ -121,8 +146,9 @@ where
 
         // TODO: Send QueryRouteReqs and wait for responses
 
+        let find_node_id_nonce = Nonce::random();
         if let Err(e) = self.sender.send(ReqRspMessage {
-            id: Nonce::random(),
+            id: find_node_id_nonce.clone(),
             source: self.routing_table.root().clone(),
             destination: self.routing_table.root().clone(),
             data: FindNodeReqData {},
@@ -131,8 +157,25 @@ where
             return Err(BootstrapError::SendError);
         }
 
-        // TODO: Wait for FindNode Response to arrive
-
+        // No timeout is used here as the FindNodeReq is assmued to 
+        // either return a FindNodeRsp or an Error.
+        while let Some(message) = self.receiver.recv() {
+            match message {
+                Message::FindNodeRsp(ReqRspMessage { id, data: FindNodeRspData { .. }, .. }) => {
+                    if id == find_node_id_nonce {
+                        break;
+                    }
+                } 
+                Message::Error(ReqRspMessage { id, .. }) => {
+                    if id == find_node_id_nonce {
+                        log::warn!("Join FindNodeReq returned an Error Message");
+                        break;
+                    }
+                }
+                _ => continue,
+            }
+        }
+        
         Ok(())
     }
 }
