@@ -1,9 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::domain::{
-    AddError, Contact, InsertionError, NodeId, RediscoveryState, RediscoveryType, RoutingTable,
-    State,
-};
+use crate::domain::{AddError, Contact, InsertionError, NodeId, RoutingTable, State};
 
 use super::{Interface, NeighborTable, PathSimplifier};
 

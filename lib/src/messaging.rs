@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, fmt::Display, time::Duration, error::Error};
+use std::{collections::VecDeque, error::Error, fmt::Display, time::Duration};
 
 use crate::domain::{Contact, NodeId};
 
@@ -25,7 +25,7 @@ pub enum Message<const ID_SIZE: usize> {
     PNDiscRsp(ReqRspMessage<PNDiscRspData<ID_SIZE>, ID_SIZE>),
     FindNodeReq(ReqRspMessage<FindNodeReqData, ID_SIZE>),
     FindNodeRsp(ReqRspMessage<FindNodeRspData<ID_SIZE>, ID_SIZE>),
-    Error(ReqRspMessage<ErrorData, ID_SIZE>)
+    Error(ReqRspMessage<ErrorData, ID_SIZE>),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -132,9 +132,7 @@ impl Display for RecvTimeout {
     }
 }
 
-impl Error for RecvTimeout {
-
-}
+impl Error for RecvTimeout {}
 
 #[derive(Debug)]
 pub struct TryRecvError;
@@ -145,9 +143,7 @@ impl Display for TryRecvError {
     }
 }
 
-impl Error for TryRecvError {
-
-}
+impl Error for TryRecvError {}
 
 /// Receives [Message]s of other Nodes.
 ///
@@ -155,15 +151,18 @@ impl Error for TryRecvError {
 /// to a [Message] and returns it.
 pub trait MessageReceiver<const ID_SIZE: usize> {
     /// Receives a [Message].
-    /// 
+    ///
     /// Returns an [Error] if receiving failed or the optional timeout was reached.
-    /// 
+    ///
     /// If no timeout was given the operation waits until a new [Message] arrived.
-    /// 
+    ///
     /// Returns [None] if no messages will be received from this [MessageReceiver] anymore.
-    fn recv_timeout(&mut self, timeout: Option<Duration>) -> Result<Option<Message<ID_SIZE>>, RecvTimeout>;
+    fn recv_timeout(
+        &mut self,
+        timeout: Option<Duration>,
+    ) -> Result<Option<Message<ID_SIZE>>, RecvTimeout>;
     /// Receives a [Message].
-    /// 
+    ///
     /// Short for calling [recv_timeout](MessageReceiver::recv_timeout) with [None](Option::None).
     fn recv(&mut self) -> Option<Message<ID_SIZE>> {
         self.recv_timeout(None).ok().flatten()
@@ -173,8 +172,8 @@ pub trait MessageReceiver<const ID_SIZE: usize> {
 }
 
 /// A [MessageSender] and [MessageReceiver] which stores messages in a FIFO way.
-/// 
-/// Instead of waiting for incoming messages this implementation returns an error 
+///
+/// Instead of waiting for incoming messages this implementation returns an error
 /// if receive is called and the messages are empty.
 #[derive(Debug)]
 pub struct DummyMessageHub<const ID_SIZE: usize> {
@@ -196,7 +195,10 @@ impl<const ID_SIZE: usize> DummyMessageHub<ID_SIZE> {
 }
 
 impl<const ID_SIZE: usize> MessageReceiver<ID_SIZE> for DummyMessageHub<ID_SIZE> {
-    fn recv_timeout(&mut self, _timeout: Option<Duration>) -> Result<Option<Message<ID_SIZE>>, RecvTimeout> {
+    fn recv_timeout(
+        &mut self,
+        _timeout: Option<Duration>,
+    ) -> Result<Option<Message<ID_SIZE>>, RecvTimeout> {
         Ok(self.messages.pop_front())
     }
 
