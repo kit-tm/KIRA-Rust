@@ -66,6 +66,8 @@ where
     MS: MessageSender<ID_SIZE>,
     MR: MessageReceiver<ID_SIZE>,
 {
+    /// It's assumed, that other parts of the application handle things
+    /// like path overhearing and adding information to the routing table.
     fn start(&mut self, config: BootstrapConfig) -> Result<(), BootstrapError> {
         // Although the UseCase contains generating the NodeId
         // it's required to pass this before as the RoutingTable
