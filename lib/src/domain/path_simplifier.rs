@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use super::{Interface, NeighborTable, NodeId, Path, RoutingTable};
+use super::{Contact, Interface, NeighborTable, NodeId, Path, RoutingTable};
 
 pub struct PathSimplifier<'a, const ID_SIZE: usize>(&'a mut Path<ID_SIZE>);
 
@@ -27,12 +27,13 @@ impl<const ID_SIZE: usize> DerefMut for PathSimplifier<'_, ID_SIZE> {
 impl<const ID_SIZE: usize> PathSimplifier<'_, ID_SIZE> {
     /// Simplifies the [Path] by replacing parts of it with known
     /// shorter [Path]s.
-    pub fn simplify<'a, RT, NT, const BUCKET_SIZE: usize>(
+    pub fn simplify<RT, NT, const BUCKET_SIZE: usize>(
         &mut self,
         routing_table: &RT,
         neighbor_table: &NT,
     ) where
-        RT: RoutingTable<'a, ID_SIZE, BUCKET_SIZE>,
+        RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
+        for<'a> &'a RT: IntoIterator<Item = &'a Contact<ID_SIZE>>,
         NT: NeighborTable<ID_SIZE>,
         for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Interface)>,
     {

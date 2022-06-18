@@ -18,9 +18,10 @@ pub enum InsertionStrategyResult<const ID_SIZE: usize> {
 ///
 /// The Algorithm can use the [NeighborTable] but is not allowed to insert into it.
 /// This will be handled where the Hello-Messages are handled explicitly.
-pub trait InsertionStrategy<'a, RT, NT, const ID_SIZE: usize, const BUCKET_SIZE: usize>
+pub trait InsertionStrategy<RT, NT, const ID_SIZE: usize, const BUCKET_SIZE: usize>
 where
-    RT: RoutingTable<'a, ID_SIZE, BUCKET_SIZE>,
+    RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
+    for<'a> &'a RT: IntoIterator<Item = &'a Contact<ID_SIZE>>,
     NT: NeighborTable<ID_SIZE>,
     for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Interface)>,
 {
@@ -39,12 +40,10 @@ pub struct PNSPRStrategy<RT, const ID_SIZE: usize, const BUCKET_SIZE: usize> {
     _pd: PhantomData<RT>,
 }
 
-impl<
-        'a,
-        RT: RoutingTable<'a, ID_SIZE, BUCKET_SIZE>,
-        const ID_SIZE: usize,
-        const BUCKET_SIZE: usize,
-    > PNSPRStrategy<RT, ID_SIZE, BUCKET_SIZE>
+impl<RT, const ID_SIZE: usize, const BUCKET_SIZE: usize> PNSPRStrategy<RT, ID_SIZE, BUCKET_SIZE>
+where
+    RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
+    for<'a> &'a RT: IntoIterator<Item = &'a Contact<ID_SIZE>>,
 {
     /// Update an existing contact in the table instead of inserting.
     fn update_existing(
@@ -144,10 +143,11 @@ impl<
     }
 }
 
-impl<'a, RT, NT, const ID_SIZE: usize, const BUCKET_SIZE: usize>
-    InsertionStrategy<'a, RT, NT, ID_SIZE, BUCKET_SIZE> for PNSPRStrategy<RT, ID_SIZE, BUCKET_SIZE>
+impl<RT, NT, const ID_SIZE: usize, const BUCKET_SIZE: usize>
+    InsertionStrategy<RT, NT, ID_SIZE, BUCKET_SIZE> for PNSPRStrategy<RT, ID_SIZE, BUCKET_SIZE>
 where
-    RT: RoutingTable<'a, ID_SIZE, BUCKET_SIZE>,
+    RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
+    for<'a> &'a RT: IntoIterator<Item = &'a Contact<ID_SIZE>>,
     NT: NeighborTable<ID_SIZE>,
     for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Interface)>,
 {

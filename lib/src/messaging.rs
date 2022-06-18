@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, error::Error, fmt::Display, time::Duration};
 
-use crate::domain::{Contact, NodeId};
+use crate::domain::{Contact, Interface, NodeId};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Nonce(u128);
@@ -44,14 +44,21 @@ impl<const ID_SIZE: usize> From<HelloMessage<ID_SIZE>> for Message<ID_SIZE> {
 /// identify Request and Response Pairs.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ReqRspMessage<T: std::fmt::Debug, const ID_SIZE: usize> {
-    pub id: Nonce,
+    pub nonce: Nonce,
     pub source: NodeId<ID_SIZE>,
     pub destination: NodeId<ID_SIZE>,
     pub data: T,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+pub enum RTableReqType {
+    ContactsOnly,
+    NeighborHood(usize),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PNDiscReqData<const ID_SIZE: usize> {
+    pub req_type: RTableReqType,
     pub contacts: Vec<NodeId<ID_SIZE>>,
 }
 
@@ -64,8 +71,9 @@ impl<const ID_SIZE: usize> From<ReqRspMessage<PNDiscReqData<ID_SIZE>, ID_SIZE>>
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct PNDiscRspData<const ID_SIZE: usize> {
-    pub contacts: Vec<NodeId<ID_SIZE>>,
+pub enum PNDiscRspData<const ID_SIZE: usize> {
+    RTable(Vec<Contact<ID_SIZE>>),
+    ContactList(Vec<NodeId<ID_SIZE>>),
 }
 
 impl<const ID_SIZE: usize> From<ReqRspMessage<PNDiscRspData<ID_SIZE>, ID_SIZE>>
@@ -160,15 +168,15 @@ pub trait MessageReceiver<const ID_SIZE: usize> {
     fn recv_timeout(
         &mut self,
         timeout: Option<Duration>,
-    ) -> Result<Option<Message<ID_SIZE>>, RecvTimeout>;
+    ) -> Result<Option<(Message<ID_SIZE>, Interface)>, RecvTimeout>;
     /// Receives a [Message].
     ///
     /// Short for calling [recv_timeout](MessageReceiver::recv_timeout) with [None](Option::None).
-    fn recv(&mut self) -> Option<Message<ID_SIZE>> {
+    fn recv(&mut self) -> Option<(Message<ID_SIZE>, Interface)> {
         self.recv_timeout(None).ok().flatten()
     }
     /// Tries to receive a [Message] and returns an [Error] if no message is present at the time.
-    fn try_recv(&mut self) -> Result<Option<Message<ID_SIZE>>, TryRecvError>;
+    fn try_recv(&mut self) -> Result<Option<(Message<ID_SIZE>, Interface)>, TryRecvError>;
 }
 
 /// A [MessageSender] and [MessageReceiver] which stores messages in a FIFO way.
@@ -192,18 +200,28 @@ impl<const ID_SIZE: usize> DummyMessageHub<ID_SIZE> {
             messages: VecDeque::new(),
         }
     }
+
+    pub fn dummy_interface() -> Interface {
+        Interface::new(String::from("dummy interface"))
+    }
+
+    fn pop(&mut self) -> Option<(Message<ID_SIZE>, Interface)> {
+        self.messages
+            .pop_front()
+            .map(|message| (message, Self::dummy_interface()))
+    }
 }
 
 impl<const ID_SIZE: usize> MessageReceiver<ID_SIZE> for DummyMessageHub<ID_SIZE> {
     fn recv_timeout(
         &mut self,
         _timeout: Option<Duration>,
-    ) -> Result<Option<Message<ID_SIZE>>, RecvTimeout> {
-        Ok(self.messages.pop_front())
+    ) -> Result<Option<(Message<ID_SIZE>, Interface)>, RecvTimeout> {
+        Ok(self.pop())
     }
 
-    fn try_recv(&mut self) -> Result<Option<Message<ID_SIZE>>, TryRecvError> {
-        Ok(self.messages.pop_front())
+    fn try_recv(&mut self) -> Result<Option<(Message<ID_SIZE>, Interface)>, TryRecvError> {
+        Ok(self.pop())
     }
 }
 
@@ -258,17 +276,24 @@ mod tests {
 
         assert_eq!(
             hub.recv(),
-            Some(Message::Hello(HelloMessage {
-                source: NodeId::zero(),
-                destination: NodeId::zero(),
-            }))
+            Some((
+                Message::Hello(HelloMessage {
+                    source: NodeId::<1>::zero(),
+                    destination: NodeId::<1>::zero(),
+                }),
+                DummyMessageHub::<1>::dummy_interface()
+            ))
         );
+
         assert_eq!(
             hub.recv(),
-            Some(Message::Hello(HelloMessage {
-                source: NodeId::one(),
-                destination: NodeId::one(),
-            }))
+            Some((
+                Message::Hello(HelloMessage {
+                    source: NodeId::one(),
+                    destination: NodeId::one(),
+                }),
+                DummyMessageHub::<1>::dummy_interface()
+            ))
         );
     }
 }

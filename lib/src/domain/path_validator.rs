@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use super::{Interface, NeighborTable, NodeId, Path, RoutingTable};
+use super::{Contact, Interface, NeighborTable, NodeId, Path, RoutingTable};
 
 pub struct PathValidator<const ID_SIZE: usize>(pub Path<ID_SIZE>);
 
@@ -25,13 +25,14 @@ impl<const ID_SIZE: usize> PathValidator<ID_SIZE> {
     ///
     /// - The first [NodeId] in [Path] is a neighbor
     /// -
-    pub fn validate<'a, RT, NT, const BUCKET_SIZE: usize>(
+    pub fn validate<RT, NT, const BUCKET_SIZE: usize>(
         &self,
         routing_table: RT,
         neighbor_table: NT,
     ) -> bool
     where
-        RT: RoutingTable<'a, ID_SIZE, BUCKET_SIZE>,
+        RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
+        for<'a> &'a RT: IntoIterator<Item = &'a Contact<ID_SIZE>>,
         NT: NeighborTable<ID_SIZE>,
         for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Interface)>,
     {

@@ -66,9 +66,10 @@ impl<const ID_SIZE: usize> From<BucketSplitError> for InsertionError<ID_SIZE> {
     }
 }
 
-pub trait RoutingTable<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize> {
-    type Iter: Iterator<Item = &'a Contact<ID_SIZE>>;
-
+pub trait RoutingTable<const ID_SIZE: usize, const BUCKET_SIZE: usize>
+where
+    for<'a> &'a Self: IntoIterator<Item = &'a Contact<ID_SIZE>>,
+{
     /// Returns the root [NodeId] of the [RoutingTable].
     fn root(&self) -> &NodeId<ID_SIZE>;
 
@@ -103,9 +104,6 @@ pub trait RoutingTable<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize> {
 
     /// Returns if a [Contact] with a given [NodeId] is present in the [RoutingTable].
     fn contains(&self, id: &NodeId<ID_SIZE>) -> bool;
-
-    /// Returns an [Iterator] over all [Contact]s in this [RoutingTable].
-    fn contacts_iter(&'a self) -> Self::Iter;
 
     /// Attempts to split the [Bucket] the id should be located in.
     /// The [Contact]s in the [Bucket] will be inserted in the appropriate [Bucket]s.

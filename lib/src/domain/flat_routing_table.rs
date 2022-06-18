@@ -174,11 +174,9 @@ impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize> Itera
     }
 }
 
-impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
-    RoutingTable<'a, ID_SIZE, BUCKET_SIZE> for FlatRoutingTable<ID_SIZE, BUCKET_SIZE, ACC>
+impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
+    RoutingTable<ID_SIZE, BUCKET_SIZE> for FlatRoutingTable<ID_SIZE, BUCKET_SIZE, ACC>
 {
-    type Iter = Iter<'a, ID_SIZE, BUCKET_SIZE, ACC>;
-
     fn root(&self) -> &NodeId<ID_SIZE> {
         &self.root
     }
@@ -218,7 +216,7 @@ impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
     fn random_id(&self) -> Option<&NodeId<ID_SIZE>> {
         let mut rng = rand::thread_rng();
         let random_contact = rng.gen_range(0..self.num_contacts());
-        self.contacts_iter()
+        self.into_iter()
             .nth(random_contact)
             .map(|contact| contact.id())
     }
@@ -231,10 +229,6 @@ impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
     fn contains(&self, id: &NodeId<ID_SIZE>) -> bool {
         let bucket = self.bucket(id);
         bucket.contains(id)
-    }
-
-    fn contacts_iter(&'a self) -> Self::Iter {
-        Iter::new(self)
     }
 
     fn split_bucket(&mut self, id: &NodeId<ID_SIZE>) -> Result<(), BucketSplitError> {
@@ -268,6 +262,18 @@ impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
     fn bucket_mut(&mut self, of: &NodeId<ID_SIZE>) -> &mut Bucket<ID_SIZE, BUCKET_SIZE> {
         let index = self.get_bucket_index(of);
         &mut self.buckets[index]
+    }
+}
+
+impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize> IntoIterator
+    for &'a FlatRoutingTable<ID_SIZE, BUCKET_SIZE, ACC>
+{
+    type Item = &'a Contact<ID_SIZE>;
+
+    type IntoIter = Iter<'a, ID_SIZE, BUCKET_SIZE, ACC>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Iter::new(self)
     }
 }
 
