@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::{Age, NodeId, StateSeqNr};
 
 /// Value for Entries for the [DiscoveryTable] containing [Contact] information without the [Path].
@@ -12,10 +14,26 @@ pub trait DiscoveryTable<const ID_SIZE: usize> {
     /// Adds a [DiscoveryData] to the [DiscoveryTable] returning the previous
     /// [DiscoveryData] for the [NodeId] if present.
     fn add(
-        &self,
+        &mut self,
         id: NodeId<ID_SIZE>,
         entry: DiscoveryData<ID_SIZE>,
     ) -> Option<DiscoveryData<ID_SIZE>>;
     /// Removes [DiscoveryData] from the [DiscoveryTable] by [NodeId] and returns it.
     fn remove(&mut self, id: &NodeId<ID_SIZE>) -> Option<DiscoveryData<ID_SIZE>>;
+}
+
+impl<const ID_SIZE: usize> DiscoveryTable<ID_SIZE>
+    for HashMap<NodeId<ID_SIZE>, DiscoveryData<ID_SIZE>>
+{
+    fn add(
+        &mut self,
+        id: NodeId<ID_SIZE>,
+        entry: DiscoveryData<ID_SIZE>,
+    ) -> Option<DiscoveryData<ID_SIZE>> {
+        self.insert(id, entry)
+    }
+
+    fn remove(&mut self, id: &NodeId<ID_SIZE>) -> Option<DiscoveryData<ID_SIZE>> {
+        self.remove(id)
+    }
 }
