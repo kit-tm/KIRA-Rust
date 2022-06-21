@@ -3,12 +3,12 @@ use std::error::Error;
 use std::ops::Deref;
 use std::sync::Arc;
 
+use tokio::runtime::Runtime;
 use tokio::sync::broadcast;
 
 use r2kad_lib::domain::{FlatRoutingTable, NodeId, DEFAULT_BUCKET_SIZE, DEFAULT_ID_SIZE};
 use r2kad_lib::messaging::DummyMessageHub;
 use r2kad_lib::usecases::bootstrap::{BootstrapConfig, BootstrapState, BootstrapUseCase};
-use r2kad_lib::usecases::broadcaster::Broadcaster;
 use r2kad_lib::usecases::{AsyncTokioContext, AsyncTokioRuntime, UseCaseEvent};
 
 const ID_SIZE: usize = DEFAULT_ID_SIZE;
@@ -19,59 +19,58 @@ struct Config {
     bootstrap: BootstrapConfig,
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn Error>> {
-    let root_id = NodeId::<ID_SIZE>::one();
+fn main() -> Result<(), Box<dyn Error>> {
+    let runtime = Arc::new(
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?,
+    );
 
-    println!("Using NodeId {:#}", root_id);
+    env_logger::init();
+
+    let root_id: NodeId<ID_SIZE> = std::env::var("NODE_ID")?
+        .parse()
+        .unwrap_or_else(|_| NodeId::random());
+
+    println!("Using NodeId {}", root_id);
 
     let config = Config::default();
 
-    let dummy_hub = DummyMessageHub::new();
-
-    let (broadcaster, _) = broadcast::channel::<UseCaseEvent<ID_SIZE>>(100);
+    let (broadcaster, mut receiver) = broadcast::channel::<UseCaseEvent<ID_SIZE>>(100);
 
     let context = Arc::new(AsyncTokioContext::new(
         root_id.clone(),
         FlatRoutingTable::<ID_SIZE, DEFAULT_BUCKET_SIZE, 1>::new(root_id)?,
         HashMap::new(),
         HashMap::new(),
-        dummy_hub,
-        AsyncTokioRuntime::new(broadcaster.clone()),
+        DummyMessageHub::new(),
+        AsyncTokioRuntime::new(broadcaster.clone(), Arc::clone(&runtime)),
     ));
 
-    {
-        // Bootstrap UseCase
-        let mut receiver = broadcaster.subscribe();
-        let context = Arc::clone(&context);
-        let config = config.bootstrap.clone();
-        tokio::spawn(async move {
-            let mut use_case = BootstrapUseCase::new();
+    let mut use_case = BootstrapUseCase::new();
+    use_case.start(context.deref(), &config.bootstrap)?;
 
-            if let Err(e) = use_case.start(context.deref(), &config) {
-                log::error!("Failed to start Bootstrap: {}", e);
-                return;
+    // TODO:
+    //  Start MessageReceivers and wait for message from broadcaster or MessageReceivers
+    //  to delegate to use cases.
+
+    while let Ok(event) = runtime.block_on(receiver.recv()) {
+        if let Err(e) = use_case.handle_event(context.deref(), &config.bootstrap, event) {
+            log::error!("Bootstrap failed: {}", e);
+            break;
+        }
+
+        match use_case.state() {
+            BootstrapState::Error => {
+                log::error!("Bootstrap stopped in Error state!");
+                break;
             }
-
-            while let Ok(event) = receiver.recv().await {
-                if let Err(e) = use_case.handle_event(context.deref(), &config, event) {
-                    log::error!("Bootstrap failed: {}", e);
-                    break;
-                }
-
-                match use_case.state() {
-                    BootstrapState::Error => {
-                        log::error!("Bootstrap stopped in Error state!");
-                        break;
-                    }
-                    BootstrapState::Finished => {
-                        log::debug!("Bootstrap finished!");
-                        break;
-                    }
-                    _ => {}
-                }
+            BootstrapState::Finished => {
+                log::debug!("Bootstrap finished!");
+                break;
             }
-        });
+            _ => {}
+        }
     }
 
     Ok(())

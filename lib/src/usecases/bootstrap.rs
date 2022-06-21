@@ -168,7 +168,7 @@ where
         }
 
         let timer_id = context
-            .runtime_mut()
+            .runtime()
             .register_timer(config.max_2_hop_response_duration);
 
         self.state = BootstrapState::WaitingFor2HopVicinity(nonces, timer_id);
@@ -191,7 +191,7 @@ where
 
         let opt_timer_id = config
             .max_find_node_response_duration
-            .map(|duration| context.runtime_mut().register_timer(duration));
+            .map(|duration| context.runtime().register_timer(duration));
 
         self.state = BootstrapState::WaitingForFindNodeResponse(nonce, opt_timer_id);
 
@@ -247,7 +247,7 @@ where
         self.send_message(context, message)?;
 
         let timer_id = context
-            .runtime_mut()
+            .runtime()
             .register_timer(config.max_neighbor_response_duration);
 
         self.state = BootstrapState::WaitingForNeighbors(timer_id);

@@ -46,7 +46,7 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
         root: NodeId<ID_SIZE>,
         buckets: Vec<Bucket<ID_SIZE, BUCKET_SIZE>>,
     ) -> Result<Self, GroupingError> {
-        if ACC < ID_SIZE || ACC == 0 {
+        if ACC > ID_SIZE * 8 || ACC == 0 {
             return Err(GroupingError::Invalid {
                 id_size: ID_SIZE,
                 group_size: ACC,
