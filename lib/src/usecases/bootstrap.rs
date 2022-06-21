@@ -41,11 +41,21 @@ pub enum BootstrapState {
     Error,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BootstrapConfig {
     pub max_neighbor_response_duration: Duration,
     pub max_2_hop_response_duration: Duration,
     pub max_find_node_response_duration: Option<Duration>,
+}
+
+impl Default for BootstrapConfig {
+    fn default() -> Self {
+        Self {
+            max_2_hop_response_duration: Duration::from_secs(1),
+            max_neighbor_response_duration: Duration::from_secs(1),
+            max_find_node_response_duration: Some(Duration::from_secs(1)),
+        }
+    }
 }
 
 /// The UseCase which represents the Bootstrap Process.
@@ -60,6 +70,30 @@ pub struct BootstrapUseCase<C, RT, NT, DT, MS, RU, const ID_SIZE: usize, const B
     _ms: PhantomData<MS>,
     _ru: PhantomData<RU>,
     state: BootstrapState,
+}
+
+impl<C, RT, DT, NT, MS, RU, const ID_SIZE: usize, const BUCKET_SIZE: usize> Default
+    for BootstrapUseCase<C, RT, DT, NT, MS, RU, ID_SIZE, BUCKET_SIZE>
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<C, RT, DT, NT, MS, RU, const ID_SIZE: usize, const BUCKET_SIZE: usize>
+    BootstrapUseCase<C, RT, DT, NT, MS, RU, ID_SIZE, BUCKET_SIZE>
+{
+    pub fn new() -> Self {
+        Self {
+            _c: PhantomData::default(),
+            _rt: PhantomData::default(),
+            _nt: PhantomData::default(),
+            _dt: PhantomData::default(),
+            _ms: PhantomData::default(),
+            _ru: PhantomData::default(),
+            state: BootstrapState::Initialized,
+        }
+    }
 }
 
 impl<C, RT, DT, NT, MS, RU, const ID_SIZE: usize, const BUCKET_SIZE: usize>
