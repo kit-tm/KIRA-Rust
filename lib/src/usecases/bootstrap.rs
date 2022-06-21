@@ -48,6 +48,10 @@ pub struct BootstrapConfig {
     pub max_find_node_response_duration: Option<Duration>,
 }
 
+/// The UseCase which represents the Bootstrap Process.
+///
+/// Performs NeighborDiscovery, 3-Hop-Vicinity Discovery and the initial join to the network.
+#[derive(Debug)]
 pub struct BootstrapUseCase<C, RT, NT, DT, MS, RU, const ID_SIZE: usize, const BUCKET_SIZE: usize> {
     _c: PhantomData<C>,
     _rt: PhantomData<RT>,
@@ -107,6 +111,13 @@ where
                 }
             })
             .collect::<Vec<_>>();
+
+        // Already discovered if neighbors are present but two hop vicinity has no entries
+        // Although its not possible to discover more nodes then, perform join anyways
+        if two_hop_vicinity.is_empty() {
+            return self.start_join(context, config);
+        }
+
         let mut nonces = Vec::with_capacity(two_hop_vicinity.len());
         for contact in two_hop_vicinity {
             let nonce = Nonce::random();
