@@ -23,7 +23,7 @@ impl Deref for TimerId {
 
 pub trait Runtime {
     /// Either waits the duration instantly or returns and
-    fn wait(&mut self, duration: Duration);
+    fn register_timer(&mut self, duration: Duration) -> TimerId;
 }
 
 /// Single Threaded Runtime using the standard library.
@@ -51,10 +51,11 @@ impl<E, const ID_SIZE: usize> StdSyncRuntime<E, ID_SIZE> {
 }
 
 impl<E: Executioner<ID_SIZE>, const ID_SIZE: usize> Runtime for StdSyncRuntime<E, ID_SIZE> {
-    fn wait(&mut self, duration: Duration) {
+    fn register_timer(&mut self, duration: Duration) -> TimerId {
         std::thread::sleep(duration);
         let id = TimerId(self.id_counter);
         self.id_counter += 1;
         self.executioner.send_event(UseCaseEvent::Timer(id));
+        id
     }
 }

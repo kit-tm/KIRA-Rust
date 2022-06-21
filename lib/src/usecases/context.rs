@@ -1,4 +1,5 @@
 use std::sync::Arc;
+
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::domain::{
@@ -8,32 +9,37 @@ use crate::domain::{
 use crate::messaging::{Message, MessageSender};
 use crate::usecases::{Runtime, TimerId};
 
-pub trait Context<const ID_SIZE: usize = DEFAULT_ID_SIZE> {
-    type RoutingTable;
-    type NeighborTable;
-    type DiscoveryTable;
-    type MessageSender;
-    type Runtime;
-
+pub trait Context<
+    RT,
+    NT,
+    DT,
+    MS,
+    RU,
+    const ID_SIZE: usize = DEFAULT_ID_SIZE,
+    const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE,
+>
+{
     fn root_id(&self) -> &NodeId<ID_SIZE>;
 
-    fn routing_table(&self) -> RwLockReadGuard<Self::RoutingTable>;
+    fn routing_table(&self) -> RwLockReadGuard<RT>;
 
-    fn routing_table_mut(&self) -> RwLockWriteGuard<Self::RoutingTable>;
+    fn routing_table_mut(&self) -> RwLockWriteGuard<RT>;
 
-    fn neighbor_table(&self) -> RwLockReadGuard<Self::NeighborTable>;
+    fn neighbor_table(&self) -> RwLockReadGuard<NT>;
 
-    fn neighbor_table_mut(&self) -> RwLockWriteGuard<Self::NeighborTable>;
+    fn neighbor_table_mut(&self) -> RwLockWriteGuard<NT>;
 
-    fn discovery_table(&self) -> RwLockReadGuard<Self::DiscoveryTable>;
+    fn discovery_table(&self) -> RwLockReadGuard<DT>;
 
-    fn discovery_table_mut(&self) -> RwLockWriteGuard<Self::DiscoveryTable>;
+    fn discovery_table_mut(&self) -> RwLockWriteGuard<DT>;
 
-    fn message_sender(&self) -> RwLockReadGuard<Self::MessageSender>;
+    fn message_sender(&self) -> RwLockReadGuard<MS>;
 
-    fn message_sender_mut(&self) -> RwLockWriteGuard<Self::MessageSender>;
+    fn message_sender_mut(&self) -> RwLockWriteGuard<MS>;
 
-    fn runtime(&self) -> RwLockReadGuard<Self::Runtime>;
+    fn runtime(&self) -> RwLockReadGuard<RU>;
+
+    fn runtime_mut(&self) -> RwLockWriteGuard<RU>;
 }
 
 #[derive(Debug, Clone)]
@@ -85,15 +91,10 @@ where
     }
 }
 
-impl<RT, NT, DT, MS, RU, const ID_SIZE: usize, const BUCKET_SIZE: usize> Context<ID_SIZE>
+impl<RT, NT, DT, MS, RU, const ID_SIZE: usize, const BUCKET_SIZE: usize>
+    Context<RT, NT, DT, MS, RU, ID_SIZE, BUCKET_SIZE>
     for SyncContext<RT, NT, DT, MS, RU, ID_SIZE, BUCKET_SIZE>
 {
-    type RoutingTable = RT;
-    type NeighborTable = NT;
-    type DiscoveryTable = DT;
-    type MessageSender = MS;
-    type Runtime = RU;
-
     fn root_id(&self) -> &NodeId<ID_SIZE> {
         &self.root_id
     }
@@ -132,6 +133,10 @@ impl<RT, NT, DT, MS, RU, const ID_SIZE: usize, const BUCKET_SIZE: usize> Context
 
     fn runtime(&self) -> RwLockReadGuard<RU> {
         self.runtime.blocking_read()
+    }
+
+    fn runtime_mut(&self) -> RwLockWriteGuard<RU> {
+        self.runtime.blocking_write()
     }
 }
 

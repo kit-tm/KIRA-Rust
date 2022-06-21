@@ -22,9 +22,11 @@ impl Nonce {
 pub enum Message<const ID_SIZE: usize> {
     Hello(HelloMessage<ID_SIZE>),
     PNDiscReq(ReqRspMessage<PNDiscReqData<ID_SIZE>, ID_SIZE>),
-    PNDiscRsp(ReqRspMessage<PNDiscRspData<ID_SIZE>, ID_SIZE>),
+    PNDiscRsp(ReqRspMessage<DiscRspData<ID_SIZE>, ID_SIZE>),
+    QueryRouteReq(ReqRspMessage<QueryRouteReqData<ID_SIZE>, ID_SIZE>),
+    QueryRouteRsp(ReqRspMessage<DiscRspData<ID_SIZE>, ID_SIZE>),
     FindNodeReq(ReqRspMessage<FindNodeReqData, ID_SIZE>),
-    FindNodeRsp(ReqRspMessage<FindNodeRspData<ID_SIZE>, ID_SIZE>),
+    FindNodeRsp(ReqRspMessage<DiscRspData<ID_SIZE>, ID_SIZE>),
     Error(ReqRspMessage<ErrorData, ID_SIZE>),
 }
 
@@ -71,40 +73,34 @@ impl<const ID_SIZE: usize> From<ReqRspMessage<PNDiscReqData<ID_SIZE>, ID_SIZE>>
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum PNDiscRspData<const ID_SIZE: usize> {
+pub enum DiscRspData<const ID_SIZE: usize> {
     RTable(Vec<Contact<ID_SIZE>>),
     ContactList(Vec<NodeId<ID_SIZE>>),
 }
 
-impl<const ID_SIZE: usize> From<ReqRspMessage<PNDiscRspData<ID_SIZE>, ID_SIZE>>
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct QueryRouteReqData<const ID_SIZE: usize> {
+    pub req_type: RTableReqType,
+}
+
+impl<const ID_SIZE: usize> From<ReqRspMessage<QueryRouteReqData<ID_SIZE>, ID_SIZE>>
     for Message<ID_SIZE>
 {
-    fn from(message: ReqRspMessage<PNDiscRspData<ID_SIZE>, ID_SIZE>) -> Self {
-        Self::PNDiscRsp(message)
+    fn from(message: ReqRspMessage<QueryRouteReqData<ID_SIZE>, ID_SIZE>) -> Self {
+        Self::QueryRouteReq(message)
     }
 }
 
 /// The target of the request is located at the destination id of
 /// the [ReqRspMessage].
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct FindNodeReqData;
+pub struct FindNodeReqData {
+    pub req_type: RTableReqType,
+}
 
 impl<const ID_SIZE: usize> From<ReqRspMessage<FindNodeReqData, ID_SIZE>> for Message<ID_SIZE> {
     fn from(message: ReqRspMessage<FindNodeReqData, ID_SIZE>) -> Self {
         Self::FindNodeReq(message)
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct FindNodeRspData<const ID_SIZE: usize> {
-    pub contacts: Vec<Contact<ID_SIZE>>,
-}
-
-impl<const ID_SIZE: usize> From<ReqRspMessage<FindNodeRspData<ID_SIZE>, ID_SIZE>>
-    for Message<ID_SIZE>
-{
-    fn from(message: ReqRspMessage<FindNodeRspData<ID_SIZE>, ID_SIZE>) -> Self {
-        Self::FindNodeRsp(message)
     }
 }
 
@@ -120,7 +116,7 @@ pub enum ErrorData {
 /// and converts them to an appropriate format so that the corresponding
 /// [MessageReceiver] can convert it back to a [Message].
 pub trait MessageSender<const ID_SIZE: usize> {
-    type Error: std::error::Error;
+    type Error: Error;
 
     /// Sends a [Message] to another Node, converting it to an appropriate
     /// format before sending.
@@ -234,7 +230,7 @@ impl Display for NoSendError {
     }
 }
 
-impl std::error::Error for NoSendError {}
+impl Error for NoSendError {}
 
 impl<const ID_SIZE: usize> MessageSender<ID_SIZE> for DummyMessageHub<ID_SIZE> {
     // Must not return Errors.

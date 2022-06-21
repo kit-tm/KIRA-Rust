@@ -1,214 +1,278 @@
-use std::{
-    error::Error,
-    fmt::Display,
-    time::{Duration, Instant},
-};
+use std::marker::PhantomData;
+use std::ops::Deref;
+use std::{error::Error, fmt::Display, time::Duration};
 
+use crate::domain::DiscoveryTable;
+use crate::messaging::{FindNodeReqData, QueryRouteReqData};
+use crate::usecases::{Context, Runtime, TimerId, UseCaseEvent};
 use crate::{
     domain::{Contact, Interface, NeighborTable, NodeId, RoutingTable},
     messaging::{
-        FindNodeReqData, FindNodeRspData, HelloMessage, Message, MessageReceiver, MessageSender,
-        Nonce, PNDiscReqData, PNDiscRspData, RTableReqType, ReqRspMessage,
+        DiscRspData, HelloMessage, Message, MessageSender, Nonce, RTableReqType, ReqRspMessage,
     },
 };
 
 #[derive(Debug)]
 pub enum BootstrapError {
     SendError,
+    NoNeighbors,
 }
 
 impl Display for BootstrapError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::SendError => write!(f, "Failed to send a message over the given MessageSender"),
+            Self::NoNeighbors => {
+                write!(f, "No Neighbors responded in time or the Node is isolated")
+            }
         }
     }
 }
 
 impl Error for BootstrapError {}
 
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub enum BootstrapState {
+    Finished,
+    Initialized,
+    WaitingForNeighbors(TimerId),
+    WaitingFor2HopVicinity(Vec<Nonce>, TimerId),
+    WaitingForFindNodeResponse(Nonce, Option<TimerId>),
+    Error,
+}
+
+#[derive(Debug)]
 pub struct BootstrapConfig {
-    max_neighbor_response_duration: Duration,
+    pub max_neighbor_response_duration: Duration,
+    pub max_2_hop_response_duration: Duration,
+    pub max_find_node_response_duration: Option<Duration>,
 }
 
-pub trait Bootstrap<const ID_SIZE: usize> {
-    fn start(&mut self, config: BootstrapConfig) -> Result<(), BootstrapError>;
+pub struct BootstrapUseCase<C, RT, NT, DT, MS, RU, const ID_SIZE: usize, const BUCKET_SIZE: usize> {
+    _c: PhantomData<C>,
+    _rt: PhantomData<RT>,
+    _nt: PhantomData<NT>,
+    _dt: PhantomData<DT>,
+    _ms: PhantomData<MS>,
+    _ru: PhantomData<RU>,
+    state: BootstrapState,
 }
 
-pub struct BootstrapUseCase<'a, RT, NT, MS, MR, const ID_SIZE: usize, const BUCKET_SIZE: usize> {
-    root_id: NodeId<ID_SIZE>,
-    routing_table: &'a mut RT,
-    neighbor_table: &'a mut NT,
-    sender: &'a mut MS,
-    receiver: &'a mut MR,
-}
-
-impl<'a, RT, NT, MS, MR, const ID_SIZE: usize, const BUCKET_SIZE: usize>
-    BootstrapUseCase<'a, RT, NT, MS, MR, ID_SIZE, BUCKET_SIZE>
-{
-    pub fn new(
-        root_id: NodeId<ID_SIZE>,
-        routing_table: &'a mut RT,
-        neighbor_table: &'a mut NT,
-        sender: &'a mut MS,
-        receiver: &'a mut MR,
-    ) -> Self {
-        Self {
-            root_id,
-            routing_table,
-            neighbor_table,
-            sender,
-            receiver,
-        }
-    }
-}
-
-impl<'a, RT, NT, MS, MR, const ID_SIZE: usize, const BUCKET_SIZE: usize>
-    BootstrapUseCase<'a, RT, NT, MS, MR, ID_SIZE, BUCKET_SIZE>
+impl<C, RT, DT, NT, MS, RU, const ID_SIZE: usize, const BUCKET_SIZE: usize>
+    BootstrapUseCase<C, RT, NT, DT, MS, RU, ID_SIZE, BUCKET_SIZE>
 where
+    C: Context<RT, NT, DT, MS, RU, ID_SIZE, BUCKET_SIZE>,
     RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
     for<'b> &'b RT: IntoIterator<Item = &'b Contact<ID_SIZE>>,
     NT: NeighborTable<ID_SIZE>,
     for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Interface)>,
     MS: MessageSender<ID_SIZE>,
-    MR: MessageReceiver<ID_SIZE>,
+    DT: DiscoveryTable<ID_SIZE>,
+    RU: Runtime,
 {
-    fn handle_message(
+    fn send_message<M: Into<Message<ID_SIZE>>>(
         &mut self,
-        (message, interface): (Message<ID_SIZE>, Interface),
+        context: &C,
+        message: M,
     ) -> Result<(), BootstrapError> {
-        match message {
-            Message::PNDiscReq(message) => self.handle_pn_disc_req((message, interface)),
-            _ => todo!(),
-        }
-    }
-
-    fn handle_pn_disc_req(
-        &mut self,
-        (message, interface): (ReqRspMessage<PNDiscReqData<ID_SIZE>, ID_SIZE>, Interface),
-    ) -> Result<(), BootstrapError> {
-        // Ignore messages not for us
-        if message.destination == self.root_id {
-            return Ok(());
-        }
-
-        // Collect requested data
-        let data = match message.data.req_type {
-            RTableReqType::ContactsOnly => PNDiscRspData::ContactList(
-                self.neighbor_table
-                    .into_iter()
-                    .map(|(id, _)| id.clone())
-                    .collect(),
-            ),
-            RTableReqType::NeighborHood(neighborhood_size) => PNDiscRspData::RTable(
-                self.routing_table
-                    .into_iter()
-                    .filter(|contact| contact.path().len() <= neighborhood_size)
-                    .cloned()
-                    .collect(),
-            ),
-        };
-
-        // Send response
-        if let Err(e) = self.sender.send(ReqRspMessage {
-            nonce: message.nonce,
-            source: self.root_id.clone(),
-            destination: message.source.clone(),
-            data,
-        }) {
+        if let Err(e) = context.message_sender_mut().send(message) {
             log::error!("MessageSender failed: {}", e);
+            self.state = BootstrapState::Error;
             return Err(BootstrapError::SendError);
         }
 
-        // Add information to neighbor table
-        self.neighbor_table.add(message.source, interface);
+        Ok(())
+    }
+
+    /// Sends QueryRouteReq to discover the state of all Nodes in a 3 Hop vicinity.
+    fn start_vicinity_discovery(
+        &mut self,
+        context: &C,
+        config: &BootstrapConfig,
+    ) -> Result<(), BootstrapError> {
+        if context.neighbor_table().is_empty() {
+            return Err(BootstrapError::NoNeighbors);
+        }
+
+        let two_hop_vicinity = context
+            .routing_table()
+            .deref()
+            .into_iter()
+            .filter_map(|contact: &Contact<ID_SIZE>| {
+                if contact.path().len() == 1 {
+                    // Neighbors => path.len() = 0, 1-Hop Neighbors => path.len() = 1
+                    Some(contact.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        let mut nonces = Vec::with_capacity(two_hop_vicinity.len());
+        for contact in two_hop_vicinity {
+            let nonce = Nonce::random();
+            nonces.push(nonce.clone());
+            let message = ReqRspMessage {
+                nonce,
+                source: context.root_id().clone(),
+                destination: contact.id().clone(),
+                data: QueryRouteReqData {
+                    req_type: RTableReqType::NeighborHood(1),
+                },
+            };
+            self.send_message(context, message)?;
+        }
+
+        let timer_id = context
+            .runtime_mut()
+            .register_timer(config.max_2_hop_response_duration);
+
+        self.state = BootstrapState::WaitingFor2HopVicinity(nonces, timer_id);
+
+        Ok(())
+    }
+
+    fn start_join(&mut self, context: &C, config: &BootstrapConfig) -> Result<(), BootstrapError> {
+        let nonce = Nonce::random();
+        let message = ReqRspMessage {
+            nonce: nonce.clone(),
+            source: context.root_id().clone(),
+            destination: NodeId::zero(),
+            data: FindNodeReqData {
+                req_type: RTableReqType::ContactsOnly,
+            },
+        };
+
+        self.send_message(context, message)?;
+
+        let opt_timer_id = config
+            .max_find_node_response_duration
+            .map(|duration| context.runtime_mut().register_timer(duration));
+
+        self.state = BootstrapState::WaitingForFindNodeResponse(nonce, opt_timer_id);
+
+        Ok(())
+    }
+
+    fn handle_query_route_rsp(
+        &mut self,
+        context: &C,
+        config: &BootstrapConfig,
+        message: ReqRspMessage<DiscRspData<ID_SIZE>, ID_SIZE>,
+    ) -> Result<(), BootstrapError> {
+        // Remove nonces if possible
+        if let BootstrapState::WaitingFor2HopVicinity(nonces, _) = &mut self.state {
+            if let Some(index) = nonces.iter().position(|stored| &message.nonce == stored) {
+                nonces.swap_remove(index);
+            }
+            // All requested nodes responded -> start join early before timer goes off
+            if nonces.is_empty() {
+                self.start_join(context, config)?;
+            }
+        }
 
         Ok(())
     }
 }
 
-impl<'a, RT, NT, MS, MR, const ID_SIZE: usize, const BUCKET_SIZE: usize> Bootstrap<ID_SIZE>
-    for BootstrapUseCase<'a, RT, NT, MS, MR, ID_SIZE, BUCKET_SIZE>
+impl<C, RT, DT, NT, MS, RU, const ID_SIZE: usize, const BUCKET_SIZE: usize>
+    BootstrapUseCase<C, RT, NT, DT, MS, RU, ID_SIZE, BUCKET_SIZE>
 where
+    C: Context<RT, NT, DT, MS, RU, ID_SIZE, BUCKET_SIZE>,
     RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
     for<'b> &'b RT: IntoIterator<Item = &'b Contact<ID_SIZE>>,
     NT: NeighborTable<ID_SIZE>,
     for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Interface)>,
     MS: MessageSender<ID_SIZE>,
-    MR: MessageReceiver<ID_SIZE>,
+    DT: DiscoveryTable<ID_SIZE>,
+    RU: Runtime,
 {
-    fn start(&mut self, config: BootstrapConfig) -> Result<(), BootstrapError> {
+    /// Starts the Bootstrap Process by sending [HelloMessage]s to all neighbors and registering
+    /// a timeout which will notify the [BoostrapUseCase] through [handle_event].
+    pub fn start(&mut self, context: &C, config: &BootstrapConfig) -> Result<(), BootstrapError> {
         // Although the UseCase contains generating the NodeId
         // it's required to pass this before as the RoutingTable
         // and others require the root NodeId before Bootstrap is started.
-        assert!(self.root_id != NodeId::zero());
+        assert_ne!(context.root_id(), &NodeId::zero());
 
         // Send hello to all links
-        if let Err(e) = self.sender.send(HelloMessage {
-            source: self.root_id.clone(),
+        let message = HelloMessage {
+            source: context.root_id().clone(),
             destination: NodeId::zero(),
-        }) {
-            log::error!("MessageSender failed: {}", e);
-            return Err(BootstrapError::SendError);
-        }
+        };
+        self.send_message(context, message)?;
 
-        // Measure time to abort after timeout was reached
-        let start = Instant::now();
-        let mut timeout_duration = config.max_neighbor_response_duration;
-        while let Ok(Some(message)) = self.receiver.recv_timeout(Some(timeout_duration)) {
-            // Only collect bidirectional connectivity requests
-            self.handle_message(message)?;
-            // Read all if some messages are received as batch
-            // Possibly reduces calculation of elapsed time
-            while let Ok(Some(message)) = self.receiver.try_recv() {
-                self.handle_message(message)?;
-            }
+        let timer_id = context
+            .runtime_mut()
+            .register_timer(config.max_neighbor_response_duration);
 
-            // Finish if tiimeout was reached
-            let elapsed = start.elapsed();
-            if elapsed >= config.max_neighbor_response_duration {
-                break;
-            }
-            // Otherwise calc new read timeout
-            timeout_duration = config.max_neighbor_response_duration - elapsed;
-        }
-
-        // TODO: Send QueryRouteReqs and wait for responses
-
-        let find_node_id_nonce = Nonce::random();
-        if let Err(e) = self.sender.send(ReqRspMessage {
-            nonce: find_node_id_nonce.clone(),
-            source: self.root_id.clone(),
-            destination: self.root_id.clone(),
-            data: FindNodeReqData {},
-        }) {
-            log::error!("MessageSender failed: {}", e);
-            return Err(BootstrapError::SendError);
-        }
-
-        // No timeout is used here as the FindNodeReq is assmued to
-        // either return a FindNodeRsp or an Error.
-        while let Some((message, _)) = self.receiver.recv() {
-            match message {
-                Message::FindNodeRsp(ReqRspMessage {
-                    nonce,
-                    data: FindNodeRspData { .. },
-                    ..
-                }) => {
-                    if nonce == find_node_id_nonce {
-                        break;
-                    }
-                }
-                Message::Error(ReqRspMessage { nonce, .. }) => {
-                    if nonce == find_node_id_nonce {
-                        log::warn!("Join FindNodeReq returned an Error Message");
-                        break;
-                    }
-                }
-                _ => continue,
-            }
-        }
+        self.state = BootstrapState::WaitingForNeighbors(timer_id);
 
         Ok(())
+    }
+
+    pub fn handle_event(
+        &mut self,
+        context: &C,
+        config: &BootstrapConfig,
+        event: UseCaseEvent<ID_SIZE>,
+    ) -> Result<(), BootstrapError> {
+        match (self.state(), event) {
+            // Timeout for neighbors was reached => Send
+            (BootstrapState::WaitingForNeighbors(waiting_id), UseCaseEvent::Timer(received_id)) => {
+                if waiting_id == &received_id {
+                    self.start_vicinity_discovery(context, config)?;
+                }
+            }
+            // Timeout received for 2 Hop Vicinity
+            (
+                BootstrapState::WaitingFor2HopVicinity(_, waiting_id),
+                UseCaseEvent::Timer(timer_id),
+            ) => {
+                if waiting_id == &timer_id {
+                    self.start_join(context, config)?;
+                }
+            }
+            // Some Node in 2 Hop vicinity responded
+            (
+                BootstrapState::WaitingFor2HopVicinity(_, _),
+                UseCaseEvent::Message(Message::QueryRouteRsp(message)),
+            ) => self.handle_query_route_rsp(context, config, message)?,
+            // Error returned for FindNodeReq
+            (
+                BootstrapState::WaitingForFindNodeResponse(nonce, _),
+                UseCaseEvent::Message(Message::Error(message)),
+            ) => {
+                if nonce == &message.nonce {
+                    log::error!("FindNodeReq returned an Error: {:?}", message);
+                    self.state = BootstrapState::Error;
+                }
+            }
+            // FindNodeRsp received for our request
+            (
+                BootstrapState::WaitingForFindNodeResponse(nonce, _),
+                UseCaseEvent::Message(Message::FindNodeRsp(message)),
+            ) => {
+                if nonce == &message.nonce {
+                    self.state = BootstrapState::Finished;
+                }
+            }
+            // Timer for FindNodeRsp finished
+            (
+                BootstrapState::WaitingForFindNodeResponse(_, Some(waiting_id)),
+                UseCaseEvent::Timer(timer_id),
+            ) => {
+                if waiting_id == &timer_id {
+                    log::error!("FindNodeRsp took to long");
+                    self.state = BootstrapState::Error;
+                }
+            }
+            _ => {}
+        };
+
+        Ok(())
+    }
+
+    pub fn state(&self) -> &BootstrapState {
+        &self.state
     }
 }
