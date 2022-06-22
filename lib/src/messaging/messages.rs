@@ -1,6 +1,7 @@
 use crate::domain::{Contact, NodeId};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Nonce(u128);
 
 impl From<u128> for Nonce {
@@ -17,6 +18,7 @@ impl Nonce {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum Message<const ID_SIZE: usize> {
     Hello(HelloMessage<ID_SIZE>),
     PNDiscReq(ReqRspMessage<PNDiscReqData<ID_SIZE>, ID_SIZE>),
@@ -29,6 +31,7 @@ pub enum Message<const ID_SIZE: usize> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct HelloMessage<const ID_SIZE: usize> {
     pub source: NodeId<ID_SIZE>,
     pub destination: NodeId<ID_SIZE>,
@@ -43,6 +46,7 @@ impl<const ID_SIZE: usize> From<HelloMessage<ID_SIZE>> for Message<ID_SIZE> {
 /// In contrary to a [HelloMessage] this type contains a [Nonce] to
 /// identify Request and Response Pairs.
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct ReqRspMessage<T: std::fmt::Debug, const ID_SIZE: usize> {
     pub nonce: Nonce,
     pub source: NodeId<ID_SIZE>,
@@ -51,12 +55,14 @@ pub struct ReqRspMessage<T: std::fmt::Debug, const ID_SIZE: usize> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum RTableReqType {
     ContactsOnly,
     NeighborHood(usize),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct PNDiscReqData<const ID_SIZE: usize> {
     pub req_type: RTableReqType,
     pub contacts: Vec<NodeId<ID_SIZE>>,
@@ -71,12 +77,14 @@ impl<const ID_SIZE: usize> From<ReqRspMessage<PNDiscReqData<ID_SIZE>, ID_SIZE>>
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum DiscRspData<const ID_SIZE: usize> {
     RTable(Vec<Contact<ID_SIZE>>),
     ContactList(Vec<NodeId<ID_SIZE>>),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct QueryRouteReqData<const ID_SIZE: usize> {
     pub req_type: RTableReqType,
 }
@@ -92,6 +100,7 @@ impl<const ID_SIZE: usize> From<ReqRspMessage<QueryRouteReqData<ID_SIZE>, ID_SIZ
 /// The target of the request is located at the destination id of
 /// the [ReqRspMessage].
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct FindNodeReqData {
     pub req_type: RTableReqType,
 }
@@ -103,6 +112,7 @@ impl<const ID_SIZE: usize> From<ReqRspMessage<FindNodeReqData, ID_SIZE>> for Mes
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum ErrorData {
     DeadEnd,
     SegmentFailure,

@@ -10,6 +10,7 @@ use super::Link;
 ///
 /// This implementation is backed by a [Vec].
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Path<const ID_SIZE: usize = DEFAULT_ID_SIZE> {
     ids: Vec<NodeId<ID_SIZE>>,
 }

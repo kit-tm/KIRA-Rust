@@ -4,6 +4,7 @@ use crate::domain::{Link, NodeId, Path};
 
 /// Specifies in milliseconds how long ago the sender heard about the contact.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Age(usize);
 
 impl From<usize> for Age {
@@ -13,6 +14,7 @@ impl From<usize> for Age {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct StateSeqNr(usize);
 
 impl From<usize> for StateSeqNr {
@@ -22,7 +24,10 @@ impl From<usize> for StateSeqNr {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
-pub struct Timestamp(DateTime<Utc>);
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct Timestamp(
+    #[cfg_attr(feature = "serde", serde(with = "chrono::serde::ts_milliseconds"))] DateTime<Utc>,
+);
 
 impl From<DateTime<Utc>> for Timestamp {
     fn from(time: DateTime<Utc>) -> Self {
@@ -31,6 +36,7 @@ impl From<DateTime<Utc>> for Timestamp {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum State<const ID_SIZE: usize> {
     Valid,
     Rediscovering(RediscoveryState<ID_SIZE>),
@@ -39,6 +45,7 @@ pub enum State<const ID_SIZE: usize> {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum RediscoveryType {
     Urgent,
     Regular,
@@ -46,6 +53,7 @@ pub enum RediscoveryType {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct RediscoveryState<const ID_SIZE: usize> {
     pub typ: RediscoveryType,
     pub time: Timestamp,
@@ -59,6 +67,7 @@ pub struct RediscoveryState<const ID_SIZE: usize> {
 /// The [Path] of a [Contact] is guaranteed to end with the [Contact]s
 /// [NodeId].
 #[derive(Debug, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Contact<const ID_SIZE: usize> {
     id: NodeId<ID_SIZE>,
     state: State<ID_SIZE>,

@@ -21,8 +21,10 @@ pub const DEFAULT_ID_SIZE: usize = 14;
 ///     - Evaluate performance gains by using const generics?
 ///     - What should be the "default" value for a NodeId?
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct NodeId<const SIZE: usize = DEFAULT_ID_SIZE> {
     // Sorted from MSB to LSB (Big Endian representation)
+    #[cfg_attr(feature = "serde", serde(with = "serde_big_array::BigArray"))]
     bytes: [u8; SIZE],
 }
 
@@ -477,7 +479,7 @@ mod tests {
             NodeId::<1>::zero().shared_prefix_len(&NodeId::zero(), 1),
             Ok(SharedPrefix {
                 xor: NodeId::zero(),
-                value: 8
+                value: 8,
             })
         );
     }
