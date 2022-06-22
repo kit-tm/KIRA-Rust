@@ -3,13 +3,14 @@ use std::error::Error;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use tokio::runtime::Runtime;
 use tokio::sync::broadcast;
 
+use r2kad_lib::context::AsyncTokioContext;
 use r2kad_lib::domain::{FlatRoutingTable, NodeId, DEFAULT_BUCKET_SIZE, DEFAULT_ID_SIZE};
 use r2kad_lib::messaging::DummyMessageHub;
+use r2kad_lib::runtime::AsyncTokioRuntime;
 use r2kad_lib::usecases::bootstrap::{BootstrapConfig, BootstrapState, BootstrapUseCase};
-use r2kad_lib::usecases::{AsyncTokioContext, AsyncTokioRuntime, UseCaseEvent};
+use r2kad_lib::usecases::UseCaseEvent;
 
 const ID_SIZE: usize = DEFAULT_ID_SIZE;
 
