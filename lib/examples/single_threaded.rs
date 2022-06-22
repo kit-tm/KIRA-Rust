@@ -1,3 +1,9 @@
+//! An Implementation of a Routing Daemon using a single Thread.
+//!
+//! This implementation uses the async [https://tokio.rs] runtime to support
+//! running the daemon on a single threaded environment but also reading from
+//! multiple interfaces at once.
+
 use std::collections::HashMap;
 use std::error::Error;
 use std::ops::Deref;
@@ -14,31 +20,36 @@ use r2kad_lib::usecases::UseCaseEvent;
 
 const ID_SIZE: usize = DEFAULT_ID_SIZE;
 
-// TODO: Read from CLI
+/// CLI Configuration.
 #[derive(Debug, Default)]
 struct Config {
     bootstrap: BootstrapConfig,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // Setup the single threaded async runtime
     let runtime = Arc::new(
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?,
     );
 
+    // Initialize the Logging Facade
     env_logger::init();
 
     let root_id: NodeId<ID_SIZE> = std::env::var("NODE_ID")?
         .parse()
         .unwrap_or_else(|_| NodeId::random());
 
-    println!("Using NodeId {}", root_id);
+    log::info!("Using NodeId {}", root_id);
 
+    // TODO: Read from CLI
     let config = Config::default();
 
+    // Setup the Broadcaster which is necessary for the runtime to send messages to usecases
     let (broadcaster, mut receiver) = broadcast::channel::<UseCaseEvent<ID_SIZE>>(100);
 
+    // Create the desired Context in which the Use Cases will run
     let context = Arc::new(TokioContext::new(
         root_id.clone(),
         FlatRoutingTable::<ID_SIZE, DEFAULT_BUCKET_SIZE, 1>::new(root_id)?,
@@ -48,6 +59,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         TokioRuntime::new(broadcaster.clone(), Arc::clone(&runtime)),
     ));
 
+    // Initialize the Use Cases
+    // TODO: Add other Use Cases as soon as implemented
     let mut use_case = BootstrapUseCase::new();
     use_case.start(context.deref(), &config.bootstrap)?;
 
@@ -55,6 +68,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     //  Start MessageReceivers and wait for message from broadcaster or MessageReceivers
     //  to delegate to use cases.
 
+    // Wait for MessageReceivers or runtime to emit events and delegate to Use Cases
     while let Ok(event) = runtime.block_on(receiver.recv()) {
         if let Err(e) = use_case.handle_event(context.deref(), &config.bootstrap, event) {
             log::error!("Bootstrap failed: {}", e);
