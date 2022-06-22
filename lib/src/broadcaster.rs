@@ -12,7 +12,7 @@ pub trait Broadcaster<const ID_SIZE: usize>: Clone {
 
 #[cfg(feature = "tokio")]
 mod tokio_broadcaster {
-    use crate::usecases::broadcaster::Broadcaster;
+    use crate::broadcaster::Broadcaster;
     use crate::usecases::UseCaseEvent;
 
     impl<const ID_SIZE: usize> Broadcaster<ID_SIZE>

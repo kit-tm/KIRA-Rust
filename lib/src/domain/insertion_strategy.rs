@@ -36,11 +36,11 @@ where
     ) -> InsertionStrategyResult<ID_SIZE>;
 }
 
-pub struct PNSPRStrategy<RT, const ID_SIZE: usize, const BUCKET_SIZE: usize> {
+pub struct PNSStrategy<RT, const ID_SIZE: usize, const BUCKET_SIZE: usize> {
     _pd: PhantomData<RT>,
 }
 
-impl<RT, const ID_SIZE: usize, const BUCKET_SIZE: usize> PNSPRStrategy<RT, ID_SIZE, BUCKET_SIZE>
+impl<RT, const ID_SIZE: usize, const BUCKET_SIZE: usize> PNSStrategy<RT, ID_SIZE, BUCKET_SIZE>
 where
     RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
     for<'a> &'a RT: IntoIterator<Item = &'a Contact<ID_SIZE>>,
@@ -81,7 +81,7 @@ where
         // Otherwise the seq_nr is equal
 
         // Drop if seq_nr is equal and contact is valid
-        if existing.state() != &crate::domain::State::Valid {
+        if existing.state() != &State::Valid {
             return InsertionStrategyResult::Dropped;
         }
         // Drop if same seq_nr but Age is older
@@ -144,7 +144,7 @@ where
 }
 
 impl<RT, NT, const ID_SIZE: usize, const BUCKET_SIZE: usize>
-    InsertionStrategy<RT, NT, ID_SIZE, BUCKET_SIZE> for PNSPRStrategy<RT, ID_SIZE, BUCKET_SIZE>
+    InsertionStrategy<RT, NT, ID_SIZE, BUCKET_SIZE> for PNSStrategy<RT, ID_SIZE, BUCKET_SIZE>
 where
     RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
     for<'a> &'a RT: IntoIterator<Item = &'a Contact<ID_SIZE>>,

@@ -8,8 +8,8 @@ use crate::domain::{
     Contact, DiscoveryTable, Interface, NeighborTable, NodeId, RoutingTable, DEFAULT_BUCKET_SIZE,
     DEFAULT_ID_SIZE,
 };
-use crate::messaging::{Message, MessageSender};
-use crate::usecases::{Runtime, TimerId};
+use crate::messaging::MessageSender;
+use crate::runtime::Runtime;
 
 pub enum ReadGuard<'a, T> {
     Sync(std::sync::RwLockReadGuard<'a, T>),
@@ -222,25 +222,20 @@ impl<RT, NT, DT, MS, RU, const ID_SIZE: usize, const BUCKET_SIZE: usize>
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum UseCaseEvent<const ID_SIZE: usize> {
-    Message(Message<ID_SIZE>),
-    Timer(TimerId),
-}
-
 #[cfg(feature = "tokio")]
 mod async_tokio_context {
     use std::sync::Arc;
 
     use tokio::sync::RwLock;
 
+    use crate::broadcaster::Broadcaster;
+    use crate::context::{Context, ReadGuard, WriteGuard};
     use crate::domain::{
         Contact, DiscoveryTable, Interface, NeighborTable, NodeId, RoutingTable,
         DEFAULT_BUCKET_SIZE, DEFAULT_ID_SIZE,
     };
     use crate::messaging::MessageSender;
-    use crate::usecases::broadcaster::Broadcaster;
-    use crate::usecases::{AsyncTokioRuntime, Context, ReadGuard, WriteGuard};
+    use crate::runtime::AsyncTokioRuntime;
 
     #[derive(Debug, Clone)]
     pub struct AsyncTokioContext<

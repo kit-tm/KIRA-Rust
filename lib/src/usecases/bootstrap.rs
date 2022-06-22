@@ -2,9 +2,11 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 use std::{error::Error, fmt::Display, time::Duration};
 
+use crate::context::Context;
 use crate::domain::DiscoveryTable;
 use crate::messaging::{FindNodeReqData, QueryRouteReqData};
-use crate::usecases::{Context, Runtime, TimerId, UseCaseEvent};
+use crate::runtime::Runtime;
+use crate::usecases::{TimerId, UseCaseEvent};
 use crate::{
     domain::{Contact, Interface, NeighborTable, NodeId, RoutingTable},
     messaging::{
