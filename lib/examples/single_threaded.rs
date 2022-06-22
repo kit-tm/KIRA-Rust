@@ -5,7 +5,6 @@
 //! multiple interfaces at once.
 
 use std::collections::HashMap;
-use std::error::Error;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -26,18 +25,20 @@ struct Config {
     bootstrap: BootstrapConfig,
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() {
     // Setup the single threaded async runtime
     let runtime = Arc::new(
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
-            .build()?,
+            .build()
+            .expect("failed to build tokio runtime"),
     );
 
     // Initialize the Logging Facade
     env_logger::init();
 
-    let root_id: NodeId<ID_SIZE> = std::env::var("NODE_ID")?
+    let root_id: NodeId<ID_SIZE> = std::env::var("NODE_ID")
+        .expect("failed to get environment var")
         .parse()
         .unwrap_or_else(|_| NodeId::random());
 
@@ -52,7 +53,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Create the desired Context in which the Use Cases will run
     let context = Arc::new(TokioContext::new(
         root_id.clone(),
-        FlatRoutingTable::<ID_SIZE, DEFAULT_BUCKET_SIZE, 1>::new(root_id)?,
+        FlatRoutingTable::<ID_SIZE, DEFAULT_BUCKET_SIZE, 1>::new(root_id)
+            .expect("invalid flat Routing Table parameters"),
         HashMap::new(),
         HashMap::new(),
         InMemoryMessageHub::new(),
@@ -62,7 +64,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Initialize the Use Cases
     // TODO: Add other Use Cases as soon as implemented
     let mut use_case = BootstrapUseCase::new();
-    use_case.start(context.deref(), &config.bootstrap)?;
+    use_case
+        .start(context.deref(), &config.bootstrap)
+        .expect("failed to start bootstrap use case");
 
     // TODO:
     //  Start MessageReceivers and wait for message from broadcaster or MessageReceivers
@@ -87,6 +91,4 @@ fn main() -> Result<(), Box<dyn Error>> {
             _ => {}
         }
     }
-
-    Ok(())
 }

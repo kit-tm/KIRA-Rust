@@ -71,59 +71,35 @@ where
     }
 
     fn routing_table(&self) -> ReadGuard<RT> {
-        self.runtime
-            .runtime()
-            .block_on(self.routing_table.read())
-            .into()
+        self.routing_table.blocking_read().into()
     }
 
     fn routing_table_mut(&self) -> WriteGuard<RT> {
-        self.runtime
-            .runtime()
-            .block_on(self.routing_table.write())
-            .into()
+        self.routing_table.blocking_write().into()
     }
 
     fn neighbor_table(&self) -> ReadGuard<NT> {
-        self.runtime
-            .runtime()
-            .block_on(self.neighbor_table.read())
-            .into()
+        self.neighbor_table.blocking_read().into()
     }
 
     fn neighbor_table_mut(&self) -> WriteGuard<NT> {
-        self.runtime
-            .runtime()
-            .block_on(self.neighbor_table.write())
-            .into()
+        self.neighbor_table.blocking_write().into()
     }
 
     fn discovery_table(&self) -> ReadGuard<DT> {
-        self.runtime
-            .runtime()
-            .block_on(self.discovery_table.read())
-            .into()
+        self.discovery_table.blocking_read().into()
     }
 
     fn discovery_table_mut(&self) -> WriteGuard<DT> {
-        self.runtime
-            .runtime()
-            .block_on(self.discovery_table.write())
-            .into()
+        self.discovery_table.blocking_write().into()
     }
 
     fn message_sender(&self) -> ReadGuard<MS> {
-        self.runtime
-            .runtime()
-            .block_on(self.message_sender.read())
-            .into()
+        self.message_sender.blocking_read().into()
     }
 
     fn message_sender_mut(&self) -> WriteGuard<MS> {
-        self.runtime
-            .runtime()
-            .block_on(self.message_sender.write())
-            .into()
+        self.message_sender.blocking_write().into()
     }
 
     fn runtime(&self) -> &TokioRuntime<B, ID_SIZE> {
