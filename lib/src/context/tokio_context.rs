@@ -5,7 +5,7 @@ use tokio::sync::RwLock;
 use crate::broadcaster::Broadcaster;
 use crate::context::{Context, ReadGuard, WriteGuard};
 use crate::domain::{
-    Contact, DiscoveryTable, Interface, NeighborTable, NodeId, RoutingTable, DEFAULT_BUCKET_SIZE,
+    Contact, DiscoveryTable, Port, NeighborTable, NodeId, RoutingTable, DEFAULT_BUCKET_SIZE,
     DEFAULT_ID_SIZE,
 };
 use crate::messaging::sender::MessageSender;
@@ -35,7 +35,7 @@ where
     RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
     for<'a> &'a RT: IntoIterator<Item = &'a Contact<ID_SIZE>>,
     NT: NeighborTable<ID_SIZE>,
-    for<'a> &'a NT: IntoIterator<Item = (&'a NodeId<ID_SIZE>, &'a Interface)>,
+    for<'a> &'a NT: IntoIterator<Item = (&'a NodeId<ID_SIZE>, &'a Port)>,
     DT: DiscoveryTable<ID_SIZE>,
     MS: MessageSender<ID_SIZE>,
     B: Broadcaster<ID_SIZE>,

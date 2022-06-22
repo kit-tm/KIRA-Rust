@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use super::{Contact, Interface, NeighborTable, NodeId, Path, RoutingTable};
+use super::{Contact, Port, NeighborTable, NodeId, Path, RoutingTable};
 
 pub struct PathSimplifier<'a, const ID_SIZE: usize>(&'a mut Path<ID_SIZE>);
 
@@ -35,7 +35,7 @@ impl<const ID_SIZE: usize> PathSimplifier<'_, ID_SIZE> {
         RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
         for<'a> &'a RT: IntoIterator<Item = &'a Contact<ID_SIZE>>,
         NT: NeighborTable<ID_SIZE>,
-        for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Interface)>,
+        for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Port)>,
     {
         // Already a neighbor, can't be shortened
         if self.0.len() <= 1 {
@@ -84,7 +84,7 @@ impl<const ID_SIZE: usize> PathSimplifier<'_, ID_SIZE> {
 #[cfg(test)]
 mod tests {
     use crate::domain::{
-        Age, Contact, FlatRoutingTable, Interface, NeighborTable, NodeId, Path, RoutingTable,
+        Age, Contact, FlatRoutingTable, Port, NeighborTable, NodeId, Path, RoutingTable,
         StateSeqNr,
     };
     use std::collections::HashMap;
@@ -94,7 +94,7 @@ mod tests {
     #[test]
     fn simplify_neighbor_part() -> Result<(), Box<dyn std::error::Error>> {
         let mut neighbor_table = HashMap::new();
-        neighbor_table.add(NodeId::<1>::zero(), Interface::new(String::from("0")));
+        neighbor_table.add(NodeId::<1>::zero(), Port::new(String::from("0")));
 
         let routing_table = FlatRoutingTable::<1, 20, 1>::new(NodeId::<1>::zero())?;
 
@@ -122,7 +122,7 @@ mod tests {
     #[test]
     fn simplify_neighbor_end() -> Result<(), Box<dyn std::error::Error>> {
         let mut neighbor_table = HashMap::new();
-        neighbor_table.add(NodeId::<1>::zero(), Interface::new(String::from("0")));
+        neighbor_table.add(NodeId::<1>::zero(), Port::new(String::from("0")));
 
         let routing_table = FlatRoutingTable::<1, 20, 1>::new(NodeId::<1>::zero())?;
 
@@ -185,7 +185,7 @@ mod tests {
     #[test]
     fn simplify_multiple() -> Result<(), Box<dyn std::error::Error>> {
         let mut neighbor_table = HashMap::new();
-        neighbor_table.add(NodeId::zero(), Interface::new(String::from("0")));
+        neighbor_table.add(NodeId::zero(), Port::new(String::from("0")));
 
         let mut routing_table = FlatRoutingTable::<1, 20, 1>::new(NodeId::<1>::zero())?;
         routing_table.add(Contact::new(

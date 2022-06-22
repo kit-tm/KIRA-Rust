@@ -2,7 +2,7 @@
 //!
 //! This implementation uses the async [https://tokio.rs] runtime to support
 //! running the daemon on a single threaded environment but also reading from
-//! multiple interfaces at once.
+//! multiple ports at once.
 
 use std::collections::HashMap;
 use std::ops::Deref;

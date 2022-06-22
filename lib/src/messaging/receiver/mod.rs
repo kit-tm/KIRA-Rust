@@ -1,8 +1,15 @@
-use crate::domain::Interface;
-use crate::messaging::messages::Message;
 use std::error::Error;
 use std::fmt::Display;
 use std::time::Duration;
+
+#[cfg(all(feature = "tokio", feature = "serde"))]
+pub use tokio_udp::*;
+
+use crate::domain::Port;
+use crate::messaging::messages::Message;
+
+#[cfg(all(feature = "tokio", feature = "serde"))]
+mod tokio_udp;
 
 #[derive(Debug)]
 pub struct RecvTimeout;
@@ -20,7 +27,7 @@ pub struct TryRecvError;
 
 impl Display for TryRecvError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Timeout receiving a Message")
+        write!(f, "Trying to receive failed")
     }
 }
 
@@ -41,13 +48,13 @@ pub trait MessageReceiver<const ID_SIZE: usize> {
     fn recv_timeout(
         &mut self,
         timeout: Option<Duration>,
-    ) -> Result<Option<(Message<ID_SIZE>, Interface)>, RecvTimeout>;
+    ) -> Result<Option<(Message<ID_SIZE>, Port)>, RecvTimeout>;
     /// Receives a [Message].
     ///
     /// Short for calling [recv_timeout](MessageReceiver::recv_timeout) with [None](Option::None).
-    fn recv(&mut self) -> Option<(Message<ID_SIZE>, Interface)> {
+    fn recv(&mut self) -> Option<(Message<ID_SIZE>, Port)> {
         self.recv_timeout(None).ok().flatten()
     }
     /// Tries to receive a [Message] and returns an [Error] if no message is present at the time.
-    fn try_recv(&mut self) -> Result<Option<(Message<ID_SIZE>, Interface)>, TryRecvError>;
+    fn try_recv(&mut self) -> Result<Option<(Message<ID_SIZE>, Port)>, TryRecvError>;
 }

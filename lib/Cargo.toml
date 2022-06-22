@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-tokio = ["tokio/net", "tokio/rt", "tokio/time"]
+tokio = ["tokio/net", "tokio/rt", "tokio/time", "tokio/net"]
 serde = ["dep:serde", "serde-big-array", "chrono/serde"]
 
 # All dependencies are well picked and although just a few have versions 1.x
@@ -25,10 +25,12 @@ hex = "0.4.3"
 log = "0.4.17"
 # Random NodeId generation
 rand = "0.8.5"
+rmp-serde = { version = "1.1.0", optional = true }
 # Abstract Serialization library for Rust (kind of standard)
 serde = { version = "1.0.137", optional = true, features = ["derive"] }
 # Required until serde supports const generics (https://crates.io/crates/serde-big-array)
 serde-big-array = { version = "0.4.1", optional = true }
+serde_json = { version = "1.0.81", optional = true }
 # Used to support sync and async rwlock on context
 tokio = { version = "1.19.2", default-features = false, features = ["sync"] }
 

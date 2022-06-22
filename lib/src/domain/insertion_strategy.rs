@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::domain::{AddError, Contact, InsertionError, NodeId, RoutingTable, State};
 
-use super::{Interface, NeighborTable, PathSimplifier};
+use super::{Port, NeighborTable, PathSimplifier};
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum InsertionStrategyResult<const ID_SIZE: usize> {
@@ -23,7 +23,7 @@ where
     RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
     for<'a> &'a RT: IntoIterator<Item = &'a Contact<ID_SIZE>>,
     NT: NeighborTable<ID_SIZE>,
-    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Interface)>,
+    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Port)>,
 {
     /// Insert the [Contact] into the [RoutingTable].
     ///
@@ -149,7 +149,7 @@ where
     RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
     for<'a> &'a RT: IntoIterator<Item = &'a Contact<ID_SIZE>>,
     NT: NeighborTable<ID_SIZE>,
-    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Interface)>,
+    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Port)>,
 {
     fn insert(
         &mut self,

@@ -1,11 +1,12 @@
-use crate::domain::Interface;
-use crate::messaging::messages::Message;
-use crate::messaging::receiver::{MessageReceiver, RecvTimeout, TryRecvError};
-use crate::messaging::sender::MessageSender;
 use std::collections::VecDeque;
 use std::error::Error;
 use std::fmt::Display;
 use std::time::Duration;
+
+use crate::domain::Port;
+use crate::messaging::messages::Message;
+use crate::messaging::receiver::{MessageReceiver, RecvTimeout, TryRecvError};
+use crate::messaging::sender::MessageSender;
 
 /// A [MessageSender] and [MessageReceiver] which stores messages in a FIFO way.
 ///
@@ -29,14 +30,14 @@ impl<const ID_SIZE: usize> InMemoryMessageHub<ID_SIZE> {
         }
     }
 
-    pub fn dummy_interface() -> Interface {
-        Interface::new(String::from("dummy interface"))
+    pub fn dummy_port() -> Port {
+        Port::new(String::from("dummy port"))
     }
 
-    fn pop(&mut self) -> Option<(Message<ID_SIZE>, Interface)> {
+    fn pop(&mut self) -> Option<(Message<ID_SIZE>, Port)> {
         self.messages
             .pop_front()
-            .map(|message| (message, Self::dummy_interface()))
+            .map(|message| (message, Self::dummy_port()))
     }
 }
 
@@ -44,11 +45,11 @@ impl<const ID_SIZE: usize> MessageReceiver<ID_SIZE> for InMemoryMessageHub<ID_SI
     fn recv_timeout(
         &mut self,
         _timeout: Option<Duration>,
-    ) -> Result<Option<(Message<ID_SIZE>, Interface)>, RecvTimeout> {
+    ) -> Result<Option<(Message<ID_SIZE>, Port)>, RecvTimeout> {
         Ok(self.pop())
     }
 
-    fn try_recv(&mut self) -> Result<Option<(Message<ID_SIZE>, Interface)>, TryRecvError> {
+    fn try_recv(&mut self) -> Result<Option<(Message<ID_SIZE>, Port)>, TryRecvError> {
         Ok(self.pop())
     }
 }
@@ -108,7 +109,7 @@ mod tests {
                     source: NodeId::<1>::zero(),
                     destination: NodeId::<1>::zero(),
                 }),
-                InMemoryMessageHub::<1>::dummy_interface()
+                InMemoryMessageHub::<1>::dummy_port()
             ))
         );
 
@@ -119,7 +120,7 @@ mod tests {
                     source: NodeId::one(),
                     destination: NodeId::one(),
                 }),
-                InMemoryMessageHub::<1>::dummy_interface()
+                InMemoryMessageHub::<1>::dummy_port()
             ))
         );
     }

@@ -9,7 +9,7 @@ use crate::messaging::sender::MessageSender;
 use crate::runtime::Runtime;
 use crate::usecases::{TimerId, UseCaseEvent};
 use crate::{
-    domain::{Contact, Interface, NeighborTable, NodeId, RoutingTable},
+    domain::{Contact, Port, NeighborTable, NodeId, RoutingTable},
     messaging::messages::{
         DiscRspData, HelloMessage, Message, Nonce, RTableReqType, ReqRspMessage,
     },
@@ -106,7 +106,7 @@ where
     RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
     for<'b> &'b RT: IntoIterator<Item = &'b Contact<ID_SIZE>>,
     NT: NeighborTable<ID_SIZE>,
-    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Interface)>,
+    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Port)>,
     MS: MessageSender<ID_SIZE>,
     DT: DiscoveryTable<ID_SIZE>,
     RU: Runtime,
@@ -229,7 +229,7 @@ where
     RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
     for<'b> &'b RT: IntoIterator<Item = &'b Contact<ID_SIZE>>,
     NT: NeighborTable<ID_SIZE>,
-    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Interface)>,
+    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Port)>,
     MS: MessageSender<ID_SIZE>,
     DT: DiscoveryTable<ID_SIZE>,
     RU: Runtime,
