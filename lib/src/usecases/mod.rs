@@ -1,4 +1,4 @@
-use crate::messaging::Message;
+use crate::messaging::messages::Message;
 use std::ops::Deref;
 
 pub mod bootstrap;

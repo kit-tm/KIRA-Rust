@@ -4,13 +4,14 @@ use std::{error::Error, fmt::Display, time::Duration};
 
 use crate::context::Context;
 use crate::domain::DiscoveryTable;
-use crate::messaging::{FindNodeReqData, QueryRouteReqData};
+use crate::messaging::messages::{FindNodeReqData, QueryRouteReqData};
+use crate::messaging::sender::MessageSender;
 use crate::runtime::Runtime;
 use crate::usecases::{TimerId, UseCaseEvent};
 use crate::{
     domain::{Contact, Interface, NeighborTable, NodeId, RoutingTable},
-    messaging::{
-        DiscRspData, HelloMessage, Message, MessageSender, Nonce, RTableReqType, ReqRspMessage,
+    messaging::messages::{
+        DiscRspData, HelloMessage, Message, Nonce, RTableReqType, ReqRspMessage,
     },
 };
 

@@ -5,10 +5,10 @@ use std::sync::Arc;
 
 use tokio::sync::broadcast;
 
-use r2kad_lib::context::AsyncTokioContext;
+use r2kad_lib::context::TokioContext;
 use r2kad_lib::domain::{FlatRoutingTable, NodeId, DEFAULT_BUCKET_SIZE, DEFAULT_ID_SIZE};
-use r2kad_lib::messaging::DummyMessageHub;
-use r2kad_lib::runtime::AsyncTokioRuntime;
+use r2kad_lib::messaging::InMemoryMessageHub;
+use r2kad_lib::runtime::TokioRuntime;
 use r2kad_lib::usecases::bootstrap::{BootstrapConfig, BootstrapState, BootstrapUseCase};
 use r2kad_lib::usecases::UseCaseEvent;
 
@@ -39,13 +39,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let (broadcaster, mut receiver) = broadcast::channel::<UseCaseEvent<ID_SIZE>>(100);
 
-    let context = Arc::new(AsyncTokioContext::new(
+    let context = Arc::new(TokioContext::new(
         root_id.clone(),
         FlatRoutingTable::<ID_SIZE, DEFAULT_BUCKET_SIZE, 1>::new(root_id)?,
         HashMap::new(),
         HashMap::new(),
-        DummyMessageHub::new(),
-        AsyncTokioRuntime::new(broadcaster.clone(), Arc::clone(&runtime)),
+        InMemoryMessageHub::new(),
+        TokioRuntime::new(broadcaster.clone(), Arc::clone(&runtime)),
     ));
 
     let mut use_case = BootstrapUseCase::new();
