@@ -79,6 +79,8 @@ fn main() {
     //  to delegate to use cases.
 
     // Wait for MessageReceivers or runtime to emit events and delegate to Use Cases
+    // IMPORTANT: The Runtime::block_on method drives progress in the CurrentThreadRuntime.
+    //              Without that the tasks spawned in the runtime won't make any progress.
     while let Ok(event) = runtime.block_on(receiver.recv()) {
         if let Err(e) = use_case.handle_event(context.deref(), &config.bootstrap, event) {
             log::error!("Bootstrap failed: {}", e);
