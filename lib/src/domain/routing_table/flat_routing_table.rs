@@ -3,8 +3,8 @@ use std::num::NonZeroUsize;
 use rand::Rng;
 
 use crate::domain::{
-    AddError, Bucket, BucketSplitError, Contact, GroupingError, NodeId, ReplacementError,
-    RoutingTable, SharedPrefix, DEFAULT_BUCKET_SIZE,
+    AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, GroupingError, NodeId,
+    ReplacementError, RoutingTable, SharedPrefix, DEFAULT_BUCKET_SIZE,
 };
 
 /// A [RoutingTable] implemented as flat array of [Bucket]s.
@@ -181,12 +181,20 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
         &self.root
     }
 
+    fn len(&self) -> usize {
+        self.num_contacts()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.buckets.len() == 1 && self.buckets[0].is_empty()
+    }
+
     fn add(&mut self, contact: Contact<ID_SIZE>) -> Result<(), AddError<ID_SIZE>> {
         let bucket = self.bucket_mut(contact.id());
 
         match bucket.insert(contact) {
-            Err(super::bucket::BucketInsertionError::<ID_SIZE>::Full) => Err(AddError::NotAdded),
-            Err(super::bucket::BucketInsertionError::<ID_SIZE>::DuplicateId(id)) => {
+            Err(BucketInsertionError::<ID_SIZE>::Full) => Err(AddError::NotAdded),
+            Err(BucketInsertionError::<ID_SIZE>::DuplicateId(id)) => {
                 Err(AddError::AlreadyExists(id))
             }
             Ok(_) => Ok(()),
@@ -410,7 +418,7 @@ mod routing_tests {
                 NodeId::from([0b00010111]),
                 Age::from(0),
                 Path::empty(),
-                StateSeqNr::from(0)
+                StateSeqNr::from(0),
             ))
             .is_err());
         assert_eq!(

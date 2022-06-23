@@ -3,6 +3,9 @@ use std::fmt::{Display, Formatter};
 
 use crate::domain::{Bucket, Contact, NodeId, ReplacementError};
 
+pub mod flat_routing_table;
+pub mod unlimited_neighbors_routing_table;
+
 #[derive(Debug, Eq, PartialEq)]
 pub enum AddError<const ID_SIZE: usize> {
     AlreadyExists(NodeId<ID_SIZE>),
@@ -66,12 +69,28 @@ impl<const ID_SIZE: usize> From<BucketSplitError> for InsertionError<ID_SIZE> {
     }
 }
 
+/// A table managing [Contact]s.
+///
+/// # Neighbors
+///
+/// As some RoutingTable implementation may handle neighbors in a different way
+/// the caller has to be careful when using [RoutingTable::bucket] and [RoutingTable::bucket_mut].
+/// In structures like [UnlimitedNeighborsRoutingTable] the Neighbors may not be included
+/// in the buckets.
+///
+/// As mostly accessing the buckets directly only happens if Insertion fails, this will ne problem.
 pub trait RoutingTable<const ID_SIZE: usize, const BUCKET_SIZE: usize>
 where
     for<'a> &'a Self: IntoIterator<Item = &'a Contact<ID_SIZE>>,
 {
     /// Returns the root [NodeId] of the [RoutingTable].
     fn root(&self) -> &NodeId<ID_SIZE>;
+
+    /// Returns the number of contacts inside the RoutingTable.
+    fn len(&self) -> usize;
+
+    /// Returns if the RoutingTable contains no Contacts.
+    fn is_empty(&self) -> bool;
 
     /// Add a new [Contact] to the [RoutingTable].
     ///

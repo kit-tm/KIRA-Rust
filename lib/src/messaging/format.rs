@@ -10,6 +10,7 @@ pub enum Format {
     Json,
     #[cfg(feature = "rmp-serde")]
     MessagePack,
+    None,
 }
 
 impl Format {
@@ -22,6 +23,7 @@ impl Format {
             Self::Json => serde_json::from_reader(reader)?,
             #[cfg(feature = "rmp-serde")]
             Self::MessagePack => rmp_serde::from_read(reader)?,
+            Self::None => panic!("No Format enabled"),
         };
 
         Ok(result)
@@ -37,6 +39,7 @@ impl Format {
             Self::Json => serde_json::to_writer(writer, data)?,
             #[cfg(feature = "rmp-serde")]
             Self::MessagePack => data.serialize(&mut rmp_serde::Serializer::new(writer))?,
+            Self::None => panic!("No Format enabled"),
         };
 
         Ok(())

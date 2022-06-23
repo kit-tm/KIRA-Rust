@@ -11,6 +11,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 
 use r2kad_lib::context::TokioContext;
+use r2kad_lib::domain::unlimited_neighbors_routing_table::UnlimitedNeighborsRoutingTable;
 use r2kad_lib::domain::{FlatRoutingTable, NodeId, DEFAULT_BUCKET_SIZE, DEFAULT_ID_SIZE};
 use r2kad_lib::messaging::InMemoryMessageHub;
 use r2kad_lib::runtime::TokioRuntime;
@@ -42,7 +43,7 @@ fn main() {
         .parse()
         .unwrap_or_else(|_| NodeId::random());
 
-    log::info!("Using NodeId {}", root_id);
+    println!("Using NodeId {}", root_id);
 
     // TODO: Read from CLI
     let config = Config::default();
@@ -50,11 +51,16 @@ fn main() {
     // Setup the Broadcaster which is necessary for the runtime to send messages to usecases
     let (broadcaster, mut receiver) = broadcast::channel::<UseCaseEvent<ID_SIZE>>(100);
 
+    // Create a Routing Table which stores ALL neighbors
+    let routing_table = UnlimitedNeighborsRoutingTable::from(
+        FlatRoutingTable::<ID_SIZE, DEFAULT_BUCKET_SIZE, 1>::new(root_id.clone())
+            .expect("invalid flat Routing Table parameters"),
+    );
+
     // Create the desired Context in which the Use Cases will run
     let context = Arc::new(TokioContext::new(
         root_id.clone(),
-        FlatRoutingTable::<ID_SIZE, DEFAULT_BUCKET_SIZE, 1>::new(root_id)
-            .expect("invalid flat Routing Table parameters"),
+        routing_table,
         HashMap::new(),
         HashMap::new(),
         InMemoryMessageHub::new(),
