@@ -37,9 +37,9 @@ impl From<DateTime<Utc>> for Timestamp {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub enum State<const ID_SIZE: usize> {
+pub enum State {
     Valid,
-    Rediscovering(RediscoveryState<ID_SIZE>),
+    Rediscovering(RediscoveryState),
     Invalid,
     Dead,
 }
@@ -54,11 +54,11 @@ pub enum RediscoveryType {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct RediscoveryState<const ID_SIZE: usize> {
+pub struct RediscoveryState {
     pub typ: RediscoveryType,
     pub time: Timestamp,
-    pub failed_link_list: Vec<Link<ID_SIZE>>,
-    pub via_contacts: Vec<NodeId<ID_SIZE>>,
+    pub failed_link_list: Vec<Link>,
+    pub via_contacts: Vec<NodeId>,
     pub retry_counter: usize,
 }
 
@@ -68,26 +68,21 @@ pub struct RediscoveryState<const ID_SIZE: usize> {
 /// [NodeId].
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct Contact<const ID_SIZE: usize> {
-    id: NodeId<ID_SIZE>,
-    state: State<ID_SIZE>,
+pub struct Contact {
+    id: NodeId,
+    state: State,
     age: Age,
     last_seen: Timestamp,
-    path: Path<ID_SIZE>,
+    path: Path,
     state_seq_nr: StateSeqNr,
 }
 
-impl<const ID_SIZE: usize> Contact<ID_SIZE> {
+impl Contact {
     /// Creates a new [Contact] with default values.
     ///
     /// The [Path] is not allowed to end with the given [NodeId]
     /// for the [Contact] but won't be checked.
-    pub fn new(
-        id: NodeId<ID_SIZE>,
-        age: Age,
-        path: Path<ID_SIZE>,
-        state_seq_nr: StateSeqNr,
-    ) -> Self {
+    pub fn new(id: NodeId, age: Age, path: Path, state_seq_nr: StateSeqNr) -> Self {
         assert!(path.last() != Some(&id));
         Self {
             id,
@@ -99,19 +94,19 @@ impl<const ID_SIZE: usize> Contact<ID_SIZE> {
         }
     }
 
-    pub fn id(&self) -> &NodeId<ID_SIZE> {
+    pub fn id(&self) -> &NodeId {
         &self.id
     }
 
-    pub fn into_id(self) -> NodeId<ID_SIZE> {
+    pub fn into_id(self) -> NodeId {
         self.id
     }
 
-    pub fn state(&self) -> &State<ID_SIZE> {
+    pub fn state(&self) -> &State {
         &self.state
     }
 
-    pub fn state_mut(&mut self) -> &mut State<ID_SIZE> {
+    pub fn state_mut(&mut self) -> &mut State {
         &mut self.state
     }
 
@@ -137,17 +132,17 @@ impl<const ID_SIZE: usize> Contact<ID_SIZE> {
 
     /// Returns the [Path] to the [Contact] without the
     /// [NodeId] of the [Contact] itself as last element.
-    pub fn path(&self) -> &Path<ID_SIZE> {
+    pub fn path(&self) -> &Path {
         &self.path
     }
 
-    pub fn path_mut(&mut self) -> &mut Path<ID_SIZE> {
+    pub fn path_mut(&mut self) -> &mut Path {
         &mut self.path
     }
 
     /// Returns the [Path] to the [Contact] ending with the [NodeId]
     /// of the [Contact] itself.
-    pub fn whole_path(&self) -> Path<ID_SIZE> {
+    pub fn whole_path(&self) -> Path {
         let mut path = self.path.clone();
         path.push(self.id.clone());
         path

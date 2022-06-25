@@ -7,7 +7,8 @@ use std::str::FromStr;
 
 use hex::FromHexError;
 
-pub const DEFAULT_ID_SIZE: usize = 14;
+pub const SIZE: usize = 14;
+pub const BIT_SIZE: usize = SIZE * 8;
 
 /// A NodeId with default SIZE of 112 Bits (14 Byte) as default value as proposed in the design paper.
 ///
@@ -22,7 +23,7 @@ pub const DEFAULT_ID_SIZE: usize = 14;
 ///     - What should be the "default" value for a NodeId?
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct NodeId<const SIZE: usize = DEFAULT_ID_SIZE> {
+pub struct NodeId {
     // Sorted from MSB to LSB (Big Endian representation)
     #[cfg_attr(feature = "serde", serde(with = "serde_big_array::BigArray"))]
     bytes: [u8; SIZE],
@@ -31,7 +32,7 @@ pub struct NodeId<const SIZE: usize = DEFAULT_ID_SIZE> {
 // ============ Initializers ============
 
 /// Constant initializers and functions related to them.
-impl<const SIZE: usize> NodeId<SIZE> {
+impl NodeId {
     /// Creating a [NodeId] with the numerical value of 0.
     pub const fn zero() -> Self {
         Self { bytes: [0u8; SIZE] }
@@ -43,10 +44,6 @@ impl<const SIZE: usize> NodeId<SIZE> {
     ///
     /// Panics if the SIZE is 0.
     pub const fn one() -> Self {
-        if SIZE == 0 {
-            panic!("NodeId of size 0 can't represent a value with numerical value 1");
-        }
-
         let mut inner = [0u8; SIZE];
         inner[SIZE - 1] = 1u8;
         Self { bytes: inner }
@@ -71,6 +68,22 @@ impl<const SIZE: usize> NodeId<SIZE> {
         Self { bytes: inner }
     }
 
+    /// Creates an all zeroed-out id with the LSB set to the given value.
+    #[cfg(test)]
+    pub fn with_lsb(lsb: u8) -> Self {
+        let mut id = Self::zero();
+        id.bytes[SIZE - 1] = lsb;
+        id
+    }
+
+    /// Creates an all zeroed-out id with the LSB set to the given value.
+    #[cfg(test)]
+    pub fn with_msb(msb: u8) -> Self {
+        let mut id = Self::zero();
+        id.bytes[0] = msb;
+        id
+    }
+
     /// Checks if the [NodeId] is equal to the numerical value of 0;
     pub fn is_zero(&self) -> bool {
         self.bytes == [0u8; SIZE]
@@ -84,12 +97,13 @@ impl<const SIZE: usize> NodeId<SIZE> {
         self.bytes[..(SIZE - 1)] == [0u8; SIZE][..SIZE - 1] && self.bytes[SIZE - 1] == 1u8
     }
 
+    /// Returns the byte size of the [NodeId].
     pub const fn size(&self) -> usize {
-        SIZE
+        self.bytes.len()
     }
 
     /// Returns the shared prefix length in number of bits
-    pub fn shared_prefix_bits(&self, other: &Self) -> Result<SharedPrefix<SIZE>, GroupingError> {
+    pub fn shared_prefix_bits(&self, other: &Self) -> Result<SharedPrefix, GroupingError> {
         self.shared_prefix_len(other, 1)
     }
 
@@ -110,8 +124,8 @@ impl<const SIZE: usize> NodeId<SIZE> {
         &self,
         other: &Self,
         bits_per_group: usize,
-    ) -> Result<SharedPrefix<SIZE>, GroupingError> {
-        if bits_per_group > SIZE * 8 {
+    ) -> Result<SharedPrefix, GroupingError> {
+        if bits_per_group > BIT_SIZE {
             return Err(GroupingError::Invalid {
                 group_size: bits_per_group,
                 id_size: SIZE,
@@ -123,7 +137,7 @@ impl<const SIZE: usize> NodeId<SIZE> {
         if self == other {
             return Ok(SharedPrefix {
                 xor,
-                value: SIZE * 8 / bits_per_group,
+                value: BIT_SIZE / bits_per_group,
             });
         }
 
@@ -204,23 +218,23 @@ impl Display for BitIndexOutOfBounds {
 impl Error for BitIndexOutOfBounds {}
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct SharedPrefix<const SIZE: usize> {
-    pub(crate) xor: NodeId<SIZE>,
+pub struct SharedPrefix {
+    pub(crate) xor: NodeId,
     pub(crate) value: usize,
 }
 
-impl<const SIZE: usize> From<SharedPrefix<SIZE>> for usize {
-    fn from(prefix: SharedPrefix<SIZE>) -> Self {
+impl From<SharedPrefix> for usize {
+    fn from(prefix: SharedPrefix) -> Self {
         prefix.value
     }
 }
 
-impl<const SIZE: usize> SharedPrefix<SIZE> {
-    pub fn into_xor(self) -> NodeId<SIZE> {
+impl SharedPrefix {
+    pub fn into_xor(self) -> NodeId {
         self.xor
     }
 
-    pub fn xor(&self) -> &NodeId<SIZE> {
+    pub fn xor(&self) -> &NodeId {
         &self.xor
     }
 
@@ -257,32 +271,30 @@ impl Display for GroupingError {
 impl Error for GroupingError {}
 
 /// Creates a [NodeId] from a byte array. The resulting [NodeId] has the same size as the given array.
-impl<const SIZE: usize> From<[u8; SIZE]> for NodeId<SIZE> {
+impl From<[u8; SIZE]> for NodeId {
     fn from(inner: [u8; SIZE]) -> Self {
         Self { bytes: inner }
     }
 }
 
-impl From<u128> for NodeId<16> {
-    fn from(val: u128) -> Self {
-        Self {
-            bytes: val.to_be_bytes(),
-        }
-    }
-}
-
 // ============ Conversions ==================
 
-impl<const SIZE: usize> AsRef<[u8]> for NodeId<SIZE> {
+impl AsRef<[u8]> for NodeId {
     fn as_ref(&self) -> &[u8] {
         self.bytes.as_ref()
     }
 }
 
+impl AsRef<[u8; SIZE]> for NodeId {
+    fn as_ref(&self) -> &[u8; SIZE] {
+        &self.bytes
+    }
+}
+
 // ============ Operations ============
 
-impl<'a, const SIZE: usize> BitXor for &'a NodeId<SIZE> {
-    type Output = NodeId<SIZE>;
+impl<'a> BitXor for &'a NodeId {
+    type Output = NodeId;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
         if self == &NodeId::zero() {
@@ -300,8 +312,8 @@ impl<'a, const SIZE: usize> BitXor for &'a NodeId<SIZE> {
     }
 }
 
-impl<const SIZE: usize> BitXor for NodeId<SIZE> {
-    type Output = NodeId<SIZE>;
+impl BitXor for NodeId {
+    type Output = NodeId;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
         &self ^ &rhs
@@ -310,7 +322,7 @@ impl<const SIZE: usize> BitXor for NodeId<SIZE> {
 
 const SHORT_OUTPUT_LENGTH: usize = 8;
 
-impl<const SIZE: usize> FromStr for NodeId<SIZE> {
+impl FromStr for NodeId {
     type Err = FromHexError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -322,7 +334,7 @@ impl<const SIZE: usize> FromStr for NodeId<SIZE> {
 
 // ============ Output Formatters ============
 
-impl<const SIZE: usize> LowerHex for NodeId<SIZE> {
+impl LowerHex for NodeId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match (f.precision(), f.alternate()) {
             (Some(precision), _) => write!(f, "{}", &hex::encode(self)[..precision]),
@@ -332,7 +344,7 @@ impl<const SIZE: usize> LowerHex for NodeId<SIZE> {
     }
 }
 
-impl<const SIZE: usize> UpperHex for NodeId<SIZE> {
+impl UpperHex for NodeId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match (f.precision(), f.alternate()) {
             (Some(precision), _) => write!(f, "{}", &hex::encode_upper(self)[..precision]),
@@ -342,7 +354,7 @@ impl<const SIZE: usize> UpperHex for NodeId<SIZE> {
     }
 }
 
-impl<const SIZE: usize> Display for NodeId<SIZE> {
+impl Display for NodeId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         UpperHex::fmt(self, f)
     }
@@ -354,25 +366,21 @@ mod tests {
     use std::num::NonZeroUsize;
     use std::str::FromStr;
 
-    use crate::domain::SharedPrefix;
+    use crate::domain::{node_id, SharedPrefix};
 
     use super::NodeId;
 
     #[test]
     fn from_hex_string() -> Result<(), Box<dyn Error>> {
-        let raw = "0123456789ABCDEF";
-        let id: NodeId<8> = raw.parse()?;
-        assert_eq!(id.size(), 8);
+        let raw = "0123456789ABCDEF0123456789AB";
+        let id = NodeId::from_str(raw)?;
+        assert_eq!(id.size(), node_id::SIZE);
         assert_eq!(format!("{:X}", id), raw);
         assert_eq!(format!("{:x}", id), raw.to_lowercase());
 
         // Invalid bit length -> Has to be multiple of 8
-        assert!(NodeId::<2>::from_str("012").is_err());
-        assert!(NodeId::<3>::from_str("012").is_err());
-
-        // Invalid byte length -> const generic and input size have to be the same
-        assert!(NodeId::<2>::from_str("0123").is_ok());
-        assert!(NodeId::<3>::from_str("0123").is_err());
+        assert!(NodeId::from_str("0123456789ABCDEF0123456789A").is_err());
+        assert!(NodeId::from_str("0123456789ABCDEF0123456789ABC").is_err());
 
         Ok(())
     }
@@ -381,58 +389,51 @@ mod tests {
 
     #[test]
     fn zero_is_zero() {
-        assert!(NodeId::<0>::zero().is_zero());
+        assert!(NodeId::zero().is_zero());
     }
 
     #[test]
     fn zero_is_not_one() {
-        assert!(!NodeId::<0>::zero().is_one())
+        assert!(!NodeId::zero().is_one())
     }
 
     #[test]
     fn one_is_not_zero() {
-        assert!(!NodeId::<1>::one().is_zero());
+        assert!(!NodeId::one().is_zero());
     }
 
     #[test]
     fn one_is_one() {
-        assert!(NodeId::<1>::one().is_one());
-    }
-
-    #[test]
-    fn from_u128() {
-        assert!(NodeId::from(1u128).is_one());
-        assert!(!NodeId::from(0u128).is_one());
-        assert!(NodeId::from(0u128).is_zero());
+        assert!(NodeId::one().is_one());
     }
 
     #[cfg(feature = "rand")]
     #[test]
     fn rand_construction_smoke_test() {
-        let random = NodeId::<128>::random();
+        let random = NodeId::random();
         assert!(!random.is_zero());
         assert!(!random.is_one());
     }
 
     #[test]
     fn from_array() {
-        assert!(NodeId::from([0u8; 5]).is_zero());
+        assert!(NodeId::from([0u8; 14]).is_zero());
     }
 
     // Equality Tests
 
     #[test]
     fn node_id_comparison() {
-        assert_eq!(NodeId::<1>::one(), NodeId::<1>::one());
-        assert_ne!(NodeId::<1>::one(), NodeId::<1>::zero());
-        assert_eq!(NodeId::<1>::zero(), NodeId::<1>::zero());
+        assert_eq!(NodeId::one(), NodeId::one());
+        assert_ne!(NodeId::one(), NodeId::zero());
+        assert_eq!(NodeId::zero(), NodeId::zero());
         assert_eq!(
-            NodeId::from([15u8, 14u8, 13u8]),
-            NodeId::from([15u8, 14u8, 13u8])
+            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15u8, 14u8, 13u8]),
+            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15u8, 14u8, 13u8])
         );
         assert_ne!(
-            NodeId::from([13u8, 14u8, 15u8]),
-            NodeId::from([15u8, 14u8, 13u8])
+            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 13u8, 14u8, 15u8]),
+            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15u8, 14u8, 13u8])
         );
     }
 
@@ -441,34 +442,35 @@ mod tests {
     #[test]
     fn node_id_xor_works() {
         assert_eq!(
-            &NodeId::from([1u8, 0u8]) ^ &NodeId::from([0u8, 1u8]),
-            NodeId::from([1u8, 1u8])
+            &NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1u8, 0u8])
+                ^ &NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0u8, 1u8]),
+            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1u8, 1u8])
         );
     }
 
     #[test]
     fn prefix_bits_smoke_test() {
-        let zero = NodeId::<1>::zero();
-        let one = NodeId::<1>::one();
+        let zero = NodeId::zero();
+        let one = NodeId::with_msb(1);
 
         assert_eq!(
             zero.shared_prefix_bits(&one).map(SharedPrefix::into_value),
             Ok(7)
         );
 
-        let zero = NodeId::<16>::zero();
-        let one = NodeId::<16>::one();
+        let zero = NodeId::zero();
+        let one = NodeId::one();
 
         assert_eq!(
             zero.shared_prefix_bits(&one).map(SharedPrefix::into_value),
-            Ok(16 * 8 - 1)
+            Ok(node_id::BIT_SIZE - 1)
         );
 
-        let one = NodeId::<4>::one();
-        let valid = NodeId::from([0, 0b10000000, 0xFF, 0]);
+        let one = NodeId::one();
+        let valid = NodeId::from([0, 0b10000000, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 
         assert_eq!(
-            one.shared_prefix_bits(&valid).map(|prefix| prefix.value),
+            one.shared_prefix_bits(&valid).map(SharedPrefix::into_value),
             Ok(8)
         );
     }
@@ -476,62 +478,48 @@ mod tests {
     #[test]
     fn prefix_len_self() {
         assert_eq!(
-            NodeId::<1>::zero().shared_prefix_len(&NodeId::zero(), 1),
+            NodeId::zero().shared_prefix_len(&NodeId::zero(), 1),
             Ok(SharedPrefix {
                 xor: NodeId::zero(),
-                value: 8,
+                value: node_id::BIT_SIZE,
             })
         );
     }
 
     #[test]
     fn prefix_length_smoke_test() {
-        let zero = NodeId::<1>::zero();
-        let one = NodeId::<1>::one();
+        let zero = NodeId::zero();
+        let one = NodeId::one();
 
         assert_eq!(
             zero.shared_prefix_len(&one, 1)
                 .map(SharedPrefix::into_value),
-            Ok(7)
+            Ok(node_id::BIT_SIZE - 1)
         );
         assert_eq!(
             zero.shared_prefix_len(&one, 2)
                 .map(SharedPrefix::into_value),
-            Ok(3)
+            Ok((node_id::BIT_SIZE / 2) - 1)
         );
         assert_eq!(
-            zero.shared_prefix_len(&one, 3)
+            zero.shared_prefix_len(&one, 4)
                 .map(SharedPrefix::into_value),
-            Ok(2)
+            Ok((node_id::BIT_SIZE / 4) - 1)
         );
 
-        let zero = NodeId::<16>::zero();
-        let one = NodeId::<16>::one();
-
-        assert_eq!(
-            zero.shared_prefix_len(&one, 1)
-                .map(SharedPrefix::into_value),
-            Ok(127)
-        );
-        assert_eq!(
-            zero.shared_prefix_len(&one, 2)
-                .map(SharedPrefix::into_value),
-            Ok(63)
-        );
-
-        let one = NodeId::<4>::one();
-        let valid = NodeId::from([0, 0b10000000, 0xFF, 0]);
+        let one = NodeId::one();
+        let valid = NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b10000000, 0xFF, 0]);
 
         assert_eq!(
             one.shared_prefix_len(&valid, 8)
                 .map(SharedPrefix::into_value),
-            Ok(1)
+            Ok(11)
         );
     }
 
     #[test]
     fn test_single_bits() {
-        let value = NodeId::<1>::from([0b01101110]);
+        let value = NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b01101110]);
         assert_eq!(value.bits(0, NonZeroUsize::new(1).unwrap()), Ok(0));
         assert_eq!(value.bits(1, NonZeroUsize::new(1).unwrap()), Ok(1));
         assert_eq!(value.bits(2, NonZeroUsize::new(1).unwrap()), Ok(1));
@@ -544,31 +532,35 @@ mod tests {
 
     #[test]
     fn test_multiple_bits_in_same_byte() {
-        let value = NodeId::<1>::from([0b01101110]);
+        let value = NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b01101110]);
         assert_eq!(value.bits(0, NonZeroUsize::new(8).unwrap()), Ok(0b01101110));
     }
 
     #[test]
     fn test_multiple_bits_through_multiply_bytes() {
-        let value = NodeId::from([0b01101110, 0b10110100]);
+        let value = NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b01101110, 0b10110100]);
         assert_eq!(value.bits(4, NonZeroUsize::new(8).unwrap()), Ok(0b11101011));
     }
 
     #[test]
     fn test_out_of_bounds() {
-        let value = NodeId::from([0b01101110, 0b10110100]);
-        assert!(value.bits(20, NonZeroUsize::new(8).unwrap()).is_err());
+        let value = NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b01101110, 0b10110100]);
+        assert!(value
+            .bits(node_id::BIT_SIZE + 10, NonZeroUsize::new(8).unwrap())
+            .is_err());
     }
 
     #[test]
     fn test_multiple_bits_starting_in_higher_byte() {
-        let value = NodeId::from([0b01101110, 0b10110100, 0b10110100, 0b10110100]);
+        let value = NodeId::from([
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b01101110, 0b10110100, 0b10110100, 0b10110100,
+        ]);
         assert_eq!(value.bits(17, NonZeroUsize::new(7).unwrap()), Ok(0b1011010));
     }
 
     #[test]
     fn test_get_bit() {
-        let zero = NodeId::<1>::from([0b01101110]);
+        let zero = NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b01101110]);
         assert_eq!(zero.bit(0), Ok(0));
         assert_eq!(zero.bit(1), Ok(1));
         assert_eq!(zero.bit(2), Ok(1));

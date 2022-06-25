@@ -5,12 +5,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 /// Single Threaded Runtime using the standard library.
-pub struct SyncRuntime<E, const ID_SIZE: usize> {
+pub struct SyncRuntime<E> {
     id_counter: AtomicUsize,
     broadcaster: E,
 }
 
-impl<E: Default, const ID_SIZE: usize> Default for SyncRuntime<E, ID_SIZE> {
+impl<E: Default> Default for SyncRuntime<E> {
     fn default() -> Self {
         Self {
             id_counter: AtomicUsize::new(0),
@@ -19,7 +19,7 @@ impl<E: Default, const ID_SIZE: usize> Default for SyncRuntime<E, ID_SIZE> {
     }
 }
 
-impl<E, const ID_SIZE: usize> SyncRuntime<E, ID_SIZE> {
+impl<E> SyncRuntime<E> {
     pub const fn new(executioner: E) -> Self {
         SyncRuntime {
             id_counter: AtomicUsize::new(0),
@@ -28,7 +28,7 @@ impl<E, const ID_SIZE: usize> SyncRuntime<E, ID_SIZE> {
     }
 }
 
-impl<E: Broadcaster<ID_SIZE>, const ID_SIZE: usize> Runtime for SyncRuntime<E, ID_SIZE> {
+impl<E: Broadcaster> Runtime for SyncRuntime<E> {
     fn register_timer(&self, duration: Duration) -> TimerId {
         std::thread::sleep(duration);
         let timer_id = TimerId::from(self.id_counter.fetch_add(1, Ordering::Relaxed));

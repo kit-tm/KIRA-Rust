@@ -19,26 +19,26 @@ impl Nonce {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub enum Message<const ID_SIZE: usize> {
-    Hello(HelloMessage<ID_SIZE>),
-    PNDiscReq(ReqRspMessage<PNDiscReqData<ID_SIZE>, ID_SIZE>),
-    PNDiscRsp(ReqRspMessage<DiscRspData<ID_SIZE>, ID_SIZE>),
-    QueryRouteReq(ReqRspMessage<QueryRouteReqData<ID_SIZE>, ID_SIZE>),
-    QueryRouteRsp(ReqRspMessage<DiscRspData<ID_SIZE>, ID_SIZE>),
-    FindNodeReq(ReqRspMessage<FindNodeReqData, ID_SIZE>),
-    FindNodeRsp(ReqRspMessage<DiscRspData<ID_SIZE>, ID_SIZE>),
-    Error(ReqRspMessage<ErrorData, ID_SIZE>),
+pub enum Message {
+    Hello(HelloMessage),
+    PNDiscReq(ReqRspMessage<PNDiscReqData>),
+    PNDiscRsp(ReqRspMessage<DiscRspData>),
+    QueryRouteReq(ReqRspMessage<QueryRouteReqData>),
+    QueryRouteRsp(ReqRspMessage<DiscRspData>),
+    FindNodeReq(ReqRspMessage<FindNodeReqData>),
+    FindNodeRsp(ReqRspMessage<DiscRspData>),
+    Error(ReqRspMessage<ErrorData>),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct HelloMessage<const ID_SIZE: usize> {
-    pub source: NodeId<ID_SIZE>,
-    pub destination: NodeId<ID_SIZE>,
+pub struct HelloMessage {
+    pub source: NodeId,
+    pub destination: NodeId,
 }
 
-impl<const ID_SIZE: usize> From<HelloMessage<ID_SIZE>> for Message<ID_SIZE> {
-    fn from(message: HelloMessage<ID_SIZE>) -> Self {
+impl From<HelloMessage> for Message {
+    fn from(message: HelloMessage) -> Self {
         Self::Hello(message)
     }
 }
@@ -47,10 +47,10 @@ impl<const ID_SIZE: usize> From<HelloMessage<ID_SIZE>> for Message<ID_SIZE> {
 /// identify Request and Response Pairs.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct ReqRspMessage<T: std::fmt::Debug, const ID_SIZE: usize> {
+pub struct ReqRspMessage<T: std::fmt::Debug> {
     pub nonce: Nonce,
-    pub source: NodeId<ID_SIZE>,
-    pub destination: NodeId<ID_SIZE>,
+    pub source: NodeId,
+    pub destination: NodeId,
     pub data: T,
 }
 
@@ -63,36 +63,32 @@ pub enum RTableReqType {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct PNDiscReqData<const ID_SIZE: usize> {
+pub struct PNDiscReqData {
     pub req_type: RTableReqType,
-    pub contacts: Vec<NodeId<ID_SIZE>>,
+    pub contacts: Vec<NodeId>,
 }
 
-impl<const ID_SIZE: usize> From<ReqRspMessage<PNDiscReqData<ID_SIZE>, ID_SIZE>>
-    for Message<ID_SIZE>
-{
-    fn from(message: ReqRspMessage<PNDiscReqData<ID_SIZE>, ID_SIZE>) -> Self {
+impl From<ReqRspMessage<PNDiscReqData>> for Message {
+    fn from(message: ReqRspMessage<PNDiscReqData>) -> Self {
         Self::PNDiscReq(message)
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub enum DiscRspData<const ID_SIZE: usize> {
-    RTable(Vec<Contact<ID_SIZE>>),
-    ContactList(Vec<NodeId<ID_SIZE>>),
+pub enum DiscRspData {
+    RTable(Vec<Contact>),
+    ContactList(Vec<NodeId>),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct QueryRouteReqData<const ID_SIZE: usize> {
+pub struct QueryRouteReqData {
     pub req_type: RTableReqType,
 }
 
-impl<const ID_SIZE: usize> From<ReqRspMessage<QueryRouteReqData<ID_SIZE>, ID_SIZE>>
-    for Message<ID_SIZE>
-{
-    fn from(message: ReqRspMessage<QueryRouteReqData<ID_SIZE>, ID_SIZE>) -> Self {
+impl From<ReqRspMessage<QueryRouteReqData>> for Message {
+    fn from(message: ReqRspMessage<QueryRouteReqData>) -> Self {
         Self::QueryRouteReq(message)
     }
 }
@@ -105,8 +101,8 @@ pub struct FindNodeReqData {
     pub req_type: RTableReqType,
 }
 
-impl<const ID_SIZE: usize> From<ReqRspMessage<FindNodeReqData, ID_SIZE>> for Message<ID_SIZE> {
-    fn from(message: ReqRspMessage<FindNodeReqData, ID_SIZE>) -> Self {
+impl From<ReqRspMessage<FindNodeReqData>> for Message {
+    fn from(message: ReqRspMessage<FindNodeReqData>) -> Self {
         Self::FindNodeReq(message)
     }
 }

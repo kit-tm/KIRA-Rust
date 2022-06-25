@@ -1,30 +1,30 @@
 use std::ops::{Deref, DerefMut};
 
-use super::{Contact, Port, NeighborTable, NodeId, Path, RoutingTable};
+use super::{Contact, NeighborTable, NodeId, Path, Port, RoutingTable};
 
-pub struct PathSimplifier<'a, const ID_SIZE: usize>(&'a mut Path<ID_SIZE>);
+pub struct PathSimplifier<'a>(&'a mut Path);
 
-impl<'a, const ID_SIZE: usize> From<&'a mut Path<ID_SIZE>> for PathSimplifier<'a, ID_SIZE> {
-    fn from(path: &'a mut Path<ID_SIZE>) -> Self {
+impl<'a> From<&'a mut Path> for PathSimplifier<'a> {
+    fn from(path: &'a mut Path) -> Self {
         Self(path)
     }
 }
 
-impl<const ID_SIZE: usize> Deref for PathSimplifier<'_, ID_SIZE> {
-    type Target = Path<ID_SIZE>;
+impl Deref for PathSimplifier<'_> {
+    type Target = Path;
 
     fn deref(&self) -> &Self::Target {
         self.0
     }
 }
 
-impl<const ID_SIZE: usize> DerefMut for PathSimplifier<'_, ID_SIZE> {
+impl DerefMut for PathSimplifier<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl<const ID_SIZE: usize> PathSimplifier<'_, ID_SIZE> {
+impl PathSimplifier<'_> {
     /// Simplifies the [Path] by replacing parts of it with known
     /// shorter [Path]s.
     pub fn simplify<RT, NT, const BUCKET_SIZE: usize>(
@@ -32,10 +32,10 @@ impl<const ID_SIZE: usize> PathSimplifier<'_, ID_SIZE> {
         routing_table: &RT,
         neighbor_table: &NT,
     ) where
-        RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
-        for<'a> &'a RT: IntoIterator<Item = &'a Contact<ID_SIZE>>,
-        NT: NeighborTable<ID_SIZE>,
-        for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Port)>,
+        RT: RoutingTable<BUCKET_SIZE>,
+        for<'a> &'a RT: IntoIterator<Item = &'a Contact>,
+        NT: NeighborTable,
+        for<'b> &'b NT: IntoIterator<Item = (&'b NodeId, &'b Port)>,
     {
         // Already a neighbor, can't be shortened
         if self.0.len() <= 1 {
@@ -83,26 +83,26 @@ impl<const ID_SIZE: usize> PathSimplifier<'_, ID_SIZE> {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::{
-        Age, Contact, FlatRoutingTable, Port, NeighborTable, NodeId, Path, RoutingTable,
-        StateSeqNr,
-    };
     use std::collections::HashMap;
+
+    use crate::domain::{
+        Age, Contact, FlatRoutingTable, NeighborTable, NodeId, Path, Port, RoutingTable, StateSeqNr,
+    };
 
     use super::PathSimplifier;
 
     #[test]
     fn simplify_neighbor_part() -> Result<(), Box<dyn std::error::Error>> {
         let mut neighbor_table = HashMap::new();
-        neighbor_table.add(NodeId::<1>::zero(), Port::new(String::from("0")));
+        neighbor_table.add(NodeId::zero(), Port::new(String::from("0")));
 
-        let routing_table = FlatRoutingTable::<1, 20, 1>::new(NodeId::<1>::zero())?;
+        let routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;
 
         let path = Path::from([
-            NodeId::from([0b00001111]),
-            NodeId::from([0b11110000]),
-            NodeId::from([0]),
-            NodeId::from([0b10101010]),
+            NodeId::with_lsb(0b00001111),
+            NodeId::with_lsb(0b11110000),
+            NodeId::with_lsb(0),
+            NodeId::with_lsb(0b10101010),
         ]);
 
         let mut cloned = path.clone();
@@ -113,7 +113,7 @@ mod tests {
         assert_ne!(*simplifier, path);
         assert_eq!(
             *simplifier,
-            Path::from([NodeId::from([0]), NodeId::from([0b10101010]),])
+            Path::from([NodeId::with_lsb(0), NodeId::with_lsb(0b10101010),])
         );
 
         Ok(())
@@ -122,14 +122,14 @@ mod tests {
     #[test]
     fn simplify_neighbor_end() -> Result<(), Box<dyn std::error::Error>> {
         let mut neighbor_table = HashMap::new();
-        neighbor_table.add(NodeId::<1>::zero(), Port::new(String::from("0")));
+        neighbor_table.add(NodeId::zero(), Port::new(String::from("0")));
 
-        let routing_table = FlatRoutingTable::<1, 20, 1>::new(NodeId::<1>::zero())?;
+        let routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;
 
         let path = Path::from([
-            NodeId::from([0b00001111]),
-            NodeId::from([0b11110000]),
-            NodeId::from([0]),
+            NodeId::with_lsb(0b00001111),
+            NodeId::with_lsb(0b11110000),
+            NodeId::with_lsb(0),
         ]);
 
         let mut cloned = path.clone();
@@ -138,7 +138,7 @@ mod tests {
         simplifier.simplify(&routing_table, &neighbor_table);
 
         assert_ne!(*simplifier, path);
-        assert_eq!(*simplifier, Path::from([NodeId::from([0]),]));
+        assert_eq!(*simplifier, Path::from([NodeId::with_lsb(0),]));
 
         Ok(())
     }
@@ -147,20 +147,20 @@ mod tests {
     fn simplify_known_contact() -> Result<(), Box<dyn std::error::Error>> {
         let neighbor_table = HashMap::new();
 
-        let mut routing_table = FlatRoutingTable::<1, 20, 1>::new(NodeId::<1>::zero())?;
+        let mut routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;
         routing_table.add(Contact::new(
             NodeId::zero(),
             Age::from(0),
-            Path::from([NodeId::from([1]), NodeId::from([2])]),
+            Path::from([NodeId::with_lsb(1), NodeId::with_lsb(2)]),
             StateSeqNr::from(0),
         ))?;
 
         let path = Path::from([
-            NodeId::from([1]),
-            NodeId::from([2]),
-            NodeId::from([3]),
+            NodeId::with_lsb(1),
+            NodeId::with_lsb(2),
+            NodeId::with_lsb(3),
             NodeId::zero(),
-            NodeId::from([4]),
+            NodeId::with_lsb(4),
         ]);
 
         let mut cloned = path.clone();
@@ -172,10 +172,10 @@ mod tests {
         assert_eq!(
             *simplifier,
             Path::from([
-                NodeId::from([1]),
-                NodeId::from([2]),
+                NodeId::with_lsb(1),
+                NodeId::with_lsb(2),
                 NodeId::zero(),
-                NodeId::from([4]),
+                NodeId::with_lsb(4),
             ])
         );
 
@@ -187,20 +187,20 @@ mod tests {
         let mut neighbor_table = HashMap::new();
         neighbor_table.add(NodeId::zero(), Port::new(String::from("0")));
 
-        let mut routing_table = FlatRoutingTable::<1, 20, 1>::new(NodeId::<1>::zero())?;
+        let mut routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;
         routing_table.add(Contact::new(
             NodeId::one(),
             Age::from(0),
-            Path::from([NodeId::from([1]), NodeId::from([2])]),
+            Path::from([NodeId::with_lsb(1), NodeId::with_lsb(2)]),
             StateSeqNr::from(0),
         ))?;
 
         let path = Path::from([
-            NodeId::from([2]),
-            NodeId::from([3]),
-            NodeId::from([4]),
+            NodeId::with_lsb(2),
+            NodeId::with_lsb(3),
+            NodeId::with_lsb(4),
             NodeId::zero(),
-            NodeId::from([1]),
+            NodeId::with_lsb(1),
         ]);
 
         let mut cloned = path.clone();
@@ -211,7 +211,7 @@ mod tests {
         assert_ne!(*simplifier, path);
         assert_eq!(
             *simplifier,
-            Path::from([NodeId::zero(), NodeId::from([1]),])
+            Path::from([NodeId::zero(), NodeId::with_lsb(1),])
         );
 
         Ok(())

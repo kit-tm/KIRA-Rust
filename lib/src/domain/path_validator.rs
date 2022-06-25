@@ -1,24 +1,24 @@
 use std::ops::Deref;
 
-use super::{Contact, Port, NeighborTable, NodeId, Path, RoutingTable};
+use super::{Contact, NeighborTable, NodeId, Path, Port, RoutingTable};
 
-pub struct PathValidator<const ID_SIZE: usize>(pub Path<ID_SIZE>);
+pub struct PathValidator(pub Path);
 
-impl<const ID_SIZE: usize> From<Path<ID_SIZE>> for PathValidator<ID_SIZE> {
-    fn from(path: Path<ID_SIZE>) -> Self {
+impl From<Path> for PathValidator {
+    fn from(path: Path) -> Self {
         Self(path)
     }
 }
 
-impl<const ID_SIZE: usize> Deref for PathValidator<ID_SIZE> {
-    type Target = Path<ID_SIZE>;
+impl Deref for PathValidator {
+    type Target = Path;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<const ID_SIZE: usize> PathValidator<ID_SIZE> {
+impl PathValidator {
     /// Returns if the [Path] is valid to be inserted into the [RoutingTable].
     ///
     /// Valid means:
@@ -31,10 +31,10 @@ impl<const ID_SIZE: usize> PathValidator<ID_SIZE> {
         neighbor_table: NT,
     ) -> bool
     where
-        RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
-        for<'a> &'a RT: IntoIterator<Item = &'a Contact<ID_SIZE>>,
-        NT: NeighborTable<ID_SIZE>,
-        for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Port)>,
+        RT: RoutingTable<BUCKET_SIZE>,
+        for<'a> &'a RT: IntoIterator<Item = &'a Contact>,
+        NT: NeighborTable,
+        for<'b> &'b NT: IntoIterator<Item = (&'b NodeId, &'b Port)>,
     {
         // First node id is a neighbor
         let first = self

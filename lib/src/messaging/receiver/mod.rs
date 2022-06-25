@@ -37,7 +37,7 @@ impl Error for TryRecvError {}
 ///
 /// Converts a [Message] formatted by its corresponding [MessageSender] back
 /// to a [Message] and returns it.
-pub trait MessageReceiver<const ID_SIZE: usize> {
+pub trait MessageReceiver {
     /// Receives a [Message].
     ///
     /// Returns an [Error] if receiving failed or the optional timeout was reached.
@@ -48,13 +48,13 @@ pub trait MessageReceiver<const ID_SIZE: usize> {
     fn recv_timeout(
         &mut self,
         timeout: Option<Duration>,
-    ) -> Result<Option<(Message<ID_SIZE>, Port)>, RecvTimeout>;
+    ) -> Result<Option<(Message, Port)>, RecvTimeout>;
     /// Receives a [Message].
     ///
     /// Short for calling [recv_timeout](MessageReceiver::recv_timeout) with [None](Option::None).
-    fn recv(&mut self) -> Option<(Message<ID_SIZE>, Port)> {
+    fn recv(&mut self) -> Option<(Message, Port)> {
         self.recv_timeout(None).ok().flatten()
     }
     /// Tries to receive a [Message] and returns an [Error] if no message is present at the time.
-    fn try_recv(&mut self) -> Result<Option<(Message<ID_SIZE>, Port)>, TryRecvError>;
+    fn try_recv(&mut self) -> Result<Option<(Message, Port)>, TryRecvError>;
 }

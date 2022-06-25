@@ -7,12 +7,12 @@ use crate::domain::{Contact, NodeId};
 pub const DEFAULT_BUCKET_SIZE: usize = 20;
 
 #[derive(Debug)]
-pub enum BucketInsertionError<const ID_SIZE: usize> {
-    DuplicateId(NodeId<ID_SIZE>),
+pub enum BucketInsertionError {
+    DuplicateId(NodeId),
     Full,
 }
 
-impl<const ID_SIZE: usize> Display for BucketInsertionError<ID_SIZE> {
+impl Display for BucketInsertionError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Full => write!(f, "Tried inserting into full bucket"),
@@ -21,15 +21,15 @@ impl<const ID_SIZE: usize> Display for BucketInsertionError<ID_SIZE> {
     }
 }
 
-impl<const ID_SIZE: usize> Error for BucketInsertionError<ID_SIZE> {}
+impl Error for BucketInsertionError {}
 
 #[derive(Debug)]
-pub enum ReplacementError<const ID_SIZE: usize> {
-    NotFound(NodeId<ID_SIZE>),
-    DuplicateId(NodeId<ID_SIZE>),
+pub enum ReplacementError {
+    NotFound(NodeId),
+    DuplicateId(NodeId),
 }
 
-impl<const ID_SIZE: usize> Display for ReplacementError<ID_SIZE> {
+impl Display for ReplacementError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotFound(id) => write!(f, "No contact to replace with id {}", id),
@@ -38,7 +38,7 @@ impl<const ID_SIZE: usize> Display for ReplacementError<ID_SIZE> {
     }
 }
 
-impl<const ID_SIZE: usize> Error for ReplacementError<ID_SIZE> {}
+impl Error for ReplacementError {}
 
 /// A [Bucket] with fixed size used in the [crate::domain::RoutingTable].
 ///
@@ -46,17 +46,17 @@ impl<const ID_SIZE: usize> Error for ReplacementError<ID_SIZE> {}
 /// with memory locality.
 /// TODO: Check if this is a performance overhead
 #[derive(Debug, Eq, PartialEq)]
-pub struct Bucket<const ID_SIZE: usize, const SIZE: usize = DEFAULT_BUCKET_SIZE> {
-    contacts: [Option<Contact<ID_SIZE>>; SIZE],
+pub struct Bucket<const SIZE: usize = DEFAULT_BUCKET_SIZE> {
+    contacts: [Option<Contact>; SIZE],
 }
 
-impl<const ID_SIZE: usize, const SIZE: usize> Default for Bucket<ID_SIZE, SIZE> {
+impl<const SIZE: usize> Default for Bucket<SIZE> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<const ID_SIZE: usize, const SIZE: usize> Bucket<ID_SIZE, SIZE> {
+impl<const SIZE: usize> Bucket<SIZE> {
     /// Create a new [Bucket] with size of [DEFAULT_BUCKET_SIZE].
     pub fn new() -> Self {
         Self {
@@ -76,7 +76,7 @@ impl<const ID_SIZE: usize, const SIZE: usize> Bucket<ID_SIZE, SIZE> {
     }
 
     /// Gets a [Contact] in the [Bucket] by [NodeId].
-    pub fn get(&self, id: &NodeId<ID_SIZE>) -> Option<&Contact<ID_SIZE>> {
+    pub fn get(&self, id: &NodeId) -> Option<&Contact> {
         self.contacts
             .iter()
             .flatten()
@@ -94,7 +94,7 @@ impl<const ID_SIZE: usize, const SIZE: usize> Bucket<ID_SIZE, SIZE> {
     }
 
     /// Returns if a [Contact] with a given [NodeId] is in the [Bucket].
-    pub fn contains(&self, id: &NodeId<ID_SIZE>) -> bool {
+    pub fn contains(&self, id: &NodeId) -> bool {
         self.contacts
             .iter()
             .flatten()
@@ -103,22 +103,19 @@ impl<const ID_SIZE: usize, const SIZE: usize> Bucket<ID_SIZE, SIZE> {
 
     /// Returns a mutable reference to the place of the [Contact] with the given [NodeId]
     /// if present in the [Bucket].
-    pub fn get_mut(&mut self, id: &NodeId<ID_SIZE>) -> Option<&mut Contact<ID_SIZE>> {
+    pub fn get_mut(&mut self, id: &NodeId) -> Option<&mut Contact> {
         self.contacts
             .iter_mut()
             .flatten()
             .find(|contact| contact.id() == id)
     }
 
-    fn empty_entry_mut(&mut self) -> Option<&mut Option<Contact<ID_SIZE>>> {
+    fn empty_entry_mut(&mut self) -> Option<&mut Option<Contact>> {
         self.contacts.iter_mut().find(|entry| entry.is_none())
     }
 
     /// Tries to insert a [Contact] into the [Bucket].
-    pub fn insert(
-        &mut self,
-        contact: Contact<ID_SIZE>,
-    ) -> Result<(), BucketInsertionError<ID_SIZE>> {
+    pub fn insert(&mut self, contact: Contact) -> Result<(), BucketInsertionError> {
         if self.contains(contact.id()) {
             return Err(BucketInsertionError::DuplicateId(contact.into_id()));
         }
@@ -134,11 +131,7 @@ impl<const ID_SIZE: usize, const SIZE: usize> Bucket<ID_SIZE, SIZE> {
 
     /// Replaces a [Contact] with the given [NodeId] with another [Contact].
     /// Returns if the Replacement was successful.
-    pub fn replace(
-        &mut self,
-        replace_id: &NodeId<ID_SIZE>,
-        with: Contact<ID_SIZE>,
-    ) -> Result<(), ReplacementError<ID_SIZE>> {
+    pub fn replace(&mut self, replace_id: &NodeId, with: Contact) -> Result<(), ReplacementError> {
         if !self.contains(replace_id) {
             return Err(ReplacementError::NotFound(replace_id.clone()));
         }
@@ -156,7 +149,7 @@ impl<const ID_SIZE: usize, const SIZE: usize> Bucket<ID_SIZE, SIZE> {
     }
 
     /// Removes a [Contact] from the [Bucket] returning it if present.
-    pub fn remove(&mut self, id: &NodeId<ID_SIZE>) -> Option<Contact<ID_SIZE>> {
+    pub fn remove(&mut self, id: &NodeId) -> Option<Contact> {
         self.contacts.iter_mut().find_map(|contact| {
             if contact.is_some() && contact.as_ref().unwrap().id() == id {
                 contact.take()
@@ -175,11 +168,11 @@ impl<const ID_SIZE: usize, const SIZE: usize> Bucket<ID_SIZE, SIZE> {
     /// fails for any reason.
     pub fn split<F, const OTHER_SIZE: usize>(
         &mut self,
-        other: &mut Bucket<ID_SIZE, OTHER_SIZE>,
+        other: &mut Bucket<OTHER_SIZE>,
         mut predicate: F,
-    ) -> Result<(), BucketInsertionError<ID_SIZE>>
+    ) -> Result<(), BucketInsertionError>
     where
-        F: FnMut(&Contact<ID_SIZE>) -> bool,
+        F: FnMut(&Contact) -> bool,
     {
         for contact in &mut self.contacts {
             if contact.is_some() && predicate(contact.as_ref().unwrap()) {
@@ -191,41 +184,41 @@ impl<const ID_SIZE: usize, const SIZE: usize> Bucket<ID_SIZE, SIZE> {
     }
 
     /// Returns an iterator over the contacts in this bucket.
-    pub fn iter(&self) -> impl Iterator<Item = &Contact<ID_SIZE>> {
+    pub fn iter(&self) -> impl Iterator<Item = &Contact> {
         self.contacts.iter().flatten()
     }
 
     /// Returns an mutable iterator over the contacts in this bucket.
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Contact<ID_SIZE>> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Contact> {
         self.contacts.iter_mut().flatten()
     }
 
-    pub(crate) fn get_by_index(&self, index: usize) -> Option<&Contact<ID_SIZE>> {
+    pub(crate) fn get_by_index(&self, index: usize) -> Option<&Contact> {
         self.contacts.index(index).as_ref()
     }
 }
 
-impl<'a, const ID_SIZE: usize, const SIZE: usize> IntoIterator for &'a mut Bucket<ID_SIZE, SIZE> {
-    type Item = &'a mut Contact<ID_SIZE>;
-    type IntoIter = Iter<&'a mut Contact<ID_SIZE>>;
+impl<'a, const SIZE: usize> IntoIterator for &'a mut Bucket<SIZE> {
+    type Item = &'a mut Contact;
+    type IntoIter = Iter<&'a mut Contact>;
 
     fn into_iter(self) -> Self::IntoIter {
         Iter(self.contacts.iter_mut().flatten().rev().collect())
     }
 }
 
-impl<'a, const ID_SIZE: usize, const SIZE: usize> IntoIterator for &'a Bucket<ID_SIZE, SIZE> {
-    type Item = &'a Contact<ID_SIZE>;
-    type IntoIter = Iter<&'a Contact<ID_SIZE>>;
+impl<'a, const SIZE: usize> IntoIterator for &'a Bucket<SIZE> {
+    type Item = &'a Contact;
+    type IntoIter = Iter<&'a Contact>;
 
     fn into_iter(self) -> Self::IntoIter {
         Iter(self.contacts.iter().flatten().rev().collect())
     }
 }
 
-impl<const ID_SIZE: usize, const SIZE: usize> IntoIterator for Bucket<ID_SIZE, SIZE> {
-    type Item = Contact<ID_SIZE>;
-    type IntoIter = Iter<Contact<ID_SIZE>>;
+impl<const SIZE: usize> IntoIterator for Bucket<SIZE> {
+    type Item = Contact;
+    type IntoIter = Iter<Contact>;
 
     fn into_iter(self) -> Self::IntoIter {
         let mut inner = Vec::from_iter(self.contacts.into_iter().flatten());
@@ -250,13 +243,13 @@ mod tests {
 
     #[test]
     fn insert_test() {
-        let mut bucket = Bucket::<2, 2>::new();
+        let mut bucket = Bucket::<2>::new();
 
         assert!(bucket.is_empty());
         assert!(!bucket.is_full());
 
         let contact = Contact::new(
-            NodeId::from([0, 1]),
+            NodeId::one(),
             Age::from(0),
             Path::empty(),
             StateSeqNr::from(0),
@@ -272,7 +265,7 @@ mod tests {
         assert!(bucket.insert(contact.clone()).is_err());
 
         let second_contact = Contact::new(
-            NodeId::from([0, 2]),
+            NodeId::with_lsb(2),
             Age::from(0),
             Path::empty(),
             StateSeqNr::from(0),
@@ -290,27 +283,27 @@ mod tests {
 
     #[test]
     fn test_replacement() {
-        let mut bucket = Bucket::<2, 2>::new();
+        let mut bucket = Bucket::<2>::new();
 
         assert!(bucket.is_empty());
         assert!(!bucket.is_full());
 
         let contact = Contact::new(
-            NodeId::from([0, 1]),
+            NodeId::with_lsb(1),
             Age::from(0),
             Path::empty(),
             StateSeqNr::from(0),
         );
 
         assert!(matches!(
-            bucket.replace(&NodeId::from([0, 1]), contact.clone()),
+            bucket.replace(&NodeId::with_lsb(1), contact.clone()),
             Err(ReplacementError::NotFound(_))
         ));
 
         assert!(bucket.insert(contact.clone()).is_ok());
 
         let contact_two = Contact::new(
-            NodeId::from([0, 2]),
+            NodeId::with_lsb(2),
             Age::from(0),
             Path::empty(),
             StateSeqNr::from(0),
@@ -323,10 +316,10 @@ mod tests {
 
     #[test]
     fn split() {
-        let mut bucket = Bucket::<2, 2>::new();
+        let mut bucket = Bucket::<2>::new();
 
         let contact = Contact::new(
-            NodeId::from([0, 1]),
+            NodeId::with_lsb(1),
             Age::from(0),
             Path::empty(),
             StateSeqNr::from(0),
@@ -334,14 +327,14 @@ mod tests {
         assert!(bucket.insert(contact.clone()).is_ok());
 
         let second_contact = Contact::new(
-            NodeId::from([0, 2]),
+            NodeId::with_lsb(2),
             Age::from(0),
             Path::empty(),
             StateSeqNr::from(0),
         );
         assert!(bucket.insert(second_contact.clone()).is_ok());
 
-        let mut other = Bucket::<2, 2>::new();
+        let mut other = Bucket::<2>::new();
 
         assert!(bucket
             .split(&mut other, |contact| contact.id() == second_contact.id())

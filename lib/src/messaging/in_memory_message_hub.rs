@@ -13,17 +13,17 @@ use crate::messaging::sender::MessageSender;
 /// Instead of waiting for incoming messages this implementation returns an error
 /// if receive is called and the messages are empty.
 #[derive(Debug)]
-pub struct InMemoryMessageHub<const ID_SIZE: usize> {
-    messages: VecDeque<Message<ID_SIZE>>,
+pub struct InMemoryMessageHub {
+    messages: VecDeque<Message>,
 }
 
-impl<const ID_SIZE: usize> Default for InMemoryMessageHub<ID_SIZE> {
+impl Default for InMemoryMessageHub {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<const ID_SIZE: usize> InMemoryMessageHub<ID_SIZE> {
+impl InMemoryMessageHub {
     pub fn new() -> Self {
         Self {
             messages: VecDeque::new(),
@@ -34,22 +34,22 @@ impl<const ID_SIZE: usize> InMemoryMessageHub<ID_SIZE> {
         Port::new(String::from("dummy port"))
     }
 
-    fn pop(&mut self) -> Option<(Message<ID_SIZE>, Port)> {
+    fn pop(&mut self) -> Option<(Message, Port)> {
         self.messages
             .pop_front()
             .map(|message| (message, Self::dummy_port()))
     }
 }
 
-impl<const ID_SIZE: usize> MessageReceiver<ID_SIZE> for InMemoryMessageHub<ID_SIZE> {
+impl MessageReceiver for InMemoryMessageHub {
     fn recv_timeout(
         &mut self,
         _timeout: Option<Duration>,
-    ) -> Result<Option<(Message<ID_SIZE>, Port)>, RecvTimeout> {
+    ) -> Result<Option<(Message, Port)>, RecvTimeout> {
         Ok(self.pop())
     }
 
-    fn try_recv(&mut self) -> Result<Option<(Message<ID_SIZE>, Port)>, TryRecvError> {
+    fn try_recv(&mut self) -> Result<Option<(Message, Port)>, TryRecvError> {
         Ok(self.pop())
     }
 }
@@ -65,13 +65,13 @@ impl Display for NoSendError {
 
 impl Error for NoSendError {}
 
-impl<const ID_SIZE: usize> MessageSender<ID_SIZE> for InMemoryMessageHub<ID_SIZE> {
+impl MessageSender for InMemoryMessageHub {
     // Must not return Errors.
     type Error = NoSendError;
 
     fn send<M>(&mut self, message: M) -> Result<(), Self::Error>
     where
-        M: Into<Message<ID_SIZE>>,
+        M: Into<Message>,
     {
         self.messages.push_back(message.into());
         Ok(())
@@ -88,7 +88,7 @@ mod tests {
 
     #[test]
     fn dummy_message_hub_smoke_test() {
-        let mut hub = InMemoryMessageHub::<1>::new();
+        let mut hub = InMemoryMessageHub::new();
 
         hub.send(Message::Hello(HelloMessage {
             source: NodeId::zero(),
@@ -106,10 +106,10 @@ mod tests {
             hub.recv(),
             Some((
                 Message::Hello(HelloMessage {
-                    source: NodeId::<1>::zero(),
-                    destination: NodeId::<1>::zero(),
+                    source: NodeId::zero(),
+                    destination: NodeId::zero(),
                 }),
-                InMemoryMessageHub::<1>::dummy_port()
+                InMemoryMessageHub::dummy_port()
             ))
         );
 
@@ -120,7 +120,7 @@ mod tests {
                     source: NodeId::one(),
                     destination: NodeId::one(),
                 }),
-                InMemoryMessageHub::<1>::dummy_port()
+                InMemoryMessageHub::dummy_port()
             ))
         );
     }

@@ -4,8 +4,8 @@ use std::ops::Deref;
 pub mod bootstrap;
 
 #[derive(Debug, Clone)]
-pub enum UseCaseEvent<const ID_SIZE: usize> {
-    Message(Message<ID_SIZE>),
+pub enum UseCaseEvent {
+    Message(Message),
     Timer(TimerId),
 }
 

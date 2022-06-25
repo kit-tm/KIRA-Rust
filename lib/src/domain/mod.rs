@@ -22,4 +22,4 @@ mod path_simplifier;
 mod path_validator;
 mod routing_table;
 
-pub type Link<const ID_SIZE: usize> = (NodeId<ID_SIZE>, NodeId<ID_SIZE>);
+pub type Link = (NodeId, NodeId);

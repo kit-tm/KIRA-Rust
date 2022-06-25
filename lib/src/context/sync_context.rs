@@ -1,23 +1,14 @@
 use crate::context::{Context, ReadGuard, WriteGuard};
 use crate::domain::{
-    Contact, DiscoveryTable, Port, NeighborTable, NodeId, RoutingTable, DEFAULT_BUCKET_SIZE,
-    DEFAULT_ID_SIZE,
+    Contact, DiscoveryTable, NeighborTable, NodeId, Port, RoutingTable, DEFAULT_BUCKET_SIZE,
 };
 use crate::messaging::sender::MessageSender;
 use crate::runtime::Runtime;
 use std::sync::{Arc, RwLock};
 
 #[derive(Debug, Clone)]
-pub struct SyncContext<
-    RT,
-    NT,
-    DT,
-    MS,
-    RU,
-    const ID_SIZE: usize = DEFAULT_ID_SIZE,
-    const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE,
-> {
-    root_id: NodeId<ID_SIZE>,
+pub struct SyncContext<RT, NT, DT, MS, RU, const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE> {
+    root_id: NodeId,
     routing_table: Arc<RwLock<RT>>,
     neighbor_table: Arc<RwLock<NT>>,
     discovery_table: Arc<RwLock<DT>>,
@@ -25,20 +16,19 @@ pub struct SyncContext<
     runtime: RU,
 }
 
-impl<RT, NT, DT, MS, RU, const ID_SIZE: usize, const BUCKET_SIZE: usize>
-    SyncContext<RT, NT, DT, MS, RU, ID_SIZE, BUCKET_SIZE>
+impl<RT, NT, DT, MS, RU, const BUCKET_SIZE: usize> SyncContext<RT, NT, DT, MS, RU, BUCKET_SIZE>
 where
-    RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
-    for<'a> &'a RT: IntoIterator<Item = &'a Contact<ID_SIZE>>,
-    NT: NeighborTable<ID_SIZE>,
-    for<'a> &'a NT: IntoIterator<Item = (&'a NodeId<ID_SIZE>, &'a Port)>,
-    DT: DiscoveryTable<ID_SIZE>,
-    MS: MessageSender<ID_SIZE>,
+    RT: RoutingTable<BUCKET_SIZE>,
+    for<'a> &'a RT: IntoIterator<Item = &'a Contact>,
+    NT: NeighborTable,
+    for<'a> &'a NT: IntoIterator<Item = (&'a NodeId, &'a Port)>,
+    DT: DiscoveryTable,
+    MS: MessageSender,
     RU: Runtime,
 {
     /// Creates a new [Context].
     pub fn new(
-        root_id: NodeId<ID_SIZE>,
+        root_id: NodeId,
         routing_table: RT,
         neighbor_table: NT,
         discovery_table: DT,
@@ -56,11 +46,10 @@ where
     }
 }
 
-impl<RT, NT, DT, MS, RU, const ID_SIZE: usize, const BUCKET_SIZE: usize>
-    Context<RT, NT, DT, MS, RU, ID_SIZE, BUCKET_SIZE>
-    for SyncContext<RT, NT, DT, MS, RU, ID_SIZE, BUCKET_SIZE>
+impl<RT, NT, DT, MS, RU, const BUCKET_SIZE: usize> Context<RT, NT, DT, MS, RU, BUCKET_SIZE>
+    for SyncContext<RT, NT, DT, MS, RU, BUCKET_SIZE>
 {
-    fn root_id(&self) -> &NodeId<ID_SIZE> {
+    fn root_id(&self) -> &NodeId {
         &self.root_id
     }
 

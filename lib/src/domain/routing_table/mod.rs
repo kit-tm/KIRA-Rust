@@ -7,12 +7,12 @@ pub mod flat_routing_table;
 pub mod unlimited_neighbors_routing_table;
 
 #[derive(Debug, Eq, PartialEq)]
-pub enum AddError<const ID_SIZE: usize> {
-    AlreadyExists(NodeId<ID_SIZE>),
+pub enum AddError {
+    AlreadyExists(NodeId),
     NotAdded,
 }
 
-impl<const ID_SIZE: usize> Display for AddError<ID_SIZE> {
+impl Display for AddError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotAdded => write!(f, "Bucket is full, not added"),
@@ -21,7 +21,7 @@ impl<const ID_SIZE: usize> Display for AddError<ID_SIZE> {
     }
 }
 
-impl<const ID_SIZE: usize> Error for AddError<ID_SIZE> {}
+impl Error for AddError {}
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum BucketSplitError {
@@ -41,12 +41,12 @@ impl Display for BucketSplitError {
 impl Error for BucketSplitError {}
 
 #[derive(Debug, Eq, PartialEq)]
-pub enum InsertionError<const ID_SIZE: usize> {
-    Add(AddError<ID_SIZE>),
+pub enum InsertionError {
+    Add(AddError),
     BucketSplit(BucketSplitError),
 }
 
-impl<const ID_SIZE: usize> Display for InsertionError<ID_SIZE> {
+impl Display for InsertionError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Add(err) => write!(f, "{}", err),
@@ -55,15 +55,15 @@ impl<const ID_SIZE: usize> Display for InsertionError<ID_SIZE> {
     }
 }
 
-impl<const ID_SIZE: usize> Error for InsertionError<ID_SIZE> {}
+impl Error for InsertionError {}
 
-impl<const ID_SIZE: usize> From<AddError<ID_SIZE>> for InsertionError<ID_SIZE> {
-    fn from(add_err: AddError<ID_SIZE>) -> Self {
+impl From<AddError> for InsertionError {
+    fn from(add_err: AddError) -> Self {
         Self::Add(add_err)
     }
 }
 
-impl<const ID_SIZE: usize> From<BucketSplitError> for InsertionError<ID_SIZE> {
+impl From<BucketSplitError> for InsertionError {
     fn from(err: BucketSplitError) -> Self {
         Self::BucketSplit(err)
     }
@@ -79,12 +79,12 @@ impl<const ID_SIZE: usize> From<BucketSplitError> for InsertionError<ID_SIZE> {
 /// in the buckets.
 ///
 /// As mostly accessing the buckets directly only happens if Insertion fails, this will ne problem.
-pub trait RoutingTable<const ID_SIZE: usize, const BUCKET_SIZE: usize>
+pub trait RoutingTable<const BUCKET_SIZE: usize>
 where
-    for<'a> &'a Self: IntoIterator<Item = &'a Contact<ID_SIZE>>,
+    for<'a> &'a Self: IntoIterator<Item = &'a Contact>,
 {
     /// Returns the root [NodeId] of the [RoutingTable].
-    fn root(&self) -> &NodeId<ID_SIZE>;
+    fn root(&self) -> &NodeId;
 
     /// Returns the number of contacts inside the RoutingTable.
     fn len(&self) -> usize;
@@ -100,46 +100,42 @@ where
     /// This doesn't perform any decision making if a bucket has to be split or another
     /// contact has to be replaced.
     /// This is entirely up to the caller.
-    fn add(&mut self, contact: Contact<ID_SIZE>) -> Result<(), AddError<ID_SIZE>>;
+    fn add(&mut self, contact: Contact) -> Result<(), AddError>;
 
     /// Removes an existing [Contact] and returns it if present.
-    fn remove(&mut self, id: &NodeId<ID_SIZE>) -> Option<Contact<ID_SIZE>>;
+    fn remove(&mut self, id: &NodeId) -> Option<Contact>;
 
     /// Replaces a [Contact] and returns the replaced one.
-    fn replace(
-        &mut self,
-        id: &NodeId<ID_SIZE>,
-        with: Contact<ID_SIZE>,
-    ) -> Result<(), ReplacementError<ID_SIZE>>;
+    fn replace(&mut self, id: &NodeId, with: Contact) -> Result<(), ReplacementError>;
 
     /// Returns an existing [Contact] if present.
-    fn contact(&self, id: &NodeId<ID_SIZE>) -> Option<&Contact<ID_SIZE>>;
+    fn contact(&self, id: &NodeId) -> Option<&Contact>;
 
     /// Returns a random [Contact]s [NodeId] if the [RoutingTable] is not empty.
-    fn random_id(&self) -> Option<&NodeId<ID_SIZE>>;
+    fn random_id(&self) -> Option<&NodeId>;
 
     /// Returns a mutable reference to an existing [Contact] if present.
-    fn contact_mut(&mut self, id: &NodeId<ID_SIZE>) -> Option<&mut Contact<ID_SIZE>>;
+    fn contact_mut(&mut self, id: &NodeId) -> Option<&mut Contact>;
 
     /// Returns if a [Contact] with a given [NodeId] is present in the [RoutingTable].
-    fn contains(&self, id: &NodeId<ID_SIZE>) -> bool;
+    fn contains(&self, id: &NodeId) -> bool;
 
     /// Attempts to split the [Bucket] the id should be located in.
     /// The [Contact]s in the [Bucket] will be inserted in the appropriate [Bucket]s.
     ///
     /// This doesn't require a [Contact] inside the [Bucket] with the id.
-    fn split_bucket(&mut self, id: &NodeId<ID_SIZE>) -> Result<(), BucketSplitError>;
+    fn split_bucket(&mut self, id: &NodeId) -> Result<(), BucketSplitError>;
 
     /// Returns the Bucket the [NodeId] should be located in based on the
     /// current state of the [RoutingTable].
-    fn bucket(&self, of: &NodeId<ID_SIZE>) -> &Bucket<ID_SIZE, BUCKET_SIZE>;
+    fn bucket(&self, of: &NodeId) -> &Bucket<BUCKET_SIZE>;
 
     /// Returns a mutable reference to the [Bucket] for the given [NodeId].
-    fn bucket_mut(&mut self, of: &NodeId<ID_SIZE>) -> &mut Bucket<ID_SIZE, BUCKET_SIZE>;
+    fn bucket_mut(&mut self, of: &NodeId) -> &mut Bucket<BUCKET_SIZE>;
 
     /// Inserts a [Contact] into the table by splitting the [Bucket] until
     /// Insertion succeeds or splitting failed.
-    fn insert(&mut self, contact: Contact<ID_SIZE>) -> Result<(), InsertionError<ID_SIZE>> {
+    fn insert(&mut self, contact: Contact) -> Result<(), InsertionError> {
         match self.add(contact.clone()) {
             Ok(()) => Ok(()),
             Err(AddError::NotAdded) => {
@@ -153,11 +149,11 @@ where
     /// Extends the [RoutingTable] with [Contact]s with an option to ignore errors.
     ///
     /// Will not return an [Error] if *drop_on_error* is *true*.
-    fn extend<I: IntoIterator<Item = Contact<ID_SIZE>>>(
+    fn extend<I: IntoIterator<Item = Contact>>(
         &mut self,
         drop_on_error: bool,
         iter: I,
-    ) -> Result<(), InsertionError<ID_SIZE>> {
+    ) -> Result<(), InsertionError> {
         for contact in iter {
             // On Error: Either ignore or return
             match (self.insert(contact), drop_on_error) {

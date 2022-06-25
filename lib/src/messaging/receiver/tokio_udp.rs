@@ -48,7 +48,7 @@ impl UdpReceiver {
         }
     }
 
-    fn deserialize<const ID_SIZE: usize>(&self, buffer: &[u8]) -> Option<(Message<ID_SIZE>, Port)> {
+    fn deserialize(&self, buffer: &[u8]) -> Option<(Message, Port)> {
         let deserialized = match self.format.deserialize(buffer) {
             Ok(message) => message,
             Err(e) => {
@@ -61,11 +61,11 @@ impl UdpReceiver {
     }
 }
 
-impl<'a, const ID_SIZE: usize> MessageReceiver<ID_SIZE> for &'a mut UdpReceiver {
+impl<'a> MessageReceiver for &'a mut UdpReceiver {
     fn recv_timeout(
         &mut self,
         timeout: Option<Duration>,
-    ) -> Result<Option<(Message<ID_SIZE>, Port)>, RecvTimeout> {
+    ) -> Result<Option<(Message, Port)>, RecvTimeout> {
         let socket = Arc::clone(&self.socket);
         let mut buffer = self.buffer.blocking_write();
 
@@ -91,7 +91,7 @@ impl<'a, const ID_SIZE: usize> MessageReceiver<ID_SIZE> for &'a mut UdpReceiver 
         Ok(self.deserialize(&buffer[..received]))
     }
 
-    fn try_recv(&mut self) -> Result<Option<(Message<ID_SIZE>, Port)>, TryRecvError> {
+    fn try_recv(&mut self) -> Result<Option<(Message, Port)>, TryRecvError> {
         let mut buffer = self.buffer.blocking_write();
         let received = match self.socket.try_recv(buffer.deref_mut()) {
             Ok(received) => received,

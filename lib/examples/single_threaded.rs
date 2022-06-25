@@ -38,7 +38,7 @@ fn main() {
     // Initialize the Logging Facade
     env_logger::init();
 
-    let root_id: NodeId<ID_SIZE> = std::env::var("NODE_ID")
+    let root_id: NodeId = std::env::var("NODE_ID")
         .expect("failed to get environment var")
         .parse()
         .unwrap_or_else(|_| NodeId::random());
@@ -49,11 +49,11 @@ fn main() {
     let config = Config::default();
 
     // Setup the Broadcaster which is necessary for the runtime to send messages to usecases
-    let (broadcaster, mut receiver) = broadcast::channel::<UseCaseEvent<ID_SIZE>>(100);
+    let (broadcaster, mut receiver) = broadcast::channel::<UseCaseEvent>(100);
 
     // Create a Routing Table which stores ALL neighbors
     let routing_table = UnlimitedNeighborsRoutingTable::from(
-        FlatRoutingTable::<ID_SIZE, DEFAULT_BUCKET_SIZE, 1>::new(root_id.clone())
+        FlatRoutingTable::<DEFAULT_BUCKET_SIZE, 1>::new(root_id.clone())
             .expect("invalid flat Routing Table parameters"),
     );
 

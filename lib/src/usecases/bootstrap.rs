@@ -9,7 +9,7 @@ use crate::messaging::sender::MessageSender;
 use crate::runtime::Runtime;
 use crate::usecases::{TimerId, UseCaseEvent};
 use crate::{
-    domain::{Contact, Port, NeighborTable, NodeId, RoutingTable},
+    domain::{Contact, NeighborTable, NodeId, Port, RoutingTable},
     messaging::messages::{
         DiscRspData, HelloMessage, Message, Nonce, RTableReqType, ReqRspMessage,
     },
@@ -65,7 +65,7 @@ impl Default for BootstrapConfig {
 ///
 /// Performs NeighborDiscovery, 3-Hop-Vicinity Discovery and the initial join to the network.
 #[derive(Debug)]
-pub struct BootstrapUseCase<C, RT, NT, DT, MS, RU, const ID_SIZE: usize, const BUCKET_SIZE: usize> {
+pub struct BootstrapUseCase<C, RT, NT, DT, MS, RU, const BUCKET_SIZE: usize> {
     _c: PhantomData<C>,
     _rt: PhantomData<RT>,
     _nt: PhantomData<NT>,
@@ -75,16 +75,16 @@ pub struct BootstrapUseCase<C, RT, NT, DT, MS, RU, const ID_SIZE: usize, const B
     state: BootstrapState,
 }
 
-impl<C, RT, DT, NT, MS, RU, const ID_SIZE: usize, const BUCKET_SIZE: usize> Default
-    for BootstrapUseCase<C, RT, DT, NT, MS, RU, ID_SIZE, BUCKET_SIZE>
+impl<C, RT, DT, NT, MS, RU, const BUCKET_SIZE: usize> Default
+    for BootstrapUseCase<C, RT, DT, NT, MS, RU, BUCKET_SIZE>
 {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<C, RT, DT, NT, MS, RU, const ID_SIZE: usize, const BUCKET_SIZE: usize>
-    BootstrapUseCase<C, RT, DT, NT, MS, RU, ID_SIZE, BUCKET_SIZE>
+impl<C, RT, DT, NT, MS, RU, const BUCKET_SIZE: usize>
+    BootstrapUseCase<C, RT, DT, NT, MS, RU, BUCKET_SIZE>
 {
     pub fn new() -> Self {
         Self {
@@ -99,19 +99,19 @@ impl<C, RT, DT, NT, MS, RU, const ID_SIZE: usize, const BUCKET_SIZE: usize>
     }
 }
 
-impl<C, RT, DT, NT, MS, RU, const ID_SIZE: usize, const BUCKET_SIZE: usize>
-    BootstrapUseCase<C, RT, NT, DT, MS, RU, ID_SIZE, BUCKET_SIZE>
+impl<C, RT, DT, NT, MS, RU, const BUCKET_SIZE: usize>
+    BootstrapUseCase<C, RT, NT, DT, MS, RU, BUCKET_SIZE>
 where
-    C: Context<RT, NT, DT, MS, RU, ID_SIZE, BUCKET_SIZE>,
-    RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
-    for<'b> &'b RT: IntoIterator<Item = &'b Contact<ID_SIZE>>,
-    NT: NeighborTable<ID_SIZE>,
-    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Port)>,
-    MS: MessageSender<ID_SIZE>,
-    DT: DiscoveryTable<ID_SIZE>,
+    C: Context<RT, NT, DT, MS, RU, BUCKET_SIZE>,
+    RT: RoutingTable<BUCKET_SIZE>,
+    for<'b> &'b RT: IntoIterator<Item = &'b Contact>,
+    NT: NeighborTable,
+    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId, &'b Port)>,
+    MS: MessageSender,
+    DT: DiscoveryTable,
     RU: Runtime,
 {
-    fn send_message<M: Into<Message<ID_SIZE>>>(
+    fn send_message<M: Into<Message>>(
         &mut self,
         context: &C,
         message: M,
@@ -139,7 +139,7 @@ where
             .routing_table()
             .deref()
             .into_iter()
-            .filter_map(|contact: &Contact<ID_SIZE>| {
+            .filter_map(|contact: &Contact| {
                 if contact.path().len() == 1 {
                     // Neighbors => path.len() = 0, 1-Hop Neighbors => path.len() = 1
                     Some(contact.clone())
@@ -205,7 +205,7 @@ where
         &mut self,
         context: &C,
         config: &BootstrapConfig,
-        message: ReqRspMessage<DiscRspData<ID_SIZE>, ID_SIZE>,
+        message: ReqRspMessage<DiscRspData>,
     ) -> Result<(), BootstrapError> {
         // Remove nonces if possible
         if let BootstrapState::WaitingFor2HopVicinity(nonces, _) = &mut self.state {
@@ -222,16 +222,16 @@ where
     }
 }
 
-impl<C, RT, DT, NT, MS, RU, const ID_SIZE: usize, const BUCKET_SIZE: usize>
-    BootstrapUseCase<C, RT, NT, DT, MS, RU, ID_SIZE, BUCKET_SIZE>
+impl<C, RT, DT, NT, MS, RU, const BUCKET_SIZE: usize>
+    BootstrapUseCase<C, RT, NT, DT, MS, RU, BUCKET_SIZE>
 where
-    C: Context<RT, NT, DT, MS, RU, ID_SIZE, BUCKET_SIZE>,
-    RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
-    for<'b> &'b RT: IntoIterator<Item = &'b Contact<ID_SIZE>>,
-    NT: NeighborTable<ID_SIZE>,
-    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Port)>,
-    MS: MessageSender<ID_SIZE>,
-    DT: DiscoveryTable<ID_SIZE>,
+    C: Context<RT, NT, DT, MS, RU, BUCKET_SIZE>,
+    RT: RoutingTable<BUCKET_SIZE>,
+    for<'b> &'b RT: IntoIterator<Item = &'b Contact>,
+    NT: NeighborTable,
+    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId, &'b Port)>,
+    MS: MessageSender,
+    DT: DiscoveryTable,
     RU: Runtime,
 {
     /// Starts the Bootstrap Process by sending [HelloMessage]s to all neighbors and registering
@@ -262,7 +262,7 @@ where
         &mut self,
         context: &C,
         config: &BootstrapConfig,
-        event: UseCaseEvent<ID_SIZE>,
+        event: UseCaseEvent,
     ) -> Result<(), BootstrapError> {
         match (self.state(), event) {
             // Timeout for neighbors was reached => Send

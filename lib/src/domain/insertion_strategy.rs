@@ -2,13 +2,13 @@ use std::marker::PhantomData;
 
 use crate::domain::{AddError, Contact, InsertionError, NodeId, RoutingTable, State};
 
-use super::{Port, NeighborTable, PathSimplifier};
+use super::{NeighborTable, PathSimplifier, Port};
 
 #[derive(Debug, Eq, PartialEq)]
-pub enum InsertionStrategyResult<const ID_SIZE: usize> {
+pub enum InsertionStrategyResult {
     Dropped,
     Inserted,
-    Replaced(NodeId<ID_SIZE>),
+    Replaced(NodeId),
     Updated,
 }
 
@@ -18,39 +18,35 @@ pub enum InsertionStrategyResult<const ID_SIZE: usize> {
 ///
 /// The Algorithm can use the [NeighborTable] but is not allowed to insert into it.
 /// This will be handled where the Hello-Messages are handled explicitly.
-pub trait InsertionStrategy<RT, NT, const ID_SIZE: usize, const BUCKET_SIZE: usize>
+pub trait InsertionStrategy<RT, NT, const BUCKET_SIZE: usize>
 where
-    RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
-    for<'a> &'a RT: IntoIterator<Item = &'a Contact<ID_SIZE>>,
-    NT: NeighborTable<ID_SIZE>,
-    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Port)>,
+    RT: RoutingTable<BUCKET_SIZE>,
+    for<'a> &'a RT: IntoIterator<Item = &'a Contact>,
+    NT: NeighborTable,
+    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId, &'b Port)>,
 {
     /// Insert the [Contact] into the [RoutingTable].
     ///
     /// Will return the action performed for the [Contact].
     fn insert(
         &mut self,
-        contact: Contact<ID_SIZE>,
+        contact: Contact,
         routing_table: &mut RT,
         neighbor_table: &NT,
-    ) -> InsertionStrategyResult<ID_SIZE>;
+    ) -> InsertionStrategyResult;
 }
 
-pub struct PNSStrategy<RT, const ID_SIZE: usize, const BUCKET_SIZE: usize> {
+pub struct PNSStrategy<RT, const BUCKET_SIZE: usize> {
     _pd: PhantomData<RT>,
 }
 
-impl<RT, const ID_SIZE: usize, const BUCKET_SIZE: usize> PNSStrategy<RT, ID_SIZE, BUCKET_SIZE>
+impl<RT, const BUCKET_SIZE: usize> PNSStrategy<RT, BUCKET_SIZE>
 where
-    RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
-    for<'a> &'a RT: IntoIterator<Item = &'a Contact<ID_SIZE>>,
+    RT: RoutingTable<BUCKET_SIZE>,
+    for<'a> &'a RT: IntoIterator<Item = &'a Contact>,
 {
     /// Update an existing contact in the table instead of inserting.
-    fn update_existing(
-        &self,
-        contact: Contact<ID_SIZE>,
-        table: &mut RT,
-    ) -> InsertionStrategyResult<ID_SIZE> {
+    fn update_existing(&self, contact: Contact, table: &mut RT) -> InsertionStrategyResult {
         let existing = table.contact_mut(contact.id());
         assert!(
             existing.is_some(),
@@ -106,11 +102,7 @@ where
     }
 
     /// Check if the contact can replace an entry in the bucket it belongs to.
-    fn replace_in_full_bucket(
-        &self,
-        contact: Contact<ID_SIZE>,
-        table: &mut RT,
-    ) -> InsertionStrategyResult<ID_SIZE> {
+    fn replace_in_full_bucket(&self, contact: Contact, table: &mut RT) -> InsertionStrategyResult {
         let bucket = table.bucket_mut(contact.id());
         assert!(
             !bucket.is_empty(),
@@ -125,7 +117,7 @@ where
         let replaceable = bucket
             .iter_mut()
             // Invariant: acc contains the contact with the longest path in the bucket after processing the first entry
-            .fold(Option::<&mut Contact<ID_SIZE>>::None, |acc, contact| {
+            .fold(Option::<&mut Contact>::None, |acc, contact| {
                 if acc.is_none() || acc.as_ref().unwrap().path().len() < contact.path().len() {
                     Some(contact)
                 } else {
@@ -143,20 +135,20 @@ where
     }
 }
 
-impl<RT, NT, const ID_SIZE: usize, const BUCKET_SIZE: usize>
-    InsertionStrategy<RT, NT, ID_SIZE, BUCKET_SIZE> for PNSStrategy<RT, ID_SIZE, BUCKET_SIZE>
+impl<RT, NT, const BUCKET_SIZE: usize> InsertionStrategy<RT, NT, BUCKET_SIZE>
+    for PNSStrategy<RT, BUCKET_SIZE>
 where
-    RT: RoutingTable<ID_SIZE, BUCKET_SIZE>,
-    for<'a> &'a RT: IntoIterator<Item = &'a Contact<ID_SIZE>>,
-    NT: NeighborTable<ID_SIZE>,
-    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId<ID_SIZE>, &'b Port)>,
+    RT: RoutingTable<BUCKET_SIZE>,
+    for<'a> &'a RT: IntoIterator<Item = &'a Contact>,
+    NT: NeighborTable,
+    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId, &'b Port)>,
 {
     fn insert(
         &mut self,
-        mut contact: Contact<ID_SIZE>,
+        mut contact: Contact,
         routing_table: &mut RT,
         neighbor_table: &NT,
-    ) -> InsertionStrategyResult<ID_SIZE> {
+    ) -> InsertionStrategyResult {
         // Ignore paths via us or contacts containing our own id
         if contact.path().contains(routing_table.root()) || contact.id() == routing_table.root() {
             return InsertionStrategyResult::Dropped;

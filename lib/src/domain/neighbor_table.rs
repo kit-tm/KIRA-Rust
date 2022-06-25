@@ -15,32 +15,32 @@ impl Port {
 }
 
 /// Maps [NodeId]s to [Port]s.
-pub trait NeighborTable<const ID_SIZE: usize>
+pub trait NeighborTable
 where
-    for<'a> &'a Self: IntoIterator<Item = (&'a NodeId<ID_SIZE>, &'a Port)>,
+    for<'a> &'a Self: IntoIterator<Item = (&'a NodeId, &'a Port)>,
 {
     /// Returns the [Port] for a [NodeId] if present.
-    fn get(&self, id: &NodeId<ID_SIZE>) -> Option<&Port>;
+    fn get(&self, id: &NodeId) -> Option<&Port>;
     /// Adds a Mapping to the table returning the [Port] previously mapped to the [NodeId].
-    fn add(&mut self, id: NodeId<ID_SIZE>, iface: Port) -> Option<Port>;
+    fn add(&mut self, id: NodeId, iface: Port) -> Option<Port>;
     /// Returns if a Mapping for the [NodeId] is present in the [NeighborTable].
-    fn contains(&self, id: &NodeId<ID_SIZE>) -> bool;
+    fn contains(&self, id: &NodeId) -> bool;
     /// Returns if any neighbors are present.
     fn is_empty(&self) -> bool;
     /// Returns the number of neighbors.
     fn len(&self) -> usize;
 }
 
-impl<const ID_SIZE: usize> NeighborTable<ID_SIZE> for HashMap<NodeId<ID_SIZE>, Port> {
-    fn get(&self, id: &NodeId<ID_SIZE>) -> Option<&Port> {
+impl NeighborTable for HashMap<NodeId, Port> {
+    fn get(&self, id: &NodeId) -> Option<&Port> {
         HashMap::get(self, id)
     }
 
-    fn add(&mut self, id: NodeId<ID_SIZE>, iface: Port) -> Option<Port> {
+    fn add(&mut self, id: NodeId, iface: Port) -> Option<Port> {
         HashMap::insert(self, id, iface)
     }
 
-    fn contains(&self, id: &NodeId<ID_SIZE>) -> bool {
+    fn contains(&self, id: &NodeId) -> bool {
         HashMap::contains_key(self, id)
     }
 

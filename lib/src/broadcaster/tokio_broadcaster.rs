@@ -1,13 +1,11 @@
 use crate::broadcaster::Broadcaster;
 use crate::usecases::UseCaseEvent;
 
-impl<const ID_SIZE: usize> Broadcaster<ID_SIZE>
-    for tokio::sync::broadcast::Sender<UseCaseEvent<ID_SIZE>>
-{
-    type SendError = tokio::sync::broadcast::error::SendError<UseCaseEvent<ID_SIZE>>;
-    type Subscriber = tokio::sync::broadcast::Receiver<UseCaseEvent<ID_SIZE>>;
+impl Broadcaster for tokio::sync::broadcast::Sender<UseCaseEvent> {
+    type SendError = tokio::sync::broadcast::error::SendError<UseCaseEvent>;
+    type Subscriber = tokio::sync::broadcast::Receiver<UseCaseEvent>;
 
-    fn send_event(&self, event: UseCaseEvent<ID_SIZE>) -> Result<(), Self::SendError> {
+    fn send_event(&self, event: UseCaseEvent) -> Result<(), Self::SendError> {
         self.send(event).map(|_| ())
     }
 

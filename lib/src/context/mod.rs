@@ -4,7 +4,7 @@ pub use sync_context::*;
 #[cfg(feature = "tokio")]
 pub use tokio_context::*;
 
-use crate::domain::{NodeId, DEFAULT_BUCKET_SIZE, DEFAULT_ID_SIZE};
+use crate::domain::{NodeId, DEFAULT_BUCKET_SIZE};
 
 pub mod sync_context;
 #[cfg(feature = "tokio")]
@@ -75,17 +75,8 @@ impl<'a, T> DerefMut for WriteGuard<'a, T> {
     }
 }
 
-pub trait Context<
-    RT,
-    NT,
-    DT,
-    MS,
-    RU,
-    const ID_SIZE: usize = DEFAULT_ID_SIZE,
-    const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE,
->
-{
-    fn root_id(&self) -> &NodeId<ID_SIZE>;
+pub trait Context<RT, NT, DT, MS, RU, const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE> {
+    fn root_id(&self) -> &NodeId;
 
     fn routing_table(&self) -> ReadGuard<RT>;
 

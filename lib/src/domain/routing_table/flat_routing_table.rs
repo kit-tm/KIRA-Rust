@@ -3,9 +3,11 @@ use std::num::NonZeroUsize;
 use rand::Rng;
 
 use crate::domain::{
-    AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, GroupingError, NodeId,
-    ReplacementError, RoutingTable, SharedPrefix, DEFAULT_BUCKET_SIZE,
+    node_id, AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, GroupingError,
+    NodeId, ReplacementError, RoutingTable, SharedPrefix, DEFAULT_BUCKET_SIZE,
 };
+
+pub const DEFAULT_ACCELERATION: usize = 1;
 
 /// A [RoutingTable] implemented as flat array of [Bucket]s.
 ///
@@ -15,27 +17,34 @@ use crate::domain::{
 /// and Proximity Routing.
 #[derive(Debug)]
 pub struct FlatRoutingTable<
-    const ID_SIZE: usize,
     const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE,
-    const ACC: usize = 1,
+    const ACC: usize = DEFAULT_ACCELERATION,
 > {
-    buckets: Vec<Bucket<ID_SIZE, BUCKET_SIZE>>,
-    root: NodeId<ID_SIZE>,
+    buckets: Vec<Bucket<BUCKET_SIZE>>,
+    root: NodeId,
 }
 
-impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
-    FlatRoutingTable<ID_SIZE, BUCKET_SIZE, ACC>
-{
+impl FlatRoutingTable<DEFAULT_BUCKET_SIZE, DEFAULT_ACCELERATION> {
+    /// Creates a [FlatRoutingTable] with default [Bucket] size and acceleration.
+    pub fn default(root: NodeId) -> Self {
+        Self {
+            buckets: vec![Bucket::new()],
+            root,
+        }
+    }
+}
+
+impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, ACC> {
     /// Creates a [RoutingTable] with 0 capacity.
-    pub fn new(root: NodeId<ID_SIZE>) -> Result<Self, GroupingError> {
+    pub fn new(root: NodeId) -> Result<Self, GroupingError> {
         Self::with_buckets(root, vec![Bucket::new()])
     }
 
     /// Create a [RoutingTable] with the capacity of its maximum possible number of buckets.
     ///
     /// That is equal to the [NodeId] Size in Bits.
-    pub fn with_full_capacity(root: NodeId<ID_SIZE>) -> Result<Self, GroupingError> {
-        let mut buckets = Vec::with_capacity(ID_SIZE * 8);
+    pub fn with_full_capacity(root: NodeId) -> Result<Self, GroupingError> {
+        let mut buckets = Vec::with_capacity(node_id::BIT_SIZE);
         buckets.push(Bucket::new());
         Self::with_buckets(root, buckets)
     }
@@ -43,12 +52,12 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
     // As soon as 'const where restrictions' are supported
     // this can be converted to a const function.
     fn with_buckets(
-        root: NodeId<ID_SIZE>,
-        buckets: Vec<Bucket<ID_SIZE, BUCKET_SIZE>>,
+        root: NodeId,
+        buckets: Vec<Bucket<BUCKET_SIZE>>,
     ) -> Result<Self, GroupingError> {
-        if ACC > ID_SIZE * 8 || ACC == 0 {
+        if ACC > node_id::BIT_SIZE || ACC == 0 {
             return Err(GroupingError::Invalid {
-                id_size: ID_SIZE,
+                id_size: node_id::SIZE,
                 group_size: ACC,
             });
         }
@@ -69,7 +78,7 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
     /// Returns the max number of buckets for a [RoutingTable] with the given
     /// *ID_SIZE* and *ACC*.
     pub const fn max_buckets() -> usize {
-        ((ID_SIZE * 8) / ACC) * Self::level_width()
+        (node_id::BIT_SIZE / ACC) * Self::level_width()
     }
 
     /// Returns the number of [Bucket]s.
@@ -82,17 +91,13 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
         self.buckets.iter().flat_map(|bucket| bucket.iter()).count()
     }
 
-    fn get_bucket_index(&self, of: &NodeId<ID_SIZE>) -> usize {
+    fn get_bucket_index(&self, of: &NodeId) -> usize {
         Self::get_bucket_index_for(of, &self.root, self.num_buckets())
     }
 
     /// Returns the index of the [Bucket] the id should be in related
     /// to the current state of the [RoutingTable].
-    fn get_bucket_index_for(
-        of: &NodeId<ID_SIZE>,
-        for_root: &NodeId<ID_SIZE>,
-        num_buckets: usize,
-    ) -> usize {
+    fn get_bucket_index_for(of: &NodeId, for_root: &NodeId, num_buckets: usize) -> usize {
         let SharedPrefix {
             xor: delta,
             value: prefix_len,
@@ -101,7 +106,7 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
             .expect("GroupingError after checking");
 
         // bitindex is now the index of the LSB of the first non-zero digit in delta
-        let bit_index = (ID_SIZE * 8).checked_sub((prefix_len + 1) * ACC);
+        let bit_index = (node_id::BIT_SIZE).checked_sub((prefix_len + 1) * ACC);
         let bit_index = match bit_index {
             // This is the root key
             None => return num_buckets - 1, // Always at least one bucket present
@@ -112,7 +117,7 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
         assert_ne!(delta.bits(bit_index, Self::non_zero_acc()), Ok(0));
 
         assert!(
-            bit_index + ACC >= ID_SIZE
+            bit_index + ACC >= node_id::BIT_SIZE
                 || delta.bits(bit_index + ACC, Self::non_zero_acc()) == Ok(0)
         );
 
@@ -135,15 +140,13 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
     }
 }
 
-pub struct Iter<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize> {
-    table: &'a FlatRoutingTable<ID_SIZE, BUCKET_SIZE, ACC>,
+pub struct Iter<'a, const BUCKET_SIZE: usize, const ACC: usize> {
+    table: &'a FlatRoutingTable<BUCKET_SIZE, ACC>,
     index: (usize, usize),
 }
 
-impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
-    Iter<'a, ID_SIZE, BUCKET_SIZE, ACC>
-{
-    fn new(table: &'a FlatRoutingTable<ID_SIZE, BUCKET_SIZE, ACC>) -> Self {
+impl<'a, const BUCKET_SIZE: usize, const ACC: usize> Iter<'a, BUCKET_SIZE, ACC> {
+    fn new(table: &'a FlatRoutingTable<BUCKET_SIZE, ACC>) -> Self {
         Self {
             table,
             index: (0, 0),
@@ -151,10 +154,8 @@ impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
     }
 }
 
-impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize> Iterator
-    for Iter<'a, ID_SIZE, BUCKET_SIZE, ACC>
-{
-    type Item = &'a Contact<ID_SIZE>;
+impl<'a, const BUCKET_SIZE: usize, const ACC: usize> Iterator for Iter<'a, BUCKET_SIZE, ACC> {
+    type Item = &'a Contact;
 
     fn next(&mut self) -> Option<Self::Item> {
         // Return none if no further bucket is present
@@ -174,10 +175,10 @@ impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize> Itera
     }
 }
 
-impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
-    RoutingTable<ID_SIZE, BUCKET_SIZE> for FlatRoutingTable<ID_SIZE, BUCKET_SIZE, ACC>
+impl<const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<BUCKET_SIZE>
+    for FlatRoutingTable<BUCKET_SIZE, ACC>
 {
-    fn root(&self) -> &NodeId<ID_SIZE> {
+    fn root(&self) -> &NodeId {
         &self.root
     }
 
@@ -189,39 +190,33 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
         self.buckets.len() == 1 && self.buckets[0].is_empty()
     }
 
-    fn add(&mut self, contact: Contact<ID_SIZE>) -> Result<(), AddError<ID_SIZE>> {
+    fn add(&mut self, contact: Contact) -> Result<(), AddError> {
         let bucket = self.bucket_mut(contact.id());
 
         match bucket.insert(contact) {
-            Err(BucketInsertionError::<ID_SIZE>::Full) => Err(AddError::NotAdded),
-            Err(BucketInsertionError::<ID_SIZE>::DuplicateId(id)) => {
-                Err(AddError::AlreadyExists(id))
-            }
+            Err(BucketInsertionError::Full) => Err(AddError::NotAdded),
+            Err(BucketInsertionError::DuplicateId(id)) => Err(AddError::AlreadyExists(id)),
             Ok(_) => Ok(()),
         }
     }
 
-    fn remove(&mut self, id: &NodeId<ID_SIZE>) -> Option<Contact<ID_SIZE>> {
+    fn remove(&mut self, id: &NodeId) -> Option<Contact> {
         let bucket = self.bucket_mut(id);
         // NOTE: Maybe restructuring the RoutingTable here
         bucket.remove(id)
     }
 
-    fn replace(
-        &mut self,
-        id: &NodeId<ID_SIZE>,
-        with: Contact<ID_SIZE>,
-    ) -> Result<(), ReplacementError<ID_SIZE>> {
+    fn replace(&mut self, id: &NodeId, with: Contact) -> Result<(), ReplacementError> {
         let bucket = self.bucket_mut(id);
         bucket.replace(id, with)
     }
 
-    fn contact(&self, id: &NodeId<ID_SIZE>) -> Option<&Contact<ID_SIZE>> {
+    fn contact(&self, id: &NodeId) -> Option<&Contact> {
         let bucket = self.bucket(id);
         bucket.get(id)
     }
 
-    fn random_id(&self) -> Option<&NodeId<ID_SIZE>> {
+    fn random_id(&self) -> Option<&NodeId> {
         let mut rng = rand::thread_rng();
         let random_contact = rng.gen_range(0..self.num_contacts());
         self.into_iter()
@@ -229,17 +224,17 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
             .map(|contact| contact.id())
     }
 
-    fn contact_mut(&mut self, id: &NodeId<ID_SIZE>) -> Option<&mut Contact<ID_SIZE>> {
+    fn contact_mut(&mut self, id: &NodeId) -> Option<&mut Contact> {
         let bucket = self.bucket_mut(id);
         bucket.get_mut(id)
     }
 
-    fn contains(&self, id: &NodeId<ID_SIZE>) -> bool {
+    fn contains(&self, id: &NodeId) -> bool {
         let bucket = self.bucket(id);
         bucket.contains(id)
     }
 
-    fn split_bucket(&mut self, id: &NodeId<ID_SIZE>) -> Result<(), BucketSplitError> {
+    fn split_bucket(&mut self, id: &NodeId) -> Result<(), BucketSplitError> {
         if self.buckets.len() >= Self::max_buckets() {
             return Err(BucketSplitError::MaxBucketsReached);
         }
@@ -262,23 +257,23 @@ impl<const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize>
         Ok(())
     }
 
-    fn bucket(&self, of: &NodeId<ID_SIZE>) -> &Bucket<ID_SIZE, BUCKET_SIZE> {
+    fn bucket(&self, of: &NodeId) -> &Bucket<BUCKET_SIZE> {
         let index = self.get_bucket_index(of);
         &self.buckets[index]
     }
 
-    fn bucket_mut(&mut self, of: &NodeId<ID_SIZE>) -> &mut Bucket<ID_SIZE, BUCKET_SIZE> {
+    fn bucket_mut(&mut self, of: &NodeId) -> &mut Bucket<BUCKET_SIZE> {
         let index = self.get_bucket_index(of);
         &mut self.buckets[index]
     }
 }
 
-impl<'a, const ID_SIZE: usize, const BUCKET_SIZE: usize, const ACC: usize> IntoIterator
-    for &'a FlatRoutingTable<ID_SIZE, BUCKET_SIZE, ACC>
+impl<'a, const BUCKET_SIZE: usize, const ACC: usize> IntoIterator
+    for &'a FlatRoutingTable<BUCKET_SIZE, ACC>
 {
-    type Item = &'a Contact<ID_SIZE>;
+    type Item = &'a Contact;
 
-    type IntoIter = Iter<'a, ID_SIZE, BUCKET_SIZE, ACC>;
+    type IntoIter = Iter<'a, BUCKET_SIZE, ACC>;
 
     fn into_iter(self) -> Self::IntoIter {
         Iter::new(self)
@@ -295,7 +290,7 @@ mod routing_tests {
 
     #[test]
     fn test_add() -> Result<(), Box<dyn Error>> {
-        let mut table = FlatRoutingTable::<1>::new(NodeId::<1>::zero())?;
+        let mut table = FlatRoutingTable::<1, 1>::new(NodeId::zero())?;
 
         let contact = Contact::new(
             NodeId::one(),
@@ -311,10 +306,10 @@ mod routing_tests {
 
     #[test]
     fn test_add_full() -> Result<(), Box<dyn Error>> {
-        let mut table = FlatRoutingTable::<1, 1, 1>::new(NodeId::<1>::zero())?;
+        let mut table = FlatRoutingTable::<1, 1>::new(NodeId::zero())?;
 
         table.add(Contact::new(
-            NodeId::from([1]),
+            NodeId::with_lsb(1),
             Age::from(0),
             Path::empty(),
             StateSeqNr::from(0),
@@ -322,7 +317,7 @@ mod routing_tests {
 
         assert_eq!(
             table.add(Contact::new(
-                NodeId::from([2]),
+                NodeId::with_lsb(2),
                 Age::from(0),
                 Path::empty(),
                 StateSeqNr::from(0),
@@ -337,7 +332,7 @@ mod routing_tests {
     fn test_split() -> Result<(), Box<dyn Error>> {
         // Split should move contacts accordingly and bucket_index should change
 
-        let mut table = FlatRoutingTable::<1, 1, 1>::new(NodeId::<1>::zero())?;
+        let mut table = FlatRoutingTable::<1, 1>::new(NodeId::zero())?;
 
         table.add(Contact::new(
             NodeId::one(),
@@ -355,59 +350,59 @@ mod routing_tests {
 
     #[test]
     fn test_insert_to_max_buckets() -> Result<(), Box<dyn Error>> {
-        let mut table = FlatRoutingTable::<1, 1, 1>::new(NodeId::<1>::zero())?;
+        let mut table = FlatRoutingTable::<1, 1>::new(NodeId::zero())?;
 
         table.insert(Contact::new(
-            NodeId::from([0b00000001]),
+            NodeId::with_lsb(0b00000001),
             Age::from(0),
             Path::empty(),
             StateSeqNr::from(0),
         ))?;
 
         table.insert(Contact::new(
-            NodeId::from([0b00000010]),
+            NodeId::with_lsb(0b00000010),
             Age::from(0),
             Path::empty(),
             StateSeqNr::from(0),
         ))?;
 
         table.insert(Contact::new(
-            NodeId::from([0b00000100]),
+            NodeId::with_lsb(0b00000100),
             Age::from(0),
             Path::empty(),
             StateSeqNr::from(0),
         ))?;
 
         table.insert(Contact::new(
-            NodeId::from([0b00001000]),
+            NodeId::with_lsb(0b00001000),
             Age::from(0),
             Path::empty(),
             StateSeqNr::from(0),
         ))?;
 
         table.insert(Contact::new(
-            NodeId::from([0b00010000]),
+            NodeId::with_lsb(0b00010000),
             Age::from(0),
             Path::empty(),
             StateSeqNr::from(0),
         ))?;
 
         table.insert(Contact::new(
-            NodeId::from([0b00100000]),
+            NodeId::with_lsb(0b00100000),
             Age::from(0),
             Path::empty(),
             StateSeqNr::from(0),
         ))?;
 
         table.insert(Contact::new(
-            NodeId::from([0b01000000]),
+            NodeId::with_lsb(0b01000000),
             Age::from(0),
             Path::empty(),
             StateSeqNr::from(0),
         ))?;
 
         table.insert(Contact::new(
-            NodeId::from([0b10000000]),
+            NodeId::with_lsb(0b10000000),
             Age::from(0),
             Path::empty(),
             StateSeqNr::from(0),
@@ -415,16 +410,13 @@ mod routing_tests {
 
         assert!(table
             .insert(Contact::new(
-                NodeId::from([0b00010111]),
+                NodeId::with_lsb(0b00010111),
                 Age::from(0),
                 Path::empty(),
                 StateSeqNr::from(0),
             ))
             .is_err());
-        assert_eq!(
-            table.num_buckets(),
-            FlatRoutingTable::<1, 1, 1>::max_buckets()
-        );
+        assert_eq!(table.num_buckets(), FlatRoutingTable::<1, 1>::max_buckets());
 
         Ok(())
     }
