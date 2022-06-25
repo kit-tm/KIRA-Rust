@@ -6,7 +6,7 @@ use std::time::Duration;
 pub use tokio_udp::*;
 
 use crate::domain::Port;
-use crate::messaging::messages::Message;
+use crate::messaging::messages::ProtocolMessage;
 
 #[cfg(all(feature = "tokio", feature = "serde"))]
 mod tokio_udp;
@@ -37,7 +37,7 @@ impl Error for TryRecvError {}
 ///
 /// Converts a [Message] formatted by its corresponding [MessageSender] back
 /// to a [Message] and returns it.
-pub trait MessageReceiver {
+pub trait ProtocolMessageReceiver {
     /// Receives a [Message].
     ///
     /// Returns an [Error] if receiving failed or the optional timeout was reached.
@@ -48,13 +48,13 @@ pub trait MessageReceiver {
     fn recv_timeout(
         &mut self,
         timeout: Option<Duration>,
-    ) -> Result<Option<(Message, Port)>, RecvTimeout>;
+    ) -> Result<Option<(ProtocolMessage, Port)>, RecvTimeout>;
     /// Receives a [Message].
     ///
     /// Short for calling [recv_timeout](MessageReceiver::recv_timeout) with [None](Option::None).
-    fn recv(&mut self) -> Option<(Message, Port)> {
+    fn recv(&mut self) -> Option<(ProtocolMessage, Port)> {
         self.recv_timeout(None).ok().flatten()
     }
     /// Tries to receive a [Message] and returns an [Error] if no message is present at the time.
-    fn try_recv(&mut self) -> Result<Option<(Message, Port)>, TryRecvError>;
+    fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, Port)>, TryRecvError>;
 }

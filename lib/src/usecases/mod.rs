@@ -1,11 +1,11 @@
-use crate::messaging::messages::Message;
+use crate::messaging::messages::ProtocolMessage;
 use std::ops::Deref;
 
 pub mod bootstrap;
 
 #[derive(Debug, Clone)]
 pub enum UseCaseEvent {
-    Message(Message),
+    Message(ProtocolMessage),
     Timer(TimerId),
 }
 

@@ -1,4 +1,4 @@
-use crate::messaging::messages::Message;
+use crate::messaging::messages::ProtocolMessage;
 use std::error::Error;
 
 /// Sends [Message]s to other Nodes.
@@ -6,7 +6,7 @@ use std::error::Error;
 /// Derives how and where to send the [Message] by analyzing its fields
 /// and converts them to an appropriate format so that the corresponding
 /// [MessageReceiver] can convert it back to a [Message].
-pub trait MessageSender {
+pub trait ProtocolMessageSender {
     type Error: Error;
 
     /// Sends a [Message] to another Node, converting it to an appropriate
@@ -15,5 +15,5 @@ pub trait MessageSender {
     /// Returns an Error if the operation or formatting failed.
     fn send<M>(&mut self, message: M) -> Result<(), Self::Error>
     where
-        M: Into<Message>;
+        M: Into<ProtocolMessage>;
 }

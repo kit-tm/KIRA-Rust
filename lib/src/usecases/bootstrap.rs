@@ -5,13 +5,13 @@ use std::{error::Error, fmt::Display, time::Duration};
 use crate::context::Context;
 use crate::domain::DiscoveryTable;
 use crate::messaging::messages::{FindNodeReqData, QueryRouteReqData};
-use crate::messaging::sender::MessageSender;
+use crate::messaging::sender::ProtocolMessageSender;
 use crate::runtime::Runtime;
 use crate::usecases::{TimerId, UseCaseEvent};
 use crate::{
     domain::{Contact, NeighborTable, NodeId, Port, RoutingTable},
     messaging::messages::{
-        DiscRspData, HelloMessage, Message, Nonce, RTableReqType, ReqRspMessage,
+        DiscRspData, HelloMessage, Nonce, ProtocolMessage, RTableReqType, ReqRspMessage,
     },
 };
 
@@ -107,11 +107,11 @@ where
     for<'b> &'b RT: IntoIterator<Item = &'b Contact>,
     NT: NeighborTable,
     for<'b> &'b NT: IntoIterator<Item = (&'b NodeId, &'b Port)>,
-    MS: MessageSender,
+    MS: ProtocolMessageSender,
     DT: DiscoveryTable,
     RU: Runtime,
 {
-    fn send_message<M: Into<Message>>(
+    fn send_message<M: Into<ProtocolMessage>>(
         &mut self,
         context: &C,
         message: M,
@@ -230,7 +230,7 @@ where
     for<'b> &'b RT: IntoIterator<Item = &'b Contact>,
     NT: NeighborTable,
     for<'b> &'b NT: IntoIterator<Item = (&'b NodeId, &'b Port)>,
-    MS: MessageSender,
+    MS: ProtocolMessageSender,
     DT: DiscoveryTable,
     RU: Runtime,
 {
@@ -283,12 +283,12 @@ where
             // Some Node in 2 Hop vicinity responded
             (
                 BootstrapState::WaitingFor2HopVicinity(_, _),
-                UseCaseEvent::Message(Message::QueryRouteRsp(message)),
+                UseCaseEvent::Message(ProtocolMessage::QueryRouteRsp(message)),
             ) => self.handle_query_route_rsp(context, config, message)?,
             // Error returned for FindNodeReq
             (
                 BootstrapState::WaitingForFindNodeResponse(nonce, _),
-                UseCaseEvent::Message(Message::Error(message)),
+                UseCaseEvent::Message(ProtocolMessage::Error(message)),
             ) => {
                 if nonce == &message.nonce {
                     log::error!("FindNodeReq returned an Error: {:?}", message);
@@ -298,7 +298,7 @@ where
             // FindNodeRsp received for our request
             (
                 BootstrapState::WaitingForFindNodeResponse(nonce, _),
-                UseCaseEvent::Message(Message::FindNodeRsp(message)),
+                UseCaseEvent::Message(ProtocolMessage::FindNodeRsp(message)),
             ) => {
                 if nonce == &message.nonce {
                     self.state = BootstrapState::Finished;

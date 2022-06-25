@@ -4,9 +4,9 @@ use std::fmt::Display;
 use std::time::Duration;
 
 use crate::domain::Port;
-use crate::messaging::messages::Message;
-use crate::messaging::receiver::{MessageReceiver, RecvTimeout, TryRecvError};
-use crate::messaging::sender::MessageSender;
+use crate::messaging::messages::ProtocolMessage;
+use crate::messaging::receiver::{ProtocolMessageReceiver, RecvTimeout, TryRecvError};
+use crate::messaging::sender::ProtocolMessageSender;
 
 /// A [MessageSender] and [MessageReceiver] which stores messages in a FIFO way.
 ///
@@ -14,7 +14,7 @@ use crate::messaging::sender::MessageSender;
 /// if receive is called and the messages are empty.
 #[derive(Debug)]
 pub struct InMemoryMessageHub {
-    messages: VecDeque<Message>,
+    messages: VecDeque<ProtocolMessage>,
 }
 
 impl Default for InMemoryMessageHub {
@@ -34,22 +34,22 @@ impl InMemoryMessageHub {
         Port::new(String::from("dummy port"))
     }
 
-    fn pop(&mut self) -> Option<(Message, Port)> {
+    fn pop(&mut self) -> Option<(ProtocolMessage, Port)> {
         self.messages
             .pop_front()
             .map(|message| (message, Self::dummy_port()))
     }
 }
 
-impl MessageReceiver for InMemoryMessageHub {
+impl ProtocolMessageReceiver for InMemoryMessageHub {
     fn recv_timeout(
         &mut self,
         _timeout: Option<Duration>,
-    ) -> Result<Option<(Message, Port)>, RecvTimeout> {
+    ) -> Result<Option<(ProtocolMessage, Port)>, RecvTimeout> {
         Ok(self.pop())
     }
 
-    fn try_recv(&mut self) -> Result<Option<(Message, Port)>, TryRecvError> {
+    fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, Port)>, TryRecvError> {
         Ok(self.pop())
     }
 }
@@ -65,13 +65,13 @@ impl Display for NoSendError {
 
 impl Error for NoSendError {}
 
-impl MessageSender for InMemoryMessageHub {
+impl ProtocolMessageSender for InMemoryMessageHub {
     // Must not return Errors.
     type Error = NoSendError;
 
     fn send<M>(&mut self, message: M) -> Result<(), Self::Error>
     where
-        M: Into<Message>,
+        M: Into<ProtocolMessage>,
     {
         self.messages.push_back(message.into());
         Ok(())
@@ -82,21 +82,21 @@ impl MessageSender for InMemoryMessageHub {
 mod tests {
     use crate::domain::NodeId;
     use crate::messaging::in_memory_message_hub::InMemoryMessageHub;
-    use crate::messaging::messages::{HelloMessage, Message};
-    use crate::messaging::receiver::MessageReceiver;
-    use crate::messaging::sender::MessageSender;
+    use crate::messaging::messages::{HelloMessage, ProtocolMessage};
+    use crate::messaging::receiver::ProtocolMessageReceiver;
+    use crate::messaging::sender::ProtocolMessageSender;
 
     #[test]
     fn dummy_message_hub_smoke_test() {
         let mut hub = InMemoryMessageHub::new();
 
-        hub.send(Message::Hello(HelloMessage {
+        hub.send(ProtocolMessage::Hello(HelloMessage {
             source: NodeId::zero(),
             destination: NodeId::zero(),
         }))
         .unwrap();
 
-        hub.send(Message::Hello(HelloMessage {
+        hub.send(ProtocolMessage::Hello(HelloMessage {
             source: NodeId::one(),
             destination: NodeId::one(),
         }))
@@ -105,7 +105,7 @@ mod tests {
         assert_eq!(
             hub.recv(),
             Some((
-                Message::Hello(HelloMessage {
+                ProtocolMessage::Hello(HelloMessage {
                     source: NodeId::zero(),
                     destination: NodeId::zero(),
                 }),
@@ -116,7 +116,7 @@ mod tests {
         assert_eq!(
             hub.recv(),
             Some((
-                Message::Hello(HelloMessage {
+                ProtocolMessage::Hello(HelloMessage {
                     source: NodeId::one(),
                     destination: NodeId::one(),
                 }),

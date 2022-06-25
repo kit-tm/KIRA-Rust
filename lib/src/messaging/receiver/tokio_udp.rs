@@ -7,8 +7,8 @@ use tokio::runtime::Runtime;
 use tokio::sync::RwLock;
 
 use crate::domain::Port;
-use crate::messaging::format::Format;
-use crate::messaging::{Message, MessageReceiver, RecvTimeout, TryRecvError};
+use crate::messaging::format::ProtocolMessageFormat;
+use crate::messaging::{ProtocolMessage, ProtocolMessageReceiver, RecvTimeout, TryRecvError};
 
 /// Maximum Transmission Unit (MTU). In general the MTU is actually smaller due to
 /// network restrictions. But to be safe we use this.
@@ -20,7 +20,7 @@ pub struct UdpReceiver {
     buffer: RwLock<[u8; MTU_BYTES]>,
     socket: Arc<UdpSocket>,
     runtime: Arc<Runtime>,
-    format: Format,
+    format: ProtocolMessageFormat,
     port: Port,
 }
 
@@ -38,7 +38,12 @@ impl Clone for UdpReceiver {
 }
 
 impl UdpReceiver {
-    pub fn new(socket: Arc<UdpSocket>, runtime: Arc<Runtime>, format: Format, port: Port) -> Self {
+    pub fn new(
+        socket: Arc<UdpSocket>,
+        runtime: Arc<Runtime>,
+        format: ProtocolMessageFormat,
+        port: Port,
+    ) -> Self {
         Self {
             buffer: RwLock::new([0u8; MTU_BYTES]),
             socket,
@@ -48,7 +53,7 @@ impl UdpReceiver {
         }
     }
 
-    fn deserialize(&self, buffer: &[u8]) -> Option<(Message, Port)> {
+    fn deserialize(&self, buffer: &[u8]) -> Option<(ProtocolMessage, Port)> {
         let deserialized = match self.format.deserialize(buffer) {
             Ok(message) => message,
             Err(e) => {
@@ -61,11 +66,11 @@ impl UdpReceiver {
     }
 }
 
-impl<'a> MessageReceiver for &'a mut UdpReceiver {
+impl<'a> ProtocolMessageReceiver for &'a mut UdpReceiver {
     fn recv_timeout(
         &mut self,
         timeout: Option<Duration>,
-    ) -> Result<Option<(Message, Port)>, RecvTimeout> {
+    ) -> Result<Option<(ProtocolMessage, Port)>, RecvTimeout> {
         let socket = Arc::clone(&self.socket);
         let mut buffer = self.buffer.blocking_write();
 
@@ -91,7 +96,7 @@ impl<'a> MessageReceiver for &'a mut UdpReceiver {
         Ok(self.deserialize(&buffer[..received]))
     }
 
-    fn try_recv(&mut self) -> Result<Option<(Message, Port)>, TryRecvError> {
+    fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, Port)>, TryRecvError> {
         let mut buffer = self.buffer.blocking_write();
         let received = match self.socket.try_recv(buffer.deref_mut()) {
             Ok(received) => received,

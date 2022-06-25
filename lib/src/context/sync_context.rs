@@ -2,7 +2,7 @@ use crate::context::{Context, ReadGuard, WriteGuard};
 use crate::domain::{
     Contact, DiscoveryTable, NeighborTable, NodeId, Port, RoutingTable, DEFAULT_BUCKET_SIZE,
 };
-use crate::messaging::sender::MessageSender;
+use crate::messaging::sender::ProtocolMessageSender;
 use crate::runtime::Runtime;
 use std::sync::{Arc, RwLock};
 
@@ -23,7 +23,7 @@ where
     NT: NeighborTable,
     for<'a> &'a NT: IntoIterator<Item = (&'a NodeId, &'a Port)>,
     DT: DiscoveryTable,
-    MS: MessageSender,
+    MS: ProtocolMessageSender,
     RU: Runtime,
 {
     /// Creates a new [Context].

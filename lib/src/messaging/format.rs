@@ -1,11 +1,11 @@
 use std::error::Error;
 use std::io::{Read, Write};
 
-use serde::de::DeserializeOwned;
+use crate::messaging::ProtocolMessage;
 use serde::Serialize;
 
 #[derive(Debug, Clone)]
-pub enum Format {
+pub enum ProtocolMessageFormat {
     #[cfg(feature = "serde_json")]
     Json,
     #[cfg(feature = "rmp-serde")]
@@ -13,11 +13,8 @@ pub enum Format {
     None,
 }
 
-impl Format {
-    pub fn deserialize<R: Read, T: DeserializeOwned>(
-        &self,
-        reader: R,
-    ) -> Result<T, Box<dyn Error>> {
+impl ProtocolMessageFormat {
+    pub fn deserialize<R: Read>(&self, reader: R) -> Result<ProtocolMessage, Box<dyn Error>> {
         let result = match self {
             #[cfg(feature = "serde_json")]
             Self::Json => serde_json::from_reader(reader)?,
@@ -29,10 +26,10 @@ impl Format {
         Ok(result)
     }
 
-    pub fn serialize<W: Write, T: Serialize>(
+    pub fn serialize<W: Write>(
         &self,
         writer: W,
-        data: &T,
+        data: &ProtocolMessage,
     ) -> Result<(), Box<dyn Error>> {
         match self {
             #[cfg(feature = "serde_json")]
