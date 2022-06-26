@@ -53,7 +53,6 @@ fn main() {
         root_id,
         routing_table,
         HashMap::new(),
-        HashMap::new(),
         InMemoryMessageHub::new(),
         TokioRuntime::new(broadcaster, Arc::clone(&runtime)),
     );

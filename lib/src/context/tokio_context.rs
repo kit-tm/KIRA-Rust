@@ -8,22 +8,20 @@ use crate::domain::NodeId;
 use crate::runtime::TokioRuntime;
 
 #[derive(Debug, Clone)]
-pub struct TokioContext<RT, NT, DT, MS, RU> {
+pub struct TokioContext<RT, NT, MS, RU> {
     root_id: NodeId,
     routing_table: Arc<RwLock<RT>>,
     neighbor_table: Arc<RwLock<NT>>,
-    discovery_table: Arc<RwLock<DT>>,
     message_sender: Arc<RwLock<MS>>,
     runtime: RU,
 }
 
-impl<RT, NT, DT, MS, B: Broadcaster> TokioContext<RT, NT, DT, MS, TokioRuntime<B>> {
+impl<RT, NT, MS, B: Broadcaster> TokioContext<RT, NT, MS, TokioRuntime<B>> {
     /// Creates a new [Context].
     pub fn new(
         root_id: NodeId,
         routing_table: RT,
         neighbor_table: NT,
-        discovery_table: DT,
         message_sender: MS,
         runtime: TokioRuntime<B>,
     ) -> Self {
@@ -31,17 +29,15 @@ impl<RT, NT, DT, MS, B: Broadcaster> TokioContext<RT, NT, DT, MS, TokioRuntime<B
             root_id,
             routing_table: Arc::new(RwLock::new(routing_table)),
             neighbor_table: Arc::new(RwLock::new(neighbor_table)),
-            discovery_table: Arc::new(RwLock::new(discovery_table)),
             message_sender: Arc::new(RwLock::new(message_sender)),
             runtime,
         }
     }
 }
 
-impl<RT, NT, DT, MS, B: Broadcaster> Context for TokioContext<RT, NT, DT, MS, TokioRuntime<B>> {
+impl<RT, NT, MS, B: Broadcaster> Context for TokioContext<RT, NT, MS, TokioRuntime<B>> {
     type RoutingTable = RT;
     type NeighborTable = NT;
-    type DiscoveryTable = DT;
     type MessageSender = MS;
     type Runtime = TokioRuntime<B>;
 
@@ -63,14 +59,6 @@ impl<RT, NT, DT, MS, B: Broadcaster> Context for TokioContext<RT, NT, DT, MS, To
 
     fn neighbor_table_mut(&self) -> WriteGuard<NT> {
         self.neighbor_table.blocking_write().into()
-    }
-
-    fn discovery_table(&self) -> ReadGuard<DT> {
-        self.discovery_table.blocking_read().into()
-    }
-
-    fn discovery_table_mut(&self) -> WriteGuard<DT> {
-        self.discovery_table.blocking_write().into()
     }
 
     fn message_sender(&self) -> ReadGuard<MS> {

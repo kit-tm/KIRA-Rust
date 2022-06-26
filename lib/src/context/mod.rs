@@ -78,7 +78,6 @@ impl<'a, T> DerefMut for WriteGuard<'a, T> {
 pub trait Context {
     type RoutingTable: Sized;
     type NeighborTable: Sized;
-    type DiscoveryTable: Sized;
     type MessageSender: Sized;
     type Runtime: Sized;
 
@@ -91,10 +90,6 @@ pub trait Context {
     fn neighbor_table(&self) -> ReadGuard<Self::NeighborTable>;
 
     fn neighbor_table_mut(&self) -> WriteGuard<Self::NeighborTable>;
-
-    fn discovery_table(&self) -> ReadGuard<Self::DiscoveryTable>;
-
-    fn discovery_table_mut(&self) -> WriteGuard<Self::DiscoveryTable>;
 
     fn message_sender(&self) -> ReadGuard<Self::MessageSender>;
 

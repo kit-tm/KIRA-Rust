@@ -1,7 +1,6 @@
 // To change default NodeId simply change this
 pub use bucket::*;
 pub use contact::*;
-pub use discovery_table::*;
 pub use insertion_strategy::*;
 pub use neighbor_table::*;
 pub use node_id::*;
@@ -13,7 +12,6 @@ pub use routing_table::*;
 
 pub mod bucket;
 pub mod contact;
-pub mod discovery_table;
 pub mod insertion_strategy;
 pub mod neighbor_table;
 pub mod node_id;

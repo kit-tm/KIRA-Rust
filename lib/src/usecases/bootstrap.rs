@@ -3,7 +3,6 @@ use std::ops::Deref;
 use std::{error::Error, fmt::Display, time::Duration};
 
 use crate::context::Context;
-use crate::domain::DiscoveryTable;
 use crate::messaging::messages::{FindNodeReqData, QueryRouteReqData};
 use crate::messaging::sender::ProtocolMessageSender;
 use crate::runtime::Runtime;
@@ -105,7 +104,6 @@ where
     C::NeighborTable: NeighborTable,
     for<'b> &'b C::NeighborTable: IntoIterator<Item = (&'b NodeId, &'b Port)>,
     C::MessageSender: ProtocolMessageSender,
-    C::DiscoveryTable: DiscoveryTable,
     C::Runtime: Runtime,
 {
     fn send_message<M: Into<ProtocolMessage>>(
@@ -227,7 +225,6 @@ where
     C::NeighborTable: NeighborTable,
     for<'b> &'b C::NeighborTable: IntoIterator<Item = (&'b NodeId, &'b Port)>,
     C::MessageSender: ProtocolMessageSender,
-    C::DiscoveryTable: DiscoveryTable,
     C::Runtime: Runtime,
 {
     type Error = BootstrapError;
