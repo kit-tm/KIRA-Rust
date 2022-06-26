@@ -15,7 +15,7 @@ use r2kad_lib::domain::{FlatRoutingTable, NodeId, DEFAULT_BUCKET_SIZE};
 use r2kad_lib::messaging::InMemoryMessageHub;
 use r2kad_lib::node::{Config, Node};
 use r2kad_lib::runtime::TokioRuntime;
-use r2kad_lib::usecases::UseCaseEvent;
+use r2kad_lib::use_cases::UseCaseEvent;
 
 fn main() {
     // Setup the single threaded async runtime

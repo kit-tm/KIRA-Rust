@@ -7,7 +7,7 @@ use crate::context::Context;
 use crate::domain::NodeId;
 use crate::messaging::{HelloMessage, ProtocolMessageSender};
 use crate::runtime::Runtime;
-use crate::usecases::{State, TimerId, UseCase, UseCaseEvent};
+use crate::use_cases::{State, TimerId, UseCase, UseCaseEvent};
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub struct PNProbingConfig {

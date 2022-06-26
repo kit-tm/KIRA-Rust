@@ -5,9 +5,9 @@ use crate::context::Context;
 use crate::domain::{Contact, NeighborTable, NodeId, Port, RoutingTable, DEFAULT_BUCKET_SIZE};
 use crate::messaging::ProtocolMessageSender;
 use crate::runtime::Runtime;
-use crate::usecases::bootstrap::{BootstrapConfig, BootstrapUseCase};
-use crate::usecases::pn_probing::{PNProbingConfig, PNProbingUseCase};
-use crate::usecases::{UseCase, UseCaseEvent};
+use crate::use_cases::bootstrap::{BootstrapConfig, BootstrapUseCase};
+use crate::use_cases::pn_probing::{PNProbingConfig, PNProbingUseCase};
+use crate::use_cases::{UseCase, UseCaseEvent};
 
 #[derive(Debug, Default, Clone)]
 pub struct Config {

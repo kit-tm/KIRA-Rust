@@ -1,5 +1,5 @@
 use crate::broadcaster::Broadcaster;
-use crate::usecases::UseCaseEvent;
+use crate::use_cases::UseCaseEvent;
 
 impl Broadcaster for tokio::sync::broadcast::Sender<UseCaseEvent> {
     type SendError = tokio::sync::broadcast::error::SendError<UseCaseEvent>;

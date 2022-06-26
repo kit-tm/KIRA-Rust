@@ -6,7 +6,7 @@ use crate::context::Context;
 use crate::messaging::messages::{FindNodeReqData, QueryRouteReqData};
 use crate::messaging::sender::ProtocolMessageSender;
 use crate::runtime::Runtime;
-use crate::usecases::{State, TimerId, UseCase, UseCaseEvent};
+use crate::use_cases::{State, TimerId, UseCase, UseCaseEvent};
 use crate::{
     domain::{Contact, NeighborTable, NodeId, Port, RoutingTable},
     messaging::messages::{

@@ -13,4 +13,4 @@ pub mod domain;
 pub mod messaging;
 pub mod node;
 pub mod runtime;
-pub mod usecases;
+pub mod use_cases;

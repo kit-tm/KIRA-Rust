@@ -3,7 +3,7 @@ use std::error::Error;
 #[cfg(feature = "tokio")]
 pub use tokio_broadcaster::*;
 
-use crate::usecases::UseCaseEvent;
+use crate::use_cases::UseCaseEvent;
 
 #[cfg(feature = "tokio")]
 pub mod tokio_broadcaster;

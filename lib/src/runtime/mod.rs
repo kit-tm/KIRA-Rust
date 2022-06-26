@@ -4,7 +4,7 @@ pub use sync_runtime::*;
 #[cfg(feature = "tokio")]
 pub use tokio_runtime::*;
 
-use crate::usecases::TimerId;
+use crate::use_cases::TimerId;
 
 pub mod sync_runtime;
 #[cfg(feature = "tokio")]

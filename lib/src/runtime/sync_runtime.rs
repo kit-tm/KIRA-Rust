@@ -1,6 +1,6 @@
 use crate::broadcaster::Broadcaster;
 use crate::runtime::Runtime;
-use crate::usecases::{TimerId, UseCaseEvent};
+use crate::use_cases::{TimerId, UseCaseEvent};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
