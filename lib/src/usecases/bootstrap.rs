@@ -7,7 +7,7 @@ use crate::domain::DiscoveryTable;
 use crate::messaging::messages::{FindNodeReqData, QueryRouteReqData};
 use crate::messaging::sender::ProtocolMessageSender;
 use crate::runtime::Runtime;
-use crate::usecases::{TimerId, UseCaseEvent};
+use crate::usecases::{State, TimerId, UseCase, UseCaseEvent};
 use crate::{
     domain::{Contact, NeighborTable, NodeId, Port, RoutingTable},
     messaging::messages::{
@@ -44,7 +44,17 @@ pub enum BootstrapState {
     Error,
 }
 
-#[derive(Debug, Clone)]
+impl State for BootstrapState {
+    fn is_finished(&self) -> bool {
+        self == &BootstrapState::Finished
+    }
+
+    fn is_error(&self) -> bool {
+        self == &BootstrapState::Error
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct BootstrapConfig {
     pub max_neighbor_response_duration: Duration,
     pub max_2_hop_response_duration: Duration,
@@ -65,51 +75,38 @@ impl Default for BootstrapConfig {
 ///
 /// Performs NeighborDiscovery, 3-Hop-Vicinity Discovery and the initial join to the network.
 #[derive(Debug)]
-pub struct BootstrapUseCase<C, RT, NT, DT, MS, RU, const BUCKET_SIZE: usize> {
+pub struct BootstrapUseCase<C, const BUCKET_SIZE: usize> {
     _c: PhantomData<C>,
-    _rt: PhantomData<RT>,
-    _nt: PhantomData<NT>,
-    _dt: PhantomData<DT>,
-    _ms: PhantomData<MS>,
-    _ru: PhantomData<RU>,
     state: BootstrapState,
+    config: BootstrapConfig,
 }
 
-impl<C, RT, DT, NT, MS, RU, const BUCKET_SIZE: usize> Default
-    for BootstrapUseCase<C, RT, DT, NT, MS, RU, BUCKET_SIZE>
-{
+impl<C, const BUCKET_SIZE: usize> Default for BootstrapUseCase<C, BUCKET_SIZE> {
     fn default() -> Self {
-        Self::new()
+        Self::new(BootstrapConfig::default())
     }
 }
 
-impl<C, RT, DT, NT, MS, RU, const BUCKET_SIZE: usize>
-    BootstrapUseCase<C, RT, DT, NT, MS, RU, BUCKET_SIZE>
-{
-    pub fn new() -> Self {
+impl<C, const BUCKET_SIZE: usize> BootstrapUseCase<C, BUCKET_SIZE> {
+    pub fn new(config: BootstrapConfig) -> Self {
         Self {
             _c: PhantomData::default(),
-            _rt: PhantomData::default(),
-            _nt: PhantomData::default(),
-            _dt: PhantomData::default(),
-            _ms: PhantomData::default(),
-            _ru: PhantomData::default(),
             state: BootstrapState::Initialized,
+            config,
         }
     }
 }
 
-impl<C, RT, DT, NT, MS, RU, const BUCKET_SIZE: usize>
-    BootstrapUseCase<C, RT, NT, DT, MS, RU, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize> BootstrapUseCase<C, BUCKET_SIZE>
 where
-    C: Context<RT, NT, DT, MS, RU, BUCKET_SIZE>,
-    RT: RoutingTable<BUCKET_SIZE>,
-    for<'b> &'b RT: IntoIterator<Item = &'b Contact>,
-    NT: NeighborTable,
-    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId, &'b Port)>,
-    MS: ProtocolMessageSender,
-    DT: DiscoveryTable,
-    RU: Runtime,
+    C: Context,
+    C::RoutingTable: RoutingTable<BUCKET_SIZE>,
+    for<'b> &'b C::RoutingTable: IntoIterator<Item = &'b Contact>,
+    C::NeighborTable: NeighborTable,
+    for<'b> &'b C::NeighborTable: IntoIterator<Item = (&'b NodeId, &'b Port)>,
+    C::MessageSender: ProtocolMessageSender,
+    C::DiscoveryTable: DiscoveryTable,
+    C::Runtime: Runtime,
 {
     fn send_message<M: Into<ProtocolMessage>>(
         &mut self,
@@ -222,21 +219,23 @@ where
     }
 }
 
-impl<C, RT, DT, NT, MS, RU, const BUCKET_SIZE: usize>
-    BootstrapUseCase<C, RT, NT, DT, MS, RU, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize> UseCase<C> for BootstrapUseCase<C, BUCKET_SIZE>
 where
-    C: Context<RT, NT, DT, MS, RU, BUCKET_SIZE>,
-    RT: RoutingTable<BUCKET_SIZE>,
-    for<'b> &'b RT: IntoIterator<Item = &'b Contact>,
-    NT: NeighborTable,
-    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId, &'b Port)>,
-    MS: ProtocolMessageSender,
-    DT: DiscoveryTable,
-    RU: Runtime,
+    C: Context,
+    C::RoutingTable: RoutingTable<BUCKET_SIZE>,
+    for<'b> &'b C::RoutingTable: IntoIterator<Item = &'b Contact>,
+    C::NeighborTable: NeighborTable,
+    for<'b> &'b C::NeighborTable: IntoIterator<Item = (&'b NodeId, &'b Port)>,
+    C::MessageSender: ProtocolMessageSender,
+    C::DiscoveryTable: DiscoveryTable,
+    C::Runtime: Runtime,
 {
+    type Error = BootstrapError;
+    type State = BootstrapState;
+
     /// Starts the Bootstrap Process by sending [HelloMessage]s to all neighbors and registering
     /// a timeout which will notify the [BoostrapUseCase] through [handle_event].
-    pub fn start(&mut self, context: &C, config: &BootstrapConfig) -> Result<(), BootstrapError> {
+    fn start(&mut self, context: &C) -> Result<(), BootstrapError> {
         // Although the UseCase contains generating the NodeId
         // it's required to pass this before as the RoutingTable
         // and others require the root NodeId before Bootstrap is started.
@@ -251,24 +250,20 @@ where
 
         let timer_id = context
             .runtime()
-            .register_timer(config.max_neighbor_response_duration);
+            .register_timer(self.config.max_neighbor_response_duration);
 
         self.state = BootstrapState::WaitingForNeighbors(timer_id);
 
         Ok(())
     }
 
-    pub fn handle_event(
-        &mut self,
-        context: &C,
-        config: &BootstrapConfig,
-        event: UseCaseEvent,
-    ) -> Result<(), BootstrapError> {
+    fn handle_event(&mut self, context: &C, event: UseCaseEvent) -> Result<(), BootstrapError> {
+        let config = self.config;
         match (self.state(), event) {
             // Timeout for neighbors was reached => Send
             (BootstrapState::WaitingForNeighbors(waiting_id), UseCaseEvent::Timer(received_id)) => {
                 if waiting_id == &received_id {
-                    self.start_vicinity_discovery(context, config)?;
+                    self.start_vicinity_discovery(context, &config)?;
                 }
             }
             // Timeout received for 2 Hop Vicinity
@@ -277,14 +272,14 @@ where
                 UseCaseEvent::Timer(timer_id),
             ) => {
                 if waiting_id == &timer_id {
-                    self.start_join(context, config)?;
+                    self.start_join(context, &config)?;
                 }
             }
             // Some Node in 2 Hop vicinity responded
             (
                 BootstrapState::WaitingFor2HopVicinity(_, _),
                 UseCaseEvent::Message(ProtocolMessage::QueryRouteRsp(message)),
-            ) => self.handle_query_route_rsp(context, config, message)?,
+            ) => self.handle_query_route_rsp(context, &config, message)?,
             // Error returned for FindNodeReq
             (
                 BootstrapState::WaitingForFindNodeResponse(nonce, _),
@@ -320,7 +315,7 @@ where
         Ok(())
     }
 
-    pub fn state(&self) -> &BootstrapState {
+    fn state(&self) -> &BootstrapState {
         &self.state
     }
 }

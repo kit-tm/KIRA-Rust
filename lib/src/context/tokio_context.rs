@@ -4,14 +4,11 @@ use tokio::sync::RwLock;
 
 use crate::broadcaster::Broadcaster;
 use crate::context::{Context, ReadGuard, WriteGuard};
-use crate::domain::{
-    Contact, DiscoveryTable, NeighborTable, NodeId, Port, RoutingTable, DEFAULT_BUCKET_SIZE,
-};
-use crate::messaging::sender::ProtocolMessageSender;
+use crate::domain::NodeId;
 use crate::runtime::TokioRuntime;
 
 #[derive(Debug, Clone)]
-pub struct TokioContext<RT, NT, DT, MS, RU, const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE> {
+pub struct TokioContext<RT, NT, DT, MS, RU> {
     root_id: NodeId,
     routing_table: Arc<RwLock<RT>>,
     neighbor_table: Arc<RwLock<NT>>,
@@ -20,17 +17,7 @@ pub struct TokioContext<RT, NT, DT, MS, RU, const BUCKET_SIZE: usize = DEFAULT_B
     runtime: RU,
 }
 
-impl<RT, NT, DT, MS, B, const BUCKET_SIZE: usize>
-    TokioContext<RT, NT, DT, MS, TokioRuntime<B>, BUCKET_SIZE>
-where
-    RT: RoutingTable<BUCKET_SIZE>,
-    for<'a> &'a RT: IntoIterator<Item = &'a Contact>,
-    NT: NeighborTable,
-    for<'a> &'a NT: IntoIterator<Item = (&'a NodeId, &'a Port)>,
-    DT: DiscoveryTable,
-    MS: ProtocolMessageSender,
-    B: Broadcaster,
-{
+impl<RT, NT, DT, MS, B: Broadcaster> TokioContext<RT, NT, DT, MS, TokioRuntime<B>> {
     /// Creates a new [Context].
     pub fn new(
         root_id: NodeId,
@@ -51,12 +38,13 @@ where
     }
 }
 
-impl<RT, NT, DT, MS, B, const BUCKET_SIZE: usize>
-    Context<RT, NT, DT, MS, TokioRuntime<B>, BUCKET_SIZE>
-    for TokioContext<RT, NT, DT, MS, TokioRuntime<B>, BUCKET_SIZE>
-where
-    B: Broadcaster,
-{
+impl<RT, NT, DT, MS, B: Broadcaster> Context for TokioContext<RT, NT, DT, MS, TokioRuntime<B>> {
+    type RoutingTable = RT;
+    type NeighborTable = NT;
+    type DiscoveryTable = DT;
+    type MessageSender = MS;
+    type Runtime = TokioRuntime<B>;
+
     fn root_id(&self) -> &NodeId {
         &self.root_id
     }

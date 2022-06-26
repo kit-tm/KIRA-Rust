@@ -1,7 +1,10 @@
-use crate::messaging::messages::ProtocolMessage;
+use std::error::Error;
 use std::ops::Deref;
 
+use crate::messaging::messages::ProtocolMessage;
+
 pub mod bootstrap;
+pub mod pn_probing;
 
 #[derive(Debug, Clone)]
 pub enum UseCaseEvent {
@@ -24,4 +27,18 @@ impl Deref for TimerId {
     fn deref(&self) -> &Self::Target {
         &self.0
     }
+}
+
+pub trait State {
+    fn is_finished(&self) -> bool;
+    fn is_error(&self) -> bool;
+}
+
+pub trait UseCase<C> {
+    type Error: Error + Sized;
+    type State: State + Sized;
+
+    fn start(&mut self, context: &C) -> Result<(), Self::Error>;
+    fn handle_event(&mut self, context: &C, event: UseCaseEvent) -> Result<(), Self::Error>;
+    fn state(&self) -> &Self::State;
 }

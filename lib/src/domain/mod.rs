@@ -11,15 +11,15 @@ pub use path_validator::*;
 pub use routing_table::flat_routing_table::*;
 pub use routing_table::*;
 
-mod bucket;
-mod contact;
-mod discovery_table;
-mod insertion_strategy;
-mod neighbor_table;
-mod node_id;
-mod path;
-mod path_simplifier;
-mod path_validator;
-mod routing_table;
+pub mod bucket;
+pub mod contact;
+pub mod discovery_table;
+pub mod insertion_strategy;
+pub mod neighbor_table;
+pub mod node_id;
+pub mod path;
+pub mod path_simplifier;
+pub mod path_validator;
+pub mod routing_table;
 
 pub type Link = (NodeId, NodeId);

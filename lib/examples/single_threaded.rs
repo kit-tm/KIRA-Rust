@@ -5,26 +5,17 @@
 //! multiple ports at once.
 
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::sync::Arc;
 
 use tokio::sync::broadcast;
 
 use r2kad_lib::context::TokioContext;
 use r2kad_lib::domain::unlimited_neighbors_routing_table::UnlimitedNeighborsRoutingTable;
-use r2kad_lib::domain::{FlatRoutingTable, NodeId, DEFAULT_BUCKET_SIZE, DEFAULT_ID_SIZE};
+use r2kad_lib::domain::{FlatRoutingTable, NodeId, DEFAULT_BUCKET_SIZE};
 use r2kad_lib::messaging::InMemoryMessageHub;
+use r2kad_lib::node::{Config, Node};
 use r2kad_lib::runtime::TokioRuntime;
-use r2kad_lib::usecases::bootstrap::{BootstrapConfig, BootstrapState, BootstrapUseCase};
 use r2kad_lib::usecases::UseCaseEvent;
-
-const ID_SIZE: usize = DEFAULT_ID_SIZE;
-
-/// CLI Configuration.
-#[derive(Debug, Default)]
-struct Config {
-    bootstrap: BootstrapConfig,
-}
 
 fn main() {
     // Setup the single threaded async runtime
@@ -58,21 +49,22 @@ fn main() {
     );
 
     // Create the desired Context in which the Use Cases will run
-    let context = Arc::new(TokioContext::new(
-        root_id.clone(),
+    let context = TokioContext::new(
+        root_id,
         routing_table,
         HashMap::new(),
         HashMap::new(),
         InMemoryMessageHub::new(),
-        TokioRuntime::new(broadcaster.clone(), Arc::clone(&runtime)),
-    ));
+        TokioRuntime::new(broadcaster, Arc::clone(&runtime)),
+    );
 
     // Initialize the Use Cases
-    // TODO: Add other Use Cases as soon as implemented
-    let mut use_case = BootstrapUseCase::new();
-    use_case
-        .start(context.deref(), &config.bootstrap)
-        .expect("failed to start bootstrap use case");
+    let mut node = Node::new(config, context);
+
+    if let Err(e) = node.start() {
+        log::error!("Error starting node: {}", e);
+        return;
+    }
 
     // TODO:
     //  Start MessageReceivers and wait for message from broadcaster or MessageReceivers
@@ -82,21 +74,9 @@ fn main() {
     // IMPORTANT: The Runtime::block_on method drives progress in the CurrentThreadRuntime.
     //              Without that the tasks spawned in the runtime won't make any progress.
     while let Ok(event) = runtime.block_on(receiver.recv()) {
-        if let Err(e) = use_case.handle_event(context.deref(), &config.bootstrap, event) {
-            log::error!("Bootstrap failed: {}", e);
+        if let Err(e) = node.handle_message(event) {
+            log::error!("Error handling message: {}", e);
             break;
-        }
-
-        match use_case.state() {
-            BootstrapState::Error => {
-                log::error!("Bootstrap stopped in Error state!");
-                break;
-            }
-            BootstrapState::Finished => {
-                log::debug!("Bootstrap finished!");
-                break;
-            }
-            _ => {}
         }
     }
 }

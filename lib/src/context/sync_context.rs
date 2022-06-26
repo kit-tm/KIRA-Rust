@@ -1,13 +1,10 @@
-use crate::context::{Context, ReadGuard, WriteGuard};
-use crate::domain::{
-    Contact, DiscoveryTable, NeighborTable, NodeId, Port, RoutingTable, DEFAULT_BUCKET_SIZE,
-};
-use crate::messaging::sender::ProtocolMessageSender;
-use crate::runtime::Runtime;
 use std::sync::{Arc, RwLock};
 
+use crate::context::{Context, ReadGuard, WriteGuard};
+use crate::domain::NodeId;
+
 #[derive(Debug, Clone)]
-pub struct SyncContext<RT, NT, DT, MS, RU, const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE> {
+pub struct SyncContext<RT, NT, DT, MS, RU> {
     root_id: NodeId,
     routing_table: Arc<RwLock<RT>>,
     neighbor_table: Arc<RwLock<NT>>,
@@ -16,16 +13,7 @@ pub struct SyncContext<RT, NT, DT, MS, RU, const BUCKET_SIZE: usize = DEFAULT_BU
     runtime: RU,
 }
 
-impl<RT, NT, DT, MS, RU, const BUCKET_SIZE: usize> SyncContext<RT, NT, DT, MS, RU, BUCKET_SIZE>
-where
-    RT: RoutingTable<BUCKET_SIZE>,
-    for<'a> &'a RT: IntoIterator<Item = &'a Contact>,
-    NT: NeighborTable,
-    for<'a> &'a NT: IntoIterator<Item = (&'a NodeId, &'a Port)>,
-    DT: DiscoveryTable,
-    MS: ProtocolMessageSender,
-    RU: Runtime,
-{
+impl<RT, NT, DT, MS, RU> SyncContext<RT, NT, DT, MS, RU> {
     /// Creates a new [Context].
     pub fn new(
         root_id: NodeId,
@@ -46,15 +34,22 @@ where
     }
 }
 
-impl<RT, NT, DT, MS, RU, const BUCKET_SIZE: usize> Context<RT, NT, DT, MS, RU, BUCKET_SIZE>
-    for SyncContext<RT, NT, DT, MS, RU, BUCKET_SIZE>
-{
+impl<RT, NT, DT, MS, RU> Context for SyncContext<RT, NT, DT, MS, RU> {
+    type RoutingTable = RT;
+    type NeighborTable = NT;
+    type DiscoveryTable = DT;
+    type MessageSender = MS;
+    type Runtime = RU;
+
     fn root_id(&self) -> &NodeId {
         &self.root_id
     }
 
     fn routing_table(&self) -> ReadGuard<RT> {
-        self.routing_table.read().expect("faile to get lock").into()
+        self.routing_table
+            .read()
+            .expect("failed to get lock")
+            .into()
     }
 
     fn routing_table_mut(&self) -> WriteGuard<RT> {

@@ -4,7 +4,7 @@ pub use sync_context::*;
 #[cfg(feature = "tokio")]
 pub use tokio_context::*;
 
-use crate::domain::{NodeId, DEFAULT_BUCKET_SIZE};
+use crate::domain::NodeId;
 
 pub mod sync_context;
 #[cfg(feature = "tokio")]
@@ -75,24 +75,30 @@ impl<'a, T> DerefMut for WriteGuard<'a, T> {
     }
 }
 
-pub trait Context<RT, NT, DT, MS, RU, const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE> {
+pub trait Context {
+    type RoutingTable: Sized;
+    type NeighborTable: Sized;
+    type DiscoveryTable: Sized;
+    type MessageSender: Sized;
+    type Runtime: Sized;
+
     fn root_id(&self) -> &NodeId;
 
-    fn routing_table(&self) -> ReadGuard<RT>;
+    fn routing_table(&self) -> ReadGuard<Self::RoutingTable>;
 
-    fn routing_table_mut(&self) -> WriteGuard<RT>;
+    fn routing_table_mut(&self) -> WriteGuard<Self::RoutingTable>;
 
-    fn neighbor_table(&self) -> ReadGuard<NT>;
+    fn neighbor_table(&self) -> ReadGuard<Self::NeighborTable>;
 
-    fn neighbor_table_mut(&self) -> WriteGuard<NT>;
+    fn neighbor_table_mut(&self) -> WriteGuard<Self::NeighborTable>;
 
-    fn discovery_table(&self) -> ReadGuard<DT>;
+    fn discovery_table(&self) -> ReadGuard<Self::DiscoveryTable>;
 
-    fn discovery_table_mut(&self) -> WriteGuard<DT>;
+    fn discovery_table_mut(&self) -> WriteGuard<Self::DiscoveryTable>;
 
-    fn message_sender(&self) -> ReadGuard<MS>;
+    fn message_sender(&self) -> ReadGuard<Self::MessageSender>;
 
-    fn message_sender_mut(&self) -> WriteGuard<MS>;
+    fn message_sender_mut(&self) -> WriteGuard<Self::MessageSender>;
 
-    fn runtime(&self) -> &RU;
+    fn runtime(&self) -> &Self::Runtime;
 }
