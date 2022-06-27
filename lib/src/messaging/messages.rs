@@ -57,8 +57,6 @@ pub struct ReqRspMessage<T: std::fmt::Debug> {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum RTableReqType {
-    // TODO: Remove COntactsOnly -> Obsolete
-    ContactsOnly,
     NeighborHood(usize),
 }
 
@@ -79,7 +77,6 @@ impl From<ReqRspMessage<PNDiscReqData>> for ProtocolMessage {
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum DiscRspData {
     RTable(Vec<Contact>),
-    ContactList(Vec<NodeId>),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

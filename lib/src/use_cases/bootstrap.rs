@@ -58,6 +58,7 @@ pub struct BootstrapConfig {
     pub max_neighbor_response_duration: Duration,
     pub max_2_hop_response_duration: Duration,
     pub max_find_node_response_duration: Option<Duration>,
+    pub initial_neighborhood_size: usize,
 }
 
 impl Default for BootstrapConfig {
@@ -66,6 +67,7 @@ impl Default for BootstrapConfig {
             max_2_hop_response_duration: Duration::from_secs(1),
             max_neighbor_response_duration: Duration::from_secs(1),
             max_find_node_response_duration: Some(Duration::from_secs(1)),
+            initial_neighborhood_size: 20,
         }
     }
 }
@@ -180,7 +182,7 @@ where
             source: context.root_id().clone(),
             destination: NodeId::zero(),
             data: FindNodeReqData {
-                req_type: RTableReqType::ContactsOnly,
+                req_type: RTableReqType::NeighborHood(config.initial_neighborhood_size),
                 exact: false,
             },
         };
