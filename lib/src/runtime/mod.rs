@@ -14,4 +14,7 @@ pub mod tokio_runtime;
 pub trait Runtime {
     /// Either waits the duration instantly or returns and
     fn register_timer(&self, duration: Duration) -> TimerId;
+
+    /// Creates a periodic Timer.
+    fn register_periodic_timer(&self, duration: Duration) -> TimerId;
 }

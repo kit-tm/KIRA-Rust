@@ -7,7 +7,7 @@ use crate::context::Context;
 use crate::domain::NodeId;
 use crate::messaging::{HelloMessage, ProtocolMessageSender};
 use crate::runtime::Runtime;
-use crate::use_cases::{State, TimerId, UseCase, UseCaseEvent};
+use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub struct PNProbingConfig {
@@ -31,7 +31,7 @@ pub enum PNProbingState {
     Error,
 }
 
-impl State for PNProbingState {
+impl UseCaseState for PNProbingState {
     fn is_finished(&self) -> bool {
         self == &Self::Finished
     }
@@ -91,7 +91,7 @@ where
     fn start(&mut self, context: &C) -> Result<(), Self::Error> {
         let timer_id = context
             .runtime()
-            .register_timer(self.config.probing_timeout);
+            .register_periodic_timer(self.config.probing_timeout);
 
         self.state = PNProbingState::Running(timer_id);
 

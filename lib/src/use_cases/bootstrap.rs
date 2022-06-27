@@ -6,7 +6,7 @@ use crate::context::Context;
 use crate::messaging::messages::{FindNodeReqData, QueryRouteReqData};
 use crate::messaging::sender::ProtocolMessageSender;
 use crate::runtime::Runtime;
-use crate::use_cases::{State, TimerId, UseCase, UseCaseEvent};
+use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
 use crate::{
     domain::{Contact, NeighborTable, NodeId, Port, RoutingTable},
     messaging::messages::{
@@ -43,7 +43,7 @@ pub enum BootstrapState {
     Error,
 }
 
-impl State for BootstrapState {
+impl UseCaseState for BootstrapState {
     fn is_finished(&self) -> bool {
         self == &BootstrapState::Finished
     }
@@ -182,6 +182,7 @@ where
             destination: NodeId::zero(),
             data: FindNodeReqData {
                 req_type: RTableReqType::ContactsOnly,
+                exact: false,
             },
         };
 

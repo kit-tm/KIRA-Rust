@@ -17,10 +17,6 @@ pub const BIT_SIZE: usize = SIZE * 8;
 /// As all NodeIds have to be of the same size for an application this implementation
 /// uses const generics to specify its size instead of using [Vec] (which uses Heap
 /// allocation by default).
-///
-/// TODO:
-///     - Evaluate performance gains by using const generics?
-///     - What should be the "default" value for a NodeId?
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct NodeId {

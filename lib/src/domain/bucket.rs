@@ -41,10 +41,6 @@ impl Display for ReplacementError {
 impl Error for ReplacementError {}
 
 /// A [Bucket] with fixed size used in the [crate::domain::RoutingTable].
-///
-/// The current implementation is backed by a [Vec] which can make problems
-/// with memory locality.
-/// TODO: Check if this is a performance overhead
 #[derive(Debug, Eq, PartialEq)]
 pub struct Bucket<const SIZE: usize = DEFAULT_BUCKET_SIZE> {
     contacts: [Option<Contact>; SIZE],
