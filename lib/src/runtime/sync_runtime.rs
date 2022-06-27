@@ -141,4 +141,33 @@ mod tests {
         assert_eq!(event, UseCaseEvent::Timer(id));
         assert!(end >= Duration::from_millis(10));
     }
+
+    #[test]
+    fn register_periodic_timer() {
+        let broadcaster = crate::broadcaster::BusBroadcaster::new(1);
+        let mut broadcast_receiver = broadcaster.subscribe();
+
+        let runtime = SyncRuntime::new(broadcaster);
+
+        let start = Instant::now();
+        let id = runtime.register_periodic_timer(Duration::from_millis(10));
+
+        let event = broadcast_receiver.recv();
+        let end = start.elapsed();
+
+        assert!(event.is_ok(), "{:?}", event);
+        let event = event.unwrap();
+
+        assert_eq!(event, UseCaseEvent::Timer(id));
+        assert!(end >= Duration::from_millis(10));
+
+        let event = broadcast_receiver.recv();
+        let end = start.elapsed();
+
+        assert!(event.is_ok(), "{:?}", event);
+        let event = event.unwrap();
+
+        assert_eq!(event, UseCaseEvent::Timer(id));
+        assert!(end >= Duration::from_millis(20));
+    }
 }
