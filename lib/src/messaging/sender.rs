@@ -1,11 +1,16 @@
-use crate::messaging::messages::ProtocolMessage;
 use std::error::Error;
+
+use crate::messaging::messages::ProtocolMessage;
 
 /// Sends [Message]s to other Nodes.
 ///
 /// Derives how and where to send the [Message] by analyzing its fields
 /// and converts them to an appropriate format so that the corresponding
 /// [MessageReceiver] can convert it back to a [Message].
+///
+/// # Hello Messages
+///
+/// [HelloMessage]s with a [NodeId::zero] destination have to be broadcast to all [Port]s.
 pub trait ProtocolMessageSender {
     type Error: Error;
 
