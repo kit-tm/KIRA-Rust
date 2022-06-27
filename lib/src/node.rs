@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::context::Context;
-use crate::domain::{Contact, NeighborTable, NodeId, Port, RoutingTable, DEFAULT_BUCKET_SIZE};
+use crate::domain::{Contact, NeighborTable, RoutingTable, DEFAULT_BUCKET_SIZE};
 use crate::messaging::ProtocolMessageSender;
 use crate::runtime::Runtime;
 use crate::use_cases::bootstrap::{BootstrapConfig, BootstrapUseCase};
@@ -56,7 +56,6 @@ where
     C::RoutingTable: RoutingTable<BUCKET_SIZE>,
     for<'b> &'b C::RoutingTable: IntoIterator<Item = &'b Contact>,
     C::NeighborTable: NeighborTable,
-    for<'b> &'b C::NeighborTable: IntoIterator<Item = (&'b NodeId, &'b Port)>,
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: Runtime,
 {

@@ -15,10 +15,7 @@ impl Port {
 }
 
 /// Maps [NodeId]s to [Port]s.
-pub trait NeighborTable
-where
-    for<'a> &'a Self: IntoIterator<Item = (&'a NodeId, &'a Port)>,
-{
+pub trait NeighborTable {
     /// Returns the [Port] for a [NodeId] if present.
     fn get(&self, id: &NodeId) -> Option<&Port>;
     /// Adds a Mapping to the table returning the [Port] previously mapped to the [NodeId].

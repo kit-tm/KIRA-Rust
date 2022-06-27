@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use super::{Contact, NeighborTable, NodeId, Path, Port, RoutingTable};
+use super::{NeighborTable, Path, RoutingTable};
 
 pub struct PathValidator(pub Path);
 
@@ -32,9 +32,7 @@ impl PathValidator {
     ) -> bool
     where
         RT: RoutingTable<BUCKET_SIZE>,
-        for<'a> &'a RT: IntoIterator<Item = &'a Contact>,
         NT: NeighborTable,
-        for<'b> &'b NT: IntoIterator<Item = (&'b NodeId, &'b Port)>,
     {
         // First node id is a neighbor
         let first = self

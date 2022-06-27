@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::domain::{AddError, Contact, InsertionError, NodeId, RoutingTable, State};
 
-use super::{NeighborTable, PathSimplifier, Port};
+use super::{NeighborTable, PathSimplifier};
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum InsertionStrategyResult {
@@ -21,9 +21,7 @@ pub enum InsertionStrategyResult {
 pub trait InsertionStrategy<RT, NT, const BUCKET_SIZE: usize>
 where
     RT: RoutingTable<BUCKET_SIZE>,
-    for<'a> &'a RT: IntoIterator<Item = &'a Contact>,
     NT: NeighborTable,
-    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId, &'b Port)>,
 {
     /// Insert the [Contact] into the [RoutingTable].
     ///
@@ -43,7 +41,6 @@ pub struct PNSStrategy<RT, const BUCKET_SIZE: usize> {
 impl<RT, const BUCKET_SIZE: usize> PNSStrategy<RT, BUCKET_SIZE>
 where
     RT: RoutingTable<BUCKET_SIZE>,
-    for<'a> &'a RT: IntoIterator<Item = &'a Contact>,
 {
     /// Update an existing contact in the table instead of inserting.
     fn update_existing(&self, contact: Contact, table: &mut RT) -> InsertionStrategyResult {
@@ -141,7 +138,6 @@ where
     RT: RoutingTable<BUCKET_SIZE>,
     for<'a> &'a RT: IntoIterator<Item = &'a Contact>,
     NT: NeighborTable,
-    for<'b> &'b NT: IntoIterator<Item = (&'b NodeId, &'b Port)>,
 {
     fn insert(
         &mut self,

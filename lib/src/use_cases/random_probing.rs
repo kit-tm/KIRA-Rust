@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use crate::context::Context;
-use crate::domain::{Contact, RoutingTable};
+use crate::domain::RoutingTable;
 use crate::messaging::{
     FindNodeReqData, Nonce, ProtocolMessageSender, RTableReqType, ReqRspMessage,
 };
@@ -51,7 +51,6 @@ where
     C::Runtime: Runtime,
     C::MessageSender: ProtocolMessageSender,
     C::RoutingTable: RoutingTable<BUCKET_SIZE>,
-    for<'b> &'b C::RoutingTable: IntoIterator<Item = &'b Contact>,
 {
     type Error = RandomProbingError;
     type State = RandomProbingState;

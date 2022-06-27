@@ -79,10 +79,7 @@ impl From<BucketSplitError> for InsertionError {
 /// in the buckets.
 ///
 /// As mostly accessing the buckets directly only happens if Insertion fails, this will ne problem.
-pub trait RoutingTable<const BUCKET_SIZE: usize>
-where
-    for<'a> &'a Self: IntoIterator<Item = &'a Contact>,
-{
+pub trait RoutingTable<const BUCKET_SIZE: usize> {
     /// Returns the root [NodeId] of the [RoutingTable].
     fn root(&self) -> &NodeId;
 

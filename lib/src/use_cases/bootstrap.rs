@@ -8,7 +8,7 @@ use crate::messaging::sender::ProtocolMessageSender;
 use crate::runtime::Runtime;
 use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
 use crate::{
-    domain::{Contact, NeighborTable, NodeId, Port, RoutingTable},
+    domain::{Contact, NeighborTable, NodeId, RoutingTable},
     messaging::messages::{
         DiscRspData, HelloMessage, Nonce, ProtocolMessage, RTableReqType, ReqRspMessage,
     },
@@ -102,7 +102,6 @@ where
     C::RoutingTable: RoutingTable<BUCKET_SIZE>,
     for<'b> &'b C::RoutingTable: IntoIterator<Item = &'b Contact>,
     C::NeighborTable: NeighborTable,
-    for<'b> &'b C::NeighborTable: IntoIterator<Item = (&'b NodeId, &'b Port)>,
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: Runtime,
 {
@@ -133,7 +132,7 @@ where
         let two_hop_vicinity = context
             .routing_table()
             .deref()
-            .into_iter()
+            .into_iter() // TODO: Provide function for that in Routing Table?
             .filter_map(|contact: &Contact| {
                 if contact.path().len() == 1 {
                     // Neighbors => path.len() = 0, 1-Hop Neighbors => path.len() = 1
@@ -224,7 +223,6 @@ where
     C::RoutingTable: RoutingTable<BUCKET_SIZE>,
     for<'b> &'b C::RoutingTable: IntoIterator<Item = &'b Contact>,
     C::NeighborTable: NeighborTable,
-    for<'b> &'b C::NeighborTable: IntoIterator<Item = (&'b NodeId, &'b Port)>,
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: Runtime,
 {

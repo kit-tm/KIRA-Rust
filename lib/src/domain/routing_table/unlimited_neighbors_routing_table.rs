@@ -125,6 +125,9 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<BUCKET_SIZE>
     }
 
     fn random_id(&self) -> Option<&NodeId> {
+        if self.is_empty() {
+            return None;
+        }
         let random = rand::thread_rng().gen_range(0..self.len());
         self.into_iter().nth(random).map(|contact| contact.id())
     }
