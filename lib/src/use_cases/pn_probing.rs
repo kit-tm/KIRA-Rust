@@ -1,6 +1,5 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::marker::PhantomData;
 use std::time::Duration;
 
 use crate::context::Context;
@@ -27,13 +26,12 @@ impl Default for PNProbingConfig {
 pub enum PNProbingState {
     Initialized,
     Running(TimerId),
-    Finished,
     Error,
 }
 
 impl UseCaseState for PNProbingState {
     fn is_finished(&self) -> bool {
-        self == &Self::Finished
+        false
     }
 
     fn is_error(&self) -> bool {
@@ -57,29 +55,27 @@ impl Display for PNProbingError {
 impl Error for PNProbingError {}
 
 #[derive(Debug, Clone)]
-pub struct PNProbingUseCase<C, const BUCKET_SIZE: usize> {
-    _c: PhantomData<C>,
+pub struct PNProbingUseCase<const BUCKET_SIZE: usize> {
     state: PNProbingState,
     config: PNProbingConfig,
 }
 
-impl<C, const BUCKET_SIZE: usize> Default for PNProbingUseCase<C, BUCKET_SIZE> {
+impl<const BUCKET_SIZE: usize> Default for PNProbingUseCase<BUCKET_SIZE> {
     fn default() -> Self {
         Self::new(PNProbingConfig::default())
     }
 }
 
-impl<C, const BUCKET_SIZE: usize> PNProbingUseCase<C, BUCKET_SIZE> {
+impl<const BUCKET_SIZE: usize> PNProbingUseCase<BUCKET_SIZE> {
     pub fn new(config: PNProbingConfig) -> Self {
         Self {
-            _c: PhantomData::default(),
             state: PNProbingState::Initialized,
             config,
         }
     }
 }
 
-impl<C, const BUCKET_SIZE: usize> UseCase<C> for PNProbingUseCase<C, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize> UseCase<C> for PNProbingUseCase<BUCKET_SIZE>
 where
     C: Context,
     C::Runtime: Runtime,
