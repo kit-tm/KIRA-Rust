@@ -39,6 +39,7 @@ where
     fn register_periodic_timer(&self, _duration: Duration) -> TimerId {
         let id = TimerId::from(self.counter.fetch_add(1, Ordering::Relaxed));
         let broadcaster = Arc::clone(&self.broadcaster);
+        let _ = broadcaster.send_event(UseCaseEvent::Timer(id));
         std::thread::spawn(move || loop {
             if broadcaster.send_event(UseCaseEvent::Timer(id)).is_err() {
                 break;

@@ -117,3 +117,72 @@ where
         &self.state
     }
 }
+
+#[cfg(all(test, feature = "bus"))]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use crate::broadcaster::{Broadcaster, BusBroadcaster};
+    use crate::context::SyncContext;
+    use crate::domain::{FlatRoutingTable, NodeId, Port};
+    use crate::messaging::tests::ArcSyncInMemoryMessageHub;
+    use crate::runtime::DummyRuntime;
+    use crate::use_cases::pn_probing::{PNProbingConfig, PNProbingState, PNProbingUseCase};
+    use crate::use_cases::{UseCase, UseCaseEvent};
+
+    fn init_test_context() -> (
+        NodeId,
+        ArcSyncInMemoryMessageHub,
+        Arc<BusBroadcaster>,
+        SyncContext<
+            FlatRoutingTable<20, 1>,
+            HashMap<NodeId, Port>,
+            ArcSyncInMemoryMessageHub,
+            DummyRuntime<BusBroadcaster>,
+        >,
+    ) {
+        let root = NodeId::one();
+
+        let routing_table = FlatRoutingTable::<20, 1>::new(root.clone())
+            .expect("failed to build flat routing table");
+
+        let hub = ArcSyncInMemoryMessageHub::new();
+
+        let broadcaster = Arc::new(BusBroadcaster::new(1));
+
+        let context = SyncContext::new(
+            root.clone(),
+            routing_table,
+            HashMap::<NodeId, Port>::new(),
+            hub.clone(),
+            DummyRuntime::new(Arc::clone(&broadcaster)),
+        );
+
+        (root, hub, broadcaster, context)
+    }
+
+    #[test]
+    fn start_test() {
+        let (_root_id, _hub, broadcaster, context) = init_test_context();
+
+        let mut broadcast_receiver = broadcaster.subscribe();
+
+        let mut use_case = PNProbingUseCase::<20>::new(PNProbingConfig {
+            probing_timeout: Duration::from_secs(0),
+        });
+
+        assert!(use_case.start(&context).is_ok());
+
+        let timer_id = match &use_case.state {
+            PNProbingState::Running(timer_id) => *timer_id,
+            _ => panic!("Invalid state returned: {:?}", &use_case.state),
+        };
+
+        let event = broadcast_receiver
+            .try_recv()
+            .expect("failed to receive event");
+        assert_eq!(event, UseCaseEvent::Timer(timer_id));
+    }
+}

@@ -4,13 +4,14 @@ use super::NodeId;
 
 /// Represents a logical [Port] where a [Message] can be received from or sent to.
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Port {
-    id: String,
+pub enum Port {
+    All,
+    Named(String),
 }
 
 impl Port {
     pub fn new(id: String) -> Self {
-        Self { id }
+        Self::Named(id)
     }
 }
 

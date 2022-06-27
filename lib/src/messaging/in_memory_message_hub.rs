@@ -31,7 +31,7 @@ impl InMemoryMessageHub {
     }
 
     pub fn dummy_port() -> Port {
-        Port::new(String::from("dummy port"))
+        Port::Named(String::from("dummy port"))
     }
 
     fn pop(&mut self) -> Option<(ProtocolMessage, Port)> {
@@ -79,12 +79,58 @@ impl ProtocolMessageSender for InMemoryMessageHub {
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::domain::NodeId;
+pub mod tests {
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    use crate::domain::{NodeId, Port};
     use crate::messaging::in_memory_message_hub::InMemoryMessageHub;
     use crate::messaging::messages::{HelloMessage, ProtocolMessage};
     use crate::messaging::receiver::ProtocolMessageReceiver;
     use crate::messaging::sender::ProtocolMessageSender;
+    use crate::messaging::{RecvTimeout, TryRecvError};
+
+    #[derive(Debug, Clone)]
+    pub struct ArcSyncInMemoryMessageHub(Arc<Mutex<InMemoryMessageHub>>);
+
+    impl Default for ArcSyncInMemoryMessageHub {
+        fn default() -> Self {
+            ArcSyncInMemoryMessageHub::new()
+        }
+    }
+
+    impl ArcSyncInMemoryMessageHub {
+        pub fn new() -> Self {
+            Self(Arc::new(Mutex::new(InMemoryMessageHub::new())))
+        }
+    }
+
+    impl ProtocolMessageSender for ArcSyncInMemoryMessageHub {
+        type Error = super::NoSendError;
+
+        fn send<M>(&mut self, message: M) -> Result<(), Self::Error>
+        where
+            M: Into<ProtocolMessage>,
+        {
+            let mut lock = self.0.lock().expect("failed to get lock on hub");
+            lock.send(message)
+        }
+    }
+
+    impl ProtocolMessageReceiver for ArcSyncInMemoryMessageHub {
+        fn recv_timeout(
+            &mut self,
+            timeout: Option<Duration>,
+        ) -> Result<Option<(ProtocolMessage, Port)>, RecvTimeout> {
+            let mut lock = self.0.lock().expect("failed to get lock on hub");
+            lock.recv_timeout(timeout)
+        }
+
+        fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, Port)>, TryRecvError> {
+            let mut lock = self.0.lock().expect("failed to get lock on hub");
+            lock.try_recv()
+        }
+    }
 
     #[test]
     fn dummy_message_hub_smoke_test() {
