@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -16,27 +17,27 @@ use crate::use_cases::{TimerId, UseCaseEvent};
 /// The current implementation spawns a thread for every timer.
 ///
 /// **TODO**: Optimize.
-pub struct SyncRuntime<E> {
+pub struct SyncRuntime<B> {
     id_counter: AtomicUsize,
-    broadcaster: Arc<E>,
+    broadcaster: Arc<B>,
     timers: Arc<Mutex<HashMap<TimerId, JoinHandle<()>>>>,
 }
 
-impl<E: Default> Default for SyncRuntime<E> {
+impl<B: Default> Default for SyncRuntime<B> {
     fn default() -> Self {
         Self {
             id_counter: AtomicUsize::new(0),
-            broadcaster: Arc::new(E::default()),
+            broadcaster: Arc::new(B::default()),
             timers: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
 
-impl<E> SyncRuntime<E> {
-    pub fn new(executioner: Arc<E>) -> Self {
+impl<B> SyncRuntime<B> {
+    pub fn new(broadcaster: B) -> Self {
         SyncRuntime {
             id_counter: AtomicUsize::new(0),
-            broadcaster: executioner,
+            broadcaster: Arc::new(broadcaster),
             timers: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -52,15 +53,19 @@ impl<E> SyncRuntime<E> {
     }
 }
 
-impl<E: Broadcaster> SyncRuntime<E> {
+impl<B> SyncRuntime<B>
+where
+    B: Broadcaster,
+    B::SendError: Debug,
+{
     fn wait_and_send_event(
-        broadcaster: &E,
+        broadcaster: &B,
         timer_id: TimerId,
         duration: Duration,
     ) -> Result<(), ()> {
         std::thread::sleep(duration);
         if let Err(e) = broadcaster.send_event(UseCaseEvent::Timer(timer_id)) {
-            log::error!("Failed to send Event to use cases: {}", e);
+            log::error!("Failed to send Event to use cases: {:?}", e);
             return Err(());
         }
 
@@ -68,7 +73,11 @@ impl<E: Broadcaster> SyncRuntime<E> {
     }
 }
 
-impl<E: 'static + Broadcaster + Send + Sync> Runtime for SyncRuntime<E> {
+impl<B> Runtime for SyncRuntime<B>
+where
+    B: 'static + Broadcaster + Send + Sync,
+    B::SendError: Debug,
+{
     fn register_timer(&self, duration: Duration) -> TimerId {
         let timer_id = TimerId::from(self.id_counter.fetch_add(1, Ordering::Relaxed));
 
@@ -77,7 +86,7 @@ impl<E: 'static + Broadcaster + Send + Sync> Runtime for SyncRuntime<E> {
         let handle = std::thread::spawn(move || {
             // One-Shot Errors don't need to be handled
             let _ = SyncRuntime::wait_and_send_event(broadcaster.deref(), timer_id, duration);
-            SyncRuntime::<E>::remove_timer(timers, &timer_id);
+            SyncRuntime::<B>::remove_timer(timers, &timer_id);
         });
         self.add_timer(timer_id, handle);
 
@@ -97,10 +106,39 @@ impl<E: 'static + Broadcaster + Send + Sync> Runtime for SyncRuntime<E> {
                     break;
                 }
             }
-            SyncRuntime::<E>::remove_timer(timers, &timer_id);
+            SyncRuntime::<B>::remove_timer(timers, &timer_id);
         });
         self.add_timer(timer_id, handle);
 
         timer_id
+    }
+}
+
+#[cfg(all(test, feature = "bus"))]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use crate::broadcaster::Broadcaster;
+    use crate::runtime::{Runtime, SyncRuntime};
+    use crate::use_cases::UseCaseEvent;
+
+    #[test]
+    fn register_timer() {
+        let broadcaster = crate::broadcaster::BusBroadcaster::new(1);
+        let mut broadcast_receiver = broadcaster.subscribe();
+
+        let runtime = SyncRuntime::new(broadcaster);
+
+        let start = Instant::now();
+        let id = runtime.register_timer(Duration::from_millis(10));
+
+        let event = broadcast_receiver.recv();
+        let end = start.elapsed();
+
+        assert!(event.is_ok(), "{:?}", event);
+        let event = event.unwrap();
+
+        assert_eq!(event, UseCaseEvent::Timer(id));
+        assert!(end >= Duration::from_millis(10));
     }
 }

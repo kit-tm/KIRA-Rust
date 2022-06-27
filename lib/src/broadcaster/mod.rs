@@ -1,15 +1,18 @@
-use std::error::Error;
-
+#[cfg(feature = "bus")]
+pub use bus::*;
+use std::fmt::Debug;
 #[cfg(feature = "tokio")]
-pub use tokio_broadcaster::*;
+pub use tokio::*;
 
 use crate::use_cases::UseCaseEvent;
 
+#[cfg(feature = "bus")]
+pub mod bus;
 #[cfg(feature = "tokio")]
-pub mod tokio_broadcaster;
+pub mod tokio;
 
 pub trait Broadcaster: Clone {
-    type SendError: Error;
+    type SendError: Debug;
     type Subscriber;
 
     fn send_event(&self, event: UseCaseEvent) -> Result<(), Self::SendError>;

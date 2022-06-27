@@ -15,6 +15,7 @@ serde = ["dep:serde", "serde-big-array", "chrono/serde"]
 # a custom implementation.
 
 [dependencies]
+bus = { version = "2.2.4", optional = true }
 # For Time Computations in general
 chrono = "0.4.19"
 # Support for Timeouts and Channel communication between different Threads
@@ -40,7 +41,7 @@ criterion = "0.3.5"
 env_logger = "0.9.0"
 futures = "0.3.21"
 rmp-serde = "1.1.0"
-tokio = { version = "1.19.2", features = ["rt", "time"] }
+tokio = { version = "1.19.2", features = ["rt", "time", "macros"] }
 
 # Examples
 

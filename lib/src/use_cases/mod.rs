@@ -7,7 +7,7 @@ pub mod bootstrap;
 pub mod pn_probing;
 pub mod random_probing;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum UseCaseEvent {
     Message(ProtocolMessage),
     Timer(TimerId),

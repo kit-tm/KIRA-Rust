@@ -50,7 +50,7 @@ impl<B: Broadcaster> TokioRuntime<B> {
     ) -> Result<(), TaskError> {
         tokio::time::sleep(duration).await;
         if let Err(e) = broadcaster.send_event(UseCaseEvent::Timer(timer_id)) {
-            log::error!("Failed to send Event to use cases: {}", e);
+            log::error!("Failed to send Event to use cases: {:?}", e);
             return Err(TaskError::BroadcastFailed);
         }
 
