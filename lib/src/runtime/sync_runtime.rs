@@ -34,10 +34,10 @@ impl<B: Default> Default for SyncRuntime<B> {
 }
 
 impl<B> SyncRuntime<B> {
-    pub fn new(broadcaster: B) -> Self {
+    pub fn new(broadcaster: Arc<B>) -> Self {
         SyncRuntime {
             id_counter: AtomicUsize::new(0),
-            broadcaster: Arc::new(broadcaster),
+            broadcaster,
             timers: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -116,6 +116,7 @@ where
 
 #[cfg(all(test, feature = "bus"))]
 mod tests {
+    use std::sync::Arc;
     use std::time::{Duration, Instant};
 
     use crate::broadcaster::Broadcaster;
@@ -127,7 +128,7 @@ mod tests {
         let broadcaster = crate::broadcaster::BusBroadcaster::new(1);
         let mut broadcast_receiver = broadcaster.subscribe();
 
-        let runtime = SyncRuntime::new(broadcaster);
+        let runtime = SyncRuntime::new(Arc::new(broadcaster));
 
         let start = Instant::now();
         let id = runtime.register_timer(Duration::from_millis(10));
@@ -147,7 +148,7 @@ mod tests {
         let broadcaster = crate::broadcaster::BusBroadcaster::new(1);
         let mut broadcast_receiver = broadcaster.subscribe();
 
-        let runtime = SyncRuntime::new(broadcaster);
+        let runtime = SyncRuntime::new(Arc::new(broadcaster));
 
         let start = Instant::now();
         let id = runtime.register_periodic_timer(Duration::from_millis(10));

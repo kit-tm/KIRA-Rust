@@ -8,18 +8,19 @@ use crate::broadcaster::Broadcaster;
 use crate::runtime::Runtime;
 use crate::use_cases::{TimerId, UseCaseEvent};
 
-pub struct TokioRuntime<B: Broadcaster> {
+#[derive(Debug)]
+pub struct TokioRuntime<B> {
     // Used to generate unique ids and also keep track of used ids in case of overflow
     counter_and_used_counters: Arc<Mutex<(usize, HashSet<usize>)>>,
-    executioner: B,
+    broadcaster: B,
     runtime: Arc<tokio::runtime::Runtime>,
 }
 
-impl<B: Broadcaster> TokioRuntime<B> {
-    pub fn new(executioner: B, runtime: Arc<tokio::runtime::Runtime>) -> Self {
+impl<B> TokioRuntime<B> {
+    pub fn new(broadcaster: B, runtime: Arc<tokio::runtime::Runtime>) -> Self {
         Self {
             counter_and_used_counters: Arc::new(Mutex::new((0, HashSet::new()))),
-            executioner,
+            broadcaster,
             runtime,
         }
     }
@@ -42,7 +43,9 @@ impl<B: Broadcaster> TokioRuntime<B> {
 
         TimerId::from(id)
     }
+}
 
+impl<B: Broadcaster> TokioRuntime<B> {
     async fn wait_and_send_timer_event(
         broadcaster: &B,
         duration: Duration,
@@ -56,20 +59,25 @@ impl<B: Broadcaster> TokioRuntime<B> {
 
         Ok(())
     }
+
+    async fn remove_used_id(mutex: Arc<Mutex<(usize, HashSet<usize>)>>, id: &TimerId) {
+        let mut lock = mutex.lock().await;
+        lock.1.remove(id);
+    }
 }
 
 impl<B: 'static + Broadcaster + Send + Sync> Runtime for TokioRuntime<B> {
     fn register_timer(&self, duration: Duration) -> TimerId {
         let timer_id = self.create_new_id();
 
-        let use_case_broadcaster = self.executioner.clone();
+        let use_case_broadcaster = self.broadcaster.clone();
         let counters = Arc::clone(&self.counter_and_used_counters);
         self.runtime.spawn(async move {
             // Ignored as one-shot timer result is irrelevant
             let _ =
                 TokioRuntime::wait_and_send_timer_event(&use_case_broadcaster, duration, timer_id)
                     .await;
-            remove_used_id(counters, &timer_id).await;
+            TokioRuntime::<B>::remove_used_id(counters, &timer_id).await;
         });
 
         timer_id
@@ -78,7 +86,7 @@ impl<B: 'static + Broadcaster + Send + Sync> Runtime for TokioRuntime<B> {
     fn register_periodic_timer(&self, duration: Duration) -> TimerId {
         let timer_id = self.create_new_id();
 
-        let use_case_broadcaster = self.executioner.clone();
+        let use_case_broadcaster = self.broadcaster.clone();
         let counters = Arc::clone(&self.counter_and_used_counters);
         self.runtime.spawn(async move {
             // Repeat until error is returned
@@ -90,7 +98,7 @@ impl<B: 'static + Broadcaster + Send + Sync> Runtime for TokioRuntime<B> {
             .await)
                 .is_ok()
             {}
-            remove_used_id(counters, &timer_id).await;
+            TokioRuntime::<B>::remove_used_id(counters, &timer_id).await;
         });
 
         timer_id
@@ -101,7 +109,63 @@ enum TaskError {
     BroadcastFailed,
 }
 
-async fn remove_used_id(mutex: Arc<Mutex<(usize, HashSet<usize>)>>, id: &TimerId) {
-    let mut lock = mutex.lock().await;
-    lock.1.remove(id);
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use tokio::runtime;
+    use tokio::sync::broadcast;
+
+    use crate::runtime::{Runtime, TokioRuntime};
+    use crate::use_cases::UseCaseEvent;
+
+    #[test]
+    fn test_register_current_thread() {
+        let tokio_runtime = runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("failed to build runtime");
+        let tokio_runtime = Arc::new(tokio_runtime);
+
+        let (broadcaster, mut broadcast_receiver) = broadcast::channel(1);
+
+        let runtime = TokioRuntime::new(broadcaster, Arc::clone(&tokio_runtime));
+
+        let start = Instant::now();
+        let id = runtime.register_timer(Duration::from_micros(20));
+
+        let event = tokio_runtime.block_on(broadcast_receiver.recv());
+        let end = start.elapsed();
+        assert!(event.is_ok(), "{:?}", event);
+        let event = event.unwrap();
+
+        assert_eq!(event, UseCaseEvent::Timer(id));
+        assert!(end >= Duration::from_micros(20));
+    }
+
+    #[test]
+    fn test_register_multi_thread() {
+        let tokio_runtime = runtime::Builder::new_multi_thread()
+            .enable_time()
+            .worker_threads(1)
+            .build()
+            .expect("failed to build runtime");
+        let tokio_runtime = Arc::new(tokio_runtime);
+
+        let (broadcaster, mut broadcast_receiver) = broadcast::channel(1);
+
+        let runtime = TokioRuntime::new(broadcaster, Arc::clone(&tokio_runtime));
+
+        let start = Instant::now();
+        let id = runtime.register_timer(Duration::from_micros(20));
+
+        let event = tokio_runtime.block_on(broadcast_receiver.recv());
+        let end = start.elapsed();
+        assert!(event.is_ok(), "{:?}", event);
+        let event = event.unwrap();
+
+        assert_eq!(event, UseCaseEvent::Timer(id));
+        assert!(end >= Duration::from_micros(20));
+    }
 }
