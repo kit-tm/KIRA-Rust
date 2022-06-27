@@ -70,16 +70,16 @@ where
             (event, &self.state)
         {
             if &event_id == timer_id {
-                let random_id = context
-                    .routing_table()
-                    .random_id()
-                    .cloned()
-                    .ok_or(RandomProbingError::EmptyRoutingTable)?;
+                let random_id = context.routing_table().random_id().cloned();
+                if random_id.is_none() {
+                    log::warn!("Random Probing couldn't be run as routing table is empty");
+                    return Ok(());
+                }
 
                 let message = ReqRspMessage {
                     nonce: Nonce::random(),
                     source: context.root_id().clone(),
-                    destination: random_id,
+                    destination: random_id.unwrap(),
                     data: FindNodeReqData {
                         req_type: RTableReqType::NeighborHood(self.config.neighborhood_size),
                         exact: false,

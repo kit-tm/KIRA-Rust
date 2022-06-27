@@ -73,8 +73,8 @@ fn main() {
     // IMPORTANT: The Runtime::block_on method drives progress in the CurrentThreadRuntime.
     //              Without that the tasks spawned in the runtime won't make any progress.
     while let Ok(event) = runtime.block_on(receiver.recv()) {
-        if let Err(e) = node.handle_message(event) {
-            log::error!("Error handling message: {}", e);
+        if node.handle_message(event).is_err() {
+            log::error!("Error handling message. Stopping Node");
             break;
         }
     }
