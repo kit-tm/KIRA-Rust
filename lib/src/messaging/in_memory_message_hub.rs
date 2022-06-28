@@ -39,6 +39,10 @@ impl InMemoryMessageHub {
             .pop_front()
             .map(|message| (message, Self::dummy_port()))
     }
+
+    pub fn messages(&self) -> impl Iterator<Item = &ProtocolMessage> {
+        self.messages.iter()
+    }
 }
 
 impl ProtocolMessageReceiver for InMemoryMessageHub {
@@ -102,6 +106,15 @@ pub mod tests {
     impl ArcSyncInMemoryMessageHub {
         pub fn new() -> Self {
             Self(Arc::new(Mutex::new(InMemoryMessageHub::new())))
+        }
+
+        pub fn messages(&self) -> Vec<ProtocolMessage> {
+            self.0
+                .lock()
+                .expect("failed to get hub lock")
+                .messages()
+                .cloned()
+                .collect()
         }
     }
 

@@ -133,3 +133,110 @@ impl UseCaseState for RandomProbingState {
         self == &Self::Error
     }
 }
+
+#[cfg(all(test, feature = "bus"))]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use crate::broadcaster::BusBroadcaster;
+    use crate::context::{Context, SyncContext};
+    use crate::domain::{
+        Age, Contact, FlatRoutingTable, NodeId, Path, Port, RoutingTable, StateSeqNr,
+    };
+    use crate::messaging::tests::ArcSyncInMemoryMessageHub;
+    use crate::messaging::ProtocolMessage;
+    use crate::runtime::DummyRuntime;
+    use crate::use_cases::random_probing::{
+        RandomProbingConfig, RandomProbingState, RandomProbingUseCase,
+    };
+    use crate::use_cases::{UseCase, UseCaseEvent};
+
+    fn init_test_context() -> (
+        NodeId,
+        ArcSyncInMemoryMessageHub,
+        Arc<BusBroadcaster>,
+        DummyRuntime<BusBroadcaster>,
+        SyncContext<
+            FlatRoutingTable<20, 1>,
+            HashMap<NodeId, Port>,
+            ArcSyncInMemoryMessageHub,
+            DummyRuntime<BusBroadcaster>,
+        >,
+    ) {
+        let root = NodeId::one();
+
+        let routing_table = FlatRoutingTable::<20, 1>::new(root.clone())
+            .expect("failed to build flat routing table");
+
+        let hub = ArcSyncInMemoryMessageHub::new();
+
+        let broadcaster = Arc::new(BusBroadcaster::new(1));
+
+        let runtime = DummyRuntime::new(Arc::clone(&broadcaster));
+
+        let context = SyncContext::new(
+            root.clone(),
+            routing_table,
+            HashMap::<NodeId, Port>::new(),
+            hub.clone(),
+            runtime.clone(),
+        );
+
+        (root, hub, broadcaster, runtime, context)
+    }
+
+    #[test]
+    fn smoke_test() {
+        let (root_id, hub, _broadcaster, runtime, context) = init_test_context();
+
+        // Insert a single contact into the routing table
+        let contact = Contact::new(
+            NodeId::random(),
+            Age::from(0),
+            Path::empty(),
+            StateSeqNr::from(0),
+        );
+        context
+            .routing_table_mut()
+            .add(contact.clone())
+            .expect("failed to add into empty RT");
+
+        let mut use_case = RandomProbingUseCase::new(RandomProbingConfig {
+            timeout: Duration::from_secs(0),
+            neighborhood_size: 0,
+        });
+
+        let start_result = use_case.start(&context);
+        assert!(start_result.is_ok(), "{:?}", start_result);
+
+        assert!(matches!(&use_case.state, RandomProbingState::Running(_)));
+        let timer_id = match &use_case.state {
+            RandomProbingState::Running(timer_id) => timer_id.clone(),
+            state => panic!("Unexpected State: {:?}", state),
+        };
+        assert_ne!(runtime.counter(), 0);
+
+        let handle_result = use_case.handle_event(&context, UseCaseEvent::Timer(timer_id));
+        assert!(handle_result.is_ok(), "{:?}", handle_result);
+
+        for _ in 0..2 {
+            let message = hub.messages().into_iter().find_map(|message| {
+                if let ProtocolMessage::FindNodeReq(msg) = message {
+                    Some(msg)
+                } else {
+                    None
+                }
+            });
+            assert!(message.is_some(), "No FindNodeReq emitted by use case");
+            let message = message.unwrap();
+
+            assert_eq!(&message.source, &root_id);
+            assert_eq!(&message.destination, contact.id());
+
+            let handle_result = use_case.handle_event(&context, UseCaseEvent::Timer(timer_id));
+            assert!(handle_result.is_ok(), "{:?}", handle_result);
+        }
+    }
+}

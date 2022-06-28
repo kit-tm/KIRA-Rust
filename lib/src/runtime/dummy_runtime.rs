@@ -9,18 +9,22 @@ use crate::use_cases::{TimerId, UseCaseEvent};
 /// Runtime emitting timers immediately.
 ///
 /// Doesn't handle id overflow.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DummyRuntime<B> {
     broadcaster: Arc<B>,
-    counter: AtomicUsize,
+    counter: Arc<AtomicUsize>,
 }
 
 impl<B> DummyRuntime<B> {
-    pub const fn new(broadcaster: Arc<B>) -> Self {
+    pub fn new(broadcaster: Arc<B>) -> Self {
         Self {
             broadcaster,
-            counter: AtomicUsize::new(0),
+            counter: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    pub fn counter(&self) -> usize {
+        self.counter.load(Ordering::Relaxed)
     }
 }
 
