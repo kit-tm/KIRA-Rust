@@ -75,6 +75,14 @@ impl<'a, T> DerefMut for WriteGuard<'a, T> {
     }
 }
 
+/// Context a UseCase runs in.
+///
+/// Provides access to the shared global state of the [Node].
+///
+/// The methods return either a [ReadGuard] or [WriteGuard] depending on the mutability
+/// of the shared state returned.
+/// These are used to support async as well as sync runtimes which may use different
+/// locks (e.g. [tokio::sync::RwLock], [std::sync::RwLock]) to access shared resources.
 pub trait Context {
     type RoutingTable: Sized;
     type NeighborTable: Sized;
