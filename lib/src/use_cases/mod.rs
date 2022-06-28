@@ -35,11 +35,16 @@ pub trait UseCaseState {
     fn is_error(&self) -> bool;
 }
 
-pub trait UseCase<C> {
+pub trait UseCase {
+    type Context;
     type Error: Error + Sized;
     type State: UseCaseState + Sized;
 
-    fn start(&mut self, context: &C) -> Result<(), Self::Error>;
-    fn handle_event(&mut self, context: &C, event: UseCaseEvent) -> Result<(), Self::Error>;
+    fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error>;
+    fn handle_event(
+        &mut self,
+        context: &Self::Context,
+        event: UseCaseEvent,
+    ) -> Result<(), Self::Error>;
     fn state(&self) -> &Self::State;
 }

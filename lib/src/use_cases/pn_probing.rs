@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::marker::PhantomData;
 use std::time::Duration;
 
 use crate::context::Context;
@@ -55,32 +56,35 @@ impl Display for PNProbingError {
 impl Error for PNProbingError {}
 
 #[derive(Debug, Clone)]
-pub struct PNProbingUseCase<const BUCKET_SIZE: usize> {
+pub struct PNProbingUseCase<C, const BUCKET_SIZE: usize> {
+    _pd: PhantomData<C>,
     state: PNProbingState,
     config: PNProbingConfig,
 }
 
-impl<const BUCKET_SIZE: usize> Default for PNProbingUseCase<BUCKET_SIZE> {
+impl<C, const BUCKET_SIZE: usize> Default for PNProbingUseCase<C, BUCKET_SIZE> {
     fn default() -> Self {
         Self::new(PNProbingConfig::default())
     }
 }
 
-impl<const BUCKET_SIZE: usize> PNProbingUseCase<BUCKET_SIZE> {
+impl<C, const BUCKET_SIZE: usize> PNProbingUseCase<C, BUCKET_SIZE> {
     pub fn new(config: PNProbingConfig) -> Self {
         Self {
+            _pd: PhantomData::default(),
             state: PNProbingState::Initialized,
             config,
         }
     }
 }
 
-impl<C, const BUCKET_SIZE: usize> UseCase<C> for PNProbingUseCase<BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize> UseCase for PNProbingUseCase<C, BUCKET_SIZE>
 where
     C: Context,
     C::Runtime: Runtime,
     C::MessageSender: ProtocolMessageSender,
 {
+    type Context = C;
     type Error = PNProbingError;
     type State = PNProbingState;
 
@@ -169,7 +173,7 @@ mod tests {
 
         let mut broadcast_receiver = broadcaster.subscribe();
 
-        let mut use_case = PNProbingUseCase::<20>::new(PNProbingConfig {
+        let mut use_case = PNProbingUseCase::<_, 20>::new(PNProbingConfig {
             probing_timeout: Duration::from_secs(0),
         });
 

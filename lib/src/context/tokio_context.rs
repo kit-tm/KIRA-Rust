@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use std::sync::Arc;
 
 use tokio::sync::RwLock;
@@ -6,13 +7,14 @@ use crate::broadcaster::Broadcaster;
 use crate::context::{Context, ReadGuard, WriteGuard};
 use crate::domain::NodeId;
 use crate::runtime::TokioRuntime;
+use crate::utils::tokio_utils;
 
 /// Runtime for using a tokio runtime.
 ///
 /// # Limitiations
 ///
-/// Calling the [Context] methods inside a async context is currently not supported
-/// due to the sync architecture of the UseCases.
+/// Calling the [Context] methods inside a async environment is currently only supported
+/// in a rt-multi-thread Tokio runtime.
 #[derive(Debug, Clone)]
 pub struct TokioContext<RT, NT, MS, RU> {
     root_id: NodeId,
@@ -52,27 +54,27 @@ impl<RT, NT, MS, B: Broadcaster> Context for TokioContext<RT, NT, MS, TokioRunti
     }
 
     fn routing_table(&self) -> ReadGuard<RT> {
-        self.routing_table.blocking_read().into()
+        tokio_utils::get_read_guard(self.routing_table.deref()).into()
     }
 
     fn routing_table_mut(&self) -> WriteGuard<RT> {
-        self.routing_table.blocking_write().into()
+        tokio_utils::get_write_guard(self.routing_table.deref()).into()
     }
 
     fn neighbor_table(&self) -> ReadGuard<NT> {
-        self.neighbor_table.blocking_read().into()
+        tokio_utils::get_read_guard(self.neighbor_table.deref()).into()
     }
 
     fn neighbor_table_mut(&self) -> WriteGuard<NT> {
-        self.neighbor_table.blocking_write().into()
+        tokio_utils::get_write_guard(self.neighbor_table.deref()).into()
     }
 
     fn message_sender(&self) -> ReadGuard<MS> {
-        self.message_sender.blocking_read().into()
+        tokio_utils::get_read_guard(self.message_sender.deref()).into()
     }
 
     fn message_sender_mut(&self) -> WriteGuard<MS> {
-        self.message_sender.blocking_write().into()
+        tokio_utils::get_write_guard(self.message_sender.deref()).into()
     }
 
     fn runtime(&self) -> &TokioRuntime<B> {

@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
+tokio-rt-multi-thread = ["tokio/rt-multi-thread"]
 tokio = ["tokio/net", "tokio/rt", "tokio/time", "tokio/net", "tokio/macros"]
 serde = ["dep:serde", "serde-big-array", "chrono/serde"]
 
@@ -48,6 +49,10 @@ tokio = { version = "1.19.2", features = ["rt", "time", "macros", "rt-multi-thre
 [[example]]
 name = "single_threaded"
 required-features = ["tokio", "tokio/macros", "serde", "rmp-serde"]
+
+[[example]]
+name = "async_context_multi_threaded"
+required-features = ["tokio", "tokio/macros", "serde", "rmp-serde", "tokio-rt-multi-thread"]
 
 # Benchmarks
 

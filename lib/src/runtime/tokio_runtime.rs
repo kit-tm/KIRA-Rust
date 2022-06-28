@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -7,6 +8,7 @@ use tokio::sync::Mutex;
 use crate::broadcaster::Broadcaster;
 use crate::runtime::Runtime;
 use crate::use_cases::{TimerId, UseCaseEvent};
+use crate::utils::tokio_utils;
 
 #[derive(Debug)]
 pub struct TokioRuntime<B> {
@@ -31,7 +33,7 @@ impl<B> TokioRuntime<B> {
 
     // Handles overflow by using a set of used counters
     fn create_new_id(&self) -> TimerId {
-        let mut lock = self.runtime.block_on(self.counter_and_used_counters.lock());
+        let mut lock = tokio_utils::get_guard(self.counter_and_used_counters.deref());
         // Increase id until not used id is found
         let mut id = lock.0;
         while lock.1.contains(&id) {

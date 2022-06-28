@@ -46,8 +46,8 @@ impl Error for HandleMessageError {}
 pub struct Node<C, const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE> {
     context: C,
     bootstrap: BootstrapUseCase<C, BUCKET_SIZE>,
-    pn_probing: PNProbingUseCase<BUCKET_SIZE>,
-    random_probing: RandomProbingUseCase<BUCKET_SIZE>,
+    pn_probing: PNProbingUseCase<C, BUCKET_SIZE>,
+    random_probing: RandomProbingUseCase<C, BUCKET_SIZE>,
 }
 
 impl<C, const BUCKET_SIZE: usize> Node<C, BUCKET_SIZE>
@@ -87,7 +87,7 @@ where
         Ok(())
     }
 
-    pub fn handle_message(&mut self, message: UseCaseEvent) -> Result<(), HandleMessageError> {
+    pub fn handle_event(&mut self, message: UseCaseEvent) -> Result<(), HandleMessageError> {
         // Delegate Messages to UseCases
         if let Err(e) = self.bootstrap.handle_event(&self.context, message.clone()) {
             log::error!("Bootstrap returned error handling message: {}", e);
@@ -108,8 +108,8 @@ where
         // Check States
         let states: Vec<&(dyn UseCaseState)> = vec![
             self.bootstrap.state(),
-            UseCase::<C>::state(&self.pn_probing),
-            UseCase::<C>::state(&self.random_probing),
+            self.pn_probing.state(),
+            self.random_probing.state(),
         ];
         if states.iter().any(|use_case| use_case.is_error()) {
             log::error!("Some use case is in error state");

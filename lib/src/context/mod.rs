@@ -83,6 +83,9 @@ impl<'a, T> DerefMut for WriteGuard<'a, T> {
 /// of the shared state returned.
 /// These are used to support async as well as sync runtimes which may use different
 /// locks (e.g. [tokio::sync::RwLock], [std::sync::RwLock]) to access shared resources.
+///
+/// The support for different runtime environments (async vs. sync) is determined by the
+/// concrete implementation.
 pub trait Context {
     type RoutingTable: Sized;
     type NeighborTable: Sized;

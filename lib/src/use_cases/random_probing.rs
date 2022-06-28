@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::marker::PhantomData;
 use std::time::Duration;
 
 use crate::context::Context;
@@ -28,27 +29,30 @@ impl Default for RandomProbingConfig {
 
 /// Probe random contacts to populate or improve all buckets with existing contacts.
 #[derive(Debug)]
-pub struct RandomProbingUseCase<const BUCKET_SIZE: usize> {
+pub struct RandomProbingUseCase<C, const BUCKET_SIZE: usize> {
+    _c: PhantomData<C>,
     config: RandomProbingConfig,
     state: RandomProbingState,
 }
 
-impl<const BUCKET_SIZE: usize> RandomProbingUseCase<BUCKET_SIZE> {
+impl<C, const BUCKET_SIZE: usize> RandomProbingUseCase<C, BUCKET_SIZE> {
     pub fn new(config: RandomProbingConfig) -> Self {
         Self {
+            _c: PhantomData::default(),
             config,
             state: RandomProbingState::Initialized,
         }
     }
 }
 
-impl<C, const BUCKET_SIZE: usize> UseCase<C> for RandomProbingUseCase<BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize> UseCase for RandomProbingUseCase<C, BUCKET_SIZE>
 where
     C: Context,
     C::Runtime: Runtime,
     C::MessageSender: ProtocolMessageSender,
     C::RoutingTable: RoutingTable<BUCKET_SIZE>,
 {
+    type Context = C;
     type Error = RandomProbingError;
     type State = RandomProbingState;
 

@@ -5,6 +5,7 @@
 //! multiple ports at once.
 
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use tokio::sync::broadcast;
@@ -30,8 +31,7 @@ fn main() {
     env_logger::init();
 
     let root_id: NodeId = std::env::var("NODE_ID")
-        .expect("failed to get environment var")
-        .parse()
+        .map(|str_id| NodeId::from_str(&str_id).unwrap_or_else(|_| NodeId::random()))
         .unwrap_or_else(|_| NodeId::random());
 
     println!("Using NodeId {}", root_id);
@@ -73,7 +73,7 @@ fn main() {
     // IMPORTANT: The Runtime::block_on method drives progress in the CurrentThreadRuntime.
     //              Without that the tasks spawned in the runtime won't make any progress.
     while let Ok(event) = runtime.block_on(receiver.recv()) {
-        if node.handle_message(event).is_err() {
+        if node.handle_event(event).is_err() {
             log::error!("Error handling message. Stopping Node");
             break;
         }

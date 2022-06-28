@@ -219,7 +219,7 @@ where
     }
 }
 
-impl<C, const BUCKET_SIZE: usize> UseCase<C> for BootstrapUseCase<C, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize> UseCase for BootstrapUseCase<C, BUCKET_SIZE>
 where
     C: Context,
     C::RoutingTable: RoutingTable<BUCKET_SIZE>,
@@ -228,6 +228,7 @@ where
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: Runtime,
 {
+    type Context = C;
     type Error = BootstrapError;
     type State = BootstrapState;
 
