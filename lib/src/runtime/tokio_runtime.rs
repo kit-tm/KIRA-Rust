@@ -128,7 +128,8 @@ mod tests {
             .expect("failed to build runtime");
         let tokio_runtime = Arc::new(tokio_runtime);
 
-        let (broadcaster, mut broadcast_receiver) = broadcast::channel(1);
+        let (broadcaster, _) = broadcast::channel(1);
+        let mut broadcast_receiver = broadcaster.subscribe();
 
         let runtime = TokioRuntime::new(broadcaster, Arc::clone(&tokio_runtime));
 
@@ -145,6 +146,33 @@ mod tests {
     }
 
     #[test]
+    fn test_register_periodic_current_thread() {
+        let tokio_runtime = runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("failed to build runtime");
+        let tokio_runtime = Arc::new(tokio_runtime);
+
+        let (broadcaster, _) = broadcast::channel(1);
+        let mut broadcast_receiver = broadcaster.subscribe();
+
+        let runtime = TokioRuntime::new(broadcaster, Arc::clone(&tokio_runtime));
+
+        let start = Instant::now();
+        let id = runtime.register_periodic_timer(Duration::from_micros(200));
+
+        for i in 1..4 {
+            let event = tokio_runtime.block_on(broadcast_receiver.recv());
+            let end = start.elapsed();
+            assert!(event.is_ok(), "{:?}", event);
+            let event = event.unwrap();
+
+            assert_eq!(event, UseCaseEvent::Timer(id));
+            assert!(end >= i * Duration::from_micros(200));
+        }
+    }
+
+    #[test]
     fn test_register_multi_thread() {
         let tokio_runtime = runtime::Builder::new_multi_thread()
             .enable_time()
@@ -153,7 +181,8 @@ mod tests {
             .expect("failed to build runtime");
         let tokio_runtime = Arc::new(tokio_runtime);
 
-        let (broadcaster, mut broadcast_receiver) = broadcast::channel(1);
+        let (broadcaster, _) = broadcast::channel(1);
+        let mut broadcast_receiver = broadcaster.subscribe();
 
         let runtime = TokioRuntime::new(broadcaster, Arc::clone(&tokio_runtime));
 
@@ -167,5 +196,33 @@ mod tests {
 
         assert_eq!(event, UseCaseEvent::Timer(id));
         assert!(end >= Duration::from_micros(20));
+    }
+
+    #[test]
+    fn test_register_periodic_multi_thread() {
+        let tokio_runtime = runtime::Builder::new_multi_thread()
+            .enable_time()
+            .worker_threads(1)
+            .build()
+            .expect("failed to build runtime");
+        let tokio_runtime = Arc::new(tokio_runtime);
+
+        let (broadcaster, _) = broadcast::channel(1);
+        let mut broadcast_receiver = broadcaster.subscribe();
+
+        let runtime = TokioRuntime::new(broadcaster, Arc::clone(&tokio_runtime));
+
+        let start = Instant::now();
+        let id = runtime.register_periodic_timer(Duration::from_micros(200));
+
+        for i in 1..4 {
+            let event = tokio_runtime.block_on(broadcast_receiver.recv());
+            let end = start.elapsed();
+            assert!(event.is_ok(), "{:?}", event);
+            let event = event.unwrap();
+
+            assert_eq!(event, UseCaseEvent::Timer(id));
+            assert!(end >= i * Duration::from_micros(200));
+        }
     }
 }
