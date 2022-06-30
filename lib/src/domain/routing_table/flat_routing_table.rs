@@ -100,7 +100,7 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
     fn get_bucket_index_for(of: &NodeId, for_root: &NodeId, num_buckets: usize) -> usize {
         let SharedPrefix {
             xor: delta,
-            value: prefix_len,
+            length: prefix_len,
         } = for_root
             .shared_prefix_len(of, ACC)
             .expect("GroupingError after checking");

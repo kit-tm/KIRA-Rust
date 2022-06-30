@@ -7,8 +7,12 @@ use std::str::FromStr;
 
 use hex::FromHexError;
 
+/// Fixed byte size of a [NodeId].
 pub const SIZE: usize = 14;
+/// Fixed bit size of a [NodeId].
 pub const BIT_SIZE: usize = SIZE * 8;
+/// Length in Characters of the short output format for [NodeId]s.
+const SHORT_OUTPUT_LENGTH: usize = 8;
 
 /// A NodeId with default SIZE of 112 Bits (14 Byte) as default value as proposed in the design paper.
 ///
@@ -133,7 +137,7 @@ impl NodeId {
         if self == other {
             return Ok(SharedPrefix {
                 xor,
-                value: BIT_SIZE / bits_per_group,
+                length: BIT_SIZE / bits_per_group,
             });
         }
 
@@ -159,7 +163,7 @@ impl NodeId {
         let bit_index = byte_index * 8 + in_byte_index;
 
         Ok(SharedPrefix {
-            value: bit_index / bits_per_group,
+            length: bit_index / bits_per_group,
             xor,
         })
     }
@@ -213,15 +217,19 @@ impl Display for BitIndexOutOfBounds {
 
 impl Error for BitIndexOutOfBounds {}
 
+/// Shared prefix of two [NodeId]s.
+///
+/// Contains the shared prefix length in number of bits and the computed
+/// XOR [NodeId] of the two origin [NodeId]s.
 #[derive(Debug, Eq, PartialEq)]
 pub struct SharedPrefix {
     pub(crate) xor: NodeId,
-    pub(crate) value: usize,
+    pub(crate) length: usize,
 }
 
 impl From<SharedPrefix> for usize {
     fn from(prefix: SharedPrefix) -> Self {
-        prefix.value
+        prefix.length
     }
 }
 
@@ -234,15 +242,18 @@ impl SharedPrefix {
         &self.xor
     }
 
-    pub fn value(&self) -> usize {
-        self.value
+    pub fn bit_len(&self) -> usize {
+        self.length
     }
 
-    pub fn into_value(self) -> usize {
-        self.value
+    pub fn into_bit_len(self) -> usize {
+        self.length
     }
 }
 
+/// Error occurring on calculating the shared prefix.
+///
+/// Occurs if the grouping in bits for the computation is invalid.
 #[derive(Debug, Eq, PartialEq)]
 pub enum GroupingError {
     Invalid { group_size: usize, id_size: usize },
@@ -315,8 +326,6 @@ impl BitXor for NodeId {
         &self ^ &rhs
     }
 }
-
-const SHORT_OUTPUT_LENGTH: usize = 8;
 
 impl FromStr for NodeId {
     type Err = FromHexError;
@@ -450,7 +459,8 @@ mod tests {
         let one = NodeId::with_msb(1);
 
         assert_eq!(
-            zero.shared_prefix_bits(&one).map(SharedPrefix::into_value),
+            zero.shared_prefix_bits(&one)
+                .map(SharedPrefix::into_bit_len),
             Ok(7)
         );
 
@@ -458,7 +468,8 @@ mod tests {
         let one = NodeId::one();
 
         assert_eq!(
-            zero.shared_prefix_bits(&one).map(SharedPrefix::into_value),
+            zero.shared_prefix_bits(&one)
+                .map(SharedPrefix::into_bit_len),
             Ok(node_id::BIT_SIZE - 1)
         );
 
@@ -466,7 +477,8 @@ mod tests {
         let valid = NodeId::from([0, 0b10000000, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 
         assert_eq!(
-            one.shared_prefix_bits(&valid).map(SharedPrefix::into_value),
+            one.shared_prefix_bits(&valid)
+                .map(SharedPrefix::into_bit_len),
             Ok(8)
         );
     }
@@ -477,7 +489,7 @@ mod tests {
             NodeId::zero().shared_prefix_len(&NodeId::zero(), 1),
             Ok(SharedPrefix {
                 xor: NodeId::zero(),
-                value: node_id::BIT_SIZE,
+                length: node_id::BIT_SIZE,
             })
         );
     }
@@ -489,17 +501,17 @@ mod tests {
 
         assert_eq!(
             zero.shared_prefix_len(&one, 1)
-                .map(SharedPrefix::into_value),
+                .map(SharedPrefix::into_bit_len),
             Ok(node_id::BIT_SIZE - 1)
         );
         assert_eq!(
             zero.shared_prefix_len(&one, 2)
-                .map(SharedPrefix::into_value),
+                .map(SharedPrefix::into_bit_len),
             Ok((node_id::BIT_SIZE / 2) - 1)
         );
         assert_eq!(
             zero.shared_prefix_len(&one, 4)
-                .map(SharedPrefix::into_value),
+                .map(SharedPrefix::into_bit_len),
             Ok((node_id::BIT_SIZE / 4) - 1)
         );
 
@@ -508,7 +520,7 @@ mod tests {
 
         assert_eq!(
             one.shared_prefix_len(&valid, 8)
-                .map(SharedPrefix::into_value),
+                .map(SharedPrefix::into_bit_len),
             Ok(11)
         );
     }
