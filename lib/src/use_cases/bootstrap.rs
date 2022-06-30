@@ -58,7 +58,7 @@ pub struct BootstrapConfig {
     pub max_neighbor_response_duration: Duration,
     pub max_2_hop_response_duration: Duration,
     pub max_find_node_response_duration: Option<Duration>,
-    pub initial_neighborhood_size: usize,
+    pub initial_neighborhood_size: u64,
 }
 
 impl Default for BootstrapConfig {

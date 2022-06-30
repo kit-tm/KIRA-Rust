@@ -14,7 +14,7 @@ use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
 #[derive(Debug, Copy, Clone)]
 pub struct RandomProbingConfig {
     pub timeout: Duration,
-    pub neighborhood_size: usize,
+    pub neighborhood_size: u64,
 }
 
 impl Default for RandomProbingConfig {
