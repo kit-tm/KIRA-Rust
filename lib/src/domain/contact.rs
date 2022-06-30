@@ -5,20 +5,20 @@ use crate::domain::{Link, NodeId, Path};
 /// Specifies in milliseconds how long ago the sender heard about the contact.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct Age(usize);
+pub struct Age(u64);
 
-impl From<usize> for Age {
-    fn from(value: usize) -> Self {
+impl From<u64> for Age {
+    fn from(value: u64) -> Self {
         Self(value)
     }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct StateSeqNr(usize);
+pub struct StateSeqNr(u64);
 
-impl From<usize> for StateSeqNr {
-    fn from(value: usize) -> Self {
+impl From<u64> for StateSeqNr {
+    fn from(value: u64) -> Self {
         Self(value)
     }
 }

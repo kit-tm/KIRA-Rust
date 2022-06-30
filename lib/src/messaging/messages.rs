@@ -57,7 +57,7 @@ pub struct ReqRspMessage<T: std::fmt::Debug> {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum RTableReqType {
-    NeighborHood(usize),
+    NeighborHood(u64),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
