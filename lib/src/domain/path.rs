@@ -98,6 +98,8 @@ impl Path {
     }
     /// Simpplify the [Path] by removing cycles.
     pub fn remove_cycles(&mut self) {
+        // This is the place where cycle removing algorithms
+        // Could replace the concrete algorithm used here.
         if self.len() < 2 {
             return;
         }
