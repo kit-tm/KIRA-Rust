@@ -1,29 +1,32 @@
 use std::sync::{Arc, RwLock};
 
-use crate::context::{Context, ReadGuard, WriteGuard};
+use crate::context::{UseCaseContext, ReadGuard, WriteGuard};
 use crate::domain::NodeId;
 
 #[derive(Debug, Clone)]
-pub struct SyncContext<RT, NT, MS, RU> {
+pub struct SyncContext<RT, NT, MS, RU, IS> {
     root_id: NodeId,
     routing_table: Arc<RwLock<RT>>,
+    insertion_strategy: Arc<RwLock<IS>>,
     neighbor_table: Arc<RwLock<NT>>,
     message_sender: Arc<RwLock<MS>>,
     runtime: RU,
 }
 
-impl<RT, NT, MS, RU> SyncContext<RT, NT, MS, RU> {
+impl<RT, NT, MS, RU, IS> SyncContext<RT, NT, MS, RU, IS> {
     /// Creates a new [Context].
     pub fn new(
         root_id: NodeId,
         routing_table: RT,
         neighbor_table: NT,
+        insertion_strategy: IS,
         message_sender: MS,
         runtime: RU,
     ) -> Self {
         Self {
             root_id,
             routing_table: Arc::new(RwLock::new(routing_table)),
+            insertion_strategy: Arc::new(RwLock::new(insertion_strategy)),
             neighbor_table: Arc::new(RwLock::new(neighbor_table)),
             message_sender: Arc::new(RwLock::new(message_sender)),
             runtime,
@@ -31,11 +34,12 @@ impl<RT, NT, MS, RU> SyncContext<RT, NT, MS, RU> {
     }
 }
 
-impl<RT, NT, MS, RU> Context for SyncContext<RT, NT, MS, RU> {
+impl<RT, NT, MS, RU, IS> UseCaseContext for SyncContext<RT, NT, MS, RU, IS> {
     type RoutingTable = RT;
     type NeighborTable = NT;
     type MessageSender = MS;
     type Runtime = RU;
+    type InsertionStrategy = IS;
 
     fn root_id(&self) -> &NodeId {
         &self.root_id
@@ -52,6 +56,13 @@ impl<RT, NT, MS, RU> Context for SyncContext<RT, NT, MS, RU> {
         self.routing_table
             .write()
             .expect("faile to get lock")
+            .into()
+    }
+
+    fn routing_table_insertion_strategy(&self) -> WriteGuard<IS> {
+        self.insertion_strategy
+            .write()
+            .expect("failed to get lock")
             .into()
     }
 

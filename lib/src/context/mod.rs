@@ -86,17 +86,20 @@ impl<'a, T> DerefMut for WriteGuard<'a, T> {
 ///
 /// The support for different runtime environments (async vs. sync) is determined by the
 /// concrete implementation.
-pub trait Context {
+pub trait UseCaseContext {
     type RoutingTable: Sized;
     type NeighborTable: Sized;
     type MessageSender: Sized;
     type Runtime: Sized;
+    type InsertionStrategy: Sized;
 
     fn root_id(&self) -> &NodeId;
 
     fn routing_table(&self) -> ReadGuard<Self::RoutingTable>;
 
     fn routing_table_mut(&self) -> WriteGuard<Self::RoutingTable>;
+
+    fn routing_table_insertion_strategy(&self) -> WriteGuard<Self::InsertionStrategy>;
 
     fn neighbor_table(&self) -> ReadGuard<Self::NeighborTable>;
 

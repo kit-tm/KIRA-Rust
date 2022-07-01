@@ -1,4 +1,4 @@
-use crate::domain::{Contact, NodeId};
+use crate::domain::{Contact, NodeId, StateSeqNr};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -34,6 +34,7 @@ pub enum ProtocolMessage {
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct HelloMessage {
     pub source: NodeId,
+    pub source_state_seq_nr: StateSeqNr,
     pub destination: NodeId,
 }
 
@@ -64,7 +65,7 @@ pub enum RTableReqType {
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct PNDiscReqData {
     pub req_type: RTableReqType,
-    pub contacts: Vec<NodeId>,
+    pub contacts: Vec<Contact>,
 }
 
 impl From<ReqRspMessage<PNDiscReqData>> for ProtocolMessage {

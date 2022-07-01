@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 
 use crate::broadcaster::Broadcaster;
-use crate::runtime::Runtime;
+use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{TimerId, UseCaseEvent};
 use crate::utils::tokio_utils;
 
@@ -68,7 +68,7 @@ impl<B: Broadcaster> TokioRuntime<B> {
     }
 }
 
-impl<B: 'static + Broadcaster + Send + Sync> Runtime for TokioRuntime<B> {
+impl<B: 'static + Broadcaster + Send + Sync> UseCaseRuntime for TokioRuntime<B> {
     fn register_timer(&self, duration: Duration) -> TimerId {
         let timer_id = self.create_new_id();
 
@@ -119,7 +119,7 @@ mod tests {
     use tokio::runtime;
     use tokio::sync::broadcast;
 
-    use crate::runtime::{Runtime, TokioRuntime};
+    use crate::runtime::{TokioRuntime, UseCaseRuntime};
     use crate::use_cases::UseCaseEvent;
 
     #[test]

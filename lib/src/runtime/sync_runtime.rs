@@ -7,7 +7,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::broadcaster::Broadcaster;
-use crate::runtime::Runtime;
+use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{TimerId, UseCaseEvent};
 
 /// Single Threaded Runtime using the standard library.
@@ -73,7 +73,7 @@ where
     }
 }
 
-impl<B> Runtime for SyncRuntime<B>
+impl<B> UseCaseRuntime for SyncRuntime<B>
 where
     B: 'static + Broadcaster + Send + Sync,
     B::SendError: Debug,
@@ -120,7 +120,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use crate::broadcaster::Broadcaster;
-    use crate::runtime::{Runtime, SyncRuntime};
+    use crate::runtime::{SyncRuntime, UseCaseRuntime};
     use crate::use_cases::UseCaseEvent;
 
     #[test]

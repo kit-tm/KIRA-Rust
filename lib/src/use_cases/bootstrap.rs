@@ -2,10 +2,10 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 use std::{error::Error, fmt::Display, time::Duration};
 
-use crate::context::Context;
+use crate::context::UseCaseContext;
 use crate::messaging::messages::{FindNodeReqData, QueryRouteReqData};
 use crate::messaging::sender::ProtocolMessageSender;
-use crate::runtime::Runtime;
+use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
 use crate::{
     domain::{Contact, NeighborTable, NodeId, RoutingTable},
@@ -100,12 +100,12 @@ impl<C, const BUCKET_SIZE: usize> BootstrapUseCase<C, BUCKET_SIZE> {
 
 impl<C, const BUCKET_SIZE: usize> BootstrapUseCase<C, BUCKET_SIZE>
 where
-    C: Context,
+    C: UseCaseContext,
     C::RoutingTable: RoutingTable<BUCKET_SIZE>,
     for<'b> &'b C::RoutingTable: IntoIterator<Item = &'b Contact>,
     C::NeighborTable: NeighborTable,
     C::MessageSender: ProtocolMessageSender,
-    C::Runtime: Runtime,
+    C::Runtime: UseCaseRuntime,
 {
     fn send_message<M: Into<ProtocolMessage>>(
         &mut self,
@@ -221,12 +221,12 @@ where
 
 impl<C, const BUCKET_SIZE: usize> UseCase for BootstrapUseCase<C, BUCKET_SIZE>
 where
-    C: Context,
+    C: UseCaseContext,
     C::RoutingTable: RoutingTable<BUCKET_SIZE>,
     for<'b> &'b C::RoutingTable: IntoIterator<Item = &'b Contact>,
     C::NeighborTable: NeighborTable,
     C::MessageSender: ProtocolMessageSender,
-    C::Runtime: Runtime,
+    C::Runtime: UseCaseRuntime,
 {
     type Context = C;
     type Error = BootstrapError;
@@ -243,6 +243,7 @@ where
         // Send hello to all links
         let message = HelloMessage {
             source: context.root_id().clone(),
+            source_state_seq_nr: *context.neighbor_table().state_seq_nr(),
             destination: NodeId::zero(),
         };
         self.send_message(context, message)?;
@@ -277,12 +278,12 @@ where
             // Some Node in 2 Hop vicinity responded
             (
                 BootstrapState::WaitingFor2HopVicinity(_, _),
-                UseCaseEvent::Message(ProtocolMessage::QueryRouteRsp(message)),
+                UseCaseEvent::Message(ProtocolMessage::QueryRouteRsp(message), ..),
             ) => self.handle_query_route_rsp(context, &config, message)?,
             // Error returned for FindNodeReq
             (
                 BootstrapState::WaitingForFindNodeResponse(nonce, _),
-                UseCaseEvent::Message(ProtocolMessage::Error(message)),
+                UseCaseEvent::Message(ProtocolMessage::Error(message), ..),
             ) => {
                 if nonce == &message.nonce {
                     log::error!("FindNodeReq returned an Error: {:?}", message);
@@ -292,7 +293,7 @@ where
             // FindNodeRsp received for our request
             (
                 BootstrapState::WaitingForFindNodeResponse(nonce, _),
-                UseCaseEvent::Message(ProtocolMessage::FindNodeRsp(message)),
+                UseCaseEvent::Message(ProtocolMessage::FindNodeRsp(message), ..),
             ) => {
                 if nonce == &message.nonce {
                     self.state = BootstrapState::Finished;

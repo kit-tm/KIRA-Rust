@@ -3,12 +3,12 @@ use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::time::Duration;
 
-use crate::context::Context;
+use crate::context::UseCaseContext;
 use crate::domain::RoutingTable;
 use crate::messaging::{
     FindNodeReqData, Nonce, ProtocolMessageSender, RTableReqType, ReqRspMessage,
 };
-use crate::runtime::Runtime;
+use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
 
 #[derive(Debug, Copy, Clone)]
@@ -47,8 +47,8 @@ impl<C, const BUCKET_SIZE: usize> RandomProbingUseCase<C, BUCKET_SIZE> {
 
 impl<C, const BUCKET_SIZE: usize> UseCase for RandomProbingUseCase<C, BUCKET_SIZE>
 where
-    C: Context,
-    C::Runtime: Runtime,
+    C: UseCaseContext,
+    C::Runtime: UseCaseRuntime,
     C::MessageSender: ProtocolMessageSender,
     C::RoutingTable: RoutingTable<BUCKET_SIZE>,
 {
@@ -145,9 +145,10 @@ mod tests {
     use std::time::Duration;
 
     use crate::broadcaster::BusBroadcaster;
-    use crate::context::{Context, SyncContext};
+    use crate::context::{SyncContext, UseCaseContext};
     use crate::domain::{
-        Age, Contact, FlatRoutingTable, NodeId, Path, Port, RoutingTable, StateSeqNr,
+        Age, Contact, FlatRoutingTable, InsertionStrategyResult, NodeId, Path, Port, RoutingTable,
+        StateSeqNr, TestInsertionStrategy,
     };
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
     use crate::messaging::ProtocolMessage;
@@ -167,6 +168,7 @@ mod tests {
             HashMap<NodeId, Port>,
             ArcSyncInMemoryMessageHub,
             DummyRuntime<BusBroadcaster>,
+            TestInsertionStrategy,
         >,
     ) {
         let root = NodeId::one();
@@ -180,10 +182,13 @@ mod tests {
 
         let runtime = DummyRuntime::new(Arc::clone(&broadcaster));
 
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+
         let context = SyncContext::new(
             root.clone(),
             routing_table,
             HashMap::<NodeId, Port>::new(),
+            insertion_strategy,
             hub.clone(),
             runtime.clone(),
         );

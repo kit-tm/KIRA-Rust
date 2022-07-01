@@ -15,7 +15,7 @@ pub mod sync_runtime;
 pub mod tokio_runtime;
 
 //Additionally: Consider "wait for message" to reduce amount of woken up UseCases
-pub trait Runtime {
+pub trait UseCaseRuntime {
     /// Either waits the duration instantly or returns and
     fn register_timer(&self, duration: Duration) -> TimerId;
 

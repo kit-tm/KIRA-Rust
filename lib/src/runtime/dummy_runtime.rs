@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::broadcaster::Broadcaster;
-use crate::runtime::Runtime;
+use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{TimerId, UseCaseEvent};
 
 /// Runtime emitting timers immediately.
@@ -28,7 +28,7 @@ impl<B> DummyRuntime<B> {
     }
 }
 
-impl<B: Broadcaster> Runtime for DummyRuntime<B>
+impl<B: Broadcaster> UseCaseRuntime for DummyRuntime<B>
 where
     B: 'static + Broadcaster + Send + Sync,
 {
