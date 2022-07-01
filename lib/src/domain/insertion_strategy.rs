@@ -4,7 +4,7 @@ use crate::domain::{AddError, Contact, InsertionError, NodeId, RoutingTable, Sta
 
 use super::{NeighborTable, PathSimplifier};
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum InsertionStrategyResult {
     Dropped,
     Inserted,
@@ -34,8 +34,17 @@ where
     ) -> InsertionStrategyResult;
 }
 
+#[derive(Debug, Default)]
 pub struct PNSStrategy<RT, const BUCKET_SIZE: usize> {
     _pd: PhantomData<RT>,
+}
+
+impl<RT, const BUCKET_SIZE: usize> PNSStrategy<RT, BUCKET_SIZE> {
+    pub fn new() -> Self {
+        Self {
+            _pd: PhantomData::default(),
+        }
+    }
 }
 
 impl<RT, const BUCKET_SIZE: usize> PNSStrategy<RT, BUCKET_SIZE>
@@ -176,5 +185,34 @@ where
             }
             Ok(()) => InsertionStrategyResult::Inserted,
         }
+    }
+}
+
+/// Test Implementation for [InsertionStrategy].
+///
+/// **Should only be used for testing!**.
+///
+/// Returns the result given without performing anything.
+pub struct TestInsertionStrategy(InsertionStrategyResult);
+
+impl From<InsertionStrategyResult> for TestInsertionStrategy {
+    fn from(result: InsertionStrategyResult) -> Self {
+        Self(result)
+    }
+}
+
+impl<RT, NT, const BUCKET_SIZE: usize> InsertionStrategy<RT, NT, BUCKET_SIZE>
+    for TestInsertionStrategy
+where
+    RT: RoutingTable<BUCKET_SIZE>,
+    NT: NeighborTable,
+{
+    fn insert(
+        &mut self,
+        _contact: Contact,
+        _routing_table: &mut RT,
+        _neighbor_table: &NT,
+    ) -> InsertionStrategyResult {
+        self.0.clone()
     }
 }

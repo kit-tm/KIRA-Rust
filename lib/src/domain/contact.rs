@@ -1,6 +1,8 @@
+use std::fmt::{Display, Formatter};
+
 use chrono::{DateTime, Utc};
 
-use crate::domain::{Link, NodeId, Path};
+use crate::domain::{Link, NodeId, Path, StateSeqNr};
 
 /// Specifies in milliseconds how long ago the sender heard about the contact.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
@@ -13,13 +15,9 @@ impl From<u64> for Age {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct StateSeqNr(u64);
-
-impl From<u64> for StateSeqNr {
-    fn from(value: u64) -> Self {
-        Self(value)
+impl Display for Age {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -35,6 +33,12 @@ impl From<DateTime<Utc>> for Timestamp {
     }
 }
 
+impl Display for Timestamp {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.timestamp_millis())
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum State {
@@ -42,6 +46,17 @@ pub enum State {
     Rediscovering(RediscoveryState),
     Invalid,
     Dead,
+}
+
+impl Display for State {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Valid => write!(f, "Valid"),
+            Self::Invalid => write!(f, "Invalid"),
+            Self::Dead => write!(f, "Dead"),
+            Self::Rediscovering(_) => write!(f, "Rediscovering"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -75,6 +90,16 @@ pub struct Contact {
     last_seen: Timestamp,
     path: Path,
     state_seq_nr: StateSeqNr,
+}
+
+impl Display for Contact {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Contact#{} {} [age: {}, last_seen: {}, state_seq_nr: {}, state: {}]",
+            self.id, self.path, self.age, self.last_seen, self.state_seq_nr, self.state
+        )
+    }
 }
 
 impl Contact {

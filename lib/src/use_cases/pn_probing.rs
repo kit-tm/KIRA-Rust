@@ -3,10 +3,10 @@ use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::time::Duration;
 
-use crate::context::Context;
-use crate::domain::NodeId;
+use crate::context::UseCaseContext;
+use crate::domain::{NeighborTable, NodeId};
 use crate::messaging::{HelloMessage, ProtocolMessageSender};
-use crate::runtime::Runtime;
+use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -80,9 +80,10 @@ impl<C, const BUCKET_SIZE: usize> PNProbingUseCase<C, BUCKET_SIZE> {
 
 impl<C, const BUCKET_SIZE: usize> UseCase for PNProbingUseCase<C, BUCKET_SIZE>
 where
-    C: Context,
-    C::Runtime: Runtime,
+    C: UseCaseContext,
+    C::Runtime: UseCaseRuntime,
     C::MessageSender: ProtocolMessageSender,
+    C::NeighborTable: NeighborTable,
 {
     type Context = C;
     type Error = PNProbingError;
@@ -105,6 +106,7 @@ where
             if id == timer_id {
                 if let Err(e) = context.message_sender_mut().send(HelloMessage {
                     source: context.root_id().clone(),
+                    source_state_seq_nr: *context.neighbor_table().state_seq_nr(),
                     destination: NodeId::zero(),
                 }) {
                     log::error!("MessageSender failed: {}", e);
@@ -124,13 +126,13 @@ where
 
 #[cfg(all(test, feature = "bus"))]
 mod tests {
-    use std::collections::HashMap;
     use std::sync::Arc;
     use std::time::Duration;
 
     use crate::broadcaster::{Broadcaster, BusBroadcaster};
     use crate::context::SyncContext;
-    use crate::domain::{FlatRoutingTable, NodeId, Port};
+    use crate::domain::neighbor_hash_table::NeighborHashTable;
+    use crate::domain::{FlatRoutingTable, InsertionStrategyResult, NodeId, TestInsertionStrategy};
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
     use crate::runtime::DummyRuntime;
     use crate::use_cases::pn_probing::{PNProbingConfig, PNProbingState, PNProbingUseCase};
@@ -142,9 +144,10 @@ mod tests {
         Arc<BusBroadcaster>,
         SyncContext<
             FlatRoutingTable<20, 1>,
-            HashMap<NodeId, Port>,
+            NeighborHashTable,
             ArcSyncInMemoryMessageHub,
             DummyRuntime<BusBroadcaster>,
+            TestInsertionStrategy,
         >,
     ) {
         let root = NodeId::one();
@@ -156,10 +159,13 @@ mod tests {
 
         let broadcaster = Arc::new(BusBroadcaster::new(1));
 
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+
         let context = SyncContext::new(
             root.clone(),
             routing_table,
-            HashMap::<NodeId, Port>::new(),
+            NeighborHashTable::new(),
+            insertion_strategy,
             hub.clone(),
             DummyRuntime::new(Arc::clone(&broadcaster)),
         );

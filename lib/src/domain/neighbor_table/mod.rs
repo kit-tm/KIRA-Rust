@@ -1,6 +1,10 @@
-use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
+
+use crate::domain::StateSeqNr;
 
 use super::NodeId;
+
+pub mod neighbor_hash_table;
 
 /// Represents a logical [Port] where a [Message] can be received from or sent to.
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -12,6 +16,15 @@ pub enum Port {
 impl Port {
     pub fn new(id: String) -> Self {
         Self::Named(id)
+    }
+}
+
+impl Display for Port {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::All => write!(f, "All"),
+            Self::Named(name) => write!(f, "Port [\"{}\"]", name),
+        }
     }
 }
 
@@ -27,26 +40,9 @@ pub trait NeighborTable {
     fn is_empty(&self) -> bool;
     /// Returns the number of neighbors.
     fn len(&self) -> usize;
-}
-
-impl NeighborTable for HashMap<NodeId, Port> {
-    fn get(&self, id: &NodeId) -> Option<&Port> {
-        HashMap::get(self, id)
-    }
-
-    fn add(&mut self, id: NodeId, iface: Port) -> Option<Port> {
-        HashMap::insert(self, id, iface)
-    }
-
-    fn contains(&self, id: &NodeId) -> bool {
-        HashMap::contains_key(self, id)
-    }
-
-    fn is_empty(&self) -> bool {
-        HashMap::is_empty(self)
-    }
-
-    fn len(&self) -> usize {
-        HashMap::len(self)
-    }
+    /// Returns the state sequence number.
+    ///
+    /// The state sequence number represents the number of connectivity changes in the
+    /// direct physical neighborhood of a node.
+    fn state_seq_nr(&self) -> &StateSeqNr;
 }

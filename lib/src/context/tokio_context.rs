@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::broadcaster::Broadcaster;
-use crate::context::{Context, ReadGuard, WriteGuard};
+use crate::context::{UseCaseContext, ReadGuard, WriteGuard};
 use crate::domain::NodeId;
 use crate::runtime::TokioRuntime;
 use crate::utils::tokio_utils;
@@ -16,20 +16,22 @@ use crate::utils::tokio_utils;
 /// Calling the [Context] methods inside a async environment is currently only supported
 /// in a rt-multi-thread Tokio runtime.
 #[derive(Debug, Clone)]
-pub struct TokioContext<RT, NT, MS, RU> {
+pub struct TokioContext<RT, NT, MS, RU, IS> {
     root_id: NodeId,
     routing_table: Arc<RwLock<RT>>,
     neighbor_table: Arc<RwLock<NT>>,
+    insertion_strategy: Arc<RwLock<IS>>,
     message_sender: Arc<RwLock<MS>>,
     runtime: RU,
 }
 
-impl<RT, NT, MS, B: Broadcaster> TokioContext<RT, NT, MS, TokioRuntime<B>> {
+impl<RT, NT, MS, B: Broadcaster, IS> TokioContext<RT, NT, MS, TokioRuntime<B>, IS> {
     /// Creates a new [Context].
     pub fn new(
         root_id: NodeId,
         routing_table: RT,
         neighbor_table: NT,
+        insertion_strategy: IS,
         message_sender: MS,
         runtime: TokioRuntime<B>,
     ) -> Self {
@@ -37,17 +39,19 @@ impl<RT, NT, MS, B: Broadcaster> TokioContext<RT, NT, MS, TokioRuntime<B>> {
             root_id,
             routing_table: Arc::new(RwLock::new(routing_table)),
             neighbor_table: Arc::new(RwLock::new(neighbor_table)),
+            insertion_strategy: Arc::new(RwLock::new(insertion_strategy)),
             message_sender: Arc::new(RwLock::new(message_sender)),
             runtime,
         }
     }
 }
 
-impl<RT, NT, MS, B: Broadcaster> Context for TokioContext<RT, NT, MS, TokioRuntime<B>> {
+impl<RT, NT, MS, B: Broadcaster, IS> UseCaseContext for TokioContext<RT, NT, MS, TokioRuntime<B>, IS> {
     type RoutingTable = RT;
     type NeighborTable = NT;
     type MessageSender = MS;
     type Runtime = TokioRuntime<B>;
+    type InsertionStrategy = IS;
 
     fn root_id(&self) -> &NodeId {
         &self.root_id
@@ -59,6 +63,10 @@ impl<RT, NT, MS, B: Broadcaster> Context for TokioContext<RT, NT, MS, TokioRunti
 
     fn routing_table_mut(&self) -> WriteGuard<RT> {
         tokio_utils::get_write_guard(self.routing_table.deref()).into()
+    }
+
+    fn routing_table_insertion_strategy(&self) -> WriteGuard<Self::InsertionStrategy> {
+        tokio_utils::get_write_guard(self.insertion_strategy.deref()).into()
     }
 
     fn neighbor_table(&self) -> ReadGuard<NT> {
@@ -90,8 +98,10 @@ mod tests {
     use tokio::runtime;
     use tokio::sync::broadcast;
 
-    use crate::context::{Context, ReadGuard, TokioContext, WriteGuard};
-    use crate::domain::{FlatRoutingTable, NodeId, Port};
+    use crate::context::{UseCaseContext, ReadGuard, TokioContext, WriteGuard};
+    use crate::domain::{
+        FlatRoutingTable, InsertionStrategyResult, NodeId, Port, TestInsertionStrategy,
+    };
     use crate::messaging::InMemoryMessageHub;
     use crate::runtime::TokioRuntime;
 
@@ -110,10 +120,13 @@ mod tests {
 
         let runtime = TokioRuntime::new(broadcaster, Arc::new(runtime));
 
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+
         let context = TokioContext::new(
             root_id.clone(),
             FlatRoutingTable::<20, 1>::new(root_id),
             HashMap::<NodeId, Port>::new(),
+            insertion_strategy,
             message_hub,
             runtime,
         );

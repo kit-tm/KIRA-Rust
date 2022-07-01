@@ -87,7 +87,7 @@ pub mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
-    use crate::domain::{NodeId, Port};
+    use crate::domain::{NodeId, Port, StateSeqNr};
     use crate::messaging::in_memory_message_hub::InMemoryMessageHub;
     use crate::messaging::messages::{HelloMessage, ProtocolMessage};
     use crate::messaging::receiver::ProtocolMessageReceiver;
@@ -151,12 +151,14 @@ pub mod tests {
 
         hub.send(ProtocolMessage::Hello(HelloMessage {
             source: NodeId::zero(),
+            source_state_seq_nr: StateSeqNr::from(0),
             destination: NodeId::zero(),
         }))
         .unwrap();
 
         hub.send(ProtocolMessage::Hello(HelloMessage {
             source: NodeId::one(),
+            source_state_seq_nr: StateSeqNr::from(0),
             destination: NodeId::one(),
         }))
         .unwrap();
@@ -166,6 +168,7 @@ pub mod tests {
             Some((
                 ProtocolMessage::Hello(HelloMessage {
                     source: NodeId::zero(),
+                    source_state_seq_nr: StateSeqNr::from(0),
                     destination: NodeId::zero(),
                 }),
                 InMemoryMessageHub::dummy_port()
@@ -177,6 +180,7 @@ pub mod tests {
             Some((
                 ProtocolMessage::Hello(HelloMessage {
                     source: NodeId::one(),
+                    source_state_seq_nr: StateSeqNr::from(0),
                     destination: NodeId::one(),
                 }),
                 InMemoryMessageHub::dummy_port()

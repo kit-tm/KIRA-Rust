@@ -4,15 +4,15 @@
 //! running the daemon on a single threaded environment but also reading from
 //! multiple ports at once.
 
-use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use tokio::sync::broadcast;
 
 use r2kad_lib::context::TokioContext;
+use r2kad_lib::domain::neighbor_hash_table::NeighborHashTable;
 use r2kad_lib::domain::unlimited_neighbors_routing_table::UnlimitedNeighborsRoutingTable;
-use r2kad_lib::domain::{FlatRoutingTable, NodeId, DEFAULT_BUCKET_SIZE};
+use r2kad_lib::domain::{FlatRoutingTable, NodeId, PNSStrategy, DEFAULT_BUCKET_SIZE};
 use r2kad_lib::messaging::InMemoryMessageHub;
 use r2kad_lib::node::{Config, Node};
 use r2kad_lib::runtime::TokioRuntime;
@@ -49,13 +49,18 @@ fn main() {
     );
 
     // Create the desired Context in which the Use Cases will run
-    let context = TokioContext::new(
-        root_id,
-        routing_table,
-        HashMap::new(),
-        InMemoryMessageHub::new(),
-        TokioRuntime::new(broadcaster, Arc::clone(&runtime)),
-    );
+    let context =
+        TokioContext::new(
+            root_id,
+            routing_table,
+            NeighborHashTable::new(),
+            PNSStrategy::<
+                UnlimitedNeighborsRoutingTable<DEFAULT_BUCKET_SIZE, 1>,
+                DEFAULT_BUCKET_SIZE,
+            >::new(),
+            InMemoryMessageHub::new(),
+            TokioRuntime::new(broadcaster, Arc::clone(&runtime)),
+        );
 
     // Initialize the Use Cases
     let mut node = Node::new(config, context);

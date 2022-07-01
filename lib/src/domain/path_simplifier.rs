@@ -81,8 +81,7 @@ impl PathSimplifier<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
+    use crate::domain::neighbor_hash_table::NeighborHashTable;
     use crate::domain::{
         Age, Contact, FlatRoutingTable, NeighborTable, NodeId, Path, Port, RoutingTable, StateSeqNr,
     };
@@ -91,7 +90,7 @@ mod tests {
 
     #[test]
     fn simplify_neighbor_part() -> Result<(), Box<dyn std::error::Error>> {
-        let mut neighbor_table = HashMap::new();
+        let mut neighbor_table = NeighborHashTable::new();
         neighbor_table.add(NodeId::zero(), Port::new(String::from("0")));
 
         let routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;
@@ -119,7 +118,7 @@ mod tests {
 
     #[test]
     fn simplify_neighbor_end() -> Result<(), Box<dyn std::error::Error>> {
-        let mut neighbor_table = HashMap::new();
+        let mut neighbor_table = NeighborHashTable::new();
         neighbor_table.add(NodeId::zero(), Port::new(String::from("0")));
 
         let routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;
@@ -143,7 +142,7 @@ mod tests {
 
     #[test]
     fn simplify_known_contact() -> Result<(), Box<dyn std::error::Error>> {
-        let neighbor_table = HashMap::new();
+        let neighbor_table = NeighborHashTable::new();
 
         let mut routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;
         routing_table.add(Contact::new(
@@ -182,7 +181,7 @@ mod tests {
 
     #[test]
     fn simplify_multiple() -> Result<(), Box<dyn std::error::Error>> {
-        let mut neighbor_table = HashMap::new();
+        let mut neighbor_table = NeighborHashTable::new();
         neighbor_table.add(NodeId::zero(), Port::new(String::from("0")));
 
         let mut routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;

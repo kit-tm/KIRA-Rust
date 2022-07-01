@@ -8,7 +8,6 @@
 //! This is a naive implementation.
 //! More advanced implementations may use load balancing or other advanced optimizations.
 
-use std::collections::HashMap;
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -16,9 +15,10 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
 
-use r2kad_lib::context::{Context, TokioContext};
+use r2kad_lib::context::{UseCaseContext, TokioContext};
+use r2kad_lib::domain::neighbor_hash_table::NeighborHashTable;
 use r2kad_lib::domain::unlimited_neighbors_routing_table::UnlimitedNeighborsRoutingTable;
-use r2kad_lib::domain::{FlatRoutingTable, NodeId, DEFAULT_BUCKET_SIZE};
+use r2kad_lib::domain::{FlatRoutingTable, NodeId, PNSStrategy, DEFAULT_BUCKET_SIZE};
 use r2kad_lib::messaging::InMemoryMessageHub;
 use r2kad_lib::node::Config;
 use r2kad_lib::runtime::TokioRuntime;
@@ -55,11 +55,17 @@ fn main() {
             .expect("invalid flat Routing Table parameters"),
     );
 
+    let insertion_strategy = PNSStrategy::<
+        UnlimitedNeighborsRoutingTable<DEFAULT_BUCKET_SIZE, 1>,
+        DEFAULT_BUCKET_SIZE,
+    >::new();
+
     // Create the desired Context in which the Use Cases will run
     let context = Arc::new(TokioContext::new(
         root_id,
         routing_table,
-        HashMap::new(),
+        NeighborHashTable::new(),
+        insertion_strategy,
         InMemoryMessageHub::new(),
         TokioRuntime::new(broadcaster.clone(), Arc::clone(&runtime)),
     ));
@@ -118,7 +124,7 @@ impl<'a, UC, C> UseCaseTask<'a, UC, C> {
 impl<'a, UC, C> UseCaseTask<'a, UC, C>
 where
     UC: UseCase<Context = C>,
-    C: Context,
+    C: UseCaseContext,
 {
     async fn start(&mut self) {
         if let Err(e) = self.use_case.start(self.context) {
