@@ -1,5 +1,6 @@
 use crate::domain::Path;
 
+/// An algorithm to remove cycles from a [Path].
 pub trait PathCycleRemover {
     fn remove_cycles_in_place(&mut self, path: &mut Path);
 
