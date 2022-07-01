@@ -140,15 +140,14 @@ impl UseCaseState for RandomProbingState {
 
 #[cfg(all(test, feature = "bus"))]
 mod tests {
-    use std::collections::HashMap;
     use std::sync::Arc;
     use std::time::Duration;
 
     use crate::broadcaster::BusBroadcaster;
     use crate::context::{SyncContext, UseCaseContext};
     use crate::domain::{
-        Age, Contact, FlatRoutingTable, InsertionStrategyResult, NodeId, Path, Port, RoutingTable,
-        StateSeqNr, TestInsertionStrategy,
+        Age, Contact, FlatRoutingTable, InsertionStrategyResult, NeighborTable, NodeId, Path,
+        RoutingTable, StateSeqNr, TestInsertionStrategy,
     };
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
     use crate::messaging::ProtocolMessage;
@@ -165,7 +164,6 @@ mod tests {
         DummyRuntime<BusBroadcaster>,
         SyncContext<
             FlatRoutingTable<20, 1>,
-            HashMap<NodeId, Port>,
             ArcSyncInMemoryMessageHub,
             DummyRuntime<BusBroadcaster>,
             TestInsertionStrategy,
@@ -187,7 +185,7 @@ mod tests {
         let context = SyncContext::new(
             root.clone(),
             routing_table,
-            HashMap::<NodeId, Port>::new(),
+            NeighborTable::new(),
             insertion_strategy,
             hub.clone(),
             runtime.clone(),

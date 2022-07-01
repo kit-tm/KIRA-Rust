@@ -4,10 +4,7 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
 use crate::context::UseCaseContext;
-use crate::domain::{
-    Age, Contact, InsertionStrategy, InsertionStrategyResult, NeighborTable, NodeId, Path, Port,
-    RoutingTable,
-};
+use crate::domain::{Age, Contact, InsertionStrategy, InsertionStrategyResult, Path, RoutingTable};
 use crate::messaging::{
     HelloMessage, Nonce, PNDiscReqData, ProtocolMessage, ProtocolMessageSender, RTableReqType,
     ReqRspMessage,
@@ -69,11 +66,9 @@ impl<C, const BUCKET_SIZE: usize> HandleHelloUseCase<C, BUCKET_SIZE> {
 impl<C, const BUCKET_SIZE: usize> UseCase for HandleHelloUseCase<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
-    C::NeighborTable: NeighborTable,
     C::RoutingTable: RoutingTable<BUCKET_SIZE>,
-    for<'a> &'a C::NeighborTable: IntoIterator<Item = (&'a NodeId, &'a Port)>,
     C::MessageSender: ProtocolMessageSender,
-    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::NeighborTable, BUCKET_SIZE>,
+    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, BUCKET_SIZE>,
 {
     type Context = C;
     type Error = HandleHelloError;
@@ -171,7 +166,7 @@ mod tests {
 
     use crate::broadcaster::BusBroadcaster;
     use crate::context::SyncContext;
-    use crate::domain::neighbor_hash_table::NeighborHashTable;
+    use crate::domain::neighbor_table::NeighborTable;
     use crate::domain::{
         FlatRoutingTable, InsertionStrategyResult, NodeId, StateSeqNr, TestInsertionStrategy,
     };
@@ -191,7 +186,7 @@ mod tests {
         let routing_table =
             FlatRoutingTable::<20, 1>::new(root_id.clone()).expect("invalid grouping");
 
-        let neighbor_table = NeighborHashTable::new();
+        let neighbor_table = NeighborTable::new();
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
 

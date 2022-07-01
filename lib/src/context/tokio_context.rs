@@ -4,8 +4,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::broadcaster::Broadcaster;
-use crate::context::{UseCaseContext, ReadGuard, WriteGuard};
-use crate::domain::NodeId;
+use crate::context::{ReadGuard, UseCaseContext, WriteGuard};
+use crate::domain::{NeighborTable, NodeId};
 use crate::runtime::TokioRuntime;
 use crate::utils::tokio_utils;
 
@@ -16,21 +16,21 @@ use crate::utils::tokio_utils;
 /// Calling the [Context] methods inside a async environment is currently only supported
 /// in a rt-multi-thread Tokio runtime.
 #[derive(Debug, Clone)]
-pub struct TokioContext<RT, NT, MS, RU, IS> {
+pub struct TokioContext<RT, MS, RU, IS> {
     root_id: NodeId,
     routing_table: Arc<RwLock<RT>>,
-    neighbor_table: Arc<RwLock<NT>>,
+    neighbor_table: Arc<RwLock<NeighborTable>>,
     insertion_strategy: Arc<RwLock<IS>>,
     message_sender: Arc<RwLock<MS>>,
     runtime: RU,
 }
 
-impl<RT, NT, MS, B: Broadcaster, IS> TokioContext<RT, NT, MS, TokioRuntime<B>, IS> {
+impl<RT, MS, B: Broadcaster, IS> TokioContext<RT, MS, TokioRuntime<B>, IS> {
     /// Creates a new [Context].
     pub fn new(
         root_id: NodeId,
         routing_table: RT,
-        neighbor_table: NT,
+        neighbor_table: NeighborTable,
         insertion_strategy: IS,
         message_sender: MS,
         runtime: TokioRuntime<B>,
@@ -46,9 +46,8 @@ impl<RT, NT, MS, B: Broadcaster, IS> TokioContext<RT, NT, MS, TokioRuntime<B>, I
     }
 }
 
-impl<RT, NT, MS, B: Broadcaster, IS> UseCaseContext for TokioContext<RT, NT, MS, TokioRuntime<B>, IS> {
+impl<RT, MS, B: Broadcaster, IS> UseCaseContext for TokioContext<RT, MS, TokioRuntime<B>, IS> {
     type RoutingTable = RT;
-    type NeighborTable = NT;
     type MessageSender = MS;
     type Runtime = TokioRuntime<B>;
     type InsertionStrategy = IS;
@@ -69,11 +68,11 @@ impl<RT, NT, MS, B: Broadcaster, IS> UseCaseContext for TokioContext<RT, NT, MS,
         tokio_utils::get_write_guard(self.insertion_strategy.deref()).into()
     }
 
-    fn neighbor_table(&self) -> ReadGuard<NT> {
+    fn neighbor_table(&self) -> ReadGuard<NeighborTable> {
         tokio_utils::get_read_guard(self.neighbor_table.deref()).into()
     }
 
-    fn neighbor_table_mut(&self) -> WriteGuard<NT> {
+    fn neighbor_table_mut(&self) -> WriteGuard<NeighborTable> {
         tokio_utils::get_write_guard(self.neighbor_table.deref()).into()
     }
 
@@ -92,15 +91,14 @@ impl<RT, NT, MS, B: Broadcaster, IS> UseCaseContext for TokioContext<RT, NT, MS,
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::sync::Arc;
 
     use tokio::runtime;
     use tokio::sync::broadcast;
 
-    use crate::context::{UseCaseContext, ReadGuard, TokioContext, WriteGuard};
+    use crate::context::{ReadGuard, TokioContext, UseCaseContext, WriteGuard};
     use crate::domain::{
-        FlatRoutingTable, InsertionStrategyResult, NodeId, Port, TestInsertionStrategy,
+        FlatRoutingTable, InsertionStrategyResult, NeighborTable, NodeId, TestInsertionStrategy,
     };
     use crate::messaging::InMemoryMessageHub;
     use crate::runtime::TokioRuntime;
@@ -125,7 +123,7 @@ mod tests {
         let context = TokioContext::new(
             root_id.clone(),
             FlatRoutingTable::<20, 1>::new(root_id),
-            HashMap::<NodeId, Port>::new(),
+            NeighborTable::new(),
             insertion_strategy,
             message_hub,
             runtime,

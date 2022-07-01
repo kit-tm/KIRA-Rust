@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 
 use r2kad_lib::context::TokioContext;
-use r2kad_lib::domain::neighbor_hash_table::NeighborHashTable;
+use r2kad_lib::domain::neighbor_table::NeighborTable;
 use r2kad_lib::domain::unlimited_neighbors_routing_table::UnlimitedNeighborsRoutingTable;
 use r2kad_lib::domain::{FlatRoutingTable, NodeId, PNSStrategy, DEFAULT_BUCKET_SIZE};
 use r2kad_lib::messaging::InMemoryMessageHub;
@@ -53,7 +53,7 @@ fn main() {
         TokioContext::new(
             root_id,
             routing_table,
-            NeighborHashTable::new(),
+            NeighborTable::new(),
             PNSStrategy::<
                 UnlimitedNeighborsRoutingTable<DEFAULT_BUCKET_SIZE, 1>,
                 DEFAULT_BUCKET_SIZE,

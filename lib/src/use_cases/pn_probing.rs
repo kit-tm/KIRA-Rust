@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use crate::context::UseCaseContext;
-use crate::domain::{NeighborTable, NodeId};
+use crate::domain::NodeId;
 use crate::messaging::{HelloMessage, ProtocolMessageSender};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
@@ -83,7 +83,6 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     C::MessageSender: ProtocolMessageSender,
-    C::NeighborTable: NeighborTable,
 {
     type Context = C;
     type Error = PNProbingError;
@@ -131,7 +130,7 @@ mod tests {
 
     use crate::broadcaster::{Broadcaster, BusBroadcaster};
     use crate::context::SyncContext;
-    use crate::domain::neighbor_hash_table::NeighborHashTable;
+    use crate::domain::neighbor_table::NeighborTable;
     use crate::domain::{FlatRoutingTable, InsertionStrategyResult, NodeId, TestInsertionStrategy};
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
     use crate::runtime::DummyRuntime;
@@ -144,7 +143,6 @@ mod tests {
         Arc<BusBroadcaster>,
         SyncContext<
             FlatRoutingTable<20, 1>,
-            NeighborHashTable,
             ArcSyncInMemoryMessageHub,
             DummyRuntime<BusBroadcaster>,
             TestInsertionStrategy,
@@ -164,7 +162,7 @@ mod tests {
         let context = SyncContext::new(
             root.clone(),
             routing_table,
-            NeighborHashTable::new(),
+            NeighborTable::new(),
             insertion_strategy,
             hub.clone(),
             DummyRuntime::new(Arc::clone(&broadcaster)),

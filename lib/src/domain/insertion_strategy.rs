@@ -18,10 +18,9 @@ pub enum InsertionStrategyResult {
 ///
 /// The Algorithm can use the [NeighborTable] but is not allowed to insert into it.
 /// This will be handled where the Hello-Messages are handled explicitly.
-pub trait InsertionStrategy<RT, NT, const BUCKET_SIZE: usize>
+pub trait InsertionStrategy<RT, const BUCKET_SIZE: usize>
 where
     RT: RoutingTable<BUCKET_SIZE>,
-    NT: NeighborTable,
 {
     /// Insert the [Contact] into the [RoutingTable].
     ///
@@ -30,7 +29,7 @@ where
         &mut self,
         contact: Contact,
         routing_table: &mut RT,
-        neighbor_table: &NT,
+        neighbor_table: &NeighborTable,
     ) -> InsertionStrategyResult;
 }
 
@@ -141,18 +140,17 @@ where
     }
 }
 
-impl<RT, NT, const BUCKET_SIZE: usize> InsertionStrategy<RT, NT, BUCKET_SIZE>
+impl<RT, const BUCKET_SIZE: usize> InsertionStrategy<RT, BUCKET_SIZE>
     for PNSStrategy<RT, BUCKET_SIZE>
 where
     RT: RoutingTable<BUCKET_SIZE>,
     for<'a> &'a RT: IntoIterator<Item = &'a Contact>,
-    NT: NeighborTable,
 {
     fn insert(
         &mut self,
         mut contact: Contact,
         routing_table: &mut RT,
-        neighbor_table: &NT,
+        neighbor_table: &NeighborTable,
     ) -> InsertionStrategyResult {
         // Ignore paths via us or contacts containing our own id
         if contact.path().contains(routing_table.root()) || contact.id() == routing_table.root() {
@@ -201,17 +199,15 @@ impl From<InsertionStrategyResult> for TestInsertionStrategy {
     }
 }
 
-impl<RT, NT, const BUCKET_SIZE: usize> InsertionStrategy<RT, NT, BUCKET_SIZE>
-    for TestInsertionStrategy
+impl<RT, const BUCKET_SIZE: usize> InsertionStrategy<RT, BUCKET_SIZE> for TestInsertionStrategy
 where
     RT: RoutingTable<BUCKET_SIZE>,
-    NT: NeighborTable,
 {
     fn insert(
         &mut self,
         _contact: Contact,
         _routing_table: &mut RT,
-        _neighbor_table: &NT,
+        _neighbor_table: &NeighborTable,
     ) -> InsertionStrategyResult {
         self.0.clone()
     }

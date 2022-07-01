@@ -4,7 +4,7 @@ pub use sync_context::*;
 #[cfg(feature = "tokio")]
 pub use tokio_context::*;
 
-use crate::domain::NodeId;
+use crate::domain::{NeighborTable, NodeId};
 
 pub mod sync_context;
 #[cfg(feature = "tokio")]
@@ -88,7 +88,6 @@ impl<'a, T> DerefMut for WriteGuard<'a, T> {
 /// concrete implementation.
 pub trait UseCaseContext {
     type RoutingTable: Sized;
-    type NeighborTable: Sized;
     type MessageSender: Sized;
     type Runtime: Sized;
     type InsertionStrategy: Sized;
@@ -101,9 +100,9 @@ pub trait UseCaseContext {
 
     fn routing_table_insertion_strategy(&self) -> WriteGuard<Self::InsertionStrategy>;
 
-    fn neighbor_table(&self) -> ReadGuard<Self::NeighborTable>;
+    fn neighbor_table(&self) -> ReadGuard<NeighborTable>;
 
-    fn neighbor_table_mut(&self) -> WriteGuard<Self::NeighborTable>;
+    fn neighbor_table_mut(&self) -> WriteGuard<NeighborTable>;
 
     fn message_sender(&self) -> ReadGuard<Self::MessageSender>;
 

@@ -8,7 +8,7 @@ use crate::messaging::sender::ProtocolMessageSender;
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
 use crate::{
-    domain::{Contact, NeighborTable, NodeId, RoutingTable},
+    domain::{Contact, NodeId, RoutingTable},
     messaging::messages::{
         DiscRspData, HelloMessage, Nonce, ProtocolMessage, RTableReqType, ReqRspMessage,
     },
@@ -103,7 +103,6 @@ where
     C: UseCaseContext,
     C::RoutingTable: RoutingTable<BUCKET_SIZE>,
     for<'b> &'b C::RoutingTable: IntoIterator<Item = &'b Contact>,
-    C::NeighborTable: NeighborTable,
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
 {
@@ -224,7 +223,6 @@ where
     C: UseCaseContext,
     C::RoutingTable: RoutingTable<BUCKET_SIZE>,
     for<'b> &'b C::RoutingTable: IntoIterator<Item = &'b Contact>,
-    C::NeighborTable: NeighborTable,
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
 {

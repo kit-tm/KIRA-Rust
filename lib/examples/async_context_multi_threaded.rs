@@ -15,8 +15,8 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
 
-use r2kad_lib::context::{UseCaseContext, TokioContext};
-use r2kad_lib::domain::neighbor_hash_table::NeighborHashTable;
+use r2kad_lib::context::{TokioContext, UseCaseContext};
+use r2kad_lib::domain::neighbor_table::NeighborTable;
 use r2kad_lib::domain::unlimited_neighbors_routing_table::UnlimitedNeighborsRoutingTable;
 use r2kad_lib::domain::{FlatRoutingTable, NodeId, PNSStrategy, DEFAULT_BUCKET_SIZE};
 use r2kad_lib::messaging::InMemoryMessageHub;
@@ -64,7 +64,7 @@ fn main() {
     let context = Arc::new(TokioContext::new(
         root_id,
         routing_table,
-        NeighborHashTable::new(),
+        NeighborTable::new(),
         insertion_strategy,
         InMemoryMessageHub::new(),
         TokioRuntime::new(broadcaster.clone(), Arc::clone(&runtime)),

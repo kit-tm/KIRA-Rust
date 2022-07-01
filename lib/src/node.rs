@@ -2,9 +2,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::context::UseCaseContext;
-use crate::domain::{
-    Contact, InsertionStrategy, NeighborTable, NodeId, Port, RoutingTable, DEFAULT_BUCKET_SIZE,
-};
+use crate::domain::{Contact, InsertionStrategy, RoutingTable, DEFAULT_BUCKET_SIZE};
 use crate::messaging::ProtocolMessageSender;
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::bootstrap::{BootstrapConfig, BootstrapUseCase};
@@ -59,11 +57,9 @@ where
     C: UseCaseContext,
     C::RoutingTable: RoutingTable<BUCKET_SIZE>,
     for<'b> &'b C::RoutingTable: IntoIterator<Item = &'b Contact>,
-    C::NeighborTable: NeighborTable,
-    for<'b> &'b C::NeighborTable: IntoIterator<Item = (&'b NodeId, &'b Port)>,
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
-    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::NeighborTable, BUCKET_SIZE>,
+    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, BUCKET_SIZE>,
 {
     pub fn new(config: Config, context: C) -> Self {
         Self {
