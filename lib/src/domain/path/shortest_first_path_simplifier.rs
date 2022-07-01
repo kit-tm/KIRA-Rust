@@ -1,41 +1,21 @@
-use std::ops::{Deref, DerefMut};
+use crate::domain::simplifier::PathSimplifier;
+use crate::domain::{NeighborTable, Path, RoutingTable};
 
-use super::{NeighborTable, Path, RoutingTable};
+pub struct ShortestFirstPathSimplifier;
 
-pub struct PathSimplifier<'a>(&'a mut Path);
-
-impl<'a> From<&'a mut Path> for PathSimplifier<'a> {
-    fn from(path: &'a mut Path) -> Self {
-        Self(path)
-    }
-}
-
-impl Deref for PathSimplifier<'_> {
-    type Target = Path;
-
-    fn deref(&self) -> &Self::Target {
-        self.0
-    }
-}
-
-impl DerefMut for PathSimplifier<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl PathSimplifier<'_> {
+impl PathSimplifier for ShortestFirstPathSimplifier {
     /// Simplifies the [Path] by replacing parts of it with known
     /// shorter [Path]s.
-    pub fn simplify<RT, const BUCKET_SIZE: usize>(
+    fn simplify<RT, const BUCKET_SIZE: usize>(
         &mut self,
         routing_table: &RT,
         neighbor_table: &NeighborTable,
+        path: &mut Path,
     ) where
         RT: RoutingTable<BUCKET_SIZE>,
     {
         // Already a neighbor, can't be shortened
-        if self.0.len() <= 1 {
+        if path.len() <= 1 {
             return;
         }
 
@@ -45,27 +25,27 @@ impl PathSimplifier<'_> {
         // First replace all neighbors as these have the shortest path
         //
         // Not checking index 0, as neighbor paths can't be simplified
-        for dest_index in (1..self.len()).rev() {
-            let dest_id = self[dest_index].clone();
+        for dest_index in (1..path.len()).rev() {
+            let dest_id = path[dest_index].clone();
 
             // Replace if target is a neighbor
             if neighbor_table.contains(&dest_id) {
-                self.replace_interval(0, dest_index, [dest_id]);
+                path.replace_interval(0, dest_index, [dest_id]);
                 // Breaking, as the remaining path to check is replaced by the neighbors path
                 break;
             }
         }
 
         // Now we replace all non-neighbor paths
-        for dest_index in (1..self.len()).rev() {
+        for dest_index in (1..path.len()).rev() {
             let part_len = dest_index + 1;
-            let dest_id = self[dest_index].clone();
+            let dest_id = path[dest_index].clone();
 
             // Replace if a shorter path to destination is known in RT
             if let Some(known_contact) = routing_table.contact(&dest_id) {
                 let whole_path = known_contact.whole_path();
                 if whole_path.len() < part_len {
-                    self.replace_interval(0, dest_index, whole_path);
+                    path.replace_interval(0, dest_index, whole_path);
                     break;
                 }
             }
@@ -81,10 +61,11 @@ impl PathSimplifier<'_> {
 #[cfg(test)]
 mod tests {
     use crate::domain::{
-        Age, Contact, FlatRoutingTable, NeighborTable, NodeId, Path, Port, RoutingTable, StateSeqNr,
+        Age, Contact, FlatRoutingTable, NeighborTable, NodeId, Path, PathSimplifier, Port,
+        RoutingTable, StateSeqNr,
     };
 
-    use super::PathSimplifier;
+    use super::ShortestFirstPathSimplifier;
 
     #[test]
     fn simplify_neighbor_part() -> Result<(), Box<dyn std::error::Error>> {
@@ -101,13 +82,11 @@ mod tests {
         ]);
 
         let mut cloned = path.clone();
-        let mut simplifier = PathSimplifier::from(&mut cloned);
 
-        simplifier.simplify(&routing_table, &neighbor_table);
+        ShortestFirstPathSimplifier.simplify(&routing_table, &neighbor_table, &mut cloned);
 
-        assert_ne!(*simplifier, path);
         assert_eq!(
-            *simplifier,
+            cloned,
             Path::from([NodeId::with_lsb(0), NodeId::with_lsb(0b10101010),])
         );
 
@@ -128,12 +107,10 @@ mod tests {
         ]);
 
         let mut cloned = path.clone();
-        let mut simplifier = PathSimplifier::from(&mut cloned);
 
-        simplifier.simplify(&routing_table, &neighbor_table);
+        ShortestFirstPathSimplifier.simplify(&routing_table, &neighbor_table, &mut cloned);
 
-        assert_ne!(*simplifier, path);
-        assert_eq!(*simplifier, Path::from([NodeId::with_lsb(0),]));
+        assert_eq!(cloned, Path::from([NodeId::with_lsb(0),]));
 
         Ok(())
     }
@@ -159,13 +136,12 @@ mod tests {
         ]);
 
         let mut cloned = path.clone();
-        let mut simplifier = PathSimplifier::from(&mut cloned);
 
-        simplifier.simplify(&routing_table, &neighbor_table);
+        ShortestFirstPathSimplifier.simplify(&routing_table, &neighbor_table, &mut cloned);
 
-        assert_ne!(*simplifier, path);
+        assert_ne!(cloned, path);
         assert_eq!(
-            *simplifier,
+            cloned,
             Path::from([
                 NodeId::with_lsb(1),
                 NodeId::with_lsb(2),
@@ -199,15 +175,11 @@ mod tests {
         ]);
 
         let mut cloned = path.clone();
-        let mut simplifier = PathSimplifier::from(&mut cloned);
 
-        simplifier.simplify(&routing_table, &neighbor_table);
+        ShortestFirstPathSimplifier.simplify(&routing_table, &neighbor_table, &mut cloned);
 
-        assert_ne!(*simplifier, path);
-        assert_eq!(
-            *simplifier,
-            Path::from([NodeId::zero(), NodeId::with_lsb(1),])
-        );
+        assert_ne!(cloned, path);
+        assert_eq!(cloned, Path::from([NodeId::zero(), NodeId::with_lsb(1),]));
 
         Ok(())
     }

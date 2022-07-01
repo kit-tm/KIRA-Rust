@@ -1,6 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::domain::{AddError, Contact, InsertionError, NodeId, RoutingTable, State};
+use crate::domain::{
+    AddError, Contact, InsertionError, NodeId, PathCycleRemover, RoutingTable, State,
+};
 
 use super::{NeighborTable, PathSimplifier};
 
@@ -34,19 +36,23 @@ where
 }
 
 #[derive(Debug, Default)]
-pub struct PNSStrategy<RT, const BUCKET_SIZE: usize> {
+pub struct PNSStrategy<RT, CR, PS, const BUCKET_SIZE: usize> {
     _pd: PhantomData<RT>,
+    path_cycle_remover: CR,
+    path_simplifier: PS,
 }
 
-impl<RT, const BUCKET_SIZE: usize> PNSStrategy<RT, BUCKET_SIZE> {
-    pub fn new() -> Self {
+impl<RT, CR, PS, const BUCKET_SIZE: usize> PNSStrategy<RT, CR, PS, BUCKET_SIZE> {
+    pub fn new(path_cycle_remover: CR, path_simplifier: PS) -> Self {
         Self {
             _pd: PhantomData::default(),
+            path_cycle_remover,
+            path_simplifier,
         }
     }
 }
 
-impl<RT, const BUCKET_SIZE: usize> PNSStrategy<RT, BUCKET_SIZE>
+impl<RT, CR, PS, const BUCKET_SIZE: usize> PNSStrategy<RT, CR, PS, BUCKET_SIZE>
 where
     RT: RoutingTable<BUCKET_SIZE>,
 {
@@ -140,11 +146,13 @@ where
     }
 }
 
-impl<RT, const BUCKET_SIZE: usize> InsertionStrategy<RT, BUCKET_SIZE>
-    for PNSStrategy<RT, BUCKET_SIZE>
+impl<RT, CR, PS, const BUCKET_SIZE: usize> InsertionStrategy<RT, BUCKET_SIZE>
+    for PNSStrategy<RT, CR, PS, BUCKET_SIZE>
 where
     RT: RoutingTable<BUCKET_SIZE>,
     for<'a> &'a RT: IntoIterator<Item = &'a Contact>,
+    CR: PathCycleRemover,
+    PS: PathSimplifier,
 {
     fn insert(
         &mut self,
@@ -166,8 +174,10 @@ where
         // Uses the Path containing the id of the contact
         // itself to include it in the process
         let mut whole_path = contact.whole_path();
-        whole_path.remove_cycles();
-        PathSimplifier::from(&mut whole_path).simplify(routing_table, neighbor_table);
+        self.path_cycle_remover
+            .remove_cycles_in_place(&mut whole_path);
+        self.path_simplifier
+            .simplify(routing_table, neighbor_table, &mut whole_path);
         whole_path.pop();
         *contact.path_mut() = whole_path;
 

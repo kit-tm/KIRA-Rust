@@ -18,7 +18,10 @@ use tokio::sync::broadcast::Receiver;
 use r2kad_lib::context::{TokioContext, UseCaseContext};
 use r2kad_lib::domain::neighbor_table::NeighborTable;
 use r2kad_lib::domain::unlimited_neighbors_routing_table::UnlimitedNeighborsRoutingTable;
-use r2kad_lib::domain::{FlatRoutingTable, NodeId, PNSStrategy, DEFAULT_BUCKET_SIZE};
+use r2kad_lib::domain::{
+    FlatRoutingTable, InOrderCycleRemover, NodeId, PNSStrategy, ShortestFirstPathSimplifier,
+    DEFAULT_BUCKET_SIZE,
+};
 use r2kad_lib::messaging::InMemoryMessageHub;
 use r2kad_lib::node::Config;
 use r2kad_lib::runtime::TokioRuntime;
@@ -57,8 +60,10 @@ fn main() {
 
     let insertion_strategy = PNSStrategy::<
         UnlimitedNeighborsRoutingTable<DEFAULT_BUCKET_SIZE, 1>,
+        _,
+        _,
         DEFAULT_BUCKET_SIZE,
-    >::new();
+    >::new(InOrderCycleRemover, ShortestFirstPathSimplifier);
 
     // Create the desired Context in which the Use Cases will run
     let context = Arc::new(TokioContext::new(

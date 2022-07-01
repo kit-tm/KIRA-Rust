@@ -6,6 +6,11 @@ use crate::domain::NodeId;
 
 use super::Link;
 
+pub mod cycle_remover;
+pub mod in_order_cycle_remover;
+pub mod shortest_first_path_simplifier;
+pub mod simplifier;
+
 /// A Path of [NodeId]s.
 ///
 /// This implementation is backed by a [Vec].
@@ -94,33 +99,6 @@ impl Path {
         let num = end_index - start_index;
         for _ in 0..num {
             self.ids.remove(start_index);
-        }
-    }
-    /// Simpplify the [Path] by removing cycles.
-    pub fn remove_cycles(&mut self) {
-        // This is the place where cycle removing algorithms
-        // Could replace the concrete algorithm used here.
-        if self.len() < 2 {
-            return;
-        }
-
-        let mut iter = self.ids.clone().into_iter();
-        let mut index = 0;
-        while let Some(id) = iter.next() {
-            if index == self.ids.len() {
-                // skipped enough to have reached the last element
-                break;
-            }
-            let remaining_ids = &self.ids[(index + 1)..];
-            let pos = remaining_ids
-                .iter()
-                .position(|duplicate_id| duplicate_id == &id);
-            if let Some(end) = pos {
-                let end = index + 1 + end;
-                iter.nth(end - index - 1);
-                self.remove_in(index, end);
-            }
-            index += 1;
         }
     }
 
@@ -320,94 +298,6 @@ mod tests {
             Path::from([
                 NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
                 NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]),
-            ])
-        );
-    }
-
-    #[test]
-    fn path_simplify() {
-        let mut path = Path::from([
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]),
-        ]);
-
-        path.remove_cycles();
-
-        assert_eq!(
-            path,
-            Path::from([
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]),
-            ])
-        );
-    }
-
-    #[test]
-    fn path_simplify_start() {
-        let mut path = Path::from([
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]),
-        ]);
-
-        path.remove_cycles();
-
-        assert_eq!(
-            path,
-            Path::from([
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]),
-            ])
-        );
-    }
-
-    #[test]
-    fn path_simplify_end() {
-        let mut path = Path::from([
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
-        ]);
-
-        path.remove_cycles();
-
-        assert_eq!(
-            path,
-            Path::from([
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
-            ])
-        );
-    }
-
-    #[test]
-    fn path_simplify_multiple() {
-        let mut path = Path::from([
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
-        ]);
-
-        path.remove_cycles();
-
-        assert_eq!(
-            path,
-            Path::from([
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
             ])
         );
     }
