@@ -1,32 +1,8 @@
-use std::fmt::{Display, Formatter};
-
-use crate::domain::StateSeqNr;
+use crate::domain::{Port, StateSeqNr};
 
 use super::NodeId;
 
 pub mod neighbor_hash_table;
-
-/// Represents a logical [Port] where a [Message] can be received from or sent to.
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum Port {
-    All,
-    Named(String),
-}
-
-impl Port {
-    pub fn new(id: String) -> Self {
-        Self::Named(id)
-    }
-}
-
-impl Display for Port {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::All => write!(f, "All"),
-            Self::Named(name) => write!(f, "Port [\"{}\"]", name),
-        }
-    }
-}
 
 /// Maps [NodeId]s to [Port]s.
 pub trait NeighborTable {
