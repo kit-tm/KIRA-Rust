@@ -7,14 +7,14 @@ use crate::messaging::ProtocolMessageSender;
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::bootstrap::{BootstrapConfig, BootstrapUseCase};
 use crate::use_cases::handle_hello::HandleHelloUseCase;
-use crate::use_cases::pn_probing::{PNProbingConfig, PNProbingUseCase};
+use crate::use_cases::periodic_pn_advertising::{self, PeriodicPNAdvertising};
 use crate::use_cases::random_probing::{RandomProbingConfig, RandomProbingUseCase};
 use crate::use_cases::{UseCase, UseCaseEvent, UseCaseState};
 
 #[derive(Debug, Default, Clone)]
 pub struct Config {
     pub bootstrap: BootstrapConfig,
-    pub pn_probing: PNProbingConfig,
+    pub pn_probing: periodic_pn_advertising::Config,
     pub random_probing: RandomProbingConfig,
 }
 
@@ -47,7 +47,7 @@ impl Error for HandleMessageError {}
 pub struct Node<C, const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE> {
     context: C,
     bootstrap: BootstrapUseCase<C, BUCKET_SIZE>,
-    pn_probing: PNProbingUseCase<C, BUCKET_SIZE>,
+    pn_probing: PeriodicPNAdvertising<C, BUCKET_SIZE>,
     random_probing: RandomProbingUseCase<C, BUCKET_SIZE>,
     handle_hello: HandleHelloUseCase<C, BUCKET_SIZE>,
 }
@@ -65,7 +65,7 @@ where
         Self {
             context,
             bootstrap: BootstrapUseCase::new(config.bootstrap),
-            pn_probing: PNProbingUseCase::new(config.pn_probing),
+            pn_probing: PeriodicPNAdvertising::new(config.pn_probing),
             random_probing: RandomProbingUseCase::new(config.random_probing),
             handle_hello: HandleHelloUseCase::new(),
         }

@@ -1,12 +1,12 @@
+use crate::domain::Port;
 use std::error::Error;
 use std::ops::Deref;
-use crate::domain::Port;
 
 use crate::messaging::messages::ProtocolMessage;
 
 pub mod bootstrap;
 pub mod handle_hello;
-pub mod pn_probing;
+pub mod periodic_pn_advertising;
 pub mod random_probing;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
