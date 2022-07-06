@@ -9,9 +9,7 @@ use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
 use crate::{
     domain::{Contact, NodeId, RoutingTable},
-    messaging::messages::{
-        DiscRspData, HelloMessage, Nonce, ProtocolMessage, RTableReqType, ReqRspMessage,
-    },
+    messaging::messages::{HelloMessage, Nonce, ProtocolMessage, RTableData, ReqRspMessage},
 };
 
 #[derive(Debug)]
@@ -158,9 +156,7 @@ where
                 nonce,
                 source: context.root_id().clone(),
                 destination: contact.id().clone(),
-                data: QueryRouteReqData {
-                    req_type: RTableReqType::NeighborHood(1),
-                },
+                data: QueryRouteReqData,
             };
             self.send_message(context, message)?;
         }
@@ -180,10 +176,7 @@ where
             nonce: nonce.clone(),
             source: context.root_id().clone(),
             destination: NodeId::zero(),
-            data: FindNodeReqData {
-                req_type: RTableReqType::NeighborHood(config.initial_neighborhood_size),
-                exact: false,
-            },
+            data: FindNodeReqData { exact: false },
         };
 
         self.send_message(context, message)?;
@@ -201,7 +194,7 @@ where
         &mut self,
         context: &C,
         config: &BootstrapConfig,
-        message: ReqRspMessage<DiscRspData>,
+        message: ReqRspMessage<RTableData>,
     ) -> Result<(), BootstrapError> {
         // Remove nonces if possible
         if let BootstrapState::WaitingFor2HopVicinity(nonces, _) = &mut self.state {

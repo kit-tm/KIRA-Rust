@@ -5,9 +5,7 @@ use std::time::Duration;
 
 use crate::context::UseCaseContext;
 use crate::domain::RoutingTable;
-use crate::messaging::{
-    FindNodeReqData, Nonce, ProtocolMessageSender, RTableReqType, ReqRspMessage,
-};
+use crate::messaging::{FindNodeReqData, Nonce, ProtocolMessageSender, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
 
@@ -81,10 +79,7 @@ where
                     nonce: Nonce::random(),
                     source: context.root_id().clone(),
                     destination: random_id.unwrap(),
-                    data: FindNodeReqData {
-                        req_type: RTableReqType::NeighborHood(self.config.neighborhood_size),
-                        exact: false,
-                    },
+                    data: FindNodeReqData { exact: false },
                 };
 
                 if let Err(e) = context.message_sender_mut().send(message) {

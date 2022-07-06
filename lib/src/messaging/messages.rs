@@ -22,11 +22,11 @@ impl Nonce {
 pub enum ProtocolMessage {
     Hello(HelloMessage),
     PNDiscReq(ReqRspMessage<PNDiscReqData>),
-    PNDiscRsp(ReqRspMessage<DiscRspData>),
+    PNDiscRsp(ReqRspMessage<RTableData>),
     QueryRouteReq(ReqRspMessage<QueryRouteReqData>),
-    QueryRouteRsp(ReqRspMessage<DiscRspData>),
+    QueryRouteRsp(ReqRspMessage<RTableData>),
     FindNodeReq(ReqRspMessage<FindNodeReqData>),
-    FindNodeRsp(ReqRspMessage<DiscRspData>),
+    FindNodeRsp(ReqRspMessage<RTableData>),
     Error(ReqRspMessage<ErrorData>),
 }
 
@@ -57,14 +57,7 @@ pub struct ReqRspMessage<T: std::fmt::Debug> {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub enum RTableReqType {
-    NeighborHood(u64),
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct PNDiscReqData {
-    pub req_type: RTableReqType,
     pub contacts: Vec<Contact>,
 }
 
@@ -76,15 +69,13 @@ impl From<ReqRspMessage<PNDiscReqData>> for ProtocolMessage {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub enum DiscRspData {
-    RTable(Vec<Contact>),
+pub struct RTableData {
+    contacts: Vec<Contact>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct QueryRouteReqData {
-    pub req_type: RTableReqType,
-}
+pub struct QueryRouteReqData;
 
 impl From<ReqRspMessage<QueryRouteReqData>> for ProtocolMessage {
     fn from(message: ReqRspMessage<QueryRouteReqData>) -> Self {
@@ -97,7 +88,6 @@ impl From<ReqRspMessage<QueryRouteReqData>> for ProtocolMessage {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct FindNodeReqData {
-    pub req_type: RTableReqType,
     pub exact: bool,
 }
 

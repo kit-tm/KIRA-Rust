@@ -6,8 +6,7 @@ use std::ops::{Deref, DerefMut};
 use crate::context::UseCaseContext;
 use crate::domain::{Age, Contact, InsertionStrategy, InsertionStrategyResult, Path, RoutingTable};
 use crate::messaging::{
-    HelloMessage, Nonce, PNDiscReqData, ProtocolMessage, ProtocolMessageSender, RTableReqType,
-    ReqRspMessage,
+    HelloMessage, Nonce, PNDiscReqData, ProtocolMessage, ProtocolMessageSender, ReqRspMessage,
 };
 use crate::use_cases::{UseCase, UseCaseEvent, UseCaseState};
 
@@ -141,7 +140,6 @@ where
                 source: destination,
                 destination: source,
                 data: PNDiscReqData {
-                    req_type: RTableReqType::NeighborHood(1),
                     contacts: neighbor_contacts,
                 },
             };
