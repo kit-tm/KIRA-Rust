@@ -9,7 +9,7 @@ pub struct InOrderCycleRemover;
 
 impl PathCycleRemover for InOrderCycleRemover {
     fn remove_cycles_in_place(&mut self, path: &mut Path) {
-        if path.len() < 2 {
+        if path.size() < 2 {
             return;
         }
 

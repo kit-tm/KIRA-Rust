@@ -15,7 +15,7 @@ impl PathSimplifier for ShortestFirstPathSimplifier {
         RT: RoutingTable<BUCKET_SIZE>,
     {
         // Already a physical neighbor, can't be shortened
-        if path.len() <= 1 {
+        if path.size() <= 1 {
             return;
         }
 
@@ -25,7 +25,7 @@ impl PathSimplifier for ShortestFirstPathSimplifier {
         // First replace all physical neighbors as these have the shortest path
         //
         // Not checking index 0, as physical neighbor paths can't be simplified
-        for dest_index in (1..path.len()).rev() {
+        for dest_index in (1..path.size()).rev() {
             let dest_id = path[dest_index].clone();
 
             // Replace if target is a physical neighbor
@@ -37,15 +37,15 @@ impl PathSimplifier for ShortestFirstPathSimplifier {
         }
 
         // Now we replace all non-physical-neighbor paths
-        for dest_index in (1..path.len()).rev() {
+        for dest_index in (1..path.size()).rev() {
             let part_len = dest_index + 1;
             let dest_id = path[dest_index].clone();
 
             // Replace if a shorter path to destination is known in RT
             if let Some(known_contact) = routing_table.contact(&dest_id) {
-                let whole_path = known_contact.whole_path();
-                if whole_path.len() < part_len {
-                    path.replace_interval(0, dest_index, whole_path);
+                let known_path = known_contact.path().clone();
+                if known_path.size() < part_len {
+                    path.replace_interval(0, dest_index, known_path);
                     break;
                 }
             }
@@ -121,9 +121,8 @@ mod tests {
 
         let mut routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;
         routing_table.add(Contact::new(
-            NodeId::zero(),
+            Path::from([NodeId::with_lsb(1), NodeId::with_lsb(2), NodeId::zero()]),
             Age::from(0),
-            Path::from([NodeId::with_lsb(1), NodeId::with_lsb(2)]),
             StateSeqNr::from(0),
         ))?;
 
@@ -160,9 +159,8 @@ mod tests {
 
         let mut routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;
         routing_table.add(Contact::new(
-            NodeId::one(),
+            Path::from([NodeId::with_lsb(1), NodeId::with_lsb(2), NodeId::one()]),
             Age::from(0),
-            Path::from([NodeId::with_lsb(1), NodeId::with_lsb(2)]),
             StateSeqNr::from(0),
         ))?;
 

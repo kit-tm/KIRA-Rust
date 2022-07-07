@@ -88,7 +88,7 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<BUCKET_SIZE>
 
     fn add(&mut self, contact: Contact) -> Result<(), AddError> {
         // Add to physical neighbors if possible
-        if contact.path().is_empty() {
+        if contact.is_pn() {
             if self.pn_contacts.contains_key(contact.id()) {
                 return Err(AddError::AlreadyExists(contact.into_id()));
             }

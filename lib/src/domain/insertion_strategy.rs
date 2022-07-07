@@ -75,7 +75,7 @@ where
             return InsertionStrategyResult::Dropped;
         }
         // Drop if path is longer
-        if contact.path().len() > existing.path().len() {
+        if contact.path().size() > existing.path().size() {
             return InsertionStrategyResult::Dropped;
         }
 
@@ -129,7 +129,7 @@ where
             .iter_mut()
             // Invariant: acc contains the contact with the longest path in the bucket after processing the first entry
             .fold(Option::<&mut Contact>::None, |acc, contact| {
-                if acc.is_none() || acc.as_ref().unwrap().path().len() < contact.path().len() {
+                if acc.is_none() || acc.as_ref().unwrap().path().size() < contact.path().size() {
                     Some(contact)
                 } else {
                     acc
@@ -165,21 +165,18 @@ where
             return InsertionStrategyResult::Dropped;
         }
         // If the first element is no physical neighbor or the Path is empty -> Drop
-        match contact.path().first().map(|id| pn_table.contains(id)) {
-            None | Some(false) => return InsertionStrategyResult::Dropped,
-            Some(true) => {}
-        };
+        if !pn_table.contains(contact.path().first()) {
+            return InsertionStrategyResult::Dropped;
+        }
 
         // remove cycles and simplify
         // Uses the Path containing the id of the contact
         // itself to include it in the process
-        let mut whole_path = contact.whole_path();
-        self.path_cycle_remover
-            .remove_cycles_in_place(&mut whole_path);
+        let mut path = contact.path().clone();
+        self.path_cycle_remover.remove_cycles_in_place(&mut path);
         self.path_simplifier
-            .simplify(routing_table, pn_table, &mut whole_path);
-        whole_path.pop();
-        *contact.path_mut() = whole_path;
+            .simplify(routing_table, pn_table, &mut path);
+        *contact.path_mut() = path;
 
         match routing_table.insert(contact.clone()) {
             Err(InsertionError::BucketSplit(_)) => {

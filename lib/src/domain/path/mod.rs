@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::ops::Index;
 use std::slice::SliceIndex;
@@ -14,6 +15,11 @@ pub mod simplifier;
 /// A Path of [NodeId]s.
 ///
 /// This implementation is backed by a [Vec].
+///
+/// # Invariant
+///
+/// A valid Path is not empty at any time.
+/// Therefore the methods panic or return errors when constructing empty [Path]s.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Path {
@@ -30,39 +36,57 @@ impl From<Vec<NodeId>> for Path {
     }
 }
 
-impl From<&[NodeId]> for Path {
-    fn from(slice: &[NodeId]) -> Self {
-        Self {
-            ids: Vec::from(slice),
+#[derive(Debug, Eq, PartialEq)]
+pub struct EmptyPathError;
+
+impl Display for EmptyPathError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Empty paths are not allowed")
+    }
+}
+
+impl Error for EmptyPathError {}
+
+impl TryFrom<&[NodeId]> for Path {
+    type Error = EmptyPathError;
+    fn try_from(slice: &[NodeId]) -> Result<Self, Self::Error> {
+        if slice.is_empty() {
+            return Err(EmptyPathError);
         }
+
+        Ok(Self {
+            ids: Vec::from(slice),
+        })
     }
 }
 
 impl<const PATH_SIZE: usize> From<[NodeId; PATH_SIZE]> for Path {
     fn from(raw: [NodeId; PATH_SIZE]) -> Self {
+        if PATH_SIZE == 0 {
+            panic!("{}", EmptyPathError);
+        }
         Self {
             ids: Vec::from(raw),
         }
     }
 }
 
-impl Path {
-    /// Creates an empty [Path].
-    pub const fn empty() -> Self {
-        Path { ids: Vec::new() }
+impl From<NodeId> for Path {
+    fn from(raw: NodeId) -> Self {
+        Self { ids: vec![raw] }
     }
+}
 
+impl Path {
     /// Reverses the [Path] in-place.
     pub fn reverse(&mut self) {
         self.ids.reverse();
     }
-    /// Length of the [Path] in numbers of Nodes.
-    pub fn len(&self) -> usize {
+    /// Size of the [Path] in numbers of Nodes.
+    ///
+    /// Is always > 0 as Path has to contain the [Contact]s NodeId at the end.
+    pub fn size(&self) -> usize {
         self.ids.len()
-    }
-    /// Returns if the Path is empty.
-    pub fn is_empty(&self) -> bool {
-        self.ids.is_empty()
     }
     /// Returns if the [Path] contains the [NodeId].
     pub fn contains(&self, id: &NodeId) -> bool {
@@ -76,20 +100,20 @@ impl Path {
             .any(|(first, second)| first == &link.0 && second == &link.1)
     }
     /// Returns the first entry in the [Path].
-    pub fn first(&self) -> Option<&NodeId> {
-        self.ids.first()
+    pub fn first(&self) -> &NodeId {
+        self.ids
+            .first()
+            .expect("Invalid state. Empty path constructed")
     }
     /// Returns the last entry in the [Path].
-    pub fn last(&self) -> Option<&NodeId> {
-        self.ids.last()
+    pub fn last(&self) -> &NodeId {
+        self.ids
+            .last()
+            .expect("Invalid state. Empty path constructed")
     }
     /// Pushs a [NodeId] to the end of the [Path].
     pub fn push(&mut self, id: NodeId) {
         self.ids.push(id);
-    }
-    /// Removes the last [NodeId] and returns it.
-    pub fn pop(&mut self) -> Option<NodeId> {
-        self.ids.pop()
     }
     /// Remove all entries inside the interval [start_index, end_index).
     /// Note that the end_index is excluded.
@@ -156,7 +180,7 @@ impl Display for Path {
 
 impl PartialEq<Self> for Path {
     fn eq(&self, other: &Self) -> bool {
-        if self.len() != other.len() {
+        if self.size() != other.size() {
             return false;
         }
         for (left, right) in self.ids.iter().zip(other.ids.iter()) {

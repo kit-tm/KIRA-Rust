@@ -292,12 +292,7 @@ mod routing_tests {
     fn test_add() -> Result<(), Box<dyn Error>> {
         let mut table = FlatRoutingTable::<1, 1>::new(NodeId::zero())?;
 
-        let contact = Contact::new(
-            NodeId::one(),
-            Age::from(1),
-            Path::empty(),
-            StateSeqNr::from(1),
-        );
+        let contact = Contact::new(Path::from(NodeId::one()), Age::from(1), StateSeqNr::from(1));
 
         assert_eq!(table.add(contact), Ok(()));
 
@@ -309,17 +304,15 @@ mod routing_tests {
         let mut table = FlatRoutingTable::<1, 1>::new(NodeId::zero())?;
 
         table.add(Contact::new(
-            NodeId::with_lsb(1),
+            Path::from(NodeId::with_lsb(1)),
             Age::from(0),
-            Path::empty(),
             StateSeqNr::from(0),
         ))?;
 
         assert_eq!(
             table.add(Contact::new(
-                NodeId::with_lsb(2),
+                Path::from(NodeId::with_lsb(2)),
                 Age::from(0),
-                Path::empty(),
                 StateSeqNr::from(0),
             )),
             Err(AddError::NotAdded)
@@ -335,9 +328,8 @@ mod routing_tests {
         let mut table = FlatRoutingTable::<1, 1>::new(NodeId::zero())?;
 
         table.add(Contact::new(
-            NodeId::one(),
+            Path::from(NodeId::one()),
             Age::from(0),
-            Path::empty(),
             StateSeqNr::from(0),
         ))?;
 
@@ -353,66 +345,57 @@ mod routing_tests {
         let mut table = FlatRoutingTable::<1, 1>::new(NodeId::zero())?;
 
         table.insert(Contact::new(
-            NodeId::with_lsb(0b00000001),
+            Path::from(NodeId::with_lsb(0b00000001)),
             Age::from(0),
-            Path::empty(),
             StateSeqNr::from(0),
         ))?;
 
         table.insert(Contact::new(
-            NodeId::with_lsb(0b00000010),
+            Path::from(NodeId::with_lsb(0b00000010)),
             Age::from(0),
-            Path::empty(),
             StateSeqNr::from(0),
         ))?;
 
         table.insert(Contact::new(
-            NodeId::with_lsb(0b00000100),
+            Path::from(NodeId::with_lsb(0b00000100)),
             Age::from(0),
-            Path::empty(),
             StateSeqNr::from(0),
         ))?;
 
         table.insert(Contact::new(
-            NodeId::with_lsb(0b00001000),
+            Path::from(NodeId::with_lsb(0b00001000)),
             Age::from(0),
-            Path::empty(),
             StateSeqNr::from(0),
         ))?;
 
         table.insert(Contact::new(
-            NodeId::with_lsb(0b00010000),
+            Path::from(NodeId::with_lsb(0b00010000)),
             Age::from(0),
-            Path::empty(),
             StateSeqNr::from(0),
         ))?;
 
         table.insert(Contact::new(
-            NodeId::with_lsb(0b00100000),
+            Path::from(NodeId::with_lsb(0b00100000)),
             Age::from(0),
-            Path::empty(),
             StateSeqNr::from(0),
         ))?;
 
         table.insert(Contact::new(
-            NodeId::with_lsb(0b01000000),
+            Path::from(NodeId::with_lsb(0b01000000)),
             Age::from(0),
-            Path::empty(),
             StateSeqNr::from(0),
         ))?;
 
         table.insert(Contact::new(
-            NodeId::with_lsb(0b10000000),
+            Path::from(NodeId::with_lsb(0b10000000)),
             Age::from(0),
-            Path::empty(),
             StateSeqNr::from(0),
         ))?;
 
         assert!(table
             .insert(Contact::new(
-                NodeId::with_lsb(0b00010111),
+                Path::from(NodeId::with_lsb(0b00010111)),
                 Age::from(0),
-                Path::empty(),
                 StateSeqNr::from(0),
             ))
             .is_err());

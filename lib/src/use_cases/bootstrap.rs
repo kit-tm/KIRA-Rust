@@ -136,7 +136,7 @@ where
             .deref()
             .into_iter() // TODO: Provide function for that in Routing Table?
             .filter_map(|contact: &Contact| {
-                if contact.path().len() == 1 {
+                if contact.path().size() == 1 {
                     // Physical Neighbors => path.len() = 0, 1-Hop Neighbors => path.len() = 1
                     Some(contact.clone())
                 } else {

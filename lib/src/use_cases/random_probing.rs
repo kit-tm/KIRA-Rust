@@ -192,9 +192,8 @@ mod tests {
 
         // Insert a single contact into the routing table
         let contact = Contact::new(
-            NodeId::random(),
+            Path::from(NodeId::random()),
             Age::from(0),
-            Path::empty(),
             StateSeqNr::from(0),
         );
         context

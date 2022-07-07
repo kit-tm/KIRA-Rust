@@ -78,13 +78,9 @@ pub struct RediscoveryState {
 }
 
 /// A [Contact] as represented in the [RoutingTable].
-///
-/// The [Path] of a [Contact] is guaranteed to end with the [Contact]s
-/// [NodeId].
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Contact {
-    id: NodeId,
     state: State,
     age: Age,
     last_seen: Timestamp,
@@ -97,7 +93,12 @@ impl Display for Contact {
         write!(
             f,
             "Contact#{} {} [age: {}, last_seen: {}, state_seq_nr: {}, state: {}]",
-            self.id, self.path, self.age, self.last_seen, self.state_seq_nr, self.state
+            self.id(),
+            self.path,
+            self.age,
+            self.last_seen,
+            self.state_seq_nr,
+            self.state
         )
     }
 }
@@ -105,12 +106,9 @@ impl Display for Contact {
 impl Contact {
     /// Creates a new [Contact] with default values.
     ///
-    /// The [Path] is not allowed to end with the given [NodeId]
-    /// for the [Contact] but won't be checked.
-    pub fn new(id: NodeId, age: Age, path: Path, state_seq_nr: StateSeqNr) -> Self {
-        assert!(path.last() != Some(&id));
+    /// The given [Path] has to end with the [NodeId] of the Contact.
+    pub fn new(path: Path, age: Age, state_seq_nr: StateSeqNr) -> Self {
         Self {
-            id,
             state: State::Valid,
             age,
             last_seen: Timestamp::from(Utc::now()),
@@ -120,11 +118,11 @@ impl Contact {
     }
 
     pub fn id(&self) -> &NodeId {
-        &self.id
+        self.path.last()
     }
 
     pub fn into_id(self) -> NodeId {
-        self.id
+        self.path.last().clone()
     }
 
     pub fn state(&self) -> &State {
@@ -138,7 +136,7 @@ impl Contact {
     /// Returns if the [Contact] represents a physical neighbor.
     pub fn is_pn(&self) -> bool {
         // FIXME: Invariant is, that path doesn't contain the own node_id. whole_path Method is for that.
-        self.path.len() == 1
+        self.path.size() == 1
     }
 
     pub fn age(&self) -> &Age {
@@ -157,22 +155,18 @@ impl Contact {
         &mut self.last_seen
     }
 
-    /// Returns the [Path] to the [Contact] without the
-    /// [NodeId] of the [Contact] itself as last element.
+    /// Returns the [Path] of the [Contact].
     pub fn path(&self) -> &Path {
         &self.path
     }
 
-    pub fn path_mut(&mut self) -> &mut Path {
+    /// Returns a mutable reference to the [Path] of the [Contact].
+    ///
+    /// As it's invalid for a [Path] not to end with the [NodeId] of the [Contact]
+    /// and external users could violate this invariant, the access to the method
+    /// is limited to the crate itself.
+    pub(crate) fn path_mut(&mut self) -> &mut Path {
         &mut self.path
-    }
-
-    /// Returns the [Path] to the [Contact] ending with the [NodeId]
-    /// of the [Contact] itself.
-    pub fn whole_path(&self) -> Path {
-        let mut path = self.path.clone();
-        path.push(self.id.clone());
-        path
     }
 
     pub fn state_seq_nr(&self) -> &StateSeqNr {

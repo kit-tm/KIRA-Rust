@@ -244,12 +244,7 @@ mod tests {
         assert!(bucket.is_empty());
         assert!(!bucket.is_full());
 
-        let contact = Contact::new(
-            NodeId::one(),
-            Age::from(0),
-            Path::empty(),
-            StateSeqNr::from(0),
-        );
+        let contact = Contact::new(Path::from(NodeId::one()), Age::from(0), StateSeqNr::from(0));
 
         assert!(bucket.insert(contact.clone()).is_ok());
 
@@ -261,9 +256,8 @@ mod tests {
         assert!(bucket.insert(contact.clone()).is_err());
 
         let second_contact = Contact::new(
-            NodeId::with_lsb(2),
+            Path::from(NodeId::with_lsb(2)),
             Age::from(0),
-            Path::empty(),
             StateSeqNr::from(0),
         );
 
@@ -285,9 +279,8 @@ mod tests {
         assert!(!bucket.is_full());
 
         let contact = Contact::new(
-            NodeId::with_lsb(1),
+            Path::from(NodeId::with_lsb(1)),
             Age::from(0),
-            Path::empty(),
             StateSeqNr::from(0),
         );
 
@@ -299,9 +292,8 @@ mod tests {
         assert!(bucket.insert(contact.clone()).is_ok());
 
         let contact_two = Contact::new(
-            NodeId::with_lsb(2),
+            Path::from(NodeId::with_lsb(2)),
             Age::from(0),
-            Path::empty(),
             StateSeqNr::from(0),
         );
 
@@ -315,17 +307,15 @@ mod tests {
         let mut bucket = Bucket::<2>::new();
 
         let contact = Contact::new(
-            NodeId::with_lsb(1),
+            Path::from(NodeId::with_lsb(1)),
             Age::from(0),
-            Path::empty(),
             StateSeqNr::from(0),
         );
         assert!(bucket.insert(contact.clone()).is_ok());
 
         let second_contact = Contact::new(
-            NodeId::with_lsb(2),
+            Path::from(NodeId::with_lsb(2)),
             Age::from(0),
-            Path::empty(),
             StateSeqNr::from(0),
         );
         assert!(bucket.insert(second_contact.clone()).is_ok());

@@ -104,9 +104,8 @@ where
 
             // Try Inserting information into routing table
             let contact = Contact::new(
-                source.clone(),
+                Path::from(source.clone()),
                 Age::from(0),
-                Path::empty(),
                 source_state_seq_nr,
             );
             match context.routing_table_insertion_strategy().insert(
