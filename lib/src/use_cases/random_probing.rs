@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use crate::context::UseCaseContext;
-use crate::domain::RoutingTable;
+use crate::domain::NodeId;
 use crate::messaging::{FindNodeReqData, Nonce, ProtocolMessageSender, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
@@ -25,15 +25,15 @@ impl Default for RandomProbingConfig {
     }
 }
 
-/// Probe random contacts to populate or improve all buckets with existing contacts.
+/// Probe a random [NodeId] to keep [Bucket]s up-to-date.
 #[derive(Debug)]
-pub struct RandomProbingUseCase<C, const BUCKET_SIZE: usize> {
+pub struct RandomProbingUseCase<C> {
     _c: PhantomData<C>,
     config: RandomProbingConfig,
     state: RandomProbingState,
 }
 
-impl<C, const BUCKET_SIZE: usize> RandomProbingUseCase<C, BUCKET_SIZE> {
+impl<C> RandomProbingUseCase<C> {
     pub fn new(config: RandomProbingConfig) -> Self {
         Self {
             _c: PhantomData::default(),
@@ -43,12 +43,11 @@ impl<C, const BUCKET_SIZE: usize> RandomProbingUseCase<C, BUCKET_SIZE> {
     }
 }
 
-impl<C, const BUCKET_SIZE: usize> UseCase for RandomProbingUseCase<C, BUCKET_SIZE>
+impl<C> UseCase for RandomProbingUseCase<C>
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     C::MessageSender: ProtocolMessageSender,
-    C::RoutingTable: RoutingTable<BUCKET_SIZE>,
 {
     type Context = C;
     type Error = RandomProbingError;
@@ -69,16 +68,12 @@ where
             (event, &self.state)
         {
             if &event_id == timer_id {
-                let random_id = context.routing_table().random_id().cloned();
-                if random_id.is_none() {
-                    log::warn!("Random Probing couldn't be run as routing table is empty");
-                    return Ok(());
-                }
+                let random_id = NodeId::random();
 
                 let message = ReqRspMessage {
                     nonce: Nonce::random(),
                     source: context.root_id().clone(),
-                    destination: random_id.unwrap(),
+                    destination: random_id,
                     data: FindNodeReqData { exact: false },
                 };
 
@@ -191,6 +186,8 @@ mod tests {
 
     #[test]
     fn smoke_test() {
+        // Tests if start succeeds and a periodic random id is probed
+
         let (root_id, hub, _broadcaster, runtime, context) = init_test_context();
 
         // Insert a single contact into the routing table
@@ -234,8 +231,10 @@ mod tests {
             assert!(message.is_some(), "No FindNodeReq emitted by use case");
             let message = message.unwrap();
 
+            // Request is from Sender Node, random id and exact flag is set to false
             assert_eq!(&message.source, &root_id);
-            assert_eq!(&message.destination, contact.id());
+            assert!(!message.destination.is_zero());
+            assert!(!message.data.exact);
 
             let handle_result = use_case.handle_event(&context, UseCaseEvent::Timer(timer_id));
             assert!(handle_result.is_ok(), "{:?}", handle_result);
