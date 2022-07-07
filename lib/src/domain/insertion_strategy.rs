@@ -4,7 +4,7 @@ use crate::domain::{
     AddError, Contact, InsertionError, NodeId, PathCycleRemover, RoutingTable, State,
 };
 
-use super::{NeighborTable, PathSimplifier};
+use super::{PNTable, PathSimplifier};
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum InsertionStrategyResult {
@@ -18,7 +18,7 @@ pub enum InsertionStrategyResult {
 ///
 /// The actions performed with the [Contact] are limited to the [InsertionStrategyResult].
 ///
-/// The Algorithm can use the [NeighborTable] but is not allowed to insert into it.
+/// The Algorithm can use the [PNTable] but is not allowed to insert into it.
 /// This will be handled where the Hello-Messages are handled explicitly.
 pub trait InsertionStrategy<RT, const BUCKET_SIZE: usize>
 where
@@ -31,7 +31,7 @@ where
         &mut self,
         contact: Contact,
         routing_table: &mut RT,
-        neighbor_table: &NeighborTable,
+        pn_table: &PNTable,
     ) -> InsertionStrategyResult;
 }
 
@@ -158,14 +158,14 @@ where
         &mut self,
         mut contact: Contact,
         routing_table: &mut RT,
-        neighbor_table: &NeighborTable,
+        pn_table: &PNTable,
     ) -> InsertionStrategyResult {
         // Ignore paths via us or contacts containing our own id
         if contact.path().contains(routing_table.root()) || contact.id() == routing_table.root() {
             return InsertionStrategyResult::Dropped;
         }
-        // If the first element is no neighbor or the Path is empty -> Drop
-        match contact.path().first().map(|id| neighbor_table.contains(id)) {
+        // If the first element is no physical neighbor or the Path is empty -> Drop
+        match contact.path().first().map(|id| pn_table.contains(id)) {
             None | Some(false) => return InsertionStrategyResult::Dropped,
             Some(true) => {}
         };
@@ -177,7 +177,7 @@ where
         self.path_cycle_remover
             .remove_cycles_in_place(&mut whole_path);
         self.path_simplifier
-            .simplify(routing_table, neighbor_table, &mut whole_path);
+            .simplify(routing_table, pn_table, &mut whole_path);
         whole_path.pop();
         *contact.path_mut() = whole_path;
 
@@ -217,7 +217,7 @@ where
         &mut self,
         _contact: Contact,
         _routing_table: &mut RT,
-        _neighbor_table: &NeighborTable,
+        _pn_table: &PNTable,
     ) -> InsertionStrategyResult {
         self.0.clone()
     }

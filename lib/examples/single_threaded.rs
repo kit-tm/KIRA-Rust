@@ -10,8 +10,8 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 
 use r2kad_lib::context::TokioContext;
-use r2kad_lib::domain::neighbor_table::NeighborTable;
-use r2kad_lib::domain::unlimited_neighbors_routing_table::UnlimitedNeighborsRoutingTable;
+use r2kad_lib::domain::physical_neighbor_table::PNTable;
+use r2kad_lib::domain::unlimited_pn_routing_table::UnlimitedPNRoutingTable;
 use r2kad_lib::domain::{
     FlatRoutingTable, InOrderCycleRemover, NodeId, PNSStrategy, ShortestFirstPathSimplifier,
     DEFAULT_BUCKET_SIZE,
@@ -45,8 +45,8 @@ fn main() {
     // Setup the Broadcaster which is necessary for the runtime to send messages to usecases
     let (broadcaster, mut receiver) = broadcast::channel::<UseCaseEvent>(100);
 
-    // Create a Routing Table which stores ALL neighbors
-    let routing_table = UnlimitedNeighborsRoutingTable::from(
+    // Create a Routing Table which stores ALL physical neighbors
+    let routing_table = UnlimitedPNRoutingTable::from(
         FlatRoutingTable::<DEFAULT_BUCKET_SIZE, 1>::new(root_id.clone())
             .expect("invalid flat Routing Table parameters"),
     );
@@ -55,9 +55,9 @@ fn main() {
     let context = TokioContext::new(
         root_id,
         routing_table,
-        NeighborTable::new(),
+        PNTable::new(),
         PNSStrategy::<
-            UnlimitedNeighborsRoutingTable<DEFAULT_BUCKET_SIZE, 1>,
+            UnlimitedPNRoutingTable<DEFAULT_BUCKET_SIZE, 1>,
             _,
             _,
             DEFAULT_BUCKET_SIZE,

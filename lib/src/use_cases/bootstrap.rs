@@ -15,15 +15,18 @@ use crate::{
 #[derive(Debug)]
 pub enum BootstrapError {
     SendError,
-    NoNeighbors,
+    NoPhysicalNeighbors,
 }
 
 impl Display for BootstrapError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::SendError => write!(f, "Failed to send a message over the given MessageSender"),
-            Self::NoNeighbors => {
-                write!(f, "No Neighbors responded in time or the Node is isolated")
+            Self::NoPhysicalNeighbors => {
+                write!(
+                    f,
+                    "No Physical Neighbors responded in time or the Node is isolated"
+                )
             }
         }
     }
@@ -35,7 +38,7 @@ impl Error for BootstrapError {}
 pub enum BootstrapState {
     Finished,
     Initialized,
-    WaitingForNeighbors(TimerId),
+    WaitingForPhysicalNeighbors(TimerId),
     WaitingFor2HopVicinity(Vec<Nonce>, TimerId),
     WaitingForFindNodeResponse(Nonce, Option<TimerId>),
     Error,
@@ -53,26 +56,26 @@ impl UseCaseState for BootstrapState {
 
 #[derive(Debug, Clone, Copy)]
 pub struct BootstrapConfig {
-    pub max_neighbor_response_duration: Duration,
+    pub max_pn_response_duration: Duration,
     pub max_2_hop_response_duration: Duration,
     pub max_find_node_response_duration: Option<Duration>,
-    pub initial_neighborhood_size: u64,
+    pub initial_physical_neighborhood_size: u64,
 }
 
 impl Default for BootstrapConfig {
     fn default() -> Self {
         Self {
             max_2_hop_response_duration: Duration::from_secs(1),
-            max_neighbor_response_duration: Duration::from_secs(1),
+            max_pn_response_duration: Duration::from_secs(1),
             max_find_node_response_duration: Some(Duration::from_secs(1)),
-            initial_neighborhood_size: 20,
+            initial_physical_neighborhood_size: 20,
         }
     }
 }
 
 /// The UseCase which represents the Bootstrap Process.
 ///
-/// Performs NeighborDiscovery, 3-Hop-Vicinity Discovery and the initial join to the network.
+/// Performs physical neighbor discovery, 3-Hop-Vicinity Discovery and the initial join to the network.
 #[derive(Debug)]
 pub struct BootstrapUseCase<C, const BUCKET_SIZE: usize> {
     _c: PhantomData<C>,
@@ -124,8 +127,8 @@ where
         context: &C,
         config: &BootstrapConfig,
     ) -> Result<(), BootstrapError> {
-        if context.neighbor_table().is_empty() {
-            return Err(BootstrapError::NoNeighbors);
+        if context.pn_table().is_empty() {
+            return Err(BootstrapError::NoPhysicalNeighbors);
         }
 
         let two_hop_vicinity = context
@@ -134,7 +137,7 @@ where
             .into_iter() // TODO: Provide function for that in Routing Table?
             .filter_map(|contact: &Contact| {
                 if contact.path().len() == 1 {
-                    // Neighbors => path.len() = 0, 1-Hop Neighbors => path.len() = 1
+                    // Physical Neighbors => path.len() = 0, 1-Hop Neighbors => path.len() = 1
                     Some(contact.clone())
                 } else {
                     None
@@ -223,8 +226,8 @@ where
     type Error = BootstrapError;
     type State = BootstrapState;
 
-    /// Starts the Bootstrap Process by sending [HelloMessage]s to all neighbors and registering
-    /// a timeout which will notify the [BoostrapUseCase] through [handle_event].
+    /// Starts the Bootstrap Process by sending [HelloMessage]s to all physical neighbors and
+    /// registering a timeout which will notify the [BoostrapUseCase] through [handle_event].
     fn start(&mut self, context: &C) -> Result<(), BootstrapError> {
         // Although the UseCase contains generating the NodeId
         // it's required to pass this before as the RoutingTable
@@ -234,16 +237,16 @@ where
         // Send hello to all links
         let message = HelloMessage {
             source: context.root_id().clone(),
-            source_state_seq_nr: *context.neighbor_table().state_seq_nr(),
+            source_state_seq_nr: *context.pn_table().state_seq_nr(),
             destination: NodeId::zero(),
         };
         self.send_message(context, message)?;
 
         let timer_id = context
             .runtime()
-            .register_timer(self.config.max_neighbor_response_duration);
+            .register_timer(self.config.max_pn_response_duration);
 
-        self.state = BootstrapState::WaitingForNeighbors(timer_id);
+        self.state = BootstrapState::WaitingForPhysicalNeighbors(timer_id);
 
         Ok(())
     }
@@ -251,8 +254,11 @@ where
     fn handle_event(&mut self, context: &C, event: UseCaseEvent) -> Result<(), BootstrapError> {
         let config = self.config;
         match (self.state(), event) {
-            // Timeout for neighbors was reached => Send
-            (BootstrapState::WaitingForNeighbors(waiting_id), UseCaseEvent::Timer(received_id)) => {
+            // Timeout for physical neighbors was reached => Send
+            (
+                BootstrapState::WaitingForPhysicalNeighbors(waiting_id),
+                UseCaseEvent::Timer(received_id),
+            ) => {
                 if waiting_id == &received_id {
                     self.start_vicinity_discovery(context, &config)?;
                 }

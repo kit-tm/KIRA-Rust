@@ -2,7 +2,7 @@
 pub use bucket::*;
 pub use contact::*;
 pub use insertion_strategy::*;
-pub use neighbor_table::*;
+pub use physical_neighbor_table::*;
 pub use node_id::*;
 pub use path::cycle_remover::*;
 pub use path::in_order_cycle_remover::*;
@@ -17,7 +17,7 @@ pub use state_seq_nr::*;
 pub mod bucket;
 pub mod contact;
 pub mod insertion_strategy;
-pub mod neighbor_table;
+pub mod physical_neighbor_table;
 pub mod node_id;
 pub mod path;
 pub mod port;

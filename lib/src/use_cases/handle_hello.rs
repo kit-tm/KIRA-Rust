@@ -98,7 +98,7 @@ where
             }
 
             // Add or update Physical Neighbors
-            if let Some(updated) = context.neighbor_table_mut().add(source.clone(), in_port) {
+            if let Some(updated) = context.pn_table_mut().add(source.clone(), in_port) {
                 log::debug!("Updated Port for PN: {}", updated);
             }
 
@@ -112,7 +112,7 @@ where
             match context.routing_table_insertion_strategy().insert(
                 contact.clone(),
                 context.routing_table_mut().deref_mut(),
-                context.neighbor_table().deref(),
+                context.pn_table().deref(),
             ) {
                 InsertionStrategyResult::Inserted => {
                     log::debug!("Inserted new contact '{}'", source)
@@ -129,8 +129,8 @@ where
             }
 
             // Answer with a PNDiscReq to ensure bidirectional connectivity
-            let neighbor_contacts = context
-                .neighbor_table()
+            let pn_contacts = context
+                .pn_table()
                 .into_iter()
                 .filter_map(|(id, _)| context.routing_table().contact(id).cloned())
                 .collect::<Vec<_>>();
@@ -140,7 +140,7 @@ where
                 source: destination,
                 destination: source,
                 data: PNDiscReqData {
-                    contacts: neighbor_contacts,
+                    contacts: pn_contacts,
                 },
             };
             if let Err(e) = context.message_sender_mut().send(message) {
@@ -164,7 +164,7 @@ mod tests {
 
     use crate::broadcaster::BusBroadcaster;
     use crate::context::SyncContext;
-    use crate::domain::neighbor_table::NeighborTable;
+    use crate::domain::physical_neighbor_table::PNTable;
     use crate::domain::{
         FlatRoutingTable, InsertionStrategyResult, NodeId, StateSeqNr, TestInsertionStrategy,
     };
@@ -184,7 +184,7 @@ mod tests {
         let routing_table =
             FlatRoutingTable::<20, 1>::new(root_id.clone()).expect("invalid grouping");
 
-        let neighbor_table = NeighborTable::new();
+        let pn_table = PNTable::new();
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
 
@@ -197,7 +197,7 @@ mod tests {
         let context = SyncContext::new(
             root_id.clone(),
             routing_table,
-            neighbor_table,
+            pn_table,
             insertion_strategy,
             message_hub.clone(),
             runtime,

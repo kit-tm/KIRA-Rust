@@ -135,7 +135,9 @@ impl Contact {
         &mut self.state
     }
 
-    pub fn is_physical_neighbor(&self) -> bool {
+    /// Returns if the [Contact] represents a physical neighbor.
+    pub fn is_pn(&self) -> bool {
+        // FIXME: Invariant is, that path doesn't contain the own node_id. whole_path Method is for that.
         self.path.len() == 1
     }
 

@@ -136,7 +136,7 @@ mod tests {
     use crate::broadcaster::BusBroadcaster;
     use crate::context::{SyncContext, UseCaseContext};
     use crate::domain::{
-        Age, Contact, FlatRoutingTable, InsertionStrategyResult, NeighborTable, NodeId, Path,
+        Age, Contact, FlatRoutingTable, InsertionStrategyResult, NodeId, PNTable, Path,
         RoutingTable, StateSeqNr, TestInsertionStrategy,
     };
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
@@ -175,7 +175,7 @@ mod tests {
         let context = SyncContext::new(
             root.clone(),
             routing_table,
-            NeighborTable::new(),
+            PNTable::new(),
             insertion_strategy,
             hub.clone(),
             runtime.clone(),
