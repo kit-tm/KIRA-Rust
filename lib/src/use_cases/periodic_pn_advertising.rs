@@ -104,7 +104,7 @@ where
             if id == timer_id {
                 if let Err(e) = context.message_sender_mut().send(HelloMessage {
                     source: context.root_id().clone(),
-                    source_state_seq_nr: *context.neighbor_table().state_seq_nr(),
+                    source_state_seq_nr: *context.pn_table().state_seq_nr(),
                     destination: NodeId::zero(),
                 }) {
                     log::error!("MessageSender failed: {}", e);
@@ -129,7 +129,7 @@ mod tests {
 
     use crate::broadcaster::{Broadcaster, BusBroadcaster};
     use crate::context::SyncContext;
-    use crate::domain::neighbor_table::NeighborTable;
+    use crate::domain::physical_neighbor_table::PNTable;
     use crate::domain::{FlatRoutingTable, InsertionStrategyResult, NodeId, TestInsertionStrategy};
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
     use crate::runtime::DummyRuntime;
@@ -163,7 +163,7 @@ mod tests {
         let context = SyncContext::new(
             root.clone(),
             routing_table,
-            NeighborTable::new(),
+            PNTable::new(),
             insertion_strategy,
             hub.clone(),
             DummyRuntime::new(Arc::clone(&broadcaster)),

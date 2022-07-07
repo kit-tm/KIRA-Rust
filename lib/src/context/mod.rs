@@ -4,7 +4,7 @@ pub use sync_context::*;
 #[cfg(feature = "tokio")]
 pub use tokio_context::*;
 
-use crate::domain::{NeighborTable, NodeId};
+use crate::domain::{NodeId, PNTable};
 
 pub mod sync_context;
 #[cfg(feature = "tokio")]
@@ -100,9 +100,9 @@ pub trait UseCaseContext {
 
     fn routing_table_insertion_strategy(&self) -> WriteGuard<Self::InsertionStrategy>;
 
-    fn neighbor_table(&self) -> ReadGuard<NeighborTable>;
+    fn pn_table(&self) -> ReadGuard<PNTable>;
 
-    fn neighbor_table_mut(&self) -> WriteGuard<NeighborTable>;
+    fn pn_table_mut(&self) -> WriteGuard<PNTable>;
 
     fn message_sender(&self) -> ReadGuard<Self::MessageSender>;
 

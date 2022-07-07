@@ -5,7 +5,7 @@ use tokio::sync::RwLock;
 
 use crate::broadcaster::Broadcaster;
 use crate::context::{ReadGuard, UseCaseContext, WriteGuard};
-use crate::domain::{NeighborTable, NodeId};
+use crate::domain::{NodeId, PNTable};
 use crate::runtime::TokioRuntime;
 use crate::utils::tokio_utils;
 
@@ -19,7 +19,7 @@ use crate::utils::tokio_utils;
 pub struct TokioContext<RT, MS, RU, IS> {
     root_id: NodeId,
     routing_table: Arc<RwLock<RT>>,
-    neighbor_table: Arc<RwLock<NeighborTable>>,
+    pn_table: Arc<RwLock<PNTable>>,
     insertion_strategy: Arc<RwLock<IS>>,
     message_sender: Arc<RwLock<MS>>,
     runtime: RU,
@@ -30,7 +30,7 @@ impl<RT, MS, B: Broadcaster, IS> TokioContext<RT, MS, TokioRuntime<B>, IS> {
     pub fn new(
         root_id: NodeId,
         routing_table: RT,
-        neighbor_table: NeighborTable,
+        pn_table: PNTable,
         insertion_strategy: IS,
         message_sender: MS,
         runtime: TokioRuntime<B>,
@@ -38,7 +38,7 @@ impl<RT, MS, B: Broadcaster, IS> TokioContext<RT, MS, TokioRuntime<B>, IS> {
         Self {
             root_id,
             routing_table: Arc::new(RwLock::new(routing_table)),
-            neighbor_table: Arc::new(RwLock::new(neighbor_table)),
+            pn_table: Arc::new(RwLock::new(pn_table)),
             insertion_strategy: Arc::new(RwLock::new(insertion_strategy)),
             message_sender: Arc::new(RwLock::new(message_sender)),
             runtime,
@@ -68,12 +68,12 @@ impl<RT, MS, B: Broadcaster, IS> UseCaseContext for TokioContext<RT, MS, TokioRu
         tokio_utils::get_write_guard(self.insertion_strategy.deref()).into()
     }
 
-    fn neighbor_table(&self) -> ReadGuard<NeighborTable> {
-        tokio_utils::get_read_guard(self.neighbor_table.deref()).into()
+    fn pn_table(&self) -> ReadGuard<PNTable> {
+        tokio_utils::get_read_guard(self.pn_table.deref()).into()
     }
 
-    fn neighbor_table_mut(&self) -> WriteGuard<NeighborTable> {
-        tokio_utils::get_write_guard(self.neighbor_table.deref()).into()
+    fn pn_table_mut(&self) -> WriteGuard<PNTable> {
+        tokio_utils::get_write_guard(self.pn_table.deref()).into()
     }
 
     fn message_sender(&self) -> ReadGuard<MS> {
@@ -98,7 +98,7 @@ mod tests {
 
     use crate::context::{ReadGuard, TokioContext, UseCaseContext, WriteGuard};
     use crate::domain::{
-        FlatRoutingTable, InsertionStrategyResult, NeighborTable, NodeId, TestInsertionStrategy,
+        FlatRoutingTable, InsertionStrategyResult, NodeId, PNTable, TestInsertionStrategy,
     };
     use crate::messaging::InMemoryMessageHub;
     use crate::runtime::TokioRuntime;
@@ -123,7 +123,7 @@ mod tests {
         let context = TokioContext::new(
             root_id.clone(),
             FlatRoutingTable::<20, 1>::new(root_id),
-            NeighborTable::new(),
+            PNTable::new(),
             insertion_strategy,
             message_hub,
             runtime,
@@ -131,11 +131,11 @@ mod tests {
 
         // Check for getters to not panic
         assert!(matches!(context.routing_table(), ReadGuard::Async(_)));
-        assert!(matches!(context.neighbor_table(), ReadGuard::Async(_)));
+        assert!(matches!(context.pn_table(), ReadGuard::Async(_)));
         assert!(matches!(context.message_sender(), ReadGuard::Async(_)));
 
         assert!(matches!(context.routing_table_mut(), WriteGuard::Async(_)));
-        assert!(matches!(context.neighbor_table_mut(), WriteGuard::Async(_)));
+        assert!(matches!(context.pn_table_mut(), WriteGuard::Async(_)));
         assert!(matches!(context.message_sender_mut(), WriteGuard::Async(_)));
     }
 }

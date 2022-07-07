@@ -3,23 +3,23 @@ use std::ops::Deref;
 
 use crate::domain::{NodeId, Port, StateSeqNr};
 
-/// A NeighborTable backed by a [HashMap].
+/// A physical neighbor table backed by a [HashMap].
 ///
 /// This wrapper limits the write access on the inner [HashMap] as the [StateSeqNr] has
-/// to be updated every time the neighbors change.
+/// to be updated every time the physical neighbors change.
 #[derive(Debug)]
-pub struct NeighborTable {
+pub struct PNTable {
     state_seq_nr: StateSeqNr,
     map: HashMap<NodeId, Port>,
 }
 
-impl Default for NeighborTable {
+impl Default for PNTable {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Deref for NeighborTable {
+impl Deref for PNTable {
     type Target = HashMap<NodeId, Port>;
 
     fn deref(&self) -> &Self::Target {
@@ -27,7 +27,7 @@ impl Deref for NeighborTable {
     }
 }
 
-impl NeighborTable {
+impl PNTable {
     pub fn new() -> Self {
         Self {
             state_seq_nr: StateSeqNr::from(0),
@@ -54,7 +54,7 @@ impl NeighborTable {
         self.state_seq_nr += 1;
         result
     }
-    /// Returns if a Mapping for the [NodeId] is present in the [NeighborTable].
+    /// Returns if a Mapping for the [NodeId] is present in the [PNTable].
     pub fn contains(&self, id: &NodeId) -> bool {
         self.map.contains_key(id)
     }
@@ -67,7 +67,7 @@ impl NeighborTable {
     }
 }
 
-impl<'a> IntoIterator for &'a NeighborTable {
+impl<'a> IntoIterator for &'a PNTable {
     type Item = (&'a NodeId, &'a Port);
     type IntoIter = std::collections::hash_map::Iter<'a, NodeId, Port>;
 

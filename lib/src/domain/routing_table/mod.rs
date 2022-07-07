@@ -4,7 +4,7 @@ use std::fmt::{Display, Formatter};
 use crate::domain::{Bucket, Contact, NodeId, ReplacementError};
 
 pub mod flat_routing_table;
-pub mod unlimited_neighbors_routing_table;
+pub mod unlimited_pn_routing_table;
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum AddError {
@@ -71,11 +71,11 @@ impl From<BucketSplitError> for InsertionError {
 
 /// A table managing [Contact]s.
 ///
-/// # Neighbors
+/// # Physical Neighbors
 ///
-/// As some RoutingTable implementation may handle neighbors in a different way
+/// As some RoutingTable implementation may handle physical neighbors in a different way
 /// the caller has to be careful when using [RoutingTable::bucket] and [RoutingTable::bucket_mut].
-/// In structures like [UnlimitedNeighborsRoutingTable] the Neighbors may not be included
+/// In structures like [UnlimitedPNRoutingTable] the Neighbors may not be included
 /// in the buckets.
 ///
 /// As mostly accessing the buckets directly only happens if Insertion fails, this will ne problem.

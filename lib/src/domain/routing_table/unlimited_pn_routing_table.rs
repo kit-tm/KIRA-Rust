@@ -7,27 +7,27 @@ use crate::domain::{
     RoutingTable,
 };
 
-/// A routing table which uses an additional data structure to store
+/// A routing table which uses an additional data structure to store all
 /// physical neighbors.
 ///
 /// In contrast to [FlatRoutingTable] this implementation doesn't replace
-/// existing contacts with neighbors.
-/// Neighbors will be added as long as they're not already present in the table.
+/// existing contacts with physical neighbors.
+/// Physical Neighbors will be added as long as they're not already present in the table.
 ///
 /// # Invariant
 ///
-/// No neighbors are in the inner routing table.
-pub struct UnlimitedNeighborsRoutingTable<const BUCKET_SIZE: usize, const ACC: usize> {
-    neighbor_contacts: HashMap<NodeId, Contact>,
+/// No physical neighbors are in the inner routing table.
+pub struct UnlimitedPNRoutingTable<const BUCKET_SIZE: usize, const ACC: usize> {
+    pn_contacts: HashMap<NodeId, Contact>,
     inner: FlatRoutingTable<BUCKET_SIZE, ACC>,
 }
 
 impl<const BUCKET_SIZE: usize, const ACC: usize> From<FlatRoutingTable<BUCKET_SIZE, ACC>>
-    for UnlimitedNeighborsRoutingTable<BUCKET_SIZE, ACC>
+    for UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>
 {
     fn from(routing_table: FlatRoutingTable<BUCKET_SIZE, ACC>) -> Self {
         Self {
-            neighbor_contacts: Default::default(),
+            pn_contacts: Default::default(),
             inner: routing_table,
         }
     }
@@ -39,10 +39,10 @@ pub struct Iter<'a> {
 
 impl<'a> Iter<'a> {
     fn new<const BUCKET_SIZE: usize, const ACC: usize>(
-        table: &'a UnlimitedNeighborsRoutingTable<BUCKET_SIZE, ACC>,
+        table: &'a UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>,
     ) -> Self {
         let mut iter = table
-            .neighbor_contacts
+            .pn_contacts
             .values()
             .into_iter()
             .chain(table.inner.into_iter())
@@ -61,7 +61,7 @@ impl<'a> Iterator for Iter<'a> {
 }
 
 impl<'a, const BUCKET_SIZE: usize, const ACC: usize> IntoIterator
-    for &'a UnlimitedNeighborsRoutingTable<BUCKET_SIZE, ACC>
+    for &'a UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>
 {
     type Item = &'a Contact;
     type IntoIter = Iter<'a>;
@@ -72,27 +72,27 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> IntoIterator
 }
 
 impl<const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<BUCKET_SIZE>
-    for UnlimitedNeighborsRoutingTable<BUCKET_SIZE, ACC>
+    for UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>
 {
     fn root(&self) -> &NodeId {
         self.inner.root()
     }
 
     fn len(&self) -> usize {
-        self.neighbor_contacts.len() + self.inner.len()
+        self.pn_contacts.len() + self.inner.len()
     }
 
     fn is_empty(&self) -> bool {
-        self.neighbor_contacts.is_empty() && self.inner.is_empty()
+        self.pn_contacts.is_empty() && self.inner.is_empty()
     }
 
     fn add(&mut self, contact: Contact) -> Result<(), AddError> {
-        // Add to neighbors if possible
+        // Add to physical neighbors if possible
         if contact.path().is_empty() {
-            if self.neighbor_contacts.contains_key(contact.id()) {
+            if self.pn_contacts.contains_key(contact.id()) {
                 return Err(AddError::AlreadyExists(contact.into_id()));
             }
-            self.neighbor_contacts.insert(contact.id().clone(), contact);
+            self.pn_contacts.insert(contact.id().clone(), contact);
             return Ok(());
         }
 
@@ -101,17 +101,13 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<BUCKET_SIZE>
     }
 
     fn remove(&mut self, id: &NodeId) -> Option<Contact> {
-        self.neighbor_contacts
+        self.pn_contacts
             .remove(id)
             .or_else(|| self.inner.remove(id))
     }
 
     fn replace(&mut self, id: &NodeId, with: Contact) -> Result<(), ReplacementError> {
-        if self
-            .neighbor_contacts
-            .insert(id.clone(), with.clone())
-            .is_some()
-        {
+        if self.pn_contacts.insert(id.clone(), with.clone()).is_some() {
             return Ok(());
         }
 
@@ -119,9 +115,7 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<BUCKET_SIZE>
     }
 
     fn contact(&self, id: &NodeId) -> Option<&Contact> {
-        self.neighbor_contacts
-            .get(id)
-            .or_else(|| self.inner.contact(id))
+        self.pn_contacts.get(id).or_else(|| self.inner.contact(id))
     }
 
     fn random_id(&self) -> Option<&NodeId> {
@@ -133,13 +127,13 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<BUCKET_SIZE>
     }
 
     fn contact_mut(&mut self, id: &NodeId) -> Option<&mut Contact> {
-        self.neighbor_contacts
+        self.pn_contacts
             .get_mut(id)
             .or_else(|| self.inner.contact_mut(id))
     }
 
     fn contains(&self, id: &NodeId) -> bool {
-        self.neighbor_contacts.contains_key(id) || self.inner.contains(id)
+        self.pn_contacts.contains_key(id) || self.inner.contains(id)
     }
 
     fn split_bucket(&mut self, id: &NodeId) -> Result<(), BucketSplitError> {
