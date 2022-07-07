@@ -50,7 +50,7 @@ pub struct Node<C, const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE> {
     context: C,
     bootstrap: BootstrapUseCase<C, BUCKET_SIZE>,
     pn_probing: PeriodicPNAdvertising<C, BUCKET_SIZE>,
-    random_probing: RandomProbingUseCase<C, BUCKET_SIZE>,
+    random_probing: RandomProbingUseCase<C>,
     handle_hello: HandleHelloUseCase<C, BUCKET_SIZE>,
 }
 
