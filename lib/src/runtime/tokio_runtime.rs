@@ -118,6 +118,7 @@ mod tests {
 
     use tokio::runtime;
     use tokio::sync::broadcast;
+    use tokio::sync::broadcast::error::RecvError;
 
     use crate::runtime::{TokioRuntime, UseCaseRuntime};
     use crate::use_cases::UseCaseEvent;
@@ -209,8 +210,7 @@ mod tests {
             .expect("failed to build runtime");
         let tokio_runtime = Arc::new(tokio_runtime);
 
-        let (broadcaster, _) = broadcast::channel(1);
-        let mut broadcast_receiver = broadcaster.subscribe();
+        let (broadcaster, mut broadcast_receiver) = broadcast::channel(1);
 
         let runtime = TokioRuntime::new(broadcaster, Arc::clone(&tokio_runtime));
 
@@ -218,10 +218,17 @@ mod tests {
         let id = runtime.register_periodic_timer(Duration::from_micros(200));
 
         for i in 1..4 {
-            let event = tokio_runtime.block_on(broadcast_receiver.recv());
+            let mut event_result = None;
+            while event_result.is_none() {
+                let received = tokio_runtime.block_on(broadcast_receiver.recv());
+                match received {
+                    Err(RecvError::Lagged(_)) => { /* Continue */},
+                    Err(RecvError::Closed) => panic!("Channel closed before finished!"),
+                    Ok(event) => event_result = Some(event),
+                };
+            }
             let end = start.elapsed();
-            assert!(event.is_ok(), "{:?}", event);
-            let event = event.unwrap();
+            let event = event_result.unwrap();
 
             assert_eq!(event, UseCaseEvent::Timer(id));
             assert!(end >= i * Duration::from_micros(200));

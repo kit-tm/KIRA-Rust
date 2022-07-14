@@ -1,4 +1,5 @@
 use std::num::NonZeroUsize;
+use std::ops::IndexMut;
 
 use rand::Rng;
 
@@ -175,9 +176,12 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> Iterator for Iter<'a, BUCKE
     }
 }
 
-impl<const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<BUCKET_SIZE>
+impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZE>
     for FlatRoutingTable<BUCKET_SIZE, ACC>
 {
+    type ContactWriteGuard = &'a mut Contact;
+    type BucketWriteGuard = &'a mut Bucket<BUCKET_SIZE>;
+
     fn root(&self) -> &NodeId {
         &self.root
     }
@@ -206,7 +210,7 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<BUCKET_SIZE>
         bucket.remove(id)
     }
 
-    fn replace(&mut self, id: &NodeId, with: Contact) -> Result<(), ReplacementError> {
+    fn replace(&mut self, id: &NodeId, with: Contact) -> Result<Contact, ReplacementError> {
         let bucket = self.bucket_mut(id);
         bucket.replace(id, with)
     }
@@ -224,7 +228,7 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<BUCKET_SIZE>
             .map(|contact| contact.id())
     }
 
-    fn contact_mut(&mut self, id: &NodeId) -> Option<&mut Contact> {
+    fn contact_mut(&'a mut self, id: &NodeId) -> Option<Self::ContactWriteGuard> {
         let bucket = self.bucket_mut(id);
         bucket.get_mut(id)
     }
@@ -262,9 +266,9 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<BUCKET_SIZE>
         &self.buckets[index]
     }
 
-    fn bucket_mut(&mut self, of: &NodeId) -> &mut Bucket<BUCKET_SIZE> {
+    fn bucket_mut(&'a mut self, of: &NodeId) -> Self::BucketWriteGuard {
         let index = self.get_bucket_index(of);
-        &mut self.buckets[index]
+        self.buckets.index_mut(index)
     }
 }
 

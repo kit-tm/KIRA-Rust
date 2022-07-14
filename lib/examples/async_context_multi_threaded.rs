@@ -23,9 +23,8 @@ use r2kad_lib::domain::{
     DEFAULT_BUCKET_SIZE,
 };
 use r2kad_lib::messaging::InMemoryMessageHub;
-use r2kad_lib::node::Config;
 use r2kad_lib::runtime::TokioRuntime;
-use r2kad_lib::use_cases::bootstrap::BootstrapUseCase;
+use r2kad_lib::use_cases::handle_hello::HandleHelloUseCase;
 use r2kad_lib::use_cases::{UseCase, UseCaseEvent};
 
 fn main() {
@@ -45,9 +44,6 @@ fn main() {
         .unwrap_or_else(|_| NodeId::random());
 
     println!("Using NodeId {}", root_id);
-
-    // TODO: Read from CLI
-    let config = Config::default();
 
     // Setup the Broadcaster which is necessary for the runtime to send messages to usecases
     let (broadcaster, _) = broadcast::channel::<UseCaseEvent>(100);
@@ -77,16 +73,16 @@ fn main() {
 
     let mut handles = Vec::new();
 
-    let bootstrap_event_receiver = broadcaster.subscribe();
-    let bootstrap_context = Arc::clone(&context);
+    let handle_hello_event_receiver = broadcaster.subscribe();
+    let handle_hello_context = Arc::clone(&context);
     // Initialize the Use Cases
     let handle = runtime.spawn(async move {
-        let use_case = BootstrapUseCase::new(config.bootstrap);
+        let use_case = HandleHelloUseCase::new();
 
         UseCaseTask::new(
             "Bootstrap",
-            bootstrap_context.deref(),
-            bootstrap_event_receiver,
+            handle_hello_context.deref(),
+            handle_hello_event_receiver,
             use_case,
         )
         .start()

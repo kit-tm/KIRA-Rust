@@ -77,7 +77,9 @@ impl ProtocolMessageSender for InMemoryMessageHub {
     where
         M: Into<ProtocolMessage>,
     {
-        self.messages.push_back(message.into());
+        let message = message.into();
+        log::trace!("Sent message: {:?}", message);
+        self.messages.push_back(message);
         Ok(())
     }
 }
@@ -152,14 +154,12 @@ pub mod tests {
         hub.send(ProtocolMessage::Hello(HelloMessage {
             source: NodeId::zero(),
             source_state_seq_nr: StateSeqNr::from(0),
-            destination: NodeId::zero(),
         }))
         .unwrap();
 
         hub.send(ProtocolMessage::Hello(HelloMessage {
             source: NodeId::one(),
             source_state_seq_nr: StateSeqNr::from(0),
-            destination: NodeId::one(),
         }))
         .unwrap();
 
@@ -169,7 +169,6 @@ pub mod tests {
                 ProtocolMessage::Hello(HelloMessage {
                     source: NodeId::zero(),
                     source_state_seq_nr: StateSeqNr::from(0),
-                    destination: NodeId::zero(),
                 }),
                 InMemoryMessageHub::dummy_port()
             ))
@@ -181,7 +180,6 @@ pub mod tests {
                 ProtocolMessage::Hello(HelloMessage {
                     source: NodeId::one(),
                     source_state_seq_nr: StateSeqNr::from(0),
-                    destination: NodeId::one(),
                 }),
                 InMemoryMessageHub::dummy_port()
             ))

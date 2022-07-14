@@ -3,7 +3,6 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use crate::context::UseCaseContext;
-use crate::domain::NodeId;
 use crate::messaging::{HelloMessage, ProtocolMessageSender};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
@@ -105,7 +104,6 @@ where
                 if let Err(e) = context.message_sender_mut().send(HelloMessage {
                     source: context.root_id().clone(),
                     source_state_seq_nr: *context.pn_table().state_seq_nr(),
-                    destination: NodeId::zero(),
                 }) {
                     log::error!("MessageSender failed: {}", e);
                     self.state = PeriodicPNAdvertisingState::Error;
@@ -124,7 +122,6 @@ where
 
 #[cfg(all(test, feature = "bus"))]
 mod tests {
-    use std::sync::Arc;
     use std::time::Duration;
 
     use crate::broadcaster::{Broadcaster, BusBroadcaster};
@@ -132,7 +129,7 @@ mod tests {
     use crate::domain::physical_neighbor_table::PNTable;
     use crate::domain::{FlatRoutingTable, InsertionStrategyResult, NodeId, TestInsertionStrategy};
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
-    use crate::runtime::DummyRuntime;
+    use crate::runtime::ImmediateRuntime;
     use crate::use_cases::periodic_pn_advertising::{
         PeriodicPNAdvertising, PeriodicPNAdvertisingConfig, PeriodicPNAdvertisingState,
     };
@@ -141,11 +138,11 @@ mod tests {
     fn init_test_context() -> (
         NodeId,
         ArcSyncInMemoryMessageHub,
-        Arc<BusBroadcaster>,
+        BusBroadcaster,
         SyncContext<
             FlatRoutingTable<20, 1>,
             ArcSyncInMemoryMessageHub,
-            DummyRuntime<BusBroadcaster>,
+            ImmediateRuntime<BusBroadcaster>,
             TestInsertionStrategy,
         >,
     ) {
@@ -156,7 +153,7 @@ mod tests {
 
         let hub = ArcSyncInMemoryMessageHub::new();
 
-        let broadcaster = Arc::new(BusBroadcaster::new(1));
+        let broadcaster = BusBroadcaster::new(1);
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
 
@@ -166,7 +163,7 @@ mod tests {
             PNTable::new(),
             insertion_strategy,
             hub.clone(),
-            DummyRuntime::new(Arc::clone(&broadcaster)),
+            ImmediateRuntime::new(broadcaster.clone()),
         );
 
         (root, hub, broadcaster, context)

@@ -9,5 +9,5 @@ pub trait PathSimplifier {
         pn_table: &PNTable,
         path: &mut Path,
     ) where
-        RT: RoutingTable<BUCKET_SIZE>;
+        for<'a> RT: RoutingTable<'a, BUCKET_SIZE>;
 }

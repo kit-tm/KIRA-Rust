@@ -71,9 +71,12 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> IntoIterator
     }
 }
 
-impl<const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<BUCKET_SIZE>
+impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZE>
     for UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>
 {
+    type ContactWriteGuard = &'a mut Contact;
+    type BucketWriteGuard = &'a mut Bucket<BUCKET_SIZE>;
+
     fn root(&self) -> &NodeId {
         self.inner.root()
     }
@@ -106,9 +109,9 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<BUCKET_SIZE>
             .or_else(|| self.inner.remove(id))
     }
 
-    fn replace(&mut self, id: &NodeId, with: Contact) -> Result<(), ReplacementError> {
-        if self.pn_contacts.insert(id.clone(), with.clone()).is_some() {
-            return Ok(());
+    fn replace(&mut self, id: &NodeId, with: Contact) -> Result<Contact, ReplacementError> {
+        if let Some(contact) = self.pn_contacts.insert(id.clone(), with.clone()) {
+            return Ok(contact);
         }
 
         self.inner.replace(id, with)
@@ -126,7 +129,7 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<BUCKET_SIZE>
         self.into_iter().nth(random).map(|contact| contact.id())
     }
 
-    fn contact_mut(&mut self, id: &NodeId) -> Option<&mut Contact> {
+    fn contact_mut(&'a mut self, id: &NodeId) -> Option<Self::ContactWriteGuard> {
         self.pn_contacts
             .get_mut(id)
             .or_else(|| self.inner.contact_mut(id))
@@ -144,7 +147,7 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<BUCKET_SIZE>
         self.inner.bucket(of)
     }
 
-    fn bucket_mut(&mut self, of: &NodeId) -> &mut Bucket<BUCKET_SIZE> {
+    fn bucket_mut(&'a mut self, of: &NodeId) -> Self::BucketWriteGuard {
         self.inner.bucket_mut(of)
     }
 }

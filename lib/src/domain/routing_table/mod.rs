@@ -1,9 +1,13 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::ops::DerefMut;
 
 use crate::domain::{Bucket, Contact, NodeId, ReplacementError};
 
 pub mod flat_routing_table;
+pub mod observable_routing_table;
+#[cfg(test)]
+pub mod single_bucket;
 pub mod unlimited_pn_routing_table;
 
 #[derive(Debug, Eq, PartialEq)]
@@ -71,6 +75,10 @@ impl From<BucketSplitError> for InsertionError {
 
 /// A table managing [Contact]s.
 ///
+/// # Buckets
+///
+/// A [RoutingTable] has to guarantee to have at least one [Bucket] at any given time.
+///
 /// # Physical Neighbors
 ///
 /// As some RoutingTable implementation may handle physical neighbors in a different way
@@ -79,7 +87,16 @@ impl From<BucketSplitError> for InsertionError {
 /// in the buckets.
 ///
 /// As mostly accessing the buckets directly only happens if Insertion fails, this will ne problem.
-pub trait RoutingTable<const BUCKET_SIZE: usize> {
+pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
+    /// Possible Write Guard for a mutable contact reference.
+    ///
+    /// Allows implementations to support RAII types to watch mutability of a contact.
+    type ContactWriteGuard: DerefMut<Target = Contact>;
+    /// Possible Write Guard for a mutable bucket reference.
+    ///
+    /// Allows implementations to support RAII types to watch mutability of a bucket.
+    type BucketWriteGuard: DerefMut<Target = Bucket<BUCKET_SIZE>>;
+
     /// Returns the root [NodeId] of the [RoutingTable].
     fn root(&self) -> &NodeId;
 
@@ -103,7 +120,7 @@ pub trait RoutingTable<const BUCKET_SIZE: usize> {
     fn remove(&mut self, id: &NodeId) -> Option<Contact>;
 
     /// Replaces a [Contact] and returns the replaced one.
-    fn replace(&mut self, id: &NodeId, with: Contact) -> Result<(), ReplacementError>;
+    fn replace(&mut self, id: &NodeId, with: Contact) -> Result<Contact, ReplacementError>;
 
     /// Returns an existing [Contact] if present.
     fn contact(&self, id: &NodeId) -> Option<&Contact>;
@@ -111,8 +128,8 @@ pub trait RoutingTable<const BUCKET_SIZE: usize> {
     /// Returns a random [Contact]s [NodeId] if the [RoutingTable] is not empty.
     fn random_id(&self) -> Option<&NodeId>;
 
-    /// Returns a mutable reference to an existing [Contact] if present.
-    fn contact_mut(&mut self, id: &NodeId) -> Option<&mut Contact>;
+    /// Returns a write guard to an existing [Contact] if present.
+    fn contact_mut(&'a mut self, id: &NodeId) -> Option<Self::ContactWriteGuard>;
 
     /// Returns if a [Contact] with a given [NodeId] is present in the [RoutingTable].
     fn contains(&self, id: &NodeId) -> bool;
@@ -128,7 +145,7 @@ pub trait RoutingTable<const BUCKET_SIZE: usize> {
     fn bucket(&self, of: &NodeId) -> &Bucket<BUCKET_SIZE>;
 
     /// Returns a mutable reference to the [Bucket] for the given [NodeId].
-    fn bucket_mut(&mut self, of: &NodeId) -> &mut Bucket<BUCKET_SIZE>;
+    fn bucket_mut(&'a mut self, of: &NodeId) -> Self::BucketWriteGuard;
 
     /// Inserts a [Contact] into the table by splitting the [Bucket] until
     /// Insertion succeeds or splitting failed.

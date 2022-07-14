@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::domain::{
-    AddError, Contact, InsertionError, NodeId, PathCycleRemover, RoutingTable, State,
+    AddError, Contact, ContactState, InsertionError, NodeId, PathCycleRemover, RoutingTable,
 };
 
 use super::{PNTable, PathSimplifier};
@@ -22,7 +22,7 @@ pub enum InsertionStrategyResult {
 /// This will be handled where the Hello-Messages are handled explicitly.
 pub trait InsertionStrategy<RT, const BUCKET_SIZE: usize>
 where
-    RT: RoutingTable<BUCKET_SIZE>,
+    for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
 {
     /// Insert the [Contact] into the [RoutingTable].
     ///
@@ -54,7 +54,7 @@ impl<RT, CR, PS, const BUCKET_SIZE: usize> PNSStrategy<RT, CR, PS, BUCKET_SIZE> 
 
 impl<RT, CR, PS, const BUCKET_SIZE: usize> PNSStrategy<RT, CR, PS, BUCKET_SIZE>
 where
-    RT: RoutingTable<BUCKET_SIZE>,
+    for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
 {
     /// Update an existing contact in the table instead of inserting.
     fn update_existing(&self, contact: Contact, table: &mut RT) -> InsertionStrategyResult {
@@ -63,7 +63,7 @@ where
             existing.is_some(),
             "update_existing should only be called after detecting a id to be present"
         );
-        let existing = existing.unwrap();
+        let mut existing = existing.unwrap();
         assert_eq!(
             existing.id(),
             contact.id(),
@@ -88,7 +88,7 @@ where
         // Otherwise the seq_nr is equal
 
         // Drop if seq_nr is equal and contact is valid
-        if existing.state() != &State::Valid {
+        if existing.state() != &ContactState::Valid {
             return InsertionStrategyResult::Dropped;
         }
         // Drop if same seq_nr but Age is older
@@ -97,7 +97,7 @@ where
         }
         // Drop if state is not valid and the new info doesn't avoid
         // all failed links
-        if let State::Rediscovering(rds) = existing.state() {
+        if let ContactState::Rediscovering(rds) = existing.state() {
             for link in &rds.failed_link_list {
                 if contact.path().contains_link(link) {
                     return InsertionStrategyResult::Dropped;
@@ -114,7 +114,7 @@ where
 
     /// Check if the contact can replace an entry in the bucket it belongs to.
     fn replace_in_full_bucket(&self, contact: Contact, table: &mut RT) -> InsertionStrategyResult {
-        let bucket = table.bucket_mut(contact.id());
+        let mut bucket = table.bucket_mut(contact.id());
         assert!(
             !bucket.is_empty(),
             "replace_in_full_bucket is called on empty bucket"
@@ -149,7 +149,7 @@ where
 impl<RT, CR, PS, const BUCKET_SIZE: usize> InsertionStrategy<RT, BUCKET_SIZE>
     for PNSStrategy<RT, CR, PS, BUCKET_SIZE>
 where
-    RT: RoutingTable<BUCKET_SIZE>,
+    for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
     for<'a> &'a RT: IntoIterator<Item = &'a Contact>,
     CR: PathCycleRemover,
     PS: PathSimplifier,
@@ -208,7 +208,7 @@ impl From<InsertionStrategyResult> for TestInsertionStrategy {
 
 impl<RT, const BUCKET_SIZE: usize> InsertionStrategy<RT, BUCKET_SIZE> for TestInsertionStrategy
 where
-    RT: RoutingTable<BUCKET_SIZE>,
+    for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
 {
     fn insert(
         &mut self,

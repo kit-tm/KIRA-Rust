@@ -87,7 +87,7 @@ impl<C, const BUCKET_SIZE: usize> HandleHelloUseCase<C, BUCKET_SIZE> {
 impl<C, const BUCKET_SIZE: usize> UseCase for HandleHelloUseCase<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
-    C::RoutingTable: RoutingTable<BUCKET_SIZE>,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::MessageSender: ProtocolMessageSender,
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, BUCKET_SIZE>,
 {
@@ -109,16 +109,10 @@ where
             ProtocolMessage::Hello(HelloMessage {
                 source,
                 source_state_seq_nr,
-                destination,
             }),
             in_port,
         ) = event
         {
-            // Ignore messages not directed to us
-            if &destination != context.root_id() {
-                return Ok(());
-            }
-
             // Add or update Physical Neighbors
             if let Some(updated) = context.pn_table_mut().add(source.clone(), in_port) {
                 log::debug!("Updated Port for PN: {}", updated);
@@ -179,8 +173,8 @@ where
 
             let message = ReqRspMessage {
                 nonce: Nonce::random(),
-                source: destination,
-                destination: source,
+                source: context.root_id().clone(),
+                target: source,
                 data: PNDiscReqData {
                     contacts: pn_contacts,
                 },
@@ -212,7 +206,7 @@ mod tests {
     };
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
     use crate::messaging::{HelloMessage, InMemoryMessageHub, ProtocolMessage, ReqRspMessage};
-    use crate::runtime::DummyRuntime;
+    use crate::runtime::ImmediateRuntime;
     use crate::use_cases::handle_hello::HandleHelloUseCase;
     use crate::use_cases::{UseCase, UseCaseEvent};
 
@@ -234,7 +228,7 @@ mod tests {
 
         let broadcaster = Arc::new(BusBroadcaster::new(1));
 
-        let runtime = DummyRuntime::new(broadcaster);
+        let runtime = ImmediateRuntime::new(broadcaster);
 
         let context = SyncContext::new(
             root_id.clone(),
@@ -255,7 +249,6 @@ mod tests {
                     ProtocolMessage::Hello(HelloMessage {
                         source: sender_id.clone(),
                         source_state_seq_nr: StateSeqNr::from(0),
-                        destination: root_id.clone(),
                     }),
                     InMemoryMessageHub::dummy_port(),
                 ),
@@ -266,7 +259,7 @@ mod tests {
         assert!(message_hub.messages().iter().any(|message| {
             if let ProtocolMessage::PNDiscReq(ReqRspMessage {
                 source,
-                destination,
+                target: destination,
                 ..
             }) = message
             {

@@ -41,7 +41,7 @@ impl Display for ReplacementError {
 impl Error for ReplacementError {}
 
 /// A [Bucket] with fixed size used in the [crate::domain::RoutingTable].
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Bucket<const SIZE: usize = DEFAULT_BUCKET_SIZE> {
     contacts: [Option<Contact>; SIZE],
 }
@@ -127,7 +127,11 @@ impl<const SIZE: usize> Bucket<SIZE> {
 
     /// Replaces a [Contact] with the given [NodeId] with another [Contact].
     /// Returns if the Replacement was successful.
-    pub fn replace(&mut self, replace_id: &NodeId, with: Contact) -> Result<(), ReplacementError> {
+    pub fn replace(
+        &mut self,
+        replace_id: &NodeId,
+        with: Contact,
+    ) -> Result<Contact, ReplacementError> {
         if !self.contains(replace_id) {
             return Err(ReplacementError::NotFound(replace_id.clone()));
         }
@@ -139,9 +143,11 @@ impl<const SIZE: usize> Bucket<SIZE> {
         let contact = self.get_mut(replace_id);
         // We checked before
         assert!(contact.is_some());
-        *contact.unwrap() = with;
+        let contact = contact.unwrap();
+        let old_contact = contact.clone();
+        *contact = with;
 
-        Ok(())
+        Ok(old_contact)
     }
 
     /// Removes a [Contact] from the [Bucket] returning it if present.
@@ -191,6 +197,25 @@ impl<const SIZE: usize> Bucket<SIZE> {
 
     pub(crate) fn get_by_index(&self, index: usize) -> Option<&Contact> {
         self.contacts.index(index).as_ref()
+    }
+}
+
+impl<const SIZE: usize> From<[Contact; SIZE]> for Bucket<SIZE> {
+    fn from(array: [Contact; SIZE]) -> Self {
+        Self {
+            contacts: array.map(Some),
+        }
+    }
+}
+
+impl<const SIZE: usize> Display for Bucket<SIZE> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let contacts = self
+            .iter()
+            .map(|contact| contact.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        write!(f, "Bucket [{}]", contacts)
     }
 }
 
