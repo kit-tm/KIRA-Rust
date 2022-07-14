@@ -1,17 +1,34 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
+use std::num::NonZeroUsize;
 use std::ops::{Deref, DerefMut};
 
 use crate::context::UseCaseContext;
-use crate::domain::{Age, Contact, InsertionStrategy, InsertionStrategyResult, Path, RoutingTable};
+use crate::domain::{
+    node_id, Age, Contact, InsertionStrategy, InsertionStrategyResult, Path, RoutingTable,
+};
 use crate::messaging::{
     HelloMessage, Nonce, PNDiscReqData, ProtocolMessage, ProtocolMessageSender, ReqRspMessage,
 };
 use crate::use_cases::{UseCase, UseCaseEvent, UseCaseState};
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone)]
+pub struct HandleHelloConfig {
+    pub heuristic_calculation_bits: NonZeroUsize,
+}
+
+impl Default for HandleHelloConfig {
+    fn default() -> Self {
+        Self {
+            heuristic_calculation_bits: NonZeroUsize::new(32).unwrap(),
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Default)]
 pub enum HandleHelloState {
+    #[default]
     Idle,
     Error,
 }
@@ -45,19 +62,24 @@ impl Error for HandleHelloError {}
 pub struct HandleHelloUseCase<C, const BUCKET_SIZE: usize> {
     _c: PhantomData<C>,
     state: HandleHelloState,
+    config: HandleHelloConfig,
 }
 
 impl<C, const BUCKET_SIZE: usize> Default for HandleHelloUseCase<C, BUCKET_SIZE> {
     fn default() -> Self {
-        Self::new()
+        Self::new(HandleHelloConfig::default())
     }
 }
 
 impl<C, const BUCKET_SIZE: usize> HandleHelloUseCase<C, BUCKET_SIZE> {
-    pub fn new() -> Self {
+    pub fn new(config: HandleHelloConfig) -> Self {
+        if node_id::BIT_SIZE < config.heuristic_calculation_bits.get() {
+            panic!("Number of bits to use for the heuristic in HandleHello is greater than BIT_SIZE of NodeId.")
+        }
         Self {
             _c: PhantomData::default(),
-            state: HandleHelloState::Idle,
+            state: HandleHelloState::default(),
+            config,
         }
     }
 }
@@ -134,6 +156,27 @@ where
                 .filter_map(|(id, _)| context.routing_table().contact(id).cloned())
                 .collect::<Vec<_>>();
 
+            // Use deterministic heuristic to determine if we should respond to the Message with a
+            // do not use full ID, otherwise large IDs will always "loose", use mod 2^32 comparison
+            // small collision chance: but just in case, full nodeID will be a tie breaker
+
+            // Unwrapping is safe here, as checked at construction
+            let own_bits = context
+                .root_id()
+                .bits(0, self.config.heuristic_calculation_bits)
+                .unwrap() as u32;
+            let other_bits = source
+                .bits(0, self.config.heuristic_calculation_bits)
+                .unwrap() as u32;
+            let delta = other_bits - own_bits;
+
+            // Inverted (delta < 0x80000000) || ((delta == 0 || delta == 0x80000000) && context.root_id() < &source)
+            if delta >= 0x80000000
+                && ((delta != 0 && delta != 0x80000000) || context.root_id() >= &source)
+            {
+                return Ok(());
+            }
+
             let message = ReqRspMessage {
                 nonce: Nonce::random(),
                 source: destination,
@@ -202,7 +245,7 @@ mod tests {
             runtime,
         );
 
-        let mut use_case = HandleHelloUseCase::new();
+        let mut use_case = HandleHelloUseCase::default();
 
         assert!(use_case.start(&context).is_ok());
         assert_eq!(
