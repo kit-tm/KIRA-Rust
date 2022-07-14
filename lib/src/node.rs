@@ -6,7 +6,7 @@ use crate::domain::{Contact, InsertionStrategy, RoutingTable, DEFAULT_BUCKET_SIZ
 use crate::messaging::ProtocolMessageSender;
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::bootstrap::{BootstrapConfig, BootstrapUseCase};
-use crate::use_cases::handle_hello::HandleHelloUseCase;
+use crate::use_cases::handle_hello::{HandleHelloConfig, HandleHelloUseCase};
 use crate::use_cases::periodic_pn_advertising::{
     PeriodicPNAdvertising, PeriodicPNAdvertisingConfig,
 };
@@ -18,6 +18,7 @@ pub struct Config {
     pub bootstrap: BootstrapConfig,
     pub pn_probing: PeriodicPNAdvertisingConfig,
     pub random_probing: RandomProbingConfig,
+    pub handle_hello: HandleHelloConfig,
 }
 
 #[derive(Debug)]
@@ -69,7 +70,7 @@ where
             bootstrap: BootstrapUseCase::new(config.bootstrap),
             pn_probing: PeriodicPNAdvertising::new(config.pn_probing),
             random_probing: RandomProbingUseCase::new(config.random_probing),
-            handle_hello: HandleHelloUseCase::new(),
+            handle_hello: HandleHelloUseCase::new(config.handle_hello),
         }
     }
 

@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::{Display, Formatter, LowerHex, UpperHex};
@@ -334,6 +335,26 @@ impl FromStr for NodeId {
         let mut inner = [0u8; SIZE];
         hex::decode_to_slice(s, &mut inner)?;
         Ok(Self { bytes: inner })
+    }
+}
+
+impl PartialOrd for NodeId {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for NodeId {
+    fn cmp(&self, other: &Self) -> Ordering {
+        for (own_byte, other_byte) in self.bytes.iter().zip(other.bytes.iter()) {
+            match own_byte.cmp(other_byte) {
+                Ordering::Greater => return Ordering::Greater,
+                Ordering::Less => return Ordering::Less,
+                _ => continue,
+            }
+        }
+
+        Ordering::Equal
     }
 }
 
