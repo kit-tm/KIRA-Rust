@@ -77,7 +77,7 @@ fn main() {
     let handle_hello_context = Arc::clone(&context);
     // Initialize the Use Cases
     let handle = runtime.spawn(async move {
-        let use_case = HandleHelloUseCase::new();
+        let use_case = HandleHelloUseCase::new(Default::default());
 
         UseCaseTask::new(
             "Bootstrap",

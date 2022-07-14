@@ -85,11 +85,11 @@ impl<C, const BUCKET_SIZE: usize> HandleHelloUseCase<C, BUCKET_SIZE> {
 }
 
 impl<C, const BUCKET_SIZE: usize> UseCase for HandleHelloUseCase<C, BUCKET_SIZE>
-where
-    C: UseCaseContext,
-    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::MessageSender: ProtocolMessageSender,
-    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, BUCKET_SIZE>,
+    where
+        C: UseCaseContext,
+        for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+        C::MessageSender: ProtocolMessageSender,
+        C::InsertionStrategy: InsertionStrategy<C::RoutingTable, BUCKET_SIZE>,
 {
     type Context = C;
     type Error = HandleHelloError;
@@ -107,9 +107,9 @@ where
     ) -> Result<(), Self::Error> {
         if let UseCaseEvent::Message(
             ProtocolMessage::Hello(HelloMessage {
-                source,
-                source_state_seq_nr,
-            }),
+                                       source,
+                                       source_state_seq_nr,
+                                   }),
             in_port,
         ) = event
         {
@@ -151,18 +151,18 @@ where
                 .collect::<Vec<_>>();
 
             // Use deterministic heuristic to determine if we should respond to the Message with a
-            // do not use full ID, otherwise large IDs will always "loose", use mod 2^32 comparison
+            // do not use full ID, otherwise large IDs will always "loose", use mod 2^{calculation_bits} comparison
             // small collision chance: but just in case, full nodeID will be a tie breaker
 
             // Unwrapping is safe here, as checked at construction
             let own_bits = context
                 .root_id()
                 .bits(0, self.config.heuristic_calculation_bits)
-                .unwrap() as u32;
+                .unwrap();
             let other_bits = source
                 .bits(0, self.config.heuristic_calculation_bits)
-                .unwrap() as u32;
-            let delta = other_bits - own_bits;
+                .unwrap();
+            let delta = other_bits.wrapping_sub(own_bits);
 
             // Inverted (delta < 0x80000000) || ((delta == 0 || delta == 0x80000000) && context.root_id() < &source)
             if delta >= 0x80000000
@@ -197,6 +197,7 @@ where
 #[cfg(all(test, feature = "bus"))]
 mod tests {
     use std::sync::Arc;
+    use std::num::NonZeroUsize;
 
     use crate::broadcaster::BusBroadcaster;
     use crate::context::SyncContext;
@@ -205,17 +206,81 @@ mod tests {
         FlatRoutingTable, InsertionStrategyResult, NodeId, StateSeqNr, TestInsertionStrategy,
     };
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
-    use crate::messaging::{HelloMessage, InMemoryMessageHub, ProtocolMessage, ReqRspMessage};
+    use crate::messaging::{HelloMessage, InMemoryMessageHub, ProtocolMessage};
     use crate::runtime::ImmediateRuntime;
-    use crate::use_cases::handle_hello::HandleHelloUseCase;
+    use crate::use_cases::handle_hello::{HandleHelloConfig, HandleHelloUseCase};
     use crate::use_cases::{UseCase, UseCaseEvent};
 
     #[test]
     fn responds_with_pn_disc_req() {
+        crate::tests::init();
+
+        // Answer should be a PNDiscReq if
+        let root_id = NodeId::with_lsb(2);
+        let sender_id = NodeId::with_lsb(4);
+
+        let routing_table =
+            FlatRoutingTable::<20, 1>::new(root_id.clone()).expect("invalid grouping");
+
+        let pn_table = PNTable::new();
+
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+
+        let message_hub = ArcSyncInMemoryMessageHub::new();
+
+        let broadcaster = Arc::new(BusBroadcaster::new(1));
+
+        let runtime = ImmediateRuntime::new(broadcaster);
+
+        let context = SyncContext::new(
+            root_id.clone(),
+            routing_table,
+            pn_table,
+            insertion_strategy,
+            message_hub.clone(),
+            runtime,
+        );
+
+        let mut use_case = HandleHelloUseCase::new(HandleHelloConfig {
+            heuristic_calculation_bits: NonZeroUsize::new(34).unwrap()
+        });
+
+        assert!(use_case.start(&context).is_ok());
+        assert_eq!(
+            use_case.handle_event(
+                &context,
+                UseCaseEvent::Message(
+                    ProtocolMessage::Hello(HelloMessage {
+                        source: sender_id.clone(),
+                        source_state_seq_nr: StateSeqNr::from(0),
+                    }),
+                    InMemoryMessageHub::dummy_port(),
+                ),
+            ),
+            Ok(())
+        );
+
+        let pn_disc_req = message_hub.messages().iter().find_map(|message| {
+            if let ProtocolMessage::PNDiscReq(message) = message {
+                Some(message)
+            } else {
+                None
+            }
+        }).cloned();
+        assert!(pn_disc_req.is_some());
+        let message = pn_disc_req.unwrap();
+        assert_eq!(&message.source, &root_id);
+        assert_eq!(&message.target, &sender_id);
+    }
+
+    #[test]
+    fn doesnt_respond_with_pn_disc_req() {
+        crate::tests::init();
+
         // Answer should be a PNDiscReq
 
-        let root_id = NodeId::random();
-        let sender_id = NodeId::random();
+        let root_id = NodeId::with_lsb(2);
+        let sender_id = NodeId::with_lsb(1);
 
         let routing_table =
             FlatRoutingTable::<20, 1>::new(root_id.clone()).expect("invalid grouping");
@@ -256,17 +321,6 @@ mod tests {
             Ok(())
         );
 
-        assert!(message_hub.messages().iter().any(|message| {
-            if let ProtocolMessage::PNDiscReq(ReqRspMessage {
-                source,
-                target: destination,
-                ..
-            }) = message
-            {
-                source == &root_id && destination == &sender_id
-            } else {
-                false
-            }
-        }));
+        assert!(message_hub.messages().is_empty());
     }
 }

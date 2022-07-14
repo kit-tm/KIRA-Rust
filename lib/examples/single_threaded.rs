@@ -101,7 +101,7 @@ fn main() {
         return;
     }
 
-    let mut handle_hello = HandleHelloUseCase::new();
+    let mut handle_hello = HandleHelloUseCase::new(Default::default());
     if let Err(e) = handle_hello.start(&context) {
         log::error!("Failed to start Hello Message UseCase: {}", e);
         return;
