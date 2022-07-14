@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 #[cfg(test)]
-pub use dummy_runtime::*;
+pub use immediate_runtime::*;
 pub use sync_runtime::*;
 #[cfg(feature = "tokio")]
 pub use tokio_runtime::*;
@@ -9,7 +9,7 @@ pub use tokio_runtime::*;
 use crate::use_cases::TimerId;
 
 #[cfg(test)]
-pub mod dummy_runtime;
+pub mod immediate_runtime;
 pub mod sync_runtime;
 #[cfg(feature = "tokio")]
 pub mod tokio_runtime;

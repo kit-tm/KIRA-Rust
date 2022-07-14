@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
+use std::num::NonZeroU64;
 use std::time::Duration;
 
 use crate::context::UseCaseContext;
@@ -12,7 +13,7 @@ use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
 #[derive(Debug, Copy, Clone)]
 pub struct RandomProbingConfig {
     pub timeout: Duration,
-    pub neighborhood_size: u64,
+    pub neighborhood_size: NonZeroU64,
 }
 
 impl Default for RandomProbingConfig {
@@ -20,7 +21,7 @@ impl Default for RandomProbingConfig {
         Self {
             // Default: 2.5 Messages/s => 1000 ms / 2.5 = 400 ms
             timeout: Duration::from_millis(400),
-            neighborhood_size: 20,
+            neighborhood_size: NonZeroU64::new(20).unwrap(),
         }
     }
 }
@@ -73,8 +74,11 @@ where
                 let message = ReqRspMessage {
                     nonce: Nonce::random(),
                     source: context.root_id().clone(),
-                    destination: random_id,
-                    data: FindNodeReqData { exact: false },
+                    target: random_id,
+                    data: FindNodeReqData {
+                        exact: false,
+                        neighborhood: self.config.neighborhood_size,
+                    },
                 };
 
                 if let Err(e) = context.message_sender_mut().send(message) {
@@ -130,7 +134,7 @@ impl UseCaseState for RandomProbingState {
 
 #[cfg(all(test, feature = "bus"))]
 mod tests {
-    use std::sync::Arc;
+    use std::num::NonZeroU64;
     use std::time::Duration;
 
     use crate::broadcaster::BusBroadcaster;
@@ -141,7 +145,7 @@ mod tests {
     };
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
     use crate::messaging::ProtocolMessage;
-    use crate::runtime::DummyRuntime;
+    use crate::runtime::ImmediateRuntime;
     use crate::use_cases::random_probing::{
         RandomProbingConfig, RandomProbingState, RandomProbingUseCase,
     };
@@ -150,12 +154,12 @@ mod tests {
     fn init_test_context() -> (
         NodeId,
         ArcSyncInMemoryMessageHub,
-        Arc<BusBroadcaster>,
-        DummyRuntime<BusBroadcaster>,
+        BusBroadcaster,
+        ImmediateRuntime<BusBroadcaster>,
         SyncContext<
             FlatRoutingTable<20, 1>,
             ArcSyncInMemoryMessageHub,
-            DummyRuntime<BusBroadcaster>,
+            ImmediateRuntime<BusBroadcaster>,
             TestInsertionStrategy,
         >,
     ) {
@@ -166,9 +170,9 @@ mod tests {
 
         let hub = ArcSyncInMemoryMessageHub::new();
 
-        let broadcaster = Arc::new(BusBroadcaster::new(1));
+        let broadcaster = BusBroadcaster::new(1);
 
-        let runtime = DummyRuntime::new(Arc::clone(&broadcaster));
+        let runtime = ImmediateRuntime::new(broadcaster.clone());
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
 
@@ -188,7 +192,7 @@ mod tests {
     fn smoke_test() {
         // Tests if start succeeds and a periodic random id is probed
 
-        let (root_id, hub, _broadcaster, runtime, context) = init_test_context();
+        let (root_id, hub, _broadcaster, _runtime, context) = init_test_context();
 
         // Insert a single contact into the routing table
         let contact = Contact::new(
@@ -203,7 +207,7 @@ mod tests {
 
         let mut use_case = RandomProbingUseCase::new(RandomProbingConfig {
             timeout: Duration::from_secs(0),
-            neighborhood_size: 0,
+            neighborhood_size: NonZeroU64::new(20).unwrap(),
         });
 
         let start_result = use_case.start(&context);
@@ -211,10 +215,9 @@ mod tests {
 
         assert!(matches!(&use_case.state, RandomProbingState::Running(_)));
         let timer_id = match &use_case.state {
-            RandomProbingState::Running(timer_id) => timer_id.clone(),
+            RandomProbingState::Running(timer_id) => *timer_id,
             state => panic!("Unexpected State: {:?}", state),
         };
-        assert_ne!(runtime.counter(), 0);
 
         let handle_result = use_case.handle_event(&context, UseCaseEvent::Timer(timer_id));
         assert!(handle_result.is_ok(), "{:?}", handle_result);
@@ -232,7 +235,7 @@ mod tests {
 
             // Request is from Sender Node, random id and exact flag is set to false
             assert_eq!(&message.source, &root_id);
-            assert!(!message.destination.is_zero());
+            assert!(!message.target.is_zero());
             assert!(!message.data.exact);
 
             let handle_result = use_case.handle_event(&context, UseCaseEvent::Timer(timer_id));

@@ -1,3 +1,5 @@
+use std::num::NonZeroU64;
+
 use crate::domain::{Contact, NodeId, StateSeqNr};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -35,7 +37,6 @@ pub enum ProtocolMessage {
 pub struct HelloMessage {
     pub source: NodeId,
     pub source_state_seq_nr: StateSeqNr,
-    pub destination: NodeId,
 }
 
 impl From<HelloMessage> for ProtocolMessage {
@@ -51,7 +52,7 @@ impl From<HelloMessage> for ProtocolMessage {
 pub struct ReqRspMessage<T: std::fmt::Debug> {
     pub nonce: Nonce,
     pub source: NodeId,
-    pub destination: NodeId,
+    pub target: NodeId,
     pub data: T,
 }
 
@@ -70,12 +71,21 @@ impl From<ReqRspMessage<PNDiscReqData>> for ProtocolMessage {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct RTableData {
-    contacts: Vec<Contact>,
+    pub contacts: Vec<Contact>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct QueryRouteReqData;
+pub struct QueryRouteReqData {
+    pub query_type: QueryRouteType,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub enum QueryRouteType {
+    PhysicalNeighbors,
+    OverlayNeighbors(NonZeroU64),
+}
 
 impl From<ReqRspMessage<QueryRouteReqData>> for ProtocolMessage {
     fn from(message: ReqRspMessage<QueryRouteReqData>) -> Self {
@@ -89,6 +99,10 @@ impl From<ReqRspMessage<QueryRouteReqData>> for ProtocolMessage {
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct FindNodeReqData {
     pub exact: bool,
+    /// The range of the neighborhood to include in the RTableObject of the Response.
+    ///
+    /// This is usually equal to the BUCKET_SIZE.
+    pub neighborhood: NonZeroU64,
 }
 
 impl From<ReqRspMessage<FindNodeReqData>> for ProtocolMessage {

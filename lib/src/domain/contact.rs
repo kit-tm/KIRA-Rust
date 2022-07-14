@@ -41,14 +41,14 @@ impl Display for Timestamp {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub enum State {
+pub enum ContactState {
     Valid,
     Rediscovering(RediscoveryState),
     Invalid,
     Dead,
 }
 
-impl Display for State {
+impl Display for ContactState {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Valid => write!(f, "Valid"),
@@ -81,7 +81,7 @@ pub struct RediscoveryState {
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Contact {
-    state: State,
+    state: ContactState,
     age: Age,
     last_seen: Timestamp,
     path: Path,
@@ -109,7 +109,7 @@ impl Contact {
     /// The given [Path] has to end with the [NodeId] of the Contact.
     pub fn new(path: Path, age: Age, state_seq_nr: StateSeqNr) -> Self {
         Self {
-            state: State::Valid,
+            state: ContactState::Valid,
             age,
             last_seen: Timestamp::from(Utc::now()),
             path,
@@ -125,11 +125,11 @@ impl Contact {
         self.path.last().clone()
     }
 
-    pub fn state(&self) -> &State {
+    pub fn state(&self) -> &ContactState {
         &self.state
     }
 
-    pub fn state_mut(&mut self) -> &mut State {
+    pub fn state_mut(&mut self) -> &mut ContactState {
         &mut self.state
     }
 
@@ -141,6 +141,10 @@ impl Contact {
 
     pub fn age(&self) -> &Age {
         &self.age
+    }
+
+    pub fn age_mut(&mut self) -> &mut Age {
+        &mut self.age
     }
 
     pub fn last_seen(&self) -> &Timestamp {

@@ -12,7 +12,7 @@ impl PathSimplifier for ShortestFirstPathSimplifier {
         pn_table: &PNTable,
         path: &mut Path,
     ) where
-        RT: RoutingTable<BUCKET_SIZE>,
+        for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
     {
         // Already a physical neighbor, can't be shortened
         if path.size() <= 1 {
