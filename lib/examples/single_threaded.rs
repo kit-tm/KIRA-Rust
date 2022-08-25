@@ -165,7 +165,7 @@ fn main() {
             log::error!("Vicinity Discovery returned error handling message: {}", e);
         }
 
-        // Check States
+        // Check States as returning an error doesn't show an unrecoverable error
         let states: Vec<&(dyn UseCaseState)> = vec![
             forward_message.state(),
             pn_advertising.state(),

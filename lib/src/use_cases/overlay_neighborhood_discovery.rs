@@ -79,10 +79,6 @@ pub enum ONDState {
 }
 
 impl UseCaseState for ONDState {
-    fn is_finished(&self) -> bool {
-        false
-    }
-
     fn is_error(&self) -> bool {
         self == &Self::Error
     }
@@ -103,6 +99,13 @@ impl UseCaseState for ONDState {
 /// The [Nonce] of retry messages are not equal to each other.
 /// The [Nonce] of every sent FindNodeReq is randomly generated to distinguish
 /// between answers to the latest and older FindNodeReqs.
+///
+/// # Errors
+///
+/// Inconsistencies (physical neighbors without contacts, contacts with invalid paths)
+/// yield an error and will change the state to an unrecoverable error state.
+/// The reason is that a failing neighbor and its removal should yield changes to pn_table
+/// and routing table at the same time.
 #[derive(Debug, Clone)]
 pub struct ONDUseCase<C, const BUCKET_SIZE: usize> {
     _pd: PhantomData<C>,
@@ -151,13 +154,13 @@ where
         {
             (timer_id, nonces, latest)
         } else {
-            panic!("Called handle_timer_event in non-Running state!");
+            panic!("Called send_next_request in non-Running state!");
         };
 
         // if no next backoff is allowed -> Restart whole process
         let next_backoff = self.backoff.next();
         if next_backoff.is_none() {
-            log::warn!("Exponential Backoff for Overlay Neighborhood Discovery failed. Scheduling next iteration.");
+            log::debug!("Exponential Backoff for Overlay Neighborhood Discovery failed. Scheduling next iteration.");
             // Reset backoff
             self.backoff.reset();
             // Old nonces are useless now
@@ -177,7 +180,7 @@ where
 
         // No need for discovery if isolated
         if context.pn_table().is_empty() {
-            log::error!("No physical neighbors present; Node is isolated");
+            log::warn!("No physical neighbors present; Node is isolated");
             return Ok(());
         }
 
@@ -190,9 +193,10 @@ where
             )
             .cloned();
 
-        // No one found -> Isolated
+        // No one found -> Isolated, but physical neighbors are present
         if path_to_closest_on.is_none() {
-            log::debug!("Node has no valid contacts. Can't discover overlay neighbors");
+            log::error!("Physical neighbors are present, but no contacts");
+            self.state = ONDState::Error;
             return Err(ONDError::NeighborInconsistency);
         }
         let contact = path_to_closest_on.unwrap();
@@ -202,7 +206,8 @@ where
         let neighbor = route_to_closest_on.current_hop();
         let port = context.pn_table().get(neighbor).cloned();
         if port.is_none() {
-            log::error!("Temporary inconsistency. Contact is valid but its path goes through a invalid neighbor. Contact: {}, neighbor: {}", contact, neighbor);
+            log::error!("Contact is valid but its path goes through an invalid neighbor. Contact: {}, neighbor: {}", contact, neighbor);
+            self.state = ONDState::Error;
             return Err(ONDError::NeighborInconsistency);
         }
         let port = port.unwrap();
@@ -220,7 +225,6 @@ where
 
         if let Err(e) = context.message_sender_mut().send(request, port) {
             log::error!("Failed to send FindNodeReq: {:?}", e);
-            self.state = ONDState::Error;
             return Err(ONDError::SendError);
         }
 
@@ -422,7 +426,7 @@ mod tests {
             .insert(Contact::new(
                 Path::from(neighbor_id.clone()),
                 Age::from(0),
-                StateSeqNr::from(0)
+                StateSeqNr::from(0),
             ))
             .is_ok());
         let mut pn_table = PNTable::new();
@@ -510,7 +514,7 @@ mod tests {
             .insert(Contact::new(
                 Path::from(neighbor_id.clone()),
                 Age::from(0),
-                StateSeqNr::from(0)
+                StateSeqNr::from(0),
             ))
             .is_ok());
         let mut pn_table = PNTable::new();
@@ -611,7 +615,7 @@ mod tests {
             .insert(Contact::new(
                 Path::from(neighbor_id.clone()),
                 Age::from(0),
-                StateSeqNr::from(0)
+                StateSeqNr::from(0),
             ))
             .is_ok());
         let mut pn_table = PNTable::new();

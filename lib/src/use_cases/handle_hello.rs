@@ -12,7 +12,7 @@ use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     HelloMessage, Nonce, PNDiscReqData, ProtocolMessage, ProtocolMessageSender, ReqRspMessage,
 };
-use crate::use_cases::{UseCase, UseCaseEvent, UseCaseState};
+use crate::use_cases::{ReactiveUseCaseState, UseCase, UseCaseEvent};
 
 #[derive(Debug, Clone)]
 pub struct HandleHelloConfig {
@@ -24,23 +24,6 @@ impl Default for HandleHelloConfig {
         Self {
             heuristic_calculation_bits: NonZeroUsize::new(32).unwrap(),
         }
-    }
-}
-
-#[derive(Debug, Eq, PartialEq, Default)]
-pub enum HandleHelloState {
-    #[default]
-    Idle,
-    Error,
-}
-
-impl UseCaseState for HandleHelloState {
-    fn is_finished(&self) -> bool {
-        false
-    }
-
-    fn is_error(&self) -> bool {
-        self == &Self::Error
     }
 }
 
@@ -62,7 +45,7 @@ impl Error for HandleHelloError {}
 #[derive(Debug)]
 pub struct HandleHelloUseCase<C, const BUCKET_SIZE: usize> {
     _c: PhantomData<C>,
-    state: HandleHelloState,
+    state: ReactiveUseCaseState,
     config: HandleHelloConfig,
 }
 
@@ -79,7 +62,7 @@ impl<C, const BUCKET_SIZE: usize> HandleHelloUseCase<C, BUCKET_SIZE> {
         }
         Self {
             _c: PhantomData::default(),
-            state: HandleHelloState::default(),
+            state: ReactiveUseCaseState::default(),
             config,
         }
     }
@@ -94,7 +77,7 @@ where
 {
     type Context = C;
     type Error = HandleHelloError;
-    type State = HandleHelloState;
+    type State = ReactiveUseCaseState;
 
     fn start(&mut self, _context: &Self::Context) -> Result<(), Self::Error> {
         // Nothing to initialize here
@@ -144,14 +127,7 @@ where
                 }
             }
 
-            // Answer with a PNDiscReq to ensure bidirectional connectivity
-            let pn_contacts = context
-                .pn_table()
-                .into_iter()
-                .filter_map(|(id, _)| context.routing_table().contact(id).cloned())
-                .collect::<Vec<_>>();
-
-            // Use deterministic heuristic to determine if we should respond to the Message with a
+            // Use deterministic heuristic to determine if we should respond to the Message
             // do not use full ID, otherwise large IDs will always "loose", use mod 2^{calculation_bits} comparison
             // small collision chance: but just in case, full nodeID will be a tie breaker
 
@@ -172,6 +148,13 @@ where
                 return Ok(());
             }
 
+            // Answer with a PNDiscReq to ensure bidirectional connectivity
+            let pn_contacts = context
+                .pn_table()
+                .into_iter()
+                .filter_map(|(id, _)| context.routing_table().contact(id).cloned())
+                .collect::<Vec<_>>();
+
             let message = ReqRspMessage {
                 nonce: Nonce::random(),
                 source: context.root_id().clone(),
@@ -184,7 +167,6 @@ where
             };
             if let Err(e) = context.message_sender_mut().send(message, in_port) {
                 log::error!("Failed to send message: {}", e);
-                self.state = HandleHelloState::Error;
                 return Err(HandleHelloError::SendError);
             }
         }
