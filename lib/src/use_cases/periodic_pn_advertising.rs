@@ -30,10 +30,6 @@ pub enum PeriodicPNAdvertisingState {
 }
 
 impl UseCaseState for PeriodicPNAdvertisingState {
-    fn is_finished(&self) -> bool {
-        false
-    }
-
     fn is_error(&self) -> bool {
         self == &Self::Error
     }
@@ -110,7 +106,6 @@ where
                     Port::All,
                 ) {
                     log::error!("MessageSender failed: {}", e);
-                    self.state = PeriodicPNAdvertisingState::Error;
                     return Err(PeriodicPNAdvertisingError::SendError);
                 }
             }

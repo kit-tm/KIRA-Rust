@@ -48,7 +48,6 @@ impl Deref for TimerId {
 }
 
 pub trait UseCaseState {
-    fn is_finished(&self) -> bool;
     fn is_error(&self) -> bool;
 }
 
@@ -70,10 +69,6 @@ pub enum ReactiveUseCaseState {
 }
 
 impl UseCaseState for ReactiveUseCaseState {
-    fn is_finished(&self) -> bool {
-        false
-    }
-
     fn is_error(&self) -> bool {
         self == &Self::Error
     }

@@ -1,10 +1,11 @@
+use std::fmt::Debug;
+use std::marker::PhantomData;
+
 use crate::context::UseCaseContext;
 use crate::domain::Port;
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{ErrorData, ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
 use crate::use_cases::{MessageSentFailed, ReactiveUseCaseState, UseCase, UseCaseEvent};
-use std::fmt::Debug;
-use std::marker::PhantomData;
 
 #[derive(Debug, Default)]
 pub struct ForwardPMUseCase<C> {
@@ -75,6 +76,7 @@ where
         };
         let source_route = message.source_route_mut();
         if source_route.is_none() {
+            log::error!("Received message with no source route: {:?}", message);
             return Ok(());
         }
         let source_route = source_route.unwrap();
@@ -121,6 +123,10 @@ where
 
 #[cfg(all(test, feature = "bus"))]
 mod tests {
+    use std::num::NonZeroU64;
+    use std::sync::Arc;
+    use std::time::Duration;
+
     use crate::broadcaster::{Broadcaster, BusBroadcaster};
     use crate::context::SyncContext;
     use crate::domain::single_bucket::SingleBucketRT;
@@ -136,9 +142,6 @@ mod tests {
     use crate::runtime::ImmediateRuntime;
     use crate::use_cases::forward_protocol_message::ForwardPMUseCase;
     use crate::use_cases::{UseCase, UseCaseEvent};
-    use std::num::NonZeroU64;
-    use std::sync::Arc;
-    use std::time::Duration;
 
     #[test]
     fn forward_to_us_doesnt_forward() {

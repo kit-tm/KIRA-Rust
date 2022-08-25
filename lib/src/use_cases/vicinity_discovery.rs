@@ -1,3 +1,5 @@
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 
 use crate::context::UseCaseContext;
@@ -6,7 +8,9 @@ use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     Nonce, ProtocolMessageSender, QueryRouteReqData, QueryRouteType, ReqRspMessage,
 };
-use crate::use_cases::{ContactEvent, MessageSentFailed, UseCase, UseCaseEvent, UseCaseState};
+use crate::use_cases::{
+    ContactEvent, MessageSentFailed, ReactiveUseCaseState, UseCase, UseCaseEvent, UseCaseState,
+};
 
 /// Radius of the neighborhood considered as vicinity.
 ///
@@ -18,25 +22,28 @@ use crate::use_cases::{ContactEvent, MessageSentFailed, UseCase, UseCaseEvent, U
 ///     are handled by the [HandleHelloUseCase] (*Hello* and *PNDiscReq/-Rsp*).
 pub const VICINITY_RADIUS: usize = 3;
 
-/// State of the [VicinityDiscoveryUseCase].
-#[derive(Debug, Default, Eq, PartialEq)]
-pub enum VDState {
-    /// The use case is idle and waiting for incoming protocol messages.
-    #[default]
-    Idle,
-    /// An unrecoverable error occured.
-    Error,
+/// Error types for vicinity discovery.
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub enum VDError {
+    /// Sending a ProtocolMessage failed.
+    MessageSendFailed,
+    /// A Contact contains an invalid neighbor.
+    NeighborInconsistency,
 }
 
-impl UseCaseState for VDState {
-    fn is_finished(&self) -> bool {
-        false
-    }
-
-    fn is_error(&self) -> bool {
-        self == &Self::Error
+impl Display for VDError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MessageSendFailed => write!(
+                f,
+                "Sending a ProtocolMessage through a MessageSender failed"
+            ),
+            Self::NeighborInconsistency => write!(f, "Contact contains invalid neighbor"),
+        }
     }
 }
+
+impl Error for VDError {}
 
 /// The vicinity discovery (VD) use case.
 ///
@@ -52,7 +59,7 @@ impl UseCaseState for VDState {
 #[derive(Debug)]
 pub struct VDUseCase<C> {
     _c: PhantomData<C>,
-    state: VDState,
+    state: ReactiveUseCaseState,
 }
 
 impl<C> Default for VDUseCase<C> {
@@ -66,7 +73,7 @@ impl<C> VDUseCase<C> {
     pub fn new() -> Self {
         Self {
             _c: PhantomData::default(),
-            state: VDState::default(),
+            state: ReactiveUseCaseState::default(),
         }
     }
 }
@@ -77,8 +84,8 @@ where
     C::MessageSender: ProtocolMessageSender,
 {
     type Context = C;
-    type Error = MessageSentFailed;
-    type State = VDState;
+    type Error = VDError;
+    type State = ReactiveUseCaseState;
 
     fn start(&mut self, _context: &Self::Context) -> Result<(), Self::Error> {
         // Nothing to do here as we only react to Routing Table Updates
@@ -113,7 +120,8 @@ where
                     "Temporary inconsistency: Valid contacts path starts with invalid neighbor {}",
                     contact.path().first()
                 );
-                return Err(MessageSentFailed);
+                self.state = ReactiveUseCaseState::Error;
+                return Err(VDError::NeighborInconsistency);
             }
             let neighbor_port = neighbor_port.unwrap();
 
@@ -130,8 +138,7 @@ where
 
             if let Err(e) = context.message_sender_mut().send(request, neighbor_port) {
                 log::error!("Failed to send QueryRouteReq: {:?}", e);
-                self.state = VDState::Error;
-                return Err(MessageSentFailed);
+                return Err(VDError::MessageSendFailed);
             }
         }
 
@@ -259,7 +266,7 @@ mod tests {
             .insert(Contact::new(
                 Path::from(neighbor_id.clone()),
                 Age::from(0),
-                StateSeqNr::from(0)
+                StateSeqNr::from(0),
             ))
             .is_ok());
         let mut pn_table = PNTable::new();

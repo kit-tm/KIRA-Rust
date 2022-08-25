@@ -9,7 +9,7 @@ use crate::domain::{NodeId, RoutingTable};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{FindNodeReqData, Nonce, ProtocolMessageSender, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
-use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
+use crate::use_cases::{ReactiveUseCaseState, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
 #[derive(Debug, Copy, Clone)]
 pub struct RandomProbingConfig {
@@ -90,7 +90,8 @@ where
                 let port = context.pn_table().get(closest_path.first()).cloned();
                 if port.is_none() {
                     log::error!("Contacts path contains invalid neighbor: {}", closest_path);
-                    return Ok(());
+                    self.state = RandomProbingState::Error;
+                    return Err(RandomProbingError::InvalidNeighbor);
                 }
                 let port = port.unwrap();
 
@@ -107,7 +108,6 @@ where
 
                 if let Err(e) = context.message_sender_mut().send(message, port) {
                     log::error!("MessageSender failed: {}", e);
-                    self.state = RandomProbingState::Error;
                     return Err(RandomProbingError::SendFailed);
                 }
             }
@@ -125,6 +125,7 @@ where
 pub enum RandomProbingError {
     SendFailed,
     EmptyRoutingTable,
+    InvalidNeighbor,
 }
 
 impl Display for RandomProbingError {
@@ -132,6 +133,9 @@ impl Display for RandomProbingError {
         match self {
             Self::SendFailed => write!(f, "Failed to send message"),
             Self::EmptyRoutingTable => write!(f, "Could not probe, routing table is empty"),
+            Self::InvalidNeighbor => {
+                write!(f, "The path of a contact contains an invalid neighbor")
+            }
         }
     }
 }
@@ -146,11 +150,6 @@ pub enum RandomProbingState {
 }
 
 impl UseCaseState for RandomProbingState {
-    /// Random probing will never be finished.
-    fn is_finished(&self) -> bool {
-        false
-    }
-
     fn is_error(&self) -> bool {
         self == &Self::Error
     }
