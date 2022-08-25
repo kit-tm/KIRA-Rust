@@ -2,14 +2,13 @@ use std::error::Error;
 use std::fmt::Display;
 use std::time::Duration;
 
-#[cfg(all(feature = "tokio", feature = "serde"))]
-pub use tokio_udp::*;
-
 use crate::domain::Port;
 use crate::messaging::messages::ProtocolMessage;
 
-#[cfg(all(feature = "tokio", feature = "serde"))]
-mod tokio_udp;
+#[cfg(feature = "serde")]
+pub mod udp;
+#[cfg(all(feature = "serde", feature = "tokio"))]
+pub mod udp_tokio;
 
 #[derive(Debug)]
 pub struct RecvTimeout;
