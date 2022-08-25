@@ -74,7 +74,10 @@ pub struct RediscoveryState {
     pub time: Timestamp,
     pub failed_link_list: Vec<Link>,
     pub via_contacts: Vec<NodeId>,
-    pub retry_counter: usize,
+    /// Number of already performed retries.
+    ///
+    /// In general [u8] should be enough, using [u16] to be resistant to future changes.
+    pub retry_counter: u16,
 }
 
 /// A [Contact] as represented in the [RoutingTable].

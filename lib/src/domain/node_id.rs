@@ -9,6 +9,9 @@ use std::str::FromStr;
 use hex::FromHexError;
 
 /// Fixed byte size of a [NodeId].
+///
+/// Moved to constants as the length of the [NodeId] is a global parameter not to be
+/// altered between nodes like the bucket size (**k**).
 pub const SIZE: usize = 14;
 /// Fixed bit size of a [NodeId].
 pub const BIT_SIZE: usize = SIZE * 8;
@@ -192,7 +195,7 @@ impl NodeId {
         num_bits: NonZeroUsize,
     ) -> Result<usize, BitIndexOutOfBounds> {
         let num_bits = num_bits.get();
-        if num_bits > std::mem::size_of::<usize>() * 8 {
+        if from_bit_index + num_bits > BIT_SIZE {
             return Err(BitIndexOutOfBounds);
         }
 
