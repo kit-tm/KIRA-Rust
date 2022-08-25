@@ -3,6 +3,9 @@ use std::sync::{Arc, Mutex};
 use crate::broadcaster::Broadcaster;
 use crate::use_cases::UseCaseEvent;
 
+/// A [Broadcaster] implementation using the [bus](https://docs.rs/bus/latest/bus/) crate.
+///
+/// Should be used in environments where multiple threads send **and** receive events.
 #[derive(Clone)]
 pub struct BusBroadcaster(Arc<Mutex<bus::Bus<UseCaseEvent>>>);
 

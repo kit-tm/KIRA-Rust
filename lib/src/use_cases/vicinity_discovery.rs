@@ -148,12 +148,10 @@ where
     }
 }
 
-#[cfg(all(test, feature = "bus"))]
+#[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::time::Duration;
 
-    use crate::broadcaster::BusBroadcaster;
     use crate::context::SyncContext;
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
@@ -174,7 +172,7 @@ mod tests {
 
         let root_id = NodeId::random();
 
-        let broadcaster = Arc::new(BusBroadcaster::new(1));
+        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
@@ -209,7 +207,7 @@ mod tests {
 
         let root_id = NodeId::random();
 
-        let broadcaster = Arc::new(BusBroadcaster::new(1));
+        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
@@ -250,7 +248,7 @@ mod tests {
 
         let root_id = NodeId::random();
 
-        let broadcaster = Arc::new(BusBroadcaster::new(1));
+        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
 
         let runtime = ImmediateRuntime::new(broadcaster);
 

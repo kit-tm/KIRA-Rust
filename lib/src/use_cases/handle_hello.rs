@@ -179,12 +179,10 @@ where
     }
 }
 
-#[cfg(all(test, feature = "bus"))]
+#[cfg(test)]
 mod tests {
     use std::num::NonZeroUsize;
-    use std::sync::Arc;
 
-    use crate::broadcaster::BusBroadcaster;
     use crate::context::SyncContext;
     use crate::domain::physical_neighbor_table::PNTable;
     use crate::domain::{
@@ -213,7 +211,7 @@ mod tests {
 
         let message_hub = ArcSyncInMemoryMessageHub::new();
 
-        let broadcaster = Arc::new(BusBroadcaster::new(1));
+        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
@@ -280,7 +278,7 @@ mod tests {
 
         let message_hub = ArcSyncInMemoryMessageHub::new();
 
-        let broadcaster = Arc::new(BusBroadcaster::new(1));
+        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
