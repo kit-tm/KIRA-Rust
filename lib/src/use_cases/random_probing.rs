@@ -9,7 +9,7 @@ use crate::domain::{NodeId, RoutingTable};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{FindNodeReqData, Nonce, ProtocolMessageSender, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
-use crate::use_cases::{ReactiveUseCaseState, TimerId, UseCase, UseCaseEvent, UseCaseState};
+use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
 
 #[derive(Debug, Copy, Clone)]
 pub struct RandomProbingConfig {

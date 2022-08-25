@@ -8,9 +8,7 @@ use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     Nonce, ProtocolMessageSender, QueryRouteReqData, QueryRouteType, ReqRspMessage,
 };
-use crate::use_cases::{
-    ContactEvent, MessageSentFailed, ReactiveUseCaseState, UseCase, UseCaseEvent, UseCaseState,
-};
+use crate::use_cases::{ContactEvent, ReactiveUseCaseState, UseCase, UseCaseEvent};
 
 /// Radius of the neighborhood considered as vicinity.
 ///
