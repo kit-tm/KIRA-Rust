@@ -222,7 +222,7 @@ mod tests {
             while event_result.is_none() {
                 let received = tokio_runtime.block_on(broadcast_receiver.recv());
                 match received {
-                    Err(RecvError::Lagged(_)) => { /* Continue */},
+                    Err(RecvError::Lagged(_)) => { /* Continue */ }
                     Err(RecvError::Closed) => panic!("Channel closed before finished!"),
                     Ok(event) => event_result = Some(event),
                 };

@@ -19,6 +19,7 @@ use r2kad_lib::domain::{
 };
 use r2kad_lib::messaging::InMemoryMessageHub;
 use r2kad_lib::runtime::TokioRuntime;
+use r2kad_lib::use_cases::forward_protocol_message::ForwardPMUseCase;
 use r2kad_lib::use_cases::handle_hello::HandleHelloUseCase;
 use r2kad_lib::use_cases::overlay_neighborhood_discovery::ONDUseCase;
 use r2kad_lib::use_cases::periodic_pn_advertising::PeriodicPNAdvertising;
@@ -107,8 +108,7 @@ fn main() {
         return;
     }
 
-    let mut on_disc =
-        ONDUseCase::<_, DEFAULT_BUCKET_SIZE>::new(Default::default());
+    let mut on_disc = ONDUseCase::<_, DEFAULT_BUCKET_SIZE>::new(Default::default());
     if let Err(e) = on_disc.start(&context) {
         log::error!("Failed to start overlay neighbor discovery UseCase: {}", e);
         return;
@@ -117,6 +117,12 @@ fn main() {
     let mut vicinity_disc = VDUseCase::new();
     if let Err(e) = vicinity_disc.start(&context) {
         log::error!("Failed to start overlay neighbor discovery UseCase: {}", e);
+        return;
+    }
+
+    let mut forward_message = ForwardPMUseCase::new();
+    if let Err(e) = forward_message.start(&context) {
+        log::error!("Failed to start forward protocol messages UseCase: {}", e);
         return;
     }
 
@@ -131,35 +137,37 @@ fn main() {
         log::trace!("Processing event {:?}", event);
 
         // Delegate Messages to UseCases
+        if let Err(e) = forward_message.handle_event(&context, event.clone()) {
+            log::error!(
+                "Forwarding protocol message returned error handling message: {}",
+                e
+            );
+        }
         if let Err(e) = pn_advertising.handle_event(&context, event.clone()) {
             log::error!(
                 "Physical Neighbor Probing returned error handling message: {}",
                 e
             );
-            break;
         }
         if let Err(e) = random_probing.handle_event(&context, event.clone()) {
             log::error!("Random Probing returned error handling message: {}", e);
-            break;
         }
         if let Err(e) = handle_hello.handle_event(&context, event.clone()) {
             log::error!("Handling Hello message returned error: {}", e);
-            break;
         }
         if let Err(e) = on_disc.handle_event(&context, event.clone()) {
             log::error!(
                 "Overlay Neighborhood Discovery returned error handling message: {}",
                 e
             );
-            break;
         }
         if let Err(e) = vicinity_disc.handle_event(&context, event) {
             log::error!("Vicinity Discovery returned error handling message: {}", e);
-            break;
         }
 
         // Check States
         let states: Vec<&(dyn UseCaseState)> = vec![
+            forward_message.state(),
             pn_advertising.state(),
             random_probing.state(),
             handle_hello.state(),

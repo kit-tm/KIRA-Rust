@@ -99,9 +99,7 @@ where
         let timers = Arc::clone(&self.timers);
         let handle = std::thread::spawn(move || {
             loop {
-                if SyncRuntime::wait_and_send_event(&broadcaster, timer_id, duration)
-                    .is_err()
-                {
+                if SyncRuntime::wait_and_send_event(&broadcaster, timer_id, duration).is_err() {
                     break;
                 }
             }

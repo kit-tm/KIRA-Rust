@@ -2,6 +2,7 @@ use std::marker::PhantomData;
 
 use crate::context::UseCaseContext;
 use crate::domain::ContactState;
+use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     Nonce, ProtocolMessageSender, QueryRouteReqData, QueryRouteType, ReqRspMessage,
 };
@@ -102,6 +103,20 @@ where
                 return Ok(());
             }
 
+            // Convert contacts path to source route
+            let route = SourceRoute::from(contact.path().clone());
+
+            // Get port of route
+            let neighbor_port = context.pn_table().get(contact.path().first()).cloned();
+            if neighbor_port.is_none() {
+                log::error!(
+                    "Temporary inconsistency: Valid contacts path starts with invalid neighbor {}",
+                    contact.path().first()
+                );
+                return Err(MessageSentFailed);
+            }
+            let neighbor_port = neighbor_port.unwrap();
+
             // Request only physical Neighborhood of that Node
             let request = ReqRspMessage {
                 nonce: Nonce::random(),
@@ -110,9 +125,10 @@ where
                 data: QueryRouteReqData {
                     query_type: QueryRouteType::PhysicalNeighbors,
                 },
+                source_route: route,
             };
 
-            if let Err(e) = context.message_sender_mut().send(request) {
+            if let Err(e) = context.message_sender_mut().send(request, neighbor_port) {
                 log::error!("Failed to send QueryRouteReq: {:?}", e);
                 self.state = VDState::Error;
                 return Err(MessageSentFailed);
@@ -136,8 +152,8 @@ mod tests {
     use crate::context::SyncContext;
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
-        Age, Contact, InsertionStrategyResult, NodeId, PNTable, Path, StateSeqNr,
-        TestInsertionStrategy,
+        Age, Contact, InsertionStrategyResult, NodeId, PNTable, Path, Port, RoutingTable,
+        StateSeqNr, TestInsertionStrategy,
     };
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
     use crate::messaging::{
@@ -235,10 +251,24 @@ mod tests {
 
         let mut hub = ArcSyncInMemoryMessageHub::new();
 
+        // At least one has contact has to be present and valid
+        // Otherwise the use case thinks the node is isolated
+        let neighbor_id = NodeId::random();
+        let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
+        assert!(routing_table
+            .insert(Contact::new(
+                Path::from(neighbor_id.clone()),
+                Age::from(0),
+                StateSeqNr::from(0)
+            ))
+            .is_ok());
+        let mut pn_table = PNTable::new();
+        pn_table.add(neighbor_id.clone(), Port::Named(String::from("test")));
+
         let sync_context = SyncContext::new(
             root_id.clone(),
-            SingleBucketRT::<1>::new(root_id.clone()),
-            PNTable::new(),
+            routing_table,
+            pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
             hub.clone(),
             runtime,
@@ -250,7 +280,7 @@ mod tests {
 
         // Build path bigger than vicinity radius
         let contact_id = NodeId::random();
-        let path = Path::from(vec![NodeId::random(), contact_id.clone()]);
+        let path = Path::from(vec![neighbor_id, contact_id.clone()]);
 
         let event = UseCaseEvent::Contact(ContactEvent::New(Contact::new(
             path,
@@ -275,7 +305,7 @@ mod tests {
         }) = received
         {
             assert_eq!(source, root_id);
-            assert_eq!(target, contact_id)
+            assert_eq!(target, contact_id);
         }
     }
 }
