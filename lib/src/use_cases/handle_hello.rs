@@ -8,6 +8,7 @@ use crate::context::UseCaseContext;
 use crate::domain::{
     node_id, Age, Contact, InsertionStrategy, InsertionStrategyResult, Path, RoutingTable,
 };
+use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     HelloMessage, Nonce, PNDiscReqData, ProtocolMessage, ProtocolMessageSender, ReqRspMessage,
 };
@@ -85,11 +86,11 @@ impl<C, const BUCKET_SIZE: usize> HandleHelloUseCase<C, BUCKET_SIZE> {
 }
 
 impl<C, const BUCKET_SIZE: usize> UseCase for HandleHelloUseCase<C, BUCKET_SIZE>
-    where
-        C: UseCaseContext,
-        for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-        C::MessageSender: ProtocolMessageSender,
-        C::InsertionStrategy: InsertionStrategy<C::RoutingTable, BUCKET_SIZE>,
+where
+    C: UseCaseContext,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::MessageSender: ProtocolMessageSender,
+    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, BUCKET_SIZE>,
 {
     type Context = C;
     type Error = HandleHelloError;
@@ -107,14 +108,14 @@ impl<C, const BUCKET_SIZE: usize> UseCase for HandleHelloUseCase<C, BUCKET_SIZE>
     ) -> Result<(), Self::Error> {
         if let UseCaseEvent::Message(
             ProtocolMessage::Hello(HelloMessage {
-                                       source,
-                                       source_state_seq_nr,
-                                   }),
+                source,
+                source_state_seq_nr,
+            }),
             in_port,
         ) = event
         {
             // Add or update Physical Neighbors
-            if let Some(updated) = context.pn_table_mut().add(source.clone(), in_port) {
+            if let Some(updated) = context.pn_table_mut().add(source.clone(), in_port.clone()) {
                 log::debug!("Updated Port for PN: {}", updated);
             }
 
@@ -174,12 +175,14 @@ impl<C, const BUCKET_SIZE: usize> UseCase for HandleHelloUseCase<C, BUCKET_SIZE>
             let message = ReqRspMessage {
                 nonce: Nonce::random(),
                 source: context.root_id().clone(),
-                target: source,
+                target: source.clone(),
                 data: PNDiscReqData {
                     contacts: pn_contacts,
                 },
+                // Source route is ignored, as only physical neighbors get these
+                source_route: SourceRoute::from(Path::from(source)),
             };
-            if let Err(e) = context.message_sender_mut().send(message) {
+            if let Err(e) = context.message_sender_mut().send(message, in_port) {
                 log::error!("Failed to send message: {}", e);
                 self.state = HandleHelloState::Error;
                 return Err(HandleHelloError::SendError);
@@ -196,8 +199,8 @@ impl<C, const BUCKET_SIZE: usize> UseCase for HandleHelloUseCase<C, BUCKET_SIZE>
 
 #[cfg(all(test, feature = "bus"))]
 mod tests {
-    use std::sync::Arc;
     use std::num::NonZeroUsize;
+    use std::sync::Arc;
 
     use crate::broadcaster::BusBroadcaster;
     use crate::context::SyncContext;
@@ -242,7 +245,7 @@ mod tests {
         );
 
         let mut use_case = HandleHelloUseCase::new(HandleHelloConfig {
-            heuristic_calculation_bits: NonZeroUsize::new(34).unwrap()
+            heuristic_calculation_bits: NonZeroUsize::new(34).unwrap(),
         });
 
         assert!(use_case.start(&context).is_ok());
@@ -260,13 +263,17 @@ mod tests {
             Ok(())
         );
 
-        let pn_disc_req = message_hub.messages().iter().find_map(|message| {
-            if let ProtocolMessage::PNDiscReq(message) = message {
-                Some(message)
-            } else {
-                None
-            }
-        }).cloned();
+        let pn_disc_req = message_hub
+            .messages()
+            .iter()
+            .find_map(|message| {
+                if let ProtocolMessage::PNDiscReq(message) = &message.0 {
+                    Some(message)
+                } else {
+                    None
+                }
+            })
+            .cloned();
         assert!(pn_disc_req.is_some());
         let message = pn_disc_req.unwrap();
         assert_eq!(&message.source, &root_id);

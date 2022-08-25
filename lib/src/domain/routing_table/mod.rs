@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::ops::DerefMut;
 
-use crate::domain::{Bucket, Contact, NodeId, ReplacementError};
+use crate::domain::{Bucket, Contact, ContactState, NodeId, ReplacementError};
 
 pub mod flat_routing_table;
 pub mod observable_routing_table;
@@ -177,5 +177,35 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         }
 
         Ok(())
+    }
+
+    fn get_closest(&self, to: &NodeId, shared_prefix_grouping: usize) -> Option<&Contact> {
+        self.bucket(to)
+            .iter()
+            .filter(|contact| contact.state() == &ContactState::Valid)
+            // Map every contact to its distance to our key
+            .map(|contact| {
+                (
+                    to.shared_prefix_len(contact.id(), shared_prefix_grouping)
+                        .expect("Grouping should have been checked before"),
+                    contact,
+                )
+            })
+            // Find the closest one by comparing the distances
+            .fold(None, |acc, (distance, contact)| {
+                // No value yet processed
+                if acc.is_none() {
+                    return Some((distance, contact));
+                }
+                let (acc_prefix, acc_contact) = acc.unwrap();
+
+                // Closer to root means longer SharedPrefix Length
+                if acc_prefix.length < distance.length {
+                    return Some((distance, contact));
+                }
+
+                Some((acc_prefix, acc_contact))
+            })
+            .map(|(_, contact)| contact)
     }
 }

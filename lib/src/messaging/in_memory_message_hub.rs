@@ -14,7 +14,7 @@ use crate::messaging::sender::ProtocolMessageSender;
 /// if receive is called and the messages are empty.
 #[derive(Debug)]
 pub struct InMemoryMessageHub {
-    messages: VecDeque<ProtocolMessage>,
+    messages: VecDeque<(ProtocolMessage, Port)>,
 }
 
 impl Default for InMemoryMessageHub {
@@ -35,12 +35,10 @@ impl InMemoryMessageHub {
     }
 
     fn pop(&mut self) -> Option<(ProtocolMessage, Port)> {
-        self.messages
-            .pop_front()
-            .map(|message| (message, Self::dummy_port()))
+        self.messages.pop_front()
     }
 
-    pub fn messages(&self) -> impl Iterator<Item = &ProtocolMessage> {
+    pub fn messages(&self) -> impl Iterator<Item = &(ProtocolMessage, Port)> {
         self.messages.iter()
     }
 }
@@ -73,13 +71,13 @@ impl ProtocolMessageSender for InMemoryMessageHub {
     // Must not return Errors.
     type Error = NoSendError;
 
-    fn send<M>(&mut self, message: M) -> Result<(), Self::Error>
+    fn send<M>(&mut self, message: M, port: Port) -> Result<(), Self::Error>
     where
         M: Into<ProtocolMessage>,
     {
         let message = message.into();
-        log::trace!("Sent message: {:?}", message);
-        self.messages.push_back(message);
+        log::trace!("Sent message: {:?} [{}]", message, port);
+        self.messages.push_back((message, port));
         Ok(())
     }
 }
@@ -110,7 +108,7 @@ pub mod tests {
             Self(Arc::new(Mutex::new(InMemoryMessageHub::new())))
         }
 
-        pub fn messages(&self) -> Vec<ProtocolMessage> {
+        pub fn messages(&self) -> Vec<(ProtocolMessage, Port)> {
             self.0
                 .lock()
                 .expect("failed to get hub lock")
@@ -123,12 +121,12 @@ pub mod tests {
     impl ProtocolMessageSender for ArcSyncInMemoryMessageHub {
         type Error = super::NoSendError;
 
-        fn send<M>(&mut self, message: M) -> Result<(), Self::Error>
+        fn send<M>(&mut self, message: M, port: Port) -> Result<(), Self::Error>
         where
             M: Into<ProtocolMessage>,
         {
             let mut lock = self.0.lock().expect("failed to get lock on hub");
-            lock.send(message)
+            lock.send(message, port)
         }
     }
 
@@ -151,16 +149,24 @@ pub mod tests {
     fn dummy_message_hub_smoke_test() {
         let mut hub = InMemoryMessageHub::new();
 
-        hub.send(ProtocolMessage::Hello(HelloMessage {
-            source: NodeId::zero(),
-            source_state_seq_nr: StateSeqNr::from(0),
-        }))
+        let port = InMemoryMessageHub::dummy_port();
+
+        hub.send(
+            ProtocolMessage::Hello(HelloMessage {
+                source: NodeId::zero(),
+                source_state_seq_nr: StateSeqNr::from(0),
+            }),
+            port.clone(),
+        )
         .unwrap();
 
-        hub.send(ProtocolMessage::Hello(HelloMessage {
-            source: NodeId::one(),
-            source_state_seq_nr: StateSeqNr::from(0),
-        }))
+        hub.send(
+            ProtocolMessage::Hello(HelloMessage {
+                source: NodeId::one(),
+                source_state_seq_nr: StateSeqNr::from(0),
+            }),
+            port.clone(),
+        )
         .unwrap();
 
         assert_eq!(
@@ -170,7 +176,7 @@ pub mod tests {
                     source: NodeId::zero(),
                     source_state_seq_nr: StateSeqNr::from(0),
                 }),
-                InMemoryMessageHub::dummy_port()
+                port.clone()
             ))
         );
 
@@ -181,7 +187,7 @@ pub mod tests {
                     source: NodeId::one(),
                     source_state_seq_nr: StateSeqNr::from(0),
                 }),
-                InMemoryMessageHub::dummy_port()
+                port.clone()
             ))
         );
     }

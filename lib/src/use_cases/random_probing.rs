@@ -1,11 +1,12 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
-use std::num::NonZeroU64;
+use std::num::{NonZeroU64, NonZeroUsize};
 use std::time::Duration;
 
 use crate::context::UseCaseContext;
-use crate::domain::NodeId;
+use crate::domain::{NodeId, RoutingTable};
+use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{FindNodeReqData, Nonce, ProtocolMessageSender, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
@@ -14,6 +15,7 @@ use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
 pub struct RandomProbingConfig {
     pub timeout: Duration,
     pub neighborhood_size: NonZeroU64,
+    pub shared_prefix_grouping: NonZeroUsize,
 }
 
 impl Default for RandomProbingConfig {
@@ -22,19 +24,20 @@ impl Default for RandomProbingConfig {
             // Default: 2.5 Messages/s => 1000 ms / 2.5 = 400 ms
             timeout: Duration::from_millis(400),
             neighborhood_size: NonZeroU64::new(20).unwrap(),
+            shared_prefix_grouping: NonZeroUsize::new(1).unwrap(),
         }
     }
 }
 
 /// Probe a random [NodeId] to keep [Bucket]s up-to-date.
 #[derive(Debug)]
-pub struct RandomProbingUseCase<C> {
+pub struct RandomProbingUseCase<C, const BUCKET_SIZE: usize> {
     _c: PhantomData<C>,
     config: RandomProbingConfig,
     state: RandomProbingState,
 }
 
-impl<C> RandomProbingUseCase<C> {
+impl<C, const BUCKET_SIZE: usize> RandomProbingUseCase<C, BUCKET_SIZE> {
     pub fn new(config: RandomProbingConfig) -> Self {
         Self {
             _c: PhantomData::default(),
@@ -44,11 +47,12 @@ impl<C> RandomProbingUseCase<C> {
     }
 }
 
-impl<C> UseCase for RandomProbingUseCase<C>
+impl<C, const BUCKET_SIZE: usize> UseCase for RandomProbingUseCase<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     C::MessageSender: ProtocolMessageSender,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     type Context = C;
     type Error = RandomProbingError;
@@ -71,6 +75,25 @@ where
             if &event_id == timer_id {
                 let random_id = NodeId::random();
 
+                let closest_path = context
+                    .routing_table()
+                    .get_closest(&random_id, self.config.shared_prefix_grouping.get())
+                    .map(|contact| contact.path())
+                    .cloned();
+                if closest_path.is_none() {
+                    log::warn!("No closest contact found for random id; Assuming isolation");
+                    return Ok(());
+                }
+                let closest_path = closest_path.unwrap();
+
+                // Get port of neighbor
+                let port = context.pn_table().get(closest_path.first()).cloned();
+                if port.is_none() {
+                    log::error!("Contacts path contains invalid neighbor: {}", closest_path);
+                    return Ok(());
+                }
+                let port = port.unwrap();
+
                 let message = ReqRspMessage {
                     nonce: Nonce::random(),
                     source: context.root_id().clone(),
@@ -79,9 +102,10 @@ where
                         exact: false,
                         neighborhood: self.config.neighborhood_size,
                     },
+                    source_route: SourceRoute::from(closest_path),
                 };
 
-                if let Err(e) = context.message_sender_mut().send(message) {
+                if let Err(e) = context.message_sender_mut().send(message, port) {
                     log::error!("MessageSender failed: {}", e);
                     self.state = RandomProbingState::Error;
                     return Err(RandomProbingError::SendFailed);
@@ -134,13 +158,13 @@ impl UseCaseState for RandomProbingState {
 
 #[cfg(all(test, feature = "bus"))]
 mod tests {
-    use std::num::NonZeroU64;
+    use std::num::{NonZeroU64, NonZeroUsize};
     use std::time::Duration;
 
     use crate::broadcaster::BusBroadcaster;
     use crate::context::{SyncContext, UseCaseContext};
     use crate::domain::{
-        Age, Contact, FlatRoutingTable, InsertionStrategyResult, NodeId, PNTable, Path,
+        Age, Contact, FlatRoutingTable, InsertionStrategyResult, NodeId, PNTable, Path, Port,
         RoutingTable, StateSeqNr, TestInsertionStrategy,
     };
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
@@ -204,10 +228,14 @@ mod tests {
             .routing_table_mut()
             .add(contact.clone())
             .expect("failed to add into empty RT");
+        context
+            .pn_table_mut()
+            .add(contact.id().clone(), Port::Named(String::from("test")));
 
         let mut use_case = RandomProbingUseCase::new(RandomProbingConfig {
             timeout: Duration::from_secs(0),
             neighborhood_size: NonZeroU64::new(20).unwrap(),
+            shared_prefix_grouping: NonZeroUsize::new(1).unwrap(),
         });
 
         let start_result = use_case.start(&context);
@@ -224,7 +252,7 @@ mod tests {
 
         for _ in 0..2 {
             let message = hub.messages().into_iter().find_map(|message| {
-                if let ProtocolMessage::FindNodeReq(msg) = message {
+                if let ProtocolMessage::FindNodeReq(msg) = message.0 {
                     Some(msg)
                 } else {
                     None

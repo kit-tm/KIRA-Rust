@@ -1,3 +1,4 @@
+use crate::domain::Port;
 use std::error::Error;
 
 use crate::messaging::messages::ProtocolMessage;
@@ -18,7 +19,7 @@ pub trait ProtocolMessageSender {
     /// format before sending.
     ///
     /// Returns an Error if the operation or formatting failed.
-    fn send<M>(&mut self, message: M) -> Result<(), Self::Error>
+    fn send<M>(&mut self, message: M, port: Port) -> Result<(), Self::Error>
     where
         M: Into<ProtocolMessage>;
 }

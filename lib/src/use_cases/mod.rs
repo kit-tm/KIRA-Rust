@@ -5,6 +5,7 @@ use std::ops::Deref;
 use crate::domain::{Contact, Port};
 use crate::messaging::messages::ProtocolMessage;
 
+pub mod forward_protocol_message;
 pub mod handle_hello;
 pub mod overlay_neighborhood_discovery;
 pub mod periodic_pn_advertising;
@@ -51,6 +52,33 @@ pub trait UseCaseState {
     fn is_error(&self) -> bool;
 }
 
+/// A default [UseCaseState] implementation for a [UseCase] which doesn't have timers
+/// or other states.
+///
+/// The opposite of a reactive [UseCase] is the active [UseCase] which has more
+/// states and e.g. creates timers.
+///
+/// A reactive [UseCase] is either idle and waits for incoming events or is in
+/// unrecoverable error state.
+#[derive(Debug, Eq, PartialEq, Clone, Default)]
+pub enum ReactiveUseCaseState {
+    /// The [UseCase] is waiting for incoming events.
+    #[default]
+    Idle,
+    /// The [UseCase] reached an unrecoverable error state.
+    Error,
+}
+
+impl UseCaseState for ReactiveUseCaseState {
+    fn is_finished(&self) -> bool {
+        false
+    }
+
+    fn is_error(&self) -> bool {
+        self == &Self::Error
+    }
+}
+
 /// Error representing the failure when sending a [ProtocolMessage].
 ///
 /// Provided as goto Error for [UseCase]s when no other error can occur.
@@ -59,7 +87,10 @@ pub struct MessageSentFailed;
 
 impl Display for MessageSentFailed {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Sending a ProtocolMessage through a MessageSender failed")
+        write!(
+            f,
+            "Sending a ProtocolMessage through a MessageSender failed"
+        )
     }
 }
 

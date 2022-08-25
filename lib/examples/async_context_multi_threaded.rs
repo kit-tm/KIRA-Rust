@@ -25,7 +25,7 @@ use r2kad_lib::domain::{
 use r2kad_lib::messaging::InMemoryMessageHub;
 use r2kad_lib::runtime::TokioRuntime;
 use r2kad_lib::use_cases::handle_hello::HandleHelloUseCase;
-use r2kad_lib::use_cases::{UseCase, UseCaseEvent};
+use r2kad_lib::use_cases::{UseCase, UseCaseEvent, UseCaseState};
 
 fn main() {
     // Setup the single threaded async runtime
@@ -139,6 +139,13 @@ where
                     "[{}] Stopping due to error handling message: {:?}",
                     self.name,
                     e
+                );
+            }
+
+            if self.use_case.state().is_error() {
+                log::error!(
+                    "UseCase reached unrecoverable error state. Aborting task '{}'",
+                    self.name
                 );
                 break;
             }

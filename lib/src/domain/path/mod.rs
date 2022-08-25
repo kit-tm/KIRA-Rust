@@ -77,6 +77,12 @@ impl From<NodeId> for Path {
     }
 }
 
+impl From<Path> for Vec<NodeId> {
+    fn from(path: Path) -> Self {
+        path.ids
+    }
+}
+
 impl Path {
     /// Reverses the [Path] in-place.
     pub fn reverse(&mut self) {

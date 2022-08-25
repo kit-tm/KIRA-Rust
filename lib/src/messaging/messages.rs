@@ -1,6 +1,8 @@
+use std::fmt::Debug;
 use std::num::NonZeroU64;
 
 use crate::domain::{Contact, NodeId, StateSeqNr};
+use crate::messaging::source_route::SourceRoute;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -32,6 +34,73 @@ pub enum ProtocolMessage {
     Error(ReqRspMessage<ErrorData>),
 }
 
+impl ProtocolMessage {
+    pub fn source_route_mut(&mut self) -> Option<&mut SourceRoute> {
+        match self {
+            Self::Hello(_) => None,
+            Self::PNDiscReq(req) => Some(&mut req.source_route),
+            Self::PNDiscRsp(req) => Some(&mut req.source_route),
+            Self::QueryRouteReq(req) => Some(&mut req.source_route),
+            Self::QueryRouteRsp(req) => Some(&mut req.source_route),
+            Self::FindNodeReq(req) => Some(&mut req.source_route),
+            Self::FindNodeRsp(req) => Some(&mut req.source_route),
+            Self::Error(req) => Some(&mut req.source_route),
+        }
+    }
+
+    pub fn source_route(&self) -> Option<&SourceRoute> {
+        match self {
+            Self::Hello(_) => None,
+            Self::PNDiscReq(req) => Some(&req.source_route),
+            Self::PNDiscRsp(req) => Some(&req.source_route),
+            Self::QueryRouteReq(req) => Some(&req.source_route),
+            Self::QueryRouteRsp(req) => Some(&req.source_route),
+            Self::FindNodeReq(req) => Some(&req.source_route),
+            Self::FindNodeRsp(req) => Some(&req.source_route),
+            Self::Error(req) => Some(&req.source_route),
+        }
+    }
+
+    pub fn target(&self) -> Option<&NodeId> {
+        match self {
+            Self::Hello(_) => None,
+            Self::PNDiscReq(req) => Some(&req.target),
+            Self::PNDiscRsp(req) => Some(&req.target),
+            Self::QueryRouteReq(req) => Some(&req.target),
+            Self::QueryRouteRsp(req) => Some(&req.target),
+            Self::FindNodeReq(req) => Some(&req.target),
+            Self::FindNodeRsp(req) => Some(&req.target),
+            Self::Error(req) => Some(&req.target),
+        }
+    }
+
+    pub fn nonce(&self) -> Option<&Nonce> {
+        match self {
+            Self::Hello(_) => None,
+            Self::PNDiscReq(req) => Some(&req.nonce),
+            Self::PNDiscRsp(req) => Some(&req.nonce),
+            Self::QueryRouteReq(req) => Some(&req.nonce),
+            Self::QueryRouteRsp(req) => Some(&req.nonce),
+            Self::FindNodeReq(req) => Some(&req.nonce),
+            Self::FindNodeRsp(req) => Some(&req.nonce),
+            Self::Error(req) => Some(&req.nonce),
+        }
+    }
+
+    pub fn source(&self) -> Option<&NodeId> {
+        match self {
+            Self::Hello(_) => None,
+            Self::PNDiscReq(req) => Some(&req.source),
+            Self::PNDiscRsp(req) => Some(&req.source),
+            Self::QueryRouteReq(req) => Some(&req.source),
+            Self::QueryRouteRsp(req) => Some(&req.source),
+            Self::FindNodeReq(req) => Some(&req.source),
+            Self::FindNodeRsp(req) => Some(&req.source),
+            Self::Error(req) => Some(&req.source),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct HelloMessage {
@@ -47,13 +116,23 @@ impl From<HelloMessage> for ProtocolMessage {
 
 /// In contrary to a [HelloMessage] this type contains a [Nonce] to
 /// identify Request and Response Pairs.
+///
+/// The target has not to be equal to the end of the source route as some protocol messages
+/// are routed from overlay hop to overlay hop.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct ReqRspMessage<T: std::fmt::Debug> {
+pub struct ReqRspMessage<T: Debug> {
     pub nonce: Nonce,
     pub source: NodeId,
     pub target: NodeId,
     pub data: T,
+    /// Source Path to the next overlay Hop.
+    ///
+    /// At the end for a reason.
+    /// This way if the source route is too large, it can be split and transmitted
+    /// through fragments.
+    /// For IPv6 additional Fragment Headers may be used.
+    pub source_route: SourceRoute,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -114,6 +193,16 @@ impl From<ReqRspMessage<FindNodeReqData>> for ProtocolMessage {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum ErrorData {
+    /// Returned if a FindNodeReq with `exact=true` doesn't find the target node.
     DeadEnd,
+    /// Returned if a segment in a source route is not valid.
+    ///
+    /// E.g. when forwarding a message and the next hop is not a physical neighbor.
     SegmentFailure,
+}
+
+impl From<ReqRspMessage<ErrorData>> for ProtocolMessage {
+    fn from(message: ReqRspMessage<ErrorData>) -> Self {
+        Self::Error(message)
+    }
 }

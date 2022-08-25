@@ -42,7 +42,7 @@ pub enum RoutingTableEvent<const BUCKET_SIZE: usize> {
     /// A [Bucket] was updated to the given value.
     UpdatedBucket(Bucket<BUCKET_SIZE>),
     /// The given new [Bucket] was added to the [RoutingTable].
-    NewBucket(Bucket<BUCKET_SIZE>)
+    NewBucket(Bucket<BUCKET_SIZE>),
 }
 
 impl<const BUCKET_SIZE: usize> Display for RoutingTableEvent<BUCKET_SIZE> {

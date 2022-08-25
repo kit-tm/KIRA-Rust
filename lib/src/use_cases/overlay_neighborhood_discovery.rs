@@ -1,15 +1,18 @@
 use std::collections::HashSet;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
-use std::num::{NonZeroU32, NonZeroU64};
+use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::time::Duration;
 
 use crate::context::UseCaseContext;
 use crate::domain::RoutingTable;
+use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageSender, ReqRspMessage,
 };
 use crate::runtime::UseCaseRuntime;
-use crate::use_cases::{MessageSentFailed, TimerId, UseCase, UseCaseEvent, UseCaseState};
+use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
 use crate::utils::ExponentialBackoff;
 
 /// Overlay Discovery Configuration.
@@ -34,6 +37,8 @@ pub struct ONDConfig {
     ///
     /// Defaults to *250ms*.
     pub backoff_starting_duration: Duration,
+    /// Number of grouped bits used for calculating the shared prefix of two [NodeId]s.
+    pub shared_prefix_bits_grouping: NonZeroUsize,
 }
 
 impl Default for ONDConfig {
@@ -45,6 +50,7 @@ impl Default for ONDConfig {
             backoff_base: NonZeroU32::new(2).unwrap(),
             backoff_max_retries: NonZeroU32::new(6).unwrap(),
             backoff_starting_duration: Duration::from_micros(250),
+            shared_prefix_bits_grouping: NonZeroUsize::new(1).unwrap(),
         }
     }
 }
@@ -132,10 +138,11 @@ where
     C: UseCaseContext,
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     /// Sets a new timer accordingly and sends a new FindNodeReq
     /// if exponential backoff allows it.
-    fn send_next_request(&mut self, context: &C) -> Result<(), MessageSentFailed> {
+    fn send_next_request(&mut self, context: &C) -> Result<(), <Self as UseCase>::Error> {
         let (timer_id, nonces, latest) = if let ONDState::Running {
             timer_id,
             nonces,
@@ -168,6 +175,38 @@ where
         nonces.insert(nonce.clone());
         *latest = Some(nonce.clone());
 
+        // No need for discovery if isolated
+        if context.pn_table().is_empty() {
+            log::error!("No physical neighbors present; Node is isolated");
+            return Ok(());
+        }
+
+        // Get the path to the closest node of ourselves
+        let path_to_closest_on = context
+            .routing_table()
+            .get_closest(
+                context.root_id(),
+                self.config.shared_prefix_bits_grouping.get(),
+            )
+            .cloned();
+
+        // No one found -> Isolated
+        if path_to_closest_on.is_none() {
+            log::debug!("Node has no valid contacts. Can't discover overlay neighbors");
+            return Err(ONDError::NeighborInconsistency);
+        }
+        let contact = path_to_closest_on.unwrap();
+        let route_to_closest_on = SourceRoute::from(contact.path().clone());
+
+        // Get the port of the next physical neighbor to route this request through
+        let neighbor = route_to_closest_on.current_hop();
+        let port = context.pn_table().get(neighbor).cloned();
+        if port.is_none() {
+            log::error!("Temporary inconsistency. Contact is valid but its path goes through a invalid neighbor. Contact: {}, neighbor: {}", contact, neighbor);
+            return Err(ONDError::NeighborInconsistency);
+        }
+        let port = port.unwrap();
+
         let request = ReqRspMessage {
             nonce,
             source: context.root_id().clone(),
@@ -176,12 +215,13 @@ where
                 exact: false,
                 neighborhood: self.config.overlay_neighborhood_size,
             },
+            source_route: route_to_closest_on,
         };
 
-        if let Err(e) = context.message_sender_mut().send(request) {
+        if let Err(e) = context.message_sender_mut().send(request, port) {
             log::error!("Failed to send FindNodeReq: {:?}", e);
             self.state = ONDState::Error;
-            return Err(MessageSentFailed);
+            return Err(ONDError::SendError);
         }
 
         // Start next backoff timer
@@ -190,6 +230,28 @@ where
         Ok(())
     }
 }
+
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub enum ONDError {
+    SendError,
+    NeighborInconsistency,
+}
+
+impl Display for ONDError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SendError => write!(f, "Failed to send overlay neighbor discovery message"),
+            Self::NeighborInconsistency => {
+                write!(
+                    f,
+                    "Missing contact in routing or pn table; Is the node isolated?"
+                )
+            }
+        }
+    }
+}
+
+impl Error for ONDError {}
 
 impl<C, const BUCKET_SIZE: usize> UseCase for ONDUseCase<C, BUCKET_SIZE>
 where
@@ -200,7 +262,7 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     type Context = C;
-    type Error = MessageSentFailed;
+    type Error = ONDError;
     type State = ONDState;
 
     fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error> {
@@ -276,22 +338,24 @@ where
 
 #[cfg(all(test, feature = "bus"))]
 mod tests {
-    use std::num::{NonZeroU32, NonZeroU64};
+    use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
     use std::time::Duration;
 
     use crate::broadcaster::BusBroadcaster;
     use crate::context::SyncContext;
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{InsertionStrategyResult, NodeId, PNTable, TestInsertionStrategy};
+    use crate::domain::{
+        Age, Contact, InsertionStrategyResult, NodeId, PNTable, Path, Port, RoutingTable,
+        StateSeqNr, TestInsertionStrategy,
+    };
+    use crate::messaging::source_route::SourceRoute;
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
     use crate::messaging::{
         ErrorData, FindNodeReqData, InMemoryMessageHub, ProtocolMessage, ProtocolMessageReceiver,
         ReqRspMessage,
     };
     use crate::runtime::ImmediateRuntime;
-    use crate::use_cases::overlay_neighborhood_discovery::{
-        ONDConfig, ONDUseCase,
-    };
+    use crate::use_cases::overlay_neighborhood_discovery::{ONDConfig, ONDUseCase};
     use crate::use_cases::{UseCase, UseCaseEvent};
 
     #[test]
@@ -350,10 +414,24 @@ mod tests {
 
         let mut hub = ArcSyncInMemoryMessageHub::new();
 
+        // At least one has contact has to be present and valid to forward message to
+        // Otherwise the use case thinks the node is isolated
+        let neighbor_id = NodeId::random();
+        let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
+        assert!(routing_table
+            .insert(Contact::new(
+                Path::from(neighbor_id.clone()),
+                Age::from(0),
+                StateSeqNr::from(0)
+            ))
+            .is_ok());
+        let mut pn_table = PNTable::new();
+        pn_table.add(neighbor_id, Port::Named(String::from("test")));
+
         let sync_context = SyncContext::new(
             root_id.clone(),
-            SingleBucketRT::<1>::new(root_id.clone()),
-            PNTable::new(),
+            routing_table,
+            pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
             hub.clone(),
             runtime.clone(),
@@ -413,6 +491,7 @@ mod tests {
             backoff_base: NonZeroU32::new(2).unwrap(),
             backoff_max_retries: NonZeroU32::new(3).unwrap(),
             backoff_starting_duration: Duration::from_micros(250),
+            shared_prefix_bits_grouping: NonZeroUsize::new(1).unwrap(),
         };
 
         let root_id = NodeId::random();
@@ -423,10 +502,24 @@ mod tests {
 
         let hub = ArcSyncInMemoryMessageHub::new();
 
+        // At least one has contact has to be present and valid to forward message to
+        // Otherwise the use case thinks the node is isolated
+        let neighbor_id = NodeId::random();
+        let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
+        assert!(routing_table
+            .insert(Contact::new(
+                Path::from(neighbor_id.clone()),
+                Age::from(0),
+                StateSeqNr::from(0)
+            ))
+            .is_ok());
+        let mut pn_table = PNTable::new();
+        pn_table.add(neighbor_id, Port::Named(String::from("test")));
+
         let sync_context = SyncContext::new(
             root_id.clone(),
-            SingleBucketRT::<1>::new(root_id),
-            PNTable::new(),
+            routing_table,
+            pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
             hub,
             runtime.clone(),
@@ -499,6 +592,7 @@ mod tests {
             backoff_base: NonZeroU32::new(2).unwrap(),
             backoff_max_retries: NonZeroU32::new(3).unwrap(),
             backoff_starting_duration: Duration::from_micros(250),
+            shared_prefix_bits_grouping: NonZeroUsize::new(1).unwrap(),
         };
 
         let root_id = NodeId::random();
@@ -509,10 +603,24 @@ mod tests {
 
         let mut hub = ArcSyncInMemoryMessageHub::new();
 
+        // At least one has contact has to be present and valid to forward message to
+        // Otherwise the use case thinks the node is isolated
+        let neighbor_id = NodeId::random();
+        let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
+        assert!(routing_table
+            .insert(Contact::new(
+                Path::from(neighbor_id.clone()),
+                Age::from(0),
+                StateSeqNr::from(0)
+            ))
+            .is_ok());
+        let mut pn_table = PNTable::new();
+        pn_table.add(neighbor_id, Port::Named(String::from("test")));
+
         let sync_context = SyncContext::new(
             root_id.clone(),
-            SingleBucketRT::<1>::new(root_id.clone()),
-            PNTable::new(),
+            routing_table,
+            pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
             hub.clone(),
             runtime.clone(),
@@ -542,8 +650,12 @@ mod tests {
             .recv_timeout(Some(Duration::from_secs(1)))
             .expect("Should not emit error")
             .expect("should return actual message");
-        let nonce = if let ProtocolMessage::FindNodeReq(req_rsp_message) = &request {
-            req_rsp_message.nonce.clone()
+        let (nonce, source_route) = if let ProtocolMessage::FindNodeReq(req_rsp_message) = &request
+        {
+            (
+                req_rsp_message.nonce.clone(),
+                req_rsp_message.source_route.clone(),
+            )
         } else {
             panic!("No FindNodeReq sent: {:?}", request);
         };
@@ -556,6 +668,7 @@ mod tests {
                 source: error_node_id.clone(),
                 target: root_id.clone(),
                 data: ErrorData::DeadEnd,
+                source_route: SourceRoute::from_reversed(source_route),
             }),
             InMemoryMessageHub::dummy_port(),
         );
@@ -572,8 +685,12 @@ mod tests {
             .recv_timeout(Some(Duration::from_secs(1)))
             .expect("Should not emit error")
             .expect("should return actual message");
-        let nonce = if let ProtocolMessage::FindNodeReq(req_rsp_message) = &request {
-            req_rsp_message.nonce.clone()
+        let (nonce, source_route) = if let ProtocolMessage::FindNodeReq(req_rsp_message) = &request
+        {
+            (
+                req_rsp_message.nonce.clone(),
+                req_rsp_message.source_route.clone(),
+            )
         } else {
             panic!("No FindNodeReq sent: {:?}", request);
         };
@@ -586,6 +703,7 @@ mod tests {
                 source: error_node_id.clone(),
                 target: root_id.clone(),
                 data: ErrorData::DeadEnd,
+                source_route: SourceRoute::from_reversed(source_route),
             }),
             InMemoryMessageHub::dummy_port(),
         );
@@ -603,8 +721,12 @@ mod tests {
             .recv_timeout(Some(Duration::from_secs(1)))
             .expect("Should not emit error")
             .expect("should return actual message");
-        let nonce = if let ProtocolMessage::FindNodeReq(req_rsp_message) = &request {
-            req_rsp_message.nonce.clone()
+        let (nonce, source_route) = if let ProtocolMessage::FindNodeReq(req_rsp_message) = &request
+        {
+            (
+                req_rsp_message.nonce.clone(),
+                req_rsp_message.source_route.clone(),
+            )
         } else {
             panic!("No FindNodeReq sent: {:?}", request);
         };
@@ -617,6 +739,7 @@ mod tests {
                 source: error_node_id.clone(),
                 target: root_id.clone(),
                 data: ErrorData::DeadEnd,
+                source_route: SourceRoute::from_reversed(source_route),
             }),
             InMemoryMessageHub::dummy_port(),
         );

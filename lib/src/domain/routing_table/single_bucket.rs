@@ -1,6 +1,9 @@
-use rand::Rng;
 use crate::domain::observable_routing_table::NonObservableRoutingTable;
-use crate::domain::{AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, NodeId, ReplacementError, RoutingTable};
+use crate::domain::{
+    AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, NodeId, ReplacementError,
+    RoutingTable,
+};
+use rand::Rng;
 
 /// A [RoutingTable] with a single not splittable [Bucket].
 ///
@@ -45,7 +48,7 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
         match self.bucket.insert(contact) {
             Err(BucketInsertionError::DuplicateId(id)) => Err(AddError::AlreadyExists(id)),
             Err(BucketInsertionError::Full) => Err(AddError::NotAdded),
-            Ok(()) => Ok(())
+            Ok(()) => Ok(()),
         }
     }
 
