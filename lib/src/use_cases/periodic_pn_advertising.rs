@@ -119,11 +119,12 @@ where
     }
 }
 
-#[cfg(all(test, feature = "bus"))]
+#[cfg(test)]
 mod tests {
+    use std::sync::mpsc::Receiver;
     use std::time::Duration;
 
-    use crate::broadcaster::{Broadcaster, BusBroadcaster};
+    use crate::broadcaster::MPSCBroadcaster;
     use crate::context::SyncContext;
     use crate::domain::physical_neighbor_table::PNTable;
     use crate::domain::{FlatRoutingTable, InsertionStrategyResult, NodeId, TestInsertionStrategy};
@@ -137,11 +138,12 @@ mod tests {
     fn init_test_context() -> (
         NodeId,
         ArcSyncInMemoryMessageHub,
-        BusBroadcaster,
+        MPSCBroadcaster,
+        Receiver<UseCaseEvent>,
         SyncContext<
             FlatRoutingTable<20, 1>,
             ArcSyncInMemoryMessageHub,
-            ImmediateRuntime<BusBroadcaster>,
+            ImmediateRuntime<MPSCBroadcaster>,
             TestInsertionStrategy,
         >,
     ) {
@@ -152,7 +154,7 @@ mod tests {
 
         let hub = ArcSyncInMemoryMessageHub::new();
 
-        let broadcaster = BusBroadcaster::new(1);
+        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(1);
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
 
@@ -165,14 +167,12 @@ mod tests {
             ImmediateRuntime::new(broadcaster.clone()),
         );
 
-        (root, hub, broadcaster, context)
+        (root, hub, broadcaster, broadcast_receiver, context)
     }
 
     #[test]
     fn start_test() {
-        let (_root_id, _hub, broadcaster, context) = init_test_context();
-
-        let mut broadcast_receiver = broadcaster.subscribe();
+        let (_root_id, _hub, _broadcaster, broadcast_receiver, context) = init_test_context();
 
         let mut use_case = PeriodicPNAdvertising::<_, 20>::new(PeriodicPNAdvertisingConfig {
             probing_timeout: Duration::from_secs(0),

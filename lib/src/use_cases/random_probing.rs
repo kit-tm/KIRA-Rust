@@ -155,12 +155,12 @@ impl UseCaseState for RandomProbingState {
     }
 }
 
-#[cfg(all(test, feature = "bus"))]
+#[cfg(test)]
 mod tests {
     use std::num::{NonZeroU64, NonZeroUsize};
     use std::time::Duration;
 
-    use crate::broadcaster::BusBroadcaster;
+    use crate::broadcaster::MPSCBroadcaster;
     use crate::context::{SyncContext, UseCaseContext};
     use crate::domain::{
         Age, Contact, FlatRoutingTable, InsertionStrategyResult, NodeId, PNTable, Path, Port,
@@ -177,12 +177,12 @@ mod tests {
     fn init_test_context() -> (
         NodeId,
         ArcSyncInMemoryMessageHub,
-        BusBroadcaster,
-        ImmediateRuntime<BusBroadcaster>,
+        MPSCBroadcaster,
+        ImmediateRuntime<MPSCBroadcaster>,
         SyncContext<
             FlatRoutingTable<20, 1>,
             ArcSyncInMemoryMessageHub,
-            ImmediateRuntime<BusBroadcaster>,
+            ImmediateRuntime<MPSCBroadcaster>,
             TestInsertionStrategy,
         >,
     ) {
@@ -193,7 +193,7 @@ mod tests {
 
         let hub = ArcSyncInMemoryMessageHub::new();
 
-        let broadcaster = BusBroadcaster::new(1);
+        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(1);
 
         let runtime = ImmediateRuntime::new(broadcaster.clone());
 

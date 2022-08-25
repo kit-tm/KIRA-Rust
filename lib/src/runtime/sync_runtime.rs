@@ -111,18 +111,16 @@ where
     }
 }
 
-#[cfg(all(test, feature = "bus"))]
+#[cfg(test)]
 mod tests {
     use std::time::{Duration, Instant};
 
-    use crate::broadcaster::Broadcaster;
     use crate::runtime::{SyncRuntime, UseCaseRuntime};
     use crate::use_cases::UseCaseEvent;
 
     #[test]
     fn register_timer() {
-        let broadcaster = crate::broadcaster::BusBroadcaster::new(1);
-        let mut broadcast_receiver = broadcaster.subscribe();
+        let (broadcaster, broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
 
         let runtime = SyncRuntime::new(broadcaster);
 
@@ -141,8 +139,7 @@ mod tests {
 
     #[test]
     fn register_periodic_timer() {
-        let broadcaster = crate::broadcaster::BusBroadcaster::new(1);
-        let mut broadcast_receiver = broadcaster.subscribe();
+        let (broadcaster, broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
 
         let runtime = SyncRuntime::new(broadcaster);
 
