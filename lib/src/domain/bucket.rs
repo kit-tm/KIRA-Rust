@@ -4,6 +4,10 @@ use std::ops::Index;
 
 use crate::domain::{Contact, NodeId};
 
+/// The default size for all buckets in the routing table.
+///
+/// The bucket size is also referred to as the system parameter **k**.
+/// So the default bucket size is **20**.
 pub const DEFAULT_BUCKET_SIZE: usize = 20;
 
 #[derive(Debug)]
