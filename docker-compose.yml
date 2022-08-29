@@ -1,0 +1,25 @@
+services:
+  node-1:
+    image: r2kad-daemon:alpine
+    environment:
+      NODE_ID: "2E0EDC434A0AB87B2FB08ECA2794"
+      RUST_LOG: "debug"
+    expose:
+      - "8080"
+    networks:
+      mynetv6-1:
+        ipv6_address: "2001:db8:1::10"
+  node-2:
+    image: r2kad-daemon:alpine
+    environment:
+      NODE_ID: "4C84B7D95475E2F97A41663C802F"
+      RUST_LOG: "debug"
+    expose:
+      - "8080"
+    networks:
+      mynetv6-1:
+        ipv6_address: "2001:db8:1::11"
+
+networks:
+  mynetv6-1:
+    external: true
