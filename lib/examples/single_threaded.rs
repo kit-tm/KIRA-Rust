@@ -4,10 +4,11 @@
 //! running the daemon on a single threaded environment but also reading from
 //! multiple ports at once.
 
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, RwLock};
 
 use r2kad_lib::context::TokioContext;
 use r2kad_lib::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
@@ -17,7 +18,9 @@ use r2kad_lib::domain::{
     FlatRoutingTable, InOrderCycleRemover, NodeId, PNSStrategy, ShortestFirstPathSimplifier,
     DEFAULT_BUCKET_SIZE,
 };
-use r2kad_lib::messaging::InMemoryMessageHub;
+use r2kad_lib::messaging::format::ProtocolMessageFormat;
+use r2kad_lib::messaging::sync_wrapper::SyncWrapper;
+use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetPortMapper};
 use r2kad_lib::runtime::TokioRuntime;
 use r2kad_lib::use_cases::forward_protocol_message::ForwardPMUseCase;
 use r2kad_lib::use_cases::handle_hello::HandleHelloUseCase;
@@ -69,6 +72,26 @@ fn main() {
     });
     routing_table.add_observer(|event| log::trace!("{}", event));
 
+    // Initialize IO Channel
+    let ip_cache = Arc::new(RwLock::new(HashMap::new()));
+    let channel = r2kad_lib::messaging::udp::async_channel(
+        8080,
+        ip_cache,
+        PNetPortMapper::new(),
+        ProtocolMessageFormat::MessagePack,
+    );
+    let (message_sender, mut message_receiver) = runtime
+        .block_on(channel)
+        .expect("failed to initialize IO channel");
+    let receiver_broadcaster = broadcaster.clone();
+    runtime.spawn(async move {
+        while let Some((message, port)) = message_receiver.recv().await {
+            if let Err(e) = receiver_broadcaster.send(UseCaseEvent::Message(message, port)) {
+                log::error!("Failed to broadcast protocol message: {}", e);
+            }
+        }
+    });
+
     // Create the desired Context in which the Use Cases will run
     let context = TokioContext::new(
         root_id,
@@ -83,7 +106,7 @@ fn main() {
             _,
             DEFAULT_BUCKET_SIZE,
         >::new(InOrderCycleRemover, ShortestFirstPathSimplifier),
-        InMemoryMessageHub::new(),
+        SyncWrapper::new(message_sender, Arc::clone(&runtime)),
         TokioRuntime::new(broadcaster, Arc::clone(&runtime)),
     );
 
@@ -125,10 +148,6 @@ fn main() {
         log::error!("Failed to start forward protocol messages UseCase: {}", e);
         return;
     }
-
-    // TODO:
-    //  Start MessageReceivers and wait for message from broadcaster or MessageReceivers
-    //  to delegate to use cases.
 
     // Wait for MessageReceivers or runtime to emit events and delegate to Use Cases
     // IMPORTANT: The Runtime::block_on method drives progress in the CurrentThreadRuntime.

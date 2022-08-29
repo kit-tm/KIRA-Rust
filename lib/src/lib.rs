@@ -23,7 +23,12 @@ pub mod utils;
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use log::LevelFilter;
+
     pub fn init() {
-        let _ = env_logger::builder().is_test(true).try_init();
+        let _ = env_logger::builder()
+            .filter_level(LevelFilter::Trace)
+            .is_test(true)
+            .try_init();
     }
 }

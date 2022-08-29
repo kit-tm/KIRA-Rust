@@ -1,6 +1,7 @@
-use crate::domain::{NodeId, Path};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+
+use crate::domain::{NodeId, Path};
 
 /// Source Route of a package all the way back to its origin.
 ///
@@ -26,6 +27,15 @@ impl SourceRoute {
             ids: route.ids,
             progress: 0,
         }
+    }
+
+    /// Returns the previous node in the [SourceRoute].
+    pub fn prev_hop(&self) -> Option<&NodeId> {
+        if self.progress > 0 {
+            return Some(&self.ids[self.progress - 1]);
+        }
+
+        None
     }
 
     /// Returns the next hop in the source route.
@@ -67,6 +77,19 @@ impl SourceRoute {
     pub fn is_finished(&self) -> bool {
         self.progress == self.ids.len() - 1
     }
+
+    /// Returns the first element of the [SourceRoute].
+    ///
+    /// This is in general the source node of the [ProtocolMessage].
+    pub fn first(&self) -> &NodeId {
+        self.ids.first().expect("constructed empty SourceRoute")
+    }
+
+    /// Returns the source route advanced by one.
+    pub fn with_advanced(mut self) -> Self {
+        self.advance();
+        self
+    }
 }
 
 impl Extend<NodeId> for SourceRoute {
@@ -85,12 +108,6 @@ impl Display for EmptyRouteError {
 }
 
 impl Error for EmptyRouteError {}
-
-impl From<SourceRoute> for Path {
-    fn from(value: SourceRoute) -> Self {
-        Path::from(value.ids)
-    }
-}
 
 impl From<Path> for SourceRoute {
     fn from(path: Path) -> Self {

@@ -9,6 +9,9 @@ edition = "2021"
 tokio-rt-multi-thread = ["tokio/rt-multi-thread"]
 tokio = ["tokio/net", "tokio/rt", "tokio/time", "tokio/net", "tokio/macros"]
 serde = ["dep:serde", "serde-big-array", "chrono/serde"]
+udp = ["serde"]
+udp-tokio = ["udp", "tokio", "pnet", "sync-wrapper"]
+sync-wrapper = []
 
 # All dependencies are well picked and although just a few have versions 1.x
 # they are considered stable enough to use in production by the Rust Community.
@@ -16,6 +19,9 @@ serde = ["dep:serde", "serde-big-array", "chrono/serde"]
 # a custom implementation.
 
 [dependencies]
+# Used to declare async traits
+async-trait = "0.1.57"
+# Used as a central broadcaster for UseCase Events
 bus = { version = "2.2.4", optional = true }
 # For Time Computations in general
 chrono = "0.4.19"
@@ -25,6 +31,8 @@ crossbeam-channel = "0.5.5"
 hex = "0.4.3"
 # Logging facade supporting many concrete implementations in binaries
 log = "0.4.17"
+# For fetching the network interface for a given IP
+pnet = { version = "0.31.0", optional = true, features = ["pnet_datalink", "std"] }
 # Random NodeId generation
 rand = "0.8.5"
 rmp-serde = { version = "1.1.0", optional = true }
@@ -42,6 +50,7 @@ bus = "2.2.4"
 criterion = "0.3.5"
 env_logger = "0.9.0"
 futures = "0.3.21"
+pnet = { version = "0.31.0", features = ["std", "pnet_datalink"] }
 rmp-serde = "1.1.0"
 tokio = { version = "1.19.2", features = ["rt", "time", "macros", "rt-multi-thread"] }
 
@@ -49,11 +58,11 @@ tokio = { version = "1.19.2", features = ["rt", "time", "macros", "rt-multi-thre
 
 [[example]]
 name = "single_threaded"
-required-features = ["tokio", "tokio/macros", "serde", "rmp-serde"]
+required-features = ["tokio", "tokio/macros", "serde", "rmp-serde", "udp-tokio", "pnet"]
 
 [[example]]
 name = "async_context_multi_threaded"
-required-features = ["tokio", "tokio/macros", "serde", "rmp-serde", "tokio-rt-multi-thread"]
+required-features = ["tokio", "tokio/macros", "serde", "rmp-serde", "tokio-rt-multi-thread", "udp-tokio", "pnet"]
 
 # Benchmarks
 

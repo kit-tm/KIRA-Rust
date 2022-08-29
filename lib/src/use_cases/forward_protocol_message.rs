@@ -2,7 +2,6 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 
 use crate::context::UseCaseContext;
-use crate::domain::Port;
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{ErrorData, ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
 use crate::use_cases::{MessageSentFailed, ReactiveUseCaseState, UseCase, UseCaseEvent};
@@ -31,17 +30,16 @@ where
         &self,
         context: &C,
         message: ProtocolMessage,
-        port: Port,
     ) -> Result<(), <Self as UseCase>::Error> {
         let error_message = ReqRspMessage {
             nonce: message.nonce().unwrap().clone(),
             source: context.root_id().clone(),
-            target: message.source().unwrap().clone(),
+            target: message.source().clone(),
             data: ErrorData::SegmentFailure,
             source_route: SourceRoute::from_reversed(message.source_route().unwrap().clone()),
         };
 
-        if let Err(e) = context.message_sender_mut().send(error_message, port) {
+        if let Err(e) = context.message_sender_mut().send(error_message) {
             log::error!("Failed to reply with error message: {}", e);
             return Err(MessageSentFailed);
         }
@@ -70,7 +68,7 @@ where
         event: UseCaseEvent,
     ) -> Result<(), Self::Error> {
         // Get source route if present
-        let (mut message, source_port) = match event {
+        let (mut message, _) = match event {
             UseCaseEvent::Message(message, source_port) => (message, source_port),
             _ => return Ok(()),
         };
@@ -101,14 +99,13 @@ where
         // Next hop is not a physical neighbor -> Error -> Drop
         let neighbor_port = context.pn_table().get(next_hop).cloned();
         if neighbor_port.is_none() {
-            self.handle_next_hop_not_neighbor(context, message, source_port)?;
+            self.handle_next_hop_not_neighbor(context, message)?;
             return Ok(());
         }
-        let neighbor_port = neighbor_port.unwrap();
 
         // Advance source route and send on port
         source_route.advance();
-        if let Err(e) = context.message_sender_mut().send(message, neighbor_port) {
+        if let Err(e) = context.message_sender_mut().send(message) {
             log::error!("Failed to forward message: {}", e);
             return Err(MessageSentFailed);
         }
