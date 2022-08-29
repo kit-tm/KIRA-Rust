@@ -87,17 +87,23 @@ impl ProtocolMessage {
         }
     }
 
-    pub fn source(&self) -> Option<&NodeId> {
+    pub fn source(&self) -> &NodeId {
         match self {
-            Self::Hello(_) => None,
-            Self::PNDiscReq(req) => Some(&req.source),
-            Self::PNDiscRsp(req) => Some(&req.source),
-            Self::QueryRouteReq(req) => Some(&req.source),
-            Self::QueryRouteRsp(req) => Some(&req.source),
-            Self::FindNodeReq(req) => Some(&req.source),
-            Self::FindNodeRsp(req) => Some(&req.source),
-            Self::Error(req) => Some(&req.source),
+            Self::Hello(req) => &req.source,
+            Self::PNDiscReq(req) => &req.source,
+            Self::PNDiscRsp(req) => &req.source,
+            Self::QueryRouteReq(req) => &req.source,
+            Self::QueryRouteRsp(req) => &req.source,
+            Self::FindNodeReq(req) => &req.source,
+            Self::FindNodeRsp(req) => &req.source,
+            Self::Error(req) => &req.source,
         }
+    }
+
+    pub fn previous_hop(&self) -> &NodeId {
+        self.source_route()
+            .and_then(|sr| sr.prev_hop())
+            .unwrap_or_else(|| self.source())
     }
 }
 
@@ -119,6 +125,9 @@ impl From<HelloMessage> for ProtocolMessage {
 ///
 /// The target has not to be equal to the end of the source route as some protocol messages
 /// are routed from overlay hop to overlay hop.
+///
+/// When extracting the [SourceRoute] into a [Path] be sure to also include the source id
+/// as it is not included in the [SourceRoute].
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct ReqRspMessage<T: Debug> {

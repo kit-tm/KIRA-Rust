@@ -210,7 +210,6 @@ where
             self.state = ONDState::Error;
             return Err(ONDError::NeighborInconsistency);
         }
-        let port = port.unwrap();
 
         let request = ReqRspMessage {
             nonce,
@@ -223,7 +222,7 @@ where
             source_route: route_to_closest_on,
         };
 
-        if let Err(e) = context.message_sender_mut().send(request, port) {
+        if let Err(e) = context.message_sender_mut().send(request) {
             log::error!("Failed to send FindNodeReq: {:?}", e);
             return Err(ONDError::SendError);
         }

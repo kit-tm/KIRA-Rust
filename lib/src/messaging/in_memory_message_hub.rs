@@ -4,8 +4,9 @@ use std::fmt::Display;
 use std::time::Duration;
 
 use crate::domain::Port;
+use crate::messaging::error::SenderError;
 use crate::messaging::messages::ProtocolMessage;
-use crate::messaging::receiver::{ProtocolMessageReceiver, RecvTimeout, TryRecvError};
+use crate::messaging::receiver::{ProtocolMessageReceiver, RecvError, TryRecvError};
 use crate::messaging::sender::ProtocolMessageSender;
 
 /// A [MessageSender] and [MessageReceiver] which stores messages in a FIFO way.
@@ -14,7 +15,8 @@ use crate::messaging::sender::ProtocolMessageSender;
 /// if receive is called and the messages are empty.
 #[derive(Debug)]
 pub struct InMemoryMessageHub {
-    messages: VecDeque<(ProtocolMessage, Port)>,
+    messages: VecDeque<ProtocolMessage>,
+    port: Port,
 }
 
 impl Default for InMemoryMessageHub {
@@ -27,6 +29,7 @@ impl InMemoryMessageHub {
     pub fn new() -> Self {
         Self {
             messages: VecDeque::new(),
+            port: InMemoryMessageHub::dummy_port(),
         }
     }
 
@@ -35,11 +38,13 @@ impl InMemoryMessageHub {
     }
 
     fn pop(&mut self) -> Option<(ProtocolMessage, Port)> {
-        self.messages.pop_front()
+        self.messages
+            .pop_front()
+            .map(|message| (message, self.port.clone()))
     }
 
-    pub fn messages(&self) -> impl Iterator<Item = &(ProtocolMessage, Port)> {
-        self.messages.iter()
+    pub fn messages(&self) -> impl Iterator<Item = (&ProtocolMessage, &Port)> {
+        self.messages.iter().map(|message| (message, &self.port))
     }
 }
 
@@ -47,7 +52,7 @@ impl ProtocolMessageReceiver for InMemoryMessageHub {
     fn recv_timeout(
         &mut self,
         _timeout: Option<Duration>,
-    ) -> Result<Option<(ProtocolMessage, Port)>, RecvTimeout> {
+    ) -> Result<Option<(ProtocolMessage, Port)>, RecvError> {
         Ok(self.pop())
     }
 
@@ -68,16 +73,13 @@ impl Display for NoSendError {
 impl Error for NoSendError {}
 
 impl ProtocolMessageSender for InMemoryMessageHub {
-    // Must not return Errors.
-    type Error = NoSendError;
-
-    fn send<M>(&mut self, message: M, port: Port) -> Result<(), Self::Error>
+    fn send<M>(&mut self, message: M) -> Result<(), SenderError>
     where
         M: Into<ProtocolMessage>,
     {
         let message = message.into();
-        log::trace!("Sent message: {:?} [{}]", message, port);
-        self.messages.push_back((message, port));
+        log::trace!("Sent message: {:?}", message);
+        self.messages.push_back(message);
         Ok(())
     }
 }
@@ -88,11 +90,12 @@ pub mod tests {
     use std::time::Duration;
 
     use crate::domain::{NodeId, Port, StateSeqNr};
+    use crate::messaging::error::SenderError;
     use crate::messaging::in_memory_message_hub::InMemoryMessageHub;
     use crate::messaging::messages::{HelloMessage, ProtocolMessage};
     use crate::messaging::receiver::ProtocolMessageReceiver;
     use crate::messaging::sender::ProtocolMessageSender;
-    use crate::messaging::{RecvTimeout, TryRecvError};
+    use crate::messaging::{RecvError, TryRecvError};
 
     #[derive(Debug, Clone)]
     pub struct ArcSyncInMemoryMessageHub(Arc<Mutex<InMemoryMessageHub>>);
@@ -113,20 +116,18 @@ pub mod tests {
                 .lock()
                 .expect("failed to get hub lock")
                 .messages()
-                .cloned()
+                .map(|(message, port)| (message.clone(), port.clone()))
                 .collect()
         }
     }
 
     impl ProtocolMessageSender for ArcSyncInMemoryMessageHub {
-        type Error = super::NoSendError;
-
-        fn send<M>(&mut self, message: M, port: Port) -> Result<(), Self::Error>
+        fn send<M>(&mut self, message: M) -> Result<(), SenderError>
         where
             M: Into<ProtocolMessage>,
         {
             let mut lock = self.0.lock().expect("failed to get lock on hub");
-            lock.send(message, port)
+            lock.send(message)
         }
     }
 
@@ -134,7 +135,7 @@ pub mod tests {
         fn recv_timeout(
             &mut self,
             timeout: Option<Duration>,
-        ) -> Result<Option<(ProtocolMessage, Port)>, RecvTimeout> {
+        ) -> Result<Option<(ProtocolMessage, Port)>, RecvError> {
             let mut lock = self.0.lock().expect("failed to get lock on hub");
             lock.recv_timeout(timeout)
         }
@@ -149,24 +150,16 @@ pub mod tests {
     fn dummy_message_hub_smoke_test() {
         let mut hub = InMemoryMessageHub::new();
 
-        let port = InMemoryMessageHub::dummy_port();
-
-        hub.send(
-            ProtocolMessage::Hello(HelloMessage {
-                source: NodeId::zero(),
-                source_state_seq_nr: StateSeqNr::from(0),
-            }),
-            port.clone(),
-        )
+        hub.send(ProtocolMessage::Hello(HelloMessage {
+            source: NodeId::zero(),
+            source_state_seq_nr: StateSeqNr::from(0),
+        }))
         .unwrap();
 
-        hub.send(
-            ProtocolMessage::Hello(HelloMessage {
-                source: NodeId::one(),
-                source_state_seq_nr: StateSeqNr::from(0),
-            }),
-            port.clone(),
-        )
+        hub.send(ProtocolMessage::Hello(HelloMessage {
+            source: NodeId::one(),
+            source_state_seq_nr: StateSeqNr::from(0),
+        }))
         .unwrap();
 
         assert_eq!(
@@ -176,7 +169,7 @@ pub mod tests {
                     source: NodeId::zero(),
                     source_state_seq_nr: StateSeqNr::from(0),
                 }),
-                port.clone()
+                InMemoryMessageHub::dummy_port()
             ))
         );
 
@@ -187,7 +180,7 @@ pub mod tests {
                     source: NodeId::one(),
                     source_state_seq_nr: StateSeqNr::from(0),
                 }),
-                port.clone()
+                InMemoryMessageHub::dummy_port()
             ))
         );
     }

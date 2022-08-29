@@ -3,7 +3,6 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use crate::context::UseCaseContext;
-use crate::domain::Port;
 use crate::messaging::{HelloMessage, ProtocolMessageSender};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
@@ -98,13 +97,10 @@ where
             (event, self.state.clone())
         {
             if id == timer_id {
-                if let Err(e) = context.message_sender_mut().send(
-                    HelloMessage {
-                        source: context.root_id().clone(),
-                        source_state_seq_nr: *context.pn_table().state_seq_nr(),
-                    },
-                    Port::All,
-                ) {
+                if let Err(e) = context.message_sender_mut().send(HelloMessage {
+                    source: context.root_id().clone(),
+                    source_state_seq_nr: *context.pn_table().state_seq_nr(),
+                }) {
                     log::error!("MessageSender failed: {}", e);
                     return Err(PeriodicPNAdvertisingError::SendError);
                 }

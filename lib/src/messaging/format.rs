@@ -1,9 +1,11 @@
 use std::error::Error;
 use std::io::{Read, Write};
 
-use crate::messaging::ProtocolMessage;
 use serde::Serialize;
 
+use crate::messaging::ProtocolMessage;
+
+// TODO: Refactor this to be more efficient. Currently it doesn't support proper buffer writing.
 #[derive(Debug, Clone)]
 pub enum ProtocolMessageFormat {
     #[cfg(feature = "serde_json")]
@@ -30,7 +32,7 @@ impl ProtocolMessageFormat {
         &self,
         writer: W,
         data: &ProtocolMessage,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         match self {
             #[cfg(feature = "serde_json")]
             Self::Json => serde_json::to_writer(writer, data)?,

@@ -8,12 +8,13 @@
 //! This is a naive implementation.
 //! More advanced implementations may use load balancing or other advanced optimizations.
 
+use std::collections::HashMap;
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
+use tokio::sync::{broadcast, RwLock};
 
 use r2kad_lib::context::{TokioContext, UseCaseContext};
 use r2kad_lib::domain::physical_neighbor_table::PNTable;
@@ -22,7 +23,9 @@ use r2kad_lib::domain::{
     FlatRoutingTable, InOrderCycleRemover, NodeId, PNSStrategy, ShortestFirstPathSimplifier,
     DEFAULT_BUCKET_SIZE,
 };
-use r2kad_lib::messaging::InMemoryMessageHub;
+use r2kad_lib::messaging::format::ProtocolMessageFormat;
+use r2kad_lib::messaging::sync_wrapper::SyncWrapper;
+use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetPortMapper};
 use r2kad_lib::runtime::TokioRuntime;
 use r2kad_lib::use_cases::handle_hello::HandleHelloUseCase;
 use r2kad_lib::use_cases::{UseCase, UseCaseEvent, UseCaseState};
@@ -61,13 +64,33 @@ fn main() {
         DEFAULT_BUCKET_SIZE,
     >::new(InOrderCycleRemover, ShortestFirstPathSimplifier);
 
+    // Initialize IO Channel
+    let ip_cache = Arc::new(RwLock::new(HashMap::new()));
+    let channel = r2kad_lib::messaging::udp::async_channel(
+        8080,
+        ip_cache,
+        PNetPortMapper::new(),
+        ProtocolMessageFormat::MessagePack,
+    );
+    let (message_sender, mut message_receiver) = runtime
+        .block_on(channel)
+        .expect("failed to initialize IO channel");
+    let receiver_broadcaster = broadcaster.clone();
+    runtime.spawn(async move {
+        while let Some((message, port)) = message_receiver.recv().await {
+            if let Err(e) = receiver_broadcaster.send(UseCaseEvent::Message(message, port)) {
+                log::error!("Failed to broadcast protocol message: {}", e);
+            }
+        }
+    });
+
     // Create the desired Context in which the Use Cases will run
     let context = Arc::new(TokioContext::new(
         root_id,
         routing_table,
         PNTable::new(),
         insertion_strategy,
-        InMemoryMessageHub::new(),
+        SyncWrapper::new(message_sender, Arc::clone(&runtime)),
         TokioRuntime::new(broadcaster.clone(), Arc::clone(&runtime)),
     ));
 
@@ -89,10 +112,6 @@ fn main() {
         .await;
     });
     handles.push(handle);
-
-    // TODO:
-    //  Start MessageReceivers and wait for message from broadcaster or MessageReceivers
-    //  to delegate to use cases.
 
     // IMPORTANT: The Runtime::block_on method drives progress in the CurrentThreadRuntime.
     //              Without that the tasks spawned in the runtime won't make any progress.

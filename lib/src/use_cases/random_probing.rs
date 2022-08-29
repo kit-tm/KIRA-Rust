@@ -93,7 +93,6 @@ where
                     self.state = RandomProbingState::Error;
                     return Err(RandomProbingError::InvalidNeighbor);
                 }
-                let port = port.unwrap();
 
                 let message = ReqRspMessage {
                     nonce: Nonce::random(),
@@ -106,7 +105,7 @@ where
                     source_route: SourceRoute::from(closest_path),
                 };
 
-                if let Err(e) = context.message_sender_mut().send(message, port) {
+                if let Err(e) = context.message_sender_mut().send(message) {
                     log::error!("MessageSender failed: {}", e);
                     return Err(RandomProbingError::SendFailed);
                 }

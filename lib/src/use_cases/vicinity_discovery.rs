@@ -121,7 +121,6 @@ where
                 self.state = ReactiveUseCaseState::Error;
                 return Err(VDError::NeighborInconsistency);
             }
-            let neighbor_port = neighbor_port.unwrap();
 
             // Request only physical Neighborhood of that Node
             let request = ReqRspMessage {
@@ -134,7 +133,7 @@ where
                 source_route: route,
             };
 
-            if let Err(e) = context.message_sender_mut().send(request, neighbor_port) {
+            if let Err(e) = context.message_sender_mut().send(request) {
                 log::error!("Failed to send QueryRouteReq: {:?}", e);
                 return Err(VDError::MessageSendFailed);
             }
@@ -283,7 +282,7 @@ mod tests {
 
         // Build path bigger than vicinity radius
         let contact_id = NodeId::random();
-        let path = Path::from(vec![neighbor_id, contact_id.clone()]);
+        let path = Path::from([neighbor_id, contact_id.clone()]);
 
         let event = UseCaseEvent::Contact(ContactEvent::New(Contact::new(
             path,
