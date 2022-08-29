@@ -98,7 +98,7 @@ where
         ) = event
         {
             // Add or update Physical Neighbors
-            if let Some(updated) = context.pn_table_mut().add(source.clone(), in_port.clone()) {
+            if let Some(updated) = context.pn_table_mut().add(source.clone(), in_port) {
                 log::debug!("Updated Port for PN: {}", updated);
             }
 
@@ -165,7 +165,7 @@ where
                 // Source route is ignored, as only physical neighbors get these
                 source_route: SourceRoute::from(Path::from(source)),
             };
-            if let Err(e) = context.message_sender_mut().send(message, in_port) {
+            if let Err(e) = context.message_sender_mut().send(message) {
                 log::error!("Failed to send message: {}", e);
                 return Err(HandleHelloError::SendError);
             }

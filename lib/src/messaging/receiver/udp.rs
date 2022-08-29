@@ -1,48 +1,90 @@
+use std::io;
 use std::io::ErrorKind;
-use std::net::UdpSocket;
+use std::net::{SocketAddr, UdpSocket};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use crate::domain::Port;
 use crate::messaging::format::ProtocolMessageFormat;
-use crate::messaging::{ProtocolMessage, ProtocolMessageReceiver, RecvTimeout, TryRecvError};
+use crate::messaging::{
+    IpCache, PortMapper, ProtocolMessage, ProtocolMessageReceiver, RecvError, TryRecvError,
+};
 
 /// Maximum Transmission Unit (MTU). In general the MTU is actually smaller due to
 /// network restrictions. But to be safe we use this.
 const MTU_BYTES: usize = 65536;
 
-/// The Buffer is not shared between instances of [UdpReceiver].
+/// A sync [ProtocolMessageReceiver] implementation using UDP.
+///
+/// The buffer used for messages is not shared between (cloned) instances of [UdpReceiver].
+///
+/// The used [UdpSocket] binds to all available IPv6 interfaces and maps the incoming IP
+/// addresses to the ports using the generic parameter P ([PortMapper]).
 #[derive(Debug)]
-pub struct UdpReceiver {
+pub struct UdpReceiver<C, P> {
     buffer: RwLock<[u8; MTU_BYTES]>,
     socket: Arc<UdpSocket>,
     format: ProtocolMessageFormat,
-    port: Port,
+    ip_cache: C,
+    port_mapper: P,
 }
 
-impl Clone for UdpReceiver {
+impl<C: Clone, P: Clone> Clone for UdpReceiver<C, P> {
     /// Clones the [UdpReceiver] with a new buffer.
     fn clone(&self) -> Self {
         Self {
             buffer: RwLock::new([0u8; MTU_BYTES]),
             socket: Arc::clone(&self.socket),
             format: self.format.clone(),
-            port: self.port.clone(),
+            ip_cache: self.ip_cache.clone(),
+            port_mapper: self.port_mapper.clone(),
         }
     }
 }
 
-impl UdpReceiver {
-    pub fn new(socket: Arc<UdpSocket>, format: ProtocolMessageFormat, port: Port) -> Self {
+impl<C, P> UdpReceiver<C, P> {
+    /// Creates a new [UdpReceiver].
+    ///
+    /// Initializes the internally used [UdpSocket].
+    ///
+    /// To bind the receiver to a random free port, use `socket_port = 0`.
+    pub fn new(
+        socket_port: u16,
+        ip_cache: C,
+        port_mapper: P,
+        format: ProtocolMessageFormat,
+    ) -> io::Result<Self> {
+        let socket = Arc::new(UdpSocket::bind(SocketAddr::from((
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            socket_port,
+        )))?);
+
+        Ok(Self {
+            buffer: RwLock::new([0u8; MTU_BYTES]),
+            socket,
+            format,
+            port_mapper,
+            ip_cache,
+        })
+    }
+
+    /// Creates a new [UdpReceiver] from a socket.
+    pub(crate) fn from_socket(
+        socket: Arc<UdpSocket>,
+        ip_cache: C,
+        port_mapper: P,
+        format: ProtocolMessageFormat,
+    ) -> Self {
         Self {
             buffer: RwLock::new([0u8; MTU_BYTES]),
             socket,
             format,
-            port,
+            port_mapper,
+            ip_cache,
         }
     }
 
-    fn deserialize(&self, buffer: &[u8]) -> Option<(ProtocolMessage, Port)> {
+    fn deserialize(&self, buffer: &[u8]) -> Option<ProtocolMessage> {
         let deserialized = match self.format.deserialize(buffer) {
             Ok(message) => message,
             Err(e) => {
@@ -51,45 +93,77 @@ impl UdpReceiver {
             }
         };
 
-        Some((deserialized, self.port.clone()))
+        Some(deserialized)
+    }
+
+    /// Returns the actually bound local address.
+    pub fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.socket.local_addr()
     }
 }
 
-impl ProtocolMessageReceiver for UdpReceiver {
+impl<C: IpCache, P: PortMapper> ProtocolMessageReceiver for UdpReceiver<C, P> {
     fn recv_timeout(
         &mut self,
         mut timeout: Option<Duration>,
-    ) -> Result<Option<(ProtocolMessage, Port)>, RecvTimeout> {
+    ) -> Result<Option<(ProtocolMessage, Port)>, RecvError> {
         let socket = Arc::clone(&self.socket);
         let mut buffer = self.buffer.write().expect("failed to get write lock");
 
         timeout = timeout.and_then(|dur| if dur.is_zero() { None } else { Some(dur) });
-        let read_timeout_before = socket.read_timeout().expect("failed to get read timeout");
+        let read_timeout_before = socket
+            .read_timeout()
+            .map_err(|e| RecvError::IoError(Box::new(e)))?;
         socket
             .set_read_timeout(timeout)
             .expect("invalid timeout set"); // Shouldn't happen due to previous check
 
-        let receive_with_optional_timeout = socket.recv(&mut buffer[..]);
+        let receive_with_optional_timeout = socket.recv_from(&mut buffer[..]);
 
         // Reset settings after receive
         if let Err(e) = socket.set_read_timeout(read_timeout_before) {
-            log::error!("Failed to reset read timeout: {}", e);
+            return Err(RecvError::IoError(Box::new(e)));
         }
 
-        let received = match receive_with_optional_timeout {
+        let (received_bytes, received_from) = match receive_with_optional_timeout {
             Ok(bytes) => bytes,
             Err(e) => {
                 return match e.kind() {
-                    ErrorKind::WouldBlock | ErrorKind::TimedOut => Err(RecvTimeout),
+                    ErrorKind::WouldBlock | ErrorKind::TimedOut => Err(RecvError::Timeout),
                     _ => {
                         log::error!("Failed to receive message from udp: {}", e);
-                        Ok(None)
+                        Err(RecvError::IoError(Box::new(e)))
                     }
                 };
             }
         };
 
-        Ok(self.deserialize(&buffer[..received]))
+        let message = self.deserialize(&buffer[..received_bytes]);
+
+        let port = self
+            .port_mapper
+            .get_port(&received_from)
+            .ok_or(RecvError::NoPortFound)?;
+
+        if let Some(message) = &message {
+            let previous_node = message.previous_hop();
+
+            let received_from = match received_from {
+                SocketAddr::V6(addr) => addr,
+                addr => panic!("Received Non-IPv6 Packet from {}", addr),
+            };
+
+            if let Some(ip) = self.ip_cache.insert(previous_node.clone(), received_from) {
+                log::trace!(
+                    "Replaced ip for {} ({} => {})",
+                    previous_node,
+                    ip,
+                    received_from.ip()
+                );
+            }
+        }
+
+        Ok(message.map(|message| (message, port)))
     }
 
     fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, Port)>, TryRecvError> {
@@ -100,45 +174,62 @@ impl ProtocolMessageReceiver for UdpReceiver {
 
         self.socket
             .set_nonblocking(true)
-            .expect("failed to set udp socket to nonblocking");
+            .map_err(|e| TryRecvError::IoError(Box::new(e)))?;
 
-        let received = match self.socket.recv(&mut buffer[..]) {
+        let (received_bytes, received_addr) = match self.socket.recv_from(&mut buffer[..]) {
             Ok(received) => received,
-            Err(_) => return Err(TryRecvError),
+            Err(e) => return Err(TryRecvError::IoError(Box::new(e))),
         };
 
         self.socket
             .set_nonblocking(false)
-            .expect("failed to set udp socket to blocking");
+            .map_err(|e| TryRecvError::IoError(Box::new(e)))?;
 
-        Ok(self.deserialize(&buffer[..received]))
+        let message = self.deserialize(&buffer[..received_bytes]);
+
+        let port = self
+            .port_mapper
+            .get_port(&received_addr)
+            .ok_or(TryRecvError::NoPortFound)?;
+
+        Ok(message.map(|message| (message, port)))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::error::Error;
     use std::net::UdpSocket;
     use std::sync::Arc;
     use std::time::Duration;
 
-    use crate::domain::{NodeId, Port, StateSeqNr};
+    use tokio::sync::RwLock;
+
+    use crate::domain::{NodeId, StateSeqNr};
     use crate::messaging::format::ProtocolMessageFormat;
-    use crate::messaging::{HelloMessage, ProtocolMessage, ProtocolMessageReceiver};
-    use crate::messaging::udp::UdpReceiver;
+    use crate::messaging::receiver::udp::UdpReceiver;
+    use crate::messaging::{
+        HelloMessage, PNetPortMapper, ProtocolMessage, ProtocolMessageReceiver,
+    };
 
     #[test]
     fn receive_timeout() -> Result<(), Box<dyn Error + Send + Sync>> {
         crate::tests::init();
 
-        let port = Port::new(String::from("test"));
-        let socket = Arc::new(UdpSocket::bind("0.0.0.0:0")?);
-        let addr = socket.local_addr()?;
+        let ip_cache = Arc::new(RwLock::new(HashMap::new()));
 
-        let mut receiver = UdpReceiver::new(socket, ProtocolMessageFormat::Json, port.clone());
+        let mut receiver = UdpReceiver::new(
+            0,
+            ip_cache,
+            PNetPortMapper::new(),
+            ProtocolMessageFormat::Json,
+        )
+        .expect("failed to create receiver");
+        let addr = receiver.local_addr().expect("failed to get local addr");
 
         let handle = std::thread::spawn(move || {
-            let socket = UdpSocket::bind("0.0.0.0:0")?;
+            let socket = UdpSocket::bind("[::]:0").expect("failed to open socket");
 
             let protocol_message = ProtocolMessage::Hello(HelloMessage {
                 source: NodeId::one(),
@@ -147,22 +238,23 @@ mod tests {
 
             let mut buffer = Vec::new();
 
-            ProtocolMessageFormat::Json.serialize(&mut buffer, &protocol_message)?;
+            ProtocolMessageFormat::Json
+                .serialize(&mut buffer, &protocol_message)
+                .expect("failed to serialize");
 
-            socket.send_to(&buffer[..buffer.len()], addr)?;
-
-            Result::<(), Box<dyn Error + Send + Sync>>::Ok(())
+            socket
+                .send_to(&buffer[..buffer.len()], addr)
+                .expect("failed to send to address");
         });
 
         let received = receiver.recv_timeout(Some(Duration::from_micros(500)));
 
-        handle.join().expect("failed to join")?;
+        handle.join().expect("failed to join");
 
         assert!(received.is_ok(), "{:?}", received);
         let received = received.unwrap();
         assert!(received.is_some(), "{:?}", received);
-        let (message, source) = received.unwrap();
-        assert_eq!(source, port);
+        let (message, _) = received.unwrap();
         assert_eq!(
             message,
             ProtocolMessage::Hello(HelloMessage {
@@ -178,14 +270,19 @@ mod tests {
     fn try_receive() -> Result<(), Box<dyn Error + Send + Sync>> {
         crate::tests::init();
 
-        let port = Port::new(String::from("test"));
-        let socket = Arc::new(UdpSocket::bind("0.0.0.0:0")?);
-        let addr = socket.local_addr()?;
+        let ip_cache = Arc::new(RwLock::new(HashMap::new()));
 
-        let mut receiver = UdpReceiver::new(socket, ProtocolMessageFormat::Json, port.clone());
+        let mut receiver = UdpReceiver::new(
+            0,
+            ip_cache,
+            PNetPortMapper::new(),
+            ProtocolMessageFormat::Json,
+        )?;
+
+        let addr = receiver.local_addr().expect("failed to get local addr");
 
         let handle = std::thread::spawn(move || {
-            let socket = UdpSocket::bind("0.0.0.0:0")?;
+            let socket = UdpSocket::bind("[::]:0")?;
 
             let protocol_message = ProtocolMessage::Hello(HelloMessage {
                 source: NodeId::one(),
@@ -208,8 +305,7 @@ mod tests {
         assert!(received.is_ok(), "{:?}", received);
         let received = received.unwrap();
         assert!(received.is_some(), "{:?}", received);
-        let (message, source) = received.unwrap();
-        assert_eq!(source, port);
+        let (message, _) = received.unwrap();
         assert_eq!(
             message,
             ProtocolMessage::Hello(HelloMessage {

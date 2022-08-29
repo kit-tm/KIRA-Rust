@@ -5,6 +5,7 @@ use serde::Serialize;
 
 use crate::messaging::ProtocolMessage;
 
+// TODO: Refactor this to be more efficient. Currently it doesn't support proper buffer writing.
 #[derive(Debug, Clone)]
 pub enum ProtocolMessageFormat {
     #[cfg(feature = "serde_json")]

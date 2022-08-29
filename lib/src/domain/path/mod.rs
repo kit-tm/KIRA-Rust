@@ -30,9 +30,15 @@ pub struct Path {
 ///
 /// It may be advised to shrink the [Vec] to its length
 /// with [Vec::shrink_to_fit]
-impl From<Vec<NodeId>> for Path {
-    fn from(vec: Vec<NodeId>) -> Self {
-        Self { ids: vec }
+impl TryFrom<Vec<NodeId>> for Path {
+    type Error = EmptyPathError;
+
+    fn try_from(value: Vec<NodeId>) -> Result<Self, Self::Error> {
+        if value.is_empty() {
+            return Err(EmptyPathError);
+        }
+
+        Ok(Self { ids: value })
     }
 }
 
@@ -60,6 +66,7 @@ impl TryFrom<&[NodeId]> for Path {
     }
 }
 
+// NOTE: As soon as const generic where conditions are stable, use here.
 impl<const PATH_SIZE: usize> From<[NodeId; PATH_SIZE]> for Path {
     fn from(raw: [NodeId; PATH_SIZE]) -> Self {
         if PATH_SIZE == 0 {

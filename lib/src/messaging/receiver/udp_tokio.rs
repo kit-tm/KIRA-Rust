@@ -1,59 +1,92 @@
+use std::net::SocketAddr;
 use std::ops::DerefMut;
 use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::net::UdpSocket;
-use tokio::runtime::Runtime;
 use tokio::sync::RwLock;
 
 use crate::domain::Port;
 use crate::messaging::format::ProtocolMessageFormat;
-use crate::messaging::{ProtocolMessage, ProtocolMessageReceiver, RecvTimeout, TryRecvError};
+use crate::messaging::{
+    AsyncIpCache, AsyncPortMapper, AsyncProtocolMessageReceiver, ProtocolMessage, RecvError,
+    TryRecvError,
+};
 
 /// Maximum Transmission Unit (MTU). In general the MTU is actually smaller due to
 /// network restrictions. But to be safe we use this.
 const MTU_BYTES: usize = 65536;
 
-/// The Buffer is not shared between instances of [UdpReceiver].
+/// An [AsyncProtocolMessageReceiver] implementation using UDP.
+///
+/// The buffer used for messages is not shared between (cloned) instances of [UdpReceiver].
+///
+/// The used [UdpSocket] binds to all available IPv6 interfaces and maps the incoming IP
+/// addresses to the ports using the generic parameter P ([PortMapper]).
 #[derive(Debug)]
-pub struct UdpReceiver {
+pub struct UdpReceiver<C, P> {
     buffer: RwLock<[u8; MTU_BYTES]>,
     socket: Arc<UdpSocket>,
-    runtime: Arc<Runtime>,
     format: ProtocolMessageFormat,
-    port: Port,
+    port_mapper: P,
+    ip_cache: C,
 }
 
-impl Clone for UdpReceiver {
+impl<C: Clone, P: Clone> Clone for UdpReceiver<C, P> {
     /// Clones the [UdpReceiver] with a new buffer.
     fn clone(&self) -> Self {
         Self {
             buffer: RwLock::new([0u8; MTU_BYTES]),
             socket: Arc::clone(&self.socket),
-            runtime: Arc::clone(&self.runtime),
             format: self.format.clone(),
-            port: self.port.clone(),
+            port_mapper: self.port_mapper.clone(),
+            ip_cache: self.ip_cache.clone(),
         }
     }
 }
 
-impl UdpReceiver {
-    pub fn new(
-        socket: Arc<UdpSocket>,
-        runtime: Arc<Runtime>,
+impl<C, P> UdpReceiver<C, P> {
+    /// Creates a new [UdpReceiver].
+    ///
+    /// Initializes the internally used [UdpSocket].
+    ///
+    /// To bind the receiver to a random free port, use `socket_port = 0`.
+    pub async fn new(
+        socket_port: u16,
         format: ProtocolMessageFormat,
-        port: Port,
+        ip_cache: C,
+        port_mapper: P,
+    ) -> tokio::io::Result<Self> {
+        let socket = Arc::new(
+            UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?,
+        );
+
+        Ok(Self {
+            buffer: RwLock::new([0u8; MTU_BYTES]),
+            socket,
+            format,
+            port_mapper,
+            ip_cache,
+        })
+    }
+
+    /// Creates a new [UdpReceiver] from a given socket.
+    pub(crate) fn from_socket(
+        socket: Arc<UdpSocket>,
+        format: ProtocolMessageFormat,
+        ip_cache: C,
+        port_mapper: P,
     ) -> Self {
         Self {
             buffer: RwLock::new([0u8; MTU_BYTES]),
             socket,
-            runtime,
             format,
-            port,
+            port_mapper,
+            ip_cache,
         }
     }
 
-    fn deserialize(&self, buffer: &[u8]) -> Option<(ProtocolMessage, Port)> {
+    fn deserialize(&self, buffer: &[u8]) -> Option<ProtocolMessage> {
         let deserialized = match self.format.deserialize(buffer) {
             Ok(message) => message,
             Err(e) => {
@@ -62,85 +95,125 @@ impl UdpReceiver {
             }
         };
 
-        Some((deserialized, self.port.clone()))
+        Some(deserialized)
+    }
+
+    /// Returns the actually bound local address.
+    pub fn local_addr(&self) -> tokio::io::Result<SocketAddr> {
+        self.socket.local_addr()
     }
 }
 
-impl ProtocolMessageReceiver for UdpReceiver {
-    fn recv_timeout(
+#[async_trait::async_trait]
+impl<C, P> AsyncProtocolMessageReceiver for UdpReceiver<C, P>
+where
+    P: AsyncPortMapper + Send + Sync,
+    C: AsyncIpCache + Send + Sync,
+{
+    async fn recv_timeout(
         &mut self,
         timeout: Option<Duration>,
-    ) -> Result<Option<(ProtocolMessage, Port)>, RecvTimeout> {
+    ) -> Result<Option<(ProtocolMessage, Port)>, RecvError> {
         let socket = Arc::clone(&self.socket);
-        let mut buffer = self.buffer.blocking_write();
+        let mut buffer = self.buffer.write().await;
 
-        let receive_with_optional_timeout = self.runtime.block_on(async move {
-            if let Some(duration) = timeout {
-                tokio::time::timeout(duration, socket.recv(buffer.deref_mut()))
-                    .await
-                    .map_err(|_| RecvTimeout)
-            } else {
-                Ok(socket.recv(buffer.deref_mut()).await)
-            }
-        })?;
+        let receive_with_optional_timeout = if let Some(duration) = timeout {
+            tokio::time::timeout(duration, socket.recv_from(buffer.deref_mut()))
+                .await
+                .map_err(|_| RecvError::Timeout)?
+        } else {
+            socket.recv_from(buffer.deref_mut()).await
+        };
 
-        let received = match receive_with_optional_timeout {
-            Ok(bytes) => bytes,
+        let (received_bytes, received_from) = match receive_with_optional_timeout {
+            Ok(received) => received,
             Err(e) => {
                 log::error!("Failed to receive data from socket: {}", e);
-                return Ok(None);
+                return Err(RecvError::IoError(Box::new(e)));
             }
         };
 
-        let buffer = self.buffer.blocking_read();
-        Ok(self.deserialize(&buffer[..received]))
+        let message = self.deserialize(&buffer[..received_bytes]);
+        let port = self
+            .port_mapper
+            .get_port(&received_from)
+            .await
+            .ok_or(RecvError::NoPortFound)?;
+
+        if let Some(message) = &message {
+            let previous_node = message.previous_hop();
+
+            let received_from = match received_from {
+                SocketAddr::V6(addr) => addr,
+                addr => panic!("Received Non-IPv6 Packet from {}", addr),
+            };
+
+            if let Some(ip) = self
+                .ip_cache
+                .insert(previous_node.clone(), received_from)
+                .await
+            {
+                log::trace!(
+                    "Replaced ip for {} ({} => {})",
+                    previous_node,
+                    ip,
+                    received_from.ip()
+                );
+            }
+        }
+
+        Ok(message.map(|message| (message, port)))
     }
 
-    fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, Port)>, TryRecvError> {
-        let mut buffer = self.buffer.blocking_write();
-        let received = match self.socket.try_recv(buffer.deref_mut()) {
+    async fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, Port)>, TryRecvError> {
+        let mut buffer = self.buffer.write().await;
+        let (received_bytes, address) = match self.socket.try_recv_from(buffer.deref_mut()) {
             Ok(received) => received,
-            Err(_) => return Err(TryRecvError),
+            Err(e) => return Err(TryRecvError::IoError(Box::new(e))),
         };
 
-        Ok(self.deserialize(&buffer[..received]))
+        let message = self.deserialize(&buffer[..received_bytes]);
+        let port = self
+            .port_mapper
+            .get_port(&address)
+            .await
+            .ok_or(TryRecvError::NoPortFound)?;
+
+        Ok(message.map(|message| (message, port)))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::error::Error;
     use std::sync::Arc;
     use std::time::Duration;
 
     use tokio::net::UdpSocket;
-    use tokio::runtime::Builder;
+    use tokio::sync::RwLock;
 
-    use crate::domain::{NodeId, Port, StateSeqNr};
+    use crate::domain::{NodeId, StateSeqNr};
     use crate::messaging::format::ProtocolMessageFormat;
-    use crate::messaging::udp_tokio::UdpReceiver;
-    use crate::messaging::{HelloMessage, ProtocolMessage, ProtocolMessageReceiver};
+    use crate::messaging::receiver::udp_tokio::UdpReceiver;
+    use crate::messaging::{
+        AsyncProtocolMessageReceiver, HelloMessage, PNetPortMapper, ProtocolMessage,
+    };
 
-    #[test]
-    fn receive_timeout() -> Result<(), Box<dyn Error + Send + Sync>> {
+    #[tokio::test]
+    async fn receive_timeout() -> Result<(), Box<dyn Error + Send + Sync>> {
         crate::tests::init();
 
-        let runtime = Builder::new_current_thread().enable_all().build()?;
-        let runtime = Arc::new(runtime);
+        let cache = Arc::new(RwLock::new(HashMap::new()));
 
-        let port = Port::new(String::from("test"));
-        let socket = Arc::new(runtime.block_on(UdpSocket::bind("0.0.0.0:0"))?);
-        let addr = socket.local_addr()?;
+        let mut receiver =
+            UdpReceiver::new(0, ProtocolMessageFormat::Json, cache, PNetPortMapper::new())
+                .await
+                .expect("failed to start udp receiver");
+        let addr = receiver.local_addr()?;
 
-        let mut receiver = UdpReceiver::new(
-            socket,
-            runtime.clone(),
-            ProtocolMessageFormat::Json,
-            port.clone(),
-        );
-
-        let handle = runtime.spawn(async move {
-            let socket = UdpSocket::bind("0.0.0.0:0").await?;
+        let handle = tokio::spawn(async move {
+            let socket = UdpSocket::bind("[::]:0").await?;
 
             let protocol_message = ProtocolMessage::Hello(HelloMessage {
                 source: NodeId::one(),
@@ -156,15 +229,16 @@ mod tests {
             Result::<(), Box<dyn Error + Send + Sync>>::Ok(())
         });
 
-        let received = receiver.recv_timeout(Some(Duration::from_micros(500)));
+        let received = receiver
+            .recv_timeout(Some(Duration::from_micros(500)))
+            .await;
 
-        runtime.block_on(handle).expect("failed to join")?;
+        handle.await.expect("failed to join")?;
 
         assert!(received.is_ok(), "{:?}", received);
         let received = received.unwrap();
         assert!(received.is_some(), "{:?}", received);
-        let (message, source) = received.unwrap();
-        assert_eq!(source, port);
+        let (message, _) = received.unwrap();
         assert_eq!(
             message,
             ProtocolMessage::Hello(HelloMessage {
@@ -176,26 +250,20 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn try_receive() -> Result<(), Box<dyn Error + Send + Sync>> {
+    #[tokio::test]
+    async fn try_receive() -> Result<(), Box<dyn Error + Send + Sync>> {
         crate::tests::init();
 
-        let runtime = Builder::new_current_thread().enable_all().build()?;
-        let runtime = Arc::new(runtime);
+        let cache = Arc::new(RwLock::new(HashMap::new()));
 
-        let port = Port::new(String::from("test"));
-        let socket = Arc::new(runtime.block_on(UdpSocket::bind("0.0.0.0:0"))?);
-        let addr = socket.local_addr()?;
+        let mut receiver =
+            UdpReceiver::new(0, ProtocolMessageFormat::Json, cache, PNetPortMapper::new())
+                .await
+                .expect("failed to create udp receiver");
+        let addr = receiver.local_addr()?;
 
-        let mut receiver = UdpReceiver::new(
-            socket,
-            runtime.clone(),
-            ProtocolMessageFormat::Json,
-            port.clone(),
-        );
-
-        let handle = runtime.spawn(async move {
-            let socket = UdpSocket::bind("0.0.0.0:0").await?;
+        let handle = tokio::spawn(async move {
+            let socket = UdpSocket::bind("[::]:0").await?;
 
             let protocol_message = ProtocolMessage::Hello(HelloMessage {
                 source: NodeId::one(),
@@ -211,15 +279,14 @@ mod tests {
             Result::<(), Box<dyn Error + Send + Sync>>::Ok(())
         });
 
-        runtime.block_on(handle).expect("failed to join")?;
+        handle.await.expect("failed to join")?;
 
-        let received = receiver.try_recv();
+        let received = receiver.try_recv().await;
 
         assert!(received.is_ok(), "{:?}", received);
         let received = received.unwrap();
         assert!(received.is_some(), "{:?}", received);
-        let (message, source) = received.unwrap();
-        assert_eq!(source, port);
+        let (message, _) = received.unwrap();
         assert_eq!(
             message,
             ProtocolMessage::Hello(HelloMessage {
