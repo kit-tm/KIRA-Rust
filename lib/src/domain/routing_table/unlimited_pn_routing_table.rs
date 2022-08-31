@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use rand::Rng;
@@ -17,6 +18,7 @@ use crate::domain::{
 /// # Invariant
 ///
 /// No physical neighbors are in the inner routing table.
+#[derive(Debug)]
 pub struct UnlimitedPNRoutingTable<const BUCKET_SIZE: usize, const ACC: usize> {
     pn_contacts: HashMap<NodeId, Contact>,
     inner: FlatRoutingTable<BUCKET_SIZE, ACC>,
@@ -149,5 +151,164 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
 
     fn bucket_mut(&'a mut self, of: &NodeId) -> Self::BucketWriteGuard {
         self.inner.bucket_mut(of)
+    }
+
+    fn get_closest(&self, to: &NodeId, shared_prefix_grouping: usize) -> Option<&Contact> {
+        let bucket_closest = self.inner.get_closest(to, shared_prefix_grouping);
+        let closest_neighbor =
+            super::get_closest_in(self.pn_contacts.values(), to, shared_prefix_grouping)
+                .expect("grouping should have been checked before");
+        match (bucket_closest, closest_neighbor) {
+            (Some(closest_contact), Some(closest_neighbor)) => {
+                let contact_distance = closest_contact
+                    .id()
+                    .shared_prefix_len(to, shared_prefix_grouping)
+                    .expect("Grouping should have been checked before");
+                let neighbor_distance = closest_contact
+                    .id()
+                    .shared_prefix_len(to, shared_prefix_grouping)
+                    .expect("Grouping should have been checked before");
+
+                match contact_distance.bit_len().cmp(&neighbor_distance.bit_len()) {
+                    Ordering::Greater => return Some(closest_contact),
+                    Ordering::Less => return Some(closest_neighbor),
+                    _ => {}
+                };
+
+                if closest_contact.id() < closest_neighbor.id() {
+                    return Some(closest_contact);
+                }
+
+                Some(closest_neighbor)
+            }
+            (None, closest_neighbor) => closest_neighbor,
+            (closest_contact, None) => closest_contact,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::domain::unlimited_pn_routing_table::UnlimitedPNRoutingTable;
+    use crate::domain::{
+        Age, Contact, ContactState, FlatRoutingTable, NodeId, Path, RoutingTable, StateSeqNr,
+    };
+
+    #[test]
+    fn get_closest_contact() {
+        let mut invalid_contact = Contact::new(
+            Path::from([NodeId::with_msb(4)]),
+            Age::from(1),
+            StateSeqNr::from(0),
+        );
+        *invalid_contact.state_mut() = ContactState::Invalid;
+
+        let contacts = vec![
+            invalid_contact,
+            Contact::new(
+                Path::from([NodeId::with_msb(5)]),
+                Age::from(1),
+                StateSeqNr::from(0),
+            ),
+            Contact::new(
+                Path::from([NodeId::with_msb(4), NodeId::with_msb(1)]),
+                Age::from(1),
+                StateSeqNr::from(0),
+            ),
+            Contact::new(
+                Path::from([NodeId::with_msb(5), NodeId::with_msb(2)]),
+                Age::from(1),
+                StateSeqNr::from(0),
+            ),
+            Contact::new(
+                Path::from([NodeId::with_msb(4), NodeId::with_msb(3)]),
+                Age::from(1),
+                StateSeqNr::from(0),
+            ),
+        ];
+
+        let mut routing_table =
+            UnlimitedPNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+        routing_table
+            .extend(false, contacts.clone())
+            .expect("failed to insert all contact");
+
+        let closest = routing_table.get_closest(&NodeId::zero(), 1);
+        assert!(closest.is_some(), "Returned None");
+        let closest = closest.unwrap();
+        assert_eq!(closest, &contacts[2]);
+    }
+
+    #[test]
+    fn get_closest_neighbor() {
+        let mut invalid_contact = Contact::new(
+            Path::from([NodeId::with_msb(2)]),
+            Age::from(1),
+            StateSeqNr::from(0),
+        );
+        *invalid_contact.state_mut() = ContactState::Invalid;
+
+        let contacts = vec![
+            invalid_contact,
+            Contact::new(
+                Path::from([NodeId::with_msb(3)]),
+                Age::from(1),
+                StateSeqNr::from(0),
+            ),
+            Contact::new(
+                Path::from([NodeId::with_msb(2), NodeId::with_msb(4)]),
+                Age::from(1),
+                StateSeqNr::from(0),
+            ),
+            Contact::new(
+                Path::from([NodeId::with_msb(3), NodeId::with_msb(5)]),
+                Age::from(1),
+                StateSeqNr::from(0),
+            ),
+            Contact::new(
+                Path::from([NodeId::with_msb(2), NodeId::with_msb(6)]),
+                Age::from(1),
+                StateSeqNr::from(0),
+            ),
+        ];
+
+        let mut routing_table =
+            UnlimitedPNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+        routing_table
+            .extend(false, contacts.clone())
+            .expect("failed to insert all contact");
+
+        let closest = routing_table.get_closest(&NodeId::zero(), 1);
+        assert!(closest.is_some(), "Returned None");
+        let closest = closest.unwrap();
+        assert_eq!(closest, &contacts[1]);
+    }
+
+    #[test]
+    fn get_closest_in_empty() {
+        let mut invalid_neighbor = Contact::new(
+            Path::from([NodeId::with_msb(2)]),
+            Age::from(1),
+            StateSeqNr::from(0),
+        );
+        *invalid_neighbor.state_mut() = ContactState::Invalid;
+
+        let mut invalid_contact = Contact::new(
+            Path::from([NodeId::with_msb(2), NodeId::with_msb(4)]),
+            Age::from(1),
+            StateSeqNr::from(0),
+        );
+        *invalid_contact.state_mut() = ContactState::Invalid;
+
+        let contacts = vec![invalid_neighbor, invalid_contact];
+
+        let mut routing_table =
+            UnlimitedPNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+        routing_table
+            .extend(false, contacts.clone())
+            .expect("failed to insert all contact");
+
+        let closest = routing_table.get_closest(&NodeId::zero(), 1);
+        assert!(closest.is_none(), "Returned Some: {:?}", closest);
     }
 }

@@ -90,7 +90,7 @@ impl<C, P> UdpReceiver<C, P> {
         let deserialized = match self.format.deserialize(buffer) {
             Ok(message) => message,
             Err(e) => {
-                log::debug!("Received invalid serialized message: {}", e);
+                log::trace!("Received invalid serialized message: {}", e);
                 return None;
             }
         };
@@ -141,6 +141,8 @@ where
             .ok_or(RecvError::NoPortFound)?;
 
         if let Some(message) = &message {
+            log::trace!("Received ProtocolMessage from {}", received_from);
+
             let previous_node = message.previous_hop();
 
             let received_from = match received_from {

@@ -30,12 +30,16 @@ impl PNetPortMapper {
     pub fn blocking_refresh(&self) {
         let mut interfaces = self.interfaces.blocking_write();
         *interfaces = pnet::datalink::interfaces();
+
+        log::trace!("Found interfaces: {:?}", interfaces);
     }
 
     /// Refreshes the interface information cache.
     pub async fn refresh(&self) {
         let mut interfaces = self.interfaces.write().await;
-        *interfaces = pnet::datalink::interfaces()
+        *interfaces = pnet::datalink::interfaces();
+
+        log::trace!("Found interfaces: {:?}", interfaces);
     }
 
     /// Find the [NetworkInterface] in the given iterator that matches the given [SocketAddr]
@@ -80,25 +84,20 @@ impl PortMapper for PNetPortMapper {
             return self.blocking_find(input_addr);
         }
 
-        log::error!("No network interface found for input addr: {}", input_addr);
-        None
+        blocking_find
     }
 }
 
 #[async_trait::async_trait]
 impl AsyncPortMapper for PNetPortMapper {
     async fn get_port(&self, input_addr: &SocketAddr) -> Option<Port> {
-        let blocking_find = self.find(input_addr).await;
+        let find = self.find(input_addr).await;
 
-        if blocking_find.is_none() {
+        if find.is_none() {
             self.refresh().await;
             return self.find(input_addr).await;
         }
 
-        log::error!(
-            "No network interface found for input addr: {}; Flooding",
-            input_addr
-        );
-        None
+        find
     }
 }

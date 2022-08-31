@@ -85,11 +85,29 @@ fn main() {
         .expect("failed to initialize IO channel");
     let receiver_broadcaster = broadcaster.clone();
     runtime.spawn(async move {
-        while let Some((message, port)) = message_receiver.recv().await {
-            if let Err(e) = receiver_broadcaster.send(UseCaseEvent::Message(message, port)) {
+        loop {
+            let (message, port) = match message_receiver.recv().await {
+                Ok(None) => continue,
+                Ok(Some(value)) => value,
+                Err(e) => {
+                    log::error!("Error occurred while receiving message: {}", e);
+                    break;
+                }
+            };
+
+            if let Err(e) =
+                receiver_broadcaster.send(UseCaseEvent::Message(message.clone(), port.clone()))
+            {
                 log::error!("Failed to broadcast protocol message: {}", e);
+            } else {
+                log::debug!(
+                    "Received ProtocolMessage from {} [port: {}]",
+                    message.source(),
+                    port
+                );
             }
         }
+        log::info!("Stopped receiver...");
     });
 
     // Create the desired Context in which the Use Cases will run

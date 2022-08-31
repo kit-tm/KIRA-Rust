@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::ops::DerefMut;
 
-use crate::domain::{Bucket, Contact, ContactState, NodeId, ReplacementError};
+use crate::domain::{Bucket, Contact, ContactState, GroupingError, NodeId, ReplacementError};
 
 pub mod flat_routing_table;
 pub mod observable_routing_table;
@@ -179,33 +179,92 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         Ok(())
     }
 
-    fn get_closest(&self, to: &NodeId, shared_prefix_grouping: usize) -> Option<&Contact> {
-        self.bucket(to)
-            .iter()
-            .filter(|contact| contact.state() == &ContactState::Valid)
-            // Map every contact to its distance to our key
-            .map(|contact| {
-                (
-                    to.shared_prefix_len(contact.id(), shared_prefix_grouping)
-                        .expect("Grouping should have been checked before"),
-                    contact,
-                )
-            })
-            // Find the closest one by comparing the distances
-            .fold(None, |acc, (distance, contact)| {
-                // No value yet processed
-                if acc.is_none() {
-                    return Some((distance, contact));
-                }
-                let (acc_prefix, acc_contact) = acc.unwrap();
+    fn get_closest(&self, to: &NodeId, shared_prefix_grouping: usize) -> Option<&Contact>;
+}
 
-                // Closer to root means longer SharedPrefix Length
-                if acc_prefix.length < distance.length {
-                    return Some((distance, contact));
-                }
+/// Searches for the closest [Contact] to the given [NodeId] in the given [IntoIterator].
+///
+/// The closest [Contact] is determined in this deterministic way:
+///
+/// 1. Longer shared prefix wins
+/// 2. If shared prefix length is the same: The smaller NodeId wins.
+pub fn get_closest_in<'a, I: IntoIterator<Item = &'a Contact>>(
+    iter: I,
+    to: &NodeId,
+    shared_prefix_grouping: usize,
+) -> Result<Option<&'a Contact>, GroupingError> {
+    let mut acc = None;
 
-                Some((acc_prefix, acc_contact))
-            })
-            .map(|(_, contact)| contact)
+    for contact in iter {
+        if contact.state() != &ContactState::Valid {
+            continue;
+        }
+
+        let distance = to.shared_prefix_len(contact.id(), shared_prefix_grouping)?;
+
+        if acc.is_none() {
+            acc = Some((distance, contact));
+            continue;
+        }
+        let (acc_prefix, acc_contact) = acc.as_ref().unwrap();
+
+        // Closer to root means longer SharedPrefix Length
+        if acc_prefix.length < distance.length {
+            acc = Some((distance, contact));
+            continue;
+        }
+
+        if acc_prefix.length == distance.length && contact.id() < acc_contact.id() {
+            acc = Some((distance, contact));
+            continue;
+        }
+    }
+
+    Ok(acc.map(|(_, contact)| contact))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::domain::{Age, Contact, ContactState, NodeId, Path, StateSeqNr};
+
+    #[test]
+    fn get_closest_in() {
+        let mut invalid_contact = Contact::new(
+            Path::from([NodeId::with_msb(1)]),
+            Age::from(1),
+            StateSeqNr::from(0),
+        );
+        *invalid_contact.state_mut() = ContactState::Invalid;
+
+        let contacts = vec![
+            invalid_contact,
+            Contact::new(
+                Path::from([NodeId::with_msb(2)]),
+                Age::from(1),
+                StateSeqNr::from(0),
+            ),
+            Contact::new(
+                Path::from([NodeId::with_msb(3)]),
+                Age::from(1),
+                StateSeqNr::from(0),
+            ),
+            Contact::new(
+                Path::from([NodeId::with_msb(4)]),
+                Age::from(1),
+                StateSeqNr::from(0),
+            ),
+            Contact::new(
+                Path::from([NodeId::with_msb(5)]),
+                Age::from(1),
+                StateSeqNr::from(0),
+            ),
+        ];
+
+        let closest = super::get_closest_in(&contacts, &NodeId::zero(), 1);
+        assert!(closest.is_ok(), "Returned error: {:?}", closest);
+        let closest = closest.unwrap();
+        assert!(closest.is_some(), "Returned None");
+        let closest = closest.unwrap();
+        assert_eq!(closest, &contacts[1]);
     }
 }

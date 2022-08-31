@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Deref, DerefMut};
 
 use crate::domain::unlimited_pn_routing_table::UnlimitedPNRoutingTable;
@@ -126,6 +126,17 @@ pub struct ObservableRoutingTable<RT, const BUCKET_SIZE: usize> {
     inner: RT,
 }
 
+impl<RT: Debug, const BUCKET_SIZE: usize> Debug for ObservableRoutingTable<RT, BUCKET_SIZE> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ObservableRoutingTable [observables: {}, inner: {:?}]",
+            self.observables.len(),
+            self.inner
+        )
+    }
+}
+
 impl<RT, const BUCKET_SIZE: usize> From<RT> for ObservableRoutingTable<RT, BUCKET_SIZE>
 where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
@@ -247,6 +258,10 @@ where
             original: Bucket::<BUCKET_SIZE>::clone(bucket.deref()),
             bucket,
         }
+    }
+
+    fn get_closest(&self, to: &NodeId, shared_prefix_grouping: usize) -> Option<&Contact> {
+        self.inner.get_closest(to, shared_prefix_grouping)
     }
 }
 

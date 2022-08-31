@@ -162,10 +162,15 @@ where
     ) -> InsertionStrategyResult {
         // Ignore paths via us or contacts containing our own id
         if contact.path().contains(routing_table.root()) || contact.id() == routing_table.root() {
+            log::debug!("Dropping contact: via us or not a pn [{}]", contact);
             return InsertionStrategyResult::Dropped;
         }
         // If the first element is no physical neighbor or the Path is empty -> Drop
         if !pn_table.contains(contact.path().first()) {
+            log::debug!(
+                "Dropping contact: first element not a physical neighbor [{}]",
+                contact
+            );
             return InsertionStrategyResult::Dropped;
         }
 

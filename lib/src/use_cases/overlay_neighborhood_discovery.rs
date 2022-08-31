@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
 use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::time::Duration;
@@ -141,7 +141,7 @@ where
     C: UseCaseContext,
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
-    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
 {
     /// Sets a new timer accordingly and sends a new FindNodeReq
     /// if exponential backoff allows it.
@@ -195,7 +195,11 @@ where
 
         // No one found -> Isolated, but physical neighbors are present
         if path_to_closest_on.is_none() {
-            log::error!("Physical neighbors are present, but no contacts");
+            log::error!(
+                "Physical neighbors are present, but no contacts; RT: {:?}, NT: {:?}",
+                *context.routing_table(),
+                *context.pn_table()
+            );
             self.state = ONDState::Error;
             return Err(ONDError::NeighborInconsistency);
         }
@@ -262,7 +266,7 @@ where
     C::Runtime: UseCaseRuntime,
     C::MessageSender: ProtocolMessageSender,
     // Isn't used yet, but provides information for the compiler to derive the BUCKET_SIZE from RT
-    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
 {
     type Context = C;
     type Error = ONDError;
