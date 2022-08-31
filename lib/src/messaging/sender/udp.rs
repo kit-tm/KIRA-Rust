@@ -1,12 +1,10 @@
 use std::io;
-use std::net::{SocketAddr, UdpSocket};
+use std::net::{Ipv6Addr, SocketAddr, UdpSocket};
 use std::sync::Arc;
 
 use crate::messaging::error::SenderError;
 use crate::messaging::format::ProtocolMessageFormat;
 use crate::messaging::{IpCache, ProtocolMessage, ProtocolMessageSender};
-
-const MULTICAST_ADDR: [u16; 8] = [0xff02, 0, 0, 0, 0, 0, 0, 1];
 
 /// A sync [ProtocolMessageSender] implementation using UDP.
 ///
@@ -53,7 +51,7 @@ impl<C> UdpSender<C> {
     }
 
     fn broadcast_addr(&self) -> SocketAddr {
-        SocketAddr::from((MULTICAST_ADDR, self.port))
+        SocketAddr::from((Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), self.port))
     }
 
     /// Returns the actually used local address.

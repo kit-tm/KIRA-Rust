@@ -83,6 +83,7 @@ pub trait AsyncPortMapper {
     async fn get_port(&self, input_addr: &SocketAddr) -> Option<Port>;
 }
 
+#[cfg(feature = "udp")]
 pub mod udp {
     use std::net::SocketAddr;
     use std::sync::Arc;

@@ -81,7 +81,7 @@ where
                     .map(|contact| contact.path())
                     .cloned();
                 if closest_path.is_none() {
-                    log::warn!("No closest contact found for random id; Assuming isolation");
+                    log::trace!("No closest contact found for random id; Assuming isolation");
                     return Ok(());
                 }
                 let closest_path = closest_path.unwrap();

@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::{Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 
 use tokio::io;
@@ -7,8 +7,6 @@ use tokio::net::UdpSocket;
 use crate::messaging::error::SenderError;
 use crate::messaging::format::ProtocolMessageFormat;
 use crate::messaging::{AsyncIpCache, AsyncProtocolMessageSender, ProtocolMessage};
-
-const MULTICAST_ADDR: [u16; 8] = [0xff02, 0, 0, 0, 0, 0, 0, 1];
 
 /// Defaults to sending the request to multicast if neighbor is not present (which should not
 /// happen for physical neighbors).
@@ -56,7 +54,7 @@ impl<C> UdpSender<C> {
     }
 
     fn broadcast_addr(&self) -> SocketAddr {
-        SocketAddr::from((MULTICAST_ADDR, self.port))
+        SocketAddr::from((Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), self.port))
     }
 
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
@@ -89,6 +87,8 @@ impl<C: AsyncIpCache + Send + Sync> AsyncProtocolMessageSender for UdpSender<C> 
         self.format.serialize(&mut buffer, &message)?;
 
         let receiver_addr = self.get_receiver_addr(&message).await;
+
+        log::trace!("Sending ProtocolMessage to {}", receiver_addr);
 
         self.socket
             .send_to(&buffer[..buffer.len()], receiver_addr)

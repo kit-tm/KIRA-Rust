@@ -1,13 +1,15 @@
+use rand::Rng;
+
 use crate::domain::observable_routing_table::NonObservableRoutingTable;
 use crate::domain::{
     AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, NodeId, ReplacementError,
     RoutingTable,
 };
-use rand::Rng;
 
 /// A [RoutingTable] with a single not splittable [Bucket].
 ///
 /// Mainly for testing purposes.
+#[derive(Debug)]
 pub struct SingleBucketRT<const BUCKET_SIZE: usize> {
     root_id: NodeId,
     bucket: Bucket<BUCKET_SIZE>,
@@ -92,6 +94,11 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
     /// Returns a mutable reference to the only [Bucket] in this [RoutingTable].
     fn bucket_mut(&'a mut self, _of: &NodeId) -> Self::BucketWriteGuard {
         &mut self.bucket
+    }
+
+    fn get_closest(&self, to: &NodeId, shared_prefix_grouping: usize) -> Option<&Contact> {
+        super::get_closest_in(&self.bucket, to, shared_prefix_grouping)
+            .expect("grouping should have been checked before")
     }
 }
 

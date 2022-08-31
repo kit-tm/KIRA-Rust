@@ -270,6 +270,11 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         let index = self.get_bucket_index(of);
         self.buckets.index_mut(index)
     }
+
+    fn get_closest(&self, to: &NodeId, shared_prefix_grouping: usize) -> Option<&Contact> {
+        super::get_closest_in(self.bucket(to).iter(), to, shared_prefix_grouping)
+            .expect("grouping should have been checked before")
+    }
 }
 
 impl<'a, const BUCKET_SIZE: usize, const ACC: usize> IntoIterator

@@ -114,7 +114,7 @@ where
                 context.pn_table().deref(),
             ) {
                 InsertionStrategyResult::Inserted => {
-                    log::debug!("Inserted new contact '{}'", source)
+                    log::debug!("Inserted new contact '{}'", contact)
                 }
                 InsertionStrategyResult::Replaced(id) => {
                     log::debug!("Replaced contact '{}' with '{}'", id, source)
