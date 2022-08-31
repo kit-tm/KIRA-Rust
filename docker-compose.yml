@@ -1,6 +1,6 @@
 services:
   node-1:
-    image: r2kad-daemon:alpine
+    image: r2kad-daemon:scratch
     environment:
       NODE_ID: "2E0EDC434A0AB87B2FB08ECA2794"
       RUST_LOG: "debug"
@@ -10,7 +10,7 @@ services:
       mynetv6-1:
         ipv6_address: "2001:db8:1::10"
   node-2:
-    image: r2kad-daemon:alpine
+    image: r2kad-daemon:scratch
     environment:
       NODE_ID: "4C84B7D95475E2F97A41663C802F"
       RUST_LOG: "debug"
@@ -19,7 +19,21 @@ services:
     networks:
       mynetv6-1:
         ipv6_address: "2001:db8:1::11"
-
+      mynetv6-2:
+        ipv6_address: "2001:db8:2::12"
+  node-3:
+    image: r2kad-daemon:scratch
+    environment:
+      NODE_ID: "65D581499545102E048A1CCE9061"
+      RUST_LOG: "debug"
+    expose:
+      - "8080"
+    networks:
+      mynetv6-2:
+        ipv6_address: "2001:db8:2::13"
+        
 networks:
   mynetv6-1:
+    external: true
+  mynetv6-2:
     external: true
