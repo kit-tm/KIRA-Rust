@@ -17,6 +17,7 @@ use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetPortMapper};
 use r2kad_lib::runtime::TokioRuntime;
 use r2kad_lib::use_cases::forward_protocol_message::ForwardPMUseCase;
 use r2kad_lib::use_cases::handle_hello::HandleHelloUseCase;
+use r2kad_lib::use_cases::message_info_extraction::MessageInfoExtraction;
 use r2kad_lib::use_cases::overlay_neighborhood_discovery::ONDUseCase;
 use r2kad_lib::use_cases::periodic_pn_advertising::PeriodicPNAdvertising;
 use r2kad_lib::use_cases::random_probing::RandomProbingUseCase;
@@ -147,6 +148,12 @@ fn main() {
 
     // Initialize the Use Cases
 
+    let mut message_info_extraction = MessageInfoExtraction::<_, DEFAULT_BUCKET_SIZE>::default();
+    if let Err(e) = message_info_extraction.start(&context) {
+        log::error!("Failed to start Message Info Extraction UseCase: {}", e);
+        return;
+    }
+
     let mut pn_advertising =
         PeriodicPNAdvertising::<_, DEFAULT_BUCKET_SIZE>::new(Default::default());
     if let Err(e) = pn_advertising.start(&context) {
@@ -191,6 +198,12 @@ fn main() {
         log::trace!("Processing event {:?}", event);
 
         // Delegate Messages to UseCases
+        if let Err(e) = message_info_extraction.handle_event(&context, event.clone()) {
+            log::error!(
+                "Message info extraction returned error handling message: {}",
+                e
+            );
+        }
         if let Err(e) = forward_message.handle_event(&context, event.clone()) {
             log::error!(
                 "Forwarding protocol message returned error handling message: {}",
