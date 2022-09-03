@@ -118,7 +118,7 @@ fn main() {
             {
                 log::error!("Failed to broadcast protocol message: {}", e);
             } else {
-                log::debug!(
+                log::trace!(
                     "Received ProtocolMessage from {} [{}]",
                     message.source(),
                     port
