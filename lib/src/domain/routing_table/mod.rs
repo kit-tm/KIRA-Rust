@@ -225,39 +225,20 @@ pub fn get_closest_in<'a, I: IntoIterator<Item = &'a Contact>>(
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::{Age, Contact, ContactState, NodeId, Path, StateSeqNr};
+    use crate::domain::{Contact, ContactState, NodeId, Path, StateSeqNr};
 
     #[test]
     fn get_closest_in() {
-        let mut invalid_contact = Contact::new(
-            Path::from([NodeId::with_msb(1)]),
-            Age::from(1),
-            StateSeqNr::from(0),
-        );
+        let mut invalid_contact =
+            Contact::new(Path::from([NodeId::with_msb(1)]), StateSeqNr::from(0));
         *invalid_contact.state_mut() = ContactState::Invalid;
 
         let contacts = vec![
             invalid_contact,
-            Contact::new(
-                Path::from([NodeId::with_msb(2)]),
-                Age::from(1),
-                StateSeqNr::from(0),
-            ),
-            Contact::new(
-                Path::from([NodeId::with_msb(3)]),
-                Age::from(1),
-                StateSeqNr::from(0),
-            ),
-            Contact::new(
-                Path::from([NodeId::with_msb(4)]),
-                Age::from(1),
-                StateSeqNr::from(0),
-            ),
-            Contact::new(
-                Path::from([NodeId::with_msb(5)]),
-                Age::from(1),
-                StateSeqNr::from(0),
-            ),
+            Contact::new(Path::from([NodeId::with_msb(2)]), StateSeqNr::from(0)),
+            Contact::new(Path::from([NodeId::with_msb(3)]), StateSeqNr::from(0)),
+            Contact::new(Path::from([NodeId::with_msb(4)]), StateSeqNr::from(0)),
+            Contact::new(Path::from([NodeId::with_msb(5)]), StateSeqNr::from(0)),
         ];
 
         let closest = super::get_closest_in(&contacts, &NodeId::zero(), 1);

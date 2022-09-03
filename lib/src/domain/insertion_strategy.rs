@@ -202,7 +202,8 @@ where
 ///
 /// **Should only be used for testing!**.
 ///
-/// Returns the result given without performing anything.
+/// Returns the result given on initialization after inserting the [Contact] into the [RoutingTable].
+/// Ignores any results while calling [RoutingTable::insert].
 pub struct TestInsertionStrategy(InsertionStrategyResult);
 
 impl From<InsertionStrategyResult> for TestInsertionStrategy {
@@ -217,10 +218,15 @@ where
 {
     fn insert(
         &mut self,
-        _contact: Contact,
-        _routing_table: &mut RT,
+        contact: Contact,
+        routing_table: &mut RT,
         _pn_table: &PNTable,
     ) -> InsertionStrategyResult {
+        let result = routing_table.insert(contact);
+        if let Err(e) = result {
+            log::warn!("Failed to insert contact into routing table: {}", e);
+        }
+
         self.0.clone()
     }
 }

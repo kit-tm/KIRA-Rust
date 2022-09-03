@@ -94,19 +94,19 @@ pub trait UseCaseContext {
 
     fn root_id(&self) -> &NodeId;
 
-    fn routing_table(&self) -> ReadGuard<Self::RoutingTable>;
+    fn routing_table(&self) -> ReadGuard<'_, Self::RoutingTable>;
 
-    fn routing_table_mut(&self) -> WriteGuard<Self::RoutingTable>;
+    fn routing_table_mut(&self) -> WriteGuard<'_, Self::RoutingTable>;
 
-    fn routing_table_insertion_strategy(&self) -> WriteGuard<Self::InsertionStrategy>;
+    fn routing_table_insertion_strategy(&self) -> WriteGuard<'_, Self::InsertionStrategy>;
 
-    fn pn_table(&self) -> ReadGuard<PNTable>;
+    fn pn_table(&self) -> ReadGuard<'_, PNTable>;
 
-    fn pn_table_mut(&self) -> WriteGuard<PNTable>;
+    fn pn_table_mut(&self) -> WriteGuard<'_, PNTable>;
 
-    fn message_sender(&self) -> ReadGuard<Self::MessageSender>;
+    fn message_sender(&self) -> ReadGuard<'_, Self::MessageSender>;
 
-    fn message_sender_mut(&self) -> WriteGuard<Self::MessageSender>;
+    fn message_sender_mut(&self) -> WriteGuard<'_, Self::MessageSender>;
 
     fn runtime(&self) -> &Self::Runtime;
 }

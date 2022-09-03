@@ -1,10 +1,12 @@
 use std::fmt::{Display, Formatter};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 
 use crate::domain::{Link, NodeId, Path, StateSeqNr};
 
-/// Specifies in milliseconds how long ago the sender heard about the contact.
+/// Specifies in milliseconds the age of the routing information.
+///
+/// This is either associated with the [Age] of a [Contact] or a failed link.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Age(u64);
@@ -30,6 +32,25 @@ pub struct Timestamp(
 impl From<DateTime<Utc>> for Timestamp {
     fn from(time: DateTime<Utc>) -> Self {
         Self(time)
+    }
+}
+
+impl Timestamp {
+    /// Creates a new Timestamp at current time.
+    pub fn now() -> Self {
+        Self(Utc::now())
+    }
+
+    /// Returns the [Age] of the [Timestamp].
+    pub fn to_age(&self) -> Age {
+        let distance = Utc::now() - self.0;
+        // OK since stored timestamp should always be >= current time
+        Age::from(distance.num_milliseconds().unsigned_abs())
+    }
+
+    /// Returns the [Duration] representation of the [Age] of the [Timestamp].
+    pub fn to_age_duration(&self) -> Duration {
+        Utc::now() - self.0
     }
 }
 
@@ -85,7 +106,6 @@ pub struct RediscoveryState {
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Contact {
     state: ContactState,
-    age: Age,
     last_seen: Timestamp,
     path: Path,
     state_seq_nr: StateSeqNr,
@@ -95,11 +115,10 @@ impl Display for Contact {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Contact#{} {} [age: {}, last_seen: {}, state_seq_nr: {}, state: {}]",
+            "Contact#{} {} [age: {}, state_seq_nr: {}, state: {}]",
             self.id(),
             self.path,
-            self.age,
-            self.last_seen,
+            self.last_seen.to_age_duration(),
             self.state_seq_nr,
             self.state
         )
@@ -110,10 +129,9 @@ impl Contact {
     /// Creates a new [Contact] with default values.
     ///
     /// The given [Path] has to end with the [NodeId] of the Contact.
-    pub fn new(path: Path, age: Age, state_seq_nr: StateSeqNr) -> Self {
+    pub fn new(path: Path, state_seq_nr: StateSeqNr) -> Self {
         Self {
             state: ContactState::Valid,
-            age,
             last_seen: Timestamp::from(Utc::now()),
             path,
             state_seq_nr,
@@ -142,12 +160,8 @@ impl Contact {
         self.path.size() == 1
     }
 
-    pub fn age(&self) -> &Age {
-        &self.age
-    }
-
-    pub fn age_mut(&mut self) -> &mut Age {
-        &mut self.age
+    pub fn age(&self) -> Age {
+        self.last_seen.to_age()
     }
 
     pub fn last_seen(&self) -> &Timestamp {

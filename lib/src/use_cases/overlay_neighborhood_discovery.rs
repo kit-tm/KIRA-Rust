@@ -204,7 +204,8 @@ where
             return Err(ONDError::NeighborInconsistency);
         }
         let contact = path_to_closest_on.unwrap();
-        let route_to_closest_on = SourceRoute::from(contact.path().clone());
+        let mut route_to_closest_on = SourceRoute::from(contact.path().clone());
+        route_to_closest_on.push_front(context.root_id().clone());
 
         // Get the port of the next physical neighbor to route this request through
         let neighbor = route_to_closest_on.current_hop();
@@ -217,11 +218,11 @@ where
 
         let request = ReqRspMessage {
             nonce,
-            source: context.root_id().clone(),
-            target: context.root_id().clone(),
+            source_state_seq_nr: *context.pn_table().state_seq_nr(),
             data: FindNodeReqData {
                 exact: false,
                 neighborhood: self.config.overlay_neighborhood_size,
+                target: context.root_id().clone(),
             },
             source_route: route_to_closest_on,
         };
@@ -351,8 +352,8 @@ mod tests {
     use crate::context::SyncContext;
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
-        Age, Contact, InsertionStrategyResult, NodeId, PNTable, Path, Port, RoutingTable,
-        StateSeqNr, TestInsertionStrategy,
+        Contact, InsertionStrategyResult, NodeId, PNTable, Path, Port, RoutingTable, StateSeqNr,
+        TestInsertionStrategy,
     };
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
@@ -427,12 +428,11 @@ mod tests {
         assert!(routing_table
             .insert(Contact::new(
                 Path::from(neighbor_id.clone()),
-                Age::from(0),
                 StateSeqNr::from(0),
             ))
             .is_ok());
         let mut pn_table = PNTable::new();
-        pn_table.add(neighbor_id, Port::Named(String::from("test")));
+        pn_table.insert(neighbor_id, Port::Named(String::from("test")));
 
         let sync_context = SyncContext::new(
             root_id.clone(),
@@ -470,15 +470,14 @@ mod tests {
         );
         let (message, _) = request.unwrap();
         if let ProtocolMessage::FindNodeReq(ReqRspMessage {
-            target,
-            source,
-            data: FindNodeReqData { exact, .. },
+            data: FindNodeReqData { exact, target, .. },
             ..
-        }) = message
+        }) = &message
         {
             assert!(!exact);
-            assert_eq!(target, root_id);
-            assert_eq!(source, root_id);
+            assert_eq!(target, &root_id);
+            let source = message.source();
+            assert_eq!(source, &root_id);
         } else {
             panic!(
                 "Emitted ProtocolMessage is not the one expected: {:?}",
@@ -515,12 +514,11 @@ mod tests {
         assert!(routing_table
             .insert(Contact::new(
                 Path::from(neighbor_id.clone()),
-                Age::from(0),
                 StateSeqNr::from(0),
             ))
             .is_ok());
         let mut pn_table = PNTable::new();
-        pn_table.add(neighbor_id, Port::Named(String::from("test")));
+        pn_table.insert(neighbor_id, Port::Named(String::from("test")));
 
         let sync_context = SyncContext::new(
             root_id.clone(),
@@ -616,12 +614,11 @@ mod tests {
         assert!(routing_table
             .insert(Contact::new(
                 Path::from(neighbor_id.clone()),
-                Age::from(0),
                 StateSeqNr::from(0),
             ))
             .is_ok());
         let mut pn_table = PNTable::new();
-        pn_table.add(neighbor_id, Port::Named(String::from("test")));
+        pn_table.insert(neighbor_id, Port::Named(String::from("test")));
 
         let sync_context = SyncContext::new(
             root_id.clone(),
@@ -656,25 +653,22 @@ mod tests {
             .recv_timeout(Some(Duration::from_secs(1)))
             .expect("Should not emit error")
             .expect("should return actual message");
-        let (nonce, source_route) = if let ProtocolMessage::FindNodeReq(req_rsp_message) = &request
-        {
+        let (nonce, source_path) = if let ProtocolMessage::FindNodeReq(req_rsp_message) = &request {
             (
                 req_rsp_message.nonce.clone(),
-                req_rsp_message.source_route.clone(),
+                req_rsp_message.source_route.traveled_path(),
             )
         } else {
             panic!("No FindNodeReq sent: {:?}", request);
         };
-
-        let error_node_id = NodeId::random();
+        let source_route = SourceRoute::from_reversed(source_path);
 
         let error = UseCaseEvent::Message(
             ProtocolMessage::Error(ReqRspMessage {
                 nonce,
-                source: error_node_id.clone(),
-                target: root_id.clone(),
+                source_state_seq_nr: StateSeqNr::from(0),
                 data: ErrorData::DeadEnd,
-                source_route: SourceRoute::from_reversed(source_route),
+                source_route,
             }),
             InMemoryMessageHub::dummy_port(),
         );
@@ -701,13 +695,10 @@ mod tests {
             panic!("No FindNodeReq sent: {:?}", request);
         };
 
-        let error_node_id = NodeId::random();
-
         let error = UseCaseEvent::Message(
             ProtocolMessage::Error(ReqRspMessage {
                 nonce,
-                source: error_node_id.clone(),
-                target: root_id.clone(),
+                source_state_seq_nr: StateSeqNr::from(0),
                 data: ErrorData::DeadEnd,
                 source_route: SourceRoute::from_reversed(source_route),
             }),
@@ -737,13 +728,10 @@ mod tests {
             panic!("No FindNodeReq sent: {:?}", request);
         };
 
-        let error_node_id = NodeId::random();
-
         let error = UseCaseEvent::Message(
             ProtocolMessage::Error(ReqRspMessage {
                 nonce,
-                source: error_node_id.clone(),
-                target: root_id.clone(),
+                source_state_seq_nr: StateSeqNr::from(0),
                 data: ErrorData::DeadEnd,
                 source_route: SourceRoute::from_reversed(source_route),
             }),

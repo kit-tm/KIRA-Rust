@@ -1,5 +1,4 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::collections::VecDeque;
 
 use crate::domain::{NodeId, Path};
 
@@ -10,32 +9,54 @@ use crate::domain::{NodeId, Path};
 /// the source route is altered in a Message context.
 ///
 /// Invariant:
-/// - Current_hop has to be the current nodes NodeId unless the source route is empty.
-/// - Progress is in range [0, len - 1].
+/// - Current_hop has to be the current nodes NodeId.
+/// - SourceRoutes are not allowed to be empty and always start with the source of a [ProtocolMessage].
+/// - progress is in range [1, len - 1].
 #[derive(Debug, Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SourceRoute {
-    ids: Vec<NodeId>,
+    ids: VecDeque<NodeId>,
     progress: usize,
 }
 
 impl SourceRoute {
+    /// Creates a new [SourceRoute] starting from the given source appended with
+    /// the given Path.
+    pub fn new<I: Into<SourceRoute>>(source: NodeId, path: I) -> Self {
+        let path = path.into();
+        let mut ids = path.ids;
+        ids.push_front(source);
+        Self { ids, progress: 1 }
+    }
+
     /// Creates a new source path with 0 progress and reversed of the given route.
-    pub fn from_reversed(mut route: Self) -> Self {
-        route.ids.reverse();
+    pub fn from_reversed<I: Into<SourceRoute>>(route: I) -> Self {
+        let mut converted = route.into();
+        converted.ids.make_contiguous().reverse();
         Self {
-            ids: route.ids,
+            ids: converted.ids,
             progress: 0,
         }
     }
 
-    /// Returns the previous node in the [SourceRoute].
-    pub fn prev_hop(&self) -> Option<&NodeId> {
-        if self.progress > 0 {
-            return Some(&self.ids[self.progress - 1]);
-        }
+    /// Insert a [NodeId] at the front of the [SourceRoute].
+    ///
+    /// The position in the [SourceRoute] will be moved back one element.
+    /// To change that use [SourceRoute::advanced].
+    ///
+    /// Returns the [SourceRoute] itself to chain calls to mutating methods
+    /// like [SourceRoute::advanced].
+    pub fn push_front(&mut self, id: NodeId) -> &mut Self {
+        self.ids.push_front(id);
 
-        None
+        self
+    }
+
+    /// Returns the previous node in the [SourceRoute].
+    pub fn prev_hop(&self) -> &NodeId {
+        assert!(self.progress > 0);
+
+        &self.ids[self.progress - 1]
     }
 
     /// Returns the next hop in the source route.
@@ -81,14 +102,40 @@ impl SourceRoute {
     /// Returns the first element of the [SourceRoute].
     ///
     /// This is in general the source node of the [ProtocolMessage].
-    pub fn first(&self) -> &NodeId {
-        self.ids.first().expect("constructed empty SourceRoute")
+    pub fn source(&self) -> &NodeId {
+        self.ids.front().expect("constructed empty SourceRoute")
     }
 
-    /// Returns the source route advanced by one.
-    pub fn with_advanced(mut self) -> Self {
+    /// Returns the last element of the [SourceRoute].
+    ///
+    /// This is in general the source node of the [ProtocolMessage].
+    pub fn target(&self) -> &NodeId {
+        self.ids.back().expect("constructed empty SourceRoute")
+    }
+
+    /// Returns if the [SourceRoute] contains the given [NodeId].
+    pub fn contains(&self, id: &NodeId) -> bool {
+        self.ids.contains(id)
+    }
+
+    /// Advances the source routes progress by one returning the previous position.
+    pub fn advanced(mut self) -> Self {
         self.advance();
+
         self
+    }
+
+    /// Returns the already traveled [SourceRoute].
+    ///
+    /// This doesn't include the current hop.
+    pub fn traveled_path(&self) -> Path {
+        assert!(self.progress > 0 && self.progress < self.size());
+
+        let traveled_ids: Result<Path, _> = self.ids.iter().take(self.progress).cloned().collect();
+        match traveled_ids {
+            Ok(path) => path,
+            Err(_) => panic!("Invalid invariant"),
+        }
     }
 }
 
@@ -98,22 +145,30 @@ impl Extend<NodeId> for SourceRoute {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
-pub struct EmptyRouteError;
-
-impl Display for EmptyRouteError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Route is empty but paths are not allowed to be empty")
-    }
-}
-
-impl Error for EmptyRouteError {}
-
 impl From<Path> for SourceRoute {
     fn from(path: Path) -> Self {
         Self {
-            ids: Vec::from(path),
-            progress: 0,
+            ids: VecDeque::from_iter(path),
+            progress: 1,
+        }
+    }
+}
+
+impl From<SourceRoute> for Path {
+    fn from(route: SourceRoute) -> Self {
+        route
+            .ids
+            .into_iter()
+            .collect::<Result<Path, _>>()
+            .expect("SourceRoute is not allowed to be empty")
+    }
+}
+
+impl From<NodeId> for SourceRoute {
+    fn from(id: NodeId) -> Self {
+        Self {
+            ids: VecDeque::from([id]),
+            progress: 1,
         }
     }
 }

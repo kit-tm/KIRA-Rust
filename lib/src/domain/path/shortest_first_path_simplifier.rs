@@ -61,7 +61,7 @@ impl PathSimplifier for ShortestFirstPathSimplifier {
 #[cfg(test)]
 mod tests {
     use crate::domain::{
-        Age, Contact, FlatRoutingTable, NodeId, PNTable, Path, PathSimplifier, Port, RoutingTable,
+        Contact, FlatRoutingTable, NodeId, PNTable, Path, PathSimplifier, Port, RoutingTable,
         StateSeqNr,
     };
 
@@ -70,7 +70,7 @@ mod tests {
     #[test]
     fn simplify_pn_part() -> Result<(), Box<dyn std::error::Error>> {
         let mut pn_table = PNTable::new();
-        pn_table.add(NodeId::zero(), Port::new(String::from("0")));
+        pn_table.insert(NodeId::zero(), Port::new(String::from("0")));
 
         let routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;
 
@@ -96,7 +96,7 @@ mod tests {
     #[test]
     fn simplify_pn_end() -> Result<(), Box<dyn std::error::Error>> {
         let mut pn_table = PNTable::new();
-        pn_table.add(NodeId::zero(), Port::new(String::from("0")));
+        pn_table.insert(NodeId::zero(), Port::new(String::from("0")));
 
         let routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;
 
@@ -122,7 +122,6 @@ mod tests {
         let mut routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;
         routing_table.add(Contact::new(
             Path::from([NodeId::with_lsb(1), NodeId::with_lsb(2), NodeId::zero()]),
-            Age::from(0),
             StateSeqNr::from(0),
         ))?;
 
@@ -155,12 +154,11 @@ mod tests {
     #[test]
     fn simplify_multiple() -> Result<(), Box<dyn std::error::Error>> {
         let mut pn_table = PNTable::new();
-        pn_table.add(NodeId::zero(), Port::new(String::from("0")));
+        pn_table.insert(NodeId::zero(), Port::new(String::from("0")));
 
         let mut routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;
         routing_table.add(Contact::new(
             Path::from([NodeId::with_lsb(1), NodeId::with_lsb(2), NodeId::one()]),
-            Age::from(0),
             StateSeqNr::from(0),
         ))?;
 

@@ -25,7 +25,7 @@ const SHORT_OUTPUT_LENGTH: usize = 8;
 /// As all NodeIds have to be of the same size for an application this implementation
 /// uses const generics to specify its size instead of using [Vec] (which uses Heap
 /// allocation by default).
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct NodeId {
     // Sorted from MSB to LSB (Big Endian representation)
@@ -384,6 +384,12 @@ impl UpperHex for NodeId {
 }
 
 impl Display for NodeId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        UpperHex::fmt(self, f)
+    }
+}
+
+impl Debug for NodeId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         UpperHex::fmt(self, f)
     }
