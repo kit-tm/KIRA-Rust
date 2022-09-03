@@ -2,15 +2,12 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
-use std::ops::{Deref, DerefMut};
 
 use crate::context::UseCaseContext;
-use crate::domain::{
-    node_id, Age, Contact, InsertionStrategy, InsertionStrategyResult, Path, RoutingTable,
-};
+use crate::domain::{node_id, InsertionStrategy, Path, RoutingTable};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
-    HelloMessage, Nonce, PNDiscReqData, ProtocolMessage, ProtocolMessageSender, ReqRspMessage,
+    HelloMessage, Nonce, ProtocolMessage, ProtocolMessageSender, RTableData, ReqRspMessage,
 };
 use crate::use_cases::{ReactiveUseCaseState, UseCase, UseCaseEvent};
 
@@ -89,44 +86,9 @@ where
         context: &Self::Context,
         event: UseCaseEvent,
     ) -> Result<(), Self::Error> {
-        if let UseCaseEvent::Message(
-            ProtocolMessage::Hello(HelloMessage {
-                source,
-                source_state_seq_nr,
-            }),
-            in_port,
-        ) = event
+        if let UseCaseEvent::Message(ProtocolMessage::Hello(HelloMessage { source, .. }), ..) =
+            event
         {
-            // Add or update Physical Neighbors
-            if let Some(updated) = context.pn_table_mut().add(source.clone(), in_port) {
-                log::debug!("Updated Port for PN: {}", updated);
-            }
-
-            // Try Inserting information into routing table
-            let contact = Contact::new(
-                Path::from(source.clone()),
-                Age::from(0),
-                source_state_seq_nr,
-            );
-            match context.routing_table_insertion_strategy().insert(
-                contact.clone(),
-                context.routing_table_mut().deref_mut(),
-                context.pn_table().deref(),
-            ) {
-                InsertionStrategyResult::Inserted => {
-                    log::debug!("Inserted new contact '{}'", contact)
-                }
-                InsertionStrategyResult::Replaced(id) => {
-                    log::debug!("Replaced contact '{}' with '{}'", id, source)
-                }
-                InsertionStrategyResult::Updated => {
-                    log::debug!("Updated contact information '{}'", contact)
-                }
-                InsertionStrategyResult::Dropped => {
-                    log::debug!("Dropped contact information '{}'", contact)
-                }
-            }
-
             // Use deterministic heuristic to determine if we should respond to the Message
             // do not use full ID, otherwise large IDs will always "loose", use mod 2^{calculation_bits} comparison
             // small collision chance: but just in case, full nodeID will be a tie breaker
@@ -155,16 +117,15 @@ where
                 .filter_map(|(id, _)| context.routing_table().contact(id).cloned())
                 .collect::<Vec<_>>();
 
-            let message = ReqRspMessage {
+            let message = ProtocolMessage::PNDiscReq(ReqRspMessage {
                 nonce: Nonce::random(),
-                source: context.root_id().clone(),
-                target: source.clone(),
-                data: PNDiscReqData {
+                source_state_seq_nr: *context.pn_table().state_seq_nr(),
+                data: RTableData {
                     contacts: pn_contacts,
                 },
                 // Source route is ignored, as only physical neighbors get these
-                source_route: SourceRoute::from(Path::from(source)),
-            };
+                source_route: SourceRoute::from(Path::from([context.root_id().clone(), source])),
+            });
             if let Err(e) = context.message_sender_mut().send(message) {
                 log::error!("Failed to send message: {}", e);
                 return Err(HandleHelloError::SendError);
@@ -256,8 +217,8 @@ mod tests {
             .cloned();
         assert!(pn_disc_req.is_some());
         let message = pn_disc_req.unwrap();
-        assert_eq!(&message.source, &root_id);
-        assert_eq!(&message.target, &sender_id);
+        assert_eq!(message.source(), &root_id);
+        assert_eq!(message.destination(), &sender_id);
     }
 
     #[test]

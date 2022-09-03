@@ -94,15 +94,19 @@ where
                     return Err(RandomProbingError::InvalidNeighbor);
                 }
 
+                let mut route = SourceRoute::from(closest_path);
+                route.push_front(context.root_id().clone());
+                route.advance();
+
                 let message = ReqRspMessage {
                     nonce: Nonce::random(),
-                    source: context.root_id().clone(),
-                    target: random_id,
+                    source_state_seq_nr: *context.pn_table().state_seq_nr(),
                     data: FindNodeReqData {
                         exact: false,
                         neighborhood: self.config.neighborhood_size,
+                        target: random_id,
                     },
-                    source_route: SourceRoute::from(closest_path),
+                    source_route: route,
                 };
 
                 if let Err(e) = context.message_sender_mut().send(message) {
@@ -162,7 +166,7 @@ mod tests {
     use crate::broadcaster::MPSCBroadcaster;
     use crate::context::{SyncContext, UseCaseContext};
     use crate::domain::{
-        Age, Contact, FlatRoutingTable, InsertionStrategyResult, NodeId, PNTable, Path, Port,
+        Contact, FlatRoutingTable, InsertionStrategyResult, NodeId, PNTable, Path, Port,
         RoutingTable, StateSeqNr, TestInsertionStrategy,
     };
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
@@ -217,18 +221,14 @@ mod tests {
         let (root_id, hub, _broadcaster, _runtime, context) = init_test_context();
 
         // Insert a single contact into the routing table
-        let contact = Contact::new(
-            Path::from(NodeId::random()),
-            Age::from(0),
-            StateSeqNr::from(0),
-        );
+        let contact = Contact::new(Path::from(NodeId::random()), StateSeqNr::from(0));
         context
             .routing_table_mut()
             .add(contact.clone())
             .expect("failed to add into empty RT");
         context
             .pn_table_mut()
-            .add(contact.id().clone(), Port::Named(String::from("test")));
+            .insert(contact.id().clone(), Port::Named(String::from("test")));
 
         let mut use_case = RandomProbingUseCase::new(RandomProbingConfig {
             timeout: Duration::from_secs(0),
@@ -260,8 +260,8 @@ mod tests {
             let message = message.unwrap();
 
             // Request is from Sender Node, random id and exact flag is set to false
-            assert_eq!(&message.source, &root_id);
-            assert!(!message.target.is_zero());
+            assert_eq!(message.source(), &root_id);
+            assert!(!message.destination().is_zero());
             assert!(!message.data.exact);
 
             let handle_result = use_case.handle_event(&context, UseCaseEvent::Timer(timer_id));

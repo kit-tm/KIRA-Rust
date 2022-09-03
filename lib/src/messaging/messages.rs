@@ -25,7 +25,7 @@ impl Nonce {
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum ProtocolMessage {
     Hello(HelloMessage),
-    PNDiscReq(ReqRspMessage<PNDiscReqData>),
+    PNDiscReq(ReqRspMessage<RTableData>),
     PNDiscRsp(ReqRspMessage<RTableData>),
     QueryRouteReq(ReqRspMessage<QueryRouteReqData>),
     QueryRouteRsp(ReqRspMessage<RTableData>),
@@ -61,16 +61,17 @@ impl ProtocolMessage {
         }
     }
 
-    pub fn target(&self) -> Option<&NodeId> {
+    /// Next hop overlay nodes [NodeId].
+    pub fn destination(&self) -> Option<&NodeId> {
         match self {
             Self::Hello(_) => None,
-            Self::PNDiscReq(req) => Some(&req.target),
-            Self::PNDiscRsp(req) => Some(&req.target),
-            Self::QueryRouteReq(req) => Some(&req.target),
-            Self::QueryRouteRsp(req) => Some(&req.target),
-            Self::FindNodeReq(req) => Some(&req.target),
-            Self::FindNodeRsp(req) => Some(&req.target),
-            Self::Error(req) => Some(&req.target),
+            Self::PNDiscReq(req) => Some(req.destination()),
+            Self::PNDiscRsp(req) => Some(req.destination()),
+            Self::QueryRouteReq(req) => Some(req.destination()),
+            Self::QueryRouteRsp(req) => Some(req.destination()),
+            Self::FindNodeReq(req) => Some(req.destination()),
+            Self::FindNodeRsp(req) => Some(req.destination()),
+            Self::Error(req) => Some(req.destination()),
         }
     }
 
@@ -90,19 +91,32 @@ impl ProtocolMessage {
     pub fn source(&self) -> &NodeId {
         match self {
             Self::Hello(req) => &req.source,
-            Self::PNDiscReq(req) => &req.source,
-            Self::PNDiscRsp(req) => &req.source,
-            Self::QueryRouteReq(req) => &req.source,
-            Self::QueryRouteRsp(req) => &req.source,
-            Self::FindNodeReq(req) => &req.source,
-            Self::FindNodeRsp(req) => &req.source,
-            Self::Error(req) => &req.source,
+            Self::PNDiscReq(req) => req.source(),
+            Self::PNDiscRsp(req) => req.source(),
+            Self::QueryRouteReq(req) => req.source(),
+            Self::QueryRouteRsp(req) => req.source(),
+            Self::FindNodeReq(req) => req.source(),
+            Self::FindNodeRsp(req) => req.source(),
+            Self::Error(req) => req.source(),
+        }
+    }
+
+    pub fn source_state_seq_nr(&self) -> &StateSeqNr {
+        match self {
+            Self::Hello(req) => &req.source_state_seq_nr,
+            Self::PNDiscReq(req) => &req.source_state_seq_nr,
+            Self::PNDiscRsp(req) => &req.source_state_seq_nr,
+            Self::QueryRouteReq(req) => &req.source_state_seq_nr,
+            Self::QueryRouteRsp(req) => &req.source_state_seq_nr,
+            Self::FindNodeReq(req) => &req.source_state_seq_nr,
+            Self::FindNodeRsp(req) => &req.source_state_seq_nr,
+            Self::Error(req) => &req.source_state_seq_nr,
         }
     }
 
     pub fn previous_hop(&self) -> &NodeId {
         self.source_route()
-            .and_then(|sr| sr.prev_hop())
+            .map(|sr| sr.prev_hop())
             .unwrap_or_else(|| self.source())
     }
 }
@@ -126,14 +140,12 @@ impl From<HelloMessage> for ProtocolMessage {
 /// The target has not to be equal to the end of the source route as some protocol messages
 /// are routed from overlay hop to overlay hop.
 ///
-/// When extracting the [SourceRoute] into a [Path] be sure to also include the source id
-/// as it is not included in the [SourceRoute].
+/// The information about the source [NodeId] is stored in the `source_route`.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct ReqRspMessage<T: Debug> {
     pub nonce: Nonce,
-    pub source: NodeId,
-    pub target: NodeId,
+    pub source_state_seq_nr: StateSeqNr,
     pub data: T,
     /// Source Path to the next overlay Hop.
     ///
@@ -144,15 +156,14 @@ pub struct ReqRspMessage<T: Debug> {
     pub source_route: SourceRoute,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct PNDiscReqData {
-    pub contacts: Vec<Contact>,
-}
+impl<T: Debug> ReqRspMessage<T> {
+    pub fn source(&self) -> &NodeId {
+        self.source_route.source()
+    }
 
-impl From<ReqRspMessage<PNDiscReqData>> for ProtocolMessage {
-    fn from(message: ReqRspMessage<PNDiscReqData>) -> Self {
-        Self::PNDiscReq(message)
+    /// Next hop destination of the request.
+    pub fn destination(&self) -> &NodeId {
+        self.source_route.target()
     }
 }
 
@@ -191,6 +202,17 @@ pub struct FindNodeReqData {
     ///
     /// This is usually equal to the BUCKET_SIZE.
     pub neighborhood: NonZeroU64,
+    /// The target for this request.
+    ///
+    /// While the destination of a [ProtocolMessage] represents the next hop to route
+    /// the message to the target is specific to FindNodeReq.
+    ///
+    /// Different kinds of values:
+    ///
+    /// - Random Probing: Randomly generated NodeId
+    /// - Path Probing: Same as destination. Specific contact is probed for connectivity.
+    /// - Overlay Neighborhood Discovery: NodeId of the current node.
+    pub target: NodeId,
 }
 
 impl From<ReqRspMessage<FindNodeReqData>> for ProtocolMessage {

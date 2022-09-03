@@ -109,7 +109,8 @@ where
             }
 
             // Convert contacts path to source route
-            let route = SourceRoute::from(contact.path().clone());
+            let mut route = SourceRoute::from(contact.path().clone());
+            route.push_front(context.root_id().clone());
 
             // Get port of route
             let neighbor_port = context.pn_table().get(contact.path().first()).cloned();
@@ -125,8 +126,7 @@ where
             // Request only physical Neighborhood of that Node
             let request = ReqRspMessage {
                 nonce: Nonce::random(),
-                source: context.root_id().clone(),
-                target: contact.id().clone(),
+                source_state_seq_nr: *context.pn_table().state_seq_nr(),
                 data: QueryRouteReqData {
                     query_type: QueryRouteType::PhysicalNeighbors,
                 },
@@ -154,8 +154,8 @@ mod tests {
     use crate::context::SyncContext;
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
-        Age, Contact, InsertionStrategyResult, NodeId, PNTable, Path, Port, RoutingTable,
-        StateSeqNr, TestInsertionStrategy,
+        Contact, InsertionStrategyResult, NodeId, PNTable, Path, Port, RoutingTable, StateSeqNr,
+        TestInsertionStrategy,
     };
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
     use crate::messaging::{
@@ -192,7 +192,6 @@ mod tests {
 
         let event = UseCaseEvent::Contact(ContactEvent::New(Contact::new(
             Path::from(NodeId::random()),
-            Age::from(0),
             StateSeqNr::from(0),
         )));
         assert_eq!(use_case.handle_event(&sync_context, event), Ok(()));
@@ -231,11 +230,8 @@ mod tests {
             path.push(NodeId::random());
         }
 
-        let event = UseCaseEvent::Contact(ContactEvent::New(Contact::new(
-            path,
-            Age::from(0),
-            StateSeqNr::from(0),
-        )));
+        let event =
+            UseCaseEvent::Contact(ContactEvent::New(Contact::new(path, StateSeqNr::from(0))));
         assert_eq!(use_case.handle_event(&sync_context, event), Ok(()));
 
         assert!(hub.messages().is_empty());
@@ -260,12 +256,11 @@ mod tests {
         assert!(routing_table
             .insert(Contact::new(
                 Path::from(neighbor_id.clone()),
-                Age::from(0),
                 StateSeqNr::from(0),
             ))
             .is_ok());
         let mut pn_table = PNTable::new();
-        pn_table.add(neighbor_id.clone(), Port::Named(String::from("test")));
+        pn_table.insert(neighbor_id.clone(), Port::Named(String::from("test")));
 
         let sync_context = SyncContext::new(
             root_id.clone(),
@@ -284,11 +279,8 @@ mod tests {
         let contact_id = NodeId::random();
         let path = Path::from([neighbor_id, contact_id.clone()]);
 
-        let event = UseCaseEvent::Contact(ContactEvent::New(Contact::new(
-            path,
-            Age::from(0),
-            StateSeqNr::from(0),
-        )));
+        let event =
+            UseCaseEvent::Contact(ContactEvent::New(Contact::new(path, StateSeqNr::from(0))));
         assert_eq!(use_case.handle_event(&sync_context, event), Ok(()));
 
         let (received, _) = hub
@@ -297,17 +289,17 @@ mod tests {
             .expect("should return an actual message");
 
         if let ProtocolMessage::QueryRouteReq(ReqRspMessage {
-            source,
-            target,
             data:
                 QueryRouteReqData {
                     query_type: QueryRouteType::PhysicalNeighbors,
                 },
             ..
-        }) = received
+        }) = &received
         {
-            assert_eq!(source, root_id);
-            assert_eq!(target, contact_id);
+            assert_eq!(received.source(), &root_id);
+            assert_eq!(received.destination(), Some(&contact_id));
+        } else {
+            panic!("Invalid response received: {:?}", received);
         }
     }
 }

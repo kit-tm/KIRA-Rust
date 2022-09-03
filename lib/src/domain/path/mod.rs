@@ -90,6 +90,18 @@ impl From<Path> for Vec<NodeId> {
     }
 }
 
+impl FromIterator<NodeId> for Result<Path, EmptyPathError> {
+    fn from_iter<T: IntoIterator<Item = NodeId>>(iter: T) -> Self {
+        let vec = Vec::from_iter(iter);
+
+        if vec.is_empty() {
+            return Err(EmptyPathError);
+        }
+
+        Ok(Path { ids: vec })
+    }
+}
+
 impl Path {
     /// Reverses the [Path] in-place.
     pub fn reverse(&mut self) {
@@ -162,6 +174,12 @@ impl Path {
     /// to end.
     pub fn iter(&self) -> impl Iterator<Item = &NodeId> {
         self.ids.iter()
+    }
+}
+
+impl Extend<NodeId> for Path {
+    fn extend<T: IntoIterator<Item = NodeId>>(&mut self, iter: T) {
+        self.ids.extend(iter);
     }
 }
 

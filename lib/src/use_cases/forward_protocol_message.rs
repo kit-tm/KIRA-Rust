@@ -33,8 +33,7 @@ where
     ) -> Result<(), <Self as UseCase>::Error> {
         let error_message = ReqRspMessage {
             nonce: message.nonce().unwrap().clone(),
-            source: context.root_id().clone(),
-            target: message.source().clone(),
+            source_state_seq_nr: *context.pn_table().state_seq_nr(),
             data: ErrorData::SegmentFailure,
             source_route: SourceRoute::from_reversed(message.source_route().unwrap().clone()),
         };
@@ -126,8 +125,8 @@ mod tests {
     use crate::context::SyncContext;
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
-        Age, Contact, InsertionStrategyResult, NodeId, PNTable, Path, Port, RoutingTable,
-        StateSeqNr, TestInsertionStrategy,
+        Contact, InsertionStrategyResult, NodeId, PNTable, Path, Port, RoutingTable, StateSeqNr,
+        TestInsertionStrategy,
     };
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
@@ -153,16 +152,12 @@ mod tests {
         // At least one has contact has to be present and valid
         // Otherwise the use case thinks the node is isolated
         let neighbor_id = NodeId::random();
-        let neighbor = Contact::new(
-            Path::from(neighbor_id.clone()),
-            Age::from(0),
-            StateSeqNr::from(0),
-        );
+        let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
 
         let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
         let mut pn_table = PNTable::new();
-        pn_table.add(neighbor_id.clone(), Port::Named(String::from("test")));
+        pn_table.insert(neighbor_id.clone(), Port::Named(String::from("test")));
 
         let sync_context = SyncContext::new(
             root_id.clone(),
@@ -179,13 +174,14 @@ mod tests {
 
         let message = ReqRspMessage {
             nonce: Nonce::random(),
-            source: neighbor.id().clone(),
-            target: NodeId::random(),
+            source_state_seq_nr: StateSeqNr::from(2),
             data: FindNodeReqData {
                 exact: false,
                 neighborhood: NonZeroU64::new(20).unwrap(),
+                target: NodeId::random(),
             },
-            source_route: SourceRoute::from(Path::from(root_id.clone())),
+            source_route: SourceRoute::from(Path::from([neighbor.id().clone(), root_id.clone()]))
+                .advanced(),
         };
 
         let result = use_case.handle_event(
@@ -222,16 +218,12 @@ mod tests {
         // At least one has contact has to be present and valid
         // Otherwise the use case thinks the node is isolated
         let neighbor_id = NodeId::with_lsb(2);
-        let neighbor = Contact::new(
-            Path::from(neighbor_id.clone()),
-            Age::from(0),
-            StateSeqNr::from(0),
-        );
+        let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
 
         let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
         let mut pn_table = PNTable::new();
-        pn_table.add(neighbor_id.clone(), Port::Named(String::from("test")));
+        pn_table.insert(neighbor_id.clone(), Port::Named(String::from("test")));
 
         let sync_context = SyncContext::new(
             root_id.clone(),
@@ -249,13 +241,17 @@ mod tests {
         let foreign_id = NodeId::with_lsb(3);
         let request = ReqRspMessage {
             nonce: Nonce::random(),
-            source: foreign_id,
-            target: NodeId::random(),
+            source_state_seq_nr: StateSeqNr::from(0),
             data: FindNodeReqData {
                 exact: false,
                 neighborhood: NonZeroU64::new(20).unwrap(),
+                target: NodeId::random(),
             },
-            source_route: SourceRoute::from(Path::from([root_id.clone(), neighbor_id.clone()])),
+            source_route: SourceRoute::from(Path::from([
+                foreign_id,
+                root_id.clone(),
+                neighbor_id.clone(),
+            ])),
         };
 
         let result = use_case.handle_event(
@@ -275,8 +271,8 @@ mod tests {
         let (message, _) = message.unwrap();
         if let ProtocolMessage::FindNodeReq(req) = message {
             assert_eq!(&req.nonce, &request.nonce);
-            assert_eq!(&req.source, &request.source);
-            assert_eq!(&req.target, &request.target);
+            assert_eq!(req.source(), request.source());
+            assert_eq!(req.destination(), request.destination());
             let mut route = request.source_route.clone();
             route.advance();
             assert_eq!(&req.source_route, &route);

@@ -191,38 +191,28 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
 mod tests {
     use crate::domain::unlimited_pn_routing_table::UnlimitedPNRoutingTable;
     use crate::domain::{
-        Age, Contact, ContactState, FlatRoutingTable, NodeId, Path, RoutingTable, StateSeqNr,
+        Contact, ContactState, FlatRoutingTable, NodeId, Path, RoutingTable, StateSeqNr,
     };
 
     #[test]
     fn get_closest_contact() {
-        let mut invalid_contact = Contact::new(
-            Path::from([NodeId::with_msb(4)]),
-            Age::from(1),
-            StateSeqNr::from(0),
-        );
+        let mut invalid_contact =
+            Contact::new(Path::from([NodeId::with_msb(4)]), StateSeqNr::from(0));
         *invalid_contact.state_mut() = ContactState::Invalid;
 
         let contacts = vec![
             invalid_contact,
-            Contact::new(
-                Path::from([NodeId::with_msb(5)]),
-                Age::from(1),
-                StateSeqNr::from(0),
-            ),
+            Contact::new(Path::from([NodeId::with_msb(5)]), StateSeqNr::from(0)),
             Contact::new(
                 Path::from([NodeId::with_msb(4), NodeId::with_msb(1)]),
-                Age::from(1),
                 StateSeqNr::from(0),
             ),
             Contact::new(
                 Path::from([NodeId::with_msb(5), NodeId::with_msb(2)]),
-                Age::from(1),
                 StateSeqNr::from(0),
             ),
             Contact::new(
                 Path::from([NodeId::with_msb(4), NodeId::with_msb(3)]),
-                Age::from(1),
                 StateSeqNr::from(0),
             ),
         ];
@@ -241,33 +231,23 @@ mod tests {
 
     #[test]
     fn get_closest_neighbor() {
-        let mut invalid_contact = Contact::new(
-            Path::from([NodeId::with_msb(2)]),
-            Age::from(1),
-            StateSeqNr::from(0),
-        );
+        let mut invalid_contact =
+            Contact::new(Path::from([NodeId::with_msb(2)]), StateSeqNr::from(0));
         *invalid_contact.state_mut() = ContactState::Invalid;
 
         let contacts = vec![
             invalid_contact,
-            Contact::new(
-                Path::from([NodeId::with_msb(3)]),
-                Age::from(1),
-                StateSeqNr::from(0),
-            ),
+            Contact::new(Path::from([NodeId::with_msb(3)]), StateSeqNr::from(0)),
             Contact::new(
                 Path::from([NodeId::with_msb(2), NodeId::with_msb(4)]),
-                Age::from(1),
                 StateSeqNr::from(0),
             ),
             Contact::new(
                 Path::from([NodeId::with_msb(3), NodeId::with_msb(5)]),
-                Age::from(1),
                 StateSeqNr::from(0),
             ),
             Contact::new(
                 Path::from([NodeId::with_msb(2), NodeId::with_msb(6)]),
-                Age::from(1),
                 StateSeqNr::from(0),
             ),
         ];
@@ -286,16 +266,12 @@ mod tests {
 
     #[test]
     fn get_closest_in_empty() {
-        let mut invalid_neighbor = Contact::new(
-            Path::from([NodeId::with_msb(2)]),
-            Age::from(1),
-            StateSeqNr::from(0),
-        );
+        let mut invalid_neighbor =
+            Contact::new(Path::from([NodeId::with_msb(2)]), StateSeqNr::from(0));
         *invalid_neighbor.state_mut() = ContactState::Invalid;
 
         let mut invalid_contact = Contact::new(
             Path::from([NodeId::with_msb(2), NodeId::with_msb(4)]),
-            Age::from(1),
             StateSeqNr::from(0),
         );
         *invalid_contact.state_mut() = ContactState::Invalid;

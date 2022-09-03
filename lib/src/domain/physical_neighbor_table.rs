@@ -40,7 +40,7 @@ impl PNTable {
     }
 
     /// Adds a Mapping to the table returning the [Port] previously mapped to the [NodeId].
-    pub fn add(&mut self, id: NodeId, port: Port) -> Option<Port> {
+    pub fn insert(&mut self, id: NodeId, port: Port) -> Option<Port> {
         // No Update for entry => No Increase of StateSeqNr
         if let Some(true) = self
             .map
