@@ -3,7 +3,7 @@ services:
     image: r2kad-daemon:scratch
     environment:
       NODE_ID: "0100000000000000000000000000"
-      RUST_LOG: "debug,network_interfaces=trace,message_sender=debug,message_receiver=debug"
+      RUST_LOG: "debug"
     expose:
       - "8080"
     networks:
@@ -13,7 +13,7 @@ services:
     image: r2kad-daemon:scratch
     environment:
       NODE_ID: "0200000000000000000000000000"
-      RUST_LOG: "debug,network_interfaces=trace,message_sender=debug,message_receiver=debug"
+      RUST_LOG: "debug"
     expose:
       - "8080"
     networks:
@@ -25,7 +25,7 @@ services:
     image: r2kad-daemon:scratch
     environment:
       NODE_ID: "0300000000000000000000000000"
-      RUST_LOG: "debug,network_interfaces=trace,message_sender=debug,message_receiver=debug"
+      RUST_LOG: "debug"
     expose:
       - "8080"
     networks:
