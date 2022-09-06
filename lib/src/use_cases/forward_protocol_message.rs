@@ -71,9 +71,13 @@ where
             UseCaseEvent::Message(message, source_port) => (message, source_port),
             _ => return Ok(()),
         };
-        let source_route = message.source_route_mut();
+        let source_route = message.source_route().cloned();
         if source_route.is_none() {
-            log::error!("Received message with no source route: {:?}", message);
+            log::trace!(
+                target: "forward_protocol_message",
+                "Received message with no source route: {:?}",
+                message
+            );
             return Ok(());
         }
         let source_route = source_route.unwrap();
@@ -81,8 +85,10 @@ where
         // Current hop has to be us
         if source_route.current_hop() != context.root_id() {
             log::error!(
-                "Current hop of message is not us [{}]",
-                source_route.current_hop()
+                target: "forward_protocol_message",
+                "Current hop of message {} is not us [{:?}]",
+                source_route.current_hop(),
+                message
             );
             return Ok(());
         }
@@ -103,7 +109,11 @@ where
         }
 
         // Advance source route and send on port
-        source_route.advance();
+        // Checked route before
+        if let Some(route) = message.source_route_mut() {
+            route.advance();
+        }
+        log::trace!(target: "forward_protocol_message", "Forwarding message {:?}", message);
         if let Err(e) = context.message_sender_mut().send(message) {
             log::error!("Failed to forward message: {}", e);
             return Err(MessageSentFailed);
@@ -239,7 +249,7 @@ mod tests {
         assert!(use_case.start(&sync_context).is_ok());
 
         let foreign_id = NodeId::with_lsb(3);
-        let request = ReqRspMessage {
+        let sent_request = ReqRspMessage {
             nonce: Nonce::random(),
             source_state_seq_nr: StateSeqNr::from(0),
             data: FindNodeReqData {
@@ -256,7 +266,7 @@ mod tests {
 
         let result = use_case.handle_event(
             &sync_context,
-            UseCaseEvent::Message(request.clone().into(), Port::new(String::from("test"))),
+            UseCaseEvent::Message(sent_request.clone().into(), Port::new(String::from("test"))),
         );
         assert!(
             result.is_ok(),
@@ -270,13 +280,13 @@ mod tests {
         assert!(message.is_some(), "Received no message from hub");
         let (message, _) = message.unwrap();
         if let ProtocolMessage::FindNodeReq(req) = message {
-            assert_eq!(&req.nonce, &request.nonce);
-            assert_eq!(req.source(), request.source());
-            assert_eq!(req.destination(), request.destination());
-            let mut route = request.source_route.clone();
+            assert_eq!(&req.nonce, &sent_request.nonce);
+            assert_eq!(req.source(), sent_request.source());
+            assert_eq!(req.destination(), sent_request.destination());
+            let mut route = sent_request.source_route.clone();
             route.advance();
             assert_eq!(&req.source_route, &route);
-            assert_eq!(&req.data, &request.data);
+            assert_eq!(&req.data, &sent_request.data);
         }
     }
 }

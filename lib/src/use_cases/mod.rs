@@ -27,7 +27,7 @@ pub enum UseCaseEvent {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ContactEvent {
     New(Contact),
-    Updated(Contact),
+    Updated { new: Contact, old: Contact },
     Removed(Contact),
 }
 

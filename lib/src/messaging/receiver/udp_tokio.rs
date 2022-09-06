@@ -141,7 +141,7 @@ where
             .ok_or(RecvError::NoPortFound)?;
 
         if let Some(message) = &message {
-            log::trace!("Received ProtocolMessage from {}", received_from);
+            log::trace!(target: "message_receiver", "Received {:?} from {}", &message, received_from);
 
             let previous_node = message.previous_hop();
 
@@ -155,12 +155,14 @@ where
                 .insert(previous_node.clone(), received_from)
                 .await
             {
-                log::trace!(
-                    "Replaced ip for {} ({} => {})",
-                    previous_node,
-                    ip,
-                    received_from.ip()
-                );
+                if ip != received_from {
+                    log::trace!(
+                        "Replaced ip for {} ({} => {})",
+                        previous_node,
+                        ip,
+                        received_from.ip()
+                    );
+                }
             }
         }
 

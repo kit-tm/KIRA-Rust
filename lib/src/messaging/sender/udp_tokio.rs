@@ -23,6 +23,7 @@ pub struct UdpSender<C> {
 impl<C> UdpSender<C> {
     pub async fn new(
         socket_port: u16,
+        broadcast_port: u16,
         ip_cache: C,
         format: ProtocolMessageFormat,
     ) -> io::Result<Self> {
@@ -32,7 +33,7 @@ impl<C> UdpSender<C> {
         Ok(Self {
             socket: Arc::new(socket),
             format,
-            port: socket_port,
+            port: broadcast_port,
             ip_cache,
         })
     }
@@ -65,11 +66,13 @@ impl<C> UdpSender<C> {
 impl<C: AsyncIpCache> UdpSender<C> {
     async fn get_receiver_addr(&self, message: &ProtocolMessage) -> SocketAddr {
         // Due to the invariant of SourceRoutes before sending the previous hop has to be the neighbor
-        let neighbor = message.previous_hop();
-        let ip = self.ip_cache.get(neighbor).await;
+        let neighbor = message.current_hop();
+        if let Some(neighbor) = neighbor {
+            let ip = self.ip_cache.get(neighbor).await;
 
-        if let Some(addr) = ip {
-            return SocketAddr::from(addr);
+            if let Some(addr) = ip {
+                return SocketAddr::from(addr);
+            }
         }
         self.broadcast_addr()
     }
@@ -88,7 +91,12 @@ impl<C: AsyncIpCache + Send + Sync> AsyncProtocolMessageSender for UdpSender<C> 
 
         let receiver_addr = self.get_receiver_addr(&message).await;
 
-        log::trace!("Sending ProtocolMessage to {}", receiver_addr);
+        log::trace!(
+            target: "message_sender",
+            "Sending ProtocolMessage {:?} to {}",
+            &message,
+            receiver_addr
+        );
 
         self.socket
             .send_to(&buffer[..buffer.len()], receiver_addr)
@@ -117,7 +125,7 @@ mod tests {
     async fn send() -> Result<(), Box<dyn Error>> {
         crate::tests::init();
 
-        let receiver_socket = UdpSocket::bind("[::1]:0").expect("failed to open socket");
+        let receiver_socket = UdpSocket::bind("[::]:0").expect("failed to open socket");
         receiver_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .expect("failed to set read timeout");
@@ -130,7 +138,7 @@ mod tests {
         ip_cache.insert(NodeId::one(), addr);
         let ip_cache = Arc::new(RwLock::new(ip_cache));
 
-        let mut sender = UdpSender::new(0, ip_cache, ProtocolMessageFormat::Json)
+        let mut sender = UdpSender::new(0, addr.port(), ip_cache, ProtocolMessageFormat::Json)
             .await
             .expect("failed to create sender");
 

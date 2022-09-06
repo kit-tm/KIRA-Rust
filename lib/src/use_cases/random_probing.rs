@@ -81,7 +81,10 @@ where
                     .map(|contact| contact.path())
                     .cloned();
                 if closest_path.is_none() {
-                    log::trace!("No closest contact found for random id; Assuming isolation");
+                    log::trace!(
+                        target: "random_probing",
+                        "No closest contact found for random id; Assuming isolation"
+                    );
                     return Ok(());
                 }
                 let closest_path = closest_path.unwrap();
@@ -89,14 +92,17 @@ where
                 // Get port of neighbor
                 let port = context.pn_table().get(closest_path.first()).cloned();
                 if port.is_none() {
-                    log::error!("Contacts path contains invalid neighbor: {}", closest_path);
+                    log::error!(
+                        target: "random_probing",
+                        "Contacts path contains invalid neighbor: {}",
+                        closest_path
+                    );
                     self.state = RandomProbingState::Error;
                     return Err(RandomProbingError::InvalidNeighbor);
                 }
 
                 let mut route = SourceRoute::from(closest_path);
                 route.push_front(context.root_id().clone());
-                route.advance();
 
                 let message = ReqRspMessage {
                     nonce: Nonce::random(),
@@ -108,6 +114,8 @@ where
                     },
                     source_route: route,
                 };
+
+                log::trace!(target: "random_probing", "Sending message {:?}", message);
 
                 if let Err(e) = context.message_sender_mut().send(message) {
                     log::error!("MessageSender failed: {}", e);
@@ -221,14 +229,14 @@ mod tests {
         let (root_id, hub, _broadcaster, _runtime, context) = init_test_context();
 
         // Insert a single contact into the routing table
-        let contact = Contact::new(Path::from(NodeId::random()), StateSeqNr::from(0));
+        let neighbor = Contact::new(Path::from(NodeId::random()), StateSeqNr::from(0));
         context
             .routing_table_mut()
-            .add(contact.clone())
+            .add(neighbor.clone())
             .expect("failed to add into empty RT");
         context
             .pn_table_mut()
-            .insert(contact.id().clone(), Port::Named(String::from("test")));
+            .insert(neighbor.id().clone(), Port::Named(String::from("test")));
 
         let mut use_case = RandomProbingUseCase::new(RandomProbingConfig {
             timeout: Duration::from_secs(0),
@@ -263,6 +271,12 @@ mod tests {
             assert_eq!(message.source(), &root_id);
             assert!(!message.destination().is_zero());
             assert!(!message.data.exact);
+
+            assert_eq!(
+                message.source_route.current_hop(),
+                neighbor.id(),
+                "Neighbor should be the current hop"
+            );
 
             let handle_result = use_case.handle_event(&context, UseCaseEvent::Timer(timer_id));
             assert!(handle_result.is_ok(), "{:?}", handle_result);

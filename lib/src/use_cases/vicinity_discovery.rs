@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 
 use crate::context::UseCaseContext;
-use crate::domain::ContactState;
+use crate::domain::{Contact, ContactState};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     Nonce, ProtocolMessageSender, QueryRouteReqData, QueryRouteType, ReqRspMessage,
@@ -76,6 +76,61 @@ impl<C> VDUseCase<C> {
     }
 }
 
+impl<C> VDUseCase<C>
+where
+    C: UseCaseContext,
+    C::MessageSender: ProtocolMessageSender,
+{
+    fn discover(&mut self, context: &C, contact: Contact) -> Result<(), VDError> {
+        // Physical Neighbors and Nodes outside of the Vicinity are not included
+        if contact.is_pn() || contact.path().size() > VICINITY_RADIUS {
+            log::trace!(target: "vicinity_discovery", "Ignoring contact update: physical neighbor or not in vicinity radius");
+            return Ok(());
+        }
+
+        // Only Valid Contacts are considered
+        if contact.state() != &ContactState::Valid {
+            log::trace!(target: "vicinity_discovery", "Ignoring contact update: contact not valid");
+            return Ok(());
+        }
+
+        // Convert contacts path to source route
+        let mut route = SourceRoute::from(contact.path().clone());
+        route.push_front(context.root_id().clone());
+
+        // Get port of route
+        let neighbor_port = context.pn_table().get(contact.path().first()).cloned();
+        if neighbor_port.is_none() {
+            log::error!(
+                target: "vicinity_discovery",
+                "Temporary inconsistency: Valid contacts path starts with invalid physical neighbor {}",
+                contact.path().first()
+            );
+            self.state = ReactiveUseCaseState::Error;
+            return Err(VDError::NeighborInconsistency);
+        }
+
+        // Request only physical Neighborhood of that Node
+        let request = ReqRspMessage {
+            nonce: Nonce::random(),
+            source_state_seq_nr: *context.pn_table().state_seq_nr(),
+            data: QueryRouteReqData {
+                query_type: QueryRouteType::PhysicalNeighbors,
+            },
+            source_route: route,
+        };
+
+        log::trace!(target: "vicinity_discovery", "Sending message {:?}", request);
+
+        if let Err(e) = context.message_sender_mut().send(request) {
+            log::error!(target: "vicinity_discovery", "Failed to send QueryRouteReq: {:?}", e);
+            return Err(VDError::MessageSendFailed);
+        }
+
+        Ok(())
+    }
+}
+
 impl<C> UseCase for VDUseCase<C>
 where
     C: UseCaseContext,
@@ -95,48 +150,17 @@ where
         context: &Self::Context,
         event: UseCaseEvent,
     ) -> Result<(), Self::Error> {
-        if let UseCaseEvent::Contact(ContactEvent::New(contact))
-        | UseCaseEvent::Contact(ContactEvent::Updated(contact)) = event
-        {
-            // Physical Neighbors and Nodes outside of the Vicinity are not included
-            if contact.is_pn() || contact.path().size() > VICINITY_RADIUS {
-                return Ok(());
+        match event {
+            UseCaseEvent::Contact(ContactEvent::New(contact)) => {
+                self.discover(context, contact)?;
             }
-
-            // Only Valid Contacts are considered
-            if contact.state() != &ContactState::Valid {
-                return Ok(());
+            UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {
+                // Only if path changed. Path length checks and everything else is done in discover
+                if new.path() != old.path() {
+                    self.discover(context, new)?;
+                }
             }
-
-            // Convert contacts path to source route
-            let mut route = SourceRoute::from(contact.path().clone());
-            route.push_front(context.root_id().clone());
-
-            // Get port of route
-            let neighbor_port = context.pn_table().get(contact.path().first()).cloned();
-            if neighbor_port.is_none() {
-                log::error!(
-                    "Temporary inconsistency: Valid contacts path starts with invalid neighbor {}",
-                    contact.path().first()
-                );
-                self.state = ReactiveUseCaseState::Error;
-                return Err(VDError::NeighborInconsistency);
-            }
-
-            // Request only physical Neighborhood of that Node
-            let request = ReqRspMessage {
-                nonce: Nonce::random(),
-                source_state_seq_nr: *context.pn_table().state_seq_nr(),
-                data: QueryRouteReqData {
-                    query_type: QueryRouteType::PhysicalNeighbors,
-                },
-                source_route: route,
-            };
-
-            if let Err(e) = context.message_sender_mut().send(request) {
-                log::error!("Failed to send QueryRouteReq: {:?}", e);
-                return Err(VDError::MessageSendFailed);
-            }
+            _ => {}
         }
 
         Ok(())
@@ -277,7 +301,7 @@ mod tests {
 
         // Build path bigger than vicinity radius
         let contact_id = NodeId::random();
-        let path = Path::from([neighbor_id, contact_id.clone()]);
+        let path = Path::from([neighbor_id.clone(), contact_id.clone()]);
 
         let event =
             UseCaseEvent::Contact(ContactEvent::New(Contact::new(path, StateSeqNr::from(0))));
@@ -298,6 +322,10 @@ mod tests {
         {
             assert_eq!(received.source(), &root_id);
             assert_eq!(received.destination(), Some(&contact_id));
+            let route = received.source_route();
+            assert!(route.is_some(), "received source route is empty");
+            let route = route.unwrap();
+            assert_eq!(route.current_hop(), &neighbor_id);
         } else {
             panic!("Invalid response received: {:?}", received);
         }

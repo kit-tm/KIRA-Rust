@@ -22,13 +22,18 @@ pub struct UdpSender<C> {
 
 impl<C> UdpSender<C> {
     /// Creates a new sender and initializes a new [UdpSocket] bound to all IPv6 interfaces.
-    pub fn new(socket_port: u16, ip_cache: C, format: ProtocolMessageFormat) -> io::Result<Self> {
+    pub fn new(
+        socket_port: u16,
+        broadcast_port: u16,
+        ip_cache: C,
+        format: ProtocolMessageFormat,
+    ) -> io::Result<Self> {
         let socket = UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port)))?;
 
         Ok(Self {
             socket: Arc::new(socket),
             format,
-            port: socket_port,
+            port: broadcast_port,
             ip_cache,
         })
     }
@@ -63,11 +68,13 @@ impl<C> UdpSender<C> {
 impl<C: IpCache> UdpSender<C> {
     fn get_receiver_addr(&self, message: &ProtocolMessage) -> SocketAddr {
         // Due to the invariant of SourceRoutes before sending the previous hop has to be the neighbor
-        let neighbor = message.previous_hop();
-        let ip = self.ip_cache.get(neighbor);
+        let neighbor = message.current_hop();
+        if let Some(neighbor) = neighbor {
+            let ip = self.ip_cache.get(neighbor);
 
-        if let Some(addr) = ip {
-            return SocketAddr::from(addr);
+            if let Some(addr) = ip {
+                return SocketAddr::from(addr);
+            }
         }
         self.broadcast_addr()
     }
@@ -84,6 +91,13 @@ impl<C: IpCache> ProtocolMessageSender for UdpSender<C> {
         self.format.serialize(&mut buffer, &message)?;
 
         let receiver_addr = self.get_receiver_addr(&message);
+
+        log::trace!(
+            target: "message_sender",
+            "Sending ProtocolMessage {:?} to {}",
+            &message,
+            receiver_addr
+        );
 
         self.socket
             .send_to(&buffer[..buffer.len()], receiver_addr)?;
@@ -111,7 +125,7 @@ mod tests {
     fn send() -> Result<(), Box<dyn Error>> {
         crate::tests::init();
 
-        let receiver_socket = UdpSocket::bind("[::1]:0").expect("failed to open socket");
+        let receiver_socket = UdpSocket::bind("[::]:0").expect("failed to open socket");
         receiver_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .expect("failed to set read timeout");
@@ -119,12 +133,13 @@ mod tests {
             SocketAddr::V6(addr) => addr,
             addr => panic!("Non-IPv6 Address: {}", addr),
         };
+        log::trace!("Created receiver socket at {}", addr);
 
         let mut ip_cache = HashMap::new();
         ip_cache.insert(NodeId::one(), addr);
         let ip_cache = Arc::new(RwLock::new(ip_cache));
 
-        let mut sender = UdpSender::new(0, ip_cache, ProtocolMessageFormat::Json)
+        let mut sender = UdpSender::new(0, addr.port(), ip_cache, ProtocolMessageFormat::Json)
             .expect("failed to create sender");
 
         let handle = std::thread::spawn(move || {
@@ -157,7 +172,7 @@ mod tests {
 
         let send_result = sender.send(protocol_message);
 
-        assert!(send_result.is_ok(), "{:?}", send_result);
+        assert!(send_result.is_ok(), "Sending failed: {:?}", send_result);
 
         handle.join().expect("failed to join receiver");
 

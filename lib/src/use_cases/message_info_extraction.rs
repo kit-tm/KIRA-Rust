@@ -2,9 +2,7 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
 use crate::context::UseCaseContext;
-use crate::domain::{
-    Contact, InsertionStrategy, InsertionStrategyResult, Path, Port, RoutingTable,
-};
+use crate::domain::{Contact, InsertionStrategy, Path, Port, RoutingTable};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{ProtocolMessage, RTableData, ReqRspMessage};
 use crate::use_cases::{MessageSentFailed, ReactiveUseCaseState, UseCase, UseCaseEvent};
@@ -69,13 +67,14 @@ where
                 if let Some(replaced) = lock.insert(neighbor_id.clone(), port.clone()) {
                     // Not allowed to happen as lock is held
                     log::warn!(
+                        target: "pn_table",
                         "Overwritten port mapping for '{}' from '{}' to '{}' but checked before",
                         neighbor_id,
                         port,
                         replaced
                     );
                 } else {
-                    log::debug!("Inserted neighbor '{}' at port '{}'", neighbor_id, port);
+                    log::debug!(target: "pn_table", "Inserted neighbor '{}' at port '{}'", neighbor_id, port);
                 }
             }
         }
@@ -86,24 +85,11 @@ where
     }
 
     fn insert_contact(&self, context: &C, contact: Contact) {
-        match context.routing_table_insertion_strategy().insert(
-            contact.clone(),
+        context.routing_table_insertion_strategy().insert(
+            contact,
             context.routing_table_mut().deref_mut(),
             context.pn_table().deref(),
-        ) {
-            InsertionStrategyResult::Inserted => {
-                log::debug!("Inserted new contact '{}'", contact)
-            }
-            InsertionStrategyResult::Replaced(id) => {
-                log::debug!("Replaced contact '{}' with '{}'", id, contact)
-            }
-            InsertionStrategyResult::Updated => {
-                log::debug!("Updated contact information '{}'", contact)
-            }
-            InsertionStrategyResult::Dropped => {
-                log::debug!("Dropped contact information '{}'", contact)
-            }
-        }
+        );
     }
 
     fn extract_rtable_reqrsp(

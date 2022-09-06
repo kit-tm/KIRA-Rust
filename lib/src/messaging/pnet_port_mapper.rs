@@ -31,7 +31,7 @@ impl PNetPortMapper {
         let mut interfaces = self.interfaces.blocking_write();
         *interfaces = pnet::datalink::interfaces();
 
-        log::trace!("Found interfaces: {:?}", interfaces);
+        log::trace!(target: "network_interfaces", "Found interfaces: {:?}", interfaces);
     }
 
     /// Refreshes the interface information cache.
@@ -39,7 +39,7 @@ impl PNetPortMapper {
         let mut interfaces = self.interfaces.write().await;
         *interfaces = pnet::datalink::interfaces();
 
-        log::trace!("Found interfaces: {:?}", interfaces);
+        log::trace!(target: "network_interfaces", "Found interfaces: {:?}", interfaces);
     }
 
     /// Find the [NetworkInterface] in the given iterator that matches the given [SocketAddr]

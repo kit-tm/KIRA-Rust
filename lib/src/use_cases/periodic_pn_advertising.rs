@@ -97,11 +97,16 @@ where
             (event, self.state.clone())
         {
             if id == timer_id {
-                if let Err(e) = context.message_sender_mut().send(HelloMessage {
+                let message = HelloMessage {
                     source: context.root_id().clone(),
                     source_state_seq_nr: *context.pn_table().state_seq_nr(),
-                }) {
-                    log::error!("MessageSender failed: {}", e);
+                };
+                log::trace!(target: "periodic_pn_advertising", "Sending message {:?}", message);
+                if let Err(e) = context.message_sender_mut().send(message) {
+                    log::error!(target: "periodic_pn_advertising",
+                        "MessageSender failed: {}",
+                        e
+                    );
                     return Err(PeriodicPNAdvertisingError::SendError);
                 }
             }

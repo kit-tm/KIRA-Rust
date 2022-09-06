@@ -36,7 +36,7 @@ pub enum RoutingTableEvent<const BUCKET_SIZE: usize> {
     /// The new [Contact] was added to the [RoutingTable].
     NewContact(Contact),
     /// An existing [Contact] was updated.
-    UpdatedContact(Contact),
+    UpdatedContact { new: Contact, old: Contact },
     /// A [Contact] was removed from the [RoutingTable].
     RemovedContact(Contact),
     /// A [Bucket] was updated to the given value.
@@ -50,7 +50,7 @@ impl<const BUCKET_SIZE: usize> Display for RoutingTableEvent<BUCKET_SIZE> {
         match self {
             Self::NewContact(contact) => write!(f, "NewContact [{}]", contact),
             Self::RemovedContact(contact) => write!(f, "RemovedContact [{}]", contact),
-            Self::UpdatedContact(contact) => write!(f, "UpdatedContact to [{}]", contact),
+            Self::UpdatedContact { old, new } => write!(f, "UpdatedContact [{} => {}]", old, new),
             Self::NewBucket(bucket) => write!(f, "NewBucket [{}]", bucket),
             Self::UpdatedBucket(bucket) => write!(f, "UpdatedBucket to [{}]", bucket),
         }
@@ -319,7 +319,10 @@ where
         if self.contact.deref() != &self.original {
             notify_all(
                 self.observers,
-                RoutingTableEvent::UpdatedContact(self.contact.deref().clone()),
+                RoutingTableEvent::UpdatedContact {
+                    new: self.contact.deref().clone(),
+                    old: self.original.clone(),
+                },
             )
         }
     }
@@ -474,7 +477,10 @@ mod tests {
         assert!(
             events
                 .borrow()
-                .contains(&RoutingTableEvent::UpdatedContact(updated_contact)),
+                .contains(&RoutingTableEvent::UpdatedContact {
+                    new: updated_contact,
+                    old: contact
+                }),
             "{:?}",
             events
         );
