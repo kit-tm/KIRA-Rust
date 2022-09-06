@@ -6,6 +6,9 @@ use crate::domain::{
 
 use super::{PNTable, PathSimplifier};
 
+/// Signals if a change to the [Path] of a contact happened.
+///
+/// This doesn't address changes to the other fields of the [Contact].
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum InsertionStrategyResult {
     Dropped,
@@ -72,27 +75,52 @@ where
 
         // drop if received data is older than stored data
         if contact.state_seq_nr() < existing.state_seq_nr() {
+            log::trace!(
+                target: "routing_table",
+                "Dropping path: Lower StateSeqNr [{}]",
+                existing.id()
+            );
             return InsertionStrategyResult::Dropped;
         }
         // Drop if path is longer
         if contact.path().size() > existing.path().size() {
+            log::trace!(
+                target: "routing_table",
+                "Dropping path: path longer than existing [{}]",
+                existing.id()
+            );
             return InsertionStrategyResult::Dropped;
         }
 
         // Replace if seq_nr is greater (newer)
         if contact.state_seq_nr() > existing.state_seq_nr() {
             *existing = contact;
+            log::trace!(
+                target: "routing_table",
+                "Updated path: Greater StateSeqNr [{:?}]",
+                *existing
+            );
             return InsertionStrategyResult::Updated;
         }
 
         // Otherwise the seq_nr is equal
 
-        // Drop if seq_nr is equal and contact is valid
+        // Drop if seq_nr is equal and contact is not valid
         if existing.state() != &ContactState::Valid {
+            log::trace!(
+                target: "routing_table",
+                "Dropping path: Same StateSeqNr but contact is invalid [{}]",
+                existing.id()
+            );
             return InsertionStrategyResult::Dropped;
         }
         // Drop if same seq_nr but Age is older
         if contact.age() < existing.age() {
+            log::trace!(
+                target: "routing_table",
+                "Dropping older path [{}]",
+                existing.id()
+            );
             return InsertionStrategyResult::Dropped;
         }
         // Drop if state is not valid and the new info doesn't avoid
@@ -100,6 +128,11 @@ where
         if let ContactState::Rediscovering(rds) = existing.state() {
             for link in &rds.failed_link_list {
                 if contact.path().contains_link(link) {
+                    log::trace!(
+                        target: "routing_table",
+                        "Dropping path: via failed link [{}]",
+                        existing.id()
+                    );
                     return InsertionStrategyResult::Dropped;
                 }
             }
@@ -107,9 +140,22 @@ where
 
         // Finally: contact is newer, better or fixes a contact
 
+        // But: If only age is updated, don't emit anything
+        let return_result = match contact.path() == existing.path() {
+            true => InsertionStrategyResult::Dropped,
+            false => {
+                log::debug!(
+                    target: "routing_table",
+                    "Updating contacts path [{}]",
+                    existing.id()
+                );
+                InsertionStrategyResult::Updated
+            }
+        };
+
         *existing = contact;
 
-        InsertionStrategyResult::Updated
+        return_result
     }
 
     /// Check if the contact can replace an entry in the bucket it belongs to.
@@ -139,8 +185,19 @@ where
         if let Some(replaceable) = replaceable {
             let old_id = replaceable.id().clone();
             *replaceable = contact;
+            log::debug!(
+                target: "routing_table",
+                "Replaced {} with {}",
+                old_id, replaceable.id()
+            );
             return InsertionStrategyResult::Replaced(old_id);
         }
+
+        log::trace!(
+            target: "routing_table",
+            "Dropped new contact: nothing to replace with [{}]",
+            contact.id()
+        );
 
         InsertionStrategyResult::Dropped
     }
@@ -160,15 +217,29 @@ where
         routing_table: &mut RT,
         pn_table: &PNTable,
     ) -> InsertionStrategyResult {
-        // Ignore paths via us or contacts containing our own id
-        if contact.path().contains(routing_table.root()) || contact.id() == routing_table.root() {
-            log::debug!("Dropping contact: via us or not a pn [{}]", contact);
+        // Ignore paths to us
+        if contact.id() == routing_table.root() {
+            log::trace!(
+                target: "routing_table",
+                "Dropping contact info: is us {}",
+                contact.path()
+            );
             return InsertionStrategyResult::Dropped;
         }
-        // If the first element is no physical neighbor or the Path is empty -> Drop
+        // Ignore paths via us or contacts containing our own id
+        if contact.path().contains(routing_table.root()) {
+            log::trace!(
+                target: "routing_table",
+                "Dropping contact info: via us {}",
+                contact.path()
+            );
+            return InsertionStrategyResult::Dropped;
+        }
+        // If the first element is no physical neighbor
         if !pn_table.contains(contact.path().first()) {
-            log::debug!(
-                "Dropping contact: first element not a physical neighbor [{}]",
+            log::trace!(
+                target: "routing_table",
+                "Dropping contact info: first element not a physical neighbor [{}]",
                 contact
             );
             return InsertionStrategyResult::Dropped;
@@ -193,7 +264,14 @@ where
             Err(InsertionError::Add(AddError::NotAdded)) => {
                 self.replace_in_full_bucket(contact, routing_table)
             }
-            Ok(()) => InsertionStrategyResult::Inserted,
+            Ok(()) => {
+                log::debug!(
+                    target: "routing_table",
+                    "Inserted contact [{:?}]",
+                    contact
+                );
+                InsertionStrategyResult::Inserted
+            }
         }
     }
 }
@@ -224,7 +302,7 @@ where
     ) -> InsertionStrategyResult {
         let result = routing_table.insert(contact);
         if let Err(e) = result {
-            log::warn!("Failed to insert contact into routing table: {}", e);
+            log::warn!(target: "routing_table", "Failed to insert contact into routing table: {}", e);
         }
 
         self.0.clone()

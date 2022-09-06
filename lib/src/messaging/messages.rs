@@ -114,6 +114,10 @@ impl ProtocolMessage {
         }
     }
 
+    pub fn current_hop(&self) -> Option<&NodeId> {
+        self.source_route().map(|sr| sr.current_hop())
+    }
+
     pub fn previous_hop(&self) -> &NodeId {
         self.source_route()
             .map(|sr| sr.prev_hop())

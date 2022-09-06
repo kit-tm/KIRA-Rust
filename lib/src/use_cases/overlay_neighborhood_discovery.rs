@@ -93,6 +93,7 @@ impl UseCaseState for ONDState {
 ///
 /// A new FindNodeReq is scheduled to be sent after [ONDConfig::send_timeout]
 /// after the retrieval of an answer to the last FindNodeReq or the exponential backoff failed.
+/// This should prevent multiple discoveries to overlap because of timeout configuration.
 ///
 /// # Nonces
 ///
@@ -160,7 +161,10 @@ where
         // if no next backoff is allowed -> Restart whole process
         let next_backoff = self.backoff.next();
         if next_backoff.is_none() {
-            log::debug!("Exponential Backoff for Overlay Neighborhood Discovery failed. Scheduling next iteration.");
+            log::trace!(
+                target: "overlay_neighborhood_discovery",
+                "Exponential Backoff failed. Scheduling next iteration"
+            );
             // Reset backoff
             self.backoff.reset();
             // Old nonces are useless now
@@ -180,7 +184,9 @@ where
 
         // No need for discovery if isolated
         if context.pn_table().is_empty() {
-            log::warn!("No physical neighbors present; Node is isolated");
+            log::warn!(target: "overlay_neighborhood_discovery",
+                "No physical neighbors present; Node is isolated"
+            );
             return Ok(());
         }
 
@@ -196,6 +202,7 @@ where
         // No one found -> Isolated, but physical neighbors are present
         if path_to_closest_on.is_none() {
             log::error!(
+                target: "overlay_neighborhood_discovery",
                 "Physical neighbors are present, but no contacts; RT: {:?}, NT: {:?}",
                 *context.routing_table(),
                 *context.pn_table()
@@ -211,7 +218,11 @@ where
         let neighbor = route_to_closest_on.current_hop();
         let port = context.pn_table().get(neighbor).cloned();
         if port.is_none() {
-            log::error!("Contact is valid but its path goes through an invalid neighbor. Contact: {}, neighbor: {}", contact, neighbor);
+            log::error!(
+                target: "overlay_neighborhood_discovery",
+                "Contact is valid but its path goes through an invalid neighbor. Contact: {}, neighbor: {}",
+                contact, neighbor
+            );
             self.state = ONDState::Error;
             return Err(ONDError::NeighborInconsistency);
         }
@@ -226,6 +237,12 @@ where
             },
             source_route: route_to_closest_on,
         };
+
+        log::trace!(
+            target: "overlay_neighborhood_discovery",
+            "Sending message {:?}",
+            request
+        );
 
         if let Err(e) = context.message_sender_mut().send(request) {
             log::error!("Failed to send FindNodeReq: {:?}", e);
@@ -310,7 +327,10 @@ where
             ) => {
                 if nonces.contains(&nonce) {
                     // Handling the data in the response is up to another use-case TODO
-                    log::debug!("Overlay Neighborhood Discovery was successful!");
+                    log::debug!(
+                        target: "overlay_neighborhood_discovery",
+                        "Overlay Neighborhood Discovery was successful!"
+                    );
 
                     nonces.clear();
                     *latest = None;
@@ -328,7 +348,11 @@ where
                 // This way errors to previous messages will be ignored, as they are
                 // already interpreted as failed
                 if latest == &Some(nonce) {
-                    log::error!("Received error response for latest FindNodeReq: {:?}", data);
+                    log::warn!(
+                        target: "overlay_neighborhood_discovery",
+                        "Received error response for latest FindNodeReq: {:?}",
+                        data
+                    );
 
                     self.send_next_request(context)?;
                 }

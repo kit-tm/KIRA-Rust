@@ -64,7 +64,7 @@ fn main() {
         let contact_event = match event {
             RoutingTableEvent::NewContact(contact) => ContactEvent::New(contact),
             RoutingTableEvent::RemovedContact(contact) => ContactEvent::Removed(contact),
-            RoutingTableEvent::UpdatedContact(contact) => ContactEvent::Updated(contact),
+            RoutingTableEvent::UpdatedContact { old, new } => ContactEvent::Updated { old, new },
             _ => return,
         };
         if let Err(e) = observer_broadcaster.send(UseCaseEvent::Contact(contact_event)) {

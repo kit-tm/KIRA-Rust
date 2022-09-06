@@ -12,6 +12,26 @@
 //! - OverlayNeighborhoodDiscovery: If an DeadEnd-Error occurs the contact has to be invalidated
 //!     before the handle_event is called so the next FindNodeReq can go another Path.
 //!     Therefore processing the information in an Error-ProtocolMessage must occur before.
+//!
+//! # Logging Targets
+//!
+//! While sometimes default logging targets based on module structure is used some special
+//! logging targets have been added.
+//!
+//! - `routing_table`: Updates to the routing table.
+//! - `pn_table`: Updated to the physical neighbor table.
+//! - `message_sender`: Information about sending protocol messages.
+//! - `message_receiver`: Information about receiving protocol messages.
+//! - `network_interfaces`: Logging of updates to the network interfaces.
+//!
+//! Use Case related:
+//!
+//! - `forward_protocol_message`
+//! - `handle_hello`
+//! - `overlay_neighborhood_discovery`
+//! - `periodic_pn_advertising`
+//! - `random_probing`
+//! - `vicinity_discovery`
 
 pub mod broadcaster;
 pub mod context;
@@ -28,6 +48,7 @@ pub(crate) mod tests {
     pub fn init() {
         let _ = env_logger::builder()
             .filter_level(LevelFilter::Trace)
+            .parse_default_env()
             .is_test(true)
             .try_init();
     }

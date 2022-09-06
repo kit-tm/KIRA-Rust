@@ -126,6 +126,13 @@ where
                 // Source route is ignored, as only physical neighbors get these
                 source_route: SourceRoute::from(Path::from([context.root_id().clone(), source])),
             });
+
+            log::trace!(
+                target: "handle_hello",
+                "Sending message: {:?}",
+                message
+            );
+
             if let Err(e) = context.message_sender_mut().send(message) {
                 log::error!("Failed to send message: {}", e);
                 return Err(HandleHelloError::SendError);

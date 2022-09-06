@@ -115,9 +115,8 @@ impl Display for Contact {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Contact#{} {} [age: {}, state_seq_nr: {}, state: {}]",
+            "Contact [id: {}, age: {}, state_seq_nr: {}, state: {}]",
             self.id(),
-            self.path,
             self.last_seen.to_age_duration(),
             self.state_seq_nr,
             self.state
