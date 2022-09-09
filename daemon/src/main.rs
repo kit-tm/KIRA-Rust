@@ -161,7 +161,8 @@ fn main() {
         return;
     }
 
-    let mut random_probing = RandomProbingUseCase::new(Default::default());
+    let mut random_probing =
+        RandomProbingUseCase::new(Default::default()).expect("default grouping should be valid");
     if let Err(e) = random_probing.start(&context) {
         log::error!("Failed to start Random Probing UseCase: {}", e);
         return;
@@ -173,7 +174,8 @@ fn main() {
         return;
     }
 
-    let mut on_disc = ONDUseCase::<_, DEFAULT_BUCKET_SIZE>::new(Default::default());
+    let mut on_disc = ONDUseCase::<_, DEFAULT_BUCKET_SIZE>::new(Default::default())
+        .expect("default grouping should be valid");
     if let Err(e) = on_disc.start(&context) {
         log::error!("Failed to start overlay neighbor discovery UseCase: {}", e);
         return;
