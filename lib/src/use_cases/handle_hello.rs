@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 
 use crate::context::UseCaseContext;
-use crate::domain::{node_id, InsertionStrategy, Path, RoutingTable};
+use crate::domain::{node_id, InsertionStrategy, NodeId, Path, RoutingTable};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     HelloMessage, Nonce, ProtocolMessage, ProtocolMessageSender, RTableData, ReqRspMessage,
@@ -65,6 +65,27 @@ impl<C, const BUCKET_SIZE: usize> HandleHelloUseCase<C, BUCKET_SIZE> {
     }
 }
 
+fn should_respond(own_id: &NodeId, other: &NodeId, num_bits: NonZeroUsize) -> bool {
+    // Use deterministic heuristic to determine if we should respond to the Message
+    // do not use full ID, otherwise large IDs will always "loose", use mod 2^{calculation_bits} comparison
+    // small collision chance: but just in case, full nodeID will be a tie breaker
+
+    // Unwrapping is safe here, as checked at construction
+    let own_bits = own_id.bits(0, num_bits).unwrap();
+    let other_bits = other.bits(0, num_bits).unwrap();
+    let delta = other_bits.wrapping_sub(own_bits);
+
+    // Simulation: (delta < 0x80000000) || ((delta == 0 || delta == 0x80000000) && context.root_id() < &source)
+    if delta < 0x80000000 && delta != 0 {
+        return true;
+    }
+    if (delta == 0 || delta == 0x80000000) && own_id < other {
+        return true;
+    }
+
+    false
+}
+
 impl<C, const BUCKET_SIZE: usize> UseCase for HandleHelloUseCase<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
@@ -89,24 +110,12 @@ where
         if let UseCaseEvent::Message(ProtocolMessage::Hello(HelloMessage { source, .. }), ..) =
             event
         {
-            // Use deterministic heuristic to determine if we should respond to the Message
-            // do not use full ID, otherwise large IDs will always "loose", use mod 2^{calculation_bits} comparison
-            // small collision chance: but just in case, full nodeID will be a tie breaker
-
-            // Unwrapping is safe here, as checked at construction
-            let own_bits = context
-                .root_id()
-                .bits(0, self.config.heuristic_calculation_bits)
-                .unwrap();
-            let other_bits = source
-                .bits(0, self.config.heuristic_calculation_bits)
-                .unwrap();
-            let delta = other_bits.wrapping_sub(own_bits);
-
-            // Inverted (delta < 0x80000000) || ((delta == 0 || delta == 0x80000000) && context.root_id() < &source)
-            if delta >= 0x80000000
-                && ((delta != 0 && delta != 0x80000000) || context.root_id() >= &source)
-            {
+            if !should_respond(
+                context.root_id(),
+                &source,
+                self.config.heuristic_calculation_bits,
+            ) {
+                log::trace!(target: "handle_hello", "Not responding to Hello from {}", source);
                 return Ok(());
             }
 
@@ -232,10 +241,8 @@ mod tests {
     fn doesnt_respond_with_pn_disc_req() {
         crate::tests::init();
 
-        // Answer should be a PNDiscReq
-
-        let root_id = NodeId::with_lsb(2);
-        let sender_id = NodeId::with_lsb(1);
+        let root_id = NodeId::with_lsb(4);
+        let sender_id = NodeId::with_lsb(2);
 
         let routing_table =
             FlatRoutingTable::<20, 1>::new(root_id.clone()).expect("invalid grouping");
@@ -277,5 +284,19 @@ mod tests {
         );
 
         assert!(message_hub.messages().is_empty());
+    }
+
+    #[test]
+    fn heuristic_is_not_commutative() {
+        // Important: Bot lsb are 00000..
+        let own_id = NodeId::with_msb(1);
+        let other_id = NodeId::with_msb(2);
+
+        let bits = NonZeroUsize::new(32).unwrap();
+
+        assert_ne!(
+            super::should_respond(&own_id, &other_id, bits),
+            super::should_respond(&other_id, &own_id, bits)
+        );
     }
 }

@@ -35,7 +35,7 @@ impl SourceRoute {
         converted.ids.make_contiguous().reverse();
         Self {
             ids: converted.ids,
-            progress: 0,
+            progress: 1,
         }
     }
 
