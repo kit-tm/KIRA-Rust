@@ -7,6 +7,7 @@ use crate::messaging::messages::ProtocolMessage;
 
 pub mod forward_protocol_message;
 pub mod handle_hello;
+pub mod handle_pn_advertising;
 pub mod message_info_extraction;
 pub mod overlay_neighborhood_discovery;
 pub mod periodic_pn_advertising;
