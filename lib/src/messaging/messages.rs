@@ -187,7 +187,8 @@ pub struct QueryRouteReqData {
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum QueryRouteType {
     PhysicalNeighbors,
-    OverlayNeighbors(NonZeroU64),
+    // TODO: Evaluate if this is used and when
+    //OverlayNeighbors(NonZeroU64),
 }
 
 impl From<ReqRspMessage<QueryRouteReqData>> for ProtocolMessage {
