@@ -129,6 +129,10 @@ where
         event: UseCaseEvent,
     ) -> Result<(), Self::Error> {
         if let UseCaseEvent::Message(message, port) = event {
+            if let ProtocolMessage::Hello(_) = message {
+                return Ok(());
+            }
+
             let source_contact = self.extract_source_information(context, &message, port);
 
             match message {
@@ -172,15 +176,13 @@ mod tests {
     use crate::messaging::ProtocolMessage::{
         FindNodeReq, FindNodeRsp, PNDiscReq, PNDiscRsp, QueryRouteRsp,
     };
-    use crate::messaging::{
-        FindNodeReqData, HelloMessage, Nonce, ProtocolMessage, RTableData, ReqRspMessage,
-    };
+    use crate::messaging::{FindNodeReqData, Nonce, ProtocolMessage, RTableData, ReqRspMessage};
     use crate::runtime::ImmediateRuntime;
     use crate::use_cases::message_info_extraction::MessageInfoExtraction;
     use crate::use_cases::{UseCase, UseCaseEvent};
 
     #[test]
-    fn extract_source_from_pnhello() {
+    fn extract_source_from_pndiscreq() {
         crate::tests::init();
 
         let root_id = NodeId::with_msb(1);
@@ -191,7 +193,7 @@ mod tests {
         let broadcaster = BusBroadcaster::new(10);
         let runtime = ImmediateRuntime::new(broadcaster.clone());
         let context = SyncContext::new(
-            root_id,
+            root_id.clone(),
             single_bucket_rt,
             pn_table,
             insertion_strategy,
@@ -210,9 +212,11 @@ mod tests {
         let contact_id = NodeId::with_msb(2);
         let port = Port::new(String::from("test"));
         let event = UseCaseEvent::Message(
-            ProtocolMessage::Hello(HelloMessage {
-                source: contact_id.clone(),
-                source_state_seq_nr: StateSeqNr::from(0),
+            PNDiscReq(ReqRspMessage {
+                nonce: Nonce::random(),
+                source_state_seq_nr: StateSeqNr::from(1),
+                data: RTableData { contacts: vec![] },
+                source_route: SourceRoute::from(Path::from([contact_id.clone(), root_id])),
             }),
             port.clone(),
         );
@@ -227,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn add_source_from_pnhello_to_contacts() {
+    fn add_source_from_pndiscreq_to_contacts() {
         crate::tests::init();
 
         let root_id = NodeId::with_msb(1);
@@ -257,9 +261,11 @@ mod tests {
         let neighbor_id = NodeId::with_msb(2);
         let port = Port::new(String::from("test"));
         let event = UseCaseEvent::Message(
-            ProtocolMessage::Hello(HelloMessage {
-                source: neighbor_id.clone(),
+            PNDiscReq(ReqRspMessage {
+                nonce: Nonce::random(),
                 source_state_seq_nr: StateSeqNr::from(0),
+                data: RTableData { contacts: vec![] },
+                source_route: SourceRoute::from(Path::from([neighbor_id.clone(), root_id])),
             }),
             port.clone(),
         );
