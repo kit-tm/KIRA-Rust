@@ -19,9 +19,8 @@ use r2kad_lib::use_cases::forward_protocol_message::ForwardPMUseCase;
 use r2kad_lib::use_cases::handle_hello::HandleHelloUseCase;
 use r2kad_lib::use_cases::message_info_extraction::MessageInfoExtraction;
 use r2kad_lib::use_cases::overlay_neighborhood_discovery::ONDUseCase;
-use r2kad_lib::use_cases::periodic_pn_advertising::PeriodicPNAdvertising;
 use r2kad_lib::use_cases::random_probing::RandomProbingUseCase;
-use r2kad_lib::use_cases::vicinity_discovery::VDUseCase;
+use r2kad_lib::use_cases::vicinity_discovery::VicinityDiscovery;
 use r2kad_lib::use_cases::{ContactEvent, UseCase, UseCaseEvent, UseCaseState};
 
 #[derive(Parser, Debug)]
@@ -154,13 +153,6 @@ fn main() {
         return;
     }
 
-    let mut pn_advertising =
-        PeriodicPNAdvertising::<_, DEFAULT_BUCKET_SIZE>::new(Default::default());
-    if let Err(e) = pn_advertising.start(&context) {
-        log::error!("Failed to start PN Probing UseCase: {}", e);
-        return;
-    }
-
     let mut random_probing = RandomProbingUseCase::new(Default::default());
     if let Err(e) = random_probing.start(&context) {
         log::error!("Failed to start Random Probing UseCase: {}", e);
@@ -179,7 +171,7 @@ fn main() {
         return;
     }
 
-    let mut vicinity_disc = VDUseCase::new();
+    let mut vicinity_disc = VicinityDiscovery::new(Default::default());
     if let Err(e) = vicinity_disc.start(&context) {
         log::error!("Failed to start overlay neighbor discovery UseCase: {}", e);
         return;
@@ -210,12 +202,6 @@ fn main() {
                 e
             );
         }
-        if let Err(e) = pn_advertising.handle_event(&context, event.clone()) {
-            log::error!(
-                "Physical Neighbor Probing returned error handling message: {}",
-                e
-            );
-        }
         if let Err(e) = random_probing.handle_event(&context, event.clone()) {
             log::error!("Random Probing returned error handling message: {}", e);
         }
@@ -235,7 +221,6 @@ fn main() {
         // Check States as returning an error doesn't show an unrecoverable error
         let states: Vec<&(dyn UseCaseState)> = vec![
             forward_message.state(),
-            pn_advertising.state(),
             random_probing.state(),
             handle_hello.state(),
             on_disc.state(),
