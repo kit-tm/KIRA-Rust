@@ -18,7 +18,7 @@ use r2kad_lib::runtime::TokioRuntime;
 use r2kad_lib::use_cases::forward_protocol_message::ForwardPMUseCase;
 use r2kad_lib::use_cases::message_info_extraction::MessageInfoExtraction;
 use r2kad_lib::use_cases::overlay_neighborhood_discovery::ONDUseCase;
-use r2kad_lib::use_cases::random_probing::RandomProbingUseCase;
+use r2kad_lib::use_cases::random_overlay_discovery::RandomOverlayDiscovery;
 use r2kad_lib::use_cases::vicinity_discovery::VicinityDiscovery;
 use r2kad_lib::use_cases::{ContactEvent, UseCase, UseCaseEvent, UseCaseState};
 
@@ -152,7 +152,7 @@ fn main() {
         return;
     }
 
-    let mut random_probing = RandomProbingUseCase::new(Default::default());
+    let mut random_probing = RandomOverlayDiscovery::new(Default::default());
     if let Err(e) = random_probing.start(&context) {
         log::error!("Failed to start Random Probing UseCase: {}", e);
         return;
