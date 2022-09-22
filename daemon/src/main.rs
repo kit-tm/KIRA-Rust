@@ -16,7 +16,6 @@ use r2kad_lib::messaging::sync_wrapper::SyncWrapper;
 use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetPortMapper};
 use r2kad_lib::runtime::TokioRuntime;
 use r2kad_lib::use_cases::forward_protocol_message::ForwardPMUseCase;
-use r2kad_lib::use_cases::handle_hello::HandleHelloUseCase;
 use r2kad_lib::use_cases::message_info_extraction::MessageInfoExtraction;
 use r2kad_lib::use_cases::overlay_neighborhood_discovery::ONDUseCase;
 use r2kad_lib::use_cases::random_probing::RandomProbingUseCase;
@@ -159,12 +158,6 @@ fn main() {
         return;
     }
 
-    let mut handle_hello = HandleHelloUseCase::new(Default::default());
-    if let Err(e) = handle_hello.start(&context) {
-        log::error!("Failed to start Hello Message UseCase: {}", e);
-        return;
-    }
-
     let mut on_disc = ONDUseCase::<_, DEFAULT_BUCKET_SIZE>::new(Default::default());
     if let Err(e) = on_disc.start(&context) {
         log::error!("Failed to start overlay neighbor discovery UseCase: {}", e);
@@ -205,9 +198,6 @@ fn main() {
         if let Err(e) = random_probing.handle_event(&context, event.clone()) {
             log::error!("Random Probing returned error handling message: {}", e);
         }
-        if let Err(e) = handle_hello.handle_event(&context, event.clone()) {
-            log::error!("Handling Hello message returned error: {}", e);
-        }
         if let Err(e) = on_disc.handle_event(&context, event.clone()) {
             log::error!(
                 "Overlay Neighborhood Discovery returned error handling message: {}",
@@ -222,7 +212,6 @@ fn main() {
         let states: Vec<&(dyn UseCaseState)> = vec![
             forward_message.state(),
             random_probing.state(),
-            handle_hello.state(),
             on_disc.state(),
             vicinity_disc.state(),
         ];
