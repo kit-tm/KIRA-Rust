@@ -17,7 +17,7 @@ use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetPortMapper};
 use r2kad_lib::runtime::TokioRuntime;
 use r2kad_lib::use_cases::forward_protocol_message::ForwardPMUseCase;
 use r2kad_lib::use_cases::message_info_extraction::MessageInfoExtraction;
-use r2kad_lib::use_cases::overlay_neighborhood_discovery::ONDUseCase;
+use r2kad_lib::use_cases::overlay_neighborhood_discovery::OverlayNeighborhoodDiscovery;
 use r2kad_lib::use_cases::random_overlay_discovery::RandomOverlayDiscovery;
 use r2kad_lib::use_cases::vicinity_discovery::VicinityDiscovery;
 use r2kad_lib::use_cases::{ContactEvent, UseCase, UseCaseEvent, UseCaseState};
@@ -158,7 +158,8 @@ fn main() {
         return;
     }
 
-    let mut on_disc = ONDUseCase::<_, DEFAULT_BUCKET_SIZE>::new(Default::default());
+    let mut on_disc =
+        OverlayNeighborhoodDiscovery::<_, DEFAULT_BUCKET_SIZE>::new(Default::default());
     if let Err(e) = on_disc.start(&context) {
         log::error!("Failed to start overlay neighbor discovery UseCase: {}", e);
         return;
