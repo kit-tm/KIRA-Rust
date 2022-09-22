@@ -165,13 +165,10 @@ fn main() {
         return;
     }
 
-    let mut forward_message = ForwardProtocolMessages::new();
+    // Initialize common tasks
 
     let mut message_info_extraction = MessageInfoExtraction::<_, DEFAULT_BUCKET_SIZE>::default();
-    if let Err(e) = message_info_extraction.start(&context) {
-        log::error!("Failed to start Message Info Extraction UseCase: {}", e);
-        return;
-    }
+    let mut forward_message = ForwardProtocolMessages::new();
 
     // Wait for MessageReceivers or runtime to emit events and delegate to Use Cases
     // IMPORTANT: The Runtime::block_on method drives progress in the CurrentThreadRuntime.
