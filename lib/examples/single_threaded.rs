@@ -22,14 +22,12 @@ use r2kad_lib::messaging::format::ProtocolMessageFormat;
 use r2kad_lib::messaging::sync_wrapper::SyncWrapper;
 use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetPortMapper};
 use r2kad_lib::runtime::TokioRuntime;
-use r2kad_lib::use_cases::forward_protocol_message::ForwardPMUseCase;
-use r2kad_lib::use_cases::handle_hello::HandleHelloUseCase;
+use r2kad_lib::use_cases::forward_protocol_message::{ForwardProtocolMessages, HandlingResult};
 use r2kad_lib::use_cases::message_info_extraction::MessageInfoExtraction;
-use r2kad_lib::use_cases::overlay_neighborhood_discovery::ONDUseCase;
-use r2kad_lib::use_cases::periodic_pn_advertising::PeriodicPNAdvertising;
-use r2kad_lib::use_cases::random_probing::RandomProbingUseCase;
-use r2kad_lib::use_cases::vicinity_discovery::VDUseCase;
-use r2kad_lib::use_cases::{ContactEvent, UseCase, UseCaseEvent, UseCaseState};
+use r2kad_lib::use_cases::overlay_neighborhood_discovery::OverlayNeighborhoodDiscovery;
+use r2kad_lib::use_cases::random_overlay_discovery::RandomOverlayDiscovery;
+use r2kad_lib::use_cases::vicinity_discovery::VicinityDiscovery;
+use r2kad_lib::use_cases::{ContactEvent, EventHandler, UseCase, UseCaseEvent, UseCaseState};
 
 fn main() {
     // Initialize the Logging Facade
@@ -137,48 +135,29 @@ fn main() {
 
     // Initialize the Use Cases
 
-    let mut message_info_extraction = MessageInfoExtraction::<_, DEFAULT_BUCKET_SIZE>::default();
-    if let Err(e) = message_info_extraction.start(&context) {
-        log::error!("Failed to start Message Info Extraction UseCase: {}", e);
-        return;
-    }
-
-    let mut pn_advertising =
-        PeriodicPNAdvertising::<_, DEFAULT_BUCKET_SIZE>::new(Default::default());
-    if let Err(e) = pn_advertising.start(&context) {
-        log::error!("Failed to start PN Probing UseCase: {}", e);
-        return;
-    }
-
-    let mut random_probing = RandomProbingUseCase::new(Default::default());
+    let mut random_probing = RandomOverlayDiscovery::new(Default::default());
     if let Err(e) = random_probing.start(&context) {
         log::error!("Failed to start Random Probing UseCase: {}", e);
         return;
     }
 
-    let mut handle_hello = HandleHelloUseCase::new(Default::default());
-    if let Err(e) = handle_hello.start(&context) {
-        log::error!("Failed to start Hello Message UseCase: {}", e);
-        return;
-    }
-
-    let mut on_disc = ONDUseCase::<_, DEFAULT_BUCKET_SIZE>::new(Default::default());
+    let mut on_disc =
+        OverlayNeighborhoodDiscovery::<_, DEFAULT_BUCKET_SIZE>::new(Default::default());
     if let Err(e) = on_disc.start(&context) {
         log::error!("Failed to start overlay neighbor discovery UseCase: {}", e);
         return;
     }
 
-    let mut vicinity_disc = VDUseCase::new();
+    let mut vicinity_disc = VicinityDiscovery::new(Default::default());
     if let Err(e) = vicinity_disc.start(&context) {
         log::error!("Failed to start overlay neighbor discovery UseCase: {}", e);
         return;
     }
 
-    let mut forward_message = ForwardPMUseCase::new();
-    if let Err(e) = forward_message.start(&context) {
-        log::error!("Failed to start forward protocol messages UseCase: {}", e);
-        return;
-    }
+    // Initialize common tasks
+
+    let mut message_info_extraction = MessageInfoExtraction::<_, DEFAULT_BUCKET_SIZE>::default();
+    let mut forward_message = ForwardProtocolMessages::new();
 
     // Wait for MessageReceivers or runtime to emit events and delegate to Use Cases
     // IMPORTANT: The Runtime::block_on method drives progress in the CurrentThreadRuntime.
@@ -186,30 +165,24 @@ fn main() {
     while let Ok(event) = runtime.block_on(receiver.recv()) {
         log::trace!("Processing event {:?}", event);
 
-        // Delegate Messages to UseCases
-        if let Err(e) = message_info_extraction.handle_event(&context, event.clone()) {
+        // Some precomputation to perform actions and delegate which are common tasks
+        if let Err(e) = message_info_extraction.handle(&context, event.clone()) {
             log::error!(
                 "Message info extraction returned error handling message: {}",
                 e
             );
         }
-        if let Err(e) = forward_message.handle_event(&context, event.clone()) {
-            log::error!(
+        match forward_message.handle(&context, event.clone()) {
+            Err(e) => log::error!(
                 "Forwarding protocol message returned error handling message: {}",
                 e
-            );
+            ),
+            Ok(HandlingResult::Handled) => continue, /* Skip delegation to use cases */
+            Ok(HandlingResult::NotHandled) => { /* Delegate event to use cases  */ }
         }
-        if let Err(e) = pn_advertising.handle_event(&context, event.clone()) {
-            log::error!(
-                "Physical Neighbor Probing returned error handling message: {}",
-                e
-            );
-        }
+
         if let Err(e) = random_probing.handle_event(&context, event.clone()) {
             log::error!("Random Probing returned error handling message: {}", e);
-        }
-        if let Err(e) = handle_hello.handle_event(&context, event.clone()) {
-            log::error!("Handling Hello message returned error: {}", e);
         }
         if let Err(e) = on_disc.handle_event(&context, event.clone()) {
             log::error!(
@@ -223,11 +196,7 @@ fn main() {
 
         // Check States as returning an error doesn't show an unrecoverable error
         let states: Vec<&(dyn UseCaseState)> = vec![
-            message_info_extraction.state(),
-            forward_message.state(),
-            pn_advertising.state(),
             random_probing.state(),
-            handle_hello.state(),
             on_disc.state(),
             vicinity_disc.state(),
         ];

@@ -2,17 +2,14 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 
+use crate::context::UseCaseContext;
 use crate::domain::{Contact, Port};
 use crate::messaging::messages::ProtocolMessage;
 
 pub mod forward_protocol_message;
-pub mod handle_hello;
-pub mod handle_pn_advertising;
-pub mod handle_vicinity_discovery;
 pub mod message_info_extraction;
 pub mod overlay_neighborhood_discovery;
-pub mod periodic_pn_advertising;
-pub mod random_probing;
+pub mod random_overlay_discovery;
 pub mod vicinity_discovery;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -94,8 +91,24 @@ impl Display for MessageSentFailed {
 
 impl Error for MessageSentFailed {}
 
-pub trait UseCase {
+/// An EventHandler handles events in some context and returns a value of type `Value` or an error
+/// of type `Error`.
+pub trait EventHandler {
     type Context;
+    type Error;
+    type Value;
+
+    fn handle(
+        &mut self,
+        context: &Self::Context,
+        event: UseCaseEvent,
+    ) -> Result<Self::Value, Self::Error>;
+}
+
+/// A UseCase is an [EventHandler] which can be started in a given [UseCaseContext], has a
+/// [UseCaseState] and either returns nothing or an error of a predefined Error type.
+pub trait UseCase {
+    type Context: UseCaseContext + Sized;
     type Error: Error + Sized;
     type State: UseCaseState + Sized;
 
@@ -106,4 +119,21 @@ pub trait UseCase {
         event: UseCaseEvent,
     ) -> Result<(), Self::Error>;
     fn state(&self) -> &Self::State;
+}
+
+impl<UC> EventHandler for UC
+where
+    UC: UseCase,
+{
+    type Context = <Self as UseCase>::Context;
+    type Error = <Self as UseCase>::Error;
+    type Value = ();
+
+    fn handle(
+        &mut self,
+        context: &Self::Context,
+        event: UseCaseEvent,
+    ) -> Result<Self::Value, Self::Error> {
+        <Self as UseCase>::handle_event(self, context, event)
+    }
 }
