@@ -27,7 +27,7 @@ use r2kad_lib::messaging::format::ProtocolMessageFormat;
 use r2kad_lib::messaging::sync_wrapper::SyncWrapper;
 use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetPortMapper};
 use r2kad_lib::runtime::TokioRuntime;
-use r2kad_lib::use_cases::handle_hello::HandleHelloUseCase;
+use r2kad_lib::use_cases::vicinity_discovery::VicinityDiscovery;
 use r2kad_lib::use_cases::{UseCase, UseCaseEvent, UseCaseState};
 
 fn main() {
@@ -118,10 +118,10 @@ fn main() {
     let handle_hello_context = Arc::clone(&context);
     // Initialize the Use Cases
     let handle = runtime.spawn(async move {
-        let use_case = HandleHelloUseCase::new(Default::default());
+        let use_case = VicinityDiscovery::new(Default::default());
 
         UseCaseTask::new(
-            "Bootstrap",
+            "Vicinity Discovery",
             handle_hello_context.deref(),
             handle_hello_event_receiver,
             use_case,

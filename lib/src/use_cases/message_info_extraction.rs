@@ -5,7 +5,7 @@ use crate::context::UseCaseContext;
 use crate::domain::{Contact, InsertionStrategy, Path, Port, RoutingTable};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{ProtocolMessage, RTableData, ReqRspMessage};
-use crate::use_cases::{MessageSentFailed, ReactiveUseCaseState, UseCase, UseCaseEvent};
+use crate::use_cases::{EventHandler, MessageSentFailed, UseCaseEvent};
 
 /// Extracts different kinds of information out of incoming [ProtocolMessage]s.
 ///
@@ -19,14 +19,12 @@ use crate::use_cases::{MessageSentFailed, ReactiveUseCaseState, UseCase, UseCase
 #[derive(Debug)]
 pub struct MessageInfoExtraction<C, const BUCKET_SIZE: usize> {
     _pd: PhantomData<C>,
-    state: ReactiveUseCaseState,
 }
 
 impl<C, const BUCKET_SIZE: usize> Default for MessageInfoExtraction<C, BUCKET_SIZE> {
     fn default() -> Self {
         Self {
             _pd: PhantomData::default(),
-            state: ReactiveUseCaseState::Idle,
         }
     }
 }
@@ -108,7 +106,7 @@ where
     }
 }
 
-impl<C, const BUCKET_SIZE: usize> UseCase for MessageInfoExtraction<C, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize> EventHandler for MessageInfoExtraction<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
@@ -116,18 +114,9 @@ where
 {
     type Context = C;
     type Error = MessageSentFailed;
-    type State = ReactiveUseCaseState;
+    type Value = ();
 
-    fn start(&mut self, _context: &Self::Context) -> Result<(), Self::Error> {
-        // Nothing to initialize here
-        Ok(())
-    }
-
-    fn handle_event(
-        &mut self,
-        context: &Self::Context,
-        event: UseCaseEvent,
-    ) -> Result<(), Self::Error> {
+    fn handle(&mut self, context: &Self::Context, event: UseCaseEvent) -> Result<(), Self::Error> {
         if let UseCaseEvent::Message(message, port) = event {
             if let ProtocolMessage::Hello(_) = message {
                 return Ok(());
@@ -153,10 +142,6 @@ where
 
         Ok(())
     }
-
-    fn state(&self) -> &Self::State {
-        &self.state
-    }
 }
 
 #[cfg(test)]
@@ -176,10 +161,10 @@ mod tests {
     use crate::messaging::ProtocolMessage::{
         FindNodeReq, FindNodeRsp, PNDiscReq, PNDiscRsp, QueryRouteRsp,
     };
-    use crate::messaging::{FindNodeReqData, Nonce, ProtocolMessage, RTableData, ReqRspMessage};
+    use crate::messaging::{FindNodeReqData, Nonce, RTableData, ReqRspMessage};
     use crate::runtime::ImmediateRuntime;
     use crate::use_cases::message_info_extraction::MessageInfoExtraction;
-    use crate::use_cases::{UseCase, UseCaseEvent};
+    use crate::use_cases::{EventHandler, UseCaseEvent};
 
     #[test]
     fn extract_source_from_pndiscreq() {
@@ -202,12 +187,6 @@ mod tests {
         );
 
         let mut use_case = MessageInfoExtraction::default();
-        let start_result = use_case.start(&context);
-        assert!(
-            start_result.is_ok(),
-            "Start returned error: {:?}",
-            start_result
-        );
 
         let contact_id = NodeId::with_msb(2);
         let port = Port::new(String::from("test"));
@@ -220,7 +199,7 @@ mod tests {
             }),
             port.clone(),
         );
-        let handled_result = use_case.handle_event(&context, event);
+        let handled_result = use_case.handle(&context, event);
         assert!(
             handled_result.is_ok(),
             "Handling returned error: {:?}",
@@ -251,12 +230,6 @@ mod tests {
         );
 
         let mut use_case = MessageInfoExtraction::default();
-        let start_result = use_case.start(&context);
-        assert!(
-            start_result.is_ok(),
-            "Start returned error: {:?}",
-            start_result
-        );
 
         let neighbor_id = NodeId::with_msb(2);
         let port = Port::new(String::from("test"));
@@ -269,7 +242,7 @@ mod tests {
             }),
             port.clone(),
         );
-        let handled_result = use_case.handle_event(&context, event);
+        let handled_result = use_case.handle(&context, event);
         assert!(
             handled_result.is_ok(),
             "Handling returned error: {:?}",
@@ -315,12 +288,6 @@ mod tests {
         );
 
         let mut use_case = MessageInfoExtraction::default();
-        let start_result = use_case.start(&context);
-        assert!(
-            start_result.is_ok(),
-            "Start returned error: {:?}",
-            start_result
-        );
 
         let source_route = SourceRoute::from(Path::from([
             source_id.clone(),
@@ -348,7 +315,7 @@ mod tests {
             }),
             port.clone(),
         );
-        let handled_result = use_case.handle_event(&context, event);
+        let handled_result = use_case.handle(&context, event);
         assert!(
             handled_result.is_ok(),
             "Handling returned error: {:?}",
@@ -399,12 +366,6 @@ mod tests {
         );
 
         let mut use_case = MessageInfoExtraction::default();
-        let start_result = use_case.start(&context);
-        assert!(
-            start_result.is_ok(),
-            "Start returned error: {:?}",
-            start_result
-        );
 
         let source_route = SourceRoute::from(Path::from([
             source_id.clone(),
@@ -429,7 +390,7 @@ mod tests {
             }),
             port.clone(),
         );
-        let handled_result = use_case.handle_event(&context, event);
+        let handled_result = use_case.handle(&context, event);
         assert!(
             handled_result.is_ok(),
             "Handling returned error: {:?}",
@@ -470,12 +431,6 @@ mod tests {
         );
 
         let mut use_case = MessageInfoExtraction::default();
-        let start_result = use_case.start(&context);
-        assert!(
-            start_result.is_ok(),
-            "Start returned error: {:?}",
-            start_result
-        );
 
         let neighbors_neighbors = vec![
             Contact::new(Path::from([NodeId::with_msb(15)]), StateSeqNr::from(15)),
@@ -495,7 +450,7 @@ mod tests {
             }),
             port.clone(),
         );
-        let handled_result = use_case.handle_event(&context, event);
+        let handled_result = use_case.handle(&context, event);
         assert!(
             handled_result.is_ok(),
             "Handling returned error: {:?}",
@@ -547,12 +502,6 @@ mod tests {
         );
 
         let mut use_case = MessageInfoExtraction::default();
-        let start_result = use_case.start(&context);
-        assert!(
-            start_result.is_ok(),
-            "Start returned error: {:?}",
-            start_result
-        );
 
         let neighbors_neighbors = vec![
             Contact::new(Path::from([NodeId::with_msb(15)]), StateSeqNr::from(15)),
@@ -572,7 +521,7 @@ mod tests {
             }),
             port.clone(),
         );
-        let handled_result = use_case.handle_event(&context, event);
+        let handled_result = use_case.handle(&context, event);
         assert!(
             handled_result.is_ok(),
             "Handling returned error: {:?}",
@@ -625,12 +574,6 @@ mod tests {
         );
 
         let mut use_case = MessageInfoExtraction::default();
-        let start_result = use_case.start(&context);
-        assert!(
-            start_result.is_ok(),
-            "Start returned error: {:?}",
-            start_result
-        );
 
         let neighbors_neighbors = vec![
             // Insertions strategy doesn't use cycle_remover or shortener. So the shared neighbor
@@ -657,7 +600,7 @@ mod tests {
             }),
             port.clone(),
         );
-        let handled_result = use_case.handle_event(&context, event);
+        let handled_result = use_case.handle(&context, event);
         assert!(
             handled_result.is_ok(),
             "Handling returned error: {:?}",
@@ -710,12 +653,6 @@ mod tests {
         );
 
         let mut use_case = MessageInfoExtraction::default();
-        let start_result = use_case.start(&context);
-        assert!(
-            start_result.is_ok(),
-            "Start returned error: {:?}",
-            start_result
-        );
 
         let neighbors_neighbors = vec![
             // Insertions strategy doesn't use cycle_remover or shortener. So the shared neighbor
@@ -760,7 +697,7 @@ mod tests {
             }),
             port.clone(),
         );
-        let handled_result = use_case.handle_event(&context, event);
+        let handled_result = use_case.handle(&context, event);
         assert!(
             handled_result.is_ok(),
             "Handling returned error: {:?}",

@@ -108,20 +108,20 @@ impl UseCaseState for ONDState {
 /// The reason is that a failing neighbor and its removal should yield changes to pn_table
 /// and routing table at the same time.
 #[derive(Debug, Clone)]
-pub struct ONDUseCase<C, const BUCKET_SIZE: usize> {
+pub struct OverlayNeighborhoodDiscovery<C, const BUCKET_SIZE: usize> {
     _pd: PhantomData<C>,
     state: ONDState,
     config: ONDConfig,
     backoff: ExponentialBackoff,
 }
 
-impl<C, const BUCKET_SIZE: usize> Default for ONDUseCase<C, BUCKET_SIZE> {
+impl<C, const BUCKET_SIZE: usize> Default for OverlayNeighborhoodDiscovery<C, BUCKET_SIZE> {
     fn default() -> Self {
         Self::new(ONDConfig::default())
     }
 }
 
-impl<C, const BUCKET_SIZE: usize> ONDUseCase<C, BUCKET_SIZE> {
+impl<C, const BUCKET_SIZE: usize> OverlayNeighborhoodDiscovery<C, BUCKET_SIZE> {
     /// Create a new [ONDUseCase] from an [ONDConfig].
     pub fn new(config: ONDConfig) -> Self {
         Self {
@@ -137,7 +137,7 @@ impl<C, const BUCKET_SIZE: usize> ONDUseCase<C, BUCKET_SIZE> {
     }
 }
 
-impl<C, const BUCKET_SIZE: usize> ONDUseCase<C, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize> OverlayNeighborhoodDiscovery<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::MessageSender: ProtocolMessageSender,
@@ -278,7 +278,7 @@ impl Display for ONDError {
 
 impl Error for ONDError {}
 
-impl<C, const BUCKET_SIZE: usize> UseCase for ONDUseCase<C, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize> UseCase for OverlayNeighborhoodDiscovery<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
@@ -386,7 +386,9 @@ mod tests {
         ReqRspMessage,
     };
     use crate::runtime::ImmediateRuntime;
-    use crate::use_cases::overlay_neighborhood_discovery::{ONDConfig, ONDUseCase};
+    use crate::use_cases::overlay_neighborhood_discovery::{
+        ONDConfig, OverlayNeighborhoodDiscovery,
+    };
     use crate::use_cases::{UseCase, UseCaseEvent};
 
     #[test]
@@ -414,7 +416,7 @@ mod tests {
             runtime.clone(),
         );
 
-        let mut use_case = ONDUseCase::new(config);
+        let mut use_case = OverlayNeighborhoodDiscovery::new(config);
 
         assert_eq!(use_case.start(&sync_context), Ok(()));
         // Dummy Runtime should emit the timer event immediately
@@ -467,7 +469,7 @@ mod tests {
             runtime.clone(),
         );
 
-        let mut use_case = ONDUseCase::new(config);
+        let mut use_case = OverlayNeighborhoodDiscovery::new(config);
 
         assert_eq!(use_case.start(&sync_context), Ok(()));
 
@@ -553,7 +555,7 @@ mod tests {
             runtime.clone(),
         );
 
-        let mut use_case = ONDUseCase::new(config);
+        let mut use_case = OverlayNeighborhoodDiscovery::new(config);
 
         assert_eq!(use_case.start(&sync_context), Ok(()));
 
@@ -653,7 +655,7 @@ mod tests {
             runtime.clone(),
         );
 
-        let mut use_case = ONDUseCase::new(config);
+        let mut use_case = OverlayNeighborhoodDiscovery::new(config);
 
         assert_eq!(use_case.start(&sync_context), Ok(()));
 

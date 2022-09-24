@@ -7,18 +7,20 @@ use std::time::Duration;
 use crate::context::UseCaseContext;
 use crate::domain::{NodeId, RoutingTable};
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{FindNodeReqData, Nonce, ProtocolMessageSender, ReqRspMessage};
+use crate::messaging::{
+    FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageSender, ReqRspMessage,
+};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
 
 #[derive(Debug, Copy, Clone)]
-pub struct RandomProbingConfig {
+pub struct RODConfig {
     pub timeout: Duration,
     pub neighborhood_size: NonZeroU64,
     pub shared_prefix_grouping: NonZeroUsize,
 }
 
-impl Default for RandomProbingConfig {
+impl Default for RODConfig {
     fn default() -> Self {
         Self {
             // Default: 2.5 Messages/s => 1000 ms / 2.5 = 400 ms
@@ -31,23 +33,91 @@ impl Default for RandomProbingConfig {
 
 /// Probe a random [NodeId] to keep [Bucket]s up-to-date.
 #[derive(Debug)]
-pub struct RandomProbingUseCase<C, const BUCKET_SIZE: usize> {
+pub struct RandomOverlayDiscovery<C, const BUCKET_SIZE: usize> {
     _c: PhantomData<C>,
-    config: RandomProbingConfig,
-    state: RandomProbingState,
+    config: RODConfig,
+    state: RODState,
 }
 
-impl<C, const BUCKET_SIZE: usize> RandomProbingUseCase<C, BUCKET_SIZE> {
-    pub fn new(config: RandomProbingConfig) -> Self {
+impl<C, const BUCKET_SIZE: usize> RandomOverlayDiscovery<C, BUCKET_SIZE> {
+    pub fn new(config: RODConfig) -> Self {
         Self {
             _c: PhantomData::default(),
             config,
-            state: RandomProbingState::Initialized,
+            state: RODState::Initialized,
         }
     }
 }
 
-impl<C, const BUCKET_SIZE: usize> UseCase for RandomProbingUseCase<C, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize> RandomOverlayDiscovery<C, BUCKET_SIZE>
+where
+    C: UseCaseContext,
+    C::Runtime: UseCaseRuntime,
+    C::MessageSender: ProtocolMessageSender,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+{
+    fn send_find_node_req(&mut self, context: &C) -> Result<(), RODError> {
+        let random_id = NodeId::random();
+
+        let closest_path = context
+            .routing_table()
+            .get_closest(&random_id, self.config.shared_prefix_grouping.get())
+            .map(|contact| contact.path())
+            .cloned();
+        if closest_path.is_none() {
+            log::trace!(
+                target: "random_overlay_discovery",
+                "No closest contact found for random id; Assuming isolation"
+            );
+            return Ok(());
+        }
+        let closest_path = closest_path.unwrap();
+
+        // Get port of neighbor
+        let port = context.pn_table().get(closest_path.first()).cloned();
+        if port.is_none() {
+            log::error!(
+                target: "random_overlay_discovery",
+                "Contacts path contains invalid neighbor: {}",
+                closest_path
+            );
+            self.state = RODState::Error;
+            return Err(RODError::InvalidNeighbor);
+        }
+
+        let mut route = SourceRoute::from(closest_path);
+        route.push_front(context.root_id().clone());
+
+        let message = ReqRspMessage {
+            nonce: Nonce::random(),
+            source_state_seq_nr: *context.pn_table().state_seq_nr(),
+            data: FindNodeReqData {
+                exact: false,
+                neighborhood: self.config.neighborhood_size,
+                target: random_id,
+            },
+            source_route: route,
+        };
+        log::trace!(target: "random_overlay_discovery", "Sending message {:?}", message);
+
+        if let Err(e) = context.message_sender_mut().send(message) {
+            log::error!("MessageSender failed: {}", e);
+            return Err(RODError::SendFailed);
+        }
+
+        Ok(())
+    }
+
+    fn handle_find_node_req(
+        &self,
+        _context: &C,
+        _req: ReqRspMessage<FindNodeReqData>,
+    ) -> Result<(), RODError> {
+        Ok(())
+    }
+}
+
+impl<C, const BUCKET_SIZE: usize> UseCase for RandomOverlayDiscovery<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
@@ -55,73 +125,36 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     type Context = C;
-    type Error = RandomProbingError;
-    type State = RandomProbingState;
+    type Error = RODError;
+    type State = RODState;
 
     fn start(&mut self, context: &C) -> Result<(), Self::Error> {
         let timer_id = context
             .runtime()
             .register_periodic_timer(self.config.timeout);
 
-        self.state = RandomProbingState::Running(timer_id);
+        self.state = RODState::Running(timer_id);
 
         Ok(())
     }
 
     fn handle_event(&mut self, context: &C, event: UseCaseEvent) -> Result<(), Self::Error> {
-        if let (UseCaseEvent::Timer(event_id), RandomProbingState::Running(timer_id)) =
-            (event, &self.state)
-        {
-            if &event_id == timer_id {
-                let random_id = NodeId::random();
-
-                let closest_path = context
-                    .routing_table()
-                    .get_closest(&random_id, self.config.shared_prefix_grouping.get())
-                    .map(|contact| contact.path())
-                    .cloned();
-                if closest_path.is_none() {
-                    log::trace!(
-                        target: "random_probing",
-                        "No closest contact found for random id; Assuming isolation"
-                    );
+        match (event, &mut self.state) {
+            (UseCaseEvent::Timer(event_id), RODState::Running(timer_id)) => {
+                if &event_id != timer_id {
                     return Ok(());
                 }
-                let closest_path = closest_path.unwrap();
 
-                // Get port of neighbor
-                let port = context.pn_table().get(closest_path.first()).cloned();
-                if port.is_none() {
-                    log::error!(
-                        target: "random_probing",
-                        "Contacts path contains invalid neighbor: {}",
-                        closest_path
-                    );
-                    self.state = RandomProbingState::Error;
-                    return Err(RandomProbingError::InvalidNeighbor);
-                }
-
-                let mut route = SourceRoute::from(closest_path);
-                route.push_front(context.root_id().clone());
-
-                let message = ReqRspMessage {
-                    nonce: Nonce::random(),
-                    source_state_seq_nr: *context.pn_table().state_seq_nr(),
-                    data: FindNodeReqData {
-                        exact: false,
-                        neighborhood: self.config.neighborhood_size,
-                        target: random_id,
-                    },
-                    source_route: route,
-                };
-
-                log::trace!(target: "random_probing", "Sending message {:?}", message);
-
-                if let Err(e) = context.message_sender_mut().send(message) {
-                    log::error!("MessageSender failed: {}", e);
-                    return Err(RandomProbingError::SendFailed);
-                }
+                self.send_find_node_req(context)?;
             }
+            (UseCaseEvent::Message(ProtocolMessage::FindNodeReq(req), _), _) => {
+                if req.destination() != context.root_id() {
+                    return Ok(());
+                }
+
+                self.handle_find_node_req(context, req)?;
+            }
+            _ => {}
         }
 
         Ok(())
@@ -133,13 +166,13 @@ where
 }
 
 #[derive(Debug)]
-pub enum RandomProbingError {
+pub enum RODError {
     SendFailed,
     EmptyRoutingTable,
     InvalidNeighbor,
 }
 
-impl Display for RandomProbingError {
+impl Display for RODError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::SendFailed => write!(f, "Failed to send message"),
@@ -151,16 +184,16 @@ impl Display for RandomProbingError {
     }
 }
 
-impl Error for RandomProbingError {}
+impl Error for RODError {}
 
 #[derive(Debug, Eq, PartialEq)]
-pub enum RandomProbingState {
+pub enum RODState {
     Initialized,
     Running(TimerId),
     Error,
 }
 
-impl UseCaseState for RandomProbingState {
+impl UseCaseState for RODState {
     fn is_error(&self) -> bool {
         self == &Self::Error
     }
@@ -180,9 +213,7 @@ mod tests {
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
     use crate::messaging::ProtocolMessage;
     use crate::runtime::ImmediateRuntime;
-    use crate::use_cases::random_probing::{
-        RandomProbingConfig, RandomProbingState, RandomProbingUseCase,
-    };
+    use crate::use_cases::random_overlay_discovery::{RODConfig, RODState, RandomOverlayDiscovery};
     use crate::use_cases::{UseCase, UseCaseEvent};
 
     fn init_test_context() -> (
@@ -238,7 +269,7 @@ mod tests {
             .pn_table_mut()
             .insert(neighbor.id().clone(), Port::Named(String::from("test")));
 
-        let mut use_case = RandomProbingUseCase::new(RandomProbingConfig {
+        let mut use_case = RandomOverlayDiscovery::new(RODConfig {
             timeout: Duration::from_secs(0),
             neighborhood_size: NonZeroU64::new(20).unwrap(),
             shared_prefix_grouping: NonZeroUsize::new(1).unwrap(),
@@ -247,9 +278,9 @@ mod tests {
         let start_result = use_case.start(&context);
         assert!(start_result.is_ok(), "{:?}", start_result);
 
-        assert!(matches!(&use_case.state, RandomProbingState::Running(_)));
+        assert!(matches!(&use_case.state, RODState::Running { .. }));
         let timer_id = match &use_case.state {
-            RandomProbingState::Running(timer_id) => *timer_id,
+            RODState::Running(timer_id) => *timer_id,
             state => panic!("Unexpected State: {:?}", state),
         };
 

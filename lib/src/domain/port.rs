@@ -3,6 +3,7 @@ use std::fmt::{Display, Formatter};
 #[cfg(feature = "pnet")]
 pub use pnet_conversion::*;
 
+// TODO: Rename to NetworkInterface and remove 'All'
 /// Represents a logical [Port] where a [Message] can be received from or sent to.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Port {

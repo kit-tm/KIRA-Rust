@@ -4,24 +4,42 @@ use std::marker::PhantomData;
 use crate::context::UseCaseContext;
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{ErrorData, ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
-use crate::use_cases::{MessageSentFailed, ReactiveUseCaseState, UseCase, UseCaseEvent};
+use crate::use_cases::{EventHandler, MessageSentFailed, UseCaseEvent};
 
-#[derive(Debug, Default)]
-pub struct ForwardPMUseCase<C> {
-    _pd: PhantomData<C>,
-    state: ReactiveUseCaseState,
+/// Returned by [ForwardProtocolMessages::handle_event].
+///
+/// Either means a [UseCaseEvent] was handled and should not delegated to the remaining use cases
+/// or it was not handled and can be delegated.
+#[derive(Debug)]
+pub enum HandlingResult {
+    /// A [UseCaseEvent] must not be delegated to the other [UseCase]s.
+    Handled,
+    /// A [UseCaseEvent] can be delegated to the other [UseCase]s.
+    NotHandled,
 }
 
-impl<C> ForwardPMUseCase<C> {
+/// Forwards protocol messages if the source route is valid.
+///
+/// Not one of the use cases mentioned in the design paper but one of the shared functionality
+/// cases which have to be performed and checked before passing to the original use cases.
+///
+/// # Errors
+///
+/// Sends an error back if next node in the source route is invalid.
+#[derive(Debug, Default)]
+pub struct ForwardProtocolMessages<C> {
+    _pd: PhantomData<C>,
+}
+
+impl<C> ForwardProtocolMessages<C> {
     pub fn new() -> Self {
         Self {
             _pd: Default::default(),
-            state: ReactiveUseCaseState::Idle,
         }
     }
 }
 
-impl<C> ForwardPMUseCase<C>
+impl<C> ForwardProtocolMessages<C>
 where
     C: UseCaseContext,
     C::MessageSender: ProtocolMessageSender,
@@ -30,7 +48,7 @@ where
         &self,
         context: &C,
         message: ProtocolMessage,
-    ) -> Result<(), <Self as UseCase>::Error> {
+    ) -> Result<(), <Self as EventHandler>::Error> {
         let error_message = ReqRspMessage {
             nonce: message.nonce().unwrap().clone(),
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
@@ -47,38 +65,28 @@ where
     }
 }
 
-impl<C> UseCase for ForwardPMUseCase<C>
+impl<C> EventHandler for ForwardProtocolMessages<C>
 where
     C: UseCaseContext,
     C::MessageSender: ProtocolMessageSender,
 {
     type Context = C;
     type Error = MessageSentFailed;
-    type State = ReactiveUseCaseState;
+    type Value = HandlingResult;
 
-    fn start(&mut self, _context: &Self::Context) -> Result<(), Self::Error> {
-        // We only react to incoming ProtocolMessages
-        Ok(())
-    }
-
-    fn handle_event(
+    fn handle(
         &mut self,
         context: &Self::Context,
         event: UseCaseEvent,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<Self::Value, Self::Error> {
         // Get source route if present
         let (mut message, _) = match event {
             UseCaseEvent::Message(message, source_port) => (message, source_port),
-            _ => return Ok(()),
+            _ => return Ok(HandlingResult::NotHandled),
         };
         let source_route = message.source_route().cloned();
         if source_route.is_none() {
-            log::trace!(
-                target: "forward_protocol_message",
-                "Received message with no source route: {:?}",
-                message
-            );
-            return Ok(());
+            return Ok(HandlingResult::NotHandled);
         }
         let source_route = source_route.unwrap();
 
@@ -90,22 +98,24 @@ where
                 source_route.current_hop(),
                 message
             );
-            return Ok(());
+            return Ok(HandlingResult::Handled);
         }
 
         let next_hop = source_route.next_hop();
 
         // Is directed to us -> nothing to forward
         if next_hop.is_none() {
-            return Ok(());
+            return Ok(HandlingResult::NotHandled);
         }
         let next_hop = next_hop.unwrap();
+
+        // From here on the message is assumed to be for us
 
         // Next hop is not a physical neighbor -> Error -> Drop
         let neighbor_port = context.pn_table().get(next_hop).cloned();
         if neighbor_port.is_none() {
             self.handle_next_hop_not_neighbor(context, message)?;
-            return Ok(());
+            return Ok(HandlingResult::Handled);
         }
 
         // Advance source route and send on port
@@ -119,11 +129,7 @@ where
             return Err(MessageSentFailed);
         }
 
-        Ok(())
-    }
-
-    fn state(&self) -> &Self::State {
-        &self.state
+        Ok(HandlingResult::Handled)
     }
 }
 
@@ -144,8 +150,8 @@ mod tests {
         FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageReceiver, ReqRspMessage,
     };
     use crate::runtime::ImmediateRuntime;
-    use crate::use_cases::forward_protocol_message::ForwardPMUseCase;
-    use crate::use_cases::{UseCase, UseCaseEvent};
+    use crate::use_cases::forward_protocol_message::ForwardProtocolMessages;
+    use crate::use_cases::{EventHandler, UseCaseEvent};
 
     #[test]
     fn forward_to_us_doesnt_forward() {
@@ -178,9 +184,7 @@ mod tests {
             runtime,
         );
 
-        let mut use_case = ForwardPMUseCase::new();
-
-        assert!(use_case.start(&sync_context).is_ok());
+        let mut use_case = ForwardProtocolMessages::new();
 
         let message = ReqRspMessage {
             nonce: Nonce::random(),
@@ -194,7 +198,7 @@ mod tests {
                 .advanced(),
         };
 
-        let result = use_case.handle_event(
+        let result = use_case.handle(
             &sync_context,
             UseCaseEvent::Message(message.into(), Port::new(String::from("test"))),
         );
@@ -244,9 +248,7 @@ mod tests {
             runtime,
         );
 
-        let mut use_case = ForwardPMUseCase::new();
-
-        assert!(use_case.start(&sync_context).is_ok());
+        let mut use_case = ForwardProtocolMessages::new();
 
         let foreign_id = NodeId::with_lsb(3);
         let sent_request = ReqRspMessage {
@@ -264,7 +266,7 @@ mod tests {
             ])),
         };
 
-        let result = use_case.handle_event(
+        let result = use_case.handle(
             &sync_context,
             UseCaseEvent::Message(sent_request.clone().into(), Port::new(String::from("test"))),
         );
