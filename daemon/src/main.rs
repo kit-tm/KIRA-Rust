@@ -16,6 +16,7 @@ use r2kad_lib::messaging::sync_wrapper::SyncWrapper;
 use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetPortMapper};
 use r2kad_lib::runtime::TokioRuntime;
 use r2kad_lib::use_cases::forward_protocol_message::ForwardProtocolMessages;
+use r2kad_lib::use_cases::handle_overlay_discovery::HandleOverlayDiscovery;
 use r2kad_lib::use_cases::message_info_extraction::MessageInfoExtraction;
 use r2kad_lib::use_cases::overlay_neighborhood_discovery::OverlayNeighborhoodDiscovery;
 use r2kad_lib::use_cases::random_overlay_discovery::RandomOverlayDiscovery;
@@ -173,6 +174,8 @@ fn main() {
 
     let mut message_info_extraction = MessageInfoExtraction::<_, DEFAULT_BUCKET_SIZE>::default();
     let mut forward_message = ForwardProtocolMessages::new();
+    let mut handle_overlay_discovery =
+        HandleOverlayDiscovery::new(Default::default()).expect("default grouping should be valid");
 
     // Wait for MessageReceivers or runtime to emit events and delegate to Use Cases
     // IMPORTANT: The Runtime::block_on method drives progress in the CurrentThreadRuntime.
@@ -195,6 +198,13 @@ fn main() {
             Ok(HandlingResult::Handled) => continue, /* Skip delegation to use cases */
             Ok(HandlingResult::NotHandled) => { /* Delegate event to use cases  */ }
         }
+
+        // Shared functionality
+        if let Err(e) = handle_overlay_discovery.handle(&context, event.clone()) {
+            log::error!("Handling overlay discovery failed: {}", e);
+        }
+
+        // Actual use cases
         if let Err(e) = random_probing.handle(&context, event.clone()) {
             log::error!("Random Probing returned error handling message: {}", e);
         }
