@@ -15,12 +15,14 @@ use r2kad_lib::messaging::format::ProtocolMessageFormat;
 use r2kad_lib::messaging::sync_wrapper::SyncWrapper;
 use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetPortMapper};
 use r2kad_lib::runtime::TokioRuntime;
-use r2kad_lib::use_cases::forward_protocol_message::{ForwardProtocolMessages, HandlingResult};
+use r2kad_lib::use_cases::forward_protocol_message::ForwardProtocolMessages;
 use r2kad_lib::use_cases::message_info_extraction::MessageInfoExtraction;
 use r2kad_lib::use_cases::overlay_neighborhood_discovery::OverlayNeighborhoodDiscovery;
 use r2kad_lib::use_cases::random_overlay_discovery::RandomOverlayDiscovery;
 use r2kad_lib::use_cases::vicinity_discovery::VicinityDiscovery;
-use r2kad_lib::use_cases::{ContactEvent, EventHandler, UseCase, UseCaseEvent, UseCaseState};
+use r2kad_lib::use_cases::{
+    ContactEvent, EventHandler, HandlingResult, UseCase, UseCaseEvent, UseCaseState,
+};
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
