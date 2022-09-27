@@ -7,6 +7,7 @@ use crate::domain::{Contact, Port};
 use crate::messaging::messages::ProtocolMessage;
 
 pub mod forward_protocol_message;
+pub mod handle_overlay_discovery;
 pub mod message_info_extraction;
 pub mod overlay_neighborhood_discovery;
 pub mod random_overlay_discovery;
@@ -90,6 +91,18 @@ impl Display for MessageSentFailed {
 }
 
 impl Error for MessageSentFailed {}
+
+/// Returned by [ForwardProtocolMessages::handle_event].
+///
+/// Either means a [UseCaseEvent] was handled and should not delegated to the remaining use cases
+/// or it was not handled and can be delegated.
+#[derive(Debug)]
+pub enum HandlingResult {
+    /// A [UseCaseEvent] must not be delegated to the other [UseCase]s.
+    Handled,
+    /// A [UseCaseEvent] can be delegated to the other [UseCase]s.
+    NotHandled,
+}
 
 /// An EventHandler handles events in some context and returns a value of type `Value` or an error
 /// of type `Error`.

@@ -4,19 +4,7 @@ use std::marker::PhantomData;
 use crate::context::UseCaseContext;
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{ErrorData, ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
-use crate::use_cases::{EventHandler, MessageSentFailed, UseCaseEvent};
-
-/// Returned by [ForwardProtocolMessages::handle_event].
-///
-/// Either means a [UseCaseEvent] was handled and should not delegated to the remaining use cases
-/// or it was not handled and can be delegated.
-#[derive(Debug)]
-pub enum HandlingResult {
-    /// A [UseCaseEvent] must not be delegated to the other [UseCase]s.
-    Handled,
-    /// A [UseCaseEvent] can be delegated to the other [UseCase]s.
-    NotHandled,
-}
+use crate::use_cases::{EventHandler, HandlingResult, MessageSentFailed, UseCaseEvent};
 
 /// Forwards protocol messages if the source route is valid.
 ///

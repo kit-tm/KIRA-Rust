@@ -5,11 +5,9 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use std::time::Duration;
 
 use crate::context::UseCaseContext;
-use crate::domain::{NodeId, RoutingTable};
+use crate::domain::{node_id, GroupingError, NodeId, RoutingTable};
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{
-    FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageSender, ReqRspMessage,
-};
+use crate::messaging::{FindNodeReqData, Nonce, ProtocolMessageSender, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
 
@@ -40,12 +38,19 @@ pub struct RandomOverlayDiscovery<C, const BUCKET_SIZE: usize> {
 }
 
 impl<C, const BUCKET_SIZE: usize> RandomOverlayDiscovery<C, BUCKET_SIZE> {
-    pub fn new(config: RODConfig) -> Self {
-        Self {
+    pub fn new(config: RODConfig) -> Result<Self, GroupingError> {
+        if config.shared_prefix_grouping.get() > node_id::BIT_SIZE {
+            return Err(GroupingError::Invalid {
+                group_size: config.shared_prefix_grouping.get(),
+                id_size: node_id::BIT_SIZE,
+            });
+        }
+
+        Ok(Self {
             _c: PhantomData::default(),
             config,
             state: RODState::Initialized,
-        }
+        })
     }
 }
 
@@ -61,8 +66,14 @@ where
 
         let closest_path = context
             .routing_table()
-            .get_closest(&random_id, self.config.shared_prefix_grouping.get())
-            .map(|contact| contact.path())
+            .closest(
+                &random_id,
+                BUCKET_SIZE,
+                self.config.shared_prefix_grouping.get(),
+            )
+            .expect("grouping was checked on initialization")
+            .first()
+            .map(|(_, contact)| contact.path())
             .cloned();
         if closest_path.is_none() {
             log::trace!(
@@ -107,14 +118,6 @@ where
 
         Ok(())
     }
-
-    fn handle_find_node_req(
-        &self,
-        _context: &C,
-        _req: ReqRspMessage<FindNodeReqData>,
-    ) -> Result<(), RODError> {
-        Ok(())
-    }
 }
 
 impl<C, const BUCKET_SIZE: usize> UseCase for RandomOverlayDiscovery<C, BUCKET_SIZE>
@@ -139,22 +142,14 @@ where
     }
 
     fn handle_event(&mut self, context: &C, event: UseCaseEvent) -> Result<(), Self::Error> {
-        match (event, &mut self.state) {
-            (UseCaseEvent::Timer(event_id), RODState::Running(timer_id)) => {
-                if &event_id != timer_id {
-                    return Ok(());
-                }
-
-                self.send_find_node_req(context)?;
+        if let (UseCaseEvent::Timer(event_id), RODState::Running(timer_id)) =
+            (event, &mut self.state)
+        {
+            if &event_id != timer_id {
+                return Ok(());
             }
-            (UseCaseEvent::Message(ProtocolMessage::FindNodeReq(req), _), _) => {
-                if req.destination() != context.root_id() {
-                    return Ok(());
-                }
 
-                self.handle_find_node_req(context, req)?;
-            }
-            _ => {}
+            self.send_find_node_req(context)?;
         }
 
         Ok(())
@@ -273,7 +268,8 @@ mod tests {
             timeout: Duration::from_secs(0),
             neighborhood_size: NonZeroU64::new(20).unwrap(),
             shared_prefix_grouping: NonZeroUsize::new(1).unwrap(),
-        });
+        })
+        .unwrap();
 
         let start_result = use_case.start(&context);
         assert!(start_result.is_ok(), "{:?}", start_result);

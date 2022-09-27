@@ -1,11 +1,12 @@
+use std::cmp::Ordering;
 use std::num::NonZeroUsize;
 use std::ops::IndexMut;
 
 use rand::Rng;
 
 use crate::domain::{
-    node_id, AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, GroupingError,
-    NodeId, ReplacementError, RoutingTable, SharedPrefix, DEFAULT_BUCKET_SIZE,
+    node_id, AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, ContactState,
+    GroupingError, NodeId, ReplacementError, RoutingTable, SharedPrefix, DEFAULT_BUCKET_SIZE,
 };
 
 pub const DEFAULT_ACCELERATION: usize = 1;
@@ -271,9 +272,76 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         self.buckets.index_mut(index)
     }
 
-    fn get_closest(&self, to: &NodeId, shared_prefix_grouping: usize) -> Option<&Contact> {
-        super::get_closest_in(self.bucket(to).iter(), to, shared_prefix_grouping)
-            .expect("grouping should have been checked before")
+    /// Collects the closest `n` contacts to the given node by iterating the buckets from
+    /// the one the given node would belong to.
+    fn closest(
+        &self,
+        to: &NodeId,
+        n: usize,
+        shared_prefix_grouping: usize,
+    ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError> {
+        let index = self.get_bucket_index(to);
+
+        // Longer prefix has to be in front
+        let sorter = |first: &(SharedPrefix, Contact), second: &(SharedPrefix, Contact)| {
+            if first.0 < second.0 {
+                return Ordering::Less;
+            }
+            if first.0 == second.0 && first.1.id() < second.1.id() {
+                return Ordering::Less;
+            }
+
+            Ordering::Greater
+        };
+
+        let mut result = Vec::with_capacity(n);
+        for contact in &self.buckets[index] {
+            if contact.state() != &ContactState::Valid {
+                continue;
+            }
+
+            let prefix = to.shared_prefix_len(contact.id(), shared_prefix_grouping)?;
+            result.push((prefix, contact.clone()));
+        }
+        result.sort_by(sorter);
+
+        if result.len() == n || self.buckets.len() == 1 {
+            return Ok(result);
+        }
+
+        // check lower or higher buckets in order
+        for i in 1..std::cmp::max(index, self.buckets.len() - index) {
+            let mut bucket_contents = Vec::with_capacity(2 * BUCKET_SIZE);
+
+            if index <= i {
+                for contact in &self.buckets[index - i] {
+                    if contact.state() != &ContactState::Valid {
+                        continue;
+                    }
+
+                    let prefix = to.shared_prefix_len(contact.id(), shared_prefix_grouping)?;
+                    bucket_contents.push((prefix, contact.clone()));
+                }
+            }
+            if index + i < self.buckets.len() {
+                for contact in &self.buckets[index + i] {
+                    if contact.state() != &ContactState::Valid {
+                        continue;
+                    }
+
+                    let prefix = to.shared_prefix_len(contact.id(), shared_prefix_grouping)?;
+                    bucket_contents.push((prefix, contact.clone()));
+                }
+            }
+
+            bucket_contents.sort_by(sorter);
+
+            let remaining_contacts = n - result.len();
+            let next_contacts = bucket_contents.into_iter().take(remaining_contacts);
+            result.extend(next_contacts);
+        }
+
+        Ok(result)
     }
 }
 
