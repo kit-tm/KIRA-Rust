@@ -148,6 +148,12 @@ fn main() {
 
     // Initialize the Use Cases
 
+    let mut forward_message = ForwardProtocolMessage::default();
+    if let Err(e) = forward_message.start(&context) {
+        log::error!("Failed to start forwarding UseCase: {}", e);
+        return;
+    }
+
     let mut random_probing =
         RandomOverlayDiscovery::new(Default::default()).expect("default grouping should be valid");
     if let Err(e) = random_probing.start(&context) {
@@ -171,7 +177,6 @@ fn main() {
 
     // Initialize common tasks
 
-    let mut forward_message = ForwardProtocolMessage::default();
     let mut handle_overlay_discovery =
         HandleOverlayDiscovery::new(Default::default()).expect("default grouping should be valid");
 
@@ -187,7 +192,7 @@ fn main() {
                 "Forwarding protocol message returned error handling message: {}",
                 e
             ),
-            Ok(HandlingResult::Handled) => continue, /* Skip delegation to use cases */
+            Ok(HandlingResult::Handled) => continue, /* Skip delegation to other use cases */
             Ok(HandlingResult::NotHandled) => { /* Delegate event to use cases  */ }
         }
         if let Err(e) = handle_overlay_discovery.handle(&context, event.clone()) {
@@ -210,6 +215,7 @@ fn main() {
 
         // Check States as returning an error doesn't show an unrecoverable error
         let states: Vec<&(dyn UseCaseState)> = vec![
+            forward_message.state(),
             random_probing.state(),
             on_disc.state(),
             vicinity_disc.state(),
