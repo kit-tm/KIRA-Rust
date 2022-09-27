@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 
 use crate::context::UseCaseContext;
-use crate::domain::{Contact, Port};
+use crate::domain::{Contact, NetworkInterface};
 use crate::messaging::messages::ProtocolMessage;
 
 pub mod forward_protocol_message;
@@ -15,7 +15,7 @@ pub mod vicinity_discovery;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum UseCaseEvent {
-    Message(ProtocolMessage, Port),
+    Message(ProtocolMessage, NetworkInterface),
     Timer(TimerId),
     Contact(ContactEvent),
 }

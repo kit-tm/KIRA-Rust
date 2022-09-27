@@ -69,7 +69,7 @@ where
     ) -> Result<Self::Value, Self::Error> {
         // Get source route if present
         let (mut message, _) = match event {
-            UseCaseEvent::Message(message, source_port) => (message, source_port),
+            UseCaseEvent::Message(message, source_interface) => (message, source_interface),
             _ => return Ok(HandlingResult::NotHandled),
         };
         let source_route = message.source_route().cloned();
@@ -100,13 +100,13 @@ where
         // From here on the message is assumed to be for us
 
         // Next hop is not a physical neighbor -> Error -> Drop
-        let neighbor_port = context.pn_table().get(next_hop).cloned();
-        if neighbor_port.is_none() {
+        let neighbor_interface = context.pn_table().get(next_hop).cloned();
+        if neighbor_interface.is_none() {
             self.handle_next_hop_not_neighbor(context, message)?;
             return Ok(HandlingResult::Handled);
         }
 
-        // Advance source route and send on port
+        // Advance source route and send on interface
         // Checked route before
         if let Some(route) = message.source_route_mut() {
             route.advance();
@@ -129,8 +129,8 @@ mod tests {
     use crate::context::SyncContext;
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
-        Contact, InsertionStrategyResult, NodeId, PNTable, Path, Port, RoutingTable, StateSeqNr,
-        TestInsertionStrategy,
+        Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable,
+        StateSeqNr, TestInsertionStrategy,
     };
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
@@ -161,7 +161,7 @@ mod tests {
         let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id.clone(), Port::Named(String::from("test")));
+        pn_table.insert(neighbor_id.clone(), NetworkInterface::new("test"));
 
         let sync_context = SyncContext::new(
             root_id.clone(),
@@ -188,7 +188,7 @@ mod tests {
 
         let result = use_case.handle(
             &sync_context,
-            UseCaseEvent::Message(message.into(), Port::new(String::from("test"))),
+            UseCaseEvent::Message(message.into(), NetworkInterface::new("test")),
         );
         assert!(
             result.is_ok(),
@@ -225,7 +225,7 @@ mod tests {
         let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id.clone(), Port::Named(String::from("test")));
+        pn_table.insert(neighbor_id.clone(), NetworkInterface::new("test"));
 
         let sync_context = SyncContext::new(
             root_id.clone(),
@@ -256,7 +256,7 @@ mod tests {
 
         let result = use_case.handle(
             &sync_context,
-            UseCaseEvent::Message(sent_request.clone().into(), Port::new(String::from("test"))),
+            UseCaseEvent::Message(sent_request.clone().into(), NetworkInterface::new("test")),
         );
         assert!(
             result.is_ok(),

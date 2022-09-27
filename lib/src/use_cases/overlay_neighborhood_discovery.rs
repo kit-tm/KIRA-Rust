@@ -224,10 +224,10 @@ where
         let mut route_to_closest_on = SourceRoute::from(contact.path().clone());
         route_to_closest_on.push_front(context.root_id().clone());
 
-        // Get the port of the next physical neighbor to route this request through
+        // Get the interface of the next physical neighbor to route this request through
         let neighbor = route_to_closest_on.current_hop();
-        let port = context.pn_table().get(neighbor).cloned();
-        if port.is_none() {
+        let interface = context.pn_table().get(neighbor).cloned();
+        if interface.is_none() {
             log::error!(
                 target: "overlay_neighborhood_discovery",
                 "Contact is valid but its path goes through an invalid neighbor. Contact: {}, neighbor: {}",
@@ -386,8 +386,8 @@ mod tests {
     use crate::context::SyncContext;
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
-        Contact, InsertionStrategyResult, NodeId, PNTable, Path, Port, RoutingTable, StateSeqNr,
-        TestInsertionStrategy,
+        Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable,
+        StateSeqNr, TestInsertionStrategy,
     };
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
@@ -468,7 +468,7 @@ mod tests {
             ))
             .is_ok());
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id, Port::Named(String::from("test")));
+        pn_table.insert(neighbor_id, NetworkInterface::new("test"));
 
         let sync_context = SyncContext::new(
             root_id.clone(),
@@ -554,7 +554,7 @@ mod tests {
             ))
             .is_ok());
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id, Port::Named(String::from("test")));
+        pn_table.insert(neighbor_id, NetworkInterface::new("test"));
 
         let sync_context = SyncContext::new(
             root_id.clone(),
@@ -654,7 +654,7 @@ mod tests {
             ))
             .is_ok());
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id, Port::Named(String::from("test")));
+        pn_table.insert(neighbor_id, NetworkInterface::new("test"));
 
         let sync_context = SyncContext::new(
             root_id.clone(),
@@ -706,7 +706,7 @@ mod tests {
                 data: ErrorData::DeadEnd,
                 source_route,
             }),
-            InMemoryMessageHub::dummy_port(),
+            InMemoryMessageHub::dummy_interface(),
         );
         assert_eq!(use_case.handle_event(&sync_context, error), Ok(()));
         let timer_id = runtime
@@ -738,7 +738,7 @@ mod tests {
                 data: ErrorData::DeadEnd,
                 source_route: SourceRoute::from_reversed(source_route),
             }),
-            InMemoryMessageHub::dummy_port(),
+            InMemoryMessageHub::dummy_interface(),
         );
         assert_eq!(use_case.handle_event(&sync_context, error), Ok(()));
         let timer_id = runtime
@@ -771,7 +771,7 @@ mod tests {
                 data: ErrorData::DeadEnd,
                 source_route: SourceRoute::from_reversed(source_route),
             }),
-            InMemoryMessageHub::dummy_port(),
+            InMemoryMessageHub::dummy_interface(),
         );
         assert_eq!(use_case.handle_event(&sync_context, error), Ok(()));
         let timer_id = runtime

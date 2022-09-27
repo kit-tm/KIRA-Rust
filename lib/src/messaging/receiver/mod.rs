@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt::Display;
 use std::time::Duration;
 
-use crate::domain::Port;
+use crate::domain::NetworkInterface;
 use crate::messaging::messages::ProtocolMessage;
 
 #[cfg(feature = "udp")]
@@ -15,10 +15,10 @@ pub mod udp_tokio;
 pub enum RecvError {
     /// Receiving timed out.
     Timeout,
-    /// Returned if no port for a message was found.
+    /// Returned if no interface for a message was found.
     ///
     /// This may signal an inconsistency in the interface configuration.
-    NoPortFound,
+    NoInterfaceFound,
     /// The I/O-Layer returned some error.
     IoError(Box<dyn Error>),
     /// Other Error for custom error types of the implementations.
@@ -29,9 +29,9 @@ impl Display for RecvError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Timeout => write!(f, "Timeout receiving a Message"),
-            Self::NoPortFound => write!(
+            Self::NoInterfaceFound => write!(
                 f,
-                "No port for message was found; Network configuration may be inconsistent"
+                "No interface for message was found; Network configuration may be inconsistent"
             ),
             Self::IoError(e) => write!(f, "Received IO Error: {}", e),
             Self::Other(e) => write!(f, "{}", e),
@@ -46,10 +46,10 @@ impl Error for RecvError {}
 pub enum TryRecvError {
     /// The I/O-Layer returned some error.
     IoError(Box<dyn Error>),
-    /// Returned if no port for a message was found.
+    /// Returned if no interface for a message was found.
     ///
     /// This may signal an inconsistency in the interface configuration.
-    NoPortFound,
+    NoInterfaceFound,
     /// Other Error for custom error types of the implementations.
     Other(Box<dyn Error>),
 }
@@ -58,9 +58,9 @@ impl Display for TryRecvError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::IoError(e) => write!(f, "Received IO Error: {}", e),
-            Self::NoPortFound => write!(
+            Self::NoInterfaceFound => write!(
                 f,
-                "No port for message was found; Network configuration may be inconsistent"
+                "No interface for message was found; Network configuration may be inconsistent"
             ),
             Self::Other(e) => write!(f, "{}", e),
         }
@@ -84,15 +84,15 @@ pub trait ProtocolMessageReceiver {
     fn recv_timeout(
         &mut self,
         timeout: Option<Duration>,
-    ) -> Result<Option<(ProtocolMessage, Port)>, RecvError>;
+    ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError>;
     /// Receives a [Message].
     ///
     /// Short for calling [recv_timeout](MessageReceiver::recv_timeout) with [None](Option::None).
-    fn recv(&mut self) -> Option<(ProtocolMessage, Port)> {
+    fn recv(&mut self) -> Option<(ProtocolMessage, NetworkInterface)> {
         self.recv_timeout(None).ok().flatten()
     }
     /// Tries to receive a [Message] and returns an [Error] if no message is present at the time.
-    fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, Port)>, TryRecvError>;
+    fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, NetworkInterface)>, TryRecvError>;
 }
 
 /// Receives [Message]s of other Nodes.
@@ -111,13 +111,15 @@ pub trait AsyncProtocolMessageReceiver {
     async fn recv_timeout(
         &mut self,
         timeout: Option<Duration>,
-    ) -> Result<Option<(ProtocolMessage, Port)>, RecvError>;
+    ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError>;
     /// Receives a [Message].
     ///
     /// Short for calling [recv_timeout](MessageReceiver::recv_timeout) with [None](Option::None).
-    async fn recv(&mut self) -> Result<Option<(ProtocolMessage, Port)>, RecvError> {
+    async fn recv(&mut self) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError> {
         self.recv_timeout(None).await
     }
     /// Tries to receive a [Message] and returns an [Error] if no message is present at the time.
-    async fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, Port)>, TryRecvError>;
+    async fn try_recv(
+        &mut self,
+    ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, TryRecvError>;
 }

@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use tokio::runtime::Runtime;
 
-use crate::domain::Port;
+use crate::domain::NetworkInterface;
 use crate::messaging::error::SenderError;
 use crate::messaging::{
     AsyncProtocolMessageReceiver, AsyncProtocolMessageSender, ProtocolMessage,
@@ -44,11 +44,11 @@ where
     fn recv_timeout(
         &mut self,
         timeout: Option<Duration>,
-    ) -> Result<Option<(ProtocolMessage, Port)>, RecvError> {
+    ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError> {
         self.runtime.block_on(self.inner.recv_timeout(timeout))
     }
 
-    fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, Port)>, TryRecvError> {
+    fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, NetworkInterface)>, TryRecvError> {
         self.runtime.block_on(self.inner.try_recv())
     }
 }

@@ -199,7 +199,7 @@ where
         let mut route = SourceRoute::from(contact.path().clone());
         route.push_front(context.root_id().clone());
 
-        // Get port of route
+        // Get interface of route
         let neighbor_port = context.pn_table().get(contact.path().first()).cloned();
         if neighbor_port.is_none() {
             log::error!(
@@ -453,8 +453,8 @@ mod tests {
     use crate::context::SyncContext;
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
-        Contact, InsertionStrategyResult, NodeId, PNTable, Path, Port, RoutingTable, StateSeqNr,
-        TestInsertionStrategy,
+        Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable,
+        StateSeqNr, TestInsertionStrategy,
     };
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
@@ -671,7 +671,7 @@ mod tests {
                         source: sender_id.clone(),
                         source_state_seq_nr: StateSeqNr::from(0),
                     }),
-                    InMemoryMessageHub::dummy_port(),
+                    InMemoryMessageHub::dummy_interface(),
                 ),
             ),
             Ok(())
@@ -733,7 +733,7 @@ mod tests {
                         source: sender_id.clone(),
                         source_state_seq_nr: StateSeqNr::from(0),
                     }),
-                    InMemoryMessageHub::dummy_port(),
+                    InMemoryMessageHub::dummy_interface(),
                 ),
             ),
             Ok(())
@@ -763,7 +763,7 @@ mod tests {
         let root_id = NodeId::with_msb(1);
         let source_id = NodeId::with_msb(2);
 
-        let neighbors_port = InMemoryMessageHub::dummy_port();
+        let neighbors_port = InMemoryMessageHub::dummy_interface();
         let neighbor_contacts = vec![
             Contact::new(Path::from([NodeId::with_msb(14)]), StateSeqNr::from(14)),
             Contact::new(Path::from([NodeId::with_msb(16)]), StateSeqNr::from(16)),
@@ -962,7 +962,7 @@ mod tests {
             ))
             .is_ok());
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id.clone(), Port::Named(String::from("test")));
+        pn_table.insert(neighbor_id.clone(), NetworkInterface::new("test"));
 
         let sync_context = SyncContext::new(
             root_id.clone(),
@@ -1016,7 +1016,7 @@ mod tests {
         let root_id = NodeId::with_msb(1);
         let source_id = NodeId::with_msb(2);
 
-        let neighbors_port = InMemoryMessageHub::dummy_port();
+        let neighbors_port = InMemoryMessageHub::dummy_interface();
         let neighbor_contacts = vec![
             Contact::new(Path::from([NodeId::with_msb(14)]), StateSeqNr::from(14)),
             Contact::new(Path::from([NodeId::with_msb(16)]), StateSeqNr::from(16)),
@@ -1160,8 +1160,10 @@ mod tests {
                 NodeId::with_msb(14),
             ])),
         });
-        let event =
-            UseCaseEvent::Message(protocol_message.clone(), InMemoryMessageHub::dummy_port());
+        let event = UseCaseEvent::Message(
+            protocol_message.clone(),
+            InMemoryMessageHub::dummy_interface(),
+        );
 
         let handle_result = use_case.handle_event(&context, event.clone());
         assert!(

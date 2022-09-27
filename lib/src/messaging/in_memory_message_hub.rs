@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fmt::Display;
 use std::time::Duration;
 
-use crate::domain::Port;
+use crate::domain::NetworkInterface;
 use crate::messaging::error::SenderError;
 use crate::messaging::messages::ProtocolMessage;
 use crate::messaging::receiver::{ProtocolMessageReceiver, RecvError, TryRecvError};
@@ -16,7 +16,7 @@ use crate::messaging::sender::ProtocolMessageSender;
 #[derive(Debug)]
 pub struct InMemoryMessageHub {
     messages: VecDeque<ProtocolMessage>,
-    port: Port,
+    interface: NetworkInterface,
 }
 
 impl Default for InMemoryMessageHub {
@@ -29,22 +29,24 @@ impl InMemoryMessageHub {
     pub fn new() -> Self {
         Self {
             messages: VecDeque::new(),
-            port: InMemoryMessageHub::dummy_port(),
+            interface: InMemoryMessageHub::dummy_interface(),
         }
     }
 
-    pub fn dummy_port() -> Port {
-        Port::Named(String::from("dummy port"))
+    pub fn dummy_interface() -> NetworkInterface {
+        NetworkInterface::new("dummy interface")
     }
 
-    fn pop(&mut self) -> Option<(ProtocolMessage, Port)> {
+    fn pop(&mut self) -> Option<(ProtocolMessage, NetworkInterface)> {
         self.messages
             .pop_front()
-            .map(|message| (message, self.port.clone()))
+            .map(|message| (message, self.interface.clone()))
     }
 
-    pub fn messages(&self) -> impl Iterator<Item = (&ProtocolMessage, &Port)> {
-        self.messages.iter().map(|message| (message, &self.port))
+    pub fn messages(&self) -> impl Iterator<Item = (&ProtocolMessage, &NetworkInterface)> {
+        self.messages
+            .iter()
+            .map(|message| (message, &self.interface))
     }
 }
 
@@ -52,11 +54,11 @@ impl ProtocolMessageReceiver for InMemoryMessageHub {
     fn recv_timeout(
         &mut self,
         _timeout: Option<Duration>,
-    ) -> Result<Option<(ProtocolMessage, Port)>, RecvError> {
+    ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError> {
         Ok(self.pop())
     }
 
-    fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, Port)>, TryRecvError> {
+    fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, NetworkInterface)>, TryRecvError> {
         Ok(self.pop())
     }
 }
@@ -89,7 +91,7 @@ pub mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
-    use crate::domain::{NodeId, Port, StateSeqNr};
+    use crate::domain::{NetworkInterface, NodeId, StateSeqNr};
     use crate::messaging::error::SenderError;
     use crate::messaging::in_memory_message_hub::InMemoryMessageHub;
     use crate::messaging::messages::{HelloMessage, ProtocolMessage};
@@ -111,12 +113,12 @@ pub mod tests {
             Self(Arc::new(Mutex::new(InMemoryMessageHub::new())))
         }
 
-        pub fn messages(&self) -> Vec<(ProtocolMessage, Port)> {
+        pub fn messages(&self) -> Vec<(ProtocolMessage, NetworkInterface)> {
             self.0
                 .lock()
                 .expect("failed to get hub lock")
                 .messages()
-                .map(|(message, port)| (message.clone(), port.clone()))
+                .map(|(message, interface)| (message.clone(), interface.clone()))
                 .collect()
         }
     }
@@ -135,12 +137,14 @@ pub mod tests {
         fn recv_timeout(
             &mut self,
             timeout: Option<Duration>,
-        ) -> Result<Option<(ProtocolMessage, Port)>, RecvError> {
+        ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError> {
             let mut lock = self.0.lock().expect("failed to get lock on hub");
             lock.recv_timeout(timeout)
         }
 
-        fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, Port)>, TryRecvError> {
+        fn try_recv(
+            &mut self,
+        ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, TryRecvError> {
             let mut lock = self.0.lock().expect("failed to get lock on hub");
             lock.try_recv()
         }
@@ -169,7 +173,7 @@ pub mod tests {
                     source: NodeId::zero(),
                     source_state_seq_nr: StateSeqNr::from(0),
                 }),
-                InMemoryMessageHub::dummy_port()
+                InMemoryMessageHub::dummy_interface()
             ))
         );
 
@@ -180,7 +184,7 @@ pub mod tests {
                     source: NodeId::one(),
                     source_state_seq_nr: StateSeqNr::from(0),
                 }),
-                InMemoryMessageHub::dummy_port()
+                InMemoryMessageHub::dummy_interface()
             ))
         );
     }

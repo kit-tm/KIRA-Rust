@@ -7,18 +7,18 @@ use tokio::sync::RwLock;
 pub use in_memory_message_hub::*;
 pub use messages::*;
 #[cfg(feature = "pnet")]
-pub use pnet_port_mapper::*;
+pub use pnet_interface_mapper::*;
 pub use receiver::*;
 pub use sender::*;
 
-use crate::domain::{NodeId, Port};
+use crate::domain::{NetworkInterface, NodeId};
 
 #[cfg(feature = "serde")]
 pub mod format;
 pub mod in_memory_message_hub;
 pub mod messages;
 #[cfg(feature = "pnet")]
-pub mod pnet_port_mapper;
+pub mod pnet_interface_mapper;
 pub mod receiver;
 pub mod sender;
 pub mod source_route;
@@ -67,20 +67,20 @@ impl AsyncIpCache for Arc<RwLock<HashMap<NodeId, SocketAddrV6>>> {
 
 /// Maps [SocketAddr] to [Port]s.
 ///
-/// Returns [None] if no mapping to a port is present.
-pub trait PortMapper {
-    /// Get the port for a given address.
-    fn get_port(&self, input_addr: &SocketAddr) -> Option<Port>;
+/// Returns [None] if no mapping to an interface is present.
+pub trait InterfaceMapper {
+    /// Get the interface for a given address.
+    fn get_interface(&self, input_addr: &SocketAddr) -> Option<NetworkInterface>;
 }
 
 /// Maps [SocketAddr] to [Port]s.
 ///
-/// Returns [None] if no mapping to a port is present.
+/// Returns [None] if no mapping to a interface is present.
 /// The caller then may use [Port::All] for HelloMessages to flood them to all ports.
 #[async_trait::async_trait]
-pub trait AsyncPortMapper {
-    /// Get the port for a given address.
-    async fn get_port(&self, input_addr: &SocketAddr) -> Option<Port>;
+pub trait AsyncInterfaceMapper {
+    /// Get the interface for a given address.
+    async fn get_interface(&self, input_addr: &SocketAddr) -> Option<NetworkInterface>;
 }
 
 #[cfg(feature = "udp")]
@@ -89,7 +89,9 @@ pub mod udp {
     use std::sync::Arc;
 
     use crate::messaging::format::ProtocolMessageFormat;
-    use crate::messaging::{receiver, sender, AsyncIpCache, AsyncPortMapper, IpCache, PortMapper};
+    use crate::messaging::{
+        receiver, sender, AsyncInterfaceMapper, AsyncIpCache, InterfaceMapper, IpCache,
+    };
 
     /// Creates a synchronous I/O Channel consisting of one [sender::udp::UdpSender] and
     /// one [receiver::udp::UdpReceiver].
@@ -102,12 +104,12 @@ pub mod udp {
     pub fn sync_channel<C, P>(
         port: u16,
         cache: C,
-        port_mapper: P,
+        interface_mapper: P,
         format: ProtocolMessageFormat,
     ) -> std::io::Result<(sender::udp::UdpSender<C>, receiver::udp::UdpReceiver<C, P>)>
     where
         C: IpCache + Clone,
-        P: PortMapper,
+        P: InterfaceMapper,
     {
         let socket = Arc::new(std::net::UdpSocket::bind(SocketAddr::from((
             [0, 0, 0, 0, 0, 0, 0, 0],
@@ -117,7 +119,8 @@ pub mod udp {
         let sender =
             sender::udp::UdpSender::from_socket(socket.clone(), cache.clone(), format.clone())?;
 
-        let receiver = receiver::udp::UdpReceiver::from_socket(socket, cache, port_mapper, format);
+        let receiver =
+            receiver::udp::UdpReceiver::from_socket(socket, cache, interface_mapper, format);
 
         Ok((sender, receiver))
     }
@@ -133,7 +136,7 @@ pub mod udp {
     pub async fn async_channel<C, P>(
         port: u16,
         cache: C,
-        port_mapper: P,
+        interface_mapper: P,
         format: ProtocolMessageFormat,
     ) -> tokio::io::Result<(
         sender::udp_tokio::UdpSender<C>,
@@ -141,7 +144,7 @@ pub mod udp {
     )>
     where
         C: AsyncIpCache + Clone + Send + Sync,
-        P: AsyncPortMapper + Clone + Send + Sync,
+        P: AsyncInterfaceMapper + Clone + Send + Sync,
     {
         let socket = Arc::new(
             tokio::net::UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port))).await?,
@@ -155,7 +158,7 @@ pub mod udp {
         .await?;
 
         let receiver =
-            receiver::udp_tokio::UdpReceiver::from_socket(socket, format, cache, port_mapper);
+            receiver::udp_tokio::UdpReceiver::from_socket(socket, format, cache, interface_mapper);
 
         Ok((sender, receiver))
     }

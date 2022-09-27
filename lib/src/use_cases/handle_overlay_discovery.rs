@@ -207,8 +207,8 @@ mod tests {
     use crate::context::SyncContext;
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
-        Contact, InsertionStrategyResult, NodeId, PNTable, Path, Port, RoutingTable, StateSeqNr,
-        TestInsertionStrategy,
+        Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable,
+        StateSeqNr, TestInsertionStrategy,
     };
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
@@ -241,7 +241,7 @@ mod tests {
         let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id.clone(), Port::Named(String::from("test")));
+        pn_table.insert(neighbor_id.clone(), NetworkInterface::new("test"));
 
         let sync_context = SyncContext::new(
             root_id.clone(),
@@ -277,7 +277,10 @@ mod tests {
         };
         let handle_result = event_handler.handle(
             &sync_context,
-            UseCaseEvent::Message(message.clone().into(), InMemoryMessageHub::dummy_port()),
+            UseCaseEvent::Message(
+                message.clone().into(),
+                InMemoryMessageHub::dummy_interface(),
+            ),
         );
         assert!(
             handle_result.is_ok(),
@@ -337,7 +340,7 @@ mod tests {
             StateSeqNr::from(23),
         );
 
-        let port = Port::Named(String::from("test"));
+        let interface = NetworkInterface::new("test");
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
 
@@ -360,8 +363,8 @@ mod tests {
         );
 
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id.clone(), port.clone());
-        pn_table.insert(target_id.clone(), port.clone());
+        pn_table.insert(neighbor_id.clone(), interface.clone());
+        pn_table.insert(target_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(
             root_id.clone(),
@@ -397,7 +400,10 @@ mod tests {
         };
         let handle_result = event_handler.handle(
             &sync_context,
-            UseCaseEvent::Message(message.clone().into(), InMemoryMessageHub::dummy_port()),
+            UseCaseEvent::Message(
+                message.clone().into(),
+                InMemoryMessageHub::dummy_interface(),
+            ),
         );
         assert!(
             handle_result.is_ok(),
@@ -458,7 +464,7 @@ mod tests {
 
         let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
 
-        let port = Port::Named(String::from("test"));
+        let interface = NetworkInterface::new("test");
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
 
@@ -475,7 +481,7 @@ mod tests {
         );
 
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id.clone(), port.clone());
+        pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(
             root_id.clone(),
@@ -510,7 +516,10 @@ mod tests {
         };
         let handle_result = event_handler.handle(
             &sync_context,
-            UseCaseEvent::Message(message.clone().into(), InMemoryMessageHub::dummy_port()),
+            UseCaseEvent::Message(
+                message.clone().into(),
+                InMemoryMessageHub::dummy_interface(),
+            ),
         );
         assert!(
             handle_result.is_ok(),
@@ -569,7 +578,7 @@ mod tests {
             StateSeqNr::from(13),
         );
 
-        let port = Port::Named(String::from("test"));
+        let interface = NetworkInterface::new("test");
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
 
@@ -592,7 +601,7 @@ mod tests {
         );
 
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id.clone(), port.clone());
+        pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(
             root_id.clone(),
@@ -627,7 +636,10 @@ mod tests {
         };
         let handle_result = event_handler.handle(
             &sync_context,
-            UseCaseEvent::Message(message.clone().into(), InMemoryMessageHub::dummy_port()),
+            UseCaseEvent::Message(
+                message.clone().into(),
+                InMemoryMessageHub::dummy_interface(),
+            ),
         );
         assert!(
             handle_result.is_ok(),
@@ -687,7 +699,7 @@ mod tests {
 
         let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
 
-        let port = Port::Named(String::from("test"));
+        let interface = NetworkInterface::new("test");
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
 
@@ -704,7 +716,7 @@ mod tests {
         );
 
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id.clone(), port.clone());
+        pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(
             root_id.clone(),
@@ -739,7 +751,10 @@ mod tests {
         };
         let handle_result = event_handler.handle(
             &sync_context,
-            UseCaseEvent::Message(message.clone().into(), InMemoryMessageHub::dummy_port()),
+            UseCaseEvent::Message(
+                message.clone().into(),
+                InMemoryMessageHub::dummy_interface(),
+            ),
         );
         assert!(
             handle_result.is_ok(),
