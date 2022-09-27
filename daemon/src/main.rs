@@ -13,7 +13,7 @@ use r2kad_lib::domain::{
 };
 use r2kad_lib::messaging::format::ProtocolMessageFormat;
 use r2kad_lib::messaging::sync_wrapper::SyncWrapper;
-use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetPortMapper};
+use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetInterfaceMapper};
 use r2kad_lib::runtime::TokioRuntime;
 use r2kad_lib::use_cases::forward_protocol_message::ForwardProtocolMessages;
 use r2kad_lib::use_cases::handle_overlay_discovery::HandleOverlayDiscovery;
@@ -77,7 +77,7 @@ fn main() {
     routing_table.add_observer(|event| log::trace!("{}", event));
 
     // Initialize IO Channel
-    let mapper = PNetPortMapper::new();
+    let mapper = PNetInterfaceMapper::new();
     mapper.blocking_refresh();
 
     let ip_cache = Arc::new(RwLock::new(HashMap::new()));
@@ -100,7 +100,7 @@ fn main() {
     let root_node_id = root_id.clone();
     runtime.spawn(async move {
         loop {
-            let (message, port) = match message_receiver.recv().await {
+            let (message, interface) = match message_receiver.recv().await {
                 Ok(None) => continue,
                 Ok(Some(value)) => value,
                 Err(e) => {
@@ -115,14 +115,14 @@ fn main() {
             }
 
             if let Err(e) =
-                receiver_broadcaster.send(UseCaseEvent::Message(message.clone(), port.clone()))
+                receiver_broadcaster.send(UseCaseEvent::Message(message.clone(), interface.clone()))
             {
                 log::error!("Failed to broadcast protocol message: {}", e);
             } else {
                 log::trace!(
                     "Received ProtocolMessage from {} [{}]",
                     message.source(),
-                    port
+                    interface
                 );
             }
         }
