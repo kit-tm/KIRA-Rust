@@ -84,9 +84,9 @@ where
         }
         let closest_path = closest_path.unwrap();
 
-        // Get port of neighbor
-        let port = context.pn_table().get(closest_path.first()).cloned();
-        if port.is_none() {
+        // Get interface of neighbor
+        let interface = context.pn_table().get(closest_path.first()).cloned();
+        if interface.is_none() {
             log::error!(
                 target: "random_overlay_discovery",
                 "Contacts path contains invalid neighbor: {}",
@@ -202,8 +202,8 @@ mod tests {
     use crate::broadcaster::MPSCBroadcaster;
     use crate::context::{SyncContext, UseCaseContext};
     use crate::domain::{
-        Contact, FlatRoutingTable, InsertionStrategyResult, NodeId, PNTable, Path, Port,
-        RoutingTable, StateSeqNr, TestInsertionStrategy,
+        Contact, FlatRoutingTable, InsertionStrategyResult, NetworkInterface, NodeId, PNTable,
+        Path, RoutingTable, StateSeqNr, TestInsertionStrategy,
     };
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
     use crate::messaging::ProtocolMessage;
@@ -262,7 +262,7 @@ mod tests {
             .expect("failed to add into empty RT");
         context
             .pn_table_mut()
-            .insert(neighbor.id().clone(), Port::Named(String::from("test")));
+            .insert(neighbor.id().clone(), NetworkInterface::new("test"));
 
         let mut use_case = RandomOverlayDiscovery::new(RODConfig {
             timeout: Duration::from_secs(0),

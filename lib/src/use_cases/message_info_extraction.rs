@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
 use crate::context::UseCaseContext;
-use crate::domain::{Contact, InsertionStrategy, Path, Port, RoutingTable};
+use crate::domain::{Contact, InsertionStrategy, NetworkInterface, Path, RoutingTable};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{ProtocolMessage, RTableData, ReqRspMessage};
 use crate::use_cases::{EventHandler, MessageSentFailed, UseCaseEvent};
@@ -53,7 +53,7 @@ where
         &self,
         context: &C,
         message: &ProtocolMessage,
-        port: Port,
+        interface: NetworkInterface,
     ) -> Contact {
         let path = self.extract_path_to_source(message);
         let contact = Contact::new(path.clone(), *message.source_state_seq_nr());
@@ -62,17 +62,17 @@ where
             let mut lock = context.pn_table_mut();
             let neighbor_id = path.first();
             if !lock.contains(neighbor_id) {
-                if let Some(replaced) = lock.insert(neighbor_id.clone(), port.clone()) {
+                if let Some(replaced) = lock.insert(neighbor_id.clone(), interface.clone()) {
                     // Not allowed to happen as lock is held
                     log::warn!(
                         target: "pn_table",
-                        "Overwritten port mapping for '{}' from '{}' to '{}' but checked before",
+                        "Overwritten interface mapping for '{}' from '{}' to '{}' but checked before",
                         neighbor_id,
-                        port,
+                        interface,
                         replaced
                     );
                 } else {
-                    log::debug!(target: "pn_table", "Inserted neighbor '{}' at port '{}'", neighbor_id, port);
+                    log::debug!(target: "pn_table", "Inserted neighbor '{}' at interface '{}'", neighbor_id, interface);
                 }
             }
         }
@@ -117,12 +117,12 @@ where
     type Value = ();
 
     fn handle(&mut self, context: &Self::Context, event: UseCaseEvent) -> Result<(), Self::Error> {
-        if let UseCaseEvent::Message(message, port) = event {
+        if let UseCaseEvent::Message(message, interface) = event {
             if let ProtocolMessage::Hello(_) = message {
                 return Ok(());
             }
 
-            let source_contact = self.extract_source_information(context, &message, port);
+            let source_contact = self.extract_source_information(context, &message, interface);
 
             match message {
                 ProtocolMessage::PNDiscReq(msg)
@@ -153,8 +153,8 @@ mod tests {
     use crate::context::{SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
-        Contact, ContactState, InsertionStrategyResult, NodeId, PNTable, Path, Port, RoutingTable,
-        StateSeqNr, TestInsertionStrategy,
+        Contact, ContactState, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path,
+        RoutingTable, StateSeqNr, TestInsertionStrategy,
     };
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
@@ -189,7 +189,7 @@ mod tests {
         let mut use_case = MessageInfoExtraction::default();
 
         let contact_id = NodeId::with_msb(2);
-        let port = Port::new(String::from("test"));
+        let interface = NetworkInterface::new("test");
         let event = UseCaseEvent::Message(
             PNDiscReq(ReqRspMessage {
                 nonce: Nonce::random(),
@@ -197,7 +197,7 @@ mod tests {
                 data: RTableData { contacts: vec![] },
                 source_route: SourceRoute::from(Path::from([contact_id.clone(), root_id])),
             }),
-            port.clone(),
+            interface.clone(),
         );
         let handled_result = use_case.handle(&context, event);
         assert!(
@@ -206,7 +206,7 @@ mod tests {
             handled_result
         );
 
-        assert_eq!(context.pn_table().get(&contact_id), Some(&port));
+        assert_eq!(context.pn_table().get(&contact_id), Some(&interface));
     }
 
     #[test]
@@ -232,7 +232,7 @@ mod tests {
         let mut use_case = MessageInfoExtraction::default();
 
         let neighbor_id = NodeId::with_msb(2);
-        let port = Port::new(String::from("test"));
+        let interface = NetworkInterface::new("test");
         let event = UseCaseEvent::Message(
             PNDiscReq(ReqRspMessage {
                 nonce: Nonce::random(),
@@ -240,7 +240,7 @@ mod tests {
                 data: RTableData { contacts: vec![] },
                 source_route: SourceRoute::from(Path::from([neighbor_id.clone(), root_id])),
             }),
-            port.clone(),
+            interface.clone(),
         );
         let handled_result = use_case.handle(&context, event);
         assert!(
@@ -249,7 +249,7 @@ mod tests {
             handled_result
         );
 
-        assert_eq!(context.pn_table().get(&neighbor_id), Some(&port));
+        assert_eq!(context.pn_table().get(&neighbor_id), Some(&interface));
 
         let rt = context.routing_table();
         let saved_contact = rt.contact(&neighbor_id);
@@ -264,7 +264,7 @@ mod tests {
     fn add_source_to_routing_table() {
         crate::tests::init();
 
-        let port = Port::new(String::from("test"));
+        let interface = NetworkInterface::new("test");
 
         let root_id = NodeId::with_msb(1);
         let source_id = NodeId::with_msb(2);
@@ -273,7 +273,7 @@ mod tests {
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
         let mut pn_table = PNTable::new();
         // NOTE: First element in contacts path has to be a neighbor
-        pn_table.insert(neighbor_id.clone(), port.clone());
+        pn_table.insert(neighbor_id.clone(), interface.clone());
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let message_hub = ArcSyncInMemoryMessageHub::new();
         let broadcaster = BusBroadcaster::new(10);
@@ -313,7 +313,7 @@ mod tests {
                 },
                 source_route,
             }),
-            port.clone(),
+            interface.clone(),
         );
         let handled_result = use_case.handle(&context, event);
         assert!(
@@ -348,7 +348,7 @@ mod tests {
         let source_id = NodeId::with_msb(2);
         let neighbor_id = NodeId::with_msb(3);
 
-        let port = Port::new(String::from("test"));
+        let interface = NetworkInterface::new("test");
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
         let pn_table = PNTable::new();
@@ -388,7 +388,7 @@ mod tests {
                 },
                 source_route,
             }),
-            port.clone(),
+            interface.clone(),
         );
         let handled_result = use_case.handle(&context, event);
         assert!(
@@ -399,7 +399,7 @@ mod tests {
 
         assert_eq!(
             context.pn_table().get(&neighbor_id),
-            Some(&port),
+            Some(&interface),
             "Neighbor not inserted in PNTable: {:?}",
             context.pn_table().deref()
         );
@@ -412,11 +412,11 @@ mod tests {
         let root_id = NodeId::with_msb(1);
         let neighbor_id = NodeId::with_msb(2);
 
-        let port = Port::new(String::from("test"));
+        let interface = NetworkInterface::new("test");
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id.clone(), port.clone());
+        pn_table.insert(neighbor_id.clone(), interface.clone());
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let message_hub = ArcSyncInMemoryMessageHub::new();
         let broadcaster = BusBroadcaster::new(10);
@@ -448,7 +448,7 @@ mod tests {
                 },
                 source_route,
             }),
-            port.clone(),
+            interface.clone(),
         );
         let handled_result = use_case.handle(&context, event);
         assert!(
@@ -483,11 +483,11 @@ mod tests {
         let root_id = NodeId::with_msb(1);
         let neighbor_id = NodeId::with_msb(2);
 
-        let port = Port::new(String::from("test"));
+        let interface = NetworkInterface::new("test");
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id.clone(), port.clone());
+        pn_table.insert(neighbor_id.clone(), interface.clone());
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let message_hub = ArcSyncInMemoryMessageHub::new();
         let broadcaster = BusBroadcaster::new(10);
@@ -519,7 +519,7 @@ mod tests {
                 },
                 source_route,
             }),
-            port.clone(),
+            interface.clone(),
         );
         let handled_result = use_case.handle(&context, event);
         assert!(
@@ -555,11 +555,11 @@ mod tests {
         let source_id = NodeId::with_msb(2);
         let neighbor_id = NodeId::with_msb(15);
 
-        let port = Port::new(String::from("test"));
+        let interface = NetworkInterface::new("test");
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id.clone(), port.clone());
+        pn_table.insert(neighbor_id.clone(), interface.clone());
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let message_hub = ArcSyncInMemoryMessageHub::new();
         let broadcaster = BusBroadcaster::new(10);
@@ -598,7 +598,7 @@ mod tests {
                 },
                 source_route,
             }),
-            port.clone(),
+            interface.clone(),
         );
         let handled_result = use_case.handle(&context, event);
         assert!(
@@ -634,11 +634,11 @@ mod tests {
         let source_id = NodeId::with_msb(2);
         let neighbor_id = NodeId::with_msb(15);
 
-        let port = Port::new(String::from("test"));
+        let interface = NetworkInterface::new("test");
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id.clone(), port.clone());
+        pn_table.insert(neighbor_id.clone(), interface.clone());
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let message_hub = ArcSyncInMemoryMessageHub::new();
         let broadcaster = BusBroadcaster::new(10);
@@ -695,7 +695,7 @@ mod tests {
                 },
                 source_route,
             }),
-            port.clone(),
+            interface.clone(),
         );
         let handled_result = use_case.handle(&context, event);
         assert!(

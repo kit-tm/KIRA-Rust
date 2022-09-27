@@ -6,10 +6,10 @@ use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
 
-use crate::domain::Port;
+use crate::domain::NetworkInterface;
 use crate::messaging::format::ProtocolMessageFormat;
 use crate::messaging::{
-    AsyncIpCache, AsyncPortMapper, AsyncProtocolMessageReceiver, ProtocolMessage, RecvError,
+    AsyncInterfaceMapper, AsyncIpCache, AsyncProtocolMessageReceiver, ProtocolMessage, RecvError,
     TryRecvError,
 };
 
@@ -28,7 +28,7 @@ pub struct UdpReceiver<C, P> {
     buffer: RwLock<[u8; MTU_BYTES]>,
     socket: Arc<UdpSocket>,
     format: ProtocolMessageFormat,
-    port_mapper: P,
+    interface_mapper: P,
     ip_cache: C,
 }
 
@@ -39,7 +39,7 @@ impl<C: Clone, P: Clone> Clone for UdpReceiver<C, P> {
             buffer: RwLock::new([0u8; MTU_BYTES]),
             socket: Arc::clone(&self.socket),
             format: self.format.clone(),
-            port_mapper: self.port_mapper.clone(),
+            interface_mapper: self.interface_mapper.clone(),
             ip_cache: self.ip_cache.clone(),
         }
     }
@@ -50,12 +50,12 @@ impl<C, P> UdpReceiver<C, P> {
     ///
     /// Initializes the internally used [UdpSocket].
     ///
-    /// To bind the receiver to a random free port, use `socket_port = 0`.
+    /// To bind the receiver to a random free interface, use `socket_port = 0`.
     pub async fn new(
         socket_port: u16,
         format: ProtocolMessageFormat,
         ip_cache: C,
-        port_mapper: P,
+        interface_mapper: P,
     ) -> tokio::io::Result<Self> {
         let socket = Arc::new(
             UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?,
@@ -65,7 +65,7 @@ impl<C, P> UdpReceiver<C, P> {
             buffer: RwLock::new([0u8; MTU_BYTES]),
             socket,
             format,
-            port_mapper,
+            interface_mapper,
             ip_cache,
         })
     }
@@ -81,7 +81,7 @@ impl<C, P> UdpReceiver<C, P> {
             buffer: RwLock::new([0u8; MTU_BYTES]),
             socket,
             format,
-            port_mapper,
+            interface_mapper: port_mapper,
             ip_cache,
         }
     }
@@ -107,13 +107,13 @@ impl<C, P> UdpReceiver<C, P> {
 #[async_trait::async_trait]
 impl<C, P> AsyncProtocolMessageReceiver for UdpReceiver<C, P>
 where
-    P: AsyncPortMapper + Send + Sync,
+    P: AsyncInterfaceMapper + Send + Sync,
     C: AsyncIpCache + Send + Sync,
 {
     async fn recv_timeout(
         &mut self,
         timeout: Option<Duration>,
-    ) -> Result<Option<(ProtocolMessage, Port)>, RecvError> {
+    ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError> {
         let socket = Arc::clone(&self.socket);
         let mut buffer = self.buffer.write().await;
 
@@ -134,11 +134,11 @@ where
         };
 
         let message = self.deserialize(&buffer[..received_bytes]);
-        let port = self
-            .port_mapper
-            .get_port(&received_from)
+        let interface = self
+            .interface_mapper
+            .get_interface(&received_from)
             .await
-            .ok_or(RecvError::NoPortFound)?;
+            .ok_or(RecvError::NoInterfaceFound)?;
 
         if let Some(message) = &message {
             log::trace!(target: "message_receiver", "Received {:?} from {}", &message, received_from);
@@ -166,10 +166,12 @@ where
             }
         }
 
-        Ok(message.map(|message| (message, port)))
+        Ok(message.map(|message| (message, interface)))
     }
 
-    async fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, Port)>, TryRecvError> {
+    async fn try_recv(
+        &mut self,
+    ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, TryRecvError> {
         let mut buffer = self.buffer.write().await;
         let (received_bytes, address) = match self.socket.try_recv_from(buffer.deref_mut()) {
             Ok(received) => received,
@@ -177,13 +179,13 @@ where
         };
 
         let message = self.deserialize(&buffer[..received_bytes]);
-        let port = self
-            .port_mapper
-            .get_port(&address)
+        let interface = self
+            .interface_mapper
+            .get_interface(&address)
             .await
-            .ok_or(TryRecvError::NoPortFound)?;
+            .ok_or(TryRecvError::NoInterfaceFound)?;
 
-        Ok(message.map(|message| (message, port)))
+        Ok(message.map(|message| (message, interface)))
     }
 }
 
@@ -201,7 +203,7 @@ mod tests {
     use crate::messaging::format::ProtocolMessageFormat;
     use crate::messaging::receiver::udp_tokio::UdpReceiver;
     use crate::messaging::{
-        AsyncProtocolMessageReceiver, HelloMessage, PNetPortMapper, ProtocolMessage,
+        AsyncProtocolMessageReceiver, HelloMessage, PNetInterfaceMapper, ProtocolMessage,
     };
 
     #[tokio::test]
@@ -210,10 +212,14 @@ mod tests {
 
         let cache = Arc::new(RwLock::new(HashMap::new()));
 
-        let mut receiver =
-            UdpReceiver::new(0, ProtocolMessageFormat::Json, cache, PNetPortMapper::new())
-                .await
-                .expect("failed to start udp receiver");
+        let mut receiver = UdpReceiver::new(
+            0,
+            ProtocolMessageFormat::Json,
+            cache,
+            PNetInterfaceMapper::new(),
+        )
+        .await
+        .expect("failed to start udp receiver");
         let addr = receiver.local_addr()?;
 
         let handle = tokio::spawn(async move {
@@ -260,10 +266,14 @@ mod tests {
 
         let cache = Arc::new(RwLock::new(HashMap::new()));
 
-        let mut receiver =
-            UdpReceiver::new(0, ProtocolMessageFormat::Json, cache, PNetPortMapper::new())
-                .await
-                .expect("failed to create udp receiver");
+        let mut receiver = UdpReceiver::new(
+            0,
+            ProtocolMessageFormat::Json,
+            cache,
+            PNetInterfaceMapper::new(),
+        )
+        .await
+        .expect("failed to create udp receiver");
         let addr = receiver.local_addr()?;
 
         let handle = tokio::spawn(async move {

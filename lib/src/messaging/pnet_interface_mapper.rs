@@ -1,12 +1,12 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use pnet::datalink::NetworkInterface;
+use pnet::datalink;
 use pnet::ipnetwork::IpNetwork;
 use tokio::sync::RwLock;
 
-use crate::domain::Port;
-use crate::messaging::{AsyncPortMapper, PortMapper};
+use crate::domain::NetworkInterface;
+use crate::messaging::{AsyncInterfaceMapper, InterfaceMapper};
 
 /// [PortMapper] and [AsyncPortMapper] implementation using [libpnet](https://docs.rs/pnet/)
 /// to fetch network interface information and map the ip addresses to incoming ProtocolMessages.
@@ -14,11 +14,11 @@ use crate::messaging::{AsyncPortMapper, PortMapper};
 /// Caches information and only refreshes information if an incoming message doesn't match
 /// any interface.
 #[derive(Debug, Clone, Default)]
-pub struct PNetPortMapper {
-    interfaces: Arc<RwLock<Vec<NetworkInterface>>>,
+pub struct PNetInterfaceMapper {
+    interfaces: Arc<RwLock<Vec<datalink::NetworkInterface>>>,
 }
 
-impl PNetPortMapper {
+impl PNetInterfaceMapper {
     /// Creates a new [PNetPortMapper] with empty cache.
     pub fn new() -> Self {
         Self {
@@ -29,7 +29,7 @@ impl PNetPortMapper {
     /// Refreshes the interface information cache by blocking the inner lock.
     pub fn blocking_refresh(&self) {
         let mut interfaces = self.interfaces.blocking_write();
-        *interfaces = pnet::datalink::interfaces();
+        *interfaces = datalink::interfaces();
 
         log::trace!(target: "network_interfaces", "Found interfaces: {:?}", interfaces);
     }
@@ -37,17 +37,17 @@ impl PNetPortMapper {
     /// Refreshes the interface information cache.
     pub async fn refresh(&self) {
         let mut interfaces = self.interfaces.write().await;
-        *interfaces = pnet::datalink::interfaces();
+        *interfaces = datalink::interfaces();
 
         log::trace!(target: "network_interfaces", "Found interfaces: {:?}", interfaces);
     }
 
     /// Find the [NetworkInterface] in the given iterator that matches the given [SocketAddr]
     /// and map it to its [Port] equivalent.
-    fn find_in<'a, I: IntoIterator<Item = &'a NetworkInterface>>(
+    fn find_in<'a, I: IntoIterator<Item = &'a datalink::NetworkInterface>>(
         addr: &SocketAddr,
         iter: I,
-    ) -> Option<Port> {
+    ) -> Option<NetworkInterface> {
         let filter_network = |net: &IpNetwork| match (net, addr) {
             (IpNetwork::V4(network), SocketAddr::V4(addr)) => network.contains(*addr.ip()),
             (IpNetwork::V6(network), SocketAddr::V6(addr)) => network.contains(*addr.ip()),
@@ -56,7 +56,7 @@ impl PNetPortMapper {
 
         for interface in iter.into_iter() {
             if interface.ips.iter().any(filter_network) {
-                return Some(Port::from(interface));
+                return Some(NetworkInterface::from(interface));
             }
         }
 
@@ -64,19 +64,19 @@ impl PNetPortMapper {
     }
 
     /// Get the [Port] to a given address out of the inner cache by blocking the lock.
-    fn blocking_find(&self, addr: &SocketAddr) -> Option<Port> {
-        PNetPortMapper::find_in(addr, self.interfaces.blocking_read().iter())
+    fn blocking_find(&self, addr: &SocketAddr) -> Option<NetworkInterface> {
+        PNetInterfaceMapper::find_in(addr, self.interfaces.blocking_read().iter())
     }
 
     /// Get the [Port] to a given address out of the inner cache.
-    async fn find(&self, addr: &SocketAddr) -> Option<Port> {
+    async fn find(&self, addr: &SocketAddr) -> Option<NetworkInterface> {
         let interfaces = self.interfaces.read().await;
-        PNetPortMapper::find_in(addr, interfaces.iter())
+        PNetInterfaceMapper::find_in(addr, interfaces.iter())
     }
 }
 
-impl PortMapper for PNetPortMapper {
-    fn get_port(&self, input_addr: &SocketAddr) -> Option<Port> {
+impl InterfaceMapper for PNetInterfaceMapper {
+    fn get_interface(&self, input_addr: &SocketAddr) -> Option<NetworkInterface> {
         let blocking_find = self.blocking_find(input_addr);
 
         if blocking_find.is_none() {
@@ -89,8 +89,8 @@ impl PortMapper for PNetPortMapper {
 }
 
 #[async_trait::async_trait]
-impl AsyncPortMapper for PNetPortMapper {
-    async fn get_port(&self, input_addr: &SocketAddr) -> Option<Port> {
+impl AsyncInterfaceMapper for PNetInterfaceMapper {
+    async fn get_interface(&self, input_addr: &SocketAddr) -> Option<NetworkInterface> {
         let find = self.find(input_addr).await;
 
         if find.is_none() {

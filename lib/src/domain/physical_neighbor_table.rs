@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::ops::Deref;
 
-use crate::domain::{NodeId, Port, StateSeqNr};
+use crate::domain::{NetworkInterface, NodeId, StateSeqNr};
 
 /// A physical neighbor table backed by a [HashMap].
 ///
@@ -10,7 +10,7 @@ use crate::domain::{NodeId, Port, StateSeqNr};
 #[derive(Debug)]
 pub struct PNTable {
     state_seq_nr: StateSeqNr,
-    map: HashMap<NodeId, Port>,
+    map: HashMap<NodeId, NetworkInterface>,
 }
 
 impl Default for PNTable {
@@ -20,7 +20,7 @@ impl Default for PNTable {
 }
 
 impl Deref for PNTable {
-    type Target = HashMap<NodeId, Port>;
+    type Target = HashMap<NodeId, NetworkInterface>;
 
     fn deref(&self) -> &Self::Target {
         &self.map
@@ -35,22 +35,22 @@ impl PNTable {
         }
     }
 
-    pub fn into_inner(self) -> HashMap<NodeId, Port> {
+    pub fn into_inner(self) -> HashMap<NodeId, NetworkInterface> {
         self.map
     }
 
-    /// Adds a Mapping to the table returning the [Port] previously mapped to the [NodeId].
-    pub fn insert(&mut self, id: NodeId, port: Port) -> Option<Port> {
+    /// Adds a Mapping to the table returning the [NetworkInterface] previously mapped to the [NodeId].
+    pub fn insert(&mut self, id: NodeId, interface: NetworkInterface) -> Option<NetworkInterface> {
         // No Update for entry => No Increase of StateSeqNr
         if let Some(true) = self
             .map
             .get(&id)
-            .map(|existing_port| existing_port == &port)
+            .map(|existing_port| existing_port == &interface)
         {
             return None;
         }
 
-        let result = self.map.insert(id, port);
+        let result = self.map.insert(id, interface);
         self.state_seq_nr += 1;
         result
     }
@@ -68,8 +68,8 @@ impl PNTable {
 }
 
 impl<'a> IntoIterator for &'a PNTable {
-    type Item = (&'a NodeId, &'a Port);
-    type IntoIter = std::collections::hash_map::Iter<'a, NodeId, Port>;
+    type Item = (&'a NodeId, &'a NetworkInterface);
+    type IntoIter = std::collections::hash_map::Iter<'a, NodeId, NetworkInterface>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.map.iter()
