@@ -170,13 +170,19 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
                 .shared_prefix_len(id, shared_prefix_grouping)
                 .expect("grouping should be checked before");
 
+            if closest.is_empty() {
+                closest.push((prefix, contact.clone()));
+                continue;
+            }
+
+            // Find position of contact
             let position = closest
                 .iter()
                 .position(|(closest_prefix, closest_contact)| {
-                    if closest_prefix.length < prefix.length {
+                    if closest_prefix > &prefix {
                         return true;
                     }
-                    if closest_prefix.length == prefix.length && closest_contact.id() > id {
+                    if closest_prefix == &prefix && closest_contact.id() > id {
                         return true;
                     }
                     false
@@ -271,7 +277,7 @@ mod tests {
             .extend(false, contacts.clone())
             .expect("failed to insert all contact");
 
-        let closest = routing_table.closest(&NodeId::zero(), 20, 1);
+        let closest = routing_table.closest(&NodeId::zero(), 1, 1);
         assert!(closest.is_ok(), "Returned None");
         let closest = closest.unwrap();
         let first = closest.first();
@@ -279,6 +285,34 @@ mod tests {
         let (_, contact) = first.unwrap();
         assert_eq!(
             contact, &contacts[1],
+            "Returned strange order of closest contacts: {:#?}",
+            closest
+        );
+    }
+
+    #[test]
+    fn get_closest_of_only_neighbors() {
+        let contacts = vec![
+            Contact::new(Path::from([NodeId::with_msb(5)]), StateSeqNr::from(0)),
+            Contact::new(Path::from([NodeId::with_msb(6)]), StateSeqNr::from(0)),
+            Contact::new(Path::from([NodeId::with_msb(3)]), StateSeqNr::from(0)),
+            Contact::new(Path::from([NodeId::with_msb(4)]), StateSeqNr::from(0)),
+        ];
+
+        let mut routing_table =
+            UnlimitedPNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+        routing_table
+            .extend(false, contacts.clone())
+            .expect("failed to insert all contact");
+
+        let closest = routing_table.closest(&NodeId::zero(), 1, 1);
+        assert!(closest.is_ok(), "Returned None");
+        let closest = closest.unwrap();
+        let first = closest.first();
+        assert!(first.is_some(), "Returned no closest contacts");
+        let (_, contact) = first.unwrap();
+        assert_eq!(
+            contact, &contacts[2],
             "Returned strange order of closest contacts: {:#?}",
             closest
         );
