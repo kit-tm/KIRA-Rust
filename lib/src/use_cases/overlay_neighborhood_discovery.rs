@@ -6,7 +6,7 @@ use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::time::Duration;
 
 use crate::context::UseCaseContext;
-use crate::domain::RoutingTable;
+use crate::domain::{node_id, GroupingError, RoutingTable};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageSender, ReqRspMessage,
@@ -117,14 +117,21 @@ pub struct OverlayNeighborhoodDiscovery<C, const BUCKET_SIZE: usize> {
 
 impl<C, const BUCKET_SIZE: usize> Default for OverlayNeighborhoodDiscovery<C, BUCKET_SIZE> {
     fn default() -> Self {
-        Self::new(ONDConfig::default())
+        Self::new(ONDConfig::default()).expect("default shared prefix should be valid")
     }
 }
 
 impl<C, const BUCKET_SIZE: usize> OverlayNeighborhoodDiscovery<C, BUCKET_SIZE> {
     /// Create a new [ONDUseCase] from an [ONDConfig].
-    pub fn new(config: ONDConfig) -> Self {
-        Self {
+    pub fn new(config: ONDConfig) -> Result<Self, GroupingError> {
+        if config.shared_prefix_bits_grouping.get() > node_id::BIT_SIZE {
+            return Err(GroupingError::Invalid {
+                group_size: config.shared_prefix_bits_grouping.get(),
+                id_size: node_id::BIT_SIZE,
+            });
+        }
+
+        Ok(Self {
             _pd: PhantomData::default(),
             state: ONDState::Initialized,
             config,
@@ -133,7 +140,7 @@ impl<C, const BUCKET_SIZE: usize> OverlayNeighborhoodDiscovery<C, BUCKET_SIZE> {
                 config.backoff_max_retries.get(),
                 config.backoff_starting_duration,
             ),
-        }
+        })
     }
 }
 
@@ -193,11 +200,14 @@ where
         // Get the path to the closest node of ourselves
         let path_to_closest_on = context
             .routing_table()
-            .get_closest(
+            .closest(
                 context.root_id(),
+                1,
                 self.config.shared_prefix_bits_grouping.get(),
             )
-            .cloned();
+            .expect("config should have been checked before")
+            .first()
+            .map(|(_, contact)| (*contact).clone());
 
         // No one found -> Isolated, but physical neighbors are present
         if path_to_closest_on.is_none() {
@@ -416,7 +426,7 @@ mod tests {
             runtime.clone(),
         );
 
-        let mut use_case = OverlayNeighborhoodDiscovery::new(config);
+        let mut use_case = OverlayNeighborhoodDiscovery::new(config).unwrap();
 
         assert_eq!(use_case.start(&sync_context), Ok(()));
         // Dummy Runtime should emit the timer event immediately
@@ -469,7 +479,7 @@ mod tests {
             runtime.clone(),
         );
 
-        let mut use_case = OverlayNeighborhoodDiscovery::new(config);
+        let mut use_case = OverlayNeighborhoodDiscovery::new(config).unwrap();
 
         assert_eq!(use_case.start(&sync_context), Ok(()));
 
@@ -555,7 +565,7 @@ mod tests {
             runtime.clone(),
         );
 
-        let mut use_case = OverlayNeighborhoodDiscovery::new(config);
+        let mut use_case = OverlayNeighborhoodDiscovery::new(config).unwrap();
 
         assert_eq!(use_case.start(&sync_context), Ok(()));
 
@@ -655,7 +665,7 @@ mod tests {
             runtime.clone(),
         );
 
-        let mut use_case = OverlayNeighborhoodDiscovery::new(config);
+        let mut use_case = OverlayNeighborhoodDiscovery::new(config).unwrap();
 
         assert_eq!(use_case.start(&sync_context), Ok(()));
 

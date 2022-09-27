@@ -1,9 +1,10 @@
 use rand::Rng;
+use std::cmp::Ordering;
 
 use crate::domain::observable_routing_table::NonObservableRoutingTable;
 use crate::domain::{
-    AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, NodeId, ReplacementError,
-    RoutingTable,
+    AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, GroupingError, NodeId,
+    ReplacementError, RoutingTable, SharedPrefix,
 };
 
 /// A [RoutingTable] with a single not splittable [Bucket].
@@ -96,9 +97,31 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
         &mut self.bucket
     }
 
-    fn get_closest(&self, to: &NodeId, shared_prefix_grouping: usize) -> Option<&Contact> {
-        super::get_closest_in(&self.bucket, to, shared_prefix_grouping)
-            .expect("grouping should have been checked before")
+    fn closest(
+        &self,
+        to: &NodeId,
+        n: usize,
+        shared_prefix_grouping: usize,
+    ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError> {
+        let mut result = Vec::with_capacity(n);
+        for contact in &self.bucket {
+            let prefix = to.shared_prefix_len(contact.id(), shared_prefix_grouping)?;
+            result.push((prefix, contact.clone()));
+        }
+        result.sort_by(
+            |first: &(SharedPrefix, Contact), second: &(SharedPrefix, Contact)| {
+                if first.0 < second.0 {
+                    return Ordering::Less;
+                }
+
+                if first.0 == second.0 && first.1.id() < second.1.id() {
+                    return Ordering::Less;
+                }
+
+                Ordering::Greater
+            },
+        );
+        Ok(result)
     }
 }
 

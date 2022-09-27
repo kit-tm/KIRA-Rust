@@ -3,8 +3,8 @@ use std::ops::{Deref, DerefMut};
 
 use crate::domain::unlimited_pn_routing_table::UnlimitedPNRoutingTable;
 use crate::domain::{
-    AddError, Bucket, BucketSplitError, Contact, FlatRoutingTable, NodeId, ReplacementError,
-    RoutingTable,
+    AddError, Bucket, BucketSplitError, Contact, FlatRoutingTable, GroupingError, NodeId,
+    ReplacementError, RoutingTable, SharedPrefix,
 };
 
 /// An Event emitted by the [ObservableRoutingTable].
@@ -260,8 +260,13 @@ where
         }
     }
 
-    fn get_closest(&self, to: &NodeId, shared_prefix_grouping: usize) -> Option<&Contact> {
-        self.inner.get_closest(to, shared_prefix_grouping)
+    fn closest(
+        &self,
+        to: &NodeId,
+        n: usize,
+        shared_prefix_grouping: usize,
+    ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError> {
+        self.inner.closest(to, n, shared_prefix_grouping)
     }
 }
 
@@ -479,7 +484,7 @@ mod tests {
                 .borrow()
                 .contains(&RoutingTableEvent::UpdatedContact {
                     new: updated_contact,
-                    old: contact
+                    old: contact,
                 }),
             "{:?}",
             events

@@ -1,11 +1,10 @@
-use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use rand::Rng;
 
 use crate::domain::{
-    AddError, Bucket, BucketSplitError, Contact, FlatRoutingTable, NodeId, ReplacementError,
-    RoutingTable,
+    AddError, Bucket, BucketSplitError, Contact, ContactState, FlatRoutingTable, GroupingError,
+    NodeId, ReplacementError, RoutingTable, SharedPrefix,
 };
 
 /// A routing table which uses an additional data structure to store all
@@ -153,37 +152,44 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         self.inner.bucket_mut(of)
     }
 
-    fn get_closest(&self, to: &NodeId, shared_prefix_grouping: usize) -> Option<&Contact> {
-        let bucket_closest = self.inner.get_closest(to, shared_prefix_grouping);
-        let closest_neighbor =
-            super::get_closest_in(self.pn_contacts.values(), to, shared_prefix_grouping)
-                .expect("grouping should have been checked before");
-        match (bucket_closest, closest_neighbor) {
-            (Some(closest_contact), Some(closest_neighbor)) => {
-                let contact_distance = closest_contact
-                    .id()
-                    .shared_prefix_len(to, shared_prefix_grouping)
-                    .expect("Grouping should have been checked before");
-                let neighbor_distance = closest_contact
-                    .id()
-                    .shared_prefix_len(to, shared_prefix_grouping)
-                    .expect("Grouping should have been checked before");
+    fn closest(
+        &self,
+        to: &NodeId,
+        n: usize,
+        shared_prefix_grouping: usize,
+    ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError> {
+        let mut closest = self.inner.closest(to, n, shared_prefix_grouping)?;
 
-                match contact_distance.bit_len().cmp(&neighbor_distance.bit_len()) {
-                    Ordering::Greater => return Some(closest_contact),
-                    Ordering::Less => return Some(closest_neighbor),
-                    _ => {}
-                };
-
-                if closest_contact.id() < closest_neighbor.id() {
-                    return Some(closest_contact);
-                }
-
-                Some(closest_neighbor)
+        // For every neighbor find the place to insert it if possible
+        for (id, contact) in &self.pn_contacts {
+            if contact.state() != &ContactState::Valid {
+                continue;
             }
-            (None, closest_neighbor) => closest_neighbor,
-            (closest_contact, None) => closest_contact,
+
+            let prefix = to
+                .shared_prefix_len(id, shared_prefix_grouping)
+                .expect("grouping should be checked before");
+
+            let position = closest
+                .iter()
+                .position(|(closest_prefix, closest_contact)| {
+                    if closest_prefix.length < prefix.length {
+                        return true;
+                    }
+                    if closest_prefix.length == prefix.length && closest_contact.id() > id {
+                        return true;
+                    }
+                    false
+                });
+            if let Some(index) = position {
+                if closest.len() == n {
+                    closest.remove(closest.len() - 1);
+                }
+                closest.insert(index, (prefix, contact.clone()));
+            }
         }
+
+        Ok(closest)
     }
 }
 
@@ -223,10 +229,17 @@ mod tests {
             .extend(false, contacts.clone())
             .expect("failed to insert all contact");
 
-        let closest = routing_table.get_closest(&NodeId::zero(), 1);
-        assert!(closest.is_some(), "Returned None");
+        let closest = routing_table.closest(&NodeId::zero(), 20, 1);
+        assert!(closest.is_ok(), "Returned None");
         let closest = closest.unwrap();
-        assert_eq!(closest, &contacts[2]);
+        let first = closest.first();
+        assert!(first.is_some(), "Returned no closest contacts");
+        let (_, contact) = first.unwrap();
+        assert_eq!(
+            contact, &contacts[2],
+            "Returned strange order of closest contacts: {:#?}",
+            closest
+        );
     }
 
     #[test]
@@ -258,10 +271,17 @@ mod tests {
             .extend(false, contacts.clone())
             .expect("failed to insert all contact");
 
-        let closest = routing_table.get_closest(&NodeId::zero(), 1);
-        assert!(closest.is_some(), "Returned None");
+        let closest = routing_table.closest(&NodeId::zero(), 20, 1);
+        assert!(closest.is_ok(), "Returned None");
         let closest = closest.unwrap();
-        assert_eq!(closest, &contacts[1]);
+        let first = closest.first();
+        assert!(first.is_some(), "Returned no closest contacts");
+        let (_, contact) = first.unwrap();
+        assert_eq!(
+            contact, &contacts[1],
+            "Returned strange order of closest contacts: {:#?}",
+            closest
+        );
     }
 
     #[test]
@@ -284,7 +304,13 @@ mod tests {
             .extend(false, contacts.clone())
             .expect("failed to insert all contact");
 
-        let closest = routing_table.get_closest(&NodeId::zero(), 1);
-        assert!(closest.is_none(), "Returned Some: {:?}", closest);
+        let closest = routing_table.closest(&NodeId::zero(), 20, 1);
+        assert!(closest.is_ok(), "Returned error: {:?}", closest);
+        let closest = closest.unwrap();
+        assert!(
+            closest.is_empty(),
+            "Returned closest contacts: {:#?}",
+            closest
+        );
     }
 }

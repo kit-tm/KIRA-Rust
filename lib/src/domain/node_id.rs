@@ -225,6 +225,15 @@ impl Error for BitIndexOutOfBounds {}
 ///
 /// Contains the shared prefix length in number of bits and the computed
 /// XOR [NodeId] of the two origin [NodeId]s.
+///
+/// # Ordering
+///
+/// Consider the scenario where for nodes A and B two [SharedPrefix]es **a**, **b** are calculated
+/// for the same target [NodeId] **X**.
+/// The [SharedPrefix]es **a** and **b** are ordered as followed:
+///
+/// > a < b: a is closer to **X** than b => Shared prefix is longer **or** ( shared prefix has
+/// equal length **and** numerical value of xor is smaller )
 #[derive(Debug, Eq, PartialEq)]
 pub struct SharedPrefix {
     pub(crate) xor: NodeId,
@@ -252,6 +261,25 @@ impl SharedPrefix {
 
     pub fn into_bit_len(self) -> usize {
         self.length
+    }
+}
+
+impl PartialOrd for SharedPrefix {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+// Ordering::Less => Closer = Longer matching prefix
+impl Ord for SharedPrefix {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self.length.cmp(&other.length), self.xor.cmp(&other.xor)) {
+            (Ordering::Greater, _) => Ordering::Less,
+            (Ordering::Less, _) => Ordering::Greater,
+            (Ordering::Equal, Ordering::Less) => Ordering::Less,
+            (Ordering::Equal, Ordering::Greater) => Ordering::Greater,
+            (Ordering::Equal, Ordering::Equal) => Ordering::Equal,
+        }
     }
 }
 
