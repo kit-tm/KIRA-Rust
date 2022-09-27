@@ -15,9 +15,8 @@ use r2kad_lib::messaging::format::ProtocolMessageFormat;
 use r2kad_lib::messaging::sync_wrapper::SyncWrapper;
 use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetInterfaceMapper};
 use r2kad_lib::runtime::TokioRuntime;
-use r2kad_lib::use_cases::forward_protocol_message::ForwardProtocolMessages;
+use r2kad_lib::use_cases::forward_protocol_message::ForwardProtocolMessage;
 use r2kad_lib::use_cases::handle_overlay_discovery::HandleOverlayDiscovery;
-use r2kad_lib::use_cases::message_info_extraction::MessageInfoExtraction;
 use r2kad_lib::use_cases::overlay_neighborhood_discovery::OverlayNeighborhoodDiscovery;
 use r2kad_lib::use_cases::random_overlay_discovery::RandomOverlayDiscovery;
 use r2kad_lib::use_cases::vicinity_discovery::VicinityDiscovery;
@@ -172,8 +171,7 @@ fn main() {
 
     // Initialize common tasks
 
-    let mut message_info_extraction = MessageInfoExtraction::<_, DEFAULT_BUCKET_SIZE>::default();
-    let mut forward_message = ForwardProtocolMessages::new();
+    let mut forward_message = ForwardProtocolMessage::default();
     let mut handle_overlay_discovery =
         HandleOverlayDiscovery::new(Default::default()).expect("default grouping should be valid");
 
@@ -184,12 +182,6 @@ fn main() {
         log::trace!("Processing event {:?}", event);
 
         // Some precomputation to perform actions and delegate which are common tasks
-        if let Err(e) = message_info_extraction.handle(&context, event.clone()) {
-            log::error!(
-                "Message info extraction returned error handling message: {}",
-                e
-            );
-        }
         match forward_message.handle(&context, event.clone()) {
             Err(e) => log::error!(
                 "Forwarding protocol message returned error handling message: {}",
@@ -198,8 +190,6 @@ fn main() {
             Ok(HandlingResult::Handled) => continue, /* Skip delegation to use cases */
             Ok(HandlingResult::NotHandled) => { /* Delegate event to use cases  */ }
         }
-
-        // Shared functionality
         if let Err(e) = handle_overlay_discovery.handle(&context, event.clone()) {
             log::error!("Handling overlay discovery failed: {}", e);
         }
