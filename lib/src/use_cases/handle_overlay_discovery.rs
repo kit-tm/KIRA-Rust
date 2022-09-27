@@ -19,7 +19,7 @@ pub struct OverlayDiscoveryConfig {
 impl Default for OverlayDiscoveryConfig {
     fn default() -> Self {
         Self {
-            shared_prefix_bits_grouping: NonZeroUsize::new(0).unwrap(),
+            shared_prefix_bits_grouping: NonZeroUsize::new(1).unwrap(),
         }
     }
 }
