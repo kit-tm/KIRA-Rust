@@ -299,6 +299,7 @@ where
     type Context = C;
     type Error = ONDError;
     type State = ONDState;
+    type Value = ();
 
     fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error> {
         let timer_id = context.runtime().register_timer(self.config.send_timeout);

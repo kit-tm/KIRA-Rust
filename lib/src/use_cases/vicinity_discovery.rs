@@ -373,6 +373,7 @@ where
     type Context = C;
     type Error = VDError;
     type State = VDState;
+    type Value = ();
 
     fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error> {
         let timer_id = context

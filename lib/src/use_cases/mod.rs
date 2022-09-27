@@ -8,7 +8,6 @@ use crate::messaging::messages::ProtocolMessage;
 
 pub mod forward_protocol_message;
 pub mod handle_overlay_discovery;
-pub mod message_info_extraction;
 pub mod overlay_neighborhood_discovery;
 pub mod random_overlay_discovery;
 pub mod vicinity_discovery;
@@ -119,18 +118,19 @@ pub trait EventHandler {
 }
 
 /// A UseCase is an [EventHandler] which can be started in a given [UseCaseContext], has a
-/// [UseCaseState] and either returns nothing or an error of a predefined Error type.
+/// [UseCaseState] and either returns a predefined Value or Error type.
 pub trait UseCase {
     type Context: UseCaseContext + Sized;
     type Error: Error + Sized;
     type State: UseCaseState + Sized;
+    type Value;
 
     fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error>;
     fn handle_event(
         &mut self,
         context: &Self::Context,
         event: UseCaseEvent,
-    ) -> Result<(), Self::Error>;
+    ) -> Result<Self::Value, Self::Error>;
     fn state(&self) -> &Self::State;
 }
 
@@ -140,7 +140,7 @@ where
 {
     type Context = <Self as UseCase>::Context;
     type Error = <Self as UseCase>::Error;
-    type Value = ();
+    type Value = <Self as UseCase>::Value;
 
     fn handle(
         &mut self,

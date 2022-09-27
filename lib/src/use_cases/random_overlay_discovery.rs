@@ -130,6 +130,7 @@ where
     type Context = C;
     type Error = RODError;
     type State = RODState;
+    type Value = ();
 
     fn start(&mut self, context: &C) -> Result<(), Self::Error> {
         let timer_id = context
