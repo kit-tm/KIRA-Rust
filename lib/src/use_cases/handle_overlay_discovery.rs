@@ -149,7 +149,7 @@ where
                         .shared_prefix_len(target, self.config.shared_prefix_bits_grouping.get())
                         .expect("grouping was checked on init");
 
-                    if &own_distance > closest_known_distance {
+                    if &own_distance > closest_known_distance && req.source() != contact.id() {
                         self.build_find_node_to_next_hop(req.clone(), Contact::clone(contact))
                     } else {
                         self.build_error(req.clone(), *context.pn_table().state_seq_nr())
@@ -171,7 +171,7 @@ where
                         .shared_prefix_len(target, self.config.shared_prefix_bits_grouping.get())
                         .expect("grouping was checked on init");
 
-                    if &own_distance > closest_known_distance {
+                    if &own_distance > closest_known_distance && req.source() != contact.id() {
                         self.build_find_node_to_next_hop(req.clone(), Contact::clone(contact))
                     } else {
                         let closest = closest.into_iter().map(|(_, contact)| contact).collect();
