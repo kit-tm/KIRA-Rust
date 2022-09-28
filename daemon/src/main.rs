@@ -18,6 +18,7 @@ use r2kad_lib::runtime::TokioRuntime;
 use r2kad_lib::use_cases::forward_protocol_message::ForwardProtocolMessage;
 use r2kad_lib::use_cases::handle_overlay_discovery::HandleOverlayDiscovery;
 use r2kad_lib::use_cases::overlay_neighborhood_discovery::OverlayNeighborhoodDiscovery;
+use r2kad_lib::use_cases::path_probing::PathProbing;
 use r2kad_lib::use_cases::random_overlay_discovery::RandomOverlayDiscovery;
 use r2kad_lib::use_cases::vicinity_discovery::VicinityDiscovery;
 use r2kad_lib::use_cases::{
@@ -175,6 +176,12 @@ fn main() {
         return;
     }
 
+    let mut path_probing = PathProbing::new(Default::default());
+    if let Err(e) = path_probing.start(&context) {
+        log::error!("Failed to start path probing UseCase: {}", e);
+        return;
+    }
+
     // Initialize common tasks
 
     let mut handle_overlay_discovery =
@@ -209,8 +216,11 @@ fn main() {
                 e
             );
         }
-        if let Err(e) = vicinity_disc.handle(&context, event) {
+        if let Err(e) = vicinity_disc.handle(&context, event.clone()) {
             log::error!("Vicinity Discovery returned error handling message: {}", e);
+        }
+        if let Err(e) = path_probing.handle_event(&context, event) {
+            log::error!("Path Probing returned error handling message: {}", e);
         }
 
         // Check States as returning an error doesn't show an unrecoverable error
@@ -219,6 +229,7 @@ fn main() {
             random_probing.state(),
             on_disc.state(),
             vicinity_disc.state(),
+            path_probing.state(),
         ];
         if states.iter().any(|use_case| use_case.is_error()) {
             log::error!("Some use case is in error state");
