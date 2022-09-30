@@ -153,7 +153,7 @@ where
         // But: If only age is updated, don't emit anything
         let return_result = match contact.path() == existing.path() {
             true => {
-                log::debug!(
+                log::trace!(
                     target: "routing_table",
                     "Not updating contacts path because its the same [{}]",
                     contact.id()
@@ -161,7 +161,7 @@ where
                 InsertionStrategyResult::Dropped
             }
             false => {
-                log::debug!(
+                log::trace!(
                     target: "routing_table",
                     "Updating contacts path [{}]",
                     existing.id()
