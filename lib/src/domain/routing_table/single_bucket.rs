@@ -1,5 +1,6 @@
-use rand::Rng;
 use std::cmp::Ordering;
+
+use rand::Rng;
 
 use crate::domain::observable_routing_table::NonObservableRoutingTable;
 use crate::domain::{
@@ -34,6 +35,8 @@ impl<const BUCKET_SIZE: usize> SingleBucketRT<BUCKET_SIZE> {
 impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucketRT<BUCKET_SIZE> {
     type ContactWriteGuard = &'a mut Contact;
     type BucketWriteGuard = &'a mut Bucket<BUCKET_SIZE>;
+    type Iter = crate::domain::bucket::Iter<&'a Contact>;
+    type IterMut = crate::domain::bucket::Iter<&'a mut Contact>;
 
     fn root(&self) -> &NodeId {
         &self.root_id
@@ -123,9 +126,35 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
         );
         Ok(result)
     }
+
+    fn iter(&'a self) -> Self::Iter {
+        (&self.bucket).into_iter()
+    }
+
+    fn iter_mut(&'a mut self) -> Self::IterMut {
+        (&mut self.bucket).into_iter()
+    }
 }
 
 impl<'a, const BUCKET_SIZE: usize> NonObservableRoutingTable<'a, BUCKET_SIZE>
     for SingleBucketRT<BUCKET_SIZE>
 {
+}
+
+impl<'a, const BUCKET_SIZE: usize> IntoIterator for &'a SingleBucketRT<BUCKET_SIZE> {
+    type Item = &'a Contact;
+    type IntoIter = crate::domain::bucket::Iter<&'a Contact>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        (&self.bucket).into_iter()
+    }
+}
+
+impl<'a, const BUCKET_SIZE: usize> IntoIterator for &'a mut SingleBucketRT<BUCKET_SIZE> {
+    type Item = &'a mut Contact;
+    type IntoIter = crate::domain::bucket::Iter<&'a mut Contact>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        (&mut self.bucket).into_iter()
+    }
 }

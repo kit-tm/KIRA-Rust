@@ -100,7 +100,7 @@ where
     type Error = MessageSentFailed;
     type Value = ();
 
-    fn handle(
+    fn handle_event(
         &mut self,
         context: &Self::Context,
         event: UseCaseEvent,
@@ -275,7 +275,7 @@ mod tests {
             },
             source_route: route.clone(),
         };
-        let handle_result = event_handler.handle(
+        let handle_result = event_handler.handle_event(
             &sync_context,
             UseCaseEvent::Message(
                 message.clone().into(),
@@ -398,7 +398,7 @@ mod tests {
             },
             source_route: route.clone(),
         };
-        let handle_result = event_handler.handle(
+        let handle_result = event_handler.handle_event(
             &sync_context,
             UseCaseEvent::Message(
                 message.clone().into(),
@@ -514,7 +514,7 @@ mod tests {
             },
             source_route: route.clone(),
         };
-        let handle_result = event_handler.handle(
+        let handle_result = event_handler.handle_event(
             &sync_context,
             UseCaseEvent::Message(
                 message.clone().into(),
@@ -634,7 +634,7 @@ mod tests {
             },
             source_route: route.clone(),
         };
-        let handle_result = event_handler.handle(
+        let handle_result = event_handler.handle_event(
             &sync_context,
             UseCaseEvent::Message(
                 message.clone().into(),
@@ -749,7 +749,7 @@ mod tests {
             },
             source_route: route.clone(),
         };
-        let handle_result = event_handler.handle(
+        let handle_result = event_handler.handle_event(
             &sync_context,
             UseCaseEvent::Message(
                 message.clone().into(),

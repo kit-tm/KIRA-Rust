@@ -12,7 +12,7 @@ use crate::messaging::{
     FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageSender, ReqRspMessage,
 };
 use crate::runtime::UseCaseRuntime;
-use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
+use crate::use_cases::{EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState};
 use crate::utils::ExponentialBackoff;
 
 /// Overlay Discovery Configuration.
@@ -153,7 +153,7 @@ where
 {
     /// Sets a new timer accordingly and sends a new FindNodeReq
     /// if exponential backoff allows it.
-    fn send_next_request(&mut self, context: &C) -> Result<(), <Self as UseCase>::Error> {
+    fn send_next_request(&mut self, context: &C) -> Result<(), <Self as EventHandler>::Error> {
         let (timer_id, nonces, latest) = if let ONDState::Running {
             timer_id,
             nonces,
@@ -296,10 +296,7 @@ where
     // Isn't used yet, but provides information for the compiler to derive the BUCKET_SIZE from RT
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
 {
-    type Context = C;
-    type Error = ONDError;
     type State = ONDState;
-    type Value = ();
 
     fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error> {
         let timer_id = context.runtime().register_timer(self.config.send_timeout);
@@ -313,13 +310,30 @@ where
         Ok(())
     }
 
+    fn state(&self) -> &Self::State {
+        &self.state
+    }
+}
+
+impl<C, const BUCKET_SIZE: usize> EventHandler for OverlayNeighborhoodDiscovery<C, BUCKET_SIZE>
+where
+    C: UseCaseContext,
+    C::Runtime: UseCaseRuntime,
+    C::MessageSender: ProtocolMessageSender,
+    // Isn't used yet, but provides information for the compiler to derive the BUCKET_SIZE from RT
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
+{
+    type Context = C;
+    type Error = ONDError;
+    type Value = ();
+
     /// As this reacts to Errors, changes to the RoutingTable must occur before delegating
     /// the event to this method.
     fn handle_event(
         &mut self,
         context: &Self::Context,
         event: UseCaseEvent,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<Self::Value, Self::Error> {
         match (&mut self.state, event) {
             // Regular timer went off
             (ONDState::Running { timer_id, .. }, UseCaseEvent::Timer(received_timer_id)) => {
@@ -373,10 +387,6 @@ where
 
         Ok(())
     }
-
-    fn state(&self) -> &Self::State {
-        &self.state
-    }
 }
 
 #[cfg(test)]
@@ -400,7 +410,7 @@ mod tests {
     use crate::use_cases::overlay_neighborhood_discovery::{
         ONDConfig, OverlayNeighborhoodDiscovery,
     };
-    use crate::use_cases::{UseCase, UseCaseEvent};
+    use crate::use_cases::{EventHandler, UseCase, UseCaseEvent};
 
     #[test]
     fn starts_with_provided_configuration() {

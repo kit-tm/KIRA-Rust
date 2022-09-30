@@ -142,46 +142,13 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
     }
 }
 
-pub struct Iter<'a, const BUCKET_SIZE: usize, const ACC: usize> {
-    table: &'a FlatRoutingTable<BUCKET_SIZE, ACC>,
-    index: (usize, usize),
-}
-
-impl<'a, const BUCKET_SIZE: usize, const ACC: usize> Iter<'a, BUCKET_SIZE, ACC> {
-    fn new(table: &'a FlatRoutingTable<BUCKET_SIZE, ACC>) -> Self {
-        Self {
-            table,
-            index: (0, 0),
-        }
-    }
-}
-
-impl<'a, const BUCKET_SIZE: usize, const ACC: usize> Iterator for Iter<'a, BUCKET_SIZE, ACC> {
-    type Item = &'a Contact;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // Return none if no further bucket is present
-        let bucket = self.table.buckets.get(self.index.0)?;
-        match bucket.get_by_index(self.index.1) {
-            // Found a contact, go to next contact
-            Some(contact) => {
-                self.index.1 += 1;
-                Some(contact)
-            }
-            // Found no contact in this bucket. Go to next
-            None => {
-                self.index.0 += 1;
-                None
-            }
-        }
-    }
-}
-
 impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZE>
     for FlatRoutingTable<BUCKET_SIZE, ACC>
 {
     type ContactWriteGuard = &'a mut Contact;
     type BucketWriteGuard = &'a mut Bucket<BUCKET_SIZE>;
+    type Iter = std::vec::IntoIter<&'a Contact>;
+    type IterMut = std::vec::IntoIter<&'a mut Contact>;
 
     fn root(&self) -> &NodeId {
         &self.root
@@ -224,9 +191,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
     fn random_id(&self) -> Option<&NodeId> {
         let mut rng = rand::thread_rng();
         let random_contact = rng.gen_range(0..self.num_contacts());
-        self.into_iter()
-            .nth(random_contact)
-            .map(|contact| contact.id())
+        self.iter().nth(random_contact).map(|contact| contact.id())
     }
 
     fn contact_mut(&'a mut self, id: &NodeId) -> Option<Self::ContactWriteGuard> {
@@ -343,17 +308,23 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
 
         Ok(result)
     }
-}
 
-impl<'a, const BUCKET_SIZE: usize, const ACC: usize> IntoIterator
-    for &'a FlatRoutingTable<BUCKET_SIZE, ACC>
-{
-    type Item = &'a Contact;
+    fn iter(&'a self) -> Self::Iter {
+        self.buckets
+            .iter()
+            .flat_map(|bucket| bucket.into_iter())
+            // FIXME: Remove allocation
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
 
-    type IntoIter = Iter<'a, BUCKET_SIZE, ACC>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        Iter::new(self)
+    fn iter_mut(&'a mut self) -> Self::IterMut {
+        self.buckets
+            .iter_mut()
+            .flat_map(|bucket| bucket.into_iter())
+            // FIXME: Remove allocation
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 }
 

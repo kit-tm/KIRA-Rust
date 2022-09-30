@@ -9,7 +9,7 @@ use crate::domain::{node_id, GroupingError, NodeId, RoutingTable};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{FindNodeReqData, Nonce, ProtocolMessageSender, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
-use crate::use_cases::{TimerId, UseCase, UseCaseEvent, UseCaseState};
+use crate::use_cases::{EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
 #[derive(Debug, Copy, Clone)]
 pub struct RODConfig {
@@ -127,10 +127,7 @@ where
     C::MessageSender: ProtocolMessageSender,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
-    type Context = C;
-    type Error = RODError;
     type State = RODState;
-    type Value = ();
 
     fn start(&mut self, context: &C) -> Result<(), Self::Error> {
         let timer_id = context
@@ -141,6 +138,22 @@ where
 
         Ok(())
     }
+
+    fn state(&self) -> &Self::State {
+        &self.state
+    }
+}
+
+impl<C, const BUCKET_SIZE: usize> EventHandler for RandomOverlayDiscovery<C, BUCKET_SIZE>
+where
+    C: UseCaseContext,
+    C::Runtime: UseCaseRuntime,
+    C::MessageSender: ProtocolMessageSender,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+{
+    type Context = C;
+    type Error = RODError;
+    type Value = ();
 
     fn handle_event(&mut self, context: &C, event: UseCaseEvent) -> Result<(), Self::Error> {
         if let (UseCaseEvent::Timer(event_id), RODState::Running(timer_id)) =
@@ -154,10 +167,6 @@ where
         }
 
         Ok(())
-    }
-
-    fn state(&self) -> &Self::State {
-        &self.state
     }
 }
 
@@ -210,7 +219,7 @@ mod tests {
     use crate::messaging::ProtocolMessage;
     use crate::runtime::ImmediateRuntime;
     use crate::use_cases::random_overlay_discovery::{RODConfig, RODState, RandomOverlayDiscovery};
-    use crate::use_cases::{UseCase, UseCaseEvent};
+    use crate::use_cases::{EventHandler, UseCase, UseCaseEvent};
 
     fn init_test_context() -> (
         NodeId,

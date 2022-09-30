@@ -9,6 +9,7 @@
 //! More advanced implementations may use load balancing or other advanced optimizations.
 
 use std::collections::HashMap;
+use std::fmt::{Debug, Display};
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -28,7 +29,7 @@ use r2kad_lib::messaging::sync_wrapper::SyncWrapper;
 use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetInterfaceMapper};
 use r2kad_lib::runtime::TokioRuntime;
 use r2kad_lib::use_cases::vicinity_discovery::VicinityDiscovery;
-use r2kad_lib::use_cases::{UseCase, UseCaseEvent, UseCaseState};
+use r2kad_lib::use_cases::{EventHandler, UseCase, UseCaseEvent, UseCaseState};
 
 fn main() {
     // Setup the single threaded async runtime
@@ -163,6 +164,7 @@ impl<'a, UC, C> UseCaseTask<'a, UC, C>
 where
     UC: UseCase<Context = C>,
     C: UseCaseContext,
+    <UC as EventHandler>::Error: Display + Debug,
 {
     async fn start(&mut self) {
         if let Err(e) = self.use_case.start(self.context) {

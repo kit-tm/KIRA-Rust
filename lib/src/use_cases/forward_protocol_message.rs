@@ -2,7 +2,9 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
 use crate::context::UseCaseContext;
-use crate::domain::{Contact, InsertionStrategy, NetworkInterface, Path, RoutingTable};
+use crate::domain::{
+    Contact, ContactState, InsertionStrategy, NetworkInterface, Path, RoutingTable,
+};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     ErrorData, ProtocolMessage, ProtocolMessageSender, RTableData, ReqRspMessage,
@@ -11,13 +13,14 @@ use crate::use_cases::{
     EventHandler, HandlingResult, MessageSentFailed, ReactiveUseCaseState, UseCase, UseCaseEvent,
 };
 
-/// Extracts different kinds of information out of incoming [ProtocolMessage]s before possibly
-/// forwarding the received message.
+/// Extracts different kinds of information out of incoming [ProtocolMessage]s before
+/// forwarding the received message if not addressed to us.
 ///
 /// Extracts these different kinds of information:
 ///
 /// - The [Contact] information of the messages source will be added or updated.
 /// - The neighbors [Contact] information as well as
+/// - On SegmentFailure: Invalidates all affected contacts
 ///
 /// As some [UseCase]s rely on the information already being extracted this UseCase has to handle
 /// any [ProtocolMessage] before all other [UseCase]s.
@@ -115,6 +118,28 @@ where
         }
     }
 
+    fn extract_failed_contact(&self, context: &C, request: ReqRspMessage<ErrorData>) {
+        match &request.data {
+            ErrorData::SegmentFailure(link) => {
+                let contacts_id = request.request_destination();
+
+                if let Some(mut contact) = context.routing_table_mut().contact_mut(contacts_id) {
+                    *contact.state_mut() = ContactState::Invalid;
+                }
+
+                for mut contact in context.routing_table_mut().iter_mut() {
+                    if contact.path().contains_link(link) {
+                        *contact.state_mut() = ContactState::Invalid;
+                    }
+                }
+            }
+            ErrorData::DeadEnd => {
+                // In case of DeadEnd a path to a contact couldn't be found
+                // No invalidation is needed
+            }
+        };
+    }
+
     fn extract_message_info(
         &self,
         context: &C,
@@ -134,12 +159,14 @@ where
             | ProtocolMessage::FindNodeRsp(msg) => {
                 self.extract_rtable_reqrsp(context, msg, source_contact.path().clone())
             }
+            ProtocolMessage::Error(error_rsp) => self.extract_failed_contact(context, error_rsp),
             // These are already covered by source info extraction
             // Explicitly listing to yield compile time errors as soon as chnages happen to ProtocolMessage enum
             ProtocolMessage::Hello(_)
             | ProtocolMessage::QueryRouteReq(_)
             | ProtocolMessage::FindNodeReq(_)
-            | ProtocolMessage::Error(_) => {}
+            | ProtocolMessage::ProbeReq(_)
+            | ProtocolMessage::ProbeRsp(_) => {}
         }
 
         Ok(())
@@ -150,10 +177,19 @@ where
         context: &C,
         message: ProtocolMessage,
     ) -> Result<(), <Self as EventHandler>::Error> {
+        assert!(message.nonce().is_some());
+        assert!(message.source_route().is_some());
+        assert!(message.source_route().unwrap().next_hop().is_some());
+
+        let failed_link = (
+            context.root_id().clone(),
+            message.source_route().unwrap().next_hop().unwrap().clone(),
+        );
+
         let error_message = ReqRspMessage {
             nonce: message.nonce().unwrap().clone(),
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
-            data: ErrorData::SegmentFailure,
+            data: ErrorData::SegmentFailure(failed_link),
             source_route: SourceRoute::from_reversed(message.source_route().unwrap().clone()),
         };
 
@@ -226,14 +262,27 @@ where
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, BUCKET_SIZE>,
     C::MessageSender: ProtocolMessageSender,
 {
-    type Context = C;
-    type Error = MessageSentFailed;
     type State = ReactiveUseCaseState;
-    type Value = HandlingResult;
 
     fn start(&mut self, _context: &Self::Context) -> Result<(), Self::Error> {
         Ok(())
     }
+
+    fn state(&self) -> &Self::State {
+        &self.state
+    }
+}
+
+impl<C, const BUCKET_SIZE: usize> EventHandler for ForwardProtocolMessage<C, BUCKET_SIZE>
+where
+    C: UseCaseContext,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, BUCKET_SIZE>,
+    C::MessageSender: ProtocolMessageSender,
+{
+    type Context = C;
+    type Error = MessageSentFailed;
+    type Value = HandlingResult;
 
     fn handle_event(
         &mut self,
@@ -248,10 +297,6 @@ where
             Ok(HandlingResult::NotHandled)
         }
     }
-
-    fn state(&self) -> &Self::State {
-        &self.state
-    }
 }
 
 #[cfg(test)]
@@ -264,8 +309,8 @@ mod tests {
     use crate::context::{SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
-        Contact, ContactState, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path,
-        RoutingTable, StateSeqNr, TestInsertionStrategy,
+        Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable,
+        Path, RoutingTable, StateSeqNr, TestInsertionStrategy,
     };
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
@@ -273,7 +318,7 @@ mod tests {
         FindNodeReq, FindNodeRsp, PNDiscReq, PNDiscRsp, QueryRouteRsp,
     };
     use crate::messaging::{
-        FindNodeReqData, Nonce, ProtocolMessageReceiver, RTableData, ReqRspMessage,
+        ErrorData, FindNodeReqData, Nonce, ProtocolMessageReceiver, RTableData, ReqRspMessage,
     };
     use crate::runtime::ImmediateRuntime;
     use crate::use_cases::forward_protocol_message::ForwardProtocolMessage;
@@ -312,7 +357,7 @@ mod tests {
             }),
             interface.clone(),
         );
-        let handled_result = use_case.handle(&context, event);
+        let handled_result = use_case.handle_event(&context, event);
         assert!(
             handled_result.is_ok(),
             "Handling returned error: {:?}",
@@ -355,7 +400,7 @@ mod tests {
             }),
             interface.clone(),
         );
-        let handled_result = use_case.handle(&context, event);
+        let handled_result = use_case.handle_event(&context, event);
         assert!(
             handled_result.is_ok(),
             "Handling returned error: {:?}",
@@ -428,7 +473,7 @@ mod tests {
             }),
             interface.clone(),
         );
-        let handled_result = use_case.handle(&context, event);
+        let handled_result = use_case.handle_event(&context, event);
         assert!(
             handled_result.is_ok(),
             "Handling returned error: {:?}",
@@ -503,7 +548,7 @@ mod tests {
             }),
             interface.clone(),
         );
-        let handled_result = use_case.handle(&context, event);
+        let handled_result = use_case.handle_event(&context, event);
         assert!(
             handled_result.is_ok(),
             "Handling returned error: {:?}",
@@ -563,7 +608,7 @@ mod tests {
             }),
             interface.clone(),
         );
-        let handled_result = use_case.handle(&context, event);
+        let handled_result = use_case.handle_event(&context, event);
         assert!(
             handled_result.is_ok(),
             "Handling returned error: {:?}",
@@ -634,7 +679,7 @@ mod tests {
             }),
             interface.clone(),
         );
-        let handled_result = use_case.handle(&context, event);
+        let handled_result = use_case.handle_event(&context, event);
         assert!(
             handled_result.is_ok(),
             "Handling returned error: {:?}",
@@ -713,7 +758,7 @@ mod tests {
             }),
             interface.clone(),
         );
-        let handled_result = use_case.handle(&context, event);
+        let handled_result = use_case.handle_event(&context, event);
         assert!(
             handled_result.is_ok(),
             "Handling returned error: {:?}",
@@ -810,7 +855,7 @@ mod tests {
             }),
             interface.clone(),
         );
-        let handled_result = use_case.handle(&context, event);
+        let handled_result = use_case.handle_event(&context, event);
         assert!(
             handled_result.is_ok(),
             "Handling returned error: {:?}",
@@ -885,7 +930,7 @@ mod tests {
                 .advanced(),
         };
 
-        let result = use_case.handle(
+        let result = use_case.handle_event(
             &sync_context,
             UseCaseEvent::Message(message.into(), NetworkInterface::new("test")),
         );
@@ -953,7 +998,7 @@ mod tests {
             ])),
         };
 
-        let result = use_case.handle(
+        let result = use_case.handle_event(
             &sync_context,
             UseCaseEvent::Message(sent_request.clone().into(), NetworkInterface::new("test")),
         );
@@ -977,5 +1022,131 @@ mod tests {
             assert_eq!(&req.source_route, &route);
             assert_eq!(&req.data, &sent_request.data);
         }
+    }
+
+    #[test]
+    fn error_invalidates_failed_contact() {
+        crate::tests::init();
+
+        let interface = NetworkInterface::new("test");
+
+        let root_id = NodeId::with_lsb(1);
+        let neighbor_id = NodeId::with_lsb(2);
+        let source_id = NodeId::with_lsb(3);
+        let failed_contact_id = NodeId::with_lsb(4);
+
+        let invalid_contact_ids = [
+            NodeId::with_lsb(5),
+            NodeId::with_lsb(6),
+            NodeId::with_lsb(7),
+            NodeId::with_lsb(8),
+        ];
+
+        let failed_link = Link::from((source_id.clone(), failed_contact_id.clone()));
+
+        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
+
+        let runtime = ImmediateRuntime::new(broadcaster);
+
+        let hub = ArcSyncInMemoryMessageHub::new();
+
+        let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
+        let failed_contact = Contact::new(
+            Path::from([
+                neighbor_id.clone(),
+                source_id.clone(),
+                failed_contact_id.clone(),
+            ]),
+            StateSeqNr::from(13),
+        );
+        let mut invalid_contacts = invalid_contact_ids
+            .iter()
+            .cloned()
+            .map(|id| {
+                Contact::new(
+                    Path::from([
+                        neighbor_id.clone(),
+                        source_id.clone(),
+                        failed_contact_id.clone(),
+                        id,
+                    ]),
+                    StateSeqNr::from(rand::random::<u64>()),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
+        assert!(routing_table.insert(neighbor.clone()).is_ok());
+        assert!(routing_table.insert(failed_contact.clone()).is_ok());
+        for contact in invalid_contacts.clone() {
+            assert!(routing_table.insert(contact).is_ok());
+        }
+        invalid_contacts.push(failed_contact);
+
+        let mut pn_table = PNTable::new();
+        pn_table.insert(neighbor_id.clone(), interface.clone());
+
+        let sync_context = SyncContext::new(
+            root_id.clone(),
+            routing_table,
+            pn_table,
+            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            hub.clone(),
+            runtime,
+        );
+
+        let mut use_case = ForwardProtocolMessage::default();
+
+        let sent_request = ReqRspMessage {
+            nonce: Nonce::random(),
+            source_state_seq_nr: StateSeqNr::from(0),
+            data: ErrorData::SegmentFailure(failed_link),
+            source_route: SourceRoute::from(Path::from([
+                failed_contact_id.clone(),
+                source_id.clone(),
+                neighbor_id.clone(),
+                root_id.clone(),
+            ]))
+            .advanced()
+            .advanced(),
+        };
+
+        let result = use_case.handle_event(
+            &sync_context,
+            UseCaseEvent::Message(sent_request.clone().into(), interface.clone()),
+        );
+        assert!(
+            result.is_ok(),
+            "Handling a valid message returned an error: {:?}",
+            result
+        );
+
+        for contact in invalid_contacts {
+            let rt = sync_context.routing_table();
+            let invalid_contact = rt.contact(contact.id());
+            assert!(
+                invalid_contact.is_some(),
+                "invalid contact no longer present after error"
+            );
+            let invalid_contact = invalid_contact.unwrap();
+            assert_eq!(
+                invalid_contact.state(),
+                &ContactState::Invalid,
+                "All affected contacts should be invalidated"
+            );
+        }
+
+        let rt = sync_context.routing_table();
+        let valid_contact = rt.contact(&neighbor_id);
+        assert!(
+            valid_contact.is_some(),
+            "invalid contact no longer present after error"
+        );
+        let valid_contact = valid_contact.unwrap();
+        assert_eq!(
+            valid_contact.state(),
+            &ContactState::Valid,
+            "All affected contacts should be invalidated"
+        );
     }
 }
