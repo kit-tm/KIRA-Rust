@@ -115,14 +115,24 @@ where
             return InsertionStrategyResult::Dropped;
         }
         // Drop if same seq_nr but Age is older
-        if contact.age() < existing.age() {
+        if contact.age() > existing.age() {
             log::trace!(
                 target: "routing_table",
-                "Dropping older path [{}]",
-                existing.id()
+                "Dropping older contact info: {:?}, Existing: {:?} [{}]",
+                contact.age(),
+                existing.age(),
+                contact.id()
             );
             return InsertionStrategyResult::Dropped;
         }
+        *existing.last_seen_mut() = contact.last_seen().clone();
+        log::trace!(
+                    target: "routing_table",
+            "Updated age of contact to {:#?} [{}]",
+            existing.last_seen(),
+            existing.id()
+        );
+
         // Drop if state is not valid and the new info doesn't avoid
         // all failed links
         if let ContactState::Rediscovering(rds) = existing.state() {
@@ -142,7 +152,14 @@ where
 
         // But: If only age is updated, don't emit anything
         let return_result = match contact.path() == existing.path() {
-            true => InsertionStrategyResult::Dropped,
+            true => {
+                log::debug!(
+                    target: "routing_table",
+                    "Not updating contacts path because its the same [{}]",
+                    contact.id()
+                );
+                InsertionStrategyResult::Dropped
+            }
             false => {
                 log::debug!(
                     target: "routing_table",

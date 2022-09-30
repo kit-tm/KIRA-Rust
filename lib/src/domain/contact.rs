@@ -7,6 +7,11 @@ use crate::domain::{Link, NodeId, Path, StateSeqNr};
 /// Specifies in milliseconds the age of the routing information.
 ///
 /// This is either associated with the [Age] of a [Contact] or a failed link.
+///
+/// # Ordering
+///
+/// As [Age] specifies a timestamp in milliseconds a greater value represents a bigger age.
+/// Considering `X = Age(10)` and `Y = Age(20)` then `X < Y == true`.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Age(u64);
@@ -45,7 +50,10 @@ impl Timestamp {
     pub fn to_age(&self) -> Age {
         let distance = Utc::now() - self.0;
         // OK since stored timestamp should always be >= current time
-        Age::from(distance.num_milliseconds().unsigned_abs())
+        Age::from(
+            distance.num_seconds().unsigned_abs() * 1000
+                + distance.num_milliseconds().unsigned_abs(),
+        )
     }
 
     /// Returns the [Duration] representation of the [Age] of the [Timestamp].
