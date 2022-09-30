@@ -19,6 +19,8 @@ pub struct PathProbingConfig {
     /// Interval to perform periodic checks if a [Contact] is about to expire.
     pub check_interval: Duration,
     /// Maximum age of a [Contact] before it has to be probed.
+    ///
+    /// Default is **40s** because physical advertising is about 30s.
     pub probe_age: chrono::Duration,
     /// Maximum duration a [ProbeReq] is allowed to take.
     pub request_timeout: Duration,
@@ -28,7 +30,7 @@ impl Default for PathProbingConfig {
     fn default() -> Self {
         Self {
             check_interval: Duration::from_secs(1),
-            probe_age: chrono::Duration::seconds(2),
+            probe_age: chrono::Duration::seconds(40),
             request_timeout: Duration::from_secs(10),
         }
     }
