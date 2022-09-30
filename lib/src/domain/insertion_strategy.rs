@@ -128,7 +128,7 @@ where
         *existing.last_seen_mut() = contact.last_seen().clone();
         log::trace!(
                     target: "routing_table",
-            "Updated age of contact to {:#?} [{}]",
+            "Updated age of contact to {:?} [{}]",
             existing.last_seen(),
             existing.id()
         );
