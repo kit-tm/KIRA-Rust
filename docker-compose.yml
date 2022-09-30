@@ -13,7 +13,7 @@ services:
     image: r2kad-daemon:scratch
     environment:
       NODE_ID: "0200000000000000000000000000"
-      RUST_LOG: "debug,routing_table=trace"
+      RUST_LOG: "debug"
     expose:
       - "8080"
     networks:
