@@ -6,7 +6,7 @@ use crate::context::UseCaseContext;
 use crate::domain::{ContactState, NodeId, RoutingTable, DEFAULT_BUCKET_SIZE};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
-    Nonce, ProbeReqData, ProtocolMessage, ProtocolMessageSender, ReqRspMessage,
+    Nonce, ProbeReqData, ProbeRspData, ProtocolMessage, ProtocolMessageSender, ReqRspMessage,
 };
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{
@@ -204,6 +204,25 @@ where
         Ok(())
     }
 
+    fn send_probe_rsp(
+        &mut self,
+        context: &C,
+        req: ReqRspMessage<ProbeReqData>,
+    ) -> Result<(), MessageSentFailed> {
+        let message = ReqRspMessage {
+            nonce: req.nonce,
+            source_state_seq_nr: *context.pn_table().state_seq_nr(),
+            data: ProbeRspData,
+            source_route: SourceRoute::from_reversed(req.source_route),
+        };
+        if let Err(e) = context.message_sender_mut().send(message) {
+            log::error!("Failed to send probe req: {}", e);
+            return Err(MessageSentFailed);
+        }
+
+        Ok(())
+    }
+
     fn is_periodic_timer(&self, timer_id: &TimerId) -> bool {
         match &self.state {
             PathProbingState::Running { probe_timer_id, .. } => probe_timer_id == timer_id,
@@ -292,6 +311,9 @@ where
                     self.invalidate_contact_for_message(context, req.nonce)?;
                 }
             }
+            UseCaseEvent::Message(ProtocolMessage::ProbeReq(req), _) => {
+                self.send_probe_rsp(context, req)?;
+            }
             _ => {}
         }
 
@@ -314,7 +336,8 @@ mod tests {
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::tests::ArcSyncInMemoryMessageHub;
     use crate::messaging::{
-        ErrorData, ProbeRspData, ProtocolMessage, ProtocolMessageReceiver, ReqRspMessage,
+        ErrorData, Nonce, ProbeReqData, ProbeRspData, ProtocolMessage, ProtocolMessageReceiver,
+        ReqRspMessage,
     };
     use crate::runtime::ImmediateRuntime;
     use crate::use_cases::path_probing::PathProbing;
@@ -419,6 +442,88 @@ mod tests {
             "Some contacts were probed that didn't have to bee probed: {:?}",
             contacts_probed
         );
+    }
+
+    #[test]
+    fn path_probe_answered() {
+        crate::tests::init();
+
+        let interface = NetworkInterface::new("test");
+
+        let root_id = NodeId::with_lsb(1);
+        let neighbor_id = NodeId::with_lsb(2);
+        let contact_id = NodeId::with_lsb(3);
+
+        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
+
+        let runtime = ImmediateRuntime::new(broadcaster);
+
+        let mut hub = ArcSyncInMemoryMessageHub::new();
+
+        let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(2));
+        let contact = Contact::new(Path::from(contact_id.clone()), StateSeqNr::from(3));
+
+        let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
+        assert!(routing_table.insert(neighbor.clone()).is_ok());
+        assert!(routing_table.insert(contact.clone()).is_ok());
+
+        let mut pn_table = PNTable::new();
+        pn_table.insert(neighbor_id.clone(), interface.clone());
+
+        let sync_context = SyncContext::new(
+            root_id.clone(),
+            routing_table,
+            pn_table,
+            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            hub.clone(),
+            runtime,
+        );
+
+        let mut use_case = PathProbing::new(Default::default());
+
+        let start_result = use_case.start(&sync_context);
+        assert!(start_result.is_ok(), "Failed to start use case");
+
+        // Send ProbeReq
+        let request = ReqRspMessage {
+            nonce: Nonce::random(),
+            source_state_seq_nr: StateSeqNr::from(3),
+            data: ProbeReqData,
+            source_route: SourceRoute::from(Path::from([
+                contact_id.clone(),
+                neighbor_id.clone(),
+                root_id.clone(),
+            ]))
+            .advanced(),
+        };
+        let result = use_case.handle_event(
+            &sync_context,
+            UseCaseEvent::Message(request.clone().into(), interface.clone()),
+        );
+        assert!(result.is_ok(), "Failed to send message");
+
+        // Expect ProbeRsp
+        let sent_message = hub.try_recv();
+        assert!(sent_message.is_ok(), "Failed to receive sent message");
+        let sent_message = sent_message.unwrap();
+        assert!(sent_message.is_some(), "No message was sent");
+        let (sent_message, _) = sent_message.unwrap();
+        match sent_message {
+            ProtocolMessage::ProbeRsp(rsp) => {
+                assert_eq!(rsp.nonce, request.nonce, "Nonces should be equal");
+                assert_eq!(
+                    rsp.source_state_seq_nr,
+                    StateSeqNr::from(1),
+                    "SSN should be the one of the root"
+                );
+                assert_eq!(
+                    rsp.source_route,
+                    SourceRoute::from_reversed(request.source_route),
+                    "source route should be reversed"
+                );
+            }
+            message => panic!("Sent unexpected message: {:?}", message),
+        }
     }
 
     #[test]
