@@ -113,7 +113,7 @@ where
                 source_route: route,
             };
             if let Err(e) = context.message_sender_mut().send(message) {
-                log::error!("Failed to send ProbeReq: {}", e);
+                log::error!(target: "path_probing", "Failed to send ProbeReq: {}", e);
                 return Err(MessageSentFailed);
             }
 
@@ -122,6 +122,8 @@ where
                 .register_timer(self.config.request_timeout);
             probe_timers.insert(timeout_timer, nonce.clone());
             requests_in_flight.insert(nonce, contact.id().clone());
+
+            log::trace!(target: "path_probing", "Sent probe to {}", contact.id());
         }
 
         Ok(())
@@ -135,7 +137,9 @@ where
         } = &mut self.state
         {
             requests_in_flight.remove(&nonce);
-            probe_timers.retain(|_, v| *v != nonce);
+            probe_timers.retain(|_, v| v != &nonce);
+
+            log::trace!(target: "path_probing", "Removed message with nonce {:?} from tracked messages", nonce);
         }
 
         Ok(())
@@ -163,9 +167,12 @@ where
             let contacts_id = contacts_id.unwrap();
             let mut lock = context.routing_table_mut();
             match lock.contact_mut(&contacts_id) {
-                Some(mut contact) => *contact.state_mut() = ContactState::Invalid,
+                Some(mut contact) => {
+                    *contact.state_mut() = ContactState::Invalid;
+                    log::trace!(target: "path_probing", "Invalidated contact {} because of timer", contact.id());
+                }
                 None => {
-                    log::warn!("Removed timeout for non existent contact {}", contacts_id)
+                    log::warn!(target: "path_probing", "Removed timeout for non existent contact {}", contacts_id)
                 }
             };
         }
@@ -194,9 +201,12 @@ where
 
             let mut lock = context.routing_table_mut();
             match lock.contact_mut(&contacts_id) {
-                Some(mut contact) => *contact.state_mut() = ContactState::Invalid,
+                Some(mut contact) => {
+                    *contact.state_mut() = ContactState::Invalid;
+                    log::trace!(target: "path_probing", "Invalidated contact {} because ot segment failure", contact.id())
+                }
                 None => {
-                    log::warn!("Removed timeout for non existent contact {}", contacts_id)
+                    log::warn!(target: "path_probing", "Removed timeout for non existent contact {}", contacts_id)
                 }
             };
         }
@@ -209,6 +219,7 @@ where
         context: &C,
         req: ReqRspMessage<ProbeReqData>,
     ) -> Result<(), MessageSentFailed> {
+        let source = req.source().clone();
         let message = ReqRspMessage {
             nonce: req.nonce,
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
@@ -216,9 +227,11 @@ where
             source_route: SourceRoute::from_reversed(req.source_route),
         };
         if let Err(e) = context.message_sender_mut().send(message) {
-            log::error!("Failed to send probe req: {}", e);
+            log::error!(target: "path_probing", "Failed to send probe req: {}", e);
             return Err(MessageSentFailed);
         }
+
+        log::trace!(target: "path_probing", "Sent probe rsp to {}", source);
 
         Ok(())
     }
@@ -303,7 +316,16 @@ where
             }
             UseCaseEvent::Message(ProtocolMessage::ProbeRsp(req), _) => {
                 if self.is_tracked_message(&req.nonce) {
-                    self.remove_from_tracked_messages(req.nonce)?;
+                    let ReqRspMessage {
+                        nonce,
+                        source_route,
+                        ..
+                    } = req;
+                    let source = source_route.source().clone();
+
+                    self.remove_from_tracked_messages(nonce)?;
+
+                    log::debug!(target: "path_probing", "Probing {} was successful!", source);
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::Error(req), _) => {
