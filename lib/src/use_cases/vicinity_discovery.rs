@@ -16,7 +16,7 @@ use crate::messaging::{
     RTableData, ReqRspMessage,
 };
 use crate::runtime::UseCaseRuntime;
-use crate::use_cases::{ContactEvent, TimerId, UseCase, UseCaseEvent, UseCaseState};
+use crate::use_cases::{ContactEvent, EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
 /// Radius of the neighborhood considered as vicinity.
 ///
@@ -370,10 +370,7 @@ where
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
-    type Context = C;
-    type Error = VDError;
     type State = VDState;
-    type Value = ();
 
     fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error> {
         let timer_id = context
@@ -384,6 +381,22 @@ where
 
         Ok(())
     }
+
+    fn state(&self) -> &Self::State {
+        &self.state
+    }
+}
+
+impl<C, const BUCKET_SIZE: usize> EventHandler for VicinityDiscovery<C, BUCKET_SIZE>
+where
+    C: UseCaseContext,
+    C::MessageSender: ProtocolMessageSender,
+    C::Runtime: UseCaseRuntime,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+{
+    type Context = C;
+    type Error = VDError;
+    type Value = ();
 
     fn handle_event(
         &mut self,
@@ -439,10 +452,6 @@ where
 
         Ok(())
     }
-
-    fn state(&self) -> &Self::State {
-        &self.state
-    }
 }
 
 #[cfg(test)]
@@ -467,7 +476,7 @@ mod tests {
     use crate::use_cases::vicinity_discovery::{
         VDState, VicinityDiscovery, VicinityDiscoveryConfig, VICINITY_RADIUS,
     };
-    use crate::use_cases::{ContactEvent, UseCase, UseCaseEvent};
+    use crate::use_cases::{ContactEvent, EventHandler, UseCase, UseCaseEvent};
 
     #[test]
     fn startup_test() {
@@ -815,7 +824,9 @@ mod tests {
                 NodeId::with_msb(28),
                 NodeId::with_msb(14),
                 root_id.clone(),
-            ])),
+            ]))
+            .advanced()
+            .advanced(),
         });
         let event = UseCaseEvent::Message(protocol_message.clone(), neighbors_port);
 
@@ -1059,18 +1070,21 @@ mod tests {
             start_result
         );
 
+        let route = SourceRoute::from(Path::from([
+            source_id.clone(),
+            NodeId::with_msb(28),
+            NodeId::with_msb(14),
+            root_id.clone(),
+        ]))
+        .advanced()
+        .advanced();
         let protocol_message = ProtocolMessage::QueryRouteReq(ReqRspMessage {
             nonce: Nonce::random(),
             source_state_seq_nr: StateSeqNr::from(3),
             data: QueryRouteReqData {
                 query_type: QueryRouteType::PhysicalNeighbors,
             },
-            source_route: SourceRoute::from(Path::from([
-                source_id.clone(),
-                NodeId::with_msb(28),
-                NodeId::with_msb(14),
-                root_id.clone(),
-            ])),
+            source_route: route,
         });
         let event = UseCaseEvent::Message(protocol_message.clone(), neighbors_port);
 

@@ -207,7 +207,6 @@ impl<RT, CR, PS, const BUCKET_SIZE: usize> InsertionStrategy<RT, BUCKET_SIZE>
     for PNSStrategy<RT, CR, PS, BUCKET_SIZE>
 where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
-    for<'a> &'a RT: IntoIterator<Item = &'a Contact>,
     CR: PathCycleRemover,
     PS: PathSimplifier,
 {

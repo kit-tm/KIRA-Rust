@@ -1,3 +1,4 @@
+use std::collections::hash_map::{Values, ValuesMut};
 use std::collections::HashMap;
 
 use rand::Rng;
@@ -34,41 +35,51 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> From<FlatRoutingTable<BUCKET_SI
     }
 }
 
-pub struct Iter<'a> {
-    iter: Vec<&'a Contact>,
+pub struct Iter<'a, const BUCKET_SIZE: usize, const ACC: usize> {
+    pn_iter: Values<'a, NodeId, Contact>,
+    inner_iter: <FlatRoutingTable<BUCKET_SIZE, ACC> as RoutingTable<'a, BUCKET_SIZE>>::Iter,
 }
 
-impl<'a> Iter<'a> {
-    fn new<const BUCKET_SIZE: usize, const ACC: usize>(
-        table: &'a UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>,
-    ) -> Self {
-        let mut iter = table
-            .pn_contacts
-            .values()
-            .into_iter()
-            .chain(table.inner.into_iter())
-            .collect::<Vec<_>>();
-        iter.reverse();
-        Self { iter }
+impl<'a, const BUCKET_SIZE: usize, const ACC: usize>
+    From<&'a UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>> for Iter<'a, BUCKET_SIZE, ACC>
+{
+    fn from(table: &'a UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>) -> Self {
+        Self {
+            pn_iter: table.pn_contacts.values(),
+            inner_iter: table.inner.iter(),
+        }
     }
 }
 
-impl<'a> Iterator for Iter<'a> {
+impl<'a, const BUCKET_SIZE: usize, const ACC: usize> Iterator for Iter<'a, BUCKET_SIZE, ACC> {
     type Item = &'a Contact;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.pop()
+        self.pn_iter.next().or_else(|| self.inner_iter.next())
     }
 }
 
-impl<'a, const BUCKET_SIZE: usize, const ACC: usize> IntoIterator
-    for &'a UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>
-{
-    type Item = &'a Contact;
-    type IntoIter = Iter<'a>;
+pub struct IterMut<'a, const BUCKET_SIZE: usize, const ACC: usize> {
+    pn_iter: ValuesMut<'a, NodeId, Contact>,
+    inner_iter: <FlatRoutingTable<BUCKET_SIZE, ACC> as RoutingTable<'a, BUCKET_SIZE>>::IterMut,
+}
 
-    fn into_iter(self) -> Self::IntoIter {
-        Iter::new(self)
+impl<'a, const BUCKET_SIZE: usize, const ACC: usize>
+    From<&'a mut UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>> for IterMut<'a, BUCKET_SIZE, ACC>
+{
+    fn from(table: &'a mut UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>) -> Self {
+        Self {
+            pn_iter: table.pn_contacts.values_mut(),
+            inner_iter: table.inner.iter_mut(),
+        }
+    }
+}
+
+impl<'a, const BUCKET_SIZE: usize, const ACC: usize> Iterator for IterMut<'a, BUCKET_SIZE, ACC> {
+    type Item = &'a mut Contact;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.pn_iter.next().or_else(|| self.inner_iter.next())
     }
 }
 
@@ -77,6 +88,8 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
 {
     type ContactWriteGuard = &'a mut Contact;
     type BucketWriteGuard = &'a mut Bucket<BUCKET_SIZE>;
+    type Iter = Iter<'a, BUCKET_SIZE, ACC>;
+    type IterMut = IterMut<'a, BUCKET_SIZE, ACC>;
 
     fn root(&self) -> &NodeId {
         self.inner.root()
@@ -127,7 +140,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
             return None;
         }
         let random = rand::thread_rng().gen_range(0..self.len());
-        self.into_iter().nth(random).map(|contact| contact.id())
+        self.iter().nth(random).map(|contact| contact.id())
     }
 
     fn contact_mut(&'a mut self, id: &NodeId) -> Option<Self::ContactWriteGuard> {
@@ -196,6 +209,14 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         }
 
         Ok(closest)
+    }
+
+    fn iter(&'a self) -> Self::Iter {
+        Iter::from(self)
+    }
+
+    fn iter_mut(&'a mut self) -> Self::IterMut {
+        IterMut::from(self)
     }
 }
 

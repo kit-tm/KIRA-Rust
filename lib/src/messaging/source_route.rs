@@ -30,12 +30,17 @@ impl SourceRoute {
     }
 
     /// Creates a new source path with 0 progress and reversed of the given route.
+    ///
+    /// The progress is adjusted appropriately.
+    /// If the given route has size 10 and progress of 3 the reverted route
+    /// will have progress of 7.
     pub fn from_reversed<I: Into<SourceRoute>>(route: I) -> Self {
         let mut converted = route.into();
+        let progress = converted.size() - converted.progress;
         converted.ids.make_contiguous().reverse();
         Self {
             ids: converted.ids,
-            progress: 1,
+            progress,
         }
     }
 
@@ -108,8 +113,8 @@ impl SourceRoute {
 
     /// Returns the last element of the [SourceRoute].
     ///
-    /// This is in general the source node of the [ProtocolMessage].
-    pub fn target(&self) -> &NodeId {
+    /// This is in general the destination node of the [ProtocolMessage].
+    pub fn destination(&self) -> &NodeId {
         self.ids.back().expect("constructed empty SourceRoute")
     }
 

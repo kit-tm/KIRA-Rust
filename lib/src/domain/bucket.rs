@@ -1,6 +1,5 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::ops::Index;
 
 use crate::domain::{Contact, NodeId};
 
@@ -197,10 +196,6 @@ impl<const SIZE: usize> Bucket<SIZE> {
     /// Returns an mutable iterator over the contacts in this bucket.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Contact> {
         self.contacts.iter_mut().flatten()
-    }
-
-    pub(crate) fn get_by_index(&self, index: usize) -> Option<&Contact> {
-        self.contacts.index(index).as_ref()
     }
 }
 

@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::num::NonZeroU64;
 
-use crate::domain::{Contact, NodeId, StateSeqNr};
+use crate::domain::{Contact, Link, NodeId, StateSeqNr};
 use crate::messaging::source_route::SourceRoute;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -31,6 +31,8 @@ pub enum ProtocolMessage {
     QueryRouteRsp(ReqRspMessage<RTableData>),
     FindNodeReq(ReqRspMessage<FindNodeReqData>),
     FindNodeRsp(ReqRspMessage<RTableData>),
+    ProbeReq(ReqRspMessage<ProbeReqData>),
+    ProbeRsp(ReqRspMessage<ProbeRspData>),
     Error(ReqRspMessage<ErrorData>),
 }
 
@@ -45,6 +47,8 @@ impl ProtocolMessage {
             Self::FindNodeReq(req) => Some(&mut req.source_route),
             Self::FindNodeRsp(req) => Some(&mut req.source_route),
             Self::Error(req) => Some(&mut req.source_route),
+            Self::ProbeReq(req) => Some(&mut req.source_route),
+            Self::ProbeRsp(req) => Some(&mut req.source_route),
         }
     }
 
@@ -58,6 +62,8 @@ impl ProtocolMessage {
             Self::FindNodeReq(req) => Some(&req.source_route),
             Self::FindNodeRsp(req) => Some(&req.source_route),
             Self::Error(req) => Some(&req.source_route),
+            Self::ProbeReq(req) => Some(&req.source_route),
+            Self::ProbeRsp(req) => Some(&req.source_route),
         }
     }
 
@@ -72,6 +78,8 @@ impl ProtocolMessage {
             Self::FindNodeReq(req) => Some(req.destination()),
             Self::FindNodeRsp(req) => Some(req.destination()),
             Self::Error(req) => Some(req.destination()),
+            Self::ProbeReq(req) => Some(req.destination()),
+            Self::ProbeRsp(req) => Some(req.destination()),
         }
     }
 
@@ -85,6 +93,8 @@ impl ProtocolMessage {
             Self::FindNodeReq(req) => Some(&req.nonce),
             Self::FindNodeRsp(req) => Some(&req.nonce),
             Self::Error(req) => Some(&req.nonce),
+            Self::ProbeReq(req) => Some(&req.nonce),
+            Self::ProbeRsp(req) => Some(&req.nonce),
         }
     }
 
@@ -97,7 +107,17 @@ impl ProtocolMessage {
             Self::QueryRouteRsp(req) => req.source(),
             Self::FindNodeReq(req) => req.source(),
             Self::FindNodeRsp(req) => req.source(),
-            Self::Error(req) => req.source(),
+            Self::Error(ReqRspMessage {
+                data: ErrorData::DeadEnd,
+                source_route,
+                ..
+            }) => source_route.source(),
+            Self::Error(ReqRspMessage {
+                data: ErrorData::SegmentFailure(link),
+                ..
+            }) => &link.0,
+            Self::ProbeReq(req) => req.source(),
+            Self::ProbeRsp(req) => req.source(),
         }
     }
 
@@ -111,6 +131,8 @@ impl ProtocolMessage {
             Self::FindNodeReq(req) => &req.source_state_seq_nr,
             Self::FindNodeRsp(req) => &req.source_state_seq_nr,
             Self::Error(req) => &req.source_state_seq_nr,
+            Self::ProbeReq(req) => &req.source_state_seq_nr,
+            Self::ProbeRsp(req) => &req.source_state_seq_nr,
         }
     }
 
@@ -167,7 +189,27 @@ impl<T: Debug> ReqRspMessage<T> {
 
     /// Next hop destination of the request.
     pub fn destination(&self) -> &NodeId {
-        self.source_route.target()
+        self.source_route.destination()
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct ProbeReqData;
+
+impl From<ReqRspMessage<ProbeReqData>> for ProtocolMessage {
+    fn from(message: ReqRspMessage<ProbeReqData>) -> Self {
+        Self::ProbeReq(message)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct ProbeRspData;
+
+impl From<ReqRspMessage<ProbeRspData>> for ProtocolMessage {
+    fn from(message: ReqRspMessage<ProbeRspData>) -> Self {
+        Self::ProbeRsp(message)
     }
 }
 
@@ -226,6 +268,18 @@ impl From<ReqRspMessage<FindNodeReqData>> for ProtocolMessage {
     }
 }
 
+/// Represents the error data sent in an error message.
+///
+/// In contrast to other messages the source of the contained source route may not be
+/// the node which answered.
+/// Depending on the error:
+///
+/// - `DeadEnd`: The source is the node which answered
+/// - `SegmentFailure(Link)`: The source is the destination of the request and the node which
+///     answered is the first element in the transmitted link.
+///
+/// In any case the returned error message contains the node which answered and the node which was
+/// the destination of the request.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum ErrorData {
@@ -234,7 +288,19 @@ pub enum ErrorData {
     /// Returned if a segment in a source route is not valid.
     ///
     /// E.g. when forwarding a message and the next hop is not a physical neighbor.
-    SegmentFailure,
+    ///
+    /// Contains the link which is invalid.
+    SegmentFailure(Link),
+}
+
+impl ReqRspMessage<ErrorData> {
+    /// Returns the destination of the origin message of this error response.
+    pub fn request_destination(&self) -> &NodeId {
+        match &self.data {
+            ErrorData::DeadEnd => self.source(),
+            ErrorData::SegmentFailure(link) => &link.0,
+        }
+    }
 }
 
 impl From<ReqRspMessage<ErrorData>> for ProtocolMessage {

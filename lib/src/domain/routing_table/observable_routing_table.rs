@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
+use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
 use crate::domain::unlimited_pn_routing_table::UnlimitedPNRoutingTable;
@@ -175,10 +176,12 @@ impl<RT, const BUCKET_SIZE: usize> ObservableRoutingTable<RT, BUCKET_SIZE> {
 impl<'a, RT, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE>
     for ObservableRoutingTable<RT, BUCKET_SIZE>
 where
-    RT: NonObservableRoutingTable<'a, BUCKET_SIZE>,
+    RT: 'a + NonObservableRoutingTable<'a, BUCKET_SIZE>,
 {
     type ContactWriteGuard = ContactWriteGuard<'a, RT::ContactWriteGuard, BUCKET_SIZE>;
     type BucketWriteGuard = BucketWriteGuard<'a, RT::BucketWriteGuard, BUCKET_SIZE>;
+    type Iter = RT::Iter;
+    type IterMut = Iter<'a, RT::IterMut, RT::ContactWriteGuard, BUCKET_SIZE>;
 
     fn root(&self) -> &NodeId {
         self.inner.root()
@@ -268,17 +271,50 @@ where
     ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError> {
         self.inner.closest(to, n, shared_prefix_grouping)
     }
+
+    fn iter(&'a self) -> Self::Iter {
+        self.inner.iter()
+    }
+
+    fn iter_mut(&'a mut self) -> Self::IterMut {
+        Iter::new(&self.observables, self.inner.iter_mut())
+    }
 }
 
-impl<'a, RT, const BUCKET_SIZE: usize> IntoIterator for &'a ObservableRoutingTable<RT, BUCKET_SIZE>
-where
-    &'a RT: IntoIterator<Item = &'a Contact>,
-{
-    type Item = &'a Contact;
-    type IntoIter = <&'a RT as IntoIterator>::IntoIter;
+// Not using "NonObservableRoutingTable" Trait as rust emits recursion error (maybe a rust bug?)
 
-    fn into_iter(self) -> Self::IntoIter {
-        self.inner.into_iter()
+pub struct Iter<'a, I, C, const BUCKET_SIZE: usize> {
+    observers: &'a [Box<dyn RoutingTableObserver<BUCKET_SIZE>>],
+    inner_iter: I,
+    // To keep 'a and C
+    _pd: PhantomData<&'a C>,
+}
+
+impl<'a, I, C, const BUCKET_SIZE: usize> Iter<'a, I, C, BUCKET_SIZE> {
+    fn new(observers: &'a [Box<dyn RoutingTableObserver<BUCKET_SIZE>>], inner_iter: I) -> Self {
+        Self {
+            observers,
+            inner_iter,
+            _pd: PhantomData::default(),
+        }
+    }
+}
+
+impl<'a, I, C, const BUCKET_SIZE: usize> Iterator for Iter<'a, I, C, BUCKET_SIZE>
+where
+    I: Iterator<Item = C>,
+    C: DerefMut<Target = Contact>,
+{
+    type Item = ContactWriteGuard<'a, C, BUCKET_SIZE>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.inner_iter.next();
+
+        next.map(|contact| ContactWriteGuard {
+            observers: self.observers,
+            original: Contact::clone(&contact),
+            contact,
+        })
     }
 }
 

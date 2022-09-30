@@ -72,6 +72,7 @@ where
         let broadcaster = self.broadcaster.clone();
         let _ = broadcaster.send_event(UseCaseEvent::Timer(id));
         std::thread::spawn(move || loop {
+            std::thread::sleep(Duration::from_secs(1));
             if broadcaster.send_event(UseCaseEvent::Timer(id)).is_err() {
                 break;
             }
