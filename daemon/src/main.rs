@@ -194,7 +194,7 @@ fn main() {
         log::trace!("Processing event {:?}", event);
 
         // Some precomputation to perform actions and delegate which are common tasks
-        match forward_message.handle(&context, event.clone()) {
+        match forward_message.handle_event(&context, event.clone()) {
             Err(e) => log::error!(
                 "Forwarding protocol message returned error handling message: {}",
                 e
@@ -202,21 +202,21 @@ fn main() {
             Ok(HandlingResult::Handled) => continue, /* Skip delegation to other use cases */
             Ok(HandlingResult::NotHandled) => { /* Delegate event to use cases  */ }
         }
-        if let Err(e) = handle_overlay_discovery.handle(&context, event.clone()) {
+        if let Err(e) = handle_overlay_discovery.handle_event(&context, event.clone()) {
             log::error!("Handling overlay discovery failed: {}", e);
         }
 
         // Actual use cases
-        if let Err(e) = random_probing.handle(&context, event.clone()) {
+        if let Err(e) = random_probing.handle_event(&context, event.clone()) {
             log::error!("Random Probing returned error handling message: {}", e);
         }
-        if let Err(e) = on_disc.handle(&context, event.clone()) {
+        if let Err(e) = on_disc.handle_event(&context, event.clone()) {
             log::error!(
                 "Overlay Neighborhood Discovery returned error handling message: {}",
                 e
             );
         }
-        if let Err(e) = vicinity_disc.handle(&context, event.clone()) {
+        if let Err(e) = vicinity_disc.handle_event(&context, event.clone()) {
             log::error!("Vicinity Discovery returned error handling message: {}", e);
         }
         if let Err(e) = path_probing.handle_event(&context, event) {
