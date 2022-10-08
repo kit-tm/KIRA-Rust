@@ -190,7 +190,7 @@ where
                 ),
             };
 
-            if let Err(e) = context.message_sender_mut().send(outgoing_message) {
+            if let Err(e) = context.message_sender_mut().send_message(outgoing_message) {
                 log::error!("Failed to send message: {}", e);
                 return Err(MessageSentFailed);
             }
@@ -211,10 +211,9 @@ mod tests {
         StateSeqNr, TestInsertionStrategy,
     };
     use crate::messaging::source_route::SourceRoute;
-    use crate::messaging::tests::ArcSyncInMemoryMessageHub;
     use crate::messaging::{
-        ErrorData, FindNodeReqData, InMemoryMessageHub, Nonce, ProtocolMessage,
-        ProtocolMessageReceiver, RTableData, ReqRspMessage,
+        AsyncProtocolMessageReceiver, ErrorData, FindNodeReqData, InMemoryMessageChannel, Nonce,
+        ProtocolMessage, RTableData, ReqRspMessage,
     };
     use crate::runtime::ImmediateRuntime;
     use crate::use_cases::handle_overlay_discovery::{
@@ -222,8 +221,8 @@ mod tests {
     };
     use crate::use_cases::{EventHandler, UseCaseEvent};
 
-    #[test]
-    fn exact_target_returns_find_node_rsp() {
+    #[tokio::test]
+    async fn exact_target_returns_find_node_rsp() {
         crate::tests::init();
 
         let root_id = NodeId::with_msb(1);
@@ -233,7 +232,7 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let mut hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let neighbor_id = NodeId::with_msb(3);
         let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
@@ -248,7 +247,7 @@ mod tests {
             routing_table,
             pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -279,7 +278,7 @@ mod tests {
             &sync_context,
             UseCaseEvent::Message(
                 message.clone().into(),
-                InMemoryMessageHub::dummy_interface(),
+                InMemoryMessageChannel::dummy_interface(),
             ),
         );
         assert!(
@@ -288,7 +287,7 @@ mod tests {
             handle_result
         );
 
-        let sent_message = hub.try_recv();
+        let sent_message = hub_receiver.try_recv().await;
         assert!(
             sent_message.is_ok(),
             "Failed to receive message from hub: {:?}",
@@ -325,8 +324,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn exact_and_known_contact_gets_delegated() {
+    #[tokio::test]
+    async fn exact_and_known_contact_gets_delegated() {
         crate::tests::init();
 
         let root_id = NodeId::with_msb(10);
@@ -346,7 +345,7 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let mut hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let mut routing_table = SingleBucketRT::<10>::new(root_id.clone());
         let insertion_result = routing_table.insert(neighbor.clone());
@@ -371,7 +370,7 @@ mod tests {
             routing_table,
             pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -402,7 +401,7 @@ mod tests {
             &sync_context,
             UseCaseEvent::Message(
                 message.clone().into(),
-                InMemoryMessageHub::dummy_interface(),
+                InMemoryMessageChannel::dummy_interface(),
             ),
         );
         assert!(
@@ -411,7 +410,7 @@ mod tests {
             handle_result
         );
 
-        let sent_message = hub.try_recv();
+        let sent_message = hub_receiver.try_recv().await;
         assert!(
             sent_message.is_ok(),
             "Failed to receive message from hub: {:?}",
@@ -453,8 +452,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn exact_and_unknown_contact_returns_error() {
+    #[tokio::test]
+    async fn exact_and_unknown_contact_returns_error() {
         crate::tests::init();
 
         let root_id = NodeId::with_msb(10);
@@ -470,7 +469,7 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let mut hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let mut routing_table = SingleBucketRT::<10>::new(root_id.clone());
         let insertion_result = routing_table.insert(neighbor.clone());
@@ -488,7 +487,7 @@ mod tests {
             routing_table,
             pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -518,7 +517,7 @@ mod tests {
             &sync_context,
             UseCaseEvent::Message(
                 message.clone().into(),
-                InMemoryMessageHub::dummy_interface(),
+                InMemoryMessageChannel::dummy_interface(),
             ),
         );
         assert!(
@@ -527,7 +526,7 @@ mod tests {
             handle_result
         );
 
-        let sent_message = hub.try_recv();
+        let sent_message = hub_receiver.try_recv().await;
         assert!(
             sent_message.is_ok(),
             "Failed to receive message from hub: {:?}",
@@ -562,8 +561,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn not_exact_and_known_closer_contact_is_delegated() {
+    #[tokio::test]
+    async fn not_exact_and_known_closer_contact_is_delegated() {
         crate::tests::init();
 
         let root_id = NodeId::with_msb(10);
@@ -584,7 +583,7 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let mut hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let mut routing_table = SingleBucketRT::<10>::new(root_id.clone());
         let insertion_result = routing_table.insert(neighbor.clone());
@@ -608,7 +607,7 @@ mod tests {
             routing_table,
             pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -638,7 +637,7 @@ mod tests {
             &sync_context,
             UseCaseEvent::Message(
                 message.clone().into(),
-                InMemoryMessageHub::dummy_interface(),
+                InMemoryMessageChannel::dummy_interface(),
             ),
         );
         assert!(
@@ -647,7 +646,7 @@ mod tests {
             handle_result
         );
 
-        let sent_message = hub.try_recv();
+        let sent_message = hub_receiver.try_recv().await;
         assert!(
             sent_message.is_ok(),
             "Failed to receive message from hub: {:?}",
@@ -688,8 +687,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn not_exact_and_no_closer_contact_returns_find_node_rsp() {
+    #[tokio::test]
+    async fn not_exact_and_no_closer_contact_returns_find_node_rsp() {
         crate::tests::init();
 
         let root_id = NodeId::with_msb(1);
@@ -705,7 +704,7 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let mut hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let mut routing_table = SingleBucketRT::<10>::new(root_id.clone());
         let insertion_result = routing_table.insert(neighbor.clone());
@@ -723,7 +722,7 @@ mod tests {
             routing_table,
             pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -753,7 +752,7 @@ mod tests {
             &sync_context,
             UseCaseEvent::Message(
                 message.clone().into(),
-                InMemoryMessageHub::dummy_interface(),
+                InMemoryMessageChannel::dummy_interface(),
             ),
         );
         assert!(
@@ -762,7 +761,7 @@ mod tests {
             handle_result
         );
 
-        let sent_message = hub.try_recv();
+        let sent_message = hub_receiver.try_recv().await;
         assert!(
             sent_message.is_ok(),
             "Failed to receive message from hub: {:?}",

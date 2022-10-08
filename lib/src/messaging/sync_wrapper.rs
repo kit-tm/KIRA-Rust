@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::runtime;
 
 use tokio::runtime::Runtime;
 
@@ -22,18 +23,29 @@ impl<C> SyncWrapper<C> {
     pub fn new(inner: C, runtime: Arc<Runtime>) -> Self {
         Self { inner, runtime }
     }
+
+    pub fn with_current_thread(inner: C) -> Result<Self, tokio::io::Error> {
+        let runtime = runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+
+        Ok(Self {
+            inner,
+            runtime: Arc::new(runtime),
+        })
+    }
 }
 
 impl<C> ProtocolMessageSender for SyncWrapper<C>
 where
     C: AsyncProtocolMessageSender,
 {
-    fn send<M>(&mut self, message: M) -> Result<(), SenderError>
+    fn send_message<M>(&mut self, message: M) -> Result<(), SenderError>
     where
         M: Into<ProtocolMessage>,
     {
         let message = message.into();
-        self.runtime.block_on(self.inner.send(message))
+        self.runtime.block_on(self.inner.send_message(message))
     }
 }
 
@@ -50,5 +62,14 @@ where
 
     fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, NetworkInterface)>, TryRecvError> {
         self.runtime.block_on(self.inner.try_recv())
+    }
+}
+
+impl<C: Clone> Clone for SyncWrapper<C> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            runtime: self.runtime.clone(),
+        }
     }
 }

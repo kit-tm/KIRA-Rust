@@ -254,7 +254,7 @@ where
             request
         );
 
-        if let Err(e) = context.message_sender_mut().send(request) {
+        if let Err(e) = context.message_sender_mut().send_message(request) {
             log::error!("Failed to send FindNodeReq: {:?}", e);
             return Err(ONDError::SendError);
         }
@@ -401,10 +401,9 @@ mod tests {
         StateSeqNr, TestInsertionStrategy,
     };
     use crate::messaging::source_route::SourceRoute;
-    use crate::messaging::tests::ArcSyncInMemoryMessageHub;
     use crate::messaging::{
-        ErrorData, FindNodeReqData, InMemoryMessageHub, ProtocolMessage, ProtocolMessageReceiver,
-        ReqRspMessage,
+        AsyncProtocolMessageReceiver, ErrorData, FindNodeReqData, InMemoryMessageChannel,
+        ProtocolMessage, ReqRspMessage,
     };
     use crate::runtime::ImmediateRuntime;
     use crate::use_cases::overlay_neighborhood_discovery::{
@@ -428,12 +427,14 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
+
         let sync_context = SyncContext::new(
             root_id.clone(),
             SingleBucketRT::<1>::new(root_id),
             PNTable::new(),
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            InMemoryMessageHub::new(),
+            hub_sender,
             runtime.clone(),
         );
 
@@ -450,8 +451,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn sends_find_node_on_timer_event() {
+    #[tokio::test]
+    async fn sends_find_node_on_timer_event() {
         crate::tests::init();
 
         let config = ONDConfig {
@@ -466,7 +467,7 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let mut hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         // At least one has contact has to be present and valid to forward message to
         // Otherwise the use case thinks the node is isolated
@@ -486,7 +487,7 @@ mod tests {
             routing_table,
             pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub.clone(),
+            hub_sender,
             runtime.clone(),
         );
 
@@ -503,7 +504,7 @@ mod tests {
             Ok(())
         );
 
-        let request = hub.recv_timeout(Some(Duration::from_secs(1)));
+        let request = hub_receiver.try_recv().await;
         assert!(
             request.is_ok(),
             "Error receiving Overlay Neighbor Discovery Output Request: {:?}",
@@ -552,7 +553,7 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         // At least one has contact has to be present and valid to forward message to
         // Otherwise the use case thinks the node is isolated
@@ -572,7 +573,7 @@ mod tests {
             routing_table,
             pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub,
+            hub_sender,
             runtime.clone(),
         );
 
@@ -633,8 +634,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn exponential_backoff_through_errors() {
+    #[tokio::test]
+    async fn exponential_backoff_through_errors() {
         crate::tests::init();
 
         let config = ONDConfig {
@@ -652,7 +653,7 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let mut hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         // At least one has contact has to be present and valid to forward message to
         // Otherwise the use case thinks the node is isolated
@@ -672,7 +673,7 @@ mod tests {
             routing_table,
             pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub.clone(),
+            hub_sender,
             runtime.clone(),
         );
 
@@ -696,8 +697,9 @@ mod tests {
             Some(Duration::from_micros(250))
         );
 
-        let (request, _) = hub
-            .recv_timeout(Some(Duration::from_secs(1)))
+        let (request, _) = hub_receiver
+            .try_recv()
+            .await
             .expect("Should not emit error")
             .expect("should return actual message");
         let (nonce, source_path) = if let ProtocolMessage::FindNodeReq(req_rsp_message) = &request {
@@ -717,7 +719,7 @@ mod tests {
                 data: ErrorData::DeadEnd,
                 source_route,
             }),
-            InMemoryMessageHub::dummy_interface(),
+            InMemoryMessageChannel::dummy_interface(),
         );
         assert_eq!(use_case.handle_event(&sync_context, error), Ok(()));
         let timer_id = runtime
@@ -728,8 +730,9 @@ mod tests {
             Some(Duration::from_micros(500))
         );
 
-        let (request, _) = hub
-            .recv_timeout(Some(Duration::from_secs(1)))
+        let (request, _) = hub_receiver
+            .try_recv()
+            .await
             .expect("Should not emit error")
             .expect("should return actual message");
         let (nonce, source_route) = if let ProtocolMessage::FindNodeReq(req_rsp_message) = &request
@@ -749,7 +752,7 @@ mod tests {
                 data: ErrorData::DeadEnd,
                 source_route: SourceRoute::from_reversed(source_route),
             }),
-            InMemoryMessageHub::dummy_interface(),
+            InMemoryMessageChannel::dummy_interface(),
         );
         assert_eq!(use_case.handle_event(&sync_context, error), Ok(()));
         let timer_id = runtime
@@ -761,8 +764,9 @@ mod tests {
         );
 
         // Overflow should trigger redo
-        let (request, _) = hub
-            .recv_timeout(Some(Duration::from_secs(1)))
+        let (request, _) = hub_receiver
+            .try_recv()
+            .await
             .expect("Should not emit error")
             .expect("should return actual message");
         let (nonce, source_route) = if let ProtocolMessage::FindNodeReq(req_rsp_message) = &request
@@ -782,7 +786,7 @@ mod tests {
                 data: ErrorData::DeadEnd,
                 source_route: SourceRoute::from_reversed(source_route),
             }),
-            InMemoryMessageHub::dummy_interface(),
+            InMemoryMessageChannel::dummy_interface(),
         );
         assert_eq!(use_case.handle_event(&sync_context, error), Ok(()));
         let timer_id = runtime

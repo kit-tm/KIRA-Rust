@@ -19,7 +19,7 @@ pub trait ProtocolMessageSender {
     /// format before sending.
     ///
     /// Returns an Error if the operation or formatting failed.
-    fn send<M>(&mut self, message: M) -> Result<(), error::SenderError>
+    fn send_message<M>(&mut self, message: M) -> Result<(), error::SenderError>
     where
         M: Into<ProtocolMessage>;
 }
@@ -39,7 +39,7 @@ pub trait AsyncProtocolMessageSender {
     /// format before sending.
     ///
     /// Returns an Error if the operation or formatting failed.
-    async fn send<M>(&mut self, message: M) -> Result<(), error::SenderError>
+    async fn send_message<M>(&mut self, message: M) -> Result<(), error::SenderError>
     where
         M: Into<ProtocolMessage> + Send + Sync;
 }
@@ -58,6 +58,8 @@ pub mod error {
         SendError(io::Error),
         /// Wrapper for other errors to support custom types for individual implementations.
         Other(Box<dyn Error + Sync + Send>),
+        /// No more messages can be sent on this sender.
+        Closed,
     }
 
     impl Display for SenderError {
@@ -66,6 +68,7 @@ pub mod error {
                 Self::MessageFormat(e) => write!(f, "Failed to serialize message: {}", e),
                 Self::SendError(e) => write!(f, "Sending failed: {}", e),
                 Self::Other(e) => write!(f, "{}", e),
+                Self::Closed => write!(f, "Sender closed"),
             }
         }
     }

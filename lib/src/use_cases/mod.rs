@@ -4,9 +4,11 @@ use std::ops::Deref;
 
 use crate::domain::{Contact, NetworkInterface};
 use crate::messaging::messages::ProtocolMessage;
+use crate::messaging::{FindNodeReqData, Nonce};
 
 pub mod forward_protocol_message;
 pub mod handle_overlay_discovery;
+pub mod inject_messages;
 pub mod overlay_neighborhood_discovery;
 pub mod path_probing;
 pub mod random_overlay_discovery;
@@ -17,6 +19,13 @@ pub enum UseCaseEvent {
     Message(ProtocolMessage, NetworkInterface),
     Timer(TimerId),
     Contact(ContactEvent),
+    InjectMessage(Nonce, InjectionMessageData),
+    Shutdown,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum InjectionMessageData {
+    FindNode(FindNodeReqData),
 }
 
 /// Contact Events which can be handled by UseCases.

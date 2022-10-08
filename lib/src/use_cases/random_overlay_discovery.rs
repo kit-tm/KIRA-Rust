@@ -111,7 +111,7 @@ where
         };
         log::trace!(target: "random_overlay_discovery", "Sending message {:?}", message);
 
-        if let Err(e) = context.message_sender_mut().send(message) {
+        if let Err(e) = context.message_sender_mut().send_message(message) {
             log::error!("MessageSender failed: {}", e);
             return Err(RODError::SendFailed);
         }
@@ -215,20 +215,22 @@ mod tests {
         Contact, FlatRoutingTable, InsertionStrategyResult, NetworkInterface, NodeId, PNTable,
         Path, RoutingTable, StateSeqNr, TestInsertionStrategy,
     };
-    use crate::messaging::tests::ArcSyncInMemoryMessageHub;
-    use crate::messaging::ProtocolMessage;
+    use crate::messaging::{
+        AsyncProtocolMessageReceiver, InMemoryMessageChannel, ProtocolMessage,
+        ProtocolMessageSender,
+    };
     use crate::runtime::ImmediateRuntime;
     use crate::use_cases::random_overlay_discovery::{RODConfig, RODState, RandomOverlayDiscovery};
     use crate::use_cases::{EventHandler, UseCase, UseCaseEvent};
 
     fn init_test_context() -> (
         NodeId,
-        ArcSyncInMemoryMessageHub,
+        impl AsyncProtocolMessageReceiver,
         MPSCBroadcaster,
         ImmediateRuntime<MPSCBroadcaster>,
         SyncContext<
             FlatRoutingTable<20, 1>,
-            ArcSyncInMemoryMessageHub,
+            impl ProtocolMessageSender,
             ImmediateRuntime<MPSCBroadcaster>,
             TestInsertionStrategy,
         >,
@@ -238,7 +240,7 @@ mod tests {
         let routing_table = FlatRoutingTable::<20, 1>::new(root.clone())
             .expect("failed to build flat routing table");
 
-        let hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(1);
 
@@ -251,18 +253,18 @@ mod tests {
             routing_table,
             PNTable::new(),
             insertion_strategy,
-            hub.clone(),
+            hub_sender,
             runtime.clone(),
         );
 
-        (root, hub, broadcaster, runtime, context)
+        (root, hub_receiver, broadcaster, runtime, context)
     }
 
-    #[test]
-    fn smoke_test() {
+    #[tokio::test]
+    async fn smoke_test() {
         // Tests if start succeeds and a periodic random id is probed
 
-        let (root_id, hub, _broadcaster, _runtime, context) = init_test_context();
+        let (root_id, mut hub, _broadcaster, _runtime, context) = init_test_context();
 
         // Insert a single contact into the routing table
         let neighbor = Contact::new(Path::from(NodeId::random()), StateSeqNr::from(0));
@@ -293,10 +295,18 @@ mod tests {
         let handle_result = use_case.handle_event(&context, UseCaseEvent::Timer(timer_id));
         assert!(handle_result.is_ok(), "{:?}", handle_result);
 
+        let messages = {
+            let mut messages = Vec::new();
+            while let Ok(Some((message, _))) = hub.try_recv().await {
+                messages.push(message);
+            }
+            messages
+        };
+
         for _ in 0..2 {
-            let message = hub.messages().into_iter().find_map(|message| {
-                if let ProtocolMessage::FindNodeReq(msg) = message.0 {
-                    Some(msg)
+            let message = messages.iter().find_map(|message| {
+                if let ProtocolMessage::FindNodeReq(msg) = message {
+                    Some(msg.clone())
                 } else {
                     None
                 }

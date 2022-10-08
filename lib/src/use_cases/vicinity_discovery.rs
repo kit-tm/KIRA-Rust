@@ -41,6 +41,8 @@ pub struct VicinityDiscoveryConfig {
     /// Number of bits for the deterministic heuristic to consider for deciding which node should
     /// respond to the PNHello message.
     pub heuristic_calculation_bits: NonZeroUsize,
+    /// Turns of the heuristic and nodes in vicinity will always respond to PNHello messages.
+    pub heuristic_enabled: bool,
 }
 
 impl Default for VicinityDiscoveryConfig {
@@ -50,6 +52,7 @@ impl Default for VicinityDiscoveryConfig {
             initial_timeout: Duration::from_millis(250),
             max_scatter: Duration::from_millis(225),
             heuristic_calculation_bits: NonZeroUsize::new(32).unwrap(),
+            heuristic_enabled: true,
         }
     }
 }
@@ -223,7 +226,7 @@ where
 
         log::trace!(target: "vicinity_discovery", "Sending message {:?}", request);
 
-        if let Err(e) = context.message_sender_mut().send(request) {
+        if let Err(e) = context.message_sender_mut().send_message(request) {
             log::error!(target: "vicinity_discovery", "Failed to send QueryRouteReq: {:?}", e);
             return Err(VDError::MessageSendFailed);
         }
@@ -270,7 +273,7 @@ where
 
         log::trace!(target: "vicinity_discovery", "Sending: {:?}", message);
 
-        if let Err(e) = context.message_sender_mut().send(message) {
+        if let Err(e) = context.message_sender_mut().send_message(message) {
             log::error!(target: "vicinity_discovery", "Failed to send: {}", e);
             return Err(VDError::MessageSendFailed);
         }
@@ -284,7 +287,7 @@ where
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
         };
         log::trace!(target: "vicinity_discovery", "Sending message {:?}", message);
-        if let Err(e) = context.message_sender_mut().send(message) {
+        if let Err(e) = context.message_sender_mut().send_message(message) {
             log::error!(target: "vicinity_discovery",
                 "MessageSender failed: {}",
                 e
@@ -319,7 +322,7 @@ where
             message
         );
 
-        if let Err(e) = context.message_sender_mut().send(message) {
+        if let Err(e) = context.message_sender_mut().send_message(message) {
             log::error!("Failed to send message: {}", e);
             return Err(VDError::MessageSendFailed);
         }
@@ -354,7 +357,7 @@ where
 
         log::trace!(target: "vicinity_discovery", "Sending: {:?}", response);
 
-        if let Err(e) = context.message_sender_mut().send(response) {
+        if let Err(e) = context.message_sender_mut().send_message(response) {
             log::error!(target: "vicinity_discovery", "Failed to send PNDiscRsp: {}", e);
             return Err(VDError::MessageSendFailed);
         }
@@ -430,11 +433,13 @@ where
                 }
             }
             (UseCaseEvent::Message(ProtocolMessage::Hello(HelloMessage { source, .. }), _), _) => {
-                if !deterministic_heuristic(
-                    context.root_id(),
-                    &source,
-                    self.config.heuristic_calculation_bits,
-                ) {
+                if self.config.heuristic_enabled
+                    && !deterministic_heuristic(
+                        context.root_id(),
+                        &source,
+                        self.config.heuristic_calculation_bits,
+                    )
+                {
                     log::trace!(target: "vicinity_discovery", "Not responding to Hello from {}", source);
                     return Ok(());
                 }
@@ -467,9 +472,8 @@ mod tests {
         StateSeqNr, TestInsertionStrategy,
     };
     use crate::messaging::source_route::SourceRoute;
-    use crate::messaging::tests::ArcSyncInMemoryMessageHub;
     use crate::messaging::{
-        HelloMessage, InMemoryMessageHub, Nonce, ProtocolMessage, ProtocolMessageReceiver,
+        AsyncProtocolMessageReceiver, HelloMessage, InMemoryMessageChannel, Nonce, ProtocolMessage,
         QueryRouteReqData, QueryRouteType, RTableData, ReqRspMessage,
     };
     use crate::runtime::ImmediateRuntime;
@@ -484,7 +488,7 @@ mod tests {
 
         let routing_table = SingleBucketRT::<20>::new(root_id.clone());
 
-        let hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
 
@@ -495,7 +499,7 @@ mod tests {
             routing_table,
             PNTable::new(),
             insertion_strategy,
-            hub.clone(),
+            hub_sender,
             ImmediateRuntime::new(broadcaster.clone()),
         );
 
@@ -525,7 +529,7 @@ mod tests {
 
         let routing_table = SingleBucketRT::<20>::new(root_id.clone());
 
-        let hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
 
@@ -536,7 +540,7 @@ mod tests {
             routing_table,
             PNTable::new(),
             insertion_strategy,
-            hub.clone(),
+            hub_sender,
             ImmediateRuntime::new(broadcaster.clone()),
         );
 
@@ -568,7 +572,7 @@ mod tests {
 
         let routing_table = SingleBucketRT::<20>::new(root_id.clone());
 
-        let hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
 
@@ -579,7 +583,7 @@ mod tests {
             routing_table,
             PNTable::new(),
             insertion_strategy,
-            hub.clone(),
+            hub_sender,
             ImmediateRuntime::new(broadcaster.clone()),
         );
 
@@ -638,8 +642,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn responds_with_pn_disc_req() {
+    #[tokio::test]
+    async fn responds_with_pn_disc_req() {
         crate::tests::init();
 
         // Answer should be a PNDiscReq if
@@ -652,7 +656,7 @@ mod tests {
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
 
-        let message_hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(1);
 
@@ -663,7 +667,7 @@ mod tests {
             routing_table,
             pn_table,
             insertion_strategy,
-            message_hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -681,31 +685,32 @@ mod tests {
                         source: sender_id.clone(),
                         source_state_seq_nr: StateSeqNr::from(0),
                     }),
-                    InMemoryMessageHub::dummy_interface(),
+                    InMemoryMessageChannel::dummy_interface(),
                 ),
             ),
             Ok(())
         );
 
-        let pn_disc_req = message_hub
-            .messages()
-            .iter()
+        let pn_disc_req = hub_receiver
+            .try_recv()
+            .await
+            .into_iter()
+            .flatten()
             .find_map(|message| {
                 if let ProtocolMessage::PNDiscReq(message) = &message.0 {
-                    Some(message)
+                    Some(message.clone())
                 } else {
                     None
                 }
-            })
-            .cloned();
+            });
         assert!(pn_disc_req.is_some());
         let message = pn_disc_req.unwrap();
         assert_eq!(message.source(), &root_id);
         assert_eq!(message.destination(), &sender_id);
     }
 
-    #[test]
-    fn doesnt_respond_with_pn_disc_req() {
+    #[tokio::test]
+    async fn doesnt_respond_with_pn_disc_req() {
         crate::tests::init();
 
         let root_id = NodeId::with_lsb(4);
@@ -717,7 +722,7 @@ mod tests {
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
 
-        let message_hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(1);
 
@@ -728,7 +733,7 @@ mod tests {
             routing_table,
             pn_table,
             insertion_strategy,
-            message_hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -743,13 +748,18 @@ mod tests {
                         source: sender_id.clone(),
                         source_state_seq_nr: StateSeqNr::from(0),
                     }),
-                    InMemoryMessageHub::dummy_interface(),
+                    InMemoryMessageChannel::dummy_interface(),
                 ),
             ),
             Ok(())
         );
 
-        assert!(message_hub.messages().is_empty());
+        let received = hub_receiver.try_recv().await;
+        assert!(
+            received.is_err() || received.as_ref().unwrap().is_none(),
+            "unexpected message sent: {:?}",
+            received
+        );
     }
 
     #[test]
@@ -766,14 +776,14 @@ mod tests {
         );
     }
 
-    #[test]
-    fn returns_pn_contacts() {
+    #[tokio::test]
+    async fn returns_pn_contacts() {
         crate::tests::init();
 
         let root_id = NodeId::with_msb(1);
         let source_id = NodeId::with_msb(2);
 
-        let neighbors_port = InMemoryMessageHub::dummy_interface();
+        let neighbors_port = InMemoryMessageChannel::dummy_interface();
         let neighbor_contacts = vec![
             Contact::new(Path::from([NodeId::with_msb(14)]), StateSeqNr::from(14)),
             Contact::new(Path::from([NodeId::with_msb(16)]), StateSeqNr::from(16)),
@@ -795,7 +805,7 @@ mod tests {
         }
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let mut message_hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
         let (broadcaster, _) = MPSCBroadcaster::new(10);
         let runtime = ImmediateRuntime::new(broadcaster.clone());
         let context = SyncContext::new(
@@ -803,7 +813,7 @@ mod tests {
             single_bucket_rt,
             pn_table,
             insertion_strategy,
-            message_hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -837,7 +847,7 @@ mod tests {
             handle_result
         );
 
-        let sent_message = message_hub.try_recv();
+        let sent_message = hub_receiver.try_recv().await;
         assert!(
             sent_message.is_ok(),
             "Trying to receive returned error: {:?}",
@@ -875,8 +885,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn no_request_for_pns() {
+    #[tokio::test]
+    async fn no_request_for_pns() {
         crate::tests::init();
 
         let root_id = NodeId::random();
@@ -885,14 +895,14 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let sync_context = SyncContext::new(
             root_id.clone(),
             SingleBucketRT::<1>::new(root_id),
             PNTable::new(),
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -906,11 +916,16 @@ mod tests {
         )));
         assert_eq!(use_case.handle_event(&sync_context, event), Ok(()));
 
-        assert!(hub.messages().is_empty());
+        let received = hub_receiver.try_recv().await;
+        assert!(
+            received.is_err() || received.as_ref().unwrap().is_none(),
+            "Unexpected message sent: {:?}",
+            received
+        );
     }
 
-    #[test]
-    fn no_request_for_outside_vicinity() {
+    #[tokio::test]
+    async fn no_request_for_outside_vicinity() {
         crate::tests::init();
 
         let root_id = NodeId::random();
@@ -919,14 +934,14 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let sync_context = SyncContext::new(
             root_id.clone(),
             SingleBucketRT::<1>::new(root_id),
             PNTable::new(),
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -944,15 +959,16 @@ mod tests {
             UseCaseEvent::Contact(ContactEvent::New(Contact::new(path, StateSeqNr::from(0))));
         assert_eq!(use_case.handle_event(&sync_context, event), Ok(()));
 
+        let received = hub_receiver.try_recv().await;
         assert!(
-            hub.messages().is_empty(),
-            "Expected no message generation for request outside vicinity: {:?}",
-            hub.messages()
+            received.is_err() || received.as_ref().unwrap().is_none(),
+            "Unexpected message sent: {:?}",
+            received
         );
     }
 
-    #[test]
-    fn request_for_inside_vicinity() {
+    #[tokio::test]
+    async fn request_for_inside_vicinity() {
         crate::tests::init();
 
         let root_id = NodeId::random();
@@ -961,7 +977,7 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let mut hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         // At least one has contact has to be present and valid
         // Otherwise the use case thinks the node is isolated
@@ -981,7 +997,7 @@ mod tests {
             routing_table,
             pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -997,8 +1013,9 @@ mod tests {
             UseCaseEvent::Contact(ContactEvent::New(Contact::new(path, StateSeqNr::from(0))));
         assert_eq!(use_case.handle_event(&sync_context, event), Ok(()));
 
-        let (received, _) = hub
-            .recv_timeout(Some(Duration::from_secs(1)))
+        let (received, _) = hub_receiver
+            .try_recv()
+            .await
             .expect("receiving should work")
             .expect("should return an actual message");
 
@@ -1021,14 +1038,14 @@ mod tests {
         }
     }
 
-    #[test]
-    fn answers_query_route_req_with_pns() {
+    #[tokio::test]
+    async fn answers_query_route_req_with_pns() {
         crate::tests::init();
 
         let root_id = NodeId::with_msb(1);
         let source_id = NodeId::with_msb(2);
 
-        let neighbors_port = InMemoryMessageHub::dummy_interface();
+        let neighbors_port = InMemoryMessageChannel::dummy_interface();
         let neighbor_contacts = vec![
             Contact::new(Path::from([NodeId::with_msb(14)]), StateSeqNr::from(14)),
             Contact::new(Path::from([NodeId::with_msb(16)]), StateSeqNr::from(16)),
@@ -1050,7 +1067,7 @@ mod tests {
         }
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let mut message_hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
         let (broadcaster, _) = MPSCBroadcaster::new(10);
         let runtime = ImmediateRuntime::new(broadcaster.clone());
         let context = SyncContext::new(
@@ -1058,7 +1075,7 @@ mod tests {
             single_bucket_rt,
             pn_table,
             insertion_strategy,
-            message_hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -1095,7 +1112,7 @@ mod tests {
             handle_result
         );
 
-        let sent_message = message_hub.try_recv();
+        let sent_message = hub_receiver.try_recv().await;
         assert!(
             sent_message.is_ok(),
             "Trying to receive returned error: {:?}",
@@ -1133,8 +1150,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn ignores_query_route_req_for_others() {
+    #[tokio::test]
+    async fn ignores_query_route_req_for_others() {
         crate::tests::init();
 
         let root_id = NodeId::with_msb(1);
@@ -1143,7 +1160,7 @@ mod tests {
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
         let pn_table = PNTable::new();
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let mut message_hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
         let (broadcaster, _) = MPSCBroadcaster::new(10);
         let runtime = ImmediateRuntime::new(broadcaster.clone());
         let context = SyncContext::new(
@@ -1151,7 +1168,7 @@ mod tests {
             single_bucket_rt,
             pn_table,
             insertion_strategy,
-            message_hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -1177,7 +1194,7 @@ mod tests {
         });
         let event = UseCaseEvent::Message(
             protocol_message.clone(),
-            InMemoryMessageHub::dummy_interface(),
+            InMemoryMessageChannel::dummy_interface(),
         );
 
         let handle_result = use_case.handle_event(&context, event.clone());
@@ -1187,7 +1204,7 @@ mod tests {
             handle_result
         );
 
-        let sent_message = message_hub.try_recv();
+        let sent_message = hub_receiver.try_recv().await;
         assert!(
             sent_message.is_ok(),
             "Trying to receive returned error: {:?}",

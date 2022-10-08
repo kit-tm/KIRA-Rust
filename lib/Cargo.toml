@@ -6,12 +6,14 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
+default = ["tokio", "sync-wrapper"]
 tokio-rt-multi-thread = ["tokio/rt-multi-thread"]
 tokio = ["tokio/net", "tokio/rt", "tokio/time", "tokio/net", "tokio/macros"]
 serde = ["dep:serde", "serde-big-array", "chrono/serde"]
-udp = ["serde"]
-udp-tokio = ["udp", "tokio", "pnet", "sync-wrapper"]
+udp = ["serde", "serde_json"]
+udp-tokio = ["udp", "tokio", "pnet", "sync-wrapper", "serde", "serde_json"]
 sync-wrapper = []
+in-memory-message-channel = ["tokio"]
 
 # All dependencies are well picked and although just a few have versions 1.x
 # they are considered stable enough to use in production by the Rust Community.
