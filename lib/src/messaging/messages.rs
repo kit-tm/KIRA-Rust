@@ -136,6 +136,9 @@ impl ProtocolMessage {
         }
     }
 
+    /// Current hop of the message.
+    ///
+    /// Is only [Option::None] if the message has no source route (PNHello).
     pub fn current_hop(&self) -> Option<&NodeId> {
         self.source_route().map(|sr| sr.current_hop())
     }

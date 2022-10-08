@@ -100,7 +100,7 @@ mod tests {
     use crate::domain::{
         FlatRoutingTable, InsertionStrategyResult, NodeId, PNTable, TestInsertionStrategy,
     };
-    use crate::messaging::InMemoryMessageHub;
+    use crate::messaging::InMemoryMessageChannel;
     use crate::runtime::TokioRuntime;
 
     #[test]
@@ -112,7 +112,7 @@ mod tests {
 
         let root_id = NodeId::zero();
 
-        let message_hub = InMemoryMessageHub::new();
+        let message_hub = InMemoryMessageChannel::default();
 
         let (broadcaster, _) = broadcast::channel(1);
 

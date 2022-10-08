@@ -193,7 +193,7 @@ where
             source_route: SourceRoute::from_reversed(message.source_route().unwrap().clone()),
         };
 
-        if let Err(e) = context.message_sender_mut().send(error_message) {
+        if let Err(e) = context.message_sender_mut().send_message(error_message) {
             log::error!("Failed to reply with error message: {}", e);
             return Err(MessageSentFailed);
         }
@@ -246,7 +246,7 @@ where
             route.advance();
         }
         log::trace!(target: "forward_protocol_message", "Forwarding message {:?}", message);
-        if let Err(e) = context.message_sender_mut().send(message) {
+        if let Err(e) = context.message_sender_mut().send_message(message) {
             log::error!("Failed to forward message: {}", e);
             return Err(MessageSentFailed);
         }
@@ -303,22 +303,21 @@ where
 mod tests {
     use std::num::NonZeroU64;
     use std::ops::Deref;
-    use std::time::Duration;
 
     use crate::broadcaster::BusBroadcaster;
     use crate::context::{SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
-        Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable,
-        Path, RoutingTable, StateSeqNr, TestInsertionStrategy,
+        Contact, ContactState, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path,
+        RoutingTable, StateSeqNr, TestInsertionStrategy,
     };
     use crate::messaging::source_route::SourceRoute;
-    use crate::messaging::tests::ArcSyncInMemoryMessageHub;
     use crate::messaging::ProtocolMessage::{
         FindNodeReq, FindNodeRsp, PNDiscReq, PNDiscRsp, QueryRouteRsp,
     };
     use crate::messaging::{
-        ErrorData, FindNodeReqData, Nonce, ProtocolMessageReceiver, RTableData, ReqRspMessage,
+        AsyncProtocolMessageReceiver, ErrorData, FindNodeReqData, InMemoryMessageChannel, Nonce,
+        RTableData, ReqRspMessage,
     };
     use crate::runtime::ImmediateRuntime;
     use crate::use_cases::forward_protocol_message::ForwardProtocolMessage;
@@ -332,7 +331,7 @@ mod tests {
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
         let pn_table = PNTable::new();
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let message_hub = ArcSyncInMemoryMessageHub::new();
+        let (message_hub, _receiver) = InMemoryMessageChannel::default().into_parts();
         let broadcaster = BusBroadcaster::new(10);
         let runtime = ImmediateRuntime::new(broadcaster.clone());
         let context = SyncContext::new(
@@ -340,7 +339,7 @@ mod tests {
             single_bucket_rt,
             pn_table,
             insertion_strategy,
-            message_hub.clone(),
+            message_hub,
             runtime,
         );
 
@@ -375,7 +374,7 @@ mod tests {
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
         let pn_table = PNTable::new();
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let message_hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
         let broadcaster = BusBroadcaster::new(10);
         let runtime = ImmediateRuntime::new(broadcaster.clone());
         let context = SyncContext::new(
@@ -383,7 +382,7 @@ mod tests {
             single_bucket_rt,
             pn_table,
             insertion_strategy,
-            message_hub.clone(),
+            hub_sender.clone(),
             runtime,
         );
 
@@ -433,7 +432,7 @@ mod tests {
         // NOTE: First element in contacts path has to be a neighbor
         pn_table.insert(neighbor_id.clone(), interface.clone());
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let message_hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
         let broadcaster = BusBroadcaster::new(10);
         let runtime = ImmediateRuntime::new(broadcaster.clone());
         let context = SyncContext::new(
@@ -441,7 +440,7 @@ mod tests {
             single_bucket_rt,
             pn_table,
             insertion_strategy,
-            message_hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -511,7 +510,7 @@ mod tests {
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
         let pn_table = PNTable::new();
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let message_hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
         let broadcaster = BusBroadcaster::new(10);
         let runtime = ImmediateRuntime::new(broadcaster.clone());
         let context = SyncContext::new(
@@ -519,7 +518,7 @@ mod tests {
             single_bucket_rt,
             pn_table,
             insertion_strategy,
-            message_hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -576,7 +575,7 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let message_hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
         let broadcaster = BusBroadcaster::new(10);
         let runtime = ImmediateRuntime::new(broadcaster.clone());
         let context = SyncContext::new(
@@ -584,7 +583,7 @@ mod tests {
             single_bucket_rt,
             pn_table,
             insertion_strategy,
-            message_hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -647,7 +646,7 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let message_hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
         let broadcaster = BusBroadcaster::new(10);
         let runtime = ImmediateRuntime::new(broadcaster.clone());
         let context = SyncContext::new(
@@ -655,7 +654,7 @@ mod tests {
             single_bucket_rt,
             pn_table,
             insertion_strategy,
-            message_hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -719,7 +718,7 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let message_hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
         let broadcaster = BusBroadcaster::new(10);
         let runtime = ImmediateRuntime::new(broadcaster.clone());
         let context = SyncContext::new(
@@ -727,7 +726,7 @@ mod tests {
             single_bucket_rt,
             pn_table,
             insertion_strategy,
-            message_hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -798,7 +797,7 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let message_hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
         let broadcaster = BusBroadcaster::new(10);
         let runtime = ImmediateRuntime::new(broadcaster.clone());
         let context = SyncContext::new(
@@ -806,7 +805,7 @@ mod tests {
             single_bucket_rt,
             pn_table,
             insertion_strategy,
-            message_hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -885,8 +884,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn forward_to_us_doesnt_forward() {
+    #[tokio::test]
+    async fn forward_to_us_doesnt_forward() {
         crate::tests::init();
 
         let root_id = NodeId::random();
@@ -895,7 +894,7 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         // At least one has contact has to be present and valid
         // Otherwise the use case thinks the node is isolated
@@ -912,7 +911,7 @@ mod tests {
             routing_table,
             pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -942,15 +941,16 @@ mod tests {
 
         assert!(broadcast_receiver.try_recv().is_err());
 
+        let receive = hub_receiver.try_recv().await;
         assert!(
-            hub.messages().is_empty(),
+            receive.is_err() || receive.as_ref().unwrap().is_none(),
             "No messages should ne emitted, but these were found: {:?}",
-            hub.messages()
+            receive
         );
     }
 
-    #[test]
-    fn forwarding_works() {
+    #[tokio::test]
+    async fn forwarding_works() {
         crate::tests::init();
 
         let root_id = NodeId::with_lsb(1);
@@ -959,7 +959,7 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let mut hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         // At least one has contact has to be present and valid
         // Otherwise the use case thinks the node is isolated
@@ -976,7 +976,7 @@ mod tests {
             routing_table,
             pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -1008,7 +1008,7 @@ mod tests {
             result
         );
 
-        let sent_message = hub.recv_timeout(Some(Duration::from_secs(1)));
+        let sent_message = hub_receiver.try_recv().await;
         assert!(sent_message.is_ok(), "Timed out getting forwarded message");
         let message = sent_message.unwrap();
         assert!(message.is_some(), "Received no message from hub");
@@ -1042,13 +1042,13 @@ mod tests {
             NodeId::with_lsb(8),
         ];
 
-        let failed_link = Link::from((source_id.clone(), failed_contact_id.clone()));
+        let failed_link = (source_id.clone(), failed_contact_id.clone());
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
         let failed_contact = Contact::new(
@@ -1091,7 +1091,7 @@ mod tests {
             routing_table,
             pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub.clone(),
+            hub_sender,
             runtime,
         );
 

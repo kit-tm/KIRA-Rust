@@ -73,7 +73,6 @@ impl NodeId {
     }
 
     /// Creates an all zeroed-out id with the LSB set to the given value.
-    #[cfg(test)]
     pub fn with_lsb(lsb: u8) -> Self {
         let mut id = Self::zero();
         id.bytes[SIZE - 1] = lsb;
@@ -81,7 +80,6 @@ impl NodeId {
     }
 
     /// Creates an all zeroed-out id with the LSB set to the given value.
-    #[cfg(test)]
     pub fn with_msb(msb: u8) -> Self {
         let mut id = Self::zero();
         id.bytes[0] = msb;
@@ -234,7 +232,7 @@ impl Error for BitIndexOutOfBounds {}
 ///
 /// > a < b: a is closer to **X** than b => Shared prefix is longer **or** ( shared prefix has
 /// equal length **and** numerical value of xor is smaller )
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct SharedPrefix {
     pub(crate) xor: NodeId,
     pub(crate) length: usize,

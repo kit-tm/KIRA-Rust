@@ -125,7 +125,7 @@ where
             );
             return InsertionStrategyResult::Dropped;
         }
-        *existing.last_seen_mut() = contact.last_seen().clone();
+        *existing.last_seen_mut() = *contact.last_seen();
         log::trace!(
                     target: "routing_table",
             "Updated age of contact to {:?} [{}]",

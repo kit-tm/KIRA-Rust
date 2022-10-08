@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::io;
 use std::io::ErrorKind;
 use std::net::{SocketAddr, UdpSocket};
@@ -21,7 +22,7 @@ const MTU_BYTES: usize = 65536;
 /// The used [UdpSocket] binds to all available IPv6 interfaces and maps the incoming IP
 /// addresses to the ports using the generic parameter P ([PortMapper]).
 #[derive(Debug)]
-pub struct UdpReceiver<C, P> {
+pub struct UdpReceiver<C: Debug, P: Debug> {
     buffer: RwLock<[u8; MTU_BYTES]>,
     socket: Arc<UdpSocket>,
     format: ProtocolMessageFormat,
@@ -29,7 +30,7 @@ pub struct UdpReceiver<C, P> {
     interface_mapper: P,
 }
 
-impl<C: Clone, P: Clone> Clone for UdpReceiver<C, P> {
+impl<C: Debug + Clone, P: Debug + Clone> Clone for UdpReceiver<C, P> {
     /// Clones the [UdpReceiver] with a new buffer.
     fn clone(&self) -> Self {
         Self {
@@ -42,7 +43,7 @@ impl<C: Clone, P: Clone> Clone for UdpReceiver<C, P> {
     }
 }
 
-impl<C, P> UdpReceiver<C, P> {
+impl<C: Debug, P: Debug> UdpReceiver<C, P> {
     /// Creates a new [UdpReceiver].
     ///
     /// Initializes the internally used [UdpSocket].
@@ -102,7 +103,7 @@ impl<C, P> UdpReceiver<C, P> {
     }
 }
 
-impl<C: IpCache, P: InterfaceMapper> ProtocolMessageReceiver for UdpReceiver<C, P> {
+impl<C: Debug + IpCache, P: Debug + InterfaceMapper> ProtocolMessageReceiver for UdpReceiver<C, P> {
     fn recv_timeout(
         &mut self,
         mut timeout: Option<Duration>,

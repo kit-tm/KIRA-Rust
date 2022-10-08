@@ -80,7 +80,7 @@ impl<C: AsyncIpCache> UdpSender<C> {
 
 #[async_trait::async_trait]
 impl<C: AsyncIpCache + Send + Sync> AsyncProtocolMessageSender for UdpSender<C> {
-    async fn send<M>(&mut self, message: M) -> Result<(), SenderError>
+    async fn send_message<M>(&mut self, message: M) -> Result<(), SenderError>
     where
         M: Into<ProtocolMessage> + Send + Sync,
     {
@@ -170,7 +170,7 @@ mod tests {
             source_state_seq_nr: StateSeqNr::from(0),
         });
 
-        let send_result = sender.send(protocol_message).await;
+        let send_result = sender.send_message(protocol_message).await;
 
         assert!(send_result.is_ok(), "{:?}", send_result);
 

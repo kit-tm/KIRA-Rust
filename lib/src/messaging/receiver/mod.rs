@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::time::Duration;
 
 use crate::domain::NetworkInterface;
@@ -10,7 +10,7 @@ pub mod udp;
 #[cfg(feature = "udp-tokio")]
 pub mod udp_tokio;
 
-/// Error type for [ProtocolMessageSender::recv] and [AsyncProtocolMessageSender::recv].
+/// Error type for [ProtocolMessageReceiver::recv] and [AsyncProtocolMessageReceiver::recv].
 #[derive(Debug)]
 pub enum RecvError {
     /// Receiving timed out.
@@ -19,6 +19,8 @@ pub enum RecvError {
     ///
     /// This may signal an inconsistency in the interface configuration.
     NoInterfaceFound,
+    /// Signals that no more messages will be received.
+    Closed,
     /// The I/O-Layer returned some error.
     IoError(Box<dyn Error>),
     /// Other Error for custom error types of the implementations.
@@ -35,6 +37,7 @@ impl Display for RecvError {
             ),
             Self::IoError(e) => write!(f, "Received IO Error: {}", e),
             Self::Other(e) => write!(f, "{}", e),
+            Self::Closed => write!(f, "Receiver closed"),
         }
     }
 }
@@ -50,6 +53,8 @@ pub enum TryRecvError {
     ///
     /// This may signal an inconsistency in the interface configuration.
     NoInterfaceFound,
+    /// Signals that no more messages will be received.
+    Closed,
     /// Other Error for custom error types of the implementations.
     Other(Box<dyn Error>),
 }
@@ -63,6 +68,7 @@ impl Display for TryRecvError {
                 "No interface for message was found; Network configuration may be inconsistent"
             ),
             Self::Other(e) => write!(f, "{}", e),
+            Self::Closed => write!(f, "Receiver closed"),
         }
     }
 }
@@ -73,7 +79,11 @@ impl Error for TryRecvError {}
 ///
 /// Converts a [Message] formatted by its corresponding [MessageSender] back
 /// to a [Message] and returns it.
-pub trait ProtocolMessageReceiver {
+///
+/// Every method is allowed to return [None] at any point in time.
+/// In cases where the [ProtocolMessageReceiver] is no longer able to receive messages
+/// an error has to be returned.
+pub trait ProtocolMessageReceiver: Debug {
     /// Receives a [Message].
     ///
     /// Returns an [Error] if receiving failed or the optional timeout was reached.
@@ -88,8 +98,8 @@ pub trait ProtocolMessageReceiver {
     /// Receives a [Message].
     ///
     /// Short for calling [recv_timeout](MessageReceiver::recv_timeout) with [None](Option::None).
-    fn recv(&mut self) -> Option<(ProtocolMessage, NetworkInterface)> {
-        self.recv_timeout(None).ok().flatten()
+    fn recv(&mut self) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError> {
+        self.recv_timeout(None)
     }
     /// Tries to receive a [Message] and returns an [Error] if no message is present at the time.
     fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, NetworkInterface)>, TryRecvError>;
@@ -100,7 +110,7 @@ pub trait ProtocolMessageReceiver {
 /// Converts a [Message] formatted by its corresponding [MessageSender] back
 /// to a [Message] and returns it.
 #[async_trait::async_trait]
-pub trait AsyncProtocolMessageReceiver {
+pub trait AsyncProtocolMessageReceiver: Debug {
     /// Receives a [Message].
     ///
     /// Returns an [Error] if receiving failed or the optional timeout was reached.

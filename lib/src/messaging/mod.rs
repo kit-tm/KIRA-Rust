@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-pub use in_memory_message_hub::*;
+#[cfg(feature = "in-memory-message-channel")]
+pub use in_memory_message_channel::*;
 pub use messages::*;
 #[cfg(feature = "pnet")]
 pub use pnet_interface_mapper::*;
@@ -15,14 +16,15 @@ use crate::domain::{NetworkInterface, NodeId};
 
 #[cfg(feature = "serde")]
 pub mod format;
-pub mod in_memory_message_hub;
+#[cfg(feature = "in-memory-message-channel")]
+pub mod in_memory_message_channel;
 pub mod messages;
 #[cfg(feature = "pnet")]
 pub mod pnet_interface_mapper;
 pub mod receiver;
 pub mod sender;
 pub mod source_route;
-#[cfg(feature = "sync-wrapper")]
+#[cfg(any(feature = "sync-wrapper", test))]
 pub mod sync_wrapper;
 
 /// Maps a node id to an IPv6 Address.
@@ -85,6 +87,7 @@ pub trait AsyncInterfaceMapper {
 
 #[cfg(feature = "udp")]
 pub mod udp {
+    use std::fmt::Debug;
     use std::net::SocketAddr;
     use std::sync::Arc;
 
@@ -101,7 +104,7 @@ pub mod udp {
     /// This way multiple senders can send and multiple receivers can receive from the
     /// same [UdpSocket].
     /// But all [ProtocolMessage]s will only arrive at one receiver at the time.
-    pub fn sync_channel<C, P>(
+    pub fn sync_channel<C: Debug, P: Debug>(
         port: u16,
         cache: C,
         interface_mapper: P,
@@ -143,8 +146,8 @@ pub mod udp {
         receiver::udp_tokio::UdpReceiver<C, P>,
     )>
     where
-        C: AsyncIpCache + Clone + Send + Sync,
-        P: AsyncInterfaceMapper + Clone + Send + Sync,
+        C: AsyncIpCache + Clone + Send + Sync + Debug,
+        P: AsyncInterfaceMapper + Clone + Send + Sync + Debug,
     {
         let socket = Arc::new(
             tokio::net::UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port))).await?,

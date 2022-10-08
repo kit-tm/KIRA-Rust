@@ -114,7 +114,7 @@ where
                 data: ProbeReqData,
                 source_route: route,
             };
-            if let Err(e) = context.message_sender_mut().send(message) {
+            if let Err(e) = context.message_sender_mut().send_message(message) {
                 log::error!(target: "path_probing", "Failed to send ProbeReq: {}", e);
                 return Err(MessageSentFailed);
             }
@@ -228,7 +228,7 @@ where
             data: ProbeRspData,
             source_route: SourceRoute::from_reversed(req.source_route),
         };
-        if let Err(e) = context.message_sender_mut().send(message) {
+        if let Err(e) = context.message_sender_mut().send_message(message) {
             log::error!(target: "path_probing", "Failed to send probe req: {}", e);
             return Err(MessageSentFailed);
         }
@@ -358,17 +358,16 @@ mod tests {
         Path, RoutingTable, StateSeqNr, TestInsertionStrategy, Timestamp,
     };
     use crate::messaging::source_route::SourceRoute;
-    use crate::messaging::tests::ArcSyncInMemoryMessageHub;
     use crate::messaging::{
-        ErrorData, Nonce, ProbeReqData, ProbeRspData, ProtocolMessage, ProtocolMessageReceiver,
-        ReqRspMessage,
+        AsyncProtocolMessageReceiver, ErrorData, InMemoryMessageChannel, Nonce, ProbeReqData,
+        ProbeRspData, ProtocolMessage, ReqRspMessage,
     };
     use crate::runtime::ImmediateRuntime;
     use crate::use_cases::path_probing::PathProbing;
     use crate::use_cases::{EventHandler, UseCase, UseCaseEvent};
 
-    #[test]
-    fn path_probe_sent() {
+    #[tokio::test]
+    async fn path_probe_sent() {
         crate::tests::init();
 
         let interface = NetworkInterface::new("test");
@@ -387,7 +386,7 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let mut hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::with_capacity(5).into_parts();
 
         let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
         let old_contacts = contact_ids
@@ -417,7 +416,7 @@ mod tests {
             routing_table,
             pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -436,7 +435,7 @@ mod tests {
         // Check if messages have been created for all contacts
         let mut contacts_probed = HashMap::new();
         loop {
-            match hub.try_recv() {
+            match hub_receiver.try_recv().await {
                 Ok(Some((ProtocolMessage::ProbeReq(req), _))) => {
                     let route = req.source_route;
                     contacts_probed.insert(route.destination().clone(), route);
@@ -468,8 +467,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn path_probe_answered() {
+    #[tokio::test]
+    async fn path_probe_answered() {
         crate::tests::init();
 
         let interface = NetworkInterface::new("test");
@@ -482,7 +481,7 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let mut hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(2));
         let contact = Contact::new(Path::from(contact_id.clone()), StateSeqNr::from(3));
@@ -499,7 +498,7 @@ mod tests {
             routing_table,
             pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub.clone(),
+            hub_sender,
             runtime,
         );
 
@@ -527,7 +526,7 @@ mod tests {
         assert!(result.is_ok(), "Failed to send message");
 
         // Expect ProbeRsp
-        let sent_message = hub.try_recv();
+        let sent_message = hub_receiver.try_recv().await;
         assert!(sent_message.is_ok(), "Failed to receive sent message");
         let sent_message = sent_message.unwrap();
         assert!(sent_message.is_some(), "No message was sent");
@@ -550,8 +549,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn contact_invalidated_after_timeout() {
+    #[tokio::test]
+    async fn contact_invalidated_after_timeout() {
         crate::tests::init();
 
         let interface = NetworkInterface::new("test");
@@ -564,7 +563,7 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
         let mut old_contact_not_responding = Contact::new(
@@ -588,7 +587,7 @@ mod tests {
             routing_table,
             pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub.clone(),
+            hub_sender,
             runtime.clone(),
         );
 
@@ -627,8 +626,8 @@ mod tests {
         assert_eq!(contact.state(), &ContactState::Invalid);
     }
 
-    #[test]
-    fn contact_invalidated_after_segment_failure() {
+    #[tokio::test]
+    async fn contact_invalidated_after_segment_failure() {
         crate::tests::init();
 
         let interface = NetworkInterface::new("test");
@@ -641,7 +640,7 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let mut hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
         let mut old_contact_not_responding = Contact::new(
@@ -665,7 +664,7 @@ mod tests {
             routing_table,
             pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub.clone(),
+            hub_sender,
             runtime.clone(),
         );
 
@@ -681,7 +680,7 @@ mod tests {
         let handle_result = use_case.handle_event(&sync_context, timer_event.clone());
         assert!(handle_result.is_ok(), "triggering timer event failed");
 
-        let probe_sent = hub.try_recv();
+        let probe_sent = hub_receiver.try_recv().await;
         assert!(probe_sent.is_ok(), "A Probe has to be sent");
         let probe_sent = probe_sent.unwrap();
         assert!(probe_sent.is_some(), "No probe was immediately created");
@@ -718,8 +717,8 @@ mod tests {
         assert_eq!(contact.state(), &ContactState::Invalid);
     }
 
-    #[test]
-    fn contact_still_valid_after_successful_response_and_timeout_timer() {
+    #[tokio::test]
+    async fn contact_still_valid_after_successful_response_and_timeout_timer() {
         crate::tests::init();
 
         let interface = NetworkInterface::new("test");
@@ -732,7 +731,7 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let mut hub = ArcSyncInMemoryMessageHub::new();
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
         let mut old_contact_not_responding = Contact::new(
@@ -756,7 +755,7 @@ mod tests {
             routing_table,
             pn_table,
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub.clone(),
+            hub_sender,
             runtime.clone(),
         );
 
@@ -772,7 +771,7 @@ mod tests {
         let handle_result = use_case.handle_event(&sync_context, timer_event.clone());
         assert!(handle_result.is_ok(), "triggering timer event failed");
 
-        let probe_sent = hub.try_recv();
+        let probe_sent = hub_receiver.try_recv().await;
         assert!(probe_sent.is_ok(), "A Probe has to be sent");
         let probe_sent = probe_sent.unwrap();
         assert!(probe_sent.is_some(), "No probe was immediately created");
