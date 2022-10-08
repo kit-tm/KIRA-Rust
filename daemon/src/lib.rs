@@ -1,0 +1,437 @@
+use std::fmt::Debug;
+use std::sync::Arc;
+use std::thread::JoinHandle;
+use std::time::Duration;
+
+use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::{broadcast, mpsc};
+use tokio::time::Instant;
+
+use r2kad_lib::broadcaster::Broadcaster;
+use r2kad_lib::context::TokioContext;
+use r2kad_lib::domain::bucket::DEFAULT_BUCKET_SIZE;
+use r2kad_lib::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
+use r2kad_lib::domain::unlimited_pn_routing_table::UnlimitedPNRoutingTable;
+use r2kad_lib::domain::{
+    FlatRoutingTable, InOrderCycleRemover, NetworkInterface, NodeId, PNSStrategy, PNTable,
+    ShortestFirstPathSimplifier,
+};
+use r2kad_lib::messaging::{
+    AsyncProtocolMessageReceiver, FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageSender,
+    RecvError,
+};
+use r2kad_lib::runtime::TokioRuntime;
+use r2kad_lib::use_cases::forward_protocol_message::ForwardProtocolMessage;
+use r2kad_lib::use_cases::handle_overlay_discovery::HandleOverlayDiscovery;
+use r2kad_lib::use_cases::inject_messages::{
+    InjectMessages, InjectMessagesConfig, InjectionResult,
+};
+use r2kad_lib::use_cases::overlay_neighborhood_discovery::OverlayNeighborhoodDiscovery;
+use r2kad_lib::use_cases::path_probing::PathProbing;
+use r2kad_lib::use_cases::random_overlay_discovery::RandomOverlayDiscovery;
+use r2kad_lib::use_cases::vicinity_discovery::{VicinityDiscovery, VicinityDiscoveryConfig};
+use r2kad_lib::use_cases::{
+    ContactEvent, EventHandler, HandlingResult, InjectionMessageData, UseCase, UseCaseEvent,
+    UseCaseState,
+};
+
+use crate::errors::InjectMessageError;
+
+#[derive(Default, Debug)]
+pub struct NodeConfig {
+    pub message_injection_enabled: bool,
+    pub heuristic_enabled: bool,
+}
+
+/// The main structure.
+///
+/// Wrapped inside a struct to allow integration tests to test the executables setup.
+pub struct Node<S> {
+    root_id: NodeId,
+    runtime: Arc<tokio::runtime::Runtime>,
+    async_receivers: Vec<Box<dyn AsyncProtocolMessageReceiver + Send>>,
+    sender: S,
+    config: NodeConfig,
+}
+
+impl<S: Debug> Node<S> {
+    pub fn new(
+        config: NodeConfig,
+        root_id: NodeId,
+        runtime: Arc<tokio::runtime::Runtime>,
+        async_receivers: Vec<Box<dyn AsyncProtocolMessageReceiver + Send>>,
+        sender: S,
+    ) -> Node<S> {
+        log::info!(
+            "Created node {} with receivers {:#?} and sender {:#?}",
+            root_id,
+            async_receivers,
+            sender
+        );
+        Self {
+            root_id,
+            runtime,
+            async_receivers,
+            sender,
+            config,
+        }
+    }
+}
+
+pub struct NodeHandle {
+    handle: Option<JoinHandle<()>>,
+    broadcaster: broadcast::Sender<UseCaseEvent>,
+    injection_result_receiver: Receiver<InjectionResult>,
+}
+
+impl NodeHandle {
+    pub fn send_find_and_wait_for_response(
+        &mut self,
+        req_data: FindNodeReqData,
+        timeout: Duration,
+    ) -> Result<(ProtocolMessage, NetworkInterface), InjectMessageError> {
+        let nonce = Nonce::random();
+
+        self.broadcaster
+            .send_event(UseCaseEvent::InjectMessage(
+                nonce.clone(),
+                InjectionMessageData::FindNode(req_data),
+            ))
+            .map_err(|e| InjectMessageError::BroadcastFailed(Box::new(e)))?;
+
+        let timer = Instant::now();
+
+        loop {
+            let result = self.injection_result_receiver.try_recv();
+            match result {
+                Ok(InjectionResult::SendFailed(message)) => {
+                    return Err(InjectMessageError::SendFailed(message));
+                }
+                Ok(InjectionResult::Isolated) => return Err(InjectMessageError::Isolated),
+                Ok(InjectionResult::Answered((message, interface))) => {
+                    if Some(&nonce) == message.nonce() {
+                        return Ok((message, interface));
+                    }
+                }
+                Err(mpsc::error::TryRecvError::Disconnected) => break,
+                _ => {}
+            }
+
+            let elapsed = timer.elapsed();
+            if elapsed >= timeout {
+                return Err(InjectMessageError::Timeout);
+            }
+        }
+
+        Err(InjectMessageError::Closed)
+    }
+}
+
+impl Drop for NodeHandle {
+    fn drop(&mut self) {
+        if let Err(e) = self.broadcaster.send(UseCaseEvent::Shutdown) {
+            log::error!("Failed to send shutdown event: {}", e);
+            return;
+        }
+
+        if let Some(handle) = self.handle.take() {
+            if let Err(e) = handle.join() {
+                log::error!("Failed to join node thread: {:?}", e);
+            }
+        }
+    }
+}
+
+impl<S> Node<S>
+where
+    S: ProtocolMessageSender + Send + 'static,
+{
+    pub fn start(self) -> NodeHandle {
+        let Node {
+            root_id,
+            runtime,
+            async_receivers,
+            sender,
+            config,
+        } = self;
+        let (broadcaster, broadcast_receiver) = broadcast::channel(100);
+        let (injection_sender, injection_receiver) = mpsc::channel(1);
+
+        let cloned_broadcaster = broadcaster.clone();
+        let handle = std::thread::spawn(move || {
+            let node_id_env_name = format!("{:?}_NODE_ID", std::thread::current().id());
+            std::env::set_var(node_id_env_name, root_id.to_string());
+
+            Node::handle_loop(
+                config,
+                root_id,
+                sender,
+                cloned_broadcaster,
+                broadcast_receiver,
+                async_receivers,
+                runtime,
+                injection_sender,
+            )
+        });
+
+        NodeHandle {
+            handle: Some(handle),
+            broadcaster,
+            injection_result_receiver: injection_receiver,
+        }
+    }
+
+    fn handle_loop(
+        config: NodeConfig,
+        root_id: NodeId,
+        sender: S,
+        broadcaster: broadcast::Sender<UseCaseEvent>,
+        mut broadcast_receiver: broadcast::Receiver<UseCaseEvent>,
+        mut async_receivers: Vec<Box<dyn AsyncProtocolMessageReceiver + Send>>,
+        runtime: Arc<tokio::runtime::Runtime>,
+        injection_sender: Sender<InjectionResult>,
+    ) {
+        log::info!("Using NodeId {}", root_id);
+
+        // Create a Routing Table which stores ALL physical neighbors
+        let mut routing_table = ObservableRoutingTable::from(UnlimitedPNRoutingTable::from(
+            FlatRoutingTable::<DEFAULT_BUCKET_SIZE, 1>::new(root_id.clone())
+                .expect("invalid flat Routing Table parameters"),
+        ));
+
+        // Add observer which emits to broadcaster
+        let observer_broadcaster = broadcaster.clone();
+        routing_table.add_observer(move |event| {
+            let contact_event = match event {
+                RoutingTableEvent::NewContact(contact) => ContactEvent::New(contact),
+                RoutingTableEvent::RemovedContact(contact) => ContactEvent::Removed(contact),
+                RoutingTableEvent::UpdatedContact { new, old } => {
+                    ContactEvent::Updated { new, old }
+                }
+                _ => return,
+            };
+            if let Err(e) = observer_broadcaster.send(UseCaseEvent::Contact(contact_event)) {
+                log::error!("Failed to broadcast ContactEvent: {}", e);
+            }
+        });
+        routing_table.add_observer(|event| log::trace!("{}", event));
+
+        // Initialize A Task for every receiver
+        while let Some(mut message_receiver) = async_receivers.pop() {
+            let receiver_broadcaster = broadcaster.clone();
+            let root_node_id = root_id.clone();
+            runtime.spawn(async move {
+                let mut messages_cache = Vec::new();
+                loop {
+                    match message_receiver.recv().await {
+                        Ok(None) => continue,
+                        Ok(Some(value)) => messages_cache.push(value),
+                        Err(RecvError::Closed) => break,
+                        Err(e) => {
+                            log::error!("Error occurred while receiving message [retrying]: {}", e);
+                            continue;
+                        }
+                    };
+                    // Receive a bulk of messages
+                    while let Ok(Some(value)) = message_receiver.try_recv().await {
+                        messages_cache.push(value);
+                    }
+
+                    for (message, interface) in messages_cache.drain(..) {
+                        if message.source() == &root_node_id {
+                            // ignoring messages from us
+                            continue;
+                        }
+
+                        if let Err(e) = receiver_broadcaster
+                            .send(UseCaseEvent::Message(message.clone(), interface.clone()))
+                        {
+                            log::error!("Failed to broadcast protocol message: {}", e);
+                        } else {
+                            log::trace!(
+                                "Received ProtocolMessage from {} [{}]",
+                                message.source(),
+                                interface
+                            );
+                        }
+                    }
+                }
+                log::info!("Stopped receiver...");
+            });
+        }
+
+        // Create the desired Context in which the Use Cases will run
+        let context = TokioContext::new(
+            root_id,
+            routing_table,
+            PNTable::new(),
+            PNSStrategy::<
+                ObservableRoutingTable<
+                    UnlimitedPNRoutingTable<DEFAULT_BUCKET_SIZE, 1>,
+                    DEFAULT_BUCKET_SIZE,
+                >,
+                _,
+                _,
+                DEFAULT_BUCKET_SIZE,
+            >::new(InOrderCycleRemover, ShortestFirstPathSimplifier),
+            sender,
+            TokioRuntime::new(broadcaster, Arc::clone(&runtime)),
+        );
+
+        // Initialize the Use Cases
+
+        let mut forward_message = ForwardProtocolMessage::default();
+        if let Err(e) = forward_message.start(&context) {
+            log::error!("Failed to start forwarding UseCase: {}", e);
+            return;
+        }
+
+        let mut random_probing = RandomOverlayDiscovery::new(Default::default())
+            .expect("default grouping should be valid");
+        if let Err(e) = random_probing.start(&context) {
+            log::error!("Failed to start Random Probing UseCase: {}", e);
+            return;
+        }
+
+        let mut on_disc =
+            OverlayNeighborhoodDiscovery::<_, DEFAULT_BUCKET_SIZE>::new(Default::default())
+                .expect("default grouping should be valid");
+        if let Err(e) = on_disc.start(&context) {
+            log::error!("Failed to start overlay neighbor discovery UseCase: {}", e);
+            return;
+        }
+
+        let vicinity_config = VicinityDiscoveryConfig {
+            heuristic_enabled: config.heuristic_enabled,
+            ..Default::default()
+        };
+        let mut vicinity_disc = VicinityDiscovery::new(vicinity_config);
+        if let Err(e) = vicinity_disc.start(&context) {
+            log::error!("Failed to start overlay neighbor discovery UseCase: {}", e);
+            return;
+        }
+
+        let mut path_probing = PathProbing::new(Default::default());
+        if let Err(e) = path_probing.start(&context) {
+            log::error!("Failed to start path probing UseCase: {}", e);
+            return;
+        }
+
+        let mut inject_messages = if config.message_injection_enabled {
+            let mut inject_messages =
+                InjectMessages::new(InjectMessagesConfig::default(), injection_sender)
+                    .expect("default grouping should be valid");
+            if let Err(e) = inject_messages.start(&context) {
+                log::error!("Failed to start inject messages UseCase: {}", e);
+                return;
+            }
+            Some(inject_messages)
+        } else {
+            None
+        };
+
+        // Initialize common tasks
+
+        let mut handle_overlay_discovery = HandleOverlayDiscovery::new(Default::default())
+            .expect("default grouping should be valid");
+
+        // Wait for MessageReceivers or runtime to emit events and delegate to Use Cases
+        // IMPORTANT: The Runtime::block_on method drives progress in the CurrentThreadRuntime.
+        //              Without that the tasks spawned in the runtime won't make any progress.
+        while let Ok(event) = runtime.block_on(broadcast_receiver.recv()) {
+            log::trace!("Processing event {:?}", event);
+
+            // Some precomputation to perform actions and delegate which are common tasks
+            match forward_message.handle_event(&context, event.clone()) {
+                Err(e) => log::error!(
+                    "Forwarding protocol message returned error handling message: {}",
+                    e
+                ),
+                Ok(HandlingResult::Handled) => continue, /* Skip delegation to other use cases */
+                Ok(HandlingResult::NotHandled) => { /* Delegate event to use cases  */ }
+            }
+            if let Err(e) = handle_overlay_discovery.handle_event(&context, event.clone()) {
+                log::error!("Handling overlay discovery failed: {}", e);
+            }
+
+            // Actual use cases
+            if let Err(e) = random_probing.handle_event(&context, event.clone()) {
+                log::error!("Random Probing returned error handling message: {}", e);
+            }
+            if let Err(e) = on_disc.handle_event(&context, event.clone()) {
+                log::error!(
+                    "Overlay Neighborhood Discovery returned error handling message: {}",
+                    e
+                );
+            }
+            if let Err(e) = vicinity_disc.handle_event(&context, event.clone()) {
+                log::error!("Vicinity Discovery returned error handling message: {}", e);
+            }
+            if let Err(e) = path_probing.handle_event(&context, event.clone()) {
+                log::error!("Path Probing returned error handling message: {}", e);
+            }
+            if let Some(Err(e)) = inject_messages
+                .as_mut()
+                .map(|use_case| use_case.handle_event(&context, event.clone()))
+            {
+                log::error!("Injecting Messages returned error handling message: {}", e);
+            }
+
+            // Check States as returning an error doesn't show an unrecoverable error
+            let mut states: Vec<&(dyn UseCaseState)> = vec![
+                forward_message.state(),
+                random_probing.state(),
+                on_disc.state(),
+                vicinity_disc.state(),
+                path_probing.state(),
+            ];
+            if let Some(state) = inject_messages.as_ref().map(InjectMessages::state) {
+                states.push(state);
+            }
+            if states.iter().any(|use_case| use_case.is_error()) {
+                log::error!("Some use case is in error state");
+                break;
+            }
+
+            log::trace!("Processing event finished by all UseCases!");
+
+            if let UseCaseEvent::Shutdown = event {
+                break;
+            }
+        }
+    }
+}
+
+mod errors {
+    use std::error::Error;
+    use std::fmt::{Debug, Display, Formatter};
+
+    use r2kad_lib::messaging::ProtocolMessage;
+
+    #[derive(Debug)]
+    pub enum InjectMessageError {
+        BroadcastFailed(Box<dyn Debug>),
+        Closed,
+        SendFailed(ProtocolMessage),
+        Isolated,
+        Timeout,
+    }
+
+    impl Display for InjectMessageError {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::BroadcastFailed(inner) => {
+                    write!(f, "Failed to broadcast request injection: {:?}", inner)
+                }
+                Self::Closed => write!(f, "Channel to node closed while waiting for message"),
+                Self::SendFailed(message) => {
+                    write!(f, "Failed to send protocol message: {:#?}", message)
+                }
+                Self::Isolated => write!(f, "Failed to send protocol message; Node is isolated"),
+                Self::Timeout => write!(f, "Request took to long"),
+            }
+        }
+    }
+
+    impl Error for InjectMessageError {}
+}

@@ -5,10 +5,26 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+name = "r2kad_daemon_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "r2kad-daemon"
+path = "src/main.rs"
+
 [dependencies]
-clap = { version = "3.2.17", features = ["derive", "env"] }
+clap = { version = "4.0.8", features = ["derive", "env"] }
 env_logger = "0.9.0"
 log = "0.4.17"
-r2kad-lib = { path = "../lib", features = ["serde", "udp-tokio", "rmp-serde"] }
+r2kad-lib = { path = "../lib", features = ["serde", "udp-tokio", "rmp-serde", "in-memory-message-channel"] }
 rmp-serde = "1.1.0"
-tokio = { version = "1.20.1", features = ["macros", "time", "net", "rt"] }
+tokio = { version = "1.20.1", features = ["macros", "time", "net", "rt", "signal"] }
+
+[dev-dependencies]
+anyhow = "1.0.65"
+async-trait = "0.1.57"
+chrono = "0.4.22"
+log4rs = "1.1.1"
+ntest = "0.8.1"
+petgraph = { version = "0.6.2", features = ["serde", "serde-1"] }
