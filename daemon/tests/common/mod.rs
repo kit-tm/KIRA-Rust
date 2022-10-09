@@ -17,10 +17,10 @@ use log4rs::config::{Appender, Logger, Root};
 use log4rs::Config;
 use petgraph::prelude::EdgeRef;
 use petgraph::{Graph, Undirected};
-use tokio::sync::broadcast::Sender;
 
 use r2kad_daemon_lib::{Node, NodeConfig, NodeHandle};
 use r2kad_lib::domain::{NetworkInterface, NodeId};
+use r2kad_lib::forwarding::in_memory_tables::InMemoryFwdTables;
 use r2kad_lib::messaging::error::SenderError;
 use r2kad_lib::messaging::{
     AsyncProtocolMessageReceiver, InMemoryMessageChannel, InMemoryReceiver, InMemorySender,
@@ -177,7 +177,7 @@ impl Cable {
 /// Represents the integration test network of nodes connected through links/cables.
 pub struct Network {
     links: HashMap<LinkIdx, Cable>,
-    nodes: HashMap<NodeId, Node<IdDelegator<InMemorySender>>>,
+    nodes: HashMap<NodeId, Node<IdDelegator<InMemorySender>, InMemoryFwdTables>>,
 }
 
 impl Network {
@@ -289,6 +289,7 @@ impl<E> From<Graph<NodeId, E, Undirected>> for Network {
                 IdDelegator {
                     neighbor_links: neighbor_senders,
                 },
+                InMemoryFwdTables::new(),
             );
 
             nodes.insert(node_id.clone(), node);
