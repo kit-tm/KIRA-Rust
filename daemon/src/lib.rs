@@ -16,6 +16,7 @@ use r2kad_lib::domain::{
     FlatRoutingTable, InOrderCycleRemover, NetworkInterface, NodeId, PNSStrategy, PNTable,
     ShortestFirstPathSimplifier,
 };
+use r2kad_lib::forwarding::ForwardingTables;
 use r2kad_lib::messaging::{
     AsyncProtocolMessageReceiver, FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageSender,
     RecvError,
@@ -46,22 +47,24 @@ pub struct NodeConfig {
 /// The main structure.
 ///
 /// Wrapped inside a struct to allow integration tests to test the executables setup.
-pub struct Node<S> {
+pub struct Node<S, FT> {
     root_id: NodeId,
     runtime: Arc<tokio::runtime::Runtime>,
     async_receivers: Vec<Box<dyn AsyncProtocolMessageReceiver + Send>>,
     sender: S,
+    fwd_table: FT,
     config: NodeConfig,
 }
 
-impl<S: Debug> Node<S> {
+impl<S: Debug, FT> Node<S, FT> {
     pub fn new(
         config: NodeConfig,
         root_id: NodeId,
         runtime: Arc<tokio::runtime::Runtime>,
         async_receivers: Vec<Box<dyn AsyncProtocolMessageReceiver + Send>>,
         sender: S,
-    ) -> Node<S> {
+        fwd_table: FT,
+    ) -> Node<S, FT> {
         log::info!(
             "Created node {} with receivers {:#?} and sender {:#?}",
             root_id,
@@ -73,6 +76,7 @@ impl<S: Debug> Node<S> {
             runtime,
             async_receivers,
             sender,
+            fwd_table,
             config,
         }
     }
@@ -142,9 +146,10 @@ impl Drop for NodeHandle {
     }
 }
 
-impl<S> Node<S>
+impl<S, FT> Node<S, FT>
 where
     S: ProtocolMessageSender + Send + 'static,
+    FT: ForwardingTables + Send + 'static,
 {
     pub fn start(self) -> NodeHandle {
         let Node {
@@ -153,6 +158,7 @@ where
             async_receivers,
             sender,
             config,
+            fwd_table,
         } = self;
         let (broadcaster, broadcast_receiver) = broadcast::channel(100);
         let (injection_sender, injection_receiver) = mpsc::channel(1);
@@ -166,6 +172,7 @@ where
                 config,
                 root_id,
                 sender,
+                fwd_table,
                 cloned_broadcaster,
                 broadcast_receiver,
                 async_receivers,
@@ -185,6 +192,7 @@ where
         config: NodeConfig,
         root_id: NodeId,
         sender: S,
+        fwd_table: FT,
         broadcaster: broadcast::Sender<UseCaseEvent>,
         mut broadcast_receiver: broadcast::Receiver<UseCaseEvent>,
         mut async_receivers: Vec<Box<dyn AsyncProtocolMessageReceiver + Send>>,
@@ -276,6 +284,7 @@ where
             >::new(InOrderCycleRemover, ShortestFirstPathSimplifier),
             sender,
             TokioRuntime::new(broadcaster, Arc::clone(&runtime)),
+            fwd_table,
         );
 
         // Initialize the Use Cases

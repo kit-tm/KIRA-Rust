@@ -6,6 +6,7 @@ use tokio::sync::RwLock;
 
 use r2kad_daemon_lib::{Node, NodeConfig};
 use r2kad_lib::domain::NodeId;
+use r2kad_lib::forwarding::in_memory_tables::InMemoryFwdTables;
 use r2kad_lib::messaging::format::ProtocolMessageFormat;
 use r2kad_lib::messaging::sync_wrapper::SyncWrapper;
 use r2kad_lib::messaging::PNetInterfaceMapper;
@@ -38,6 +39,8 @@ fn main() {
     let mapper = PNetInterfaceMapper::new();
     mapper.blocking_refresh();
 
+    let fwd_table = InMemoryFwdTables::new();
+
     let ip_cache = Arc::new(RwLock::new(HashMap::new()));
     let channel = r2kad_lib::messaging::udp::async_channel(
         args.socket_port,
@@ -60,6 +63,7 @@ fn main() {
         Arc::clone(&runtime),
         vec![Box::new(message_receiver)],
         SyncWrapper::new(message_sender, Arc::clone(&runtime)),
+        fwd_table,
     );
 
     let _handle = node.start();
