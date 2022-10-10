@@ -3,8 +3,8 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver, UnboundedSender};
 use tokio::time::Instant;
 
 use r2kad_lib::broadcaster::Broadcaster;
@@ -47,6 +47,19 @@ pub struct NodeConfig {
 /// The main structure.
 ///
 /// Wrapped inside a struct to allow integration tests to test the executables setup.
+///
+/// ## Channels
+///
+/// Uses multiple channels to communicate between different parts of the application.
+///
+/// - Broadcaster (UnboundedSender): None of these events should be lost as some are required for
+///     valid operation of the application.
+/// - Fan-in-MPSC Channel: All events received through [AsyncProtocolMessageReceiver] and Broadcaster
+///     are delegated to the fan-in. This channel has a limited size to create backpressure for
+///     the [AsyncProtocolMessageReceivers].
+///
+/// Therefore events emitted through the Broadcaster won't be lost, but [AsyncProtocolMessageReceiver]s
+/// won't be pulled until there is space in the fan-in channel.
 pub struct Node<S, FT> {
     root_id: NodeId,
     runtime: Arc<tokio::runtime::Runtime>,
@@ -84,7 +97,7 @@ impl<S: Debug, FT> Node<S, FT> {
 
 pub struct NodeHandle {
     handle: Option<JoinHandle<()>>,
-    broadcaster: broadcast::Sender<UseCaseEvent>,
+    broadcaster: UnboundedSender<UseCaseEvent>,
     injection_result_receiver: Receiver<InjectionResult>,
 }
 
@@ -133,7 +146,7 @@ impl NodeHandle {
 
 impl Drop for NodeHandle {
     fn drop(&mut self) {
-        if let Err(e) = self.broadcaster.send(UseCaseEvent::Shutdown) {
+        if let Err(e) = self.broadcaster.send_event(UseCaseEvent::Shutdown) {
             log::error!("Failed to send shutdown event: {}", e);
             return;
         }
@@ -160,7 +173,7 @@ where
             config,
             fwd_table,
         } = self;
-        let (broadcaster, broadcast_receiver) = broadcast::channel(100);
+        let (broadcaster, broadcast_receiver) = mpsc::unbounded_channel();
         let (injection_sender, injection_receiver) = mpsc::channel(1);
 
         let cloned_broadcaster = broadcaster.clone();
@@ -193,13 +206,27 @@ where
         root_id: NodeId,
         sender: S,
         fwd_table: FT,
-        broadcaster: broadcast::Sender<UseCaseEvent>,
-        mut broadcast_receiver: broadcast::Receiver<UseCaseEvent>,
+        broadcaster: UnboundedSender<UseCaseEvent>,
+        mut broadcast_receiver: UnboundedReceiver<UseCaseEvent>,
         mut async_receivers: Vec<Box<dyn AsyncProtocolMessageReceiver + Send>>,
         runtime: Arc<tokio::runtime::Runtime>,
         injection_sender: Sender<InjectionResult>,
     ) {
         log::info!("Using NodeId {}", root_id);
+
+        let (fan_in_sender, mut fan_in_receiver) = mpsc::channel(100);
+
+        // Create a task to fan in own created events
+        let broadcast_fan_in_sender = fan_in_sender.clone();
+        runtime.spawn(async move {
+            while let Some(event) = broadcast_receiver.recv().await {
+                if let Err(e) = broadcast_fan_in_sender.send(event).await {
+                    log::error!("Failed to fan in broadcastet event: {}", e);
+                    break;
+                }
+            }
+            log::trace!("Closing broadcast fan in task...");
+        });
 
         // Create a Routing Table which stores ALL physical neighbors
         let mut routing_table = ObservableRoutingTable::from(UnlimitedPNRoutingTable::from(
@@ -208,7 +235,7 @@ where
         ));
 
         // Add observer which emits to broadcaster
-        let observer_broadcaster = broadcaster.clone();
+        let observer_broadcaster = fan_in_sender.clone();
         routing_table.add_observer(move |event| {
             let contact_event = match event {
                 RoutingTableEvent::NewContact(contact) => ContactEvent::New(contact),
@@ -218,7 +245,8 @@ where
                 }
                 _ => return,
             };
-            if let Err(e) = observer_broadcaster.send(UseCaseEvent::Contact(contact_event)) {
+            if let Err(e) = observer_broadcaster.blocking_send(UseCaseEvent::Contact(contact_event))
+            {
                 log::error!("Failed to broadcast ContactEvent: {}", e);
             }
         });
@@ -226,7 +254,7 @@ where
 
         // Initialize A Task for every receiver
         while let Some(mut message_receiver) = async_receivers.pop() {
-            let receiver_broadcaster = broadcaster.clone();
+            let receiver_broadcaster = fan_in_sender.clone();
             let root_node_id = root_id.clone();
             runtime.spawn(async move {
                 let mut messages_cache = Vec::new();
@@ -253,6 +281,7 @@ where
 
                         if let Err(e) = receiver_broadcaster
                             .send(UseCaseEvent::Message(message.clone(), interface.clone()))
+                            .await
                         {
                             log::error!("Failed to broadcast protocol message: {}", e);
                         } else {
@@ -347,7 +376,7 @@ where
         // Wait for MessageReceivers or runtime to emit events and delegate to Use Cases
         // IMPORTANT: The Runtime::block_on method drives progress in the CurrentThreadRuntime.
         //              Without that the tasks spawned in the runtime won't make any progress.
-        while let Ok(event) = runtime.block_on(broadcast_receiver.recv()) {
+        while let Some(event) = runtime.block_on(fan_in_receiver.recv()) {
             log::trace!("Processing event {:?}", event);
 
             // Some precomputation to perform actions and delegate which are common tasks
