@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -16,12 +17,13 @@ use r2kad_lib::domain::{
     FlatRoutingTable, InOrderCycleRemover, NetworkInterface, NodeId, PNSStrategy, PNTable,
     ShortestFirstPathSimplifier,
 };
-use r2kad_lib::forwarding::ForwardingTables;
+use r2kad_lib::forwarding::{ForwardingTables, NodeIdTable, PathIdTable};
 use r2kad_lib::messaging::{
     AsyncProtocolMessageReceiver, FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageSender,
     RecvError,
 };
 use r2kad_lib::runtime::TokioRuntime;
+use r2kad_lib::use_cases::derive_fwd_table_entries::DeriveFwdTableEntries;
 use r2kad_lib::use_cases::forward_protocol_message::ForwardProtocolMessage;
 use r2kad_lib::use_cases::handle_overlay_discovery::HandleOverlayDiscovery;
 use r2kad_lib::use_cases::inject_messages::{
@@ -163,6 +165,8 @@ impl<S, FT> Node<S, FT>
 where
     S: ProtocolMessageSender + Send + 'static,
     FT: ForwardingTables + Send + 'static,
+    <FT as NodeIdTable>::Error: Error,
+    <FT as PathIdTable>::Error: Error,
 {
     pub fn start(self) -> NodeHandle {
         let Node {
@@ -355,6 +359,12 @@ where
             return;
         }
 
+        let mut derive_forwarding_tables = DeriveFwdTableEntries::new(Default::default());
+        if let Err(e) = derive_forwarding_tables.start(&context) {
+            log::error!("Failed to start path probing UseCase: {}", e);
+            return;
+        }
+
         let mut inject_messages = if config.message_injection_enabled {
             let mut inject_messages =
                 InjectMessages::new(InjectMessagesConfig::default(), injection_sender)
@@ -408,6 +418,9 @@ where
             if let Err(e) = path_probing.handle_event(&context, event.clone()) {
                 log::error!("Path Probing returned error handling message: {}", e);
             }
+            if let Err(e) = derive_forwarding_tables.handle_event(&context, event.clone()) {
+                log::error!("Path Probing returned error handling message: {}", e);
+            }
             if let Some(Err(e)) = inject_messages
                 .as_mut()
                 .map(|use_case| use_case.handle_event(&context, event.clone()))
@@ -421,6 +434,7 @@ where
                 random_probing.state(),
                 on_disc.state(),
                 vicinity_disc.state(),
+                derive_forwarding_tables.state(),
                 path_probing.state(),
             ];
             if let Some(state) = inject_messages.as_ref().map(InjectMessages::state) {
