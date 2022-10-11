@@ -260,6 +260,7 @@ mod tests {
         Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable,
         StateSeqNr, TestInsertionStrategy,
     };
+    use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::{
         AsyncProtocolMessageReceiver, FindNodeReqData, InMemoryMessageChannel, Nonce,
@@ -297,6 +298,7 @@ mod tests {
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let config = InjectMessagesConfig::default();
@@ -381,6 +383,7 @@ mod tests {
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let config = InjectMessagesConfig::default();

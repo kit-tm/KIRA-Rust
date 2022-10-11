@@ -215,6 +215,7 @@ mod tests {
         Contact, FlatRoutingTable, InsertionStrategyResult, NetworkInterface, NodeId, PNTable,
         Path, RoutingTable, StateSeqNr, TestInsertionStrategy,
     };
+    use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::{
         AsyncProtocolMessageReceiver, InMemoryMessageChannel, ProtocolMessage,
         ProtocolMessageSender,
@@ -233,6 +234,7 @@ mod tests {
             impl ProtocolMessageSender,
             ImmediateRuntime<MPSCBroadcaster>,
             TestInsertionStrategy,
+            InMemoryFwdTables,
         >,
     ) {
         let root = NodeId::one();
@@ -248,6 +250,8 @@ mod tests {
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
 
+        let fwd_tables = InMemoryFwdTables::new();
+
         let context = SyncContext::new(
             root.clone(),
             routing_table,
@@ -255,6 +259,7 @@ mod tests {
             insertion_strategy,
             hub_sender,
             runtime.clone(),
+            fwd_tables,
         );
 
         (root, hub_receiver, broadcaster, runtime, context)

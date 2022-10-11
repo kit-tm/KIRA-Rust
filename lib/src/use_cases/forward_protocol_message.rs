@@ -311,6 +311,7 @@ mod tests {
         Contact, ContactState, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path,
         RoutingTable, StateSeqNr, TestInsertionStrategy,
     };
+    use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::ProtocolMessage::{
         FindNodeReq, FindNodeRsp, PNDiscReq, PNDiscRsp, QueryRouteRsp,
@@ -341,6 +342,7 @@ mod tests {
             insertion_strategy,
             message_hub,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = ForwardProtocolMessage::default();
@@ -384,6 +386,7 @@ mod tests {
             insertion_strategy,
             hub_sender.clone(),
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = ForwardProtocolMessage::default();
@@ -442,6 +445,7 @@ mod tests {
             insertion_strategy,
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = ForwardProtocolMessage::default();
@@ -520,6 +524,7 @@ mod tests {
             insertion_strategy,
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = ForwardProtocolMessage::default();
@@ -585,6 +590,7 @@ mod tests {
             insertion_strategy,
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = ForwardProtocolMessage::default();
@@ -656,6 +662,7 @@ mod tests {
             insertion_strategy,
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = ForwardProtocolMessage::default();
@@ -728,6 +735,7 @@ mod tests {
             insertion_strategy,
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = ForwardProtocolMessage::default();
@@ -807,6 +815,7 @@ mod tests {
             insertion_strategy,
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = ForwardProtocolMessage::default();
@@ -913,6 +922,7 @@ mod tests {
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = ForwardProtocolMessage::default();
@@ -978,6 +988,7 @@ mod tests {
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = ForwardProtocolMessage::default();
@@ -1093,6 +1104,7 @@ mod tests {
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = ForwardProtocolMessage::default();

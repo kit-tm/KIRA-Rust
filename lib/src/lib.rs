@@ -36,6 +36,7 @@
 pub mod broadcaster;
 pub mod context;
 pub mod domain;
+pub mod forwarding;
 pub mod messaging;
 pub mod runtime;
 pub mod use_cases;
