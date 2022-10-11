@@ -9,7 +9,7 @@ use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver, UnboundedSender};
 use tokio::time::Instant;
 
 use r2kad_lib::broadcaster::Broadcaster;
-use r2kad_lib::context::TokioContext;
+use r2kad_lib::context::SyncContext;
 use r2kad_lib::domain::bucket::DEFAULT_BUCKET_SIZE;
 use r2kad_lib::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
 use r2kad_lib::domain::unlimited_pn_routing_table::UnlimitedPNRoutingTable;
@@ -302,7 +302,7 @@ where
         }
 
         // Create the desired Context in which the Use Cases will run
-        let context = TokioContext::new(
+        let context = SyncContext::new(
             root_id,
             routing_table,
             PNTable::new(),
