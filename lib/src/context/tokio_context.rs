@@ -16,16 +16,17 @@ use crate::utils::tokio_utils;
 /// Calling the [Context] methods inside a async environment is currently only supported
 /// in a rt-multi-thread Tokio runtime.
 #[derive(Debug, Clone)]
-pub struct TokioContext<RT, MS, RU, IS> {
+pub struct TokioContext<RT, MS, RU, IS, FT> {
     root_id: NodeId,
     routing_table: Arc<RwLock<RT>>,
     pn_table: Arc<RwLock<PNTable>>,
     insertion_strategy: Arc<RwLock<IS>>,
     message_sender: Arc<RwLock<MS>>,
+    forwarding_tables: Arc<RwLock<FT>>,
     runtime: RU,
 }
 
-impl<RT, MS, B: Broadcaster, IS> TokioContext<RT, MS, TokioRuntime<B>, IS> {
+impl<RT, MS, B: Broadcaster, IS, FT> TokioContext<RT, MS, TokioRuntime<B>, IS, FT> {
     /// Creates a new [Context].
     pub fn new(
         root_id: NodeId,
@@ -34,6 +35,7 @@ impl<RT, MS, B: Broadcaster, IS> TokioContext<RT, MS, TokioRuntime<B>, IS> {
         insertion_strategy: IS,
         message_sender: MS,
         runtime: TokioRuntime<B>,
+        forwarding_tables: FT,
     ) -> Self {
         Self {
             root_id,
@@ -41,16 +43,20 @@ impl<RT, MS, B: Broadcaster, IS> TokioContext<RT, MS, TokioRuntime<B>, IS> {
             pn_table: Arc::new(RwLock::new(pn_table)),
             insertion_strategy: Arc::new(RwLock::new(insertion_strategy)),
             message_sender: Arc::new(RwLock::new(message_sender)),
+            forwarding_tables: Arc::new(RwLock::new(forwarding_tables)),
             runtime,
         }
     }
 }
 
-impl<RT, MS, B: Broadcaster, IS> UseCaseContext for TokioContext<RT, MS, TokioRuntime<B>, IS> {
+impl<RT, MS, B: Broadcaster, IS, FT> UseCaseContext
+    for TokioContext<RT, MS, TokioRuntime<B>, IS, FT>
+{
     type RoutingTable = RT;
     type MessageSender = MS;
     type Runtime = TokioRuntime<B>;
     type InsertionStrategy = IS;
+    type ForwardingTables = FT;
 
     fn root_id(&self) -> &NodeId {
         &self.root_id
@@ -84,6 +90,14 @@ impl<RT, MS, B: Broadcaster, IS> UseCaseContext for TokioContext<RT, MS, TokioRu
         tokio_utils::get_write_guard(self.message_sender.deref()).into()
     }
 
+    fn forwarding_tables(&self) -> ReadGuard<'_, Self::ForwardingTables> {
+        tokio_utils::get_read_guard(self.forwarding_tables.deref()).into()
+    }
+
+    fn forwarding_tables_mut(&self) -> WriteGuard<'_, Self::ForwardingTables> {
+        tokio_utils::get_write_guard(self.forwarding_tables.deref()).into()
+    }
+
     fn runtime(&self) -> &TokioRuntime<B> {
         &self.runtime
     }
@@ -100,6 +114,7 @@ mod tests {
     use crate::domain::{
         FlatRoutingTable, InsertionStrategyResult, NodeId, PNTable, TestInsertionStrategy,
     };
+    use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::InMemoryMessageChannel;
     use crate::runtime::TokioRuntime;
 
@@ -120,6 +135,8 @@ mod tests {
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
 
+        let forwarding_tables = InMemoryFwdTables::new();
+
         let context = TokioContext::new(
             root_id.clone(),
             FlatRoutingTable::<20, 1>::new(root_id),
@@ -127,6 +144,7 @@ mod tests {
             insertion_strategy,
             message_hub,
             runtime,
+            forwarding_tables,
         );
 
         // Check for getters to not panic

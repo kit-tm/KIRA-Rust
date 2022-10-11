@@ -6,6 +6,7 @@ use crate::domain::{Contact, NetworkInterface};
 use crate::messaging::messages::ProtocolMessage;
 use crate::messaging::{FindNodeReqData, Nonce};
 
+pub mod derive_fwd_table_entries;
 pub mod forward_protocol_message;
 pub mod handle_overlay_discovery;
 pub mod inject_messages;

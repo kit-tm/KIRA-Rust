@@ -357,6 +357,7 @@ mod tests {
         Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable,
         Path, RoutingTable, StateSeqNr, TestInsertionStrategy, Timestamp,
     };
+    use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::{
         AsyncProtocolMessageReceiver, ErrorData, InMemoryMessageChannel, Nonce, ProbeReqData,
@@ -418,6 +419,7 @@ mod tests {
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = PathProbing::new(Default::default());
@@ -500,6 +502,7 @@ mod tests {
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = PathProbing::new(Default::default());
@@ -589,6 +592,7 @@ mod tests {
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
             hub_sender,
             runtime.clone(),
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = PathProbing::new(Default::default());
@@ -666,6 +670,7 @@ mod tests {
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
             hub_sender,
             runtime.clone(),
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = PathProbing::new(Default::default());
@@ -757,6 +762,7 @@ mod tests {
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
             hub_sender,
             runtime.clone(),
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = PathProbing::new(Default::default());

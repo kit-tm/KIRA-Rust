@@ -322,9 +322,9 @@ impl AsRef<[u8]> for NodeId {
     }
 }
 
-impl AsRef<[u8; SIZE]> for NodeId {
-    fn as_ref(&self) -> &[u8; SIZE] {
-        &self.bytes
+impl From<NodeId> for [u8; SIZE] {
+    fn from(id: NodeId) -> Self {
+        id.bytes
     }
 }
 

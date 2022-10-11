@@ -169,12 +169,6 @@ impl Path {
             self.ids.insert(start_index + i, id);
         }
     }
-
-    /// Returns an [Iterator] over its elements from start
-    /// to end.
-    pub fn iter(&self) -> impl Iterator<Item = &NodeId> {
-        self.ids.iter()
-    }
 }
 
 impl Extend<NodeId> for Path {
@@ -246,6 +240,15 @@ impl IntoIterator for Path {
 
     fn into_iter(self) -> Self::IntoIter {
         self.ids.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a Path {
+    type Item = &'a NodeId;
+    type IntoIter = std::slice::Iter<'a, NodeId>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.ids.iter()
     }
 }
 

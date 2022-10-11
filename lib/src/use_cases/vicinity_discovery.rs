@@ -471,6 +471,7 @@ mod tests {
         Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable,
         StateSeqNr, TestInsertionStrategy,
     };
+    use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::{
         AsyncProtocolMessageReceiver, HelloMessage, InMemoryMessageChannel, Nonce, ProtocolMessage,
@@ -501,6 +502,7 @@ mod tests {
             insertion_strategy,
             hub_sender,
             ImmediateRuntime::new(broadcaster.clone()),
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = VicinityDiscovery::new(VicinityDiscoveryConfig {
@@ -542,6 +544,7 @@ mod tests {
             insertion_strategy,
             hub_sender,
             ImmediateRuntime::new(broadcaster.clone()),
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = VicinityDiscovery::new(VicinityDiscoveryConfig {
@@ -585,6 +588,7 @@ mod tests {
             insertion_strategy,
             hub_sender,
             ImmediateRuntime::new(broadcaster.clone()),
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = VicinityDiscovery::new(VicinityDiscoveryConfig {
@@ -669,6 +673,7 @@ mod tests {
             insertion_strategy,
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = VicinityDiscovery::new(VicinityDiscoveryConfig {
@@ -735,6 +740,7 @@ mod tests {
             insertion_strategy,
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = VicinityDiscovery::default();
@@ -815,6 +821,7 @@ mod tests {
             insertion_strategy,
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = VicinityDiscovery::default();
@@ -904,6 +911,7 @@ mod tests {
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = VicinityDiscovery::new(Default::default());
@@ -943,6 +951,7 @@ mod tests {
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = VicinityDiscovery::new(Default::default());
@@ -999,6 +1008,7 @@ mod tests {
             TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = VicinityDiscovery::new(Default::default());
@@ -1077,6 +1087,7 @@ mod tests {
             insertion_strategy,
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = VicinityDiscovery::default();
@@ -1170,6 +1181,7 @@ mod tests {
             insertion_strategy,
             hub_sender,
             runtime,
+            InMemoryFwdTables::new(),
         );
 
         let mut use_case = VicinityDiscovery::default();

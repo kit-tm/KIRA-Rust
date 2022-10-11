@@ -1,3 +1,4 @@
+use std::cell::{Ref, RefMut};
 use std::ops::{Deref, DerefMut};
 
 pub use sync_context::*;
@@ -11,12 +12,12 @@ pub mod sync_context;
 pub mod tokio_context;
 
 pub enum ReadGuard<'a, T> {
-    Sync(std::sync::RwLockReadGuard<'a, T>),
+    Sync(Ref<'a, T>),
     Async(tokio::sync::RwLockReadGuard<'a, T>),
 }
 
-impl<'a, T> From<std::sync::RwLockReadGuard<'a, T>> for ReadGuard<'a, T> {
-    fn from(guard: std::sync::RwLockReadGuard<'a, T>) -> Self {
+impl<'a, T> From<Ref<'a, T>> for ReadGuard<'a, T> {
+    fn from(guard: Ref<'a, T>) -> Self {
         Self::Sync(guard)
     }
 }
@@ -39,12 +40,12 @@ impl<'a, T> Deref for ReadGuard<'a, T> {
 }
 
 pub enum WriteGuard<'a, T> {
-    Sync(std::sync::RwLockWriteGuard<'a, T>),
+    Sync(RefMut<'a, T>),
     Async(tokio::sync::RwLockWriteGuard<'a, T>),
 }
 
-impl<'a, T> From<std::sync::RwLockWriteGuard<'a, T>> for WriteGuard<'a, T> {
-    fn from(guard: std::sync::RwLockWriteGuard<'a, T>) -> Self {
+impl<'a, T> From<RefMut<'a, T>> for WriteGuard<'a, T> {
+    fn from(guard: RefMut<'a, T>) -> Self {
         Self::Sync(guard)
     }
 }
@@ -91,6 +92,7 @@ pub trait UseCaseContext {
     type MessageSender: Sized;
     type Runtime: Sized;
     type InsertionStrategy: Sized;
+    type ForwardingTables: Sized;
 
     fn root_id(&self) -> &NodeId;
 
@@ -107,6 +109,10 @@ pub trait UseCaseContext {
     fn message_sender(&self) -> ReadGuard<'_, Self::MessageSender>;
 
     fn message_sender_mut(&self) -> WriteGuard<'_, Self::MessageSender>;
+
+    fn forwarding_tables(&self) -> ReadGuard<'_, Self::ForwardingTables>;
+
+    fn forwarding_tables_mut(&self) -> WriteGuard<'_, Self::ForwardingTables>;
 
     fn runtime(&self) -> &Self::Runtime;
 }

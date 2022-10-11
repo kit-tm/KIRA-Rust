@@ -24,6 +24,7 @@ use r2kad_lib::domain::{
     FlatRoutingTable, InOrderCycleRemover, NodeId, PNSStrategy, ShortestFirstPathSimplifier,
     DEFAULT_BUCKET_SIZE,
 };
+use r2kad_lib::forwarding::in_memory_tables::InMemoryFwdTables;
 use r2kad_lib::messaging::format::ProtocolMessageFormat;
 use r2kad_lib::messaging::sync_wrapper::SyncWrapper;
 use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetInterfaceMapper};
@@ -103,6 +104,8 @@ fn main() {
         log::info!("Stopped receiver...");
     });
 
+    let fwd_tables = InMemoryFwdTables::new();
+
     // Create the desired Context in which the Use Cases will run
     let context = Arc::new(TokioContext::new(
         root_id,
@@ -111,6 +114,7 @@ fn main() {
         insertion_strategy,
         SyncWrapper::new(message_sender, Arc::clone(&runtime)),
         TokioRuntime::new(broadcaster.clone(), Arc::clone(&runtime)),
+        fwd_tables,
     ));
 
     let mut handles = Vec::new();
