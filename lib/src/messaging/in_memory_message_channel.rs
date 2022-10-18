@@ -101,6 +101,10 @@ impl AsyncProtocolMessageReceiver for InMemoryReceiver {
         }
     }
 
+    async fn recv(&mut self) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError> {
+        self.recv_timeout(None).await
+    }
+
     async fn try_recv(
         &mut self,
     ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, TryRecvError> {

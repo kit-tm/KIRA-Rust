@@ -125,9 +125,7 @@ pub trait AsyncProtocolMessageReceiver: Debug {
     /// Receives a [Message].
     ///
     /// Short for calling [recv_timeout](MessageReceiver::recv_timeout) with [None](Option::None).
-    async fn recv(&mut self) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError> {
-        self.recv_timeout(None).await
-    }
+    async fn recv(&mut self) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError>;
     /// Tries to receive a [Message] and returns an [Error] if no message is present at the time.
     async fn try_recv(
         &mut self,
