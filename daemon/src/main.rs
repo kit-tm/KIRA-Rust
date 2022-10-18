@@ -2,14 +2,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use clap::Parser;
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc, RwLock};
 
 use r2kad_daemon_lib::{Node, NodeConfig};
 use r2kad_lib::domain::NodeId;
 use r2kad_lib::forwarding::in_memory_tables::InMemoryFwdTables;
 use r2kad_lib::messaging::format::ProtocolMessageFormat;
 use r2kad_lib::messaging::sync_wrapper::SyncWrapper;
-use r2kad_lib::messaging::PNetInterfaceMapper;
+use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetInterfaceMonitor};
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -36,7 +36,7 @@ fn main() {
 
     let root_id: NodeId = args.root_id.unwrap_or_else(NodeId::random);
 
-    let mapper = PNetInterfaceMapper::new();
+    let mapper = PNetInterfaceMonitor::new();
     mapper.blocking_refresh();
 
     let fwd_table = InMemoryFwdTables::new();
@@ -52,16 +52,26 @@ fn main() {
         .block_on(channel)
         .expect("failed to initialize IO channel");
 
+    // Due to the behaviour of the UDP Sender and Receiver there is no need to handle hardware events.
+    // The Network Stack will handle new interfaces coming up and going down.
+
     let addr = message_sender
         .local_addr()
         .expect("failed to get bind addr");
     log::debug!("Using Address: {}", addr);
 
+    let (pmr_sender, pmr_receiver) = mpsc::channel(1);
+    let boxed_receiver: Box<dyn AsyncProtocolMessageReceiver + Send> = Box::new(message_receiver);
+    if let Err(e) = pmr_sender.blocking_send(boxed_receiver) {
+        log::error!("Failed to send protocol message receiver to node: {}", e);
+        return;
+    }
+
     let node = Node::new(
         NodeConfig::default(),
         root_id,
         Arc::clone(&runtime),
-        vec![Box::new(message_receiver)],
+        pmr_receiver,
         SyncWrapper::new(message_sender, Arc::clone(&runtime)),
         fwd_table,
     );
