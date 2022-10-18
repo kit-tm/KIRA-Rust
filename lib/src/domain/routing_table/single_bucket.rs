@@ -107,7 +107,7 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
         shared_prefix_grouping: usize,
     ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError> {
         let mut result = Vec::with_capacity(n);
-        for contact in &self.bucket {
+        for contact in self.bucket.iter().take(n) {
             let prefix = to.shared_prefix_len(contact.id(), shared_prefix_grouping)?;
             result.push((prefix, contact.clone()));
         }

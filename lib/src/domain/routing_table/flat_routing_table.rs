@@ -17,6 +17,12 @@ pub const DEFAULT_ACCELERATION: usize = 1;
 ///
 /// This kind of [RoutingTable] is only working with Physical Neighbor Selection
 /// and Proximity Routing.
+///
+/// ## Improvements
+///
+/// Due to the missing support for const generics in const expressions (can be enabled on nightly
+/// with `feature(generic_const_exprs)`.
+/// Until [this issue](https://github.com/rust-lang/rust/issues/76560) is fixed, we have to stick with a Vec
 #[derive(Debug)]
 pub struct FlatRoutingTable<
     const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE,
@@ -46,7 +52,7 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
     ///
     /// That is equal to the [NodeId] Size in Bits.
     pub fn with_full_capacity(root: NodeId) -> Result<Self, GroupingError> {
-        let mut buckets = Vec::with_capacity(node_id::BIT_SIZE);
+        let mut buckets = Vec::with_capacity(Self::max_buckets());
         buckets.push(Bucket::new());
         Self::with_buckets(root, buckets)
     }

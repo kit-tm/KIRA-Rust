@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use std::time::Duration;
 
 /// An exponential Backoff strategy based on a [Duration] and maximum number of retries.
@@ -52,6 +53,12 @@ impl Iterator for ExponentialBackoff {
         self.current_retries += 1;
 
         Some(duration)
+    }
+}
+
+impl Display for ExponentialBackoff {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Backoff {}/{}", self.current_retries, self.max_retries)
     }
 }
 

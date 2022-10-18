@@ -245,6 +245,7 @@ where
                 neighborhood: self.config.overlay_neighborhood_size,
                 target: context.root_id().clone(),
             },
+            not_via: context.not_via().clone(),
             source_route: route_to_closest_on,
         };
 
@@ -391,10 +392,11 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
     use std::time::Duration;
 
-    use crate::context::SyncContext;
+    use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
         Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable,
@@ -430,15 +432,16 @@ mod tests {
 
         let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
-            SingleBucketRT::<1>::new(root_id),
-            PNTable::new(),
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
-            runtime.clone(),
-            InMemoryFwdTables::new(),
-        );
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table: SingleBucketRT::<1>::new(root_id),
+            pn_table: PNTable::new(),
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
+            runtime: runtime.clone(),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let mut use_case = OverlayNeighborhoodDiscovery::new(config).unwrap();
 
@@ -484,15 +487,16 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id, NetworkInterface::new("test"));
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
             pn_table,
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
-            runtime.clone(),
-            InMemoryFwdTables::new(),
-        );
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
+            runtime: runtime.clone(),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let mut use_case = OverlayNeighborhoodDiscovery::new(config).unwrap();
 
@@ -571,15 +575,16 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id, NetworkInterface::new("test"));
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
             pn_table,
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
-            runtime.clone(),
-            InMemoryFwdTables::new(),
-        );
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
+            runtime: runtime.clone(),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let mut use_case = OverlayNeighborhoodDiscovery::new(config).unwrap();
 
@@ -672,15 +677,16 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id, NetworkInterface::new("test"));
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
             pn_table,
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
-            runtime.clone(),
-            InMemoryFwdTables::new(),
-        );
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
+            runtime: runtime.clone(),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let mut use_case = OverlayNeighborhoodDiscovery::new(config).unwrap();
 
@@ -722,6 +728,7 @@ mod tests {
                 nonce,
                 source_state_seq_nr: StateSeqNr::from(0),
                 data: ErrorData::DeadEnd,
+                not_via: Default::default(),
                 source_route,
             }),
             InMemoryMessageChannel::dummy_interface(),
@@ -755,6 +762,7 @@ mod tests {
                 nonce,
                 source_state_seq_nr: StateSeqNr::from(0),
                 data: ErrorData::DeadEnd,
+                not_via: Default::default(),
                 source_route: SourceRoute::from_reversed(source_route),
             }),
             InMemoryMessageChannel::dummy_interface(),
@@ -789,6 +797,7 @@ mod tests {
                 nonce,
                 source_state_seq_nr: StateSeqNr::from(0),
                 data: ErrorData::DeadEnd,
+                not_via: Default::default(),
                 source_route: SourceRoute::from_reversed(source_route),
             }),
             InMemoryMessageChannel::dummy_interface(),

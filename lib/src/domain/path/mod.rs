@@ -20,7 +20,7 @@ pub mod simplifier;
 ///
 /// A valid Path is not empty at any time.
 /// Therefore the methods panic or return errors when constructing empty [Path]s.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Path {
     ids: Vec<NodeId>,
@@ -169,6 +169,20 @@ impl Path {
             self.ids.insert(start_index + i, id);
         }
     }
+
+    /// Check if the [Path] starts with the [NodeId]s in the iterator.
+    pub fn starts_with<'a, I>(&self, iter: I) -> bool
+    where
+        I: IntoIterator<Item = &'a NodeId>,
+    {
+        for (own_id, other_id) in self.ids.iter().zip(iter) {
+            if own_id != other_id {
+                return false;
+            }
+        }
+
+        true
+    }
 }
 
 impl Extend<NodeId> for Path {
@@ -200,24 +214,6 @@ impl Display for Path {
         write!(f, ">")
     }
 }
-
-// ============ Equality ============
-
-impl PartialEq<Self> for Path {
-    fn eq(&self, other: &Self) -> bool {
-        if self.size() != other.size() {
-            return false;
-        }
-        for (left, right) in self.ids.iter().zip(other.ids.iter()) {
-            if left != right {
-                return false;
-            }
-        }
-        true
-    }
-}
-
-impl Eq for Path {}
 
 // ============ Indexing ============
 

@@ -221,6 +221,7 @@ where
             data: QueryRouteReqData {
                 query_type: QueryRouteType::PhysicalNeighbors,
             },
+            not_via: context.not_via().clone(),
             source_route: route,
         };
 
@@ -268,6 +269,7 @@ where
             nonce: request.nonce,
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
             data: RTableData { contacts },
+            not_via: context.not_via().clone(),
             source_route: SourceRoute::from_reversed(request.source_route),
         });
 
@@ -312,6 +314,7 @@ where
             data: RTableData {
                 contacts: pn_contacts,
             },
+            not_via: context.not_via().clone(),
             // Source route is ignored, as only physical neighbors get these
             source_route: SourceRoute::from(Path::from([context.root_id().clone(), source])),
         });
@@ -352,6 +355,7 @@ where
             nonce: req.nonce,
             source_state_seq_nr: ssn,
             data: RTableData { contacts },
+            not_via: context.not_via().clone(),
             source_route: SourceRoute::from_reversed(req.source_route),
         });
 
@@ -461,11 +465,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::num::NonZeroUsize;
     use std::time::Duration;
 
     use crate::broadcaster::MPSCBroadcaster;
-    use crate::context::SyncContext;
+    use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
         Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable,
@@ -495,15 +500,16 @@ mod tests {
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
 
-        let context = SyncContext::new(
-            root_id.clone(),
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
-            PNTable::new(),
+            pn_table: PNTable::new(),
             insertion_strategy,
-            hub_sender,
-            ImmediateRuntime::new(broadcaster.clone()),
-            InMemoryFwdTables::new(),
-        );
+            message_sender: hub_sender,
+            runtime: ImmediateRuntime::new(broadcaster.clone()),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let mut use_case = VicinityDiscovery::new(VicinityDiscoveryConfig {
             max_timeout: Duration::from_secs(0),
@@ -537,15 +543,16 @@ mod tests {
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
 
-        let context = SyncContext::new(
-            root_id.clone(),
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
-            PNTable::new(),
+            pn_table: PNTable::new(),
             insertion_strategy,
-            hub_sender,
-            ImmediateRuntime::new(broadcaster.clone()),
-            InMemoryFwdTables::new(),
-        );
+            message_sender: hub_sender,
+            runtime: ImmediateRuntime::new(broadcaster.clone()),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let mut use_case = VicinityDiscovery::new(VicinityDiscoveryConfig {
             max_timeout: Duration::from_secs(0),
@@ -581,15 +588,16 @@ mod tests {
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
 
-        let context = SyncContext::new(
-            root_id.clone(),
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
-            PNTable::new(),
+            pn_table: PNTable::new(),
             insertion_strategy,
-            hub_sender,
-            ImmediateRuntime::new(broadcaster.clone()),
-            InMemoryFwdTables::new(),
-        );
+            message_sender: hub_sender,
+            runtime: ImmediateRuntime::new(broadcaster.clone()),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let mut use_case = VicinityDiscovery::new(VicinityDiscoveryConfig {
             max_timeout: Duration::from_millis(30),
@@ -666,15 +674,16 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let context = SyncContext::new(
-            root_id.clone(),
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
             pn_table,
             insertion_strategy,
-            hub_sender,
+            message_sender: hub_sender,
             runtime,
-            InMemoryFwdTables::new(),
-        );
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let mut use_case = VicinityDiscovery::new(VicinityDiscoveryConfig {
             heuristic_calculation_bits: NonZeroUsize::new(34).unwrap(),
@@ -733,15 +742,16 @@ mod tests {
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let context = SyncContext::new(
-            root_id.clone(),
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
             pn_table,
             insertion_strategy,
-            hub_sender,
+            message_sender: hub_sender,
             runtime,
-            InMemoryFwdTables::new(),
-        );
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let mut use_case = VicinityDiscovery::default();
 
@@ -814,15 +824,16 @@ mod tests {
         let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
         let (broadcaster, _) = MPSCBroadcaster::new(10);
         let runtime = ImmediateRuntime::new(broadcaster.clone());
-        let context = SyncContext::new(
-            root_id.clone(),
-            single_bucket_rt,
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table: single_bucket_rt,
             pn_table,
             insertion_strategy,
-            hub_sender,
+            message_sender: hub_sender,
             runtime,
-            InMemoryFwdTables::new(),
-        );
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let mut use_case = VicinityDiscovery::default();
         let start_result = use_case.start(&context);
@@ -836,6 +847,7 @@ mod tests {
             nonce: Nonce::random(),
             source_state_seq_nr: StateSeqNr::from(3),
             data: RTableData { contacts: vec![] },
+            not_via: Default::default(),
             source_route: SourceRoute::from(Path::from([
                 source_id.clone(),
                 NodeId::with_msb(28),
@@ -904,15 +916,16 @@ mod tests {
 
         let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
-            SingleBucketRT::<1>::new(root_id),
-            PNTable::new(),
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table: SingleBucketRT::<1>::new(root_id),
+            pn_table: PNTable::new(),
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
             runtime,
-            InMemoryFwdTables::new(),
-        );
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let mut use_case = VicinityDiscovery::new(Default::default());
 
@@ -944,15 +957,16 @@ mod tests {
 
         let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
-            SingleBucketRT::<1>::new(root_id),
-            PNTable::new(),
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table: SingleBucketRT::<1>::new(root_id),
+            pn_table: PNTable::new(),
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
             runtime,
-            InMemoryFwdTables::new(),
-        );
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let mut use_case = VicinityDiscovery::new(Default::default());
 
@@ -1001,15 +1015,16 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id.clone(), NetworkInterface::new("test"));
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
             pn_table,
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
             runtime,
-            InMemoryFwdTables::new(),
-        );
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let mut use_case = VicinityDiscovery::new(Default::default());
 
@@ -1080,15 +1095,16 @@ mod tests {
         let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
         let (broadcaster, _) = MPSCBroadcaster::new(10);
         let runtime = ImmediateRuntime::new(broadcaster.clone());
-        let context = SyncContext::new(
-            root_id.clone(),
-            single_bucket_rt,
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table: single_bucket_rt,
             pn_table,
             insertion_strategy,
-            hub_sender,
+            message_sender: hub_sender,
             runtime,
-            InMemoryFwdTables::new(),
-        );
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let mut use_case = VicinityDiscovery::default();
         let start_result = use_case.start(&context);
@@ -1112,6 +1128,7 @@ mod tests {
             data: QueryRouteReqData {
                 query_type: QueryRouteType::PhysicalNeighbors,
             },
+            not_via: Default::default(),
             source_route: route,
         });
         let event = UseCaseEvent::Message(protocol_message.clone(), neighbors_port);
@@ -1174,15 +1191,16 @@ mod tests {
         let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
         let (broadcaster, _) = MPSCBroadcaster::new(10);
         let runtime = ImmediateRuntime::new(broadcaster.clone());
-        let context = SyncContext::new(
-            root_id.clone(),
-            single_bucket_rt,
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table: single_bucket_rt,
             pn_table,
             insertion_strategy,
-            hub_sender,
+            message_sender: hub_sender,
             runtime,
-            InMemoryFwdTables::new(),
-        );
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let mut use_case = VicinityDiscovery::default();
         let start_result = use_case.start(&context);
@@ -1198,6 +1216,7 @@ mod tests {
             data: QueryRouteReqData {
                 query_type: QueryRouteType::PhysicalNeighbors,
             },
+            not_via: Default::default(),
             source_route: SourceRoute::from(Path::from([
                 source_id.clone(),
                 NodeId::with_msb(28),

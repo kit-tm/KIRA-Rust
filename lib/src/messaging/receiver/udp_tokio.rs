@@ -204,7 +204,7 @@ mod tests {
     use crate::messaging::format::ProtocolMessageFormat;
     use crate::messaging::receiver::udp_tokio::UdpReceiver;
     use crate::messaging::{
-        AsyncProtocolMessageReceiver, HelloMessage, PNetInterfaceMapper, ProtocolMessage,
+        AsyncProtocolMessageReceiver, HelloMessage, PNetInterfaceMonitor, ProtocolMessage,
     };
 
     #[tokio::test]
@@ -217,7 +217,7 @@ mod tests {
             0,
             ProtocolMessageFormat::Json,
             cache,
-            PNetInterfaceMapper::new(),
+            PNetInterfaceMonitor::new(),
         )
         .await
         .expect("failed to start udp receiver");
@@ -271,7 +271,7 @@ mod tests {
             0,
             ProtocolMessageFormat::Json,
             cache,
-            PNetInterfaceMapper::new(),
+            PNetInterfaceMonitor::new(),
         )
         .await
         .expect("failed to create udp receiver");

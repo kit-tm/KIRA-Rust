@@ -1,9 +1,10 @@
+use std::collections::HashSet;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 
 use crate::context::UseCaseContext;
 use crate::domain::{
-    node_id, Contact, GroupingError, RoutingTable, StateSeqNr, DEFAULT_BUCKET_SIZE,
+    node_id, Contact, GroupingError, NotVia, RoutingTable, StateSeqNr, DEFAULT_BUCKET_SIZE,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -51,6 +52,7 @@ impl<C, const BUCKET_SIZE: usize> HandleOverlayDiscovery<C, BUCKET_SIZE> {
 
     fn build_find_node_to_next_hop(
         &self,
+        not_via: HashSet<NotVia>,
         req: ReqRspMessage<FindNodeReqData>,
         next_contact: Contact,
     ) -> ProtocolMessage {
@@ -62,12 +64,14 @@ impl<C, const BUCKET_SIZE: usize> HandleOverlayDiscovery<C, BUCKET_SIZE> {
             nonce: req.nonce,
             source_state_seq_nr: req.source_state_seq_nr,
             data: req.data,
+            not_via,
             source_route,
         })
     }
 
     fn build_find_node_rsp(
         &self,
+        not_via: HashSet<NotVia>,
         req: ReqRspMessage<FindNodeReqData>,
         ssn: StateSeqNr,
         contacts: Vec<Contact>,
@@ -76,15 +80,22 @@ impl<C, const BUCKET_SIZE: usize> HandleOverlayDiscovery<C, BUCKET_SIZE> {
             nonce: req.nonce,
             source_state_seq_nr: ssn,
             data: RTableData { contacts },
+            not_via,
             source_route: SourceRoute::from_reversed(req.source_route),
         })
     }
 
-    fn build_error(&self, req: ReqRspMessage<FindNodeReqData>, ssn: StateSeqNr) -> ProtocolMessage {
+    fn build_error(
+        &self,
+        not_via: HashSet<NotVia>,
+        req: ReqRspMessage<FindNodeReqData>,
+        ssn: StateSeqNr,
+    ) -> ProtocolMessage {
         ProtocolMessage::Error(ReqRspMessage {
             nonce: req.nonce,
             source_state_seq_nr: ssn,
             data: ErrorData::DeadEnd,
+            not_via,
             source_route: SourceRoute::from_reversed(req.source_route),
         })
     }
@@ -127,17 +138,36 @@ where
                 )
                 .expect("grouping has to be checked on initialization");
 
+            // Get any contact not contained in local or included not_via data
+            let closest_node = closest.iter().find(|(_, contact)| {
+                if context.not_via().iter().any(|not_via| match not_via {
+                    NotVia::Node(id) => contact.path().contains(id),
+                    NotVia::Link(link) => contact.path().contains_link(link),
+                }) {
+                    return false;
+                }
+                if req.not_via.iter().any(|not_via| match not_via {
+                    NotVia::Node(id) => contact.path().contains(id),
+                    NotVia::Link(link) => contact.path().contains_link(link),
+                }) {
+                    return false;
+                }
+
+                true
+            });
+
             // (exact, target, target is us, closest known)
             let outgoing_message = match (
                 &req.data.exact,
                 &req.data.target,
                 &req.data.target == context.root_id(),
-                closest.first(),
+                &closest_node,
             ) {
                 (true, _, true, _) => {
                     let closest = closest.into_iter().map(|(_, contact)| contact).collect();
 
                     self.build_find_node_rsp(
+                        context.not_via().clone(),
                         req.clone(),
                         *context.pn_table().state_seq_nr(),
                         closest,
@@ -150,14 +180,24 @@ where
                         .expect("grouping was checked on init");
 
                     if &own_distance > closest_known_distance && req.source() != contact.id() {
-                        self.build_find_node_to_next_hop(req.clone(), Contact::clone(contact))
+                        self.build_find_node_to_next_hop(
+                            context.not_via().clone(),
+                            req.clone(),
+                            Contact::clone(contact),
+                        )
                     } else {
-                        self.build_error(req.clone(), *context.pn_table().state_seq_nr())
+                        self.build_error(
+                            context.not_via().clone(),
+                            req.clone(),
+                            *context.pn_table().state_seq_nr(),
+                        )
                     }
                 }
-                (true, _, false, None) => {
-                    self.build_error(req.clone(), *context.pn_table().state_seq_nr())
-                }
+                (true, _, false, None) => self.build_error(
+                    context.not_via().clone(),
+                    req.clone(),
+                    *context.pn_table().state_seq_nr(),
+                ),
                 (false, _, true, _) => {
                     log::warn!(
                         "Received FindNodeReq with 'exact=false' with us as target: {:?}",
@@ -172,11 +212,16 @@ where
                         .expect("grouping was checked on init");
 
                     if &own_distance > closest_known_distance && req.source() != contact.id() {
-                        self.build_find_node_to_next_hop(req.clone(), Contact::clone(contact))
+                        self.build_find_node_to_next_hop(
+                            context.not_via().clone(),
+                            req.clone(),
+                            Contact::clone(contact),
+                        )
                     } else {
                         let closest = closest.into_iter().map(|(_, contact)| contact).collect();
 
                         self.build_find_node_rsp(
+                            context.not_via().clone(),
                             req.clone(),
                             *context.pn_table().state_seq_nr(),
                             closest,
@@ -184,6 +229,7 @@ where
                     }
                 }
                 (false, _, false, None) => self.build_find_node_rsp(
+                    context.not_via().clone(),
                     req.clone(),
                     *context.pn_table().state_seq_nr(),
                     Vec::with_capacity(0),
@@ -202,13 +248,14 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::num::{NonZeroU64, NonZeroUsize};
 
-    use crate::context::SyncContext;
+    use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
-        Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable,
-        StateSeqNr, TestInsertionStrategy,
+        Contact, InsertionStrategyResult, NetworkInterface, NodeId, NotVia, PNTable, Path,
+        RoutingTable, StateSeqNr, TestInsertionStrategy,
     };
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::source_route::SourceRoute;
@@ -243,15 +290,16 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id.clone(), NetworkInterface::new("test"));
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
             pn_table,
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
             runtime,
-            InMemoryFwdTables::new(),
-        );
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let config = OverlayDiscoveryConfig {
             shared_prefix_bits_grouping: NonZeroUsize::new(1).unwrap(),
@@ -274,6 +322,7 @@ mod tests {
                 neighborhood: NonZeroU64::new(20).unwrap(),
                 target: root_id.clone(),
             },
+            not_via: Default::default(),
             source_route: route.clone(),
         };
         let handle_result = event_handler.handle_event(
@@ -367,15 +416,16 @@ mod tests {
         pn_table.insert(neighbor_id.clone(), interface.clone());
         pn_table.insert(target_id.clone(), interface.clone());
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
-            pn_table,
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
+            pn_table: PNTable::new(),
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
             runtime,
-            InMemoryFwdTables::new(),
-        );
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let config = OverlayDiscoveryConfig {
             shared_prefix_bits_grouping: NonZeroUsize::new(1).unwrap(),
@@ -398,6 +448,7 @@ mod tests {
                 neighborhood: NonZeroU64::new(20).unwrap(),
                 target: target_id.clone(),
             },
+            not_via: Default::default(),
             source_route: route.clone(),
         };
         let handle_result = event_handler.handle_event(
@@ -485,15 +536,16 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
             pn_table,
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
             runtime,
-            InMemoryFwdTables::new(),
-        );
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let config = OverlayDiscoveryConfig {
             shared_prefix_bits_grouping: NonZeroUsize::new(1).unwrap(),
@@ -515,6 +567,7 @@ mod tests {
                 neighborhood: NonZeroU64::new(20).unwrap(),
                 target: unknown_id.clone(),
             },
+            not_via: Default::default(),
             source_route: route.clone(),
         };
         let handle_result = event_handler.handle_event(
@@ -606,15 +659,16 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
-            pn_table,
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
+            pn_table: PNTable::new(),
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
             runtime,
-            InMemoryFwdTables::new(),
-        );
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let config = OverlayDiscoveryConfig {
             shared_prefix_bits_grouping: NonZeroUsize::new(1).unwrap(),
@@ -636,6 +690,7 @@ mod tests {
                 neighborhood: NonZeroU64::new(20).unwrap(),
                 target: target_id.clone(),
             },
+            not_via: Default::default(),
             source_route: route.clone(),
         };
         let handle_result = event_handler.handle_event(
@@ -722,15 +777,16 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
             pn_table,
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
             runtime,
-            InMemoryFwdTables::new(),
-        );
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let config = OverlayDiscoveryConfig {
             shared_prefix_bits_grouping: NonZeroUsize::new(1).unwrap(),
@@ -752,6 +808,7 @@ mod tests {
                 neighborhood: NonZeroU64::new(20).unwrap(),
                 target: target_id.clone(),
             },
+            not_via: Default::default(),
             source_route: route.clone(),
         };
         let handle_result = event_handler.handle_event(
@@ -801,6 +858,317 @@ mod tests {
             );
         } else {
             panic!("generated invalid response: {:?}", sent_message);
+        }
+    }
+
+    #[tokio::test]
+    async fn find_node_not_redirected_through_local_not_via_data() {
+        crate::tests::init();
+
+        // Topology:
+        // root -- neighbor -- not_via -- target
+        //                 `--   via   --´
+        // root knowns neighbor, not_via and via.
+        //
+        // "via" is id wise closest to target
+        // Expected: FindNode gets redirected to contact "via"
+
+        let root_id = NodeId::with_msb(32);
+        let source_id = NodeId::with_msb(16);
+        let neighbor_id = NodeId::with_msb(8);
+        let not_via_id = NodeId::with_msb(4);
+        let via_id = NodeId::with_lsb(2);
+        let target_id = NodeId::with_lsb(1);
+
+        let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(4));
+        let not_via_contact = Contact::new(
+            Path::from([neighbor_id.clone(), not_via_id.clone()]),
+            StateSeqNr::from(8),
+        );
+        let via_contact = Contact::new(
+            Path::from([neighbor_id.clone(), via_id.clone()]),
+            StateSeqNr::from(16),
+        );
+        let neighbor_contact = Contact::new(
+            Path::from([neighbor_id.clone(), not_via_id.clone(), target_id.clone()]),
+            StateSeqNr::from(16),
+        );
+
+        let interface = NetworkInterface::new("test");
+
+        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
+
+        let runtime = ImmediateRuntime::new(broadcaster);
+
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
+
+        let mut routing_table = SingleBucketRT::<10>::new(root_id.clone());
+        let insertion_result = routing_table.extend(
+            true,
+            [
+                neighbor.clone(),
+                not_via_contact.clone(),
+                via_contact.clone(),
+                neighbor_contact.clone(),
+            ],
+        );
+        assert!(
+            insertion_result.is_ok(),
+            "Inserting a contact failed: {:?}",
+            insertion_result
+        );
+
+        let mut pn_table = PNTable::new();
+        pn_table.insert(neighbor_id.clone(), interface.clone());
+
+        let mut not_via = HashSet::new();
+        not_via.insert(NotVia::Node(not_via_id));
+
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table,
+            pn_table,
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
+            runtime,
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via,
+        });
+
+        let config = OverlayDiscoveryConfig {
+            shared_prefix_bits_grouping: NonZeroUsize::new(1).unwrap(),
+        };
+        let mut event_handler = HandleOverlayDiscovery::new(config).unwrap();
+
+        let route = SourceRoute::from(Path::from([
+            source_id.clone(),
+            neighbor_id.clone(),
+            root_id.clone(),
+        ]))
+        .advanced();
+
+        let message = ReqRspMessage {
+            nonce: Nonce::random(),
+            source_state_seq_nr: StateSeqNr::from(32),
+            data: FindNodeReqData {
+                exact: true,
+                neighborhood: NonZeroU64::new(20).unwrap(),
+                target: target_id.clone(),
+            },
+            not_via: HashSet::default(),
+            source_route: route.clone(),
+        };
+        let handle_result = event_handler.handle_event(
+            &sync_context,
+            UseCaseEvent::Message(
+                message.clone().into(),
+                InMemoryMessageChannel::dummy_interface(),
+            ),
+        );
+        assert!(
+            handle_result.is_ok(),
+            "Handling returned error: {:?}",
+            handle_result
+        );
+
+        let sent_message = hub_receiver.try_recv().await;
+        assert!(
+            sent_message.is_ok(),
+            "Failed to receive message from hub: {:?}",
+            sent_message
+        );
+        let sent_message = sent_message.unwrap();
+        assert!(sent_message.is_some(), "No message generated");
+        let (sent_message, _) = sent_message.unwrap();
+
+        if let ProtocolMessage::FindNodeReq(rsp) = sent_message {
+            assert_eq!(&rsp.nonce, &message.nonce, "Nonce not equal");
+            assert_eq!(
+                &rsp.source_state_seq_nr,
+                &StateSeqNr::from(32),
+                "SSN should be the roots. But was: {}",
+                rsp.source_state_seq_nr
+            );
+            assert_eq!(
+                &rsp.source_route,
+                &SourceRoute::from(Path::from([
+                    source_id,
+                    neighbor_id.clone(),
+                    root_id,
+                    neighbor_id,
+                    via_id
+                ]))
+                .advanced()
+                .advanced(),
+                "Source route should be extended to not_via contact but was: {:?}",
+                rsp.source_route
+            );
+            assert_eq!(
+                &rsp.data,
+                &FindNodeReqData {
+                    exact: true,
+                    neighborhood: NonZeroU64::new(20).unwrap(),
+                    target: target_id,
+                },
+                "Returned closest contacts: {:?}",
+                rsp.data
+            );
+        } else {
+            panic!("generated invalid request: {:?}", sent_message);
+        }
+    }
+
+    #[tokio::test]
+    async fn find_node_not_redirected_through_included_not_via_data() {
+        crate::tests::init();
+
+        // Topology:
+        // root -- neighbor -- not_via -- target
+        //                 `--   via   --´
+        // root knowns neighbor, not_via and via.
+        //
+        // "via" is id wise closest to target
+        // Expected: FindNode gets redirected to contact "via"
+
+        let root_id = NodeId::with_msb(32);
+        let source_id = NodeId::with_msb(16);
+        let neighbor_id = NodeId::with_msb(8);
+        let not_via_id = NodeId::with_msb(4);
+        let via_id = NodeId::with_lsb(2);
+        let target_id = NodeId::with_lsb(1);
+
+        let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(4));
+        let not_via_contact = Contact::new(
+            Path::from([neighbor_id.clone(), not_via_id.clone()]),
+            StateSeqNr::from(8),
+        );
+        let via_contact = Contact::new(
+            Path::from([neighbor_id.clone(), via_id.clone()]),
+            StateSeqNr::from(16),
+        );
+        let target_contact = Contact::new(
+            Path::from([neighbor_id.clone(), not_via_id.clone(), target_id.clone()]),
+            StateSeqNr::from(16),
+        );
+
+        let interface = NetworkInterface::new("test");
+
+        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
+
+        let runtime = ImmediateRuntime::new(broadcaster);
+
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
+
+        let mut routing_table = SingleBucketRT::<10>::new(root_id.clone());
+        let insertion_result = routing_table.extend(
+            true,
+            [
+                neighbor.clone(),
+                not_via_contact.clone(),
+                via_contact.clone(),
+                target_contact.clone(),
+            ],
+        );
+        assert!(
+            insertion_result.is_ok(),
+            "Inserting a contact failed: {:?}",
+            insertion_result
+        );
+
+        let mut pn_table = PNTable::new();
+        pn_table.insert(neighbor_id.clone(), interface.clone());
+
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table,
+            pn_table,
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
+            runtime,
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::new(),
+        });
+
+        let config = OverlayDiscoveryConfig {
+            shared_prefix_bits_grouping: NonZeroUsize::new(1).unwrap(),
+        };
+        let mut event_handler = HandleOverlayDiscovery::new(config).unwrap();
+
+        let route = SourceRoute::from(Path::from([
+            source_id.clone(),
+            neighbor_id.clone(),
+            root_id.clone(),
+        ]))
+        .advanced();
+
+        let mut not_via = HashSet::new();
+        not_via.insert(NotVia::Node(not_via_id.clone()));
+
+        let message = ReqRspMessage {
+            nonce: Nonce::random(),
+            source_state_seq_nr: StateSeqNr::from(32),
+            data: FindNodeReqData {
+                exact: true,
+                neighborhood: NonZeroU64::new(20).unwrap(),
+                target: target_id.clone(),
+            },
+            not_via,
+            source_route: route.clone(),
+        };
+        let handle_result = event_handler.handle_event(
+            &sync_context,
+            UseCaseEvent::Message(message.clone().into(), interface.clone()),
+        );
+        assert!(
+            handle_result.is_ok(),
+            "Handling returned error: {:?}",
+            handle_result
+        );
+
+        let sent_message = hub_receiver.try_recv().await;
+        assert!(
+            sent_message.is_ok(),
+            "Failed to receive message from hub: {:?}",
+            sent_message
+        );
+        let sent_message = sent_message.unwrap();
+        assert!(sent_message.is_some(), "No message generated");
+        let (sent_message, _) = sent_message.unwrap();
+
+        if let ProtocolMessage::FindNodeReq(rsp) = sent_message {
+            assert_eq!(&rsp.nonce, &message.nonce, "Nonce not equal");
+            assert_eq!(
+                &rsp.source_state_seq_nr,
+                &StateSeqNr::from(32),
+                "SSN should be the roots. But was: {}",
+                rsp.source_state_seq_nr
+            );
+            assert_eq!(
+                &rsp.source_route,
+                &SourceRoute::from(Path::from([
+                    source_id,
+                    neighbor_id.clone(),
+                    root_id,
+                    neighbor_id,
+                    via_id
+                ]))
+                .advanced()
+                .advanced(),
+                "Source route should be extended to not_via contact but was: {:?}",
+                rsp.source_route
+            );
+            assert_eq!(
+                &rsp.data,
+                &FindNodeReqData {
+                    exact: true,
+                    neighborhood: NonZeroU64::new(20).unwrap(),
+                    target: target_id,
+                },
+                "Returned closest contacts: {:?}",
+                rsp.data
+            );
+        } else {
+            panic!("generated invalid request: {:?}", sent_message);
         }
     }
 }

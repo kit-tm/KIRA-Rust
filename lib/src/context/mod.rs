@@ -1,11 +1,12 @@
 use std::cell::{Ref, RefMut};
+use std::collections::HashSet;
 use std::ops::{Deref, DerefMut};
 
 pub use sync_context::*;
 #[cfg(feature = "tokio")]
 pub use tokio_context::*;
 
-use crate::domain::{NodeId, PNTable};
+use crate::domain::{NodeId, NotVia, PNTable};
 
 pub mod sync_context;
 #[cfg(feature = "tokio")]
@@ -76,6 +77,18 @@ impl<'a, T> DerefMut for WriteGuard<'a, T> {
     }
 }
 
+/// Configuration Wrapper for all dependencies of a [UseCaseContext].
+pub struct ContextConfig<RT, MS, RU, IS, FT> {
+    pub root_id: NodeId,
+    pub routing_table: RT,
+    pub message_sender: MS,
+    pub runtime: RU,
+    pub insertion_strategy: IS,
+    pub pn_table: PNTable,
+    pub forwarding_tables: FT,
+    pub not_via: HashSet<NotVia>,
+}
+
 /// Context a UseCase runs in.
 ///
 /// Provides access to the shared global state of the [Node].
@@ -87,12 +100,26 @@ impl<'a, T> DerefMut for WriteGuard<'a, T> {
 ///
 /// The support for different runtime environments (async vs. sync) is determined by the
 /// concrete implementation.
+///
+/// NotVia Data represents links and nodes in the routing table which are not longer functional.
+///
+/// NotVia Data of other nodes will only be added if they affect contacts in the own routing table.
 pub trait UseCaseContext {
     type RoutingTable: Sized;
     type MessageSender: Sized;
     type Runtime: Sized;
     type InsertionStrategy: Sized;
     type ForwardingTables: Sized;
+
+    fn new(
+        config: ContextConfig<
+            Self::RoutingTable,
+            Self::MessageSender,
+            Self::Runtime,
+            Self::InsertionStrategy,
+            Self::ForwardingTables,
+        >,
+    ) -> Self;
 
     fn root_id(&self) -> &NodeId;
 
@@ -115,4 +142,8 @@ pub trait UseCaseContext {
     fn forwarding_tables_mut(&self) -> WriteGuard<'_, Self::ForwardingTables>;
 
     fn runtime(&self) -> &Self::Runtime;
+
+    fn not_via(&self) -> ReadGuard<'_, HashSet<NotVia>>;
+
+    fn not_via_mut(&self) -> WriteGuard<'_, HashSet<NotVia>>;
 }

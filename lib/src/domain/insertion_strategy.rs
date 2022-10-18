@@ -23,6 +23,9 @@ pub enum InsertionStrategyResult {
 ///
 /// The Algorithm can use the [PNTable] but is not allowed to insert into it.
 /// This will be handled where the Hello-Messages are handled explicitly.
+///
+/// Also [NotVia] Data is not handled by the [InsertionStrategy] as it represents logic
+/// of the routing-daemon-application itself and not the domain.
 pub trait InsertionStrategy<RT, const BUCKET_SIZE: usize>
 where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
@@ -132,21 +135,6 @@ where
             existing.last_seen(),
             existing.id()
         );
-
-        // Drop if state is not valid and the new info doesn't avoid
-        // all failed links
-        if let ContactState::Rediscovering(rds) = existing.state() {
-            for link in &rds.failed_link_list {
-                if contact.path().contains_link(link) {
-                    log::trace!(
-                        target: "routing_table",
-                        "Dropping path: via failed link [{}]",
-                        existing.id()
-                    );
-                    return InsertionStrategyResult::Dropped;
-                }
-            }
-        }
 
         // Finally: contact is newer, better or fixes a contact
 

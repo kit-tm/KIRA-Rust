@@ -211,7 +211,7 @@ mod tests {
     use crate::messaging::format::ProtocolMessageFormat;
     use crate::messaging::receiver::udp::UdpReceiver;
     use crate::messaging::{
-        HelloMessage, PNetInterfaceMapper, ProtocolMessage, ProtocolMessageReceiver,
+        HelloMessage, PNetInterfaceMonitor, ProtocolMessage, ProtocolMessageReceiver,
     };
 
     #[test]
@@ -223,7 +223,7 @@ mod tests {
         let mut receiver = UdpReceiver::new(
             0,
             ip_cache,
-            PNetInterfaceMapper::new(),
+            PNetInterfaceMonitor::new(),
             ProtocolMessageFormat::Json,
         )
         .expect("failed to create receiver");
@@ -276,7 +276,7 @@ mod tests {
         let mut receiver = UdpReceiver::new(
             0,
             ip_cache,
-            PNetInterfaceMapper::new(),
+            PNetInterfaceMonitor::new(),
             ProtocolMessageFormat::Json,
         )?;
 

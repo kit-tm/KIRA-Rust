@@ -1,7 +1,8 @@
 use std::cell::RefCell;
+use std::collections::HashSet;
 
-use crate::context::{ReadGuard, UseCaseContext, WriteGuard};
-use crate::domain::{NodeId, PNTable};
+use crate::context::{ContextConfig, ReadGuard, UseCaseContext, WriteGuard};
+use crate::domain::{NodeId, NotVia, PNTable};
 
 /// Implements a [UseCaseContext] which can only be used in a single threaded synchronous environment.
 ///
@@ -16,29 +17,7 @@ pub struct SyncContext<RT, MS, RU, IS, FT> {
     message_sender: RefCell<MS>,
     runtime: RU,
     forwarding_tables: RefCell<FT>,
-}
-
-impl<RT, MS, RU, IS, FT> SyncContext<RT, MS, RU, IS, FT> {
-    /// Creates a new [Context].
-    pub fn new(
-        root_id: NodeId,
-        routing_table: RT,
-        pn_table: PNTable,
-        insertion_strategy: IS,
-        message_sender: MS,
-        runtime: RU,
-        forwarding_tables: FT,
-    ) -> Self {
-        Self {
-            root_id,
-            routing_table: RefCell::new(routing_table),
-            insertion_strategy: RefCell::new(insertion_strategy),
-            pn_table: RefCell::new(pn_table),
-            message_sender: RefCell::new(message_sender),
-            runtime,
-            forwarding_tables: RefCell::new(forwarding_tables),
-        }
-    }
+    not_via: RefCell<HashSet<NotVia>>,
 }
 
 impl<RT, MS, RU, IS, FT> UseCaseContext for SyncContext<RT, MS, RU, IS, FT> {
@@ -47,6 +26,19 @@ impl<RT, MS, RU, IS, FT> UseCaseContext for SyncContext<RT, MS, RU, IS, FT> {
     type Runtime = RU;
     type InsertionStrategy = IS;
     type ForwardingTables = FT;
+
+    fn new(config: ContextConfig<RT, MS, RU, IS, FT>) -> Self {
+        Self {
+            root_id: config.root_id,
+            routing_table: RefCell::new(config.routing_table),
+            insertion_strategy: RefCell::new(config.insertion_strategy),
+            pn_table: RefCell::new(config.pn_table),
+            message_sender: RefCell::new(config.message_sender),
+            runtime: config.runtime,
+            forwarding_tables: RefCell::new(config.forwarding_tables),
+            not_via: RefCell::new(config.not_via),
+        }
+    }
 
     fn root_id(&self) -> &NodeId {
         &self.root_id
@@ -90,5 +82,13 @@ impl<RT, MS, RU, IS, FT> UseCaseContext for SyncContext<RT, MS, RU, IS, FT> {
 
     fn runtime(&self) -> &RU {
         &self.runtime
+    }
+
+    fn not_via(&self) -> ReadGuard<'_, HashSet<NotVia>> {
+        self.not_via.borrow().into()
+    }
+
+    fn not_via_mut(&self) -> WriteGuard<'_, HashSet<NotVia>> {
+        self.not_via.borrow_mut().into()
     }
 }
