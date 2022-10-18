@@ -4,13 +4,13 @@
 //! running the daemon on a single threaded environment but also reading from
 //! multiple ports at once.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
 
 use tokio::sync::{broadcast, RwLock};
 
-use r2kad_lib::context::TokioContext;
+use r2kad_lib::context::{ContextConfig, TokioContext, UseCaseContext};
 use r2kad_lib::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
 use r2kad_lib::domain::physical_neighbor_table::PNTable;
 use r2kad_lib::domain::unlimited_pn_routing_table::UnlimitedPNRoutingTable;
@@ -21,7 +21,7 @@ use r2kad_lib::domain::{
 use r2kad_lib::forwarding::in_memory_tables::InMemoryFwdTables;
 use r2kad_lib::messaging::format::ProtocolMessageFormat;
 use r2kad_lib::messaging::sync_wrapper::SyncWrapper;
-use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetInterfaceMapper};
+use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetInterfaceMonitor};
 use r2kad_lib::runtime::TokioRuntime;
 use r2kad_lib::use_cases::forward_protocol_message::ForwardProtocolMessage;
 use r2kad_lib::use_cases::handle_overlay_discovery::HandleOverlayDiscovery;
@@ -80,7 +80,7 @@ fn main() {
     let channel = r2kad_lib::messaging::udp::async_channel(
         8080,
         ip_cache,
-        PNetInterfaceMapper::new(),
+        PNetInterfaceMonitor::new(),
         ProtocolMessageFormat::MessagePack,
     );
     let (message_sender, mut message_receiver) = runtime
@@ -122,11 +122,11 @@ fn main() {
     let fwd_tables = InMemoryFwdTables::new();
 
     // Create the desired Context in which the Use Cases will run
-    let context = TokioContext::new(
+    let context = TokioContext::new(ContextConfig {
         root_id,
         routing_table,
-        PNTable::new(),
-        PNSStrategy::<
+        pn_table: PNTable::new(),
+        insertion_strategy: PNSStrategy::<
             ObservableRoutingTable<
                 UnlimitedPNRoutingTable<DEFAULT_BUCKET_SIZE, 1>,
                 DEFAULT_BUCKET_SIZE,
@@ -135,10 +135,11 @@ fn main() {
             _,
             DEFAULT_BUCKET_SIZE,
         >::new(InOrderCycleRemover, ShortestFirstPathSimplifier),
-        SyncWrapper::new(message_sender, Arc::clone(&runtime)),
-        TokioRuntime::new(broadcaster, Arc::clone(&runtime)),
-        fwd_tables,
-    );
+        message_sender: SyncWrapper::new(message_sender, Arc::clone(&runtime)),
+        runtime: TokioRuntime::new(broadcaster, Arc::clone(&runtime)),
+        forwarding_tables: fwd_tables,
+        not_via: HashSet::default(),
+    });
 
     // Initialize the Use Cases
 

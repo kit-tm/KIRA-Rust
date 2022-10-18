@@ -65,6 +65,10 @@ impl PNTable {
     pub fn state_seq_nr(&self) -> &StateSeqNr {
         &self.state_seq_nr
     }
+    /// Removed a Mapping from the table returning that NetworkInterface the [NodeId] was mapped to.
+    pub fn remove(&mut self, id: &NodeId) -> Option<NetworkInterface> {
+        self.map.remove(id)
+    }
 }
 
 impl<'a> IntoIterator for &'a PNTable {

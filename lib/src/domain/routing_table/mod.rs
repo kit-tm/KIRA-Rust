@@ -187,6 +187,11 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     ///
     /// The returned pairs are the calculated [SharedPrefix] for every [Contact].
     /// These are also sorted from closest to farthest away.
+    ///
+    /// ## Improvements
+    ///
+    /// As this only returns a limited number of nodes an implementation based on iterators
+    /// would be ideal int he future.
     fn closest(
         &self,
         to: &NodeId,

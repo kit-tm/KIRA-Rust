@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::ops::{Add, AddAssign};
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct StateSeqNr(u64);
 

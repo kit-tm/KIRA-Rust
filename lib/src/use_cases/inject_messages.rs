@@ -178,6 +178,7 @@ where
                     nonce: nonce.clone(),
                     source_state_seq_nr: *context.pn_table().state_seq_nr(),
                     data,
+                    not_via: context.not_via().clone(),
                     source_route,
                 });
 
@@ -250,11 +251,12 @@ pub mod errors {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::num::NonZeroU64;
 
     use tokio::sync::mpsc;
 
-    use crate::context::SyncContext;
+    use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
         Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable,
@@ -291,15 +293,16 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id.clone(), NetworkInterface::new("test"));
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
             pn_table,
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
             runtime,
-            InMemoryFwdTables::new(),
-        );
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let config = InjectMessagesConfig::default();
 
@@ -376,15 +379,16 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
             pn_table,
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
             runtime,
-            InMemoryFwdTables::new(),
-        );
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let config = InjectMessagesConfig::default();
 
@@ -423,6 +427,7 @@ mod tests {
             nonce: event_nonce.clone(),
             source_state_seq_nr: StateSeqNr::from(1),
             data: RTableData { contacts: vec![] },
+            not_via: Default::default(),
             source_route: SourceRoute::from(Path::from([neighbor_id.clone(), root_id.clone()])),
         });
         let event = UseCaseEvent::Message(response_message.clone(), interface.clone());
@@ -449,6 +454,7 @@ mod tests {
             nonce: event_nonce,
             source_state_seq_nr: StateSeqNr::from(2),
             data: RTableData { contacts: vec![] },
+            not_via: Default::default(),
             source_route: SourceRoute::from(Path::from([neighbor_id, root_id])),
         });
         let event = UseCaseEvent::Message(response_message, interface);

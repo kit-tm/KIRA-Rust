@@ -3,11 +3,14 @@ use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 
 use crate::domain::{Contact, NetworkInterface};
+use crate::hardware_events::HardwareEvent;
 use crate::messaging::messages::ProtocolMessage;
 use crate::messaging::{FindNodeReqData, Nonce};
 
 pub mod derive_fwd_table_entries;
+pub mod failure_handling;
 pub mod forward_protocol_message;
+pub mod handle_contact_update;
 pub mod handle_overlay_discovery;
 pub mod inject_messages;
 pub mod overlay_neighborhood_discovery;
@@ -21,6 +24,7 @@ pub enum UseCaseEvent {
     Timer(TimerId),
     Contact(ContactEvent),
     InjectMessage(Nonce, InjectionMessageData),
+    Hardware(HardwareEvent),
     Shutdown,
 }
 
@@ -54,6 +58,12 @@ impl Deref for TimerId {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl Display for TimerId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
