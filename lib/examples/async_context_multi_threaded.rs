@@ -8,7 +8,7 @@
 //! This is a naive implementation.
 //! More advanced implementations may use load balancing or other advanced optimizations.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Display};
 use std::ops::Deref;
 use std::str::FromStr;
@@ -17,7 +17,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::{broadcast, RwLock};
 
-use r2kad_lib::context::{TokioContext, UseCaseContext};
+use r2kad_lib::context::{ContextConfig, TokioContext, UseCaseContext};
 use r2kad_lib::domain::physical_neighbor_table::PNTable;
 use r2kad_lib::domain::unlimited_pn_routing_table::UnlimitedPNRoutingTable;
 use r2kad_lib::domain::{
@@ -27,7 +27,7 @@ use r2kad_lib::domain::{
 use r2kad_lib::forwarding::in_memory_tables::InMemoryFwdTables;
 use r2kad_lib::messaging::format::ProtocolMessageFormat;
 use r2kad_lib::messaging::sync_wrapper::SyncWrapper;
-use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetInterfaceMapper};
+use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetInterfaceMonitor};
 use r2kad_lib::runtime::TokioRuntime;
 use r2kad_lib::use_cases::vicinity_discovery::VicinityDiscovery;
 use r2kad_lib::use_cases::{EventHandler, UseCase, UseCaseEvent, UseCaseState};
@@ -71,7 +71,7 @@ fn main() {
     let channel = r2kad_lib::messaging::udp::async_channel(
         8080,
         ip_cache,
-        PNetInterfaceMapper::new(),
+        PNetInterfaceMonitor::new(),
         ProtocolMessageFormat::MessagePack,
     );
     let (message_sender, mut message_receiver) = runtime
@@ -107,15 +107,16 @@ fn main() {
     let fwd_tables = InMemoryFwdTables::new();
 
     // Create the desired Context in which the Use Cases will run
-    let context = Arc::new(TokioContext::new(
-        root_id,
+    let context = Arc::new(TokioContext::new(ContextConfig {
+        root_id: root_id.clone(),
         routing_table,
-        PNTable::new(),
+        pn_table: PNTable::new(),
         insertion_strategy,
-        SyncWrapper::new(message_sender, Arc::clone(&runtime)),
-        TokioRuntime::new(broadcaster.clone(), Arc::clone(&runtime)),
-        fwd_tables,
-    ));
+        message_sender: SyncWrapper::new(message_sender, Arc::clone(&runtime)),
+        runtime: TokioRuntime::new(broadcaster.clone(), Arc::clone(&runtime)),
+        forwarding_tables: fwd_tables,
+        not_via: HashSet::default(),
+    }));
 
     let mut handles = Vec::new();
 

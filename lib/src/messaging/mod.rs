@@ -4,11 +4,11 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
+#[cfg(feature = "pnet")]
+pub use crate::pnet_interface_monitor::*;
 #[cfg(feature = "in-memory-message-channel")]
 pub use in_memory_message_channel::*;
 pub use messages::*;
-#[cfg(feature = "pnet")]
-pub use pnet_interface_mapper::*;
 pub use receiver::*;
 pub use sender::*;
 
@@ -19,8 +19,6 @@ pub mod format;
 #[cfg(feature = "in-memory-message-channel")]
 pub mod in_memory_message_channel;
 pub mod messages;
-#[cfg(feature = "pnet")]
-pub mod pnet_interface_mapper;
 pub mod receiver;
 pub mod sender;
 pub mod source_route;

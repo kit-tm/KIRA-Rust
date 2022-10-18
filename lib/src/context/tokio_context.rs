@@ -1,11 +1,12 @@
+use std::collections::HashSet;
 use std::ops::Deref;
 use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
 use crate::broadcaster::Broadcaster;
-use crate::context::{ReadGuard, UseCaseContext, WriteGuard};
-use crate::domain::{NodeId, PNTable};
+use crate::context::{ContextConfig, ReadGuard, UseCaseContext, WriteGuard};
+use crate::domain::{NodeId, NotVia, PNTable};
 use crate::runtime::TokioRuntime;
 use crate::utils::tokio_utils;
 
@@ -24,29 +25,7 @@ pub struct TokioContext<RT, MS, RU, IS, FT> {
     message_sender: Arc<RwLock<MS>>,
     forwarding_tables: Arc<RwLock<FT>>,
     runtime: RU,
-}
-
-impl<RT, MS, B: Broadcaster, IS, FT> TokioContext<RT, MS, TokioRuntime<B>, IS, FT> {
-    /// Creates a new [Context].
-    pub fn new(
-        root_id: NodeId,
-        routing_table: RT,
-        pn_table: PNTable,
-        insertion_strategy: IS,
-        message_sender: MS,
-        runtime: TokioRuntime<B>,
-        forwarding_tables: FT,
-    ) -> Self {
-        Self {
-            root_id,
-            routing_table: Arc::new(RwLock::new(routing_table)),
-            pn_table: Arc::new(RwLock::new(pn_table)),
-            insertion_strategy: Arc::new(RwLock::new(insertion_strategy)),
-            message_sender: Arc::new(RwLock::new(message_sender)),
-            forwarding_tables: Arc::new(RwLock::new(forwarding_tables)),
-            runtime,
-        }
-    }
+    not_via: Arc<RwLock<HashSet<NotVia>>>,
 }
 
 impl<RT, MS, B: Broadcaster, IS, FT> UseCaseContext
@@ -57,6 +36,19 @@ impl<RT, MS, B: Broadcaster, IS, FT> UseCaseContext
     type Runtime = TokioRuntime<B>;
     type InsertionStrategy = IS;
     type ForwardingTables = FT;
+
+    fn new(config: ContextConfig<RT, MS, TokioRuntime<B>, IS, FT>) -> Self {
+        Self {
+            root_id: config.root_id,
+            routing_table: Arc::new(RwLock::new(config.routing_table)),
+            pn_table: Arc::new(RwLock::new(config.pn_table)),
+            insertion_strategy: Arc::new(RwLock::new(config.insertion_strategy)),
+            message_sender: Arc::new(RwLock::new(config.message_sender)),
+            forwarding_tables: Arc::new(RwLock::new(config.forwarding_tables)),
+            runtime: config.runtime,
+            not_via: Arc::new(RwLock::new(config.not_via)),
+        }
+    }
 
     fn root_id(&self) -> &NodeId {
         &self.root_id
@@ -101,16 +93,25 @@ impl<RT, MS, B: Broadcaster, IS, FT> UseCaseContext
     fn runtime(&self) -> &TokioRuntime<B> {
         &self.runtime
     }
+
+    fn not_via(&self) -> ReadGuard<'_, HashSet<NotVia>> {
+        tokio_utils::get_read_guard(self.not_via.deref()).into()
+    }
+
+    fn not_via_mut(&self) -> WriteGuard<'_, HashSet<NotVia>> {
+        tokio_utils::get_write_guard(self.not_via.deref()).into()
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::sync::Arc;
 
     use tokio::runtime;
     use tokio::sync::broadcast;
 
-    use crate::context::{ReadGuard, TokioContext, UseCaseContext, WriteGuard};
+    use crate::context::{ContextConfig, ReadGuard, TokioContext, UseCaseContext, WriteGuard};
     use crate::domain::{
         FlatRoutingTable, InsertionStrategyResult, NodeId, PNTable, TestInsertionStrategy,
     };
@@ -137,15 +138,16 @@ mod tests {
 
         let forwarding_tables = InMemoryFwdTables::new();
 
-        let context = TokioContext::new(
-            root_id.clone(),
-            FlatRoutingTable::<20, 1>::new(root_id),
-            PNTable::new(),
+        let context = TokioContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table: FlatRoutingTable::<20, 1>::new(root_id),
+            pn_table: PNTable::new(),
             insertion_strategy,
-            message_hub,
+            message_sender: message_hub,
             runtime,
             forwarding_tables,
-        );
+            not_via: HashSet::default(),
+        });
 
         // Check for getters to not panic
         assert!(matches!(context.routing_table(), ReadGuard::Async(_)));

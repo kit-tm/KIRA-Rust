@@ -107,6 +107,7 @@ where
                 neighborhood: self.config.neighborhood_size,
                 target: random_id,
             },
+            not_via: context.not_via().clone(),
             source_route: route,
         };
         log::trace!(target: "random_overlay_discovery", "Sending message {:?}", message);
@@ -206,11 +207,12 @@ impl UseCaseState for RODState {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::num::{NonZeroU64, NonZeroUsize};
     use std::time::Duration;
 
     use crate::broadcaster::MPSCBroadcaster;
-    use crate::context::{SyncContext, UseCaseContext};
+    use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::{
         Contact, FlatRoutingTable, InsertionStrategyResult, NetworkInterface, NodeId, PNTable,
         Path, RoutingTable, StateSeqNr, TestInsertionStrategy,
@@ -252,15 +254,16 @@ mod tests {
 
         let fwd_tables = InMemoryFwdTables::new();
 
-        let context = SyncContext::new(
-            root.clone(),
+        let context = SyncContext::new(ContextConfig {
+            root_id: root.clone(),
             routing_table,
-            PNTable::new(),
+            pn_table: PNTable::new(),
             insertion_strategy,
-            hub_sender,
-            runtime.clone(),
-            fwd_tables,
-        );
+            message_sender: hub_sender,
+            runtime: runtime.clone(),
+            forwarding_tables: fwd_tables,
+            not_via: HashSet::default(),
+        });
 
         (root, hub_receiver, broadcaster, runtime, context)
     }

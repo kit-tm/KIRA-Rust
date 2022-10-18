@@ -112,6 +112,7 @@ where
                 nonce: nonce.clone(),
                 source_state_seq_nr: *context.pn_table().state_seq_nr(),
                 data: ProbeReqData,
+                not_via: context.not_via().clone(),
                 source_route: route,
             };
             if let Err(e) = context.message_sender_mut().send_message(message) {
@@ -226,6 +227,7 @@ where
             nonce: req.nonce,
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
             data: ProbeRspData,
+            not_via: context.not_via().clone(),
             source_route: SourceRoute::from_reversed(req.source_route),
         };
         if let Err(e) = context.message_sender_mut().send_message(message) {
@@ -347,11 +349,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     use chrono::{Duration, Utc};
 
-    use crate::context::{SyncContext, UseCaseContext};
+    use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
         Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable,
@@ -412,15 +414,16 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
             pn_table,
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
             runtime,
-            InMemoryFwdTables::new(),
-        );
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let mut use_case = PathProbing::new(Default::default());
 
@@ -495,15 +498,16 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
             pn_table,
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
             runtime,
-            InMemoryFwdTables::new(),
-        );
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let mut use_case = PathProbing::new(Default::default());
 
@@ -515,6 +519,7 @@ mod tests {
             nonce: Nonce::random(),
             source_state_seq_nr: StateSeqNr::from(3),
             data: ProbeReqData,
+            not_via: Default::default(),
             source_route: SourceRoute::from(Path::from([
                 contact_id.clone(),
                 neighbor_id.clone(),
@@ -585,15 +590,16 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
             pn_table,
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
-            runtime.clone(),
-            InMemoryFwdTables::new(),
-        );
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
+            runtime: runtime.clone(),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let mut use_case = PathProbing::new(Default::default());
 
@@ -663,15 +669,16 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
             pn_table,
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
-            runtime.clone(),
-            InMemoryFwdTables::new(),
-        );
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
+            runtime: runtime.clone(),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let mut use_case = PathProbing::new(Default::default());
 
@@ -703,6 +710,7 @@ mod tests {
                 neighbor_id.clone(),
                 old_contact_not_responding_id.clone(),
             ))),
+            not_via: Default::default(),
             source_route: SourceRoute::from_reversed(probe_sent.source_route().unwrap().clone()),
         };
         let handle_result = use_case.handle_event(
@@ -755,15 +763,16 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
             pn_table,
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
-            runtime.clone(),
-            InMemoryFwdTables::new(),
-        );
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
+            runtime: runtime.clone(),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let mut use_case = PathProbing::new(Default::default());
 
@@ -802,6 +811,7 @@ mod tests {
             nonce: probe_sent.nonce().unwrap().clone(),
             source_state_seq_nr: *neighbor.state_seq_nr(),
             data: ProbeRspData,
+            not_via: Default::default(),
             source_route: SourceRoute::from_reversed(probe_sent.source_route().unwrap().clone()),
         };
         let handle_result = use_case.handle_event(

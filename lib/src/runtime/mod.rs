@@ -14,11 +14,17 @@ pub mod sync_runtime;
 #[cfg(feature = "tokio")]
 pub mod tokio_runtime;
 
-//Additionally: Consider "wait for message" to reduce amount of woken up UseCases
+/// Interface for the [UseCase]s to the runtime environment.
 pub trait UseCaseRuntime {
-    /// Either waits the duration instantly or returns and
+    /// Creates a timer which will later yield a TimerEvent.
+    ///
+    /// The returned TimerId has to be unique.
+    /// It's an error for runtimes to return duplicate [TimerId]s.
     fn register_timer(&self, duration: Duration) -> TimerId;
 
     /// Creates a periodic Timer.
+    ///
+    /// The returned TimerId has to be unique.
+    /// It's an error for runtimes to return duplicate [TimerId]s.
     fn register_periodic_timer(&self, duration: Duration) -> TimerId;
 }

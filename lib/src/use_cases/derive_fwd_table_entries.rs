@@ -307,7 +307,7 @@ pub mod error {
 
 #[cfg(test)]
 mod tests {
-    use crate::context::{SyncContext, UseCaseContext};
+    use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
         Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable,
@@ -321,6 +321,7 @@ mod tests {
         DeriveFwdTableEntries, DeriveFwdTableEntriesConfig, Hasher,
     };
     use crate::use_cases::{ContactEvent, EventHandler, UseCase, UseCaseEvent};
+    use std::collections::HashSet;
 
     #[test]
     fn contact_entries_added() {
@@ -332,11 +333,11 @@ mod tests {
         let neighbor_id = NodeId::with_lsb(2);
         let vicinity_contact_id = NodeId::with_lsb(3);
 
-        let (broadcaster, broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
+        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
         let vicinity_contact = Contact::new(
@@ -350,15 +351,16 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
             pn_table,
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
-            runtime.clone(),
-            InMemoryFwdTables::new(),
-        );
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
+            runtime: runtime.clone(),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let config = DeriveFwdTableEntriesConfig {
             hasher: Hasher::Sha1,
@@ -413,11 +415,11 @@ mod tests {
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
 
-        let (broadcaster, broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
+        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
 
@@ -427,15 +429,16 @@ mod tests {
         let mut pn_table = PNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
             pn_table,
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
-            runtime.clone(),
-            InMemoryFwdTables::new(),
-        );
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
+            runtime: runtime.clone(),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
 
         let config = DeriveFwdTableEntriesConfig {
             hasher: Hasher::Sha1,
@@ -484,11 +487,11 @@ mod tests {
         let neighbor_id = NodeId::with_lsb(2);
         let vicinity_contact_id = NodeId::with_lsb(3);
 
-        let (broadcaster, broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
+        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
         let vicinity_contact = Contact::new(
@@ -544,15 +547,16 @@ mod tests {
             "failed to create vicinity contacts path id entry"
         );
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
             pn_table,
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
-            runtime.clone(),
-            fwd_table,
-        );
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
+            runtime: runtime.clone(),
+            forwarding_tables: fwd_table,
+            not_via: HashSet::default(),
+        });
 
         let config = DeriveFwdTableEntriesConfig {
             hasher: Hasher::Sha1,
@@ -614,11 +618,11 @@ mod tests {
         let neighbor_id = NodeId::with_lsb(2);
         let vicinity_contact_id = NodeId::with_lsb(3);
 
-        let (broadcaster, broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
+        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
 
         let runtime = ImmediateRuntime::new(broadcaster);
 
-        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
 
         let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
         let vicinity_contact = Contact::new(
@@ -674,15 +678,16 @@ mod tests {
             "failed to create vicinity contacts path id entry"
         );
 
-        let sync_context = SyncContext::new(
-            root_id.clone(),
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
             routing_table,
             pn_table,
-            TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            hub_sender,
-            runtime.clone(),
-            fwd_table,
-        );
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
+            runtime: runtime.clone(),
+            forwarding_tables: fwd_table,
+            not_via: HashSet::default(),
+        });
 
         let config = DeriveFwdTableEntriesConfig {
             hasher: Hasher::Sha1,

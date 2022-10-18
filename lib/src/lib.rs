@@ -37,7 +37,10 @@ pub mod broadcaster;
 pub mod context;
 pub mod domain;
 pub mod forwarding;
+pub mod hardware_events;
 pub mod messaging;
+#[cfg(feature = "pnet")]
+pub mod pnet_interface_monitor;
 pub mod runtime;
 pub mod use_cases;
 pub mod utils;

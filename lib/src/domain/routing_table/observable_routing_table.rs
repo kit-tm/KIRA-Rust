@@ -97,6 +97,16 @@ fn notify_all<const BUCKET_SIZE: usize>(
     observers: &[Box<dyn RoutingTableObserver<BUCKET_SIZE>>],
     event: RoutingTableEvent<BUCKET_SIZE>,
 ) {
+    // Skip update events that only update the age
+    if let RoutingTableEvent::UpdatedContact { old, new } = &event {
+        if old.path() == new.path()
+            && old.state_seq_nr() == new.state_seq_nr()
+            && old.state() == new.state()
+        {
+            return;
+        }
+    }
+
     for observable in observers {
         observable.notify(event.clone());
     }
@@ -123,7 +133,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> NonObservableRoutingTable<'
 
 /// Wrapper for [NonObservableRoutingTable]s to gain observability.
 pub struct ObservableRoutingTable<RT, const BUCKET_SIZE: usize> {
-    observables: Vec<Box<dyn RoutingTableObserver<BUCKET_SIZE>>>,
+    observers: Vec<Box<dyn RoutingTableObserver<BUCKET_SIZE>>>,
     inner: RT,
 }
 
@@ -132,7 +142,7 @@ impl<RT: Debug, const BUCKET_SIZE: usize> Debug for ObservableRoutingTable<RT, B
         write!(
             f,
             "ObservableRoutingTable [observables: {}, inner: {:?}]",
-            self.observables.len(),
+            self.observers.len(),
             self.inner
         )
     }
@@ -144,7 +154,7 @@ where
 {
     fn from(routing_table: RT) -> Self {
         Self {
-            observables: Vec::new(),
+            observers: Vec::new(),
             inner: routing_table,
         }
     }
@@ -153,7 +163,7 @@ where
 impl<RT, const BUCKET_SIZE: usize> ObservableRoutingTable<RT, BUCKET_SIZE> {
     /// Adds any type of [RoutingTableObserver] to the list of observers.
     pub fn add_observer<O: 'static + RoutingTableObserver<BUCKET_SIZE>>(&mut self, observer: O) {
-        self.observables.push(Box::new(observer));
+        self.observers.push(Box::new(observer));
     }
 
     /// Explicitly emits a [RoutingTableEvent] to all observers of this [ObservableRoutingTable].
@@ -169,7 +179,7 @@ impl<RT, const BUCKET_SIZE: usize> ObservableRoutingTable<RT, BUCKET_SIZE> {
 
     // Eases the access to the utility function
     fn notify_all(&self, event: RoutingTableEvent<BUCKET_SIZE>) {
-        notify_all(&self.observables, event);
+        notify_all(&self.observers, event);
     }
 }
 
@@ -236,7 +246,7 @@ where
 
     fn contact_mut(&'a mut self, id: &NodeId) -> Option<Self::ContactWriteGuard> {
         self.inner.contact_mut(id).map(|contact| ContactWriteGuard {
-            observers: &mut self.observables,
+            observers: &mut self.observers,
             original: Contact::clone(contact.deref()),
             contact,
         })
@@ -257,7 +267,7 @@ where
     fn bucket_mut(&'a mut self, of: &NodeId) -> Self::BucketWriteGuard {
         let bucket = self.inner.bucket_mut(of);
         BucketWriteGuard {
-            observers: &self.observables,
+            observers: &self.observers,
             original: Bucket::<BUCKET_SIZE>::clone(bucket.deref()),
             bucket,
         }
@@ -277,7 +287,7 @@ where
     }
 
     fn iter_mut(&'a mut self) -> Self::IterMut {
-        Iter::new(&self.observables, self.inner.iter_mut())
+        Iter::new(&self.observers, self.inner.iter_mut())
     }
 }
 

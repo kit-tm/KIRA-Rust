@@ -1,7 +1,8 @@
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::num::NonZeroU64;
 
-use crate::domain::{Contact, Link, NodeId, StateSeqNr};
+use crate::domain::{Contact, Link, NodeId, NotVia, StateSeqNr};
 use crate::messaging::source_route::SourceRoute;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -33,6 +34,9 @@ pub enum ProtocolMessage {
     FindNodeRsp(ReqRspMessage<RTableData>),
     ProbeReq(ReqRspMessage<ProbeReqData>),
     ProbeRsp(ReqRspMessage<ProbeRspData>),
+    PathSetupReq(ReqRspMessage<PathSetupReqData>),
+    PathTeardownReq(ReqRspMessage<PathTeardownReqData>),
+    UpdateRouteReq(UpdateRouteReq),
     Error(ReqRspMessage<ErrorData>),
 }
 
@@ -49,6 +53,9 @@ impl ProtocolMessage {
             Self::Error(req) => Some(&mut req.source_route),
             Self::ProbeReq(req) => Some(&mut req.source_route),
             Self::ProbeRsp(req) => Some(&mut req.source_route),
+            Self::PathSetupReq(req) => Some(&mut req.source_route),
+            Self::PathTeardownReq(req) => Some(&mut req.source_route),
+            Self::UpdateRouteReq(req) => Some(&mut req.source_route),
         }
     }
 
@@ -64,6 +71,9 @@ impl ProtocolMessage {
             Self::Error(req) => Some(&req.source_route),
             Self::ProbeReq(req) => Some(&req.source_route),
             Self::ProbeRsp(req) => Some(&req.source_route),
+            Self::PathSetupReq(req) => Some(&req.source_route),
+            Self::PathTeardownReq(req) => Some(&req.source_route),
+            Self::UpdateRouteReq(req) => Some(&req.source_route),
         }
     }
 
@@ -80,6 +90,9 @@ impl ProtocolMessage {
             Self::Error(req) => Some(req.destination()),
             Self::ProbeReq(req) => Some(req.destination()),
             Self::ProbeRsp(req) => Some(req.destination()),
+            Self::PathSetupReq(req) => Some(req.destination()),
+            Self::PathTeardownReq(req) => Some(req.destination()),
+            Self::UpdateRouteReq(req) => Some(req.source_route.destination()),
         }
     }
 
@@ -95,6 +108,9 @@ impl ProtocolMessage {
             Self::Error(req) => Some(&req.nonce),
             Self::ProbeReq(req) => Some(&req.nonce),
             Self::ProbeRsp(req) => Some(&req.nonce),
+            Self::PathSetupReq(req) => Some(&req.nonce),
+            Self::PathTeardownReq(req) => Some(&req.nonce),
+            Self::UpdateRouteReq(_) => None,
         }
     }
 
@@ -118,6 +134,9 @@ impl ProtocolMessage {
             }) => &link.0,
             Self::ProbeReq(req) => req.source(),
             Self::ProbeRsp(req) => req.source(),
+            Self::PathSetupReq(req) => req.source(),
+            Self::PathTeardownReq(req) => req.source(),
+            Self::UpdateRouteReq(req) => req.source_route.source(),
         }
     }
 
@@ -133,6 +152,27 @@ impl ProtocolMessage {
             Self::Error(req) => &req.source_state_seq_nr,
             Self::ProbeReq(req) => &req.source_state_seq_nr,
             Self::ProbeRsp(req) => &req.source_state_seq_nr,
+            Self::PathSetupReq(req) => &req.source_state_seq_nr,
+            Self::PathTeardownReq(req) => &req.source_state_seq_nr,
+            Self::UpdateRouteReq(req) => &req.source_state_seq_nr,
+        }
+    }
+
+    pub fn not_via(&self) -> Option<&HashSet<NotVia>> {
+        match self {
+            Self::Hello(_) => None,
+            Self::PNDiscReq(req) => Some(&req.not_via),
+            Self::PNDiscRsp(req) => Some(&req.not_via),
+            Self::QueryRouteReq(req) => Some(&req.not_via),
+            Self::QueryRouteRsp(req) => Some(&req.not_via),
+            Self::FindNodeReq(req) => Some(&req.not_via),
+            Self::FindNodeRsp(req) => Some(&req.not_via),
+            Self::Error(req) => Some(&req.not_via),
+            Self::ProbeReq(req) => Some(&req.not_via),
+            Self::ProbeRsp(req) => Some(&req.not_via),
+            Self::PathSetupReq(req) => Some(&req.not_via),
+            Self::PathTeardownReq(req) => Some(&req.not_via),
+            Self::UpdateRouteReq(req) => Some(&req.not_via),
         }
     }
 
@@ -176,6 +216,7 @@ pub struct ReqRspMessage<T: Debug> {
     pub nonce: Nonce,
     pub source_state_seq_nr: StateSeqNr,
     pub data: T,
+    pub not_via: HashSet<NotVia>,
     /// Source Path to the next overlay Hop.
     ///
     /// At the end for a reason.
@@ -213,6 +254,53 @@ pub struct ProbeRspData;
 impl From<ReqRspMessage<ProbeRspData>> for ProtocolMessage {
     fn from(message: ReqRspMessage<ProbeRspData>) -> Self {
         Self::ProbeRsp(message)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct PathSetupReqData;
+
+impl From<ReqRspMessage<PathSetupReqData>> for ProtocolMessage {
+    fn from(message: ReqRspMessage<PathSetupReqData>) -> Self {
+        Self::PathSetupReq(message)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct PathTeardownReqData;
+
+impl From<ReqRspMessage<PathTeardownReqData>> for ProtocolMessage {
+    fn from(message: ReqRspMessage<PathTeardownReqData>) -> Self {
+        Self::PathTeardownReq(message)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct UpdateRouteReq {
+    pub source_state_seq_nr: StateSeqNr,
+    pub not_via: HashSet<NotVia>,
+    pub contact_actions: HashMap<Contact, RouteUpdate>,
+    /// Source Path to the next overlay Hop.
+    ///
+    /// This way if the source route is too large, it can be split and transmitted
+    /// through fragments.
+    /// For IPv6 additional Fragment Headers may be used.
+    pub source_route: SourceRoute,
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub enum RouteUpdate {
+    Removed,
+    Updated,
+}
+
+impl From<UpdateRouteReq> for ProtocolMessage {
+    fn from(message: UpdateRouteReq) -> Self {
+        Self::UpdateRouteReq(message)
     }
 }
 

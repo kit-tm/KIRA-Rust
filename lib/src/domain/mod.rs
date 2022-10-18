@@ -1,3 +1,5 @@
+use std::fmt::{Display, Formatter};
+
 // To change default NodeId simply change this
 pub use bucket::*;
 pub use contact::*;
@@ -26,4 +28,37 @@ pub mod physical_neighbor_table;
 pub mod routing_table;
 pub mod state_seq_nr;
 
+/// A physical connection between two nodes.
 pub type Link = (NodeId, NodeId);
+
+/// Data structure representing nodes or physical connections to not use while forwarding protocol
+/// messages.
+///
+/// Not via data is supposed to only represent information in the routing table.
+/// It's an error for the local not via data to contain entries not affecting any nodes in the
+/// routing table.
+/// When a node gets deleted, all the not via data mentioning it will be removed.
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub enum NotVia {
+    Node(NodeId),
+    Link(Link),
+}
+
+impl Display for NotVia {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Node(id) => {
+                write!(f, "NotVia ")?;
+                Display::fmt(id, f)
+            }
+            Self::Link((left, right)) => {
+                write!(f, "NotVia (")?;
+                Display::fmt(left, f)?;
+                write!(f, ", ")?;
+                Display::fmt(right, f)?;
+                write!(f, ")")
+            }
+        }
+    }
+}

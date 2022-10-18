@@ -2,7 +2,7 @@ use std::fmt::{Display, Formatter};
 
 use chrono::{DateTime, Duration, Utc};
 
-use crate::domain::{Link, NodeId, Path, StateSeqNr};
+use crate::domain::{NodeId, Path, StateSeqNr};
 
 /// Specifies in milliseconds the age of the routing information.
 ///
@@ -28,7 +28,7 @@ impl Display for Age {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Timestamp(
     #[cfg_attr(feature = "serde", serde(with = "chrono::serde::ts_milliseconds"))] DateTime<Utc>,
@@ -68,13 +68,11 @@ impl Display for Timestamp {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum ContactState {
     Valid,
-    Rediscovering(RediscoveryState),
     Invalid,
-    Dead,
 }
 
 impl Display for ContactState {
@@ -82,35 +80,12 @@ impl Display for ContactState {
         match self {
             Self::Valid => write!(f, "Valid"),
             Self::Invalid => write!(f, "Invalid"),
-            Self::Dead => write!(f, "Dead"),
-            Self::Rediscovering(_) => write!(f, "Rediscovering"),
         }
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub enum RediscoveryType {
-    Urgent,
-    Regular,
-    Slow,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct RediscoveryState {
-    pub typ: RediscoveryType,
-    pub time: Timestamp,
-    pub failed_link_list: Vec<Link>,
-    pub via_contacts: Vec<NodeId>,
-    /// Number of already performed retries.
-    ///
-    /// In general [u8] should be enough, using [u16] to be resistant to future changes.
-    pub retry_counter: u16,
-}
-
 /// A [Contact] as represented in the [RoutingTable].
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Contact {
     state: ContactState,
