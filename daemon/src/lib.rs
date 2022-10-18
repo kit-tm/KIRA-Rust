@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -9,7 +10,7 @@ use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver, UnboundedSender};
 use tokio::time::Instant;
 
 use r2kad_lib::broadcaster::Broadcaster;
-use r2kad_lib::context::SyncContext;
+use r2kad_lib::context::{ContextConfig, SyncContext, UseCaseContext};
 use r2kad_lib::domain::bucket::DEFAULT_BUCKET_SIZE;
 use r2kad_lib::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
 use r2kad_lib::domain::unlimited_pn_routing_table::UnlimitedPNRoutingTable;
@@ -24,7 +25,9 @@ use r2kad_lib::messaging::{
 };
 use r2kad_lib::runtime::TokioRuntime;
 use r2kad_lib::use_cases::derive_fwd_table_entries::DeriveFwdTableEntries;
+use r2kad_lib::use_cases::failure_handling::FailureHandling;
 use r2kad_lib::use_cases::forward_protocol_message::ForwardProtocolMessage;
+use r2kad_lib::use_cases::handle_contact_update::{HandleContactUpdate, HandleContactUpdateConfig};
 use r2kad_lib::use_cases::handle_overlay_discovery::HandleOverlayDiscovery;
 use r2kad_lib::use_cases::inject_messages::{
     InjectMessages, InjectMessagesConfig, InjectionResult,
@@ -65,7 +68,7 @@ pub struct NodeConfig {
 pub struct Node<S, FT> {
     root_id: NodeId,
     runtime: Arc<tokio::runtime::Runtime>,
-    async_receivers: Vec<Box<dyn AsyncProtocolMessageReceiver + Send>>,
+    async_receivers: Receiver<Box<dyn AsyncProtocolMessageReceiver + Send>>,
     sender: S,
     fwd_table: FT,
     config: NodeConfig,
@@ -76,7 +79,7 @@ impl<S: Debug, FT> Node<S, FT> {
         config: NodeConfig,
         root_id: NodeId,
         runtime: Arc<tokio::runtime::Runtime>,
-        async_receivers: Vec<Box<dyn AsyncProtocolMessageReceiver + Send>>,
+        async_receivers: Receiver<Box<dyn AsyncProtocolMessageReceiver + Send>>,
         sender: S,
         fwd_table: FT,
     ) -> Node<S, FT> {
@@ -212,7 +215,7 @@ where
         fwd_table: FT,
         broadcaster: UnboundedSender<UseCaseEvent>,
         mut broadcast_receiver: UnboundedReceiver<UseCaseEvent>,
-        mut async_receivers: Vec<Box<dyn AsyncProtocolMessageReceiver + Send>>,
+        mut async_receivers: Receiver<Box<dyn AsyncProtocolMessageReceiver + Send>>,
         runtime: Arc<tokio::runtime::Runtime>,
         injection_sender: Sender<InjectionResult>,
     ) {
@@ -257,56 +260,65 @@ where
         routing_table.add_observer(|event| log::trace!("{}", event));
 
         // Initialize A Task for every receiver
-        while let Some(mut message_receiver) = async_receivers.pop() {
-            let receiver_broadcaster = fan_in_sender.clone();
-            let root_node_id = root_id.clone();
-            runtime.spawn(async move {
-                let mut messages_cache = Vec::new();
-                loop {
-                    match message_receiver.recv().await {
-                        Ok(None) => continue,
-                        Ok(Some(value)) => messages_cache.push(value),
-                        Err(RecvError::Closed) => break,
-                        Err(e) => {
-                            log::error!("Error occurred while receiving message [retrying]: {}", e);
-                            continue;
+        let rt = runtime.clone();
+        let root_node_id = root_id.clone();
+        runtime.spawn(async move {
+            while let Some(mut message_receiver) = async_receivers.recv().await {
+                let receiver_broadcaster = fan_in_sender.clone();
+                let root_node_id = root_node_id.clone();
+                rt.spawn(async move {
+                    let mut messages_cache = Vec::new();
+                    loop {
+                        match message_receiver.recv().await {
+                            Ok(None) => continue,
+                            Ok(Some(value)) => messages_cache.push(value),
+                            Err(RecvError::Closed) => break,
+                            Err(e) => {
+                                log::error!(
+                                    "Error occurred while receiving message [retrying]: {}",
+                                    e
+                                );
+                                continue;
+                            }
+                        };
+                        // Receive a bulk of messages
+                        while let Ok(Some(value)) = message_receiver.try_recv().await {
+                            messages_cache.push(value);
                         }
-                    };
-                    // Receive a bulk of messages
-                    while let Ok(Some(value)) = message_receiver.try_recv().await {
-                        messages_cache.push(value);
-                    }
 
-                    for (message, interface) in messages_cache.drain(..) {
-                        if message.source() == &root_node_id {
-                            // ignoring messages from us
-                            continue;
-                        }
+                        for (message, interface) in messages_cache.drain(..) {
+                            if message.source() == &root_node_id {
+                                // ignoring messages from us
+                                continue;
+                            }
 
-                        if let Err(e) = receiver_broadcaster
-                            .send(UseCaseEvent::Message(message.clone(), interface.clone()))
-                            .await
-                        {
-                            log::error!("Failed to broadcast protocol message: {}", e);
-                        } else {
-                            log::trace!(
-                                "Received ProtocolMessage from {} [{}]",
-                                message.source(),
-                                interface
-                            );
+                            if let Err(e) = receiver_broadcaster
+                                .send(UseCaseEvent::Message(message.clone(), interface.clone()))
+                                .await
+                            {
+                                log::error!("Failed to broadcast protocol message: {}", e);
+                            } else {
+                                log::trace!(
+                                    "Received ProtocolMessage from {} [{}]",
+                                    message.source(),
+                                    interface
+                                );
+                            }
                         }
                     }
-                }
-                log::info!("Stopped receiver...");
-            });
-        }
+                    log::debug!("Stopped receiver...");
+                });
+            }
+            log::trace!("Stopped listening to new protocol message receivers...");
+        });
 
         // Create the desired Context in which the Use Cases will run
-        let context = SyncContext::new(
+        let context_config = ContextConfig {
             root_id,
             routing_table,
-            PNTable::new(),
-            PNSStrategy::<
+            message_sender: sender,
+            runtime: TokioRuntime::new(broadcaster, Arc::clone(&runtime)),
+            insertion_strategy: PNSStrategy::<
                 ObservableRoutingTable<
                     UnlimitedPNRoutingTable<DEFAULT_BUCKET_SIZE, 1>,
                     DEFAULT_BUCKET_SIZE,
@@ -315,10 +327,11 @@ where
                 _,
                 DEFAULT_BUCKET_SIZE,
             >::new(InOrderCycleRemover, ShortestFirstPathSimplifier),
-            sender,
-            TokioRuntime::new(broadcaster, Arc::clone(&runtime)),
-            fwd_table,
-        );
+            pn_table: PNTable::new(),
+            forwarding_tables: fwd_table,
+            not_via: HashSet::default(),
+        };
+        let context = SyncContext::new(context_config);
 
         // Initialize the Use Cases
 
@@ -378,10 +391,19 @@ where
             None
         };
 
+        let mut failure_handling = FailureHandling::new(Default::default());
+        if let Err(e) = failure_handling.start(&context) {
+            log::error!("Failed to start failure handling UseCase: {}", e);
+            return;
+        }
+
         // Initialize common tasks
 
         let mut handle_overlay_discovery = HandleOverlayDiscovery::new(Default::default())
             .expect("default grouping should be valid");
+
+        let mut handle_update_contact =
+            HandleContactUpdate::new(HandleContactUpdateConfig::default());
 
         // Wait for MessageReceivers or runtime to emit events and delegate to Use Cases
         // IMPORTANT: The Runtime::block_on method drives progress in the CurrentThreadRuntime.
@@ -401,8 +423,14 @@ where
             if let Err(e) = handle_overlay_discovery.handle_event(&context, event.clone()) {
                 log::error!("Handling overlay discovery failed: {}", e);
             }
+            if let Err(e) = handle_update_contact.handle_event(&context, event.clone()) {
+                log::error!("Handling contact update failed: {}", e);
+            }
 
             // Actual use cases
+            if let Err(e) = failure_handling.handle_event(&context, event.clone()) {
+                log::error!("Failure handling returned error handling message: {}", e);
+            }
             if let Err(e) = random_probing.handle_event(&context, event.clone()) {
                 log::error!("Random Probing returned error handling message: {}", e);
             }
@@ -431,12 +459,14 @@ where
             // Check States as returning an error doesn't show an unrecoverable error
             let mut states: Vec<&(dyn UseCaseState)> = vec![
                 forward_message.state(),
+                failure_handling.state(),
                 random_probing.state(),
                 on_disc.state(),
                 vicinity_disc.state(),
                 derive_forwarding_tables.state(),
                 path_probing.state(),
             ];
+            // As Injection can be disabled -> Need to append.
             if let Some(state) = inject_messages.as_ref().map(InjectMessages::state) {
                 states.push(state);
             }
@@ -451,6 +481,7 @@ where
                 break;
             }
         }
+        log::trace!("Shutting down.");
     }
 }
 

@@ -17,6 +17,8 @@ use log4rs::config::{Appender, Logger, Root};
 use log4rs::Config;
 use petgraph::prelude::EdgeRef;
 use petgraph::{Graph, Undirected};
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::Sender;
 
 use r2kad_daemon_lib::{Node, NodeConfig, NodeHandle};
 use r2kad_lib::domain::{NetworkInterface, NodeId};
@@ -177,7 +179,13 @@ impl Cable {
 /// Represents the integration test network of nodes connected through links/cables.
 pub struct Network {
     links: HashMap<LinkIdx, Cable>,
-    nodes: HashMap<NodeId, Node<IdDelegator<InMemorySender>, InMemoryFwdTables>>,
+    nodes: HashMap<
+        NodeId,
+        (
+            Node<IdDelegator<InMemorySender>, InMemoryFwdTables>,
+            Sender<Box<dyn AsyncProtocolMessageReceiver + Send>>,
+        ),
+    >,
 }
 
 impl Network {
@@ -185,7 +193,7 @@ impl Network {
         let handles = self
             .nodes
             .drain()
-            .map(|(id, node)| (id, node.start()))
+            .map(|(id, (node, sender))| (id, (node.start(), sender)))
             .collect::<HashMap<_, _>>();
 
         NetworkHandle {
@@ -197,7 +205,13 @@ impl Network {
 
 pub struct NetworkHandle {
     links: HashMap<LinkIdx, Cable>,
-    nodes: HashMap<NodeId, NodeHandle>,
+    nodes: HashMap<
+        NodeId,
+        (
+            NodeHandle,
+            Sender<Box<dyn AsyncProtocolMessageReceiver + Send>>,
+        ),
+    >,
 }
 
 impl NetworkHandle {
@@ -210,11 +224,11 @@ impl NetworkHandle {
     }
 
     pub fn node(&self, id: &NodeId) -> Option<&NodeHandle> {
-        self.nodes.get(id)
+        self.nodes.get(id).map(|(handle, _)| handle)
     }
 
     pub fn node_mut(&mut self, id: &NodeId) -> Option<&mut NodeHandle> {
-        self.nodes.get_mut(id)
+        self.nodes.get_mut(id).map(|(handle, _)| handle)
     }
 }
 
@@ -278,6 +292,14 @@ impl<E> From<Graph<NodeId, E, Undirected>> for Network {
                     },
                 );
 
+            let (neighbor_receivers_sender, neighbor_receivers_receiver) =
+                mpsc::channel(neighbor_receivers.len() + 1);
+            for receiver in neighbor_receivers {
+                neighbor_receivers_sender
+                    .blocking_send(receiver)
+                    .expect("failed to send receiver through channel");
+            }
+
             let node = Node::new(
                 NodeConfig {
                     message_injection_enabled: true,
@@ -285,14 +307,14 @@ impl<E> From<Graph<NodeId, E, Undirected>> for Network {
                 },
                 node_id.clone(),
                 Arc::clone(&runtime),
-                neighbor_receivers,
+                neighbor_receivers_receiver,
                 IdDelegator {
                     neighbor_links: neighbor_senders,
                 },
                 InMemoryFwdTables::new(),
             );
 
-            nodes.insert(node_id.clone(), node);
+            nodes.insert(node_id.clone(), (node, neighbor_receivers_sender));
         }
 
         Network { links, nodes }

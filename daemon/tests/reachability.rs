@@ -56,7 +56,7 @@ fn reachability() {
 
     let mut network = network.start();
 
-    std::thread::sleep(Duration::from_secs(20));
+    std::thread::sleep(Duration::from_secs(30));
 
     let mut failed_requests: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
     let mut successful_requests: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
