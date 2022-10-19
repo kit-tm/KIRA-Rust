@@ -83,48 +83,14 @@ pub trait AsyncInterfaceMapper {
     async fn get_interface(&self, input_addr: &SocketAddr) -> Option<NetworkInterface>;
 }
 
-#[cfg(feature = "udp")]
+#[cfg(feature = "udp-tokio")]
 pub mod udp {
     use std::fmt::Debug;
     use std::net::SocketAddr;
     use std::sync::Arc;
 
     use crate::messaging::format::ProtocolMessageFormat;
-    use crate::messaging::{
-        receiver, sender, AsyncInterfaceMapper, AsyncIpCache, InterfaceMapper, IpCache,
-    };
-
-    /// Creates a synchronous I/O Channel consisting of one [sender::udp::UdpSender] and
-    /// one [receiver::udp::UdpReceiver].
-    ///
-    /// The [sender::udp::UdpSender] and [receiver::udp::UdpReceiver] share the same
-    /// [std::net::UdpSocket].
-    /// This way multiple senders can send and multiple receivers can receive from the
-    /// same [UdpSocket].
-    /// But all [ProtocolMessage]s will only arrive at one receiver at the time.
-    pub fn sync_channel<C: Debug, P: Debug>(
-        port: u16,
-        cache: C,
-        interface_mapper: P,
-        format: ProtocolMessageFormat,
-    ) -> std::io::Result<(sender::udp::UdpSender<C>, receiver::udp::UdpReceiver<C, P>)>
-    where
-        C: IpCache + Clone,
-        P: InterfaceMapper,
-    {
-        let socket = Arc::new(std::net::UdpSocket::bind(SocketAddr::from((
-            [0, 0, 0, 0, 0, 0, 0, 0],
-            port,
-        )))?);
-
-        let sender =
-            sender::udp::UdpSender::from_socket(socket.clone(), cache.clone(), format.clone())?;
-
-        let receiver =
-            receiver::udp::UdpReceiver::from_socket(socket, cache, interface_mapper, format);
-
-        Ok((sender, receiver))
-    }
+    use crate::messaging::{receiver, sender, AsyncInterfaceMapper, AsyncIpCache};
 
     /// Creates a asynchronous I/O Channel consisting of one [sender::udp_tokio::UdpSender] and
     /// one [receiver::udp_tokio::UdpReceiver] with UDP implementations.

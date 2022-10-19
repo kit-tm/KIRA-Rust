@@ -5,8 +5,6 @@ use std::time::Duration;
 use crate::domain::NetworkInterface;
 use crate::messaging::messages::ProtocolMessage;
 
-#[cfg(feature = "udp")]
-pub mod udp;
 #[cfg(feature = "udp-tokio")]
 pub mod udp_tokio;
 
