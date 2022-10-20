@@ -18,10 +18,12 @@ impl InMemoryFwdTables {
         Self::default()
     }
 
+    /// Returns the entry by [NodeId].
     pub fn node_id_entry(&self, node_id: &NodeId) -> Option<&NodeIdEntry> {
         self.node_id_table.get(node_id)
     }
 
+    /// Returns the entry by incoming [PathId].
     pub fn path_id_entry(&self, path_id: &PathId) -> Option<&PathIdEntry> {
         self.path_id_table.get(path_id)
     }
