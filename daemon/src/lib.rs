@@ -34,6 +34,7 @@ use r2kad_lib::use_cases::inject_messages::{
 };
 use r2kad_lib::use_cases::overlay_neighborhood_discovery::OverlayNeighborhoodDiscovery;
 use r2kad_lib::use_cases::path_probing::PathProbing;
+use r2kad_lib::use_cases::precompute_paths_and_path_ids::PrecomputePathIds;
 use r2kad_lib::use_cases::random_overlay_discovery::RandomOverlayDiscovery;
 use r2kad_lib::use_cases::vicinity_discovery::{VicinityDiscovery, VicinityDiscoveryConfig};
 use r2kad_lib::use_cases::{
@@ -314,7 +315,7 @@ where
 
         // Create the desired Context in which the Use Cases will run
         let context_config = ContextConfig {
-            root_id,
+            root_id: root_id.clone(),
             routing_table,
             message_sender: sender,
             runtime: TokioRuntime::new(broadcaster, Arc::clone(&runtime)),
@@ -378,6 +379,18 @@ where
             return;
         }
 
+        let mut failure_handling = FailureHandling::new(Default::default());
+        if let Err(e) = failure_handling.start(&context) {
+            log::error!("Failed to start failure handling UseCase: {}", e);
+            return;
+        }
+
+        let mut precomputation = PrecomputePathIds::new(root_id, Default::default());
+        if precomputation.start(&context).is_err() {
+            log::error!("Failed to start precomputation");
+            return;
+        }
+
         let mut inject_messages = if config.message_injection_enabled {
             let mut inject_messages =
                 InjectMessages::new(InjectMessagesConfig::default(), injection_sender)
@@ -390,12 +403,6 @@ where
         } else {
             None
         };
-
-        let mut failure_handling = FailureHandling::new(Default::default());
-        if let Err(e) = failure_handling.start(&context) {
-            log::error!("Failed to start failure handling UseCase: {}", e);
-            return;
-        }
 
         // Initialize common tasks
 
@@ -449,6 +456,12 @@ where
             if let Err(e) = derive_forwarding_tables.handle_event(&context, event.clone()) {
                 log::error!("Path Probing returned error handling message: {}", e);
             }
+            if precomputation
+                .handle_event(&context, event.clone())
+                .is_err()
+            {
+                log::error!("Precomputation returned error handling message");
+            }
             if let Some(Err(e)) = inject_messages
                 .as_mut()
                 .map(|use_case| use_case.handle_event(&context, event.clone()))
@@ -465,6 +478,7 @@ where
                 vicinity_disc.state(),
                 derive_forwarding_tables.state(),
                 path_probing.state(),
+                precomputation.state(),
             ];
             // As Injection can be disabled -> Need to append.
             if let Some(state) = inject_messages.as_ref().map(InjectMessages::state) {
