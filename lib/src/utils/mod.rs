@@ -6,3 +6,4 @@ pub mod backoff_map;
 pub mod exponential_backoff;
 pub mod rediscovery_timeout_interval;
 pub mod tokio_utils;
+pub mod vicinity_graph;

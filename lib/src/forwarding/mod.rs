@@ -5,7 +5,7 @@ pub mod hasher;
 pub mod in_memory_tables;
 
 /// An entry in the [NodeIdTable] identified by the destination/contacts [NodeId].
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone, Hash)]
 pub struct NodeIdEntry {
     /// [NodeId] of the contact this entries path goes to.
     pub destination: NodeId,
@@ -22,7 +22,7 @@ pub struct NodeIdEntry {
 }
 
 /// An entry in the [PathIdEntry] identified by incoming [PathId] (with current nodes [NodeId]).
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone, Hash)]
 pub struct PathIdEntry {
     /// [PathId] of incoming packages starting with the [NodeId] of the current node.
     pub in_path_id: PathId,

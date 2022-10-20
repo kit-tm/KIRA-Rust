@@ -15,6 +15,7 @@ pub mod handle_overlay_discovery;
 pub mod inject_messages;
 pub mod overlay_neighborhood_discovery;
 pub mod path_probing;
+pub mod precompute_paths_and_path_ids;
 pub mod random_overlay_discovery;
 pub mod vicinity_discovery;
 
