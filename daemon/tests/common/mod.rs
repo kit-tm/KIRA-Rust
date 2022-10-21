@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fs::File;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::io::{BufWriter, Write};
-use std::ops::BitXor;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -116,29 +115,19 @@ impl Append for ThreadSplitAppender {
     }
 }
 
-#[derive(Debug, Clone)]
+/// Implements an unordered pair.
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct LinkIdx(NodeId, NodeId);
 
 impl From<(NodeId, NodeId)> for LinkIdx {
     fn from((first, second): (NodeId, NodeId)) -> Self {
-        LinkIdx(first, second)
+        if first < second {
+            LinkIdx(first, second)
+        } else {
+            LinkIdx(second, first)
+        }
     }
 }
-
-impl Hash for LinkIdx {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let xor = (&self.0).bitxor(&self.1);
-        xor.hash(state)
-    }
-}
-
-impl PartialEq<Self> for LinkIdx {
-    fn eq(&self, other: &Self) -> bool {
-        (self.0 == other.0 && self.1 == other.1) || (self.0 == other.1 && self.1 == other.0)
-    }
-}
-
-impl Eq for LinkIdx {}
 
 /// Link which connects two nodes.
 #[derive(Debug)]
@@ -147,8 +136,8 @@ pub struct Cable {
     two: NodeId,
     // Cables are used to distinguish between the communication direction
     // Node one has cable_one as receiver and cable_two as sender
-    endpoint_one: Option<(InMemorySender, InMemoryReceiver)>,
-    endpoint_two: Option<(InMemorySender, InMemoryReceiver)>,
+    endpoint_one: Option<(InMemorySender, Option<InMemoryReceiver>)>,
+    endpoint_two: Option<(InMemorySender, Option<InMemoryReceiver>)>,
 }
 
 impl Cable {
@@ -162,17 +151,32 @@ impl Cable {
         Self {
             one,
             two,
-            endpoint_one: Some((cable_one_sender, cable_two_receiver)),
-            endpoint_two: Some((cable_two_sender, cable_one_receiver)),
+            endpoint_one: Some((cable_one_sender, Some(cable_two_receiver))),
+            endpoint_two: Some((cable_two_sender, Some(cable_one_receiver))),
+        }
+    }
+
+    fn take_endpoint(
+        endpoint: &mut Option<(InMemorySender, Option<InMemoryReceiver>)>,
+    ) -> Option<(InMemorySender, InMemoryReceiver)> {
+        match endpoint {
+            Some((sender, receiver)) => receiver.take().map(|receiver| (sender.clone(), receiver)),
+            None => None,
         }
     }
 
     fn take_parts_for(&mut self, id: &NodeId) -> Option<(InMemorySender, InMemoryReceiver)> {
         match (id == &self.one, id == &self.two) {
-            (true, _) => self.endpoint_one.take(),
-            (_, true) => self.endpoint_two.take(),
+            (true, _) => Cable::take_endpoint(&mut self.endpoint_one),
+            (_, true) => Cable::take_endpoint(&mut self.endpoint_two),
             _ => None,
         }
+    }
+
+    pub fn close(&mut self) {
+        // To close the senders have to be dropped
+        self.endpoint_one.take();
+        self.endpoint_two.take();
     }
 }
 
@@ -215,12 +219,12 @@ pub struct NetworkHandle {
 }
 
 impl NetworkHandle {
-    pub fn link<Idx: AsRef<LinkIdx>>(&self, idx: Idx) -> Option<&Cable> {
-        self.links.get(idx.as_ref())
+    pub fn link(&self, idx: &LinkIdx) -> Option<&Cable> {
+        self.links.get(idx)
     }
 
-    pub fn link_mut<Idx: AsRef<LinkIdx>>(&mut self, idx: Idx) -> Option<&mut Cable> {
-        self.links.get_mut(idx.as_ref())
+    pub fn link_mut(&mut self, idx: &LinkIdx) -> Option<&mut Cable> {
+        self.links.get_mut(idx)
     }
 
     pub fn node(&self, id: &NodeId) -> Option<&NodeHandle> {
@@ -239,10 +243,10 @@ impl<E> From<Graph<NodeId, E, Undirected>> for Network {
 
         for edge in graph.edge_indices() {
             let (source, target) = graph.edge_endpoints(edge).unwrap();
-            let edge_index = LinkIdx(
+            let edge_index = LinkIdx::from((
                 graph.node_weight(source).cloned().unwrap(),
                 graph.node_weight(target).cloned().unwrap(),
-            );
+            ));
 
             links
                 .entry(edge_index.clone())
@@ -273,11 +277,12 @@ impl<E> From<Graph<NodeId, E, Undirected>> for Network {
                     } else {
                         graph.node_weight(edge.source()).unwrap()
                     };
-                    let edge_idx = LinkIdx(node_id.clone(), neighbor_id.clone());
-                    let link_hub = links
-                        .get_mut(&edge_idx)
-                        .expect("links already created")
-                        .take_parts_for(node_id);
+                    let edge_idx = LinkIdx::from((node_id.clone(), neighbor_id.clone()));
+                    let opt_edge = links.get_mut(&edge_idx);
+                    if opt_edge.is_none() {
+                        panic!("Link {:?} not created yet", edge_idx);
+                    }
+                    let link_hub = opt_edge.unwrap().take_parts_for(node_id);
                     assert!(link_hub.is_some(), "Cable already consumed for {}", node_id);
                     let (sender, receiver) = link_hub.unwrap();
                     (neighbor_id.clone(), sender, receiver)

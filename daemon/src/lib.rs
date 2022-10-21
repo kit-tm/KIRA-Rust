@@ -264,12 +264,10 @@ where
         // Initialize A Task for every receiver
         let rt = runtime.clone();
         let root_node_id = root_id.clone();
-        let receiver_broadcaster = broadcaster.clone();
         runtime.spawn(async move {
             while let Some(mut message_receiver) = async_receivers.recv().await {
                 let receiver_broadcaster = fan_in_sender.clone();
                 let root_node_id = root_node_id.clone();
-                let receiver_broadcaster = receiver_broadcaster.clone();
                 rt.spawn(async move {
                     let mut messages_cache = Vec::new();
                     let interfaces = loop {
