@@ -293,12 +293,23 @@ where
     {
         let message = message.into();
 
-        match message.current_hop().map(|id| {
-            self.neighbor_links
-                .get_mut(id)
-                .expect("trying to send to non existent neighbor")
-        }) {
-            Some(link) => link.send_message(message)?,
+        match message
+            .current_hop()
+            .filter(|id| self.neighbor_links.contains_key(id))
+            .cloned()
+        {
+            Some(id) => {
+                let link = self
+                    .neighbor_links
+                    .get_mut(&id)
+                    .expect("trying to send to non existent neighbor");
+                let result = link.send_message(message);
+                if let Err(SenderError::Closed) = result {
+                    self.neighbor_links.remove(&id);
+                    log::trace!("Removed sender for {} from delegation.", id);
+                }
+                result?;
+            }
             _ => {
                 for link in self.neighbor_links.values_mut() {
                     link.send_message(message.clone())?;
