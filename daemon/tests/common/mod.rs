@@ -19,16 +19,12 @@ use petgraph::{Graph, Undirected};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 
+pub use cable::*;
 use r2kad_daemon_lib::{Node, NodeConfig, NodeHandle};
-use r2kad_lib::domain::{NetworkInterface, NodeId};
+use r2kad_lib::domain::NodeId;
 use r2kad_lib::forwarding::in_memory_tables::InMemoryFwdTables;
 use r2kad_lib::messaging::error::SenderError;
-use r2kad_lib::messaging::{
-    AsyncProtocolMessageReceiver, InMemoryMessageChannel, InMemoryReceiver, InMemorySender,
-    ProtocolMessage, ProtocolMessageSender,
-};
-
-pub use cable::*;
+use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, ProtocolMessage, ProtocolMessageSender};
 
 mod cable;
 

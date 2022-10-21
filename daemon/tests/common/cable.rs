@@ -1,16 +1,13 @@
 use std::ops::DerefMut;
 use std::sync::Arc;
-use std::time::Duration;
 
-use async_trait::async_trait;
 use tokio::sync::Mutex;
 
 use r2kad_lib::domain::{NetworkInterface, NodeId};
 use r2kad_lib::messaging::error::SenderError;
 use r2kad_lib::messaging::{
-    AsyncProtocolMessageReceiver, AsyncProtocolMessageSender, InMemoryMessageChannel,
-    InMemoryReceiver, InMemorySender, ProtocolMessage, ProtocolMessageSender, RecvError,
-    TryRecvError,
+    AsyncProtocolMessageSender, InMemoryMessageChannel, InMemoryReceiver, InMemorySender,
+    ProtocolMessage, ProtocolMessageSender,
 };
 
 /// Link which connects two nodes.
