@@ -133,11 +133,17 @@ fn failure_handling() {
 
             match result {
                 Ok((message, _)) => {
-                    assert!(
-                        matches!(message, ProtocolMessage::FindNodeRsp(_)),
-                        "Received response which is not a FindNodeRsp: {:?}",
-                        message
-                    );
+                    if !matches!(message, ProtocolMessage::FindNodeRsp(_)) {
+                        log::debug!(
+                            "Received response which is not a FindNodeRsp: {:?}",
+                            message
+                        );
+                        if let Some(ids) = failed_requests.get_mut(&source) {
+                            ids.insert(target.clone());
+                        } else {
+                            failed_requests.insert(source.clone(), HashSet::from([target.clone()]));
+                        }
+                    }
 
                     log::info!("Node {} can reach node {}!", &source, &target);
                     if let Some(ids) = successful_requests.get_mut(&source) {
