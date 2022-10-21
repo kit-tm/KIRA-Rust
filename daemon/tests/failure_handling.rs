@@ -197,39 +197,38 @@ fn failure_handling() {
     }
 
     // Test if all other nodes only can't reach node 3 and node 6
-    if let Some(not_reached_by_1) = failed_requests.remove(&node_ids[0]) {
-        let expected = HashSet::from([node_ids[2].clone(), node_ids[5].clone()]);
-        assert_eq!(
-            not_reached_by_1, expected,
-            "Node 1 did reach some nodes it shouldn't"
-        );
+    if let Some(not_reached_by_1) = failed_requests.get_mut(&node_ids[0]) {
+        not_reached_by_1.remove(&node_ids[2]);
+        not_reached_by_1.remove(&node_ids[5]);
     }
-    if let Some(not_reached_by_2) = failed_requests.remove(&node_ids[1]) {
-        let expected = HashSet::from([node_ids[2].clone(), node_ids[5].clone()]);
-        assert_eq!(
-            not_reached_by_2, expected,
-            "Node 2 did reach some nodes it shouldn't"
-        );
+    if let Some(not_reached_by_2) = failed_requests.get_mut(&node_ids[1]) {
+        not_reached_by_2.remove(&node_ids[2]);
+        not_reached_by_2.remove(&node_ids[5]);
     }
-    if let Some(not_reached_by_4) = failed_requests.remove(&node_ids[0]) {
-        let expected = HashSet::from([node_ids[2].clone(), node_ids[5].clone()]);
-        assert_eq!(
-            not_reached_by_4, expected,
-            "Node 4 did reach some nodes it shouldn't"
-        );
+    if let Some(not_reached_by_4) = failed_requests.get_mut(&node_ids[3]) {
+        not_reached_by_4.remove(&node_ids[2]);
+        not_reached_by_4.remove(&node_ids[5]);
     }
-    if let Some(not_reached_by_5) = failed_requests.remove(&node_ids[0]) {
-        let expected = HashSet::from([node_ids[2].clone(), node_ids[5].clone()]);
-        assert_eq!(
-            not_reached_by_5, expected,
-            "Node 5 did reach some nodes it shouldn't"
-        );
+    if let Some(not_reached_by_4) = failed_requests.get_mut(&node_ids[4]) {
+        not_reached_by_4.remove(&node_ids[2]);
+        not_reached_by_4.remove(&node_ids[5]);
     }
-    if let Some(not_reached_by_7) = failed_requests.remove(&node_ids[6]) {
-        let expected = HashSet::from([node_ids[2].clone(), node_ids[5].clone()]);
-        assert_eq!(
-            not_reached_by_7, expected,
-            "Node 7 did reach some nodes it shouldn't"
-        );
+    if let Some(not_reached_by_6) = failed_requests.get_mut(&node_ids[6]) {
+        not_reached_by_6.remove(&node_ids[2]);
+        not_reached_by_6.remove(&node_ids[5]);
     }
+    for key in failed_requests.clone().keys() {
+        if let Some(true) = failed_requests
+            .get(key)
+            .map(|failed_requests| failed_requests.is_empty())
+        {
+            failed_requests.remove(key);
+        }
+    }
+
+    assert!(
+        failed_requests.is_empty(),
+        "Some requests failed which have not been expected: {:#?}",
+        failed_requests
+    );
 }
