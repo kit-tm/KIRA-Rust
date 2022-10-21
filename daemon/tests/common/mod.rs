@@ -28,6 +28,10 @@ use r2kad_lib::messaging::{
     ProtocolMessage, ProtocolMessageSender,
 };
 
+pub use cable::*;
+
+mod cable;
+
 pub fn setup(test_name: &'static str) {
     let logs_path = PathBuf::new()
         .join("log")
@@ -129,64 +133,13 @@ impl From<(NodeId, NodeId)> for LinkIdx {
     }
 }
 
-/// Link which connects two nodes.
-#[derive(Debug)]
-pub struct Cable {
-    one: NodeId,
-    two: NodeId,
-    // Cables are used to distinguish between the communication direction
-    // Node one has cable_one as receiver and cable_two as sender
-    endpoint_one: Option<(InMemorySender, Option<InMemoryReceiver>)>,
-    endpoint_two: Option<(InMemorySender, Option<InMemoryReceiver>)>,
-}
-
-impl Cable {
-    fn new(one: NodeId, two: NodeId) -> Self {
-        let interface_one = NetworkInterface::new(format!("{}--{}", one, two));
-        let interface_two = NetworkInterface::new(format!("{}--{}", two, one));
-        let (cable_one_sender, cable_one_receiver) =
-            InMemoryMessageChannel::with_interface(interface_one).into_parts();
-        let (cable_two_sender, cable_two_receiver) =
-            InMemoryMessageChannel::with_interface(interface_two).into_parts();
-        Self {
-            one,
-            two,
-            endpoint_one: Some((cable_one_sender, Some(cable_two_receiver))),
-            endpoint_two: Some((cable_two_sender, Some(cable_one_receiver))),
-        }
-    }
-
-    fn take_endpoint(
-        endpoint: &mut Option<(InMemorySender, Option<InMemoryReceiver>)>,
-    ) -> Option<(InMemorySender, InMemoryReceiver)> {
-        match endpoint {
-            Some((sender, receiver)) => receiver.take().map(|receiver| (sender.clone(), receiver)),
-            None => None,
-        }
-    }
-
-    fn take_parts_for(&mut self, id: &NodeId) -> Option<(InMemorySender, InMemoryReceiver)> {
-        match (id == &self.one, id == &self.two) {
-            (true, _) => Cable::take_endpoint(&mut self.endpoint_one),
-            (_, true) => Cable::take_endpoint(&mut self.endpoint_two),
-            _ => None,
-        }
-    }
-
-    pub fn close(&mut self) {
-        // To close the senders have to be dropped
-        self.endpoint_one.take();
-        self.endpoint_two.take();
-    }
-}
-
 /// Represents the integration test network of nodes connected through links/cables.
 pub struct Network {
     links: HashMap<LinkIdx, Cable>,
     nodes: HashMap<
         NodeId,
         (
-            Node<IdDelegator<InMemorySender>, InMemoryFwdTables>,
+            Node<IdDelegator<CloseableSender>, InMemoryFwdTables>,
             Sender<Box<dyn AsyncProtocolMessageReceiver + Send>>,
         ),
     >,

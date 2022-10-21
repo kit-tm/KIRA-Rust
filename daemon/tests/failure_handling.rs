@@ -74,37 +74,37 @@ fn failure_handling() {
     let mut network = network.start();
 
     // Wait for stable state
-    std::thread::sleep(Duration::from_secs(30));
+    std::thread::sleep(Duration::from_secs(20));
 
     // Close all channels to node 3 and 6
     // 3 -- 1
     network
         .link_mut(&LinkIdx::from((node_ids[2].clone(), node_ids[0].clone())))
         .expect("link between node 3 and node 1 doesn't exist")
-        .close();
+        .blocking_close();
     // 3 -- 4
     network
         .link_mut(&LinkIdx::from((node_ids[2].clone(), node_ids[3].clone())))
         .expect("link between node 3 and node 4 doesn't exist")
-        .close();
+        .blocking_close();
     // 3 -- 6
     network
         .link_mut(&LinkIdx::from((node_ids[2].clone(), node_ids[5].clone())))
         .expect("link between node 3 and node 6 doesn't exist")
-        .close();
+        .blocking_close();
     // 6 -- 1
     network
         .link_mut(&LinkIdx::from((node_ids[5].clone(), node_ids[0].clone())))
         .expect("link between node 6 and node 1 doesn't exist")
-        .close();
+        .blocking_close();
     // 6 -- 7
     network
         .link_mut(&LinkIdx::from((node_ids[5].clone(), node_ids[6].clone())))
         .expect("link between node 6 and node 7 doesn't exist")
-        .close();
+        .blocking_close();
 
     // Wait for the rediscovery processes to finish
-    std::thread::sleep(Duration::from_secs(30));
+    std::thread::sleep(Duration::from_secs(20));
 
     // Test reachability after outage
     // Tests if all non-isolated nodes still reach each other
