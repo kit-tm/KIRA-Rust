@@ -19,6 +19,7 @@ use r2kad_lib::domain::{
     ShortestFirstPathSimplifier,
 };
 use r2kad_lib::forwarding::{ForwardingTables, NodeIdTable, PathIdTable};
+use r2kad_lib::hardware_events::HardwareEvent;
 use r2kad_lib::messaging::{
     AsyncProtocolMessageReceiver, FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageSender,
     RecvError,
@@ -263,17 +264,34 @@ where
         // Initialize A Task for every receiver
         let rt = runtime.clone();
         let root_node_id = root_id.clone();
+        let receiver_broadcaster = broadcaster.clone();
         runtime.spawn(async move {
             while let Some(mut message_receiver) = async_receivers.recv().await {
                 let receiver_broadcaster = fan_in_sender.clone();
                 let root_node_id = root_node_id.clone();
+                let receiver_broadcaster = receiver_broadcaster.clone();
                 rt.spawn(async move {
                     let mut messages_cache = Vec::new();
-                    loop {
+                    let interfaces = loop {
                         match message_receiver.recv().await {
                             Ok(None) => continue,
                             Ok(Some(value)) => messages_cache.push(value),
-                            Err(RecvError::Closed) => break,
+                            Err(RecvError::InterfacesDown(interfaces)) => {
+                                if let Err(e) = receiver_broadcaster
+                                    .send(UseCaseEvent::Hardware(HardwareEvent::InterfacesDown(
+                                        interfaces,
+                                    )))
+                                    .await
+                                {
+                                    log::error!(
+                                        "Failed to send hardware event to use cases: {}",
+                                        e
+                                    );
+                                }
+                            }
+                            Err(RecvError::Closed(interfaces)) => {
+                                break interfaces;
+                            }
                             Err(e) => {
                                 log::error!(
                                     "Error occurred while receiving message [retrying]: {}",
@@ -306,8 +324,16 @@ where
                                 );
                             }
                         }
+                    };
+                    if let Err(e) = receiver_broadcaster
+                        .send(UseCaseEvent::Hardware(HardwareEvent::InterfacesDown(
+                            interfaces.clone(),
+                        )))
+                        .await
+                    {
+                        log::error!("Failed to send hardware event to use cases: {}", e);
                     }
-                    log::debug!("Stopped receiver...");
+                    log::debug!("Stopped receiver for interfaces {:?}", interfaces);
                 });
             }
             log::trace!("Stopped listening to new protocol message receivers...");

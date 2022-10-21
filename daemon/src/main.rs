@@ -54,6 +54,7 @@ fn main() {
 
     // Due to the behaviour of the UDP Sender and Receiver there is no need to handle hardware events.
     // The Network Stack will handle new interfaces coming up and going down.
+    // Node failure will be detected through periodic path probing
 
     let addr = message_sender
         .local_addr()
