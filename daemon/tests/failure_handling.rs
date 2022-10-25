@@ -13,7 +13,7 @@ use crate::common::{LinkIdx, Network};
 mod common;
 
 #[test]
-#[ntest::timeout(300000)]
+#[ntest::timeout(120000)]
 fn failure_handling() {
     common::setup("failure_handling");
 
