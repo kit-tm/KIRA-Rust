@@ -50,7 +50,7 @@ pub fn setup(test_name: &'static str) {
             Logger::builder()
                 .appender("stdout")
                 .additive(true)
-                .build(test_name, LevelFilter::Warn),
+                .build(test_name, LevelFilter::Trace),
         )
         .build(Root::builder().appender("files").build(LevelFilter::Trace))
         .unwrap();
