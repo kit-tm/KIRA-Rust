@@ -287,6 +287,8 @@ impl<E> From<Graph<NodeId, E, Undirected>> for Network {
 /// Delegates messages based on neighbors id in message.
 ///
 /// Construction of this type is only allowed for [Network].
+///
+/// Silently drops messages if sent to invalid neighbors.
 #[derive(Debug)]
 pub struct IdDelegator<S: Debug> {
     neighbor_links: HashMap<NodeId, S>,
@@ -312,16 +314,14 @@ where
                     .neighbor_links
                     .get_mut(&id)
                     .expect("trying to send to non existent neighbor");
-                let result = link.send_message(message);
-                if let Err(SenderError::Closed) = result {
+                if let Err(SenderError::Closed) = link.send_message(message) {
                     self.neighbor_links.remove(&id);
                     log::trace!("Removed sender for {} from delegation.", id);
                 }
-                result?;
             }
             _ => {
                 for link in self.neighbor_links.values_mut() {
-                    link.send_message(message.clone())?;
+                    let _ = link.send_message(message.clone());
                 }
             }
         }
