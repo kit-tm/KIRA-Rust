@@ -20,7 +20,7 @@ fn failure_handling_test() {
     /*
     Topology:
         root_id: 1 (index: 0)
-        failing nodes: 3, 6 (index: 2, 5)
+        failing nodes: 3 (index: 2)
 
          /- 2 -\
        1 -- 3 -- 4 -- 5
@@ -92,16 +92,6 @@ fn failure_handling_test() {
     network
         .link_mut(&LinkIdx::from((node_ids[2].clone(), node_ids[5].clone())))
         .expect("link between node 3 and node 6 doesn't exist")
-        .blocking_close();
-    // 6 -- 1
-    network
-        .link_mut(&LinkIdx::from((node_ids[5].clone(), node_ids[0].clone())))
-        .expect("link between node 6 and node 1 doesn't exist")
-        .blocking_close();
-    // 6 -- 7
-    network
-        .link_mut(&LinkIdx::from((node_ids[5].clone(), node_ids[6].clone())))
-        .expect("link between node 6 and node 7 doesn't exist")
         .blocking_close();
 
     // Wait for the rediscovery processes to finish
@@ -182,41 +172,24 @@ fn failure_handling_test() {
         );
     }
 
-    if let Some(not_reached_by_6) = failed_requests.remove(&node_ids[5]) {
-        let expected = HashSet::from([
-            node_ids[0].clone(),
-            node_ids[1].clone(),
-            node_ids[2].clone(),
-            node_ids[3].clone(),
-            node_ids[4].clone(),
-            node_ids[6].clone(),
-        ]);
-        assert_eq!(
-            not_reached_by_6, expected,
-            "Node 6 did reach some nodes it shouldn't"
-        );
-    }
-
     // Test if all other nodes only can't reach node 3 and node 6
     if let Some(not_reached_by_1) = failed_requests.get_mut(&node_ids[0]) {
         not_reached_by_1.remove(&node_ids[2]);
-        not_reached_by_1.remove(&node_ids[5]);
     }
     if let Some(not_reached_by_2) = failed_requests.get_mut(&node_ids[1]) {
         not_reached_by_2.remove(&node_ids[2]);
-        not_reached_by_2.remove(&node_ids[5]);
     }
     if let Some(not_reached_by_4) = failed_requests.get_mut(&node_ids[3]) {
         not_reached_by_4.remove(&node_ids[2]);
-        not_reached_by_4.remove(&node_ids[5]);
     }
-    if let Some(not_reached_by_4) = failed_requests.get_mut(&node_ids[4]) {
-        not_reached_by_4.remove(&node_ids[2]);
-        not_reached_by_4.remove(&node_ids[5]);
+    if let Some(not_reached_by_5) = failed_requests.get_mut(&node_ids[4]) {
+        not_reached_by_5.remove(&node_ids[2]);
     }
-    if let Some(not_reached_by_6) = failed_requests.get_mut(&node_ids[6]) {
+    if let Some(not_reached_by_6) = failed_requests.get_mut(&node_ids[5]) {
         not_reached_by_6.remove(&node_ids[2]);
-        not_reached_by_6.remove(&node_ids[5]);
+    }
+    if let Some(not_reached_by_7) = failed_requests.get_mut(&node_ids[6]) {
+        not_reached_by_7.remove(&node_ids[2]);
     }
     for key in failed_requests.clone().keys() {
         if let Some(true) = failed_requests
