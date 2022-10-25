@@ -24,11 +24,10 @@ pub struct Cable {
 impl Cable {
     pub fn new(one: NodeId, two: NodeId) -> Self {
         let interface_one = NetworkInterface::new(format!("{}--{}", one, two));
-        let interface_two = NetworkInterface::new(format!("{}--{}", two, one));
         let (cable_one_sender, cable_one_receiver) =
-            InMemoryMessageChannel::with_interface(interface_one).into_parts();
+            InMemoryMessageChannel::with_interface(interface_one.clone()).into_parts();
         let (cable_two_sender, cable_two_receiver) =
-            InMemoryMessageChannel::with_interface(interface_two).into_parts();
+            InMemoryMessageChannel::with_interface(interface_one).into_parts();
         Self {
             one,
             two,
@@ -51,17 +50,19 @@ impl Cable {
         }
     }
 
+    fn interface(&self) -> NetworkInterface {
+        NetworkInterface::new(format!("{}--{}", self.one, self.two))
+    }
+
     pub fn blocking_close(&self) {
         // To close the senders have to be dropped
-        log::trace!("Closed channels {:?}", self.endpoint_one.0.interface());
-        log::trace!("Closed channels {:?}", self.endpoint_two.0.interface());
+        log::trace!("Closed channels {:?}", self.interface());
         self.endpoint_one.0.blocking_close();
         self.endpoint_two.0.blocking_close();
     }
 
     pub async fn close(&self) {
-        log::trace!("Closed channels {:?}", self.endpoint_one.0.interface());
-        log::trace!("Closed channels {:?}", self.endpoint_two.0.interface());
+        log::trace!("Closed channels {:?}", self.interface());
         self.endpoint_one.0.close().await;
         self.endpoint_two.0.close().await;
     }
