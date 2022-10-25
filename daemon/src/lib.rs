@@ -1,3 +1,4 @@
+use log::Log;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::Debug;
@@ -149,10 +150,12 @@ impl NodeHandle {
 
         Err(InjectMessageError::Closed)
     }
-}
 
-impl Drop for NodeHandle {
-    fn drop(&mut self) {
+    pub fn shutdown(&mut self) {
+        if self.handle.is_none() {
+            return;
+        }
+
         if let Err(e) = self.broadcaster.send_event(UseCaseEvent::Shutdown) {
             log::error!("Failed to send shutdown event: {}", e);
             return;
@@ -163,6 +166,12 @@ impl Drop for NodeHandle {
                 log::error!("Failed to join node thread: {:?}", e);
             }
         }
+    }
+}
+
+impl Drop for NodeHandle {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 
@@ -269,6 +278,7 @@ where
                 let receiver_broadcaster = fan_in_sender.clone();
                 let root_node_id = root_node_id.clone();
                 rt.spawn(async move {
+                    log::trace!("Listening to receiver {:?}", message_receiver);
                     let mut messages_cache = Vec::new();
                     let interfaces = loop {
                         match message_receiver.recv().await {
@@ -520,6 +530,7 @@ where
             }
         }
         log::trace!("Shutting down.");
+        log::logger().flush();
     }
 }
 

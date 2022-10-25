@@ -1,3 +1,4 @@
+use log::Log;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroU64;
 use std::time::Duration;
@@ -13,13 +14,14 @@ use crate::common::{LinkIdx, Network};
 mod common;
 
 #[test]
-#[ntest::timeout(120000)]
+#[ntest::timeout(180000)]
 fn failure_handling() {
     common::setup("failure_handling");
 
     /*
     Topology:
         root_id: 1 (index: 0)
+        failing nodes: 3, 6 (index: 2, 5)
 
          /- 2 -\
        1 -- 3 -- 4 -- 5
@@ -104,7 +106,7 @@ fn failure_handling() {
         .blocking_close();
 
     // Wait for the rediscovery processes to finish
-    std::thread::sleep(Duration::from_secs(20));
+    std::thread::sleep(Duration::from_secs(60));
 
     // Test reachability after outage
     // Tests if all non-isolated nodes still reach each other
@@ -225,6 +227,10 @@ fn failure_handling() {
             failed_requests.remove(key);
         }
     }
+
+    network.shutdown();
+
+    log::logger().flush();
 
     assert!(
         failed_requests.is_empty(),

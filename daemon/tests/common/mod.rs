@@ -183,6 +183,12 @@ impl NetworkHandle {
     pub fn node_mut(&mut self, id: &NodeId) -> Option<&mut NodeHandle> {
         self.nodes.get_mut(id).map(|(handle, _)| handle)
     }
+
+    pub fn shutdown(&mut self) {
+        for (handle, _) in self.nodes.values_mut() {
+            handle.shutdown();
+        }
+    }
 }
 
 impl<E> From<Graph<NodeId, E, Undirected>> for Network {

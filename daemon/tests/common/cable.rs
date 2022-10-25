@@ -1,4 +1,4 @@
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
 use tokio::sync::Mutex;
@@ -53,11 +53,21 @@ impl Cable {
 
     pub fn blocking_close(&self) {
         // To close the senders have to be dropped
+        log::trace!(
+            "Closed channels {:?} and {:?}",
+            self.endpoint_one.0.interface(),
+            self.endpoint_two.0.interface()
+        );
         self.endpoint_one.0.blocking_close();
         self.endpoint_two.0.blocking_close();
     }
 
     pub async fn close(&self) {
+        log::trace!(
+            "Closed channels {:?} and {:?}",
+            self.endpoint_one.0.interface(),
+            self.endpoint_two.0.interface()
+        );
         self.endpoint_one.0.close().await;
         self.endpoint_two.0.close().await;
     }
@@ -83,6 +93,14 @@ impl CloseableSender {
 
     pub async fn close(&self) {
         self.sender.lock().await.take();
+    }
+
+    pub fn interface(&self) -> Option<NetworkInterface> {
+        self.sender
+            .blocking_lock()
+            .deref()
+            .as_ref()
+            .map(|sender| sender.interface().clone())
     }
 }
 
