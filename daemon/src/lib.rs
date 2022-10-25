@@ -1,4 +1,3 @@
-use log::Log;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::Debug;
@@ -151,16 +150,17 @@ impl NodeHandle {
         Err(InjectMessageError::Closed)
     }
 
-    pub fn shutdown(&mut self) {
+    pub fn shutdown(&self) {
         if self.handle.is_none() {
             return;
         }
 
         if let Err(e) = self.broadcaster.send_event(UseCaseEvent::Shutdown) {
             log::error!("Failed to send shutdown event: {}", e);
-            return;
         }
+    }
 
+    pub fn wait_for_shutdown(&mut self) {
         if let Some(handle) = self.handle.take() {
             if let Err(e) = handle.join() {
                 log::error!("Failed to join node thread: {:?}", e);

@@ -1,4 +1,3 @@
-use log::Log;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroU64;
 use std::time::Duration;
@@ -15,8 +14,8 @@ mod common;
 
 #[test]
 #[ntest::timeout(180000)]
-fn failure_handling() {
-    common::setup("failure_handling");
+fn failure_handling_test() {
+    common::setup("failure_handling_test");
 
     /*
     Topology:

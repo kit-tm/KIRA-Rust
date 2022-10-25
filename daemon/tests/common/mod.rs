@@ -185,8 +185,11 @@ impl NetworkHandle {
     }
 
     pub fn shutdown(&mut self) {
-        for (handle, _) in self.nodes.values_mut() {
+        for (handle, _) in self.nodes.values() {
             handle.shutdown();
+        }
+        for (handle, _) in self.nodes.values_mut() {
+            handle.wait_for_shutdown();
         }
     }
 }
