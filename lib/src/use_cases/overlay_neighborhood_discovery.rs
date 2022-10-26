@@ -211,13 +211,12 @@ where
 
         // No one found -> Isolated, but physical neighbors are present
         if path_to_closest_on.is_none() {
-            log::error!(
+            log::warn!(
                 target: "overlay_neighborhood_discovery",
-                "Physical neighbors are present, but no contacts; RT: {:?}, NT: {:?}",
+                "Physical neighbors are present, but no contacts; Assuming isolation due to invalid neighbors. RT: {:?}, NT: {:?}",
                 *context.routing_table(),
                 *context.pn_table()
             );
-            self.state = ONDState::Error;
             return Err(ONDError::NeighborInconsistency);
         }
         let contact = path_to_closest_on.unwrap();

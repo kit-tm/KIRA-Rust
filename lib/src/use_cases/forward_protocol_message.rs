@@ -4,8 +4,8 @@ use std::ops::{Deref, DerefMut};
 
 use crate::context::UseCaseContext;
 use crate::domain::{
-    Contact, ContactState, InsertionStrategy, InsertionStrategyResult, NetworkInterface, NodeId,
-    NotVia, Path, RoutingTable,
+    Contact, ContactState, InsertionStrategy, InsertionStrategyResult, Link, NetworkInterface,
+    NodeId, NotVia, Path, RoutingTable,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -104,12 +104,13 @@ where
     /// will be removed.
     fn update_contact(&self, context: &C, contact: Contact) {
         if let Some(not_via) = context.not_via().iter().find(|not_via| match not_via {
-            NotVia::Node(id) => contact.path().contains(id),
             NotVia::Link(link) => contact.path().contains_link(link),
         }) {
             log::trace!(target: "forward_protocol_message", "Skipping contact as contains invalid not-via data {}; {}", not_via, contact);
             return;
         }
+
+        log::trace!(target: "forward_protocol_message", "Attempting to insert {}", contact);
 
         let result = context.routing_table_insertion_strategy().insert(
             contact.clone(),
@@ -120,7 +121,11 @@ where
         // Remove if contact changed the routing table in any way, was a physical neighbor and is not a pn anymore
         if result != InsertionStrategyResult::Dropped
             && context.pn_table().contains(contact.id())
-            && !contact.is_pn()
+            && !context
+                .routing_table()
+                .contact(contact.id())
+                .map(Contact::is_pn)
+                .unwrap_or(false)
         {
             context.pn_table_mut().remove(contact.id());
             log::trace!(target: "forward_protocol_message", "Removed {} from PNTable as no more a physical neighbor; {:?}", contact.id(), contact);
@@ -144,14 +149,15 @@ where
 
     fn extract_failed_contact(&self, context: &C, request: ReqRspMessage<ErrorData>) {
         match &request.data {
-            ErrorData::SegmentFailure(link) => {
+            ErrorData::SegmentFailure {
+                failed_link: link, ..
+            } => {
                 let mut not_via = context.not_via_mut();
                 let mut routing_table = context.routing_table_mut();
 
                 not_via.insert(NotVia::Link(link.clone()));
 
                 let contacts_id = request.request_destination();
-                not_via.insert(NotVia::Node(contacts_id.clone()));
 
                 if let Some(mut contact) = routing_table.contact_mut(contacts_id) {
                     *contact.state_mut() = ContactState::Invalid;
@@ -160,7 +166,6 @@ where
                 for mut contact in routing_table.iter_mut() {
                     if contact.path().contains_link(link) {
                         *contact.state_mut() = ContactState::Invalid;
-                        not_via.insert(NotVia::Node(contact.id().clone()));
                     }
                 }
             }
@@ -179,22 +184,17 @@ where
         new_not_via_data: &HashSet<NotVia>,
     ) {
         let mut routing_table = context.routing_table_mut();
-        let mut not_via = context.not_via_mut();
 
         for mut contact in routing_table.iter_mut() {
             let not_via_invalidation = new_not_via_data
                 .iter()
                 .find(|entry| match entry {
-                    NotVia::Node(id) => contact.id() != id && contact.path().contains(id),
                     NotVia::Link(link) => contact.path().contains_link(link),
                 })
                 .cloned();
             if not_via_invalidation.is_none() {
                 continue;
             }
-            // Only add the affected node to local not_via data
-            not_via.insert(NotVia::Node(contact.id().clone()));
-
             *contact.state_mut() = ContactState::Invalid;
 
             log::trace!(target: "forward_protocol_message", "Invalidated contact {} based on not-via data of {}", contact.id(), source);
@@ -228,16 +228,24 @@ where
                 //                       FailureHandling use case
                 RouteUpdate::Removed => {
                     // Checked for existence before
-                    let mut updated_contact =
+                    let mut saved_contact =
                         routing_table.contact_mut(updated_contact.id()).unwrap();
-                    *updated_contact.state_mut() = ContactState::Invalid;
-                    log::trace!(target: "forward_protocol_message", "Invalidated contact {} based on route update data of {} [Removed]", updated_contact.id(), source_id);
+                    if saved_contact.path().contains(source_id)
+                        && saved_contact.is_older_than(&updated_contact)
+                    {
+                        *saved_contact.state_mut() = ContactState::Invalid;
+                        log::trace!(target: "forward_protocol_message", "Invalidated contact {} based on route update data of {} [Removed]", saved_contact.id(), source_id);
+                    }
                 }
                 RouteUpdate::Updated => {
                     // If the saved contact is via the node which updated -> Update Path of contact
                     // Other Paths are updated while operating
                     let mut old_contact = routing_table.contact_mut(updated_contact.id()).unwrap();
-                    if old_contact.path().size() > new_path.size() {
+                    if old_contact.path().size() > new_path.size()
+                        && old_contact.path().contains(source_id)
+                        && old_contact.is_older_than(&updated_contact)
+                        && updated_contact.state() == &ContactState::Valid
+                    {
                         *old_contact.state_mut() = ContactState::Invalid;
                         log::trace!(target: "forward_protocol_message", "Invalidated contact {} based on route update data of {} [Worsened]", old_contact.id(), source_id);
                     }
@@ -292,20 +300,27 @@ where
         context: &C,
         message: ProtocolMessage,
     ) -> Result<(), <Self as EventHandler>::Error> {
-        assert!(message.nonce().is_some());
+        if message.nonce().is_none() {
+            // Messages with no nonce don't require a response
+            return Ok(());
+        }
+
         assert!(message.source_route().is_some());
         assert!(message.source_route().unwrap().next_hop().is_some());
 
         let root_id = context.root_id().clone();
-        let failed_link = (
-            root_id,
+        let failed_link = Link::new(
+            root_id.clone(),
             message.source_route().unwrap().next_hop().unwrap().clone(),
         );
 
         let error_message = ReqRspMessage {
             nonce: message.nonce().unwrap().clone(),
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
-            data: ErrorData::SegmentFailure(failed_link),
+            data: ErrorData::SegmentFailure {
+                failed_link,
+                source: root_id,
+            },
             not_via: context.not_via().clone(),
             source_route: SourceRoute::from_reversed(message.source_route().unwrap().clone()),
         };
@@ -331,7 +346,7 @@ where
 
         // Current hop has to be us
         if source_route.current_hop() != context.root_id() {
-            log::error!(
+            log::warn!(
                 target: "forward_protocol_message",
                 "Current hop of message {} is not us [{:?}]",
                 source_route.current_hop(),
@@ -351,11 +366,10 @@ where
         // From here on the message is assumed to be for us
 
         // Check if next link is in not_via data
-        if context.not_via().contains(&NotVia::Node(next_hop.clone()))
-            || context
-                .not_via()
-                .contains(&NotVia::Link((context.root_id().clone(), next_hop.clone())))
-        {
+        if context.not_via().contains(&NotVia::Link(Link::new(
+            context.root_id().clone(),
+            next_hop.clone(),
+        ))) {
             self.handle_next_hop_failed(context, message)?;
             return Ok(HandlingResult::Handled);
         }
@@ -436,8 +450,8 @@ mod tests {
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
-        Contact, ContactState, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path,
-        RoutingTable, StateSeqNr, TestInsertionStrategy,
+        Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable,
+        Path, RoutingTable, StateSeqNr, TestInsertionStrategy,
     };
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::source_route::SourceRoute;
@@ -1201,7 +1215,7 @@ mod tests {
             NodeId::with_lsb(8),
         ];
 
-        let failed_link = (source_id.clone(), failed_contact_id.clone());
+        let failed_link = Link::new(source_id.clone(), failed_contact_id.clone());
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
 
@@ -1261,7 +1275,10 @@ mod tests {
         let sent_request = ReqRspMessage {
             nonce: Nonce::random(),
             source_state_seq_nr: StateSeqNr::from(0),
-            data: ErrorData::SegmentFailure(failed_link),
+            data: ErrorData::SegmentFailure {
+                failed_link,
+                source: source_id.clone(),
+            },
             not_via: HashSet::default(),
             source_route: SourceRoute::from(Path::from([
                 failed_contact_id.clone(),

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::Display;
 use std::time::Duration;
@@ -60,23 +61,19 @@ impl InMemoryMessageChannel {
     pub fn into_parts(self) -> (InMemorySender, InMemoryReceiver) {
         let (sender, receiver) = self.channel;
         (
-            InMemorySender(sender.clone(), self.interface.clone()),
-            InMemoryReceiver(sender, receiver, self.interface),
+            InMemorySender(sender, self.interface.clone()),
+            InMemoryReceiver {
+                receiver,
+                interface: self.interface,
+            },
         )
     }
 }
 
 #[derive(Debug)]
-pub struct InMemoryReceiver(
-    Sender<ProtocolMessage>,
-    Receiver<ProtocolMessage>,
-    NetworkInterface,
-);
-
-impl Clone for InMemoryReceiver {
-    fn clone(&self) -> Self {
-        Self(self.0.clone(), self.0.subscribe(), self.2.clone())
-    }
+pub struct InMemoryReceiver {
+    receiver: Receiver<ProtocolMessage>,
+    interface: NetworkInterface,
 }
 
 #[async_trait::async_trait]
@@ -86,16 +83,20 @@ impl AsyncProtocolMessageReceiver for InMemoryReceiver {
         timeout: Option<Duration>,
     ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError> {
         if let Some(duration) = timeout {
-            match tokio::time::timeout(duration, self.1.recv()).await {
-                Ok(Ok(message)) => Ok(Some((message, self.2.clone()))),
-                Ok(Err(broadcast::error::RecvError::Closed)) => Err(RecvError::Closed),
+            match tokio::time::timeout(duration, self.receiver.recv()).await {
+                Ok(Ok(message)) => Ok(Some((message, self.interface.clone()))),
+                Ok(Err(broadcast::error::RecvError::Closed)) => {
+                    Err(RecvError::Closed(HashSet::from([self.interface.clone()])))
+                }
                 Ok(Err(e)) => Err(RecvError::Other(Box::new(e))),
                 Err(_) => Err(RecvError::Timeout),
             }
         } else {
-            match self.1.recv().await {
-                Ok(message) => Ok(Some((message, self.2.clone()))),
-                Err(broadcast::error::RecvError::Closed) => Err(RecvError::Closed),
+            match self.receiver.recv().await {
+                Ok(message) => Ok(Some((message, self.interface.clone()))),
+                Err(broadcast::error::RecvError::Closed) => {
+                    Err(RecvError::Closed(HashSet::from([self.interface.clone()])))
+                }
                 Err(e) => Err(RecvError::Other(Box::new(e))),
             }
         }
@@ -108,10 +109,14 @@ impl AsyncProtocolMessageReceiver for InMemoryReceiver {
     async fn try_recv(
         &mut self,
     ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, TryRecvError> {
-        match self.1.try_recv() {
-            Ok(message) => Ok(Some((message, self.2.clone()))),
+        match self.receiver.try_recv() {
+            Ok(message) => Ok(Some((message, self.interface.clone()))),
             Err(broadcast::error::TryRecvError::Empty) => Ok(None),
-            Err(broadcast::error::TryRecvError::Closed) => Err(TryRecvError::Closed),
+            Err(broadcast::error::TryRecvError::Closed) => {
+                Err(TryRecvError::Closed(HashSet::from([self
+                    .interface
+                    .clone()])))
+            }
             Err(e) => Err(TryRecvError::Other(Box::new(e))),
         }
     }
@@ -119,6 +124,12 @@ impl AsyncProtocolMessageReceiver for InMemoryReceiver {
 
 #[derive(Debug, Clone)]
 pub struct InMemorySender(Sender<ProtocolMessage>, NetworkInterface);
+
+impl InMemorySender {
+    pub fn interface(&self) -> &NetworkInterface {
+        &self.1
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct NoSendError;

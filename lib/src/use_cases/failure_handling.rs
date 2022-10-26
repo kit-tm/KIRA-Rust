@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 
 use crate::context::UseCaseContext;
-use crate::domain::{Contact, ContactState, NetworkInterface, NodeId, NotVia, RoutingTable};
+use crate::domain::{Contact, ContactState, Link, NetworkInterface, NodeId, NotVia, RoutingTable};
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -89,18 +89,17 @@ where
     /// Remove all NotVia Data which is related to the contact
     fn remove_notvia_mentioning(&self, context: &C, contact_id: &NodeId) {
         context.not_via_mut().retain(|not_via| match not_via {
-            NotVia::Node(id) => id != contact_id,
-            NotVia::Link((first, second)) => first != contact_id && second != contact_id,
+            NotVia::Link(link) => link.first() != contact_id && link.second() != contact_id,
         });
+        log::trace!(target: "failure_handling", "Removed not via data mentioning {}", contact_id);
     }
 
     fn invalidate_containing_contacts(&self, context: &C, id: &NodeId) {
         for mut contact in context.routing_table_mut().iter_mut() {
             if contact.path().contains(id) {
                 *contact.state_mut() = ContactState::Invalid;
-                context
-                    .not_via_mut()
-                    .insert(NotVia::Node(contact.id().clone()));
+
+                log::trace!(target: "failure_handling", "Invalidated {} whose path contains {}", contact.id(), id);
             }
         }
     }
@@ -199,11 +198,13 @@ where
                 match e {
                     InsertionError::DuplicateNonce => nonce = Nonce::random(),
                     InsertionError::DuplicateTimer => {
-                        log::warn!(target: "failure_handling", "runtime emitted duplicate timer id {}", timer_id);
+                        log::warn!(target: "failure_handling", "runtime emitted duplicate timer id {} [{:?}]", timer_id, self.rediscoveries);
                         timer_id = context.runtime().register_timer(timer_duration)
                     }
                 }
             }
+
+            log::trace!(target: "failure_handling", "Created rediscovery entry for {} [backoff: {}, nonce: {:?}]", contact.id(), exponential_backoff, nonce);
 
             nonce
         };
@@ -227,6 +228,8 @@ where
             log::error!(target: "failure_handling", "Failed to send find node to {}: {}", closest_contact.id(), e);
         }
 
+        log::trace!(target: "failure_handling", "Sent rediscovery find node for {} to {} [retry {} of {}]", contact.id(), closest_contact.id(), exponential_backoff.current_retries, exponential_backoff.max_retries);
+
         Ok(())
     }
 
@@ -247,6 +250,7 @@ where
             None => {
                 log::trace!(target: "failure_handling", "No closest contacts found. Assuming isolation.");
                 context.routing_table_mut().remove(node_id);
+                context.pn_table_mut().remove(node_id);
                 self.rediscoveries.remove(node_id);
                 return Ok(());
             }
@@ -275,7 +279,7 @@ where
             .rediscoveries
             .replace_timer_for(node_id.clone(), timer_id);
         if response.is_err() {
-            log::warn!(target: "failure_handling", "runtime emitted duplicate timer id {}", timer_id);
+            log::warn!(target: "failure_handling", "runtime emitted duplicate timer id {} [{:#?}]", timer_id, self.rediscoveries);
             self.state = ReactiveUseCaseState::Error;
             return Err(FailureHandlingError::DuplicateTimerId);
         }
@@ -316,6 +320,11 @@ where
             log::error!(target: "failure_handling", "Failed to send find node to {}: {}", closest_contact.id(), e);
         }
 
+        // Just some logging, if logging is disabled this will be eliminated through dead code elimination
+        if let Some(exponential_backoff) = self.rediscoveries.get(node_id) {
+            log::trace!(target: "failure_handling", "Sent rediscovery find node for {} to {} [retry {} of {}]", node_id, closest_contact.id(), exponential_backoff.current_retries, exponential_backoff.max_retries);
+        }
+
         Ok(())
     }
 
@@ -335,21 +344,21 @@ where
                 }
             })
             .collect::<HashSet<_>>();
+
+        log::trace!(target: "failure_handling", "These neighbors are affected by interfaces {:?} down: {:?}", interfaces, affected_neighbors);
+
         not_via.extend(
             affected_neighbors
                 .iter()
                 .cloned()
-                .map(|id| NotVia::Link((context.root_id().clone(), id))),
+                .map(|id| NotVia::Link(Link::new(context.root_id().clone(), id))),
         );
 
         for mut contact in rt.iter_mut() {
-            if contact.state() != &ContactState::Valid {
-                continue;
-            }
-
             if affected_neighbors.contains(contact.path().first()) {
                 *contact.state_mut() = ContactState::Invalid;
-                not_via.insert(NotVia::Node(contact.id().clone()));
+
+                log::trace!(target: "failure_handling", "Invalidated contact {} as it starts with an invalid neighbor {}", contact.id(), contact.path().first());
             }
         }
     }
@@ -385,7 +394,7 @@ where
                 if let Some((backoff, removed_timers, removed_nonces)) =
                     self.rediscoveries.remove(contact.id())
                 {
-                    log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got removed [backoff_state: {}, timers: {:?}, nonces: {:?}]", contact.id(), backoff, removed_timers, removed_nonces);
+                    log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got removed from routing table [backoff_state: {}, timers: {:?}, nonces: {:?}]", contact.id(), backoff, removed_timers, removed_nonces);
                 }
                 self.remove_notvia_mentioning(context, contact.id());
             }
@@ -395,7 +404,7 @@ where
                     .remove_by_nonce(&rsp.nonce)
                     .map(|(state, timers, nonces)| (state, timers, nonces))
                 {
-                    log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got removed [backoff_state: {}, timers: {:?}, nonce: {:?}]", rsp.source_route.source(), backoff, timers, nonces);
+                    log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got a successful answer [backoff_state: {}, timers: {:?}, nonce: {:?}]", rsp.source_route.source(), backoff, timers, nonces);
                     log::debug!(target: "failure_handling", "Rediscovery of {} was successful!", rsp.source());
                 }
             }
@@ -406,12 +415,14 @@ where
                 }
                 // Anyways NotVia Data has to be added for failed link
                 if let ReqRspMessage {
-                    data: ErrorData::SegmentFailure(link),
+                    data: ErrorData::SegmentFailure { failed_link, .. },
                     ..
                 } = rsp
                 {
-                    context.not_via_mut().insert(NotVia::Link(link.clone()));
-                    log::trace!(target: "failure_handling", "added failed link {:?} to NotVia data", link);
+                    context
+                        .not_via_mut()
+                        .insert(NotVia::Link(failed_link.clone()));
+                    log::trace!(target: "failure_handling", "added failed link {:?} to NotVia data", failed_link);
                 }
             }
             UseCaseEvent::Timer(id) => {
@@ -473,8 +484,8 @@ mod tests {
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
-        Contact, ContactState, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path,
-        RoutingTable, StateSeqNr, TestInsertionStrategy,
+        Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable,
+        Path, RoutingTable, StateSeqNr, TestInsertionStrategy,
     };
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::hardware_events::HardwareEvent;
@@ -577,7 +588,7 @@ mod tests {
         let neighbor_id = NodeId::with_lsb(2);
         let failed_id = NodeId::with_lsb(3);
 
-        let failed_link = (neighbor_id.clone(), failed_id.clone());
+        let failed_link = Link::new(neighbor_id.clone(), failed_id.clone());
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
 
@@ -679,7 +690,10 @@ mod tests {
             ProtocolMessage::Error(ReqRspMessage {
                 nonce: nonce.clone(),
                 source_state_seq_nr: StateSeqNr::from(2),
-                data: ErrorData::SegmentFailure(failed_link.clone()),
+                data: ErrorData::SegmentFailure {
+                    failed_link: failed_link.clone(),
+                    source: neighbor_id.clone(),
+                },
                 not_via: Default::default(),
                 source_route: SourceRoute::from(Path::from([neighbor_id.clone(), root_id.clone()])),
             }),
@@ -721,7 +735,10 @@ mod tests {
             ProtocolMessage::Error(ReqRspMessage {
                 nonce: nonce.clone(),
                 source_state_seq_nr: StateSeqNr::from(2),
-                data: ErrorData::SegmentFailure(failed_link),
+                data: ErrorData::SegmentFailure {
+                    failed_link,
+                    source: neighbor_id.clone(),
+                },
                 not_via: Default::default(),
                 source_route: SourceRoute::from(Path::from([neighbor_id.clone(), root_id.clone()])),
             }),

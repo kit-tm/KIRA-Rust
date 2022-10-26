@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 
 use chrono::{DateTime, Duration, Utc};
@@ -98,11 +99,12 @@ impl Display for Contact {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Contact [id: {}, age: {}, state_seq_nr: {}, state: {}]",
+            "Contact [id: {}, age: {}, state_seq_nr: {}, state: {}, path: {}]",
             self.id(),
             self.last_seen.to_age_duration(),
             self.state_seq_nr,
-            self.state
+            self.state,
+            self.path
         )
     }
 }
@@ -144,6 +146,27 @@ impl Contact {
 
     pub fn age(&self) -> Age {
         self.last_seen.to_age()
+    }
+
+    /// Returns if the contact is older than the given contact `other`.
+    pub fn is_older_than(&self, other: &Contact) -> bool {
+        self.cmp_actuality(other) == Ordering::Less
+    }
+
+    /// Returns an [Ordering] based on the [StateSeqNr] and [Age] of the contacts.
+    ///
+    /// - Greater: self has newer information.
+    /// - Less: other has newer information.
+    /// - Equals: Have the same information.
+    pub fn cmp_actuality(&self, other: &Contact) -> Ordering {
+        match (
+            self.state_seq_nr.cmp(&other.state_seq_nr),
+            self.age().cmp(&other.age()),
+        ) {
+            (Ordering::Greater, _) => Ordering::Greater,
+            (Ordering::Less, _) => Ordering::Less,
+            (Ordering::Equal, age_ordering) => age_ordering.reverse(),
+        }
     }
 
     pub fn last_seen(&self) -> &Timestamp {

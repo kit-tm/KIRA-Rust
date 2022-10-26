@@ -124,7 +124,7 @@ where
                 .create(new_entry.clone())
                 .or_else(|_| fwd_tables.create(new_entry.clone()));
             if let Err(e) = insertion_result {
-                log::error!(target: "precompute_paths_and_pathids", "Failed to remove entry for PathID {}: {}", new_entry.in_path_id, e);
+                log::error!(target: "precompute_paths_and_pathids", "Failed to create entry for PathID {}: {}", new_entry.in_path_id, e);
             }
         }
 

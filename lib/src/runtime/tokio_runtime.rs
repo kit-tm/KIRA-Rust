@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::ops::Deref;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -10,10 +11,12 @@ use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{TimerId, UseCaseEvent};
 use crate::utils::tokio_utils;
 
+/// Runtime implementation using async tasks to implement the [UseCaseRuntime] trait.
 #[derive(Debug)]
 pub struct TokioRuntime<B> {
     // Used to generate unique ids and also keep track of used ids in case of overflow
-    counter_and_used_counters: Arc<Mutex<(usize, HashSet<usize>)>>,
+    counter: AtomicUsize,
+    used_counters: Arc<Mutex<HashSet<usize>>>,
     broadcaster: B,
     runtime: Arc<tokio::runtime::Runtime>,
 }
@@ -21,7 +24,8 @@ pub struct TokioRuntime<B> {
 impl<B> TokioRuntime<B> {
     pub fn new(broadcaster: B, runtime: Arc<tokio::runtime::Runtime>) -> Self {
         Self {
-            counter_and_used_counters: Arc::new(Mutex::new((0, HashSet::new()))),
+            counter: AtomicUsize::new(0),
+            used_counters: Arc::new(Mutex::new(HashSet::new())),
             broadcaster,
             runtime,
         }
@@ -33,17 +37,12 @@ impl<B> TokioRuntime<B> {
 
     // Handles overflow by using a set of used counters
     fn create_new_id(&self) -> TimerId {
-        let mut lock = tokio_utils::get_guard(self.counter_and_used_counters.deref());
-        // Increase id until not used id is found
-        let mut id = lock.0;
-        while lock.1.contains(&id) {
-            id += 1
+        let lock = tokio_utils::get_guard(self.used_counters.deref());
+        let mut counter = self.counter.fetch_add(1, Ordering::Relaxed);
+        while lock.contains(&counter) {
+            counter = self.counter.fetch_add(1, Ordering::Relaxed);
         }
-        // Set the current counter and add new id to used ones
-        lock.0 = id;
-        lock.1.insert(id);
-
-        TimerId::from(id)
+        TimerId::from(counter)
     }
 }
 
@@ -62,9 +61,9 @@ impl<B: Broadcaster> TokioRuntime<B> {
         Ok(())
     }
 
-    async fn remove_used_id(mutex: Arc<Mutex<(usize, HashSet<usize>)>>, id: &TimerId) {
+    async fn remove_used_id(mutex: Arc<Mutex<HashSet<usize>>>, id: &TimerId) {
         let mut lock = mutex.lock().await;
-        lock.1.remove(id);
+        lock.remove(id);
     }
 }
 
@@ -73,7 +72,7 @@ impl<B: 'static + Broadcaster + Send + Sync> UseCaseRuntime for TokioRuntime<B> 
         let timer_id = self.create_new_id();
 
         let use_case_broadcaster = self.broadcaster.clone();
-        let counters = Arc::clone(&self.counter_and_used_counters);
+        let counters = Arc::clone(&self.used_counters);
         self.runtime.spawn(async move {
             // Ignored as one-shot timer result is irrelevant
             let _ =
@@ -89,7 +88,7 @@ impl<B: 'static + Broadcaster + Send + Sync> UseCaseRuntime for TokioRuntime<B> 
         let timer_id = self.create_new_id();
 
         let use_case_broadcaster = self.broadcaster.clone();
-        let counters = Arc::clone(&self.counter_and_used_counters);
+        let counters = Arc::clone(&self.used_counters);
         self.runtime.spawn(async move {
             // Repeat until error is returned
             while (TokioRuntime::wait_and_send_timer_event(
