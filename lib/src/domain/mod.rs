@@ -29,7 +29,33 @@ pub mod routing_table;
 pub mod state_seq_nr;
 
 /// A physical connection between two nodes.
-pub type Link = (NodeId, NodeId);
+#[derive(Debug, Eq, PartialEq, Hash, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct Link(NodeId, NodeId);
+
+impl Link {
+    pub fn new(first: NodeId, second: NodeId) -> Self {
+        if first < second {
+            Link(first, second)
+        } else {
+            Link(second, first)
+        }
+    }
+
+    pub fn first(&self) -> &NodeId {
+        &self.0
+    }
+
+    pub fn second(&self) -> &NodeId {
+        &self.1
+    }
+}
+
+impl From<(NodeId, NodeId)> for Link {
+    fn from((first, second): (NodeId, NodeId)) -> Self {
+        Link::new(first, second)
+    }
+}
 
 /// Data structure representing nodes or physical connections to not use while forwarding protocol
 /// messages.
@@ -41,18 +67,13 @@ pub type Link = (NodeId, NodeId);
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum NotVia {
-    Node(NodeId),
     Link(Link),
 }
 
 impl Display for NotVia {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Node(id) => {
-                write!(f, "NotVia ")?;
-                Display::fmt(id, f)
-            }
-            Self::Link((left, right)) => {
+            Self::Link(Link(left, right)) => {
                 write!(f, "NotVia (")?;
                 Display::fmt(left, f)?;
                 write!(f, ", ")?;

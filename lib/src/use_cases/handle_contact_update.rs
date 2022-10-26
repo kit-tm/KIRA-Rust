@@ -98,9 +98,6 @@ where
         for mut saved_contact in context.routing_table_mut().iter_mut() {
             if saved_contact.path().starts_with(invalidated_contact.path()) {
                 *saved_contact.state_mut() = ContactState::Invalid;
-                context
-                    .not_via_mut()
-                    .insert(NotVia::Node(saved_contact.id().clone()));
             }
         }
     }
@@ -128,9 +125,8 @@ where
 
                 self.send_update(context, updates)?;
                 context.not_via_mut().retain(|not_via| match not_via {
-                    NotVia::Node(id) => id != contact.id(),
-                    NotVia::Link((first, second)) => {
-                        first != contact.id() && second != contact.id()
+                    NotVia::Link(link) => {
+                        link.first() != contact.id() && link.second() != contact.id()
                     }
                 });
 
@@ -145,15 +141,8 @@ where
                 updates.insert(new.clone(), RouteUpdate::Updated);
 
                 self.send_update(context, updates)?;
-                if old.state() != &ContactState::Valid && new.state() == &ContactState::Valid {
-                    // Remove from not-via data if path gets valid again
-                    context
-                        .not_via_mut()
-                        .remove(&NotVia::Node(new.id().clone()));
-                } else if old.state() == &ContactState::Valid && new.state() != &ContactState::Valid
-                {
+                if old.state() == &ContactState::Valid && new.state() != &ContactState::Valid {
                     // Add to not-via data if path gets invalid (maybe done already)
-                    context.not_via_mut().insert(NotVia::Node(new.id().clone()));
                     self.invalidate_all_affected_contacts(context, &new);
                 }
             }

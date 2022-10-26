@@ -36,19 +36,28 @@ impl BackoffMap {
         Ok(self.node_to_state.insert(node_id, value))
     }
 
-    /// Returns the registered exponential backoff for the given id.
+    /// Returns a mutable reference to the registered exponential backoff for the given id.
     pub fn get_mut(&mut self, id: &NodeId) -> Option<&mut ExponentialBackoff> {
         self.node_to_state.get_mut(id)
     }
 
+    /// Returns the registered exponential backoff for the given id.
+    pub fn get(&mut self, id: &NodeId) -> Option<&ExponentialBackoff> {
+        self.node_to_state.get(id)
+    }
+
     /// Returns the [NodeId] associated with the given [Nonce].
     pub fn get_node_for_nonce(&self, nonce: &Nonce) -> Option<&NodeId> {
-        self.nonce_to_id.get(nonce)
+        self.nonce_to_id
+            .get(nonce)
+            .filter(|id| self.node_to_state.contains_key(id))
     }
 
     /// Returns the [NodeId] associated with the given [TimerId].
     pub fn get_node_for_timer(&self, timer: &TimerId) -> Option<&NodeId> {
-        self.timer_to_node.get(timer)
+        self.timer_to_node
+            .get(timer)
+            .filter(|id| self.node_to_state.contains_key(id))
     }
 
     /// Adds an additional [Nonce] to the [NodeId].

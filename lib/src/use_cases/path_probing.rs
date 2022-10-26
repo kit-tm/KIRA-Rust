@@ -172,7 +172,7 @@ where
             match lock.contact_mut(&contacts_id) {
                 Some(mut contact) => {
                     *contact.state_mut() = ContactState::Invalid;
-                    log::trace!(target: "path_probing", "Invalidated contact {} because of timer", contact.id());
+                    log::trace!(target: "path_probing", "Invalidated contact due of timer [path: {}]", contact.path());
                 }
                 None => {
                     log::warn!(target: "path_probing", "Removed timeout for non existent contact {}", contacts_id)
@@ -706,10 +706,13 @@ mod tests {
         let message = ReqRspMessage {
             nonce: probe_sent.nonce().unwrap().clone(),
             source_state_seq_nr: *neighbor.state_seq_nr(),
-            data: ErrorData::SegmentFailure(Link::from((
-                neighbor_id.clone(),
-                old_contact_not_responding_id.clone(),
-            ))),
+            data: ErrorData::SegmentFailure {
+                failed_link: Link::from((
+                    neighbor_id.clone(),
+                    old_contact_not_responding_id.clone(),
+                )),
+                source: neighbor_id.clone(),
+            },
             not_via: Default::default(),
             source_route: SourceRoute::from_reversed(probe_sent.source_route().unwrap().clone()),
         };

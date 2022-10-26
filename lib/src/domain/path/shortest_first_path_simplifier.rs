@@ -1,5 +1,5 @@
 use crate::domain::simplifier::PathSimplifier;
-use crate::domain::{PNTable, Path, RoutingTable};
+use crate::domain::{ContactState, PNTable, Path, RoutingTable};
 
 pub struct ShortestFirstPathSimplifier;
 
@@ -41,8 +41,11 @@ impl PathSimplifier for ShortestFirstPathSimplifier {
             let part_len = dest_index + 1;
             let dest_id = path[dest_index].clone();
 
-            // Replace if a shorter path to destination is known in RT
-            if let Some(known_contact) = routing_table.contact(&dest_id) {
+            // Replace if a shorter valid path to destination is known in RT
+            if let Some(known_contact) = routing_table
+                .contact(&dest_id)
+                .filter(|contact| contact.state() == &ContactState::Valid)
+            {
                 let known_path = known_contact.path().clone();
                 if known_path.size() < part_len {
                     path.replace_interval(0, dest_index, known_path);

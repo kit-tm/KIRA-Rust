@@ -129,9 +129,9 @@ impl ProtocolMessage {
                 ..
             }) => source_route.source(),
             Self::Error(ReqRspMessage {
-                data: ErrorData::SegmentFailure(link),
+                data: ErrorData::SegmentFailure { source, .. },
                 ..
-            }) => &link.0,
+            }) => source,
             Self::ProbeReq(req) => req.source(),
             Self::ProbeRsp(req) => req.source(),
             Self::PathSetupReq(req) => req.source(),
@@ -381,7 +381,7 @@ pub enum ErrorData {
     /// E.g. when forwarding a message and the next hop is not a physical neighbor.
     ///
     /// Contains the link which is invalid.
-    SegmentFailure(Link),
+    SegmentFailure { failed_link: Link, source: NodeId },
 }
 
 impl ReqRspMessage<ErrorData> {
@@ -389,7 +389,7 @@ impl ReqRspMessage<ErrorData> {
     pub fn request_destination(&self) -> &NodeId {
         match &self.data {
             ErrorData::DeadEnd => self.source(),
-            ErrorData::SegmentFailure(link) => &link.0,
+            ErrorData::SegmentFailure { failed_link, .. } => failed_link.first(),
         }
     }
 }

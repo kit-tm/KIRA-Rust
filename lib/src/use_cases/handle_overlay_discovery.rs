@@ -141,13 +141,11 @@ where
             // Get any contact not contained in local or included not_via data
             let closest_node = closest.iter().find(|(_, contact)| {
                 if context.not_via().iter().any(|not_via| match not_via {
-                    NotVia::Node(id) => contact.path().contains(id),
                     NotVia::Link(link) => contact.path().contains_link(link),
                 }) {
                     return false;
                 }
                 if req.not_via.iter().any(|not_via| match not_via {
-                    NotVia::Node(id) => contact.path().contains(id),
                     NotVia::Link(link) => contact.path().contains_link(link),
                 }) {
                     return false;
@@ -254,7 +252,7 @@ mod tests {
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
-        Contact, InsertionStrategyResult, NetworkInterface, NodeId, NotVia, PNTable, Path,
+        Contact, InsertionStrategyResult, Link, NetworkInterface, NodeId, NotVia, PNTable, Path,
         RoutingTable, StateSeqNr, TestInsertionStrategy,
     };
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
@@ -922,7 +920,7 @@ mod tests {
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let mut not_via = HashSet::new();
-        not_via.insert(NotVia::Node(not_via_id));
+        not_via.insert(NotVia::Link(Link::new(neighbor_id.clone(), not_via_id)));
 
         let sync_context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
@@ -1102,7 +1100,10 @@ mod tests {
         .advanced();
 
         let mut not_via = HashSet::new();
-        not_via.insert(NotVia::Node(not_via_id.clone()));
+        not_via.insert(NotVia::Link(Link::new(
+            neighbor_id.clone(),
+            not_via_id.clone(),
+        )));
 
         let message = ReqRspMessage {
             nonce: Nonce::random(),

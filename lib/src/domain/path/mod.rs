@@ -122,7 +122,9 @@ impl Path {
         self.ids
             .iter()
             .zip(self.ids.iter().skip(1))
-            .any(|(first, second)| first == &link.0 && second == &link.1)
+            .any(|(first, second)| {
+                (first == &link.0 && second == &link.1) || (first == &link.1 && second == &link.0)
+            })
     }
     /// Returns the first entry in the [Path].
     pub fn first(&self) -> &NodeId {

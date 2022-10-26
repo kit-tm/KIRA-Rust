@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+use std::fmt::Debug;
 use std::marker::PhantomData;
 
 use crate::domain::{
@@ -63,7 +65,7 @@ where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
 {
     /// Update an existing contact in the table instead of inserting.
-    fn update_existing(&self, contact: Contact, table: &mut RT) -> InsertionStrategyResult {
+    fn update_existing(&self, mut contact: Contact, table: &mut RT) -> InsertionStrategyResult {
         let existing = table.contact_mut(contact.id());
         assert!(
             existing.is_some(),
@@ -75,89 +77,54 @@ where
             contact.id(),
             "Returned contact has to have same id"
         );
-
-        // drop if received data is older than stored data
-        if contact.state_seq_nr() < existing.state_seq_nr() {
-            log::trace!(
-                target: "routing_table",
-                "Dropping path: Lower StateSeqNr [{}]",
-                existing.id()
-            );
+        if contact.state() != &ContactState::Valid {
+            log::trace!(target: "routing_table", "Dropped path: Invalid [{:?}]", contact);
             return InsertionStrategyResult::Dropped;
         }
-        // Drop if path is longer
-        if contact.path().size() > existing.path().size() {
-            log::trace!(
-                target: "routing_table",
-                "Dropping path: path longer than existing [{}]",
-                existing.id()
-            );
-            return InsertionStrategyResult::Dropped;
-        }
-
-        // Replace if seq_nr is greater (newer)
-        if contact.state_seq_nr() > existing.state_seq_nr() {
+        if existing.state() == &ContactState::Invalid && contact.state() == &ContactState::Valid {
+            log::trace!(target: "routing_table", "Updated path: Invalid path was replaced [{:?}]", contact);
             *existing = contact;
-            log::trace!(
-                target: "routing_table",
-                "Updated path: Greater StateSeqNr [{:?}]",
-                *existing
-            );
             return InsertionStrategyResult::Updated;
         }
 
-        // Otherwise the seq_nr is equal
-
-        // Drop if seq_nr is equal and contact is not valid
-        if existing.state() != &ContactState::Valid {
-            log::trace!(
-                target: "routing_table",
-                "Dropping path: Same StateSeqNr but contact is invalid [{}]",
-                existing.id()
-            );
-            return InsertionStrategyResult::Dropped;
-        }
-        // Drop if same seq_nr but Age is older
-        if contact.age() > existing.age() {
-            log::trace!(
-                target: "routing_table",
-                "Dropping older contact info: {:?}, Existing: {:?} [{}]",
-                contact.age(),
-                existing.age(),
-                contact.id()
-            );
-            return InsertionStrategyResult::Dropped;
-        }
-        *existing.last_seen_mut() = *contact.last_seen();
-        log::trace!(
-                    target: "routing_table",
-            "Updated age of contact to {:?} [{}]",
-            existing.last_seen(),
-            existing.id()
-        );
-
-        // Finally: contact is newer, better or fixes a contact
-
-        // But: If only age is updated, don't emit anything
-        let return_result = match contact.path() == existing.path() {
-            true => {
+        // drop if received data is older than stored data
+        match existing.cmp_actuality(&contact) {
+            Ordering::Greater => {
                 log::trace!(
                     target: "routing_table",
-                    "Not updating contacts path because its the same [{}]",
+                    "Dropping path: Older [info: {:?}, saved_age: {:?}, saved_ssn: {:?}]",
+                    contact,
+                    existing.age(),
+                    existing.state_seq_nr(),
+                );
+                return InsertionStrategyResult::Dropped;
+            }
+            // If less or equal -> replace
+            Ordering::Less => {}
+            Ordering::Equal => {}
+        }
+
+        // contact is newer, better or fixes a contact
+
+        // But: If only age is updated, don't emit anything
+        let return_result =
+            if contact.path() == existing.path() && contact.state() == existing.state() {
+                log::trace!(
+                    target: "routing_table",
+                    "Not updating contacts path because its the same and doesn't change state [{}]",
                     contact.id()
                 );
                 InsertionStrategyResult::Dropped
-            }
-            false => {
+            } else {
                 log::trace!(
                     target: "routing_table",
-                    "Updating contacts path [{}]",
-                    existing.id()
+                    "Updated contact [{:?}]",
+                    contact
                 );
                 InsertionStrategyResult::Updated
-            }
-        };
+            };
 
+        contact.set_last_seen_now();
         *existing = contact;
 
         return_result
@@ -310,5 +277,106 @@ where
         }
 
         self.0.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::domain::single_bucket::SingleBucketRT;
+    use crate::domain::{
+        Contact, ContactState, InOrderCycleRemover, InsertionStrategy, InsertionStrategyResult,
+        NetworkInterface, NodeId, PNSStrategy, PNTable, Path, RoutingTable,
+        ShortestFirstPathSimplifier, StateSeqNr,
+    };
+
+    #[test]
+    fn extract_infos_from_find_node_not_for_us() {
+        crate::tests::init();
+
+        /* Topology:
+                         /---- target
+           neighbor -- root -x- other_neighbor -- proxy_invalidated
+               \----------------------------------/
+           (Where -x- signals a broken link)
+
+           Test: root should update its contact for proxy_invalidated after receiving
+                 a FindNodeRsp which is not directed to him.
+        */
+
+        let root_id = NodeId::with_msb(1);
+        let neighbor_id = NodeId::with_msb(2);
+        let other_neighbor_id = NodeId::with_msb(3);
+        let target_id = NodeId::with_msb(4);
+        let proxy_invalidated_id = NodeId::with_msb(5);
+
+        let interface = NetworkInterface::new("test");
+        let other_interface = NetworkInterface::new("test 2");
+        let third_interface = NetworkInterface::new("test 3");
+
+        let mut proxy_invalidated_contact = Contact::new(
+            Path::from([other_neighbor_id.clone(), proxy_invalidated_id.clone()]),
+            StateSeqNr::from(5),
+        );
+        *proxy_invalidated_contact.state_mut() = ContactState::Invalid;
+
+        let mut other_neighbor_contact =
+            Contact::new(Path::from([other_neighbor_id.clone()]), StateSeqNr::from(3));
+        *other_neighbor_contact.state_mut() = ContactState::Invalid;
+
+        let neighbor_contact = Contact::new(Path::from([neighbor_id.clone()]), StateSeqNr::from(2));
+
+        let target_contact = Contact::new(Path::from([target_id.clone()]), StateSeqNr::from(4));
+
+        let mut single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
+
+        for contact in [
+            proxy_invalidated_contact,
+            other_neighbor_contact,
+            neighbor_contact,
+            target_contact,
+        ] {
+            assert!(
+                single_bucket_rt.insert(contact.clone()).is_ok(),
+                "Failed to insert {:?}",
+                contact
+            );
+        }
+
+        let mut pn_table = PNTable::new();
+        pn_table.insert(neighbor_id.clone(), interface.clone());
+        pn_table.insert(other_neighbor_id.clone(), other_interface.clone());
+        pn_table.insert(target_id.clone(), third_interface.clone());
+
+        let mut insertion_strategy =
+            PNSStrategy::new(InOrderCycleRemover, ShortestFirstPathSimplifier);
+
+        // updated contact is inserted
+        let updated_contact = Contact::new(
+            Path::from([neighbor_id.clone(), proxy_invalidated_id.clone()]),
+            StateSeqNr::from(5),
+        );
+
+        let result = insertion_strategy.insert(updated_contact, &mut single_bucket_rt, &pn_table);
+
+        assert_eq!(
+            result,
+            InsertionStrategyResult::Updated,
+            "Previously invalid contact should be updated"
+        );
+
+        // Should contain the previously invalidated contact
+        let contact = single_bucket_rt.contact(&proxy_invalidated_id);
+        assert!(contact.is_some(), "couldn't find invalidated contact");
+        let contact = contact.unwrap();
+        assert_eq!(
+            contact.state(),
+            &ContactState::Valid,
+            "Contact should be validated"
+        );
+        assert_eq!(
+            contact.path(),
+            &Path::from([neighbor_id.clone(), proxy_invalidated_id.clone()]),
+            "Path was unexpectedly changed"
+        );
     }
 }

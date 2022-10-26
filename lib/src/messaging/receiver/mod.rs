@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::time::Duration;
@@ -17,12 +18,18 @@ pub enum RecvError {
     ///
     /// This may signal an inconsistency in the interface configuration.
     NoInterfaceFound,
-    /// Signals that no more messages will be received.
-    Closed,
+    /// Signals that one or many interfaces stopped working.
+    ///
+    /// This doesn't signal that the receiver stops operating.
+    InterfacesDown(HashSet<NetworkInterface>),
+    /// Signals that no more messages will be received from this receiver.
+    ///
+    /// Also includes the remaining interfaces this receiver handled.
+    Closed(HashSet<NetworkInterface>),
     /// The I/O-Layer returned some error.
-    IoError(Box<dyn Error>),
+    IoError(Box<dyn Error + Send>),
     /// Other Error for custom error types of the implementations.
-    Other(Box<dyn Error>),
+    Other(Box<dyn Error + Send>),
 }
 
 impl Display for RecvError {
@@ -35,7 +42,12 @@ impl Display for RecvError {
             ),
             Self::IoError(e) => write!(f, "Received IO Error: {}", e),
             Self::Other(e) => write!(f, "{}", e),
-            Self::Closed => write!(f, "Receiver closed"),
+            Self::InterfacesDown(interfaces) => {
+                write!(f, "Interfaces {:?} stopped working", interfaces)
+            }
+            Self::Closed(interfaces) => {
+                write!(f, "Receiver for interfaces {:?} closed", interfaces)
+            }
         }
     }
 }
@@ -46,15 +58,21 @@ impl Error for RecvError {}
 #[derive(Debug)]
 pub enum TryRecvError {
     /// The I/O-Layer returned some error.
-    IoError(Box<dyn Error>),
+    IoError(Box<dyn Error + Send>),
     /// Returned if no interface for a message was found.
     ///
     /// This may signal an inconsistency in the interface configuration.
     NoInterfaceFound,
-    /// Signals that no more messages will be received.
-    Closed,
+    /// Signals that one or many interfaces stopped working.
+    ///
+    /// This doesn't signal that the receiver stops operating.
+    InterfacesDown(HashSet<NetworkInterface>),
+    /// Signals that no more messages will be received from this receiver.
+    ///
+    /// Also includes the remaining interfaces this receiver handled.
+    Closed(HashSet<NetworkInterface>),
     /// Other Error for custom error types of the implementations.
-    Other(Box<dyn Error>),
+    Other(Box<dyn Error + Send>),
 }
 
 impl Display for TryRecvError {
@@ -66,7 +84,12 @@ impl Display for TryRecvError {
                 "No interface for message was found; Network configuration may be inconsistent"
             ),
             Self::Other(e) => write!(f, "{}", e),
-            Self::Closed => write!(f, "Receiver closed"),
+            Self::InterfacesDown(interfaces) => {
+                write!(f, "Interfaces {:?} stopped working", interfaces)
+            }
+            Self::Closed(interfaces) => {
+                write!(f, "Receiver for interfaces {:?} closed", interfaces)
+            }
         }
     }
 }
@@ -74,6 +97,8 @@ impl Display for TryRecvError {
 impl Error for TryRecvError {}
 
 /// Receives [Message]s of other Nodes.
+///
+/// A single [ProtocolMessageReceiver] can be responsible for one or many [NetworkInterface]s.
 ///
 /// Converts a [Message] formatted by its corresponding [MessageSender] back
 /// to a [Message] and returns it.

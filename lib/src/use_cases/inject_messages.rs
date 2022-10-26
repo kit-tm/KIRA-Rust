@@ -1,7 +1,8 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::error::Error;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
+use std::time::Instant;
 
 pub use std_extension::*;
 #[cfg(feature = "tokio")]
@@ -101,7 +102,7 @@ pub struct InjectMessages<C, IRS, const BUCKET_SIZE: usize> {
     config: InjectMessagesConfig,
     state: ReactiveUseCaseState,
     injection_result_sender: IRS,
-    nonces: HashSet<Nonce>,
+    nonces: HashMap<Nonce, Instant>,
 }
 
 impl<C, TS, const BUCKET_SIZE: usize> InjectMessages<C, TS, BUCKET_SIZE> {
@@ -122,7 +123,7 @@ impl<C, TS, const BUCKET_SIZE: usize> InjectMessages<C, TS, BUCKET_SIZE> {
             config,
             state: ReactiveUseCaseState::default(),
             injection_result_sender: sender,
-            nonces: HashSet::new(),
+            nonces: HashMap::new(),
         };
 
         Ok(use_case)
@@ -187,17 +188,20 @@ where
                     return Err(InjectMessageError::SendFailed);
                 }
 
-                self.nonces.insert(nonce);
+                self.nonces.insert(nonce, Instant::now());
             }
             UseCaseEvent::Message(message, interface) => {
-                if let Some(true) = message.nonce().map(|nonce| self.nonces.remove(nonce)) {
+                if let Some(Some(instant)) = message.nonce().map(|nonce| self.nonces.remove(nonce))
+                {
+                    let elapsed = instant.elapsed();
                     if let Err(e) = self
                         .injection_result_sender
-                        .send_result(InjectionResult::Answered((message, interface)))
+                        .send_result(InjectionResult::Answered((message.clone(), interface)))
                     {
                         log::error!(target: "inject_messages", "Sending answered result failed: {}", e);
                         return Err(InjectMessageError::SendResultFailed);
                     }
+                    log::trace!(target: "inject_messages", "Received response for nonce {:?} after {:?}", message.nonce(), elapsed);
                 }
             }
             _ => {}
