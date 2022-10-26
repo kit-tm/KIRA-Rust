@@ -279,11 +279,10 @@ where
                 let root_node_id = root_node_id.clone();
                 rt.spawn(async move {
                     log::trace!("Listening to receiver {:?}", message_receiver);
-                    let mut messages_cache = Vec::new();
                     let interfaces = loop {
-                        match message_receiver.recv().await {
+                        let (message, interface) = match message_receiver.recv().await {
                             Ok(None) => continue,
-                            Ok(Some(value)) => messages_cache.push(value),
+                            Ok(Some(value)) => value,
                             Err(RecvError::InterfacesDown(interfaces)) => {
                                 if let Err(e) = receiver_broadcaster
                                     .send(UseCaseEvent::Hardware(HardwareEvent::InterfacesDown(
@@ -296,6 +295,7 @@ where
                                         e
                                     );
                                 }
+                                continue;
                             }
                             Err(RecvError::Closed(interfaces)) => {
                                 break interfaces;
@@ -308,29 +308,23 @@ where
                                 continue;
                             }
                         };
-                        // Receive a bulk of messages
-                        while let Ok(Some(value)) = message_receiver.try_recv().await {
-                            messages_cache.push(value);
+
+                        if message.source() == &root_node_id {
+                            // ignoring messages from us
+                            continue;
                         }
 
-                        for (message, interface) in messages_cache.drain(..) {
-                            if message.source() == &root_node_id {
-                                // ignoring messages from us
-                                continue;
-                            }
-
-                            if let Err(e) = receiver_broadcaster
-                                .send(UseCaseEvent::Message(message.clone(), interface.clone()))
-                                .await
-                            {
-                                log::error!("Failed to broadcast protocol message: {}", e);
-                            } else {
-                                log::trace!(
-                                    "Received ProtocolMessage from {} [{}]",
-                                    message.source(),
-                                    interface
-                                );
-                            }
+                        if let Err(e) = receiver_broadcaster
+                            .send(UseCaseEvent::Message(message.clone(), interface.clone()))
+                            .await
+                        {
+                            log::error!("Failed to broadcast protocol message: {}", e);
+                        } else {
+                            log::trace!(
+                                "Received ProtocolMessage from {} [{}]",
+                                message.source(),
+                                interface
+                            );
                         }
                     };
                     if let Err(e) = receiver_broadcaster

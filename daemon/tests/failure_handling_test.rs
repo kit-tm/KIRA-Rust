@@ -13,7 +13,7 @@ use crate::common::{LinkIdx, Network};
 mod common;
 
 #[test]
-#[ntest::timeout(180000)]
+#[ntest::timeout(240000)]
 fn failure_handling_test() {
     common::setup("failure_handling_test");
 
@@ -95,7 +95,7 @@ fn failure_handling_test() {
         .blocking_close();
 
     // Wait for the rediscovery processes to finish
-    std::thread::sleep(Duration::from_secs(60));
+    std::thread::sleep(Duration::from_secs(120));
 
     // Test reachability after outage
     // Tests if all non-isolated nodes still reach each other
