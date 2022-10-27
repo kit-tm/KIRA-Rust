@@ -1,0 +1,41 @@
+services:
+  node-1:
+    image: r2kad-daemon:scratch
+    environment:
+      RUST_LOG: "debug"
+    expose:
+      - "8080"
+    networks:
+      mynetv6-1:
+        ipv6_address: "2001:db8:1::10"
+  node-2:
+    image: r2kad-daemon:bench
+    environment:
+      RUST_LOG: "trace"
+    expose:
+      - "8080"
+    networks:
+      mynetv6-1:
+        ipv6_address: "2001:db8:1::11"
+      mynetv6-2:
+        ipv6_address: "2001:db8:2::12"
+    volumes:
+      - r2kad-bench-volume:/r2kad-daemon/bench
+  node-3:
+    image: r2kad-daemon:scratch
+    environment:
+      RUST_LOG: "debug"
+    expose:
+      - "8080"
+    networks:
+      mynetv6-2:
+        ipv6_address: "2001:db8:2::13"
+
+networks:
+  mynetv6-1:
+    external: true
+  mynetv6-2:
+    external: true
+volumes:
+  r2kad-bench-volume:
+    external: true

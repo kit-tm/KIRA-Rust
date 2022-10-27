@@ -19,3 +19,19 @@ docs:
 
 bench:
 	cargo bench
+
+build-container-bench:
+	sudo docker build -t r2kad-daemon:bench -f daemon/docker/Dockerfile.bench .
+
+build-container-scratch:
+	sudo docker build -t r2kad-daemon:bench -f daemon/docker/Dockerfile.bench .
+
+build-containers: build-container-scratch build-container-bench
+
+setup-bench-daemon:
+	-sudo docker volume create r2kad-bench-volume
+
+bench-daemon: setup-bench-daemon
+	sudo docker compose -f docker-compose-bench.yml up -d
+	sleep 1m
+	sudo docker compose down

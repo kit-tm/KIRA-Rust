@@ -1,5 +1,15 @@
 [workspace]
 members = [
-	"lib",
-	"daemon"
+    "lib",
+    "daemon"
 ]
+
+# Profile which optimizes the compiled binary for performance
+[profile.benchmark]
+inherits = "release"
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
+debug = false
