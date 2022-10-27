@@ -26,6 +26,7 @@ use r2kad_lib::messaging::{
 };
 use r2kad_lib::runtime::TokioRuntime;
 use r2kad_lib::use_cases::derive_fwd_table_entries::DeriveFwdTableEntries;
+use r2kad_lib::use_cases::explicit_path_management::{EPMConfig, ExplicitPathManagement};
 use r2kad_lib::use_cases::failure_handling::FailureHandling;
 use r2kad_lib::use_cases::forward_protocol_message::ForwardProtocolMessage;
 use r2kad_lib::use_cases::handle_contact_update::{HandleContactUpdate, HandleContactUpdateConfig};
@@ -419,6 +420,11 @@ where
             return;
         }
 
+        let mut explicit_path_management = ExplicitPathManagement::new(EPMConfig::default());
+        if let Err(e) = explicit_path_management.start(&context) {
+            log::error!("Failed to start explicit path management: {}", e);
+        }
+
         let mut inject_messages = if config.message_injection_enabled {
             let mut inject_messages =
                 InjectMessages::new(InjectMessagesConfig::default(), injection_sender)
@@ -490,6 +496,12 @@ where
             {
                 log::error!("Precomputation returned error handling message");
             }
+            if let Err(e) = explicit_path_management.handle_event(&context, event.clone()) {
+                log::error!(
+                    "Explicit path management returned error handling message: {}",
+                    e
+                );
+            }
             if let Some(Err(e)) = inject_messages
                 .as_mut()
                 .map(|use_case| use_case.handle_event(&context, event.clone()))
@@ -507,6 +519,7 @@ where
                 derive_forwarding_tables.state(),
                 path_probing.state(),
                 precomputation.state(),
+                explicit_path_management.state(),
             ];
             // As Injection can be disabled -> Need to append.
             if let Some(state) = inject_messages.as_ref().map(InjectMessages::state) {
