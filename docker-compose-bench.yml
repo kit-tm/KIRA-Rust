@@ -1,3 +1,4 @@
+version: '3.9'
 services:
   node-1:
     image: r2kad-daemon:scratch
@@ -9,22 +10,20 @@ services:
       - "8080"
     networks:
       mynetv6-1:
-        ipv6_address: "2001:db8:1::10"
+        ipv6_address: 2001:db8:1::10
   node-2:
-    image: r2kad-daemon:bench
+    image: r2kad-daemon:scratch
     environment:
-      RUST_LOG: "trace"
+      RUST_LOG: "debug"
     stop_signal: SIGINT
     stop_grace_period: 30s
     expose:
       - "8080"
     networks:
       mynetv6-1:
-        ipv6_address: "2001:db8:1::11"
+        ipv6_address: 2001:db8:1::11
       mynetv6-2:
-        ipv6_address: "2001:db8:2::12"
-    volumes:
-      - r2kad-bench-volume:/r2kad-daemon/bench
+        ipv6_address: 2001:db8:2::12
   node-3:
     image: r2kad-daemon:scratch
     environment:
@@ -35,13 +34,121 @@ services:
       - "8080"
     networks:
       mynetv6-2:
-        ipv6_address: "2001:db8:2::13"
+        ipv6_address: 2001:db8:2::13
+      mynetv6-3:
+        ipv6_address: 2001:db8:3::14
+  node-4:
+    image: r2kad-daemon:scratch
+    environment:
+      RUST_LOG: "debug"
+    stop_signal: SIGINT
+    stop_grace_period: 30s
+    expose:
+      - "8080"
+    networks:
+      mynetv6-3:
+        ipv6_address: 2001:db8:3::15
+      mynetv6-4:
+        ipv6_address: 2001:db8:4::16
+  node-5:
+    image: r2kad-daemon:bench
+    environment:
+      RUST_LOG: "trace"
+    stop_signal: SIGINT
+    stop_grace_period: 30s
+    expose:
+      - "8080"
+    networks:
+      mynetv6-4:
+        ipv6_address: 2001:db8:4::17
+      mynetv6-5:
+        ipv6_address: 2001:db8:5::18
+    volumes:
+      - r2kad-bench-volume:/r2kad-daemon/bench
+  node-6:
+    image: r2kad-daemon:scratch
+    environment:
+      RUST_LOG: "debug"
+    stop_signal: SIGINT
+    stop_grace_period: 30s
+    expose:
+      - "8080"
+    networks:
+      mynetv6-5:
+        ipv6_address: 2001:db8:5::19
+      mynetv6-6:
+        ipv6_address: 2001:db8:6::20
+  node-7:
+    image: r2kad-daemon:scratch
+    environment:
+      RUST_LOG: "debug"
+    stop_signal: SIGINT
+    stop_grace_period: 30s
+    expose:
+      - "8080"
+    networks:
+      mynetv6-6:
+        ipv6_address: 2001:db8:6::21
+      mynetv6-7:
+        ipv6_address: 2001:db8:7::22
+  node-8:
+    image: r2kad-daemon:scratch
+    environment:
+      RUST_LOG: "debug"
+    stop_signal: SIGINT
+    stop_grace_period: 30s
+    expose:
+      - "8080"
+    networks:
+      mynetv6-7:
+        ipv6_address: 2001:db8:7::23
+      mynetv6-8:
+        ipv6_address: 2001:db8:8::24
+  node-9:
+    image: r2kad-daemon:scratch
+    environment:
+      RUST_LOG: "debug"
+    stop_signal: SIGINT
+    stop_grace_period: 30s
+    expose:
+      - "8080"
+    networks:
+      mynetv6-8:
+        ipv6_address: 2001:db8:8::25
+      mynetv6-9:
+        ipv6_address: 2001:db8:9::26
+  node-10:
+    image: r2kad-daemon:scratch
+    environment:
+      RUST_LOG: "debug"
+    stop_signal: SIGINT
+    stop_grace_period: 30s
+    expose:
+      - "8080"
+    networks:
+      mynetv6-9:
+        ipv6_address: 2001:db8:9::27
 
 networks:
   mynetv6-1:
     external: true
   mynetv6-2:
     external: true
+  mynetv6-3:
+    external: true
+  mynetv6-4:
+    external: true
+  mynetv6-5:
+    external: true
+  mynetv6-6:
+    external: true
+  mynetv6-7:
+    external: true
+  mynetv6-8:
+    external: true
+  mynetv6-9:
+    external: true
+
 volumes:
   r2kad-bench-volume:
     external: true

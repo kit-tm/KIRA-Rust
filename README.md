@@ -47,6 +47,49 @@ Here are the steps to take for that:
     --gateway="2001:db8:2::1" \
     mynetv6-2
     ```
+   ```shell
+   docker network create --ipv6 \                                            
+    --subnet="2001:db8:3::/64" \
+    --gateway="2001:db8:3::1" \
+    mynetv6-3
+    ```
+   ```shell
+   docker network create --ipv6 \                                            
+    --subnet="2001:db8:4::/64" \
+    --gateway="2001:db8:4::1" \
+    mynetv6-4
+    ```
+   ```shell
+   docker network create --ipv6 \                                            
+    --subnet="2001:db8:5::/64" \
+    --gateway="2001:db8:5::1" \
+    mynetv6-5
+    ```
+   ```shell
+   docker network create --ipv6 \                                            
+    --subnet="2001:db8:6::/64" \
+    --gateway="2001:db8:6::1" \
+    mynetv6-6
+    ```
+   v
+4. ```shell
+   docker network create --ipv6 \                                            
+    --subnet="2001:db8:7::/64" \
+    --gateway="2001:db8:7::1" \
+    mynetv6-7
+    ```
+   ```shell
+   docker network create --ipv6 \                                            
+    --subnet="2001:db8:8::/64" \
+    --gateway="2001:db8:8::1" \
+    mynetv6-8
+    ```
+   ```shell
+   docker network create --ipv6 \                                            
+    --subnet="2001:db8:9::/64" \
+    --gateway="2001:db8:9::1" \
+    mynetv6-9
+    ```
 4. Build the image:
    ```shell
    docker build -t r2kad-daemon:scratch -f daemon/docker/Dockerfile.scratch .
