@@ -14,7 +14,7 @@ services:
   node-2:
     image: r2kad-daemon:scratch
     environment:
-      RUST_LOG: "debug"
+      RUST_LOG: "trace"
     stop_signal: SIGINT
     stop_grace_period: 30s
     expose:
