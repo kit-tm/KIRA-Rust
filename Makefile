@@ -33,5 +33,17 @@ setup-bench-daemon:
 
 bench-daemon: setup-bench-daemon
 	sudo docker compose -f docker-compose-bench.yml up -d
-	sleep 1m
+	sleep 5m
+	sudo docker compose down
+	sudo docker compose -f docker-compose-bench.yml up -d
+	sleep 5m
+	sudo docker compose down
+	sudo docker compose -f docker-compose-bench.yml up -d
+	sleep 5m
+	sudo docker compose down
+	sudo docker compose -f docker-compose-bench.yml up -d
+	sleep 5m
+	sudo docker compose down
+	sudo docker compose -f docker-compose-bench.yml up -d
+	sleep 5m
 	sudo docker compose down
