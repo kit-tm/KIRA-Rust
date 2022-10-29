@@ -21,10 +21,10 @@ bench:
 	cargo bench
 
 build-container-bench:
-	sudo docker build --no-cache -t r2kad-daemon:bench -f daemon/docker/Dockerfile.bench .
+	sudo docker build -t r2kad-daemon:bench -f daemon/docker/Dockerfile.bench .
 
 build-container-scratch:
-	sudo docker build --no-cache -t r2kad-daemon:bench -f daemon/docker/Dockerfile.bench .
+	sudo docker build -t r2kad-daemon:scratch -f daemon/docker/Dockerfile.scratch .
 
 build-containers: build-container-scratch build-container-bench
 
@@ -68,7 +68,7 @@ bench-daemon:
 	# 4. Iteration
 	sudo docker compose -f docker-compose-bench.yml up -d
 	sleep 1m
-	sudo docker compose -f docker-compose-bench.yml down node-4
+	sudo docker compose -f docker-compose-bench.yml stop node-4
 	sleep 2m
 	sudo docker compose -f docker-compose-bench.yml start node-4
 	sleep 2m
@@ -80,4 +80,4 @@ bench-daemon:
 	sleep 2m
 	sudo docker compose -f docker-compose-bench.yml start node-8
 	sleep 2m
-	sudo docker compose -f docker-compose-bench.yml  down
+	sudo docker compose -f docker-compose-bench.yml down
