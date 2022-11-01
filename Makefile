@@ -52,32 +52,32 @@ bench-daemon:
 	# 2. Iteration
 	sudo docker compose -f docker-compose-bench.yml up -d
 	sleep 1m
-	sudo docker compose -f docker-compose-bench.yml stop node-7
+	sudo docker compose -f docker-compose-bench.yml stop node-3
 	sleep 2m
-	sudo docker compose -f docker-compose-bench.yml start node-7
+	sudo docker compose -f docker-compose-bench.yml start node-3
 	sleep 2m
 	sudo docker compose -f docker-compose-bench.yml down
 	# 3. Iteration
 	sudo docker compose -f docker-compose-bench.yml up -d
 	sleep 1m
-	sudo docker compose -f docker-compose-bench.yml stop node-10
+	sudo docker compose -f docker-compose-bench.yml stop node-3
 	sleep 2m
-	sudo docker compose -f docker-compose-bench.yml start node-10
+	sudo docker compose -f docker-compose-bench.yml start node-3
 	sleep 2m
 	sudo docker compose -f docker-compose-bench.yml down
 	# 4. Iteration
 	sudo docker compose -f docker-compose-bench.yml up -d
 	sleep 1m
-	sudo docker compose -f docker-compose-bench.yml stop node-4
+	sudo docker compose -f docker-compose-bench.yml stop node-3
 	sleep 2m
-	sudo docker compose -f docker-compose-bench.yml start node-4
+	sudo docker compose -f docker-compose-bench.yml start node-3
 	sleep 2m
 	sudo docker compose -f docker-compose-bench.yml down
 	# 5. Iteration
 	sudo docker compose -f docker-compose-bench.yml up -d
 	sleep 1m
-	sudo docker compose -f docker-compose-bench.yml stop node-8
+	sudo docker compose -f docker-compose-bench.yml stop node-3
 	sleep 2m
-	sudo docker compose -f docker-compose-bench.yml start node-8
+	sudo docker compose -f docker-compose-bench.yml start node-3
 	sleep 2m
 	sudo docker compose -f docker-compose-bench.yml down
