@@ -1,3 +1,5 @@
+use std::fmt::{Debug, Display, Formatter};
+
 use crate::domain::path_id::PathId;
 use crate::domain::{NetworkInterface, NodeId};
 
@@ -21,6 +23,23 @@ pub struct NodeIdEntry {
     pub out_interface: NetworkInterface,
 }
 
+impl Display for NodeIdEntry {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.destination, f)?;
+        write!(f, " => (")?;
+        Display::fmt(&self.next_hop, f)?;
+        write!(f, ", ")?;
+        if let Some(id) = &self.out_path_id {
+            Display::fmt(id, f)?;
+        } else {
+            write!(f, "-")?;
+        }
+        write!(f, ", ")?;
+        Display::fmt(&self.out_interface, f)?;
+        write!(f, ")")
+    }
+}
+
 /// An entry in the [PathIdEntry] identified by incoming [PathId] (with current nodes [NodeId]).
 #[derive(Debug, Eq, PartialEq, Clone, Hash)]
 pub struct PathIdEntry {
@@ -33,9 +52,20 @@ pub struct PathIdEntry {
     pub out_interface: NetworkInterface,
 }
 
+impl Display for PathIdEntry {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.in_path_id, f)?;
+        write!(f, " => (")?;
+        Display::fmt(&self.out_path_id, f)?;
+        write!(f, ", ")?;
+        Display::fmt(&self.out_interface, f)?;
+        write!(f, ")")
+    }
+}
+
 /// CRUD access interface to the forwarding table based on [NodeId]s.
 pub trait NodeIdTable {
-    type Error;
+    type Error: Debug;
 
     /// Creates the given [NodeIdEntry].
     ///
@@ -55,7 +85,7 @@ pub trait NodeIdTable {
 
 /// CRUD access interface to the forwarding table based on [PathId]s.
 pub trait PathIdTable {
-    type Error;
+    type Error: Debug;
 
     /// Creates the given [PathIdEntry].
     ///

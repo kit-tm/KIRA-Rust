@@ -142,6 +142,16 @@ impl SourceRoute {
             Err(_) => panic!("Invalid invariant"),
         }
     }
+
+    /// Returns the remaining [Path] including the current hop.
+    pub fn remaining_path(&self) -> Path {
+        assert!(self.progress > 0 && self.progress < self.size());
+        let remaining_ids: Result<Path, _> = self.ids.iter().skip(self.progress).cloned().collect();
+        match remaining_ids {
+            Ok(path) => path,
+            Err(_) => panic!("Invalid invariant"),
+        }
+    }
 }
 
 impl Extend<NodeId> for SourceRoute {
