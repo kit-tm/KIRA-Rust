@@ -8,6 +8,7 @@ use crate::messaging::messages::ProtocolMessage;
 use crate::messaging::{FindNodeReqData, Nonce};
 
 pub mod derive_fwd_table_entries;
+pub mod explicit_path_management;
 pub mod failure_handling;
 pub mod forward_protocol_message;
 pub mod handle_contact_update;
