@@ -1,4 +1,8 @@
 use std::collections::HashMap;
+use std::fs::{create_dir_all, File, OpenOptions};
+use std::io::BufWriter;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::Arc;
 
 use clap::Parser;
@@ -18,6 +22,11 @@ struct Args {
     socket_port: u16,
     #[clap(short, long, value_parser, env = "NODE_ID")]
     root_id: Option<NodeId>,
+    /// The path to print the benchmarks after execution.
+    ///
+    /// This also enables benchmarking mode which disables logging.
+    #[clap(short, long, value_parser, env = "BENCH_PATH")]
+    benchmark_path: Option<String>,
 }
 
 fn main() {
@@ -35,6 +44,35 @@ fn main() {
     let args = Args::parse();
 
     let root_id: NodeId = args.root_id.unwrap_or_else(NodeId::random);
+    println!("Using id {}", root_id);
+
+    // Initialize benchmark file
+    let benchmark_writer: Option<BufWriter<File>> = args
+        .benchmark_path
+        .filter(|path| !path.trim().is_empty())
+        .and_then(|path| {
+            let timestamp = format!("{}_{}.csv", chrono::Utc::now().to_rfc3339(), &root_id);
+            let path = PathBuf::from_str(path.as_ref())
+                .expect("invalid benchmark path")
+                .join(timestamp);
+            println!("Opening benchmark file {}", path.to_string_lossy());
+            if let Some(parent_dir) = path.parent() {
+                if !parent_dir.exists() {
+                    create_dir_all(parent_dir).expect("failed to create directories for benchmark");
+                }
+            }
+            OpenOptions::new()
+                .write(true)
+                .truncate(false)
+                .create(true)
+                .open(Path::new(&path))
+                .map(Some)
+                .unwrap_or_else(|e| {
+                    log::error!("Failed to open benchmarking file: {}", e);
+                    None
+                })
+        })
+        .map(BufWriter::new);
 
     let mapper = PNetInterfaceMonitor::new();
     mapper.blocking_refresh();
@@ -59,7 +97,7 @@ fn main() {
     let addr = message_sender
         .local_addr()
         .expect("failed to get bind addr");
-    log::debug!("Using Address: {}", addr);
+    println!("Using Address: {}", addr);
 
     let (pmr_sender, pmr_receiver) = mpsc::channel(1);
     let boxed_receiver: Box<dyn AsyncProtocolMessageReceiver + Send> = Box::new(message_receiver);
@@ -68,8 +106,13 @@ fn main() {
         return;
     }
 
+    let config = NodeConfig {
+        benchmark_path: benchmark_writer,
+        ..NodeConfig::default()
+    };
+
     let node = Node::new(
-        NodeConfig::default(),
+        config,
         root_id,
         Arc::clone(&runtime),
         pmr_receiver,
@@ -77,9 +120,5 @@ fn main() {
         fwd_table,
     );
 
-    let _handle = node.start();
-
-    runtime
-        .block_on(tokio::signal::ctrl_c())
-        .expect("failed to register ctrl-c handler");
+    node.blocking_start();
 }

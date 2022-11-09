@@ -1,10 +1,14 @@
 use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::Debug;
+use std::fs::File;
+use std::io::BufWriter;
 use std::sync::Arc;
-use std::thread::JoinHandle;
 use std::time::Duration;
 
+use futures::StreamExt;
+use signal_hook::consts::{SIGHUP, SIGINT, SIGKILL, SIGPIPE, SIGQUIT, SIGTERM};
+use signal_hook_tokio::Signals;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver, UnboundedSender};
 use tokio::time::Instant;
@@ -26,6 +30,7 @@ use r2kad_lib::messaging::{
 };
 use r2kad_lib::runtime::TokioRuntime;
 use r2kad_lib::use_cases::derive_fwd_table_entries::DeriveFwdTableEntries;
+use r2kad_lib::use_cases::explicit_path_management::{EPMConfig, ExplicitPathManagement};
 use r2kad_lib::use_cases::failure_handling::FailureHandling;
 use r2kad_lib::use_cases::forward_protocol_message::ForwardProtocolMessage;
 use r2kad_lib::use_cases::handle_contact_update::{HandleContactUpdate, HandleContactUpdateConfig};
@@ -43,12 +48,15 @@ use r2kad_lib::use_cases::{
     UseCaseState,
 };
 
+use crate::benchmark_log::{BenchmarkEntry, BenchmarkLog};
 use crate::errors::InjectMessageError;
+
+mod benchmark_log;
 
 #[derive(Default, Debug)]
 pub struct NodeConfig {
-    pub message_injection_enabled: bool,
     pub heuristic_enabled: bool,
+    pub benchmark_path: Option<BufWriter<File>>,
 }
 
 /// The main structure.
@@ -103,7 +111,6 @@ impl<S: Debug, FT> Node<S, FT> {
 }
 
 pub struct NodeHandle {
-    handle: Option<JoinHandle<()>>,
     broadcaster: UnboundedSender<UseCaseEvent>,
     injection_result_receiver: Receiver<InjectionResult>,
 }
@@ -151,20 +158,12 @@ impl NodeHandle {
     }
 
     pub fn shutdown(&self) {
-        if self.handle.is_none() {
+        if self.broadcaster.is_closed() {
             return;
         }
 
         if let Err(e) = self.broadcaster.send_event(UseCaseEvent::Shutdown) {
             log::error!("Failed to send shutdown event: {}", e);
-        }
-    }
-
-    pub fn wait_for_shutdown(&mut self) {
-        if let Some(handle) = self.handle.take() {
-            if let Err(e) = handle.join() {
-                log::error!("Failed to join node thread: {:?}", e);
-            }
         }
     }
 }
@@ -175,6 +174,18 @@ impl Drop for NodeHandle {
     }
 }
 
+struct HandleLoopConfig<S, FT> {
+    config: NodeConfig,
+    root_id: NodeId,
+    sender: S,
+    fwd_table: FT,
+    broadcaster: UnboundedSender<UseCaseEvent>,
+    broadcast_receiver: UnboundedReceiver<UseCaseEvent>,
+    async_receivers: Receiver<Box<dyn AsyncProtocolMessageReceiver + Send>>,
+    runtime: Arc<tokio::runtime::Runtime>,
+    injection_sender: Option<Sender<InjectionResult>>,
+}
+
 impl<S, FT> Node<S, FT>
 where
     S: ProtocolMessageSender + Send + 'static,
@@ -182,7 +193,37 @@ where
     <FT as NodeIdTable>::Error: Error,
     <FT as PathIdTable>::Error: Error,
 {
-    pub fn start(self) -> NodeHandle {
+    /// Initializes the event loop and runs it.
+    ///
+    /// This means this method only returns after node has shut down.
+    pub fn blocking_start(self) {
+        let Node {
+            root_id,
+            runtime,
+            async_receivers,
+            sender,
+            config,
+            fwd_table,
+        } = self;
+        let (broadcaster, broadcast_receiver) = mpsc::unbounded_channel();
+
+        let node_id_env_name = format!("{:?}_NODE_ID", std::thread::current().id());
+        std::env::set_var(node_id_env_name, root_id.to_string());
+
+        Node::handle_loop(HandleLoopConfig {
+            config,
+            root_id,
+            sender,
+            fwd_table,
+            broadcaster,
+            broadcast_receiver,
+            async_receivers,
+            runtime,
+            injection_sender: None,
+        })
+    }
+
+    pub fn start(self) -> (NodeHandle, std::thread::JoinHandle<()>) {
         let Node {
             root_id,
             runtime,
@@ -199,46 +240,54 @@ where
             let node_id_env_name = format!("{:?}_NODE_ID", std::thread::current().id());
             std::env::set_var(node_id_env_name, root_id.to_string());
 
-            Node::handle_loop(
+            Node::handle_loop(HandleLoopConfig {
                 config,
                 root_id,
                 sender,
                 fwd_table,
-                cloned_broadcaster,
+                broadcaster: cloned_broadcaster,
                 broadcast_receiver,
                 async_receivers,
                 runtime,
-                injection_sender,
-            )
+                injection_sender: Some(injection_sender),
+            })
         });
 
-        NodeHandle {
-            handle: Some(handle),
-            broadcaster,
-            injection_result_receiver: injection_receiver,
-        }
+        (
+            NodeHandle {
+                broadcaster,
+                injection_result_receiver: injection_receiver,
+            },
+            handle,
+        )
     }
 
-    fn handle_loop(
-        config: NodeConfig,
-        root_id: NodeId,
-        sender: S,
-        fwd_table: FT,
-        broadcaster: UnboundedSender<UseCaseEvent>,
-        mut broadcast_receiver: UnboundedReceiver<UseCaseEvent>,
-        mut async_receivers: Receiver<Box<dyn AsyncProtocolMessageReceiver + Send>>,
-        runtime: Arc<tokio::runtime::Runtime>,
-        injection_sender: Sender<InjectionResult>,
-    ) {
+    fn handle_loop(config: HandleLoopConfig<S, FT>) {
+        let HandleLoopConfig {
+            config,
+            root_id,
+            sender,
+            fwd_table,
+            broadcaster,
+            mut broadcast_receiver,
+            mut async_receivers,
+            runtime,
+            injection_sender,
+        } = config;
+
         log::info!("Using NodeId {}", root_id);
 
-        let (fan_in_sender, mut fan_in_receiver) = mpsc::channel(100);
+        let mut benchmark_log = BenchmarkLog::new();
+        let mut bench_file_writer = config.benchmark_path.map(BufWriter::new);
+
+        let (fan_in_sender, mut fan_in_receiver) =
+            mpsc::channel::<(UseCaseEvent, Option<Instant>)>(100);
 
         // Create a task to fan in own created events
         let broadcast_fan_in_sender = fan_in_sender.clone();
         runtime.spawn(async move {
             while let Some(event) = broadcast_receiver.recv().await {
-                if let Err(e) = broadcast_fan_in_sender.send(event).await {
+                if let Err(e) = broadcast_fan_in_sender.send((event, None)).await {
                     log::error!("Failed to fan in broadcastet event: {}", e);
                     break;
                 }
@@ -253,7 +302,7 @@ where
         ));
 
         // Add observer which emits to broadcaster
-        let observer_broadcaster = fan_in_sender.clone();
+        let observer_broadcaster = broadcaster.clone();
         routing_table.add_observer(move |event| {
             let contact_event = match event {
                 RoutingTableEvent::NewContact(contact) => ContactEvent::New(contact),
@@ -263,8 +312,7 @@ where
                 }
                 _ => return,
             };
-            if let Err(e) = observer_broadcaster.blocking_send(UseCaseEvent::Contact(contact_event))
-            {
+            if let Err(e) = observer_broadcaster.send(UseCaseEvent::Contact(contact_event)) {
                 log::error!("Failed to broadcast ContactEvent: {}", e);
             }
         });
@@ -278,16 +326,18 @@ where
                 let receiver_broadcaster = fan_in_sender.clone();
                 let root_node_id = root_node_id.clone();
                 rt.spawn(async move {
-                    log::trace!("Listening to receiver {:?}", message_receiver);
                     let interfaces = loop {
-                        let (message, interface) = match message_receiver.recv().await {
+                        let (message, interface, started) = match message_receiver.recv().await {
                             Ok(None) => continue,
-                            Ok(Some(value)) => value,
+                            Ok(Some((message, interface))) => (message, interface, Instant::now()),
                             Err(RecvError::InterfacesDown(interfaces)) => {
                                 if let Err(e) = receiver_broadcaster
-                                    .send(UseCaseEvent::Hardware(HardwareEvent::InterfacesDown(
-                                        interfaces,
-                                    )))
+                                    .send((
+                                        UseCaseEvent::Hardware(HardwareEvent::InterfacesDown(
+                                            interfaces,
+                                        )),
+                                        None,
+                                    ))
                                     .await
                                 {
                                     log::error!(
@@ -315,7 +365,10 @@ where
                         }
 
                         if let Err(e) = receiver_broadcaster
-                            .send(UseCaseEvent::Message(message.clone(), interface.clone()))
+                            .send((
+                                UseCaseEvent::Message(message.clone(), interface.clone()),
+                                Some(started),
+                            ))
                             .await
                         {
                             log::error!("Failed to broadcast protocol message: {}", e);
@@ -328,9 +381,12 @@ where
                         }
                     };
                     if let Err(e) = receiver_broadcaster
-                        .send(UseCaseEvent::Hardware(HardwareEvent::InterfacesDown(
-                            interfaces.clone(),
-                        )))
+                        .send((
+                            UseCaseEvent::Hardware(HardwareEvent::InterfacesDown(
+                                interfaces.clone(),
+                            )),
+                            None,
+                        ))
                         .await
                     {
                         log::error!("Failed to send hardware event to use cases: {}", e);
@@ -346,7 +402,7 @@ where
             root_id: root_id.clone(),
             routing_table,
             message_sender: sender,
-            runtime: TokioRuntime::new(broadcaster, Arc::clone(&runtime)),
+            runtime: TokioRuntime::new(broadcaster.clone(), Arc::clone(&runtime)),
             insertion_strategy: PNSStrategy::<
                 ObservableRoutingTable<
                     UnlimitedPNRoutingTable<DEFAULT_BUCKET_SIZE, 1>,
@@ -361,6 +417,28 @@ where
             not_via: HashSet::default(),
         };
         let context = SyncContext::new(context_config);
+
+        // Start Signal handler to listen to OS signals
+        runtime.spawn(async move {
+            let mut signals: Signals = Signals::new(&[SIGHUP, SIGTERM, SIGINT, SIGQUIT, SIGPIPE])
+                .expect("failed to create signals");
+
+            let received = signals.next().await;
+
+            match received {
+                Some(SIGHUP) => println!("Received SIGHUP"),
+                Some(SIGTERM) => println!("Received SIGTERM"),
+                Some(SIGINT) => println!("Received SIGQUIT"),
+                Some(SIGPIPE) => println!("Received SIGPIPE"),
+                Some(SIGKILL) => println!("Received SIGKILL"),
+                Some(signal) => println!("Received unsupported signal: {}", signal),
+                None => println!("Closed before signal could be received"),
+            }
+
+            if let Err(e) = broadcaster.send(UseCaseEvent::Shutdown) {
+                log::error!("Failed to broadcast signal triggered shutdown: {}", e);
+            }
+        });
 
         // Initialize the Use Cases
 
@@ -419,7 +497,12 @@ where
             return;
         }
 
-        let mut inject_messages = if config.message_injection_enabled {
+        let mut explicit_path_management = ExplicitPathManagement::new(EPMConfig::default());
+        if let Err(e) = explicit_path_management.start(&context) {
+            log::error!("Failed to start explicit path management: {}", e);
+        }
+
+        let mut inject_messages = if let Some(injection_sender) = injection_sender {
             let mut inject_messages =
                 InjectMessages::new(InjectMessagesConfig::default(), injection_sender)
                     .expect("default grouping should be valid");
@@ -443,7 +526,7 @@ where
         // Wait for MessageReceivers or runtime to emit events and delegate to Use Cases
         // IMPORTANT: The Runtime::block_on method drives progress in the CurrentThreadRuntime.
         //              Without that the tasks spawned in the runtime won't make any progress.
-        while let Some(event) = runtime.block_on(fan_in_receiver.recv()) {
+        while let Some((event, start_time)) = runtime.block_on(fan_in_receiver.recv()) {
             log::trace!("Processing event {:?}", event);
 
             // Some precomputation to perform actions and delegate which are common tasks
@@ -490,6 +573,12 @@ where
             {
                 log::error!("Precomputation returned error handling message");
             }
+            if let Err(e) = explicit_path_management.handle_event(&context, event.clone()) {
+                log::error!(
+                    "Explicit path management returned error handling message: {}",
+                    e
+                );
+            }
             if let Some(Err(e)) = inject_messages
                 .as_mut()
                 .map(|use_case| use_case.handle_event(&context, event.clone()))
@@ -507,6 +596,7 @@ where
                 derive_forwarding_tables.state(),
                 path_probing.state(),
                 precomputation.state(),
+                explicit_path_management.state(),
             ];
             // As Injection can be disabled -> Need to append.
             if let Some(state) = inject_messages.as_ref().map(InjectMessages::state) {
@@ -517,14 +607,34 @@ where
                 break;
             }
 
-            log::trace!("Processing event finished by all UseCases!");
+            if let Some(start_time) = start_time {
+                let took_time = start_time.elapsed();
+
+                log::trace!(
+                    "Took {} to process {:?} by all use cases!",
+                    humantime::format_duration(took_time),
+                    event
+                );
+                #[cfg(feature = "bench")]
+                if let (UseCaseEvent::Message(message, _), Some(writer)) =
+                    (&event, bench_file_writer.as_mut())
+                {
+                    let bench_entry = BenchmarkEntry::new(message, took_time);
+                    benchmark_log.append_bench(bench_entry, writer);
+                }
+            }
 
             if let UseCaseEvent::Shutdown = event {
                 break;
             }
         }
-        log::trace!("Shutting down.");
+        log::debug!("Shutting down");
         log::logger().flush();
+        #[cfg(feature = "bench")]
+        if let Some(writer) = bench_file_writer.as_mut() {
+            benchmark_log.flush(writer);
+            log::trace!("Flushed benchmarks");
+        }
     }
 }
 
