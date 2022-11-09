@@ -51,5 +51,4 @@ bench-daemon:
         sudo docker compose -f docker-compose-bench.yml start node-3 ; \
         sleep 2m ; \
         sudo docker compose -f docker-compose-bench.yml down ; \
-    	((NUMBER = NUMBER + 1)) ; \
     done
