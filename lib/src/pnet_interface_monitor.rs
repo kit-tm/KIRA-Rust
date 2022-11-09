@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::fmt::{Debug, Formatter};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -22,17 +21,6 @@ use crate::messaging::{AsyncInterfaceMapper, InterfaceMapper};
 pub struct PNetInterfaceMonitor {
     interfaces: Arc<RwLock<HashSet<datalink::NetworkInterface>>>,
     handlers: Arc<Mutex<Vec<Box<dyn HardwareEventHandler>>>>,
-}
-
-impl Debug for PNetInterfaceMonitor {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "PNetInterfaceMonitor {{ interfaces: {:?}, handlers: {} }}",
-            self.interfaces,
-            self.handlers.blocking_lock().len()
-        )
-    }
 }
 
 impl PNetInterfaceMonitor {

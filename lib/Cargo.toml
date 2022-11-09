@@ -56,7 +56,7 @@ tokio = { version = "1.19.2", default-features = false, features = ["sync"] }
 # Dependencies for examples, Benchmarks and Tests
 [dev-dependencies]
 bus = "2.2.4"
-criterion = "0.3.5"
+criterion = "0.4.0"
 env_logger = "0.9.0"
 futures = "0.3.21"
 pnet = { version = "0.31.0", features = ["std", "pnet_datalink"] }

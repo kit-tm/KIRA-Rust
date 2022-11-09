@@ -106,7 +106,7 @@ impl Error for TryRecvError {}
 /// Every method is allowed to return [None] at any point in time.
 /// In cases where the [ProtocolMessageReceiver] is no longer able to receive messages
 /// an error has to be returned.
-pub trait ProtocolMessageReceiver: Debug {
+pub trait ProtocolMessageReceiver {
     /// Receives a [Message].
     ///
     /// Returns an [Error] if receiving failed or the optional timeout was reached.
@@ -133,7 +133,7 @@ pub trait ProtocolMessageReceiver: Debug {
 /// Converts a [Message] formatted by its corresponding [MessageSender] back
 /// to a [Message] and returns it.
 #[async_trait::async_trait]
-pub trait AsyncProtocolMessageReceiver: Debug {
+pub trait AsyncProtocolMessageReceiver {
     /// Receives a [Message].
     ///
     /// Returns an [Error] if receiving failed or the optional timeout was reached.
