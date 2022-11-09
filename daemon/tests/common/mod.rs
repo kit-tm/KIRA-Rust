@@ -6,7 +6,7 @@ use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::thread::ThreadId;
+use std::thread::{JoinHandle, ThreadId};
 
 use chrono::Utc;
 use log::{LevelFilter, Record};
@@ -52,7 +52,7 @@ pub fn setup(test_name: &'static str) {
                 .additive(true)
                 .build(test_name, LevelFilter::Trace),
         )
-        .build(Root::builder().appender("files").build(LevelFilter::Trace))
+        .build(Root::builder().appender("files").build(LevelFilter::Debug))
         .unwrap();
 
     let _ = log4rs::init_config(config);
@@ -129,16 +129,18 @@ impl From<(NodeId, NodeId)> for LinkIdx {
     }
 }
 
+type NodesMap = HashMap<
+    NodeId,
+    (
+        Node<IdDelegator<CloseableSender>, InMemoryFwdTables>,
+        Sender<Box<dyn AsyncProtocolMessageReceiver + Send>>,
+    ),
+>;
+
 /// Represents the integration test network of nodes connected through links/cables.
 pub struct Network {
     links: HashMap<LinkIdx, Cable>,
-    nodes: HashMap<
-        NodeId,
-        (
-            Node<IdDelegator<CloseableSender>, InMemoryFwdTables>,
-            Sender<Box<dyn AsyncProtocolMessageReceiver + Send>>,
-        ),
-    >,
+    nodes: NodesMap,
 }
 
 impl Network {
@@ -146,7 +148,10 @@ impl Network {
         let handles = self
             .nodes
             .drain()
-            .map(|(id, (node, sender))| (id, (node.start(), sender)))
+            .map(|(id, (node, sender))| {
+                let (node_handle, join_handle) = node.start();
+                (id, (node_handle, Some(join_handle), sender))
+            })
             .collect::<HashMap<_, _>>();
 
         NetworkHandle {
@@ -156,15 +161,18 @@ impl Network {
     }
 }
 
+type NodesHandleMap = HashMap<
+    NodeId,
+    (
+        NodeHandle,
+        Option<JoinHandle<()>>,
+        Sender<Box<dyn AsyncProtocolMessageReceiver + Send>>,
+    ),
+>;
+
 pub struct NetworkHandle {
     links: HashMap<LinkIdx, Cable>,
-    nodes: HashMap<
-        NodeId,
-        (
-            NodeHandle,
-            Sender<Box<dyn AsyncProtocolMessageReceiver + Send>>,
-        ),
-    >,
+    nodes: NodesHandleMap,
 }
 
 impl NetworkHandle {
@@ -177,19 +185,18 @@ impl NetworkHandle {
     }
 
     pub fn node(&self, id: &NodeId) -> Option<&NodeHandle> {
-        self.nodes.get(id).map(|(handle, _)| handle)
+        self.nodes.get(id).map(|(handle, _, _)| handle)
     }
 
     pub fn node_mut(&mut self, id: &NodeId) -> Option<&mut NodeHandle> {
-        self.nodes.get_mut(id).map(|(handle, _)| handle)
+        self.nodes.get_mut(id).map(|(handle, _, _)| handle)
     }
 
     pub fn shutdown(&mut self) {
-        for (handle, _) in self.nodes.values() {
-            handle.shutdown();
-        }
-        for (handle, _) in self.nodes.values_mut() {
-            handle.wait_for_shutdown();
+        for (handle, join_handle, _) in self.nodes.values() {
+            if join_handle.is_some() {
+                handle.shutdown();
+            }
         }
     }
 }
@@ -258,15 +265,15 @@ impl<E> From<Graph<NodeId, E, Undirected>> for Network {
             let (neighbor_receivers_sender, neighbor_receivers_receiver) =
                 mpsc::channel(neighbor_receivers.len() + 1);
             for receiver in neighbor_receivers {
-                neighbor_receivers_sender
-                    .blocking_send(receiver)
-                    .expect("failed to send receiver through channel");
+                if neighbor_receivers_sender.blocking_send(receiver).is_err() {
+                    panic!("Failed to send receiver to send receiver");
+                }
             }
 
             let node = Node::new(
                 NodeConfig {
-                    message_injection_enabled: true,
                     heuristic_enabled: false,
+                    benchmark_path: None,
                 },
                 node_id.clone(),
                 Arc::clone(&runtime),

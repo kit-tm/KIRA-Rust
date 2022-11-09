@@ -65,7 +65,7 @@ fn failure_handling_test() {
     // 6 -- 7
     graph.add_edge(NodeIndex::new(5), NodeIndex::new(6), ());
 
-    println!(
+    log::info!(
         "Using network: {:?}",
         Dot::with_config(&graph, &[Config::EdgeNoLabel])
     );
@@ -201,6 +201,8 @@ fn failure_handling_test() {
     }
 
     network.shutdown();
+
+    std::thread::sleep(Duration::from_secs(10));
 
     log::logger().flush();
 
