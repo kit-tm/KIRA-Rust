@@ -41,43 +41,15 @@ setup-bench-daemon:
 	-sudo docker network create --ipv6 --subnet="2001:db8:9::/64" --gateway="2001:db8:9::1" mynetv6-9
 
 bench-daemon:
-	# 1. iteration
-	sudo docker compose -f docker-compose-bench.yml up -d
-	sleep 1m
-	sudo docker compose -f docker-compose-bench.yml stop node-3
-	sleep 2m
-	sudo docker compose -f docker-compose-bench.yml start node-3
-	sleep 2m
-	sudo docker compose -f docker-compose-bench.yml down
-	# 2. Iteration
-	sudo docker compose -f docker-compose-bench.yml up -d
-	sleep 1m
-	sudo docker compose -f docker-compose-bench.yml stop node-3
-	sleep 2m
-	sudo docker compose -f docker-compose-bench.yml start node-3
-	sleep 2m
-	sudo docker compose -f docker-compose-bench.yml down
-	# 3. Iteration
-	sudo docker compose -f docker-compose-bench.yml up -d
-	sleep 1m
-	sudo docker compose -f docker-compose-bench.yml stop node-3
-	sleep 2m
-	sudo docker compose -f docker-compose-bench.yml start node-3
-	sleep 2m
-	sudo docker compose -f docker-compose-bench.yml down
-	# 4. Iteration
-	sudo docker compose -f docker-compose-bench.yml up -d
-	sleep 1m
-	sudo docker compose -f docker-compose-bench.yml stop node-3
-	sleep 2m
-	sudo docker compose -f docker-compose-bench.yml start node-3
-	sleep 2m
-	sudo docker compose -f docker-compose-bench.yml down
-	# 5. Iteration
-	sudo docker compose -f docker-compose-bench.yml up -d
-	sleep 1m
-	sudo docker compose -f docker-compose-bench.yml stop node-3
-	sleep 2m
-	sudo docker compose -f docker-compose-bench.yml start node-3
-	sleep 2m
-	sudo docker compose -f docker-compose-bench.yml down
+	# 10 Iterationen der Benchmark
+	number=1 ; while [[ $$number -le 10 ]] ; do \
+  		echo "Iteration #${number}"; \
+        sudo docker compose -f docker-compose-bench.yml up -d ; \
+        sleep 1m ; \
+        sudo docker compose -f docker-compose-bench.yml stop node-3 ; \
+        sleep 2m ; \
+        sudo docker compose -f docker-compose-bench.yml start node-3 ; \
+        sleep 2m ; \
+        sudo docker compose -f docker-compose-bench.yml down ; \
+    	((number = number + 1)) ; \
+    done
