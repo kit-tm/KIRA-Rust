@@ -109,6 +109,12 @@ fn reachability() {
 
     log::info!("Successful requests: {:#?}", successful_requests);
 
+    network.shutdown();
+
+    std::thread::sleep(Duration::from_secs(10));
+
+    log::logger().flush();
+
     assert!(
         failed_requests.is_empty(),
         "Some nodes couldn't reach other nodes: {:#?}",
