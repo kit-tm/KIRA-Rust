@@ -42,8 +42,8 @@ setup-bench-daemon:
 
 bench-daemon:
 	# 10 Iterationen der Benchmark
-	number=1 ; while [[ $$number -le 10 ]] ; do \
-  		echo "Iteration #${number}"; \
+	for NUMBER in 1 2 3 4 5 6 7 8 9 10 ; do \
+  		echo "Iteration #"$$NUMBER; \
         sudo docker compose -f docker-compose-bench.yml up -d ; \
         sleep 1m ; \
         sudo docker compose -f docker-compose-bench.yml stop node-3 ; \
@@ -51,5 +51,5 @@ bench-daemon:
         sudo docker compose -f docker-compose-bench.yml start node-3 ; \
         sleep 2m ; \
         sudo docker compose -f docker-compose-bench.yml down ; \
-    	((number = number + 1)) ; \
+    	((NUMBER = NUMBER + 1)) ; \
     done
