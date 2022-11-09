@@ -19,3 +19,37 @@ docs:
 
 bench:
 	cargo bench
+
+build-container-bench:
+	sudo docker build -t r2kad-daemon:bench -f daemon/docker/Dockerfile.bench .
+
+build-container-scratch:
+	sudo docker build -t r2kad-daemon:scratch -f daemon/docker/Dockerfile.scratch .
+
+build-containers: build-container-scratch build-container-bench
+
+setup-bench-daemon:
+	-sudo docker volume create r2kad-bench-volume
+	-sudo docker network create --ipv6 --subnet="2001:db8:1::/64" --gateway="2001:db8:1::1" mynetv6-1
+	-sudo docker network create --ipv6 --subnet="2001:db8:2::/64" --gateway="2001:db8:2::1" mynetv6-2
+	-sudo docker network create --ipv6 --subnet="2001:db8:3::/64" --gateway="2001:db8:3::1" mynetv6-3
+	-sudo docker network create --ipv6 --subnet="2001:db8:4::/64" --gateway="2001:db8:4::1" mynetv6-4
+	-sudo docker network create --ipv6 --subnet="2001:db8:5::/64" --gateway="2001:db8:5::1" mynetv6-5
+	-sudo docker network create --ipv6 --subnet="2001:db8:6::/64" --gateway="2001:db8:6::1" mynetv6-6
+	-sudo docker network create --ipv6 --subnet="2001:db8:7::/64" --gateway="2001:db8:7::1" mynetv6-7
+	-sudo docker network create --ipv6 --subnet="2001:db8:8::/64" --gateway="2001:db8:8::1" mynetv6-8
+	-sudo docker network create --ipv6 --subnet="2001:db8:9::/64" --gateway="2001:db8:9::1" mynetv6-9
+
+bench-daemon:
+	# 10 Iterationen der Benchmark
+	for NUMBER in 1 2 3 4 5 6 7 8 9 10 ; do \
+  		echo "Iteration #"$$NUMBER; \
+        sudo docker compose -f docker-compose-bench.yml up -d ; \
+        sleep 1m ; \
+        sudo docker compose -f docker-compose-bench.yml stop node-3 ; \
+        sleep 2m ; \
+        sudo docker compose -f docker-compose-bench.yml start node-3 ; \
+        sleep 2m ; \
+        sudo docker compose -f docker-compose-bench.yml down ; \
+    	((NUMBER = NUMBER + 1)) ; \
+    done
