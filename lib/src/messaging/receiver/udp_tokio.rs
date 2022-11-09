@@ -25,7 +25,7 @@ const MTU_BYTES: usize = 65536;
 /// The used [UdpSocket] binds to all available IPv6 interfaces and maps the incoming IP
 /// addresses to the ports using the generic parameter P ([PortMapper]).
 #[derive(Debug)]
-pub struct UdpReceiver<C: Debug, P: Debug> {
+pub struct UdpReceiver<C, P> {
     buffer: RwLock<[u8; MTU_BYTES]>,
     socket: Arc<UdpSocket>,
     format: ProtocolMessageFormat,
@@ -33,7 +33,7 @@ pub struct UdpReceiver<C: Debug, P: Debug> {
     ip_cache: C,
 }
 
-impl<C: Debug + Clone, P: Debug + Clone> Clone for UdpReceiver<C, P> {
+impl<C: Clone, P: Clone> Clone for UdpReceiver<C, P> {
     /// Clones the [UdpReceiver] with a new buffer.
     fn clone(&self) -> Self {
         Self {
@@ -46,7 +46,7 @@ impl<C: Debug + Clone, P: Debug + Clone> Clone for UdpReceiver<C, P> {
     }
 }
 
-impl<C: Debug, P: Debug> UdpReceiver<C, P> {
+impl<C, P> UdpReceiver<C, P> {
     /// Creates a new [UdpReceiver].
     ///
     /// Initializes the internally used [UdpSocket].
@@ -108,8 +108,8 @@ impl<C: Debug, P: Debug> UdpReceiver<C, P> {
 #[async_trait::async_trait]
 impl<C, P> AsyncProtocolMessageReceiver for UdpReceiver<C, P>
 where
-    P: AsyncInterfaceMapper + Send + Sync + Debug,
-    C: AsyncIpCache + Send + Sync + Debug,
+    P: AsyncInterfaceMapper + Send + Sync,
+    C: AsyncIpCache + Send + Sync,
 {
     async fn recv_timeout(
         &mut self,

@@ -132,6 +132,10 @@ impl Path {
             .first()
             .expect("Invalid state. Empty path constructed")
     }
+    /// Returns the first entry in the [Path].
+    pub fn second(&self) -> Option<&NodeId> {
+        self.ids.get(1)
+    }
     /// Returns the last entry in the [Path].
     pub fn last(&self) -> &NodeId {
         self.ids

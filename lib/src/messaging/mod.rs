@@ -4,8 +4,6 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-#[cfg(feature = "pnet")]
-pub use crate::pnet_interface_monitor::*;
 #[cfg(feature = "in-memory-message-channel")]
 pub use in_memory_message_channel::*;
 pub use messages::*;
@@ -13,6 +11,8 @@ pub use receiver::*;
 pub use sender::*;
 
 use crate::domain::{NetworkInterface, NodeId};
+#[cfg(feature = "pnet")]
+pub use crate::pnet_interface_monitor::*;
 
 #[cfg(feature = "serde")]
 pub mod format;
@@ -85,7 +85,6 @@ pub trait AsyncInterfaceMapper {
 
 #[cfg(feature = "udp-tokio")]
 pub mod udp {
-    use std::fmt::Debug;
     use std::net::SocketAddr;
     use std::sync::Arc;
 
@@ -110,8 +109,8 @@ pub mod udp {
         receiver::udp_tokio::UdpReceiver<C, P>,
     )>
     where
-        C: AsyncIpCache + Clone + Send + Sync + Debug,
-        P: AsyncInterfaceMapper + Clone + Send + Sync + Debug,
+        C: AsyncIpCache + Clone + Send + Sync,
+        P: AsyncInterfaceMapper + Clone + Send + Sync,
     {
         let socket = Arc::new(
             tokio::net::UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port))).await?,
