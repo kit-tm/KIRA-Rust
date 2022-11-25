@@ -1,15 +1,19 @@
-# R²/Kad Implementierung
+# R²/Kad Implementation
 
-Dieses Repository sammelt die Informationen zu unterschiedlichen Teilen der Implementierung von R²/Kad in Rust.
+This repository collects the different repositories used for the implementation of R²/Kad in Rust started by Moritz
+Hepp (2022) at the institute for telematics at KIT.
 
-- [R²/Kad Routing Daemon](daemon): Enthält die Routing Daemon Anwendung
-- [R²/Kad Library](lib): Enthält die verschiedenen abstrakten Komponenten und einige konkrete Implementierungen dieser.
+## Structure
 
-Weitere Informationen sind in den jeweiligen Repositories zu finden.
+- [Submodule R²/Kad Routing Daemon](daemon): Contains the crate representing the routing daemon executable.
+- [Submodule R²/Kad Library](lib): Contains the different abstract modules, classes, traits to implement the routing
+  daemon.
+
+More specific information can be found in the repositories added as submodules and in the following chapters.
 
 ## Cloning the repository
 
-TO simply clone the repository use this:
+To simply clone the repository use this:
 
 ```shell
 git clone --recurse-submodules git@git.scc.kit.edu:ubesd/r2kad.git
@@ -26,80 +30,35 @@ cd ../lib
 git checkout -b main
 ```
 
-## Running
+## Tasks
 
-Currently, it's only possible to start the daemon through docker compose in a two node network.
-Here are the steps to take for that:
+| Task                       | Command                                       | Description                                                                                                       |
+|:---------------------------|:----------------------------------------------|:------------------------------------------------------------------------------------------------------------------|
+| Build (debug)              | `make`, `cargo build`                         | Compiles the daemon with debug profile and creates an executable                                                  |
+| Build (release)            | `make build-release`, `cargo build --release` | Compiles the daemon with release profile and creates an executable                                                |
+| Build (docker)             | `make build-images`                           | Compiles and builds scratch and benchmark docker images (no rust install required)                                |
+| Build (docker scratch)     | `make build-image-scratch`                    | Compiles and builds scratch docker image (no rust install required)                                               |
+| Build (docker bench)       | `make build-image-bench`                      | Compiles and builds benchmark docker image (no rust install required)                                             |
+| Install Daemon             | `make install`, `cargo install --path=daemon` | Compiles the daemon with release profile and installs it in the system                                            |
+| Create RustDocs            | `make docs`                                   | Creates rustdoc websites for library and daemon from code documentation and opens it in browser (opens two pages) |
+| Create Library RustDocs    | `make lib-docs`                               | Creates rustdoc website for the r2kad-lib crate from code documentation and opens it in browser                   |
+| Create Daemon RustDocs     | `make daemon-docs`                            | Creates rustdoc website for the r2kad-daemon crate from code documentation and opens it in browser                |
+| Run All Tests              | `make test`, `cargo test`                     | Run all tests (unit and integration tests)                                                                        |
+| Run Only Unit Tests        | `make unit-tests`, `cargo test --lib`         | Run only unit tests                                                                                               |
+| Run Only Integration Tests | `make integration-test`, `cargo test --bins`  | Run only integration tests                                                                                        |
+| Run Rust Benchmarks        | `make bench`, `cargo bench`                   | Runs small benchmarks implemented in rust                                                                         |
+| Setup Daemon Benchmark     | `make setup-bench-daemon`                     | Creates networks and volumes for docker based benchmarks                                                          |
+| Run Daemon Benchmark       | `make bench-daemon`                           | Runs the daemon benchmark (requires Task *Setup Daemon Benchmark* to be run before)                               |
 
-1. Install the required dependencies: [docker](https://docs.docker.com/get-docker/)
-   , [docker compose plugin](https://docs.docker.com/compose/install/compose-plugin/),
-2. Configure the docker daemon to enable ipv6: [like instructed here](https://docs.docker.com/config/daemon/ipv6/)
-3. Create the docker networks:
-   ```shell
-   docker network create --ipv6 \  
-    --subnet="2001:db8:1::/64" \
-    --gateway="2001:db8:1::1" \
-    mynetv6-1
-   ```
-   ```shell
-   docker network create --ipv6 \                                            
-    --subnet="2001:db8:2::/64" \
-    --gateway="2001:db8:2::1" \
-    mynetv6-2
-    ```
-   ```shell
-   docker network create --ipv6 \                                            
-    --subnet="2001:db8:3::/64" \
-    --gateway="2001:db8:3::1" \
-    mynetv6-3
-    ```
-   ```shell
-   docker network create --ipv6 \                                            
-    --subnet="2001:db8:4::/64" \
-    --gateway="2001:db8:4::1" \
-    mynetv6-4
-    ```
-   ```shell
-   docker network create --ipv6 \                                            
-    --subnet="2001:db8:5::/64" \
-    --gateway="2001:db8:5::1" \
-    mynetv6-5
-    ```
-   ```shell
-   docker network create --ipv6 \                                            
-    --subnet="2001:db8:6::/64" \
-    --gateway="2001:db8:6::1" \
-    mynetv6-6
-    ```
-   v
-4. ```shell
-   docker network create --ipv6 \                                            
-    --subnet="2001:db8:7::/64" \
-    --gateway="2001:db8:7::1" \
-    mynetv6-7
-    ```
-   ```shell
-   docker network create --ipv6 \                                            
-    --subnet="2001:db8:8::/64" \
-    --gateway="2001:db8:8::1" \
-    mynetv6-8
-    ```
-   ```shell
-   docker network create --ipv6 \                                            
-    --subnet="2001:db8:9::/64" \
-    --gateway="2001:db8:9::1" \
-    mynetv6-9
-    ```
-4. Build the image:
-   ```shell
-   docker build -t r2kad-daemon:scratch -f daemon/docker/Dockerfile.scratch .
-   ```
-   ( NOTE: While the scratch image is very small (~3.12MB) and simply works it doesn't support debugging as nothing but
-   the application is in that image.
-   To debug the container by running it with a shell you may use
-   the [Dockerfile.debian](daemon/docker/Dockerfile.debian) instead [docker-compose.yml](docker-compose.yml) )
-5. Start the nodes:
-   ```shell
-   docker compose up
-   ```
-6. To stop the nodes press `CTRL+C` and to remove the containers completely use `docker compose down`.
+### Dependencies
+
+Some of the above tasks require some dependencies to be installed to run them.
+Here are the instructions to install them.
+
+- [GNU/Make](https://www.gnu.org/software/make/#download): Already installed in many Linux distributions. For others see
+  the website.
+- [docker](https://docs.docker.com/get-docker/): To run benchmarks and build docker images. Additionaly one has to
+  configure the docker daemon to enable ipv6: [like instructed here](https://docs.docker.com/config/daemon/ipv6/).
+- [docker compose plugin](https://docs.docker.com/compose/install/compose-plugin/): To run the benchmarks.
+- [Rust](https://www.rust-lang.org/tools/install): Can be easily installed through `make setup`, which uses curl to
+  fetch the installation script as described on the linked website.

@@ -6,27 +6,41 @@ setup:
 	curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 build:
-	cargo build --release
-
-build-no-release:
 	cargo build
 
-install-daemon:
+build-release:
+	cargo build --release
+
+install:
 	cargo install --path=daemon
 
-docs:
-	cargo doc --package r2kad-lib --open
+lib-docs:
+	cargo doc --package=r2kad-lib --all-features --open
+
+daemon-docs:
+	cargo doc --package=r2kad-daemon --all-features --open
+
+docs: lib-docs daemon-docs
 
 bench:
 	cargo bench
 
-build-container-bench:
+unit-test:
+	cargo test --lib
+
+integration-test:
+	cargo test --bins
+
+test:
+	cargo test
+
+build-image-bench:
 	sudo docker build -t r2kad-daemon:bench -f daemon/docker/Dockerfile.bench .
 
-build-container-scratch:
+build-image-scratch:
 	sudo docker build -t r2kad-daemon:scratch -f daemon/docker/Dockerfile.scratch .
 
-build-containers: build-container-scratch build-container-bench
+build-images: build-image-scratch build-image-bench
 
 setup-bench-daemon:
 	-sudo docker volume create r2kad-bench-volume
