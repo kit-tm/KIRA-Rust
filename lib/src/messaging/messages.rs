@@ -1,3 +1,5 @@
+//! Data types for all protocol messages and wrapped in the central enumeration [ProtocolMessage].
+
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::num::NonZeroU64;
@@ -5,6 +7,8 @@ use std::num::NonZeroU64;
 use crate::domain::{Contact, Link, NodeId, NotVia, StateSeqNr};
 use crate::messaging::source_route::SourceRoute;
 
+/// Randomly generated number to uniquely identify a protocol message and its
+/// response.
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Nonce(u128);
@@ -22,6 +26,7 @@ impl Nonce {
     }
 }
 
+/// Enumeration containing all supported R²/Kad protocol messages.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum ProtocolMessage {
@@ -190,6 +195,8 @@ impl ProtocolMessage {
     }
 }
 
+/// Data struct representing the PNHello protocol message only exchanged
+/// between physical neighbors.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct HelloMessage {
@@ -237,6 +244,7 @@ impl<T: Debug> ReqRspMessage<T> {
     }
 }
 
+/// Data struct representing the ProbeReq data protocol message.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct ProbeReqData;
@@ -247,6 +255,7 @@ impl From<ReqRspMessage<ProbeReqData>> for ProtocolMessage {
     }
 }
 
+/// Data struct representing the ProbeRsp data protocol message.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct ProbeRspData;
@@ -257,6 +266,7 @@ impl From<ReqRspMessage<ProbeRspData>> for ProtocolMessage {
     }
 }
 
+/// Data struct representing the PathSetupReq protocol message.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct PathSetupReqData;
@@ -267,6 +277,7 @@ impl From<ReqRspMessage<PathSetupReqData>> for ProtocolMessage {
     }
 }
 
+/// Data struct representing the PathTeardownReq protocol message.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct PathTeardownReqData;
@@ -277,6 +288,7 @@ impl From<ReqRspMessage<PathTeardownReqData>> for ProtocolMessage {
     }
 }
 
+/// Data struct representing the UpdateRouteReq protocol message.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct UpdateRouteReq {
@@ -291,6 +303,7 @@ pub struct UpdateRouteReq {
     pub source_route: SourceRoute,
 }
 
+/// Data type representing the action performed on a contact.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum RouteUpdate {
@@ -304,18 +317,22 @@ impl From<UpdateRouteReq> for ProtocolMessage {
     }
 }
 
+/// Data type representing a protocol message which only contains a part
+/// of the routing table.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct RTableData {
     pub contacts: Vec<Contact>,
 }
 
+/// Data struct representing a QueryRouteReq protocol message.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct QueryRouteReqData {
     pub query_type: QueryRouteType,
 }
 
+/// Data struct representing the type of a QueryRouteReq.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum QueryRouteType {

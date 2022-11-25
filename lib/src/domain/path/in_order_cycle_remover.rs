@@ -1,10 +1,10 @@
 use crate::domain::cycle_remover::PathCycleRemover;
 use crate::domain::Path;
 
-/// This algorithm iterates the [Path] from first to last [NodeId].
+/// This algorithm iterates the [Path] from first to last [NodeId](crate::domain::node_id::NodeId).
 ///
 /// When searching for duplicates it starts from the back to remove the
-/// longest cycle for the given [NodeId].
+/// longest cycle for the given [NodeId](crate::domain::node_id::NodeId).
 pub struct InOrderCycleRemover;
 
 impl PathCycleRemover for InOrderCycleRemover {

@@ -24,8 +24,8 @@ use crate::use_cases::{ContactEvent, EventHandler, TimerId, UseCase, UseCaseEven
 ///
 /// - Contacts with a distance **<= 3** hops (*path length <= 4*) are in the vicinity.
 /// - Contacts with a distance **< 3** hops (*path length < 4*) receive QueryRouteReqs.
-///     Except the physical neighbors with a distance of 0 hops (*path length == 1*), which
-///     are handled by the [HandleHelloUseCase] (*Hello* and *PNDiscReq/-Rsp*).
+///     Except the physical neighbors with a distance of 0 hops (*path length == 1*) with
+///     which the following messages are exchanged: *PNHello, PNDiscReq, PNDiscRsp*.
 pub const VICINITY_RADIUS: usize = 3;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -96,15 +96,12 @@ impl UseCaseState for VDState {
 
 /// The vicinity discovery (VD) use case.
 ///
-/// Handles the discovery of the physical neighborhood (*vicinity*) beyond the direct
-/// physical neighbors.
+/// Handles the discovery of the physical neighborhood (*vicinity*) including exchanging messages
+/// with physical neighbors.
 ///
 /// If a new [Contact] was added to the [RoutingTable] or an existing one was updated and
 /// has a physical distance in the range of [1, [VICINITY_RADIUS]] hops (*path length is in
 /// [2, [VICINITY_RADIUS] + 1]) a QueryRouteReq is sent to them to get their physical neighbors.
-///
-/// Physical Neighbors are already handled by the [HandleHelloUseCase] which is why
-/// the range starts at 1 hop.
 #[derive(Debug)]
 pub struct VicinityDiscovery<C, const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE> {
     _c: PhantomData<C>,
@@ -141,7 +138,7 @@ fn deterministic_heuristic(self_id: &NodeId, other: &NodeId, num_bits: NonZeroUs
 }
 
 impl<C, const BUCKET_SIZE: usize> VicinityDiscovery<C, BUCKET_SIZE> {
-    /// Create a new vicinity discovery use case in [VDState::Idle].
+    /// Create a new vicinity discovery use case in [VDState::Initialized].
     pub fn new(config: VicinityDiscoveryConfig) -> Self {
         if node_id::BIT_SIZE < config.heuristic_calculation_bits.get() {
             panic!("Number of bits to use for the heuristic in VicinityDiscovery is greater than BIT_SIZE of NodeId.")

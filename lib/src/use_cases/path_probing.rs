@@ -16,13 +16,14 @@ use crate::use_cases::{
 /// Configuration for [PathProbing] [UseCase].
 #[derive(Debug)]
 pub struct PathProbingConfig {
-    /// Interval to perform periodic checks if a [Contact] is about to expire.
+    /// Interval to perform periodic checks if a [Contact](crate::domain::contact::Contact)
+    /// is about to expire.
     pub check_interval: Duration,
-    /// Maximum age of a [Contact] before it has to be probed.
+    /// Maximum age of a [Contact](crate::domain::contact::Contact) before it has to be probed.
     ///
     /// Default is **40s** because physical advertising is about 30s.
     pub probe_age: chrono::Duration,
-    /// Maximum duration a [ProbeReq] is allowed to take.
+    /// Maximum duration a [ProbeReq](crate::messaging::messages::ProtocolMessage::ProbeReq) is allowed to take.
     pub request_timeout: Duration,
 }
 
@@ -60,8 +61,10 @@ impl UseCaseState for PathProbingState {
 ///
 /// This periodically scans the whole routing table for obsolete contacts and sends
 /// path probing requests to them.
-/// If a [ErrorData::SegmentFailure] is returned the [ForwardProtocolMessage] [UseCase] will
-/// invalidate all affected [Contact]s.
+/// If a [ErrorData::SegmentFailure](crate::messaging::messages::ErrorData::SegmentFailure) is
+/// returned the
+/// [ForwardProtocolMessage](crate::use_cases::forward_protocol_message::ForwardProtocolMessage)
+/// [UseCase] will invalidate all affected [Contacts](crate::domain::Contact).
 pub struct PathProbing<C, const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE> {
     _pd: PhantomData<C>,
     state: PathProbingState,

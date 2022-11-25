@@ -1,21 +1,11 @@
-//!
-//!While the Runtime handles Runtime specific tasks (like waiting a certain amount of time) the Context handles the access to Domain Objects. The Access to Domain Objects has to be done in a central component as multiple UseCases may run in parallel and the Context/Runtime decides when to start which component. The Two are split along their Tasks:
-//!
-//! - Context: handles Communication of the UseCases with the Domain Objects
-//! - Runtime: provides Runtime specific functionality
-
-//! Communication between UseCases is not yet considered as this would increase complexity in some Context architectures (single threaded vs multi threaded.
-//!
-//! There are UseCases which rely on information in the request already added to the
-//! RoutingTable.
-//!
-//! - OverlayNeighborhoodDiscovery: If an DeadEnd-Error occurs the contact has to be invalidated
-//!     before the handle_event is called so the next FindNodeReq can go another Path.
-//!     Therefore processing the information in an Error-ProtocolMessage must occur before.
+//! Source code documentation for the library crate of the R²/Kad implementation created at the
+//! [institute for telematics](https://telematics.tm.kit.edu/index.php) at the
+//! [Karlsruher Institute of Technology (KIT)](https://www.kit.edu).
 //!
 //! # Logging Targets
 //!
-//! While sometimes default logging targets based on module structure is used some special
+//! Logging is implemented through the [log](https://crates.io/crates/log) crate.
+//! While sometimes default logging targets based on module structure are used, some special
 //! logging targets have been added.
 //!
 //! - `routing_table`: Updates to the routing table.
@@ -23,15 +13,26 @@
 //! - `message_sender`: Information about sending protocol messages.
 //! - `message_receiver`: Information about receiving protocol messages.
 //! - `network_interfaces`: Logging of updates to the network interfaces.
+//! - `in_memory_fwd_table`: Updates to the stub implementation of the forwarding tables [InMemoryFwdTable](forwarding::in_memory_tables::InMemoryFwdTables)
 //!
 //! Use Case related:
 //!
-//! - `forward_protocol_message`
-//! - `handle_hello`
-//! - `overlay_neighborhood_discovery`
-//! - `periodic_pn_advertising`
-//! - `random_probing`
-//! - `vicinity_discovery`
+//! - `derive_fwd_table_entries`: Logs of the use case [DeriveFwdTableEntries](use_cases::derive_fwd_table_entries::DeriveFwdTableEntries).
+//! - `explicit_path_management`: Use case [ExplicitPathManagement](use_cases::explicit_path_management::ExplicitPathManagement)
+//! - `failure_handling`: Use case [FailureHandling](use_cases::failure_handling::FailureHandling)
+//! - `forward_protocol_message`: Use case [ForwardProtocolMessage](use_cases::forward_protocol_message::ForwardProtocolMessage)
+//! - `handle_contact_update`: Use case [HandleContactUpdate](use_cases::handle_contact_update::HandleContactUpdate)
+//! - `handle_overlay_discovery`: Use case [HandleOverlayDiscovery](use_cases::handle_overlay_discovery::HandleOverlayDiscovery)
+//! - `inject_messages`: Use case [InjectMessages](use_cases::inject_messages::InjectMessages)
+//! - `overlay_neighborhood_discovery`: Use case [OverlayNeighborhoodDiscovery](use_cases::overlay_neighborhood_discovery::OverlayNeighborhoodDiscovery)
+//! - `path_probing`: Use case [PathProbing](use_cases::path_probing::PathProbing)
+//! - `precompute_paths_and_path_ids`: Use case [PathProbing](use_cases::precompute_paths_and_path_ids::PrecomputePathIds)
+//! - `random_overlay_discovery`: Use case [RandomOverlayDiscovery](use_cases::random_overlay_discovery::RandomOverlayDiscovery)
+//! - `vicinity_discovery`: Use case [VicinityDiscovery](use_cases::vicinity_discovery::VicinityDiscovery)
+//!
+//! # Authors
+//!
+//! - Moritz Hepp (former student at KIT)
 
 pub mod broadcaster;
 pub mod context;

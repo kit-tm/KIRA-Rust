@@ -109,7 +109,8 @@ impl Path {
     }
     /// Size of the [Path] in numbers of Nodes.
     ///
-    /// Is always > 0 as Path has to contain the [Contact]s NodeId at the end.
+    /// Is always > 0 as Path has to contain the [Contact](crate::domain::Contact)s NodeId at the
+    /// end.
     pub fn size(&self) -> usize {
         self.ids.len()
     }

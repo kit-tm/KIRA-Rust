@@ -1,3 +1,5 @@
+//! Type definitions for the forwarding layer interface.
+
 use std::fmt::{Debug, Display, Formatter};
 
 use crate::domain::path_id::PathId;

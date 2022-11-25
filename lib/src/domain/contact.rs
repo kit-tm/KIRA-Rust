@@ -85,7 +85,7 @@ impl Display for ContactState {
     }
 }
 
-/// A [Contact] as represented in the [RoutingTable].
+/// A [Contact] as represented in the [RoutingTable](crate::domain::routing_table::RoutingTable).
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Contact {

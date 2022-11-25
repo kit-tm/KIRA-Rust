@@ -1,6 +1,7 @@
+//! Domain Layer of the R²/Kad software design.
+
 use std::fmt::{Display, Formatter};
 
-// To change default NodeId simply change this
 pub use bucket::*;
 pub use contact::*;
 pub use insertion_strategy::*;

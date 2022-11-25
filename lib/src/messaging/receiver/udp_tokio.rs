@@ -23,7 +23,7 @@ const MTU_BYTES: usize = 65536;
 /// The buffer used for messages is not shared between (cloned) instances of [UdpReceiver].
 ///
 /// The used [UdpSocket] binds to all available IPv6 interfaces and maps the incoming IP
-/// addresses to the ports using the generic parameter P ([PortMapper]).
+/// addresses to the ports using the generic parameter P ([InterfaceMapper](crate::messaging::InterfaceMapper)).
 #[derive(Debug)]
 pub struct UdpReceiver<C, P> {
     buffer: RwLock<[u8; MTU_BYTES]>,

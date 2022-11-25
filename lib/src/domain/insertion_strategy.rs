@@ -8,7 +8,7 @@ use crate::domain::{
 
 use super::{PNTable, PathSimplifier};
 
-/// Signals if a change to the [Path] of a contact happened.
+/// Signals if a change to the [Path](crate::domain::path::Path) of a contact happened.
 ///
 /// This doesn't address changes to the other fields of the [Contact].
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -19,15 +19,15 @@ pub enum InsertionStrategyResult {
     Updated,
 }
 
-/// An [InsertionResult] handles inserting a [Contact] into a [RoutingTable].
+/// An [InsertionStrategy] handles inserting a [Contact] into a [RoutingTable].
 ///
 /// The actions performed with the [Contact] are limited to the [InsertionStrategyResult].
 ///
 /// The Algorithm can use the [PNTable] but is not allowed to insert into it.
 /// This will be handled where the Hello-Messages are handled explicitly.
 ///
-/// Also [NotVia] Data is not handled by the [InsertionStrategy] as it represents logic
-/// of the routing-daemon-application itself and not the domain.
+/// Also [NotVia](crate::domain::NotVia) Data is not handled by the [InsertionStrategy] as it
+/// represents logic of the routing-daemon itself and not the domain.
 pub trait InsertionStrategy<RT, const BUCKET_SIZE: usize>
 where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,

@@ -37,7 +37,7 @@ pub struct ONDConfig {
     ///
     /// Defaults to *250ms*.
     pub backoff_starting_duration: Duration,
-    /// Number of grouped bits used for calculating the shared prefix of two [NodeId]s.
+    /// Number of grouped bits used for calculating the shared prefix of two [NodeIds](crate::domain::NodeId).
     pub shared_prefix_bits_grouping: NonZeroUsize,
 }
 
@@ -60,7 +60,7 @@ impl Default for ONDConfig {
 pub enum ONDState {
     /// OND is initialized but not running yet.
     ///
-    /// Transition to [ONDiscState::Running] by calling [OverlayNeighborhoodDiscovery::start].
+    /// Transition to [ONDState::Running] by calling [OverlayNeighborhoodDiscovery::start].
     Initialized,
     /// OND was started and is running.
     ///
@@ -122,7 +122,7 @@ impl<C, const BUCKET_SIZE: usize> Default for OverlayNeighborhoodDiscovery<C, BU
 }
 
 impl<C, const BUCKET_SIZE: usize> OverlayNeighborhoodDiscovery<C, BUCKET_SIZE> {
-    /// Create a new [ONDUseCase] from an [ONDConfig].
+    /// Create a new [OverlayNeighborhoodDiscovery] from an [ONDConfig].
     pub fn new(config: ONDConfig) -> Result<Self, GroupingError> {
         if config.shared_prefix_bits_grouping.get() > node_id::BIT_SIZE {
             return Err(GroupingError::Invalid {

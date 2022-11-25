@@ -15,15 +15,17 @@ use crate::utils::vicinity_graph::VicinityGraph;
 /// Configuration for [UseCase] [PrecomputePathIds].
 #[derive(Debug)]
 pub struct PrecomputePathIdsConfig {
-    /// Radius of the physical neighborhood to precompute paths and [PathId]s for.
+    /// Radius of the physical neighborhood to precompute paths and
+    /// [PathIds](crate::domain::PathId) for.
     ///
-    /// Its assumed, that all contacts in this radius are also included in the [RoutingTable].
+    /// Its assumed, that all contacts in this radius are also included in the
+    /// [RoutingTable](crate::domain::RoutingTable).
     pub vicinity_radius: usize,
     /// Interval in which the precomputation will take place.
     ///
     /// If [None] is passed the precomputation will happen on every change.
     pub update_interval: Option<Duration>,
-    /// Hasher to use for generation of [PathID]s from [Path]s.
+    /// Hasher to use for generation of [PathIds](crate::domain::PathId) from [Path]s.
     pub hasher: Hasher,
 }
 
@@ -37,8 +39,8 @@ impl Default for PrecomputePathIdsConfig {
     }
 }
 
-/// [UseCase] implementation representing the Precomputation of [Path]s and [PathId]s for all
-/// nodes in a configurable vicinity.
+/// [UseCase] implementation representing the Precomputation of [Path]s and
+/// [PathIds](crate::domain::PathId) for all nodes in a configurable vicinity.
 ///
 /// This also removes all entries it generates if they're not valid anymore.
 ///

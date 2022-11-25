@@ -35,7 +35,7 @@ pub struct EPMConfig {
     /// If the `vicinity_radius` is 3 then only for contacts with path size of at least 4 will
     /// yield a PathSetupReq.
     pub vicinity_radius: NonZeroUsize,
-    /// Hasher to use for derivation of [PathID]s from [Path]s.
+    /// Hasher to use for derivation of [PathIDs](crate::domain::path_id::PathId) from [Path]s.
     pub hasher: Hasher,
 }
 

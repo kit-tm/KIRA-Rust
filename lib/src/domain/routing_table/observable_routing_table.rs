@@ -26,12 +26,13 @@ use crate::domain::{
 ///
 /// # Explicitly emitting an event
 ///
-/// To publish an event from explicitly one can use the [ObservableRutingTable::emit] function.
-/// This can be handy when e.g. an [InsertionStrategy] explicitly splits a bucket and filters out
-/// some contacts.
-/// The [InsertionStrategy] can then emit multiple [RoutingTableEvent::RemovedContact] explicitly
-/// while otherwise the [ObservableRoutingTable] would only emit one
-/// [RoutingTableEvent::UpdatedBucket].
+/// To publish an event from explicitly one can use the [ObservableRoutingTable::emit] function.
+/// This can be handy when e.g. an
+/// [InsertionStrategy](crate::domain::insertion_strategy::InsertionStrategy) explicitly splits a
+/// bucket and filters out some contacts.
+/// The [InsertionStrategy](crate::domain::insertion_strategy::InsertionStrategy) can then emit
+/// multiple [RoutingTableEvent::RemovedContact] explicitly while otherwise the
+/// [ObservableRoutingTable] would only emit one [RoutingTableEvent::UpdatedBucket].
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum RoutingTableEvent<const BUCKET_SIZE: usize> {
     /// The new [Contact] was added to the [RoutingTable].

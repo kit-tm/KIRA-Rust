@@ -1,3 +1,7 @@
+//! Type definitions containing everything related to protocol message transmission.
+//!
+//! This includes message formatting through [ProtocolMessageFormat](format::ProtocolMessageFormat), the traits [ProtocolMessageSender] and [ProtocolMessageReceiver], as well as the [ProtocolMessage] enumeration containing all protocol message types.
+
 use std::collections::HashMap;
 use std::net::{SocketAddr, SocketAddrV6};
 use std::sync::Arc;
@@ -65,7 +69,7 @@ impl AsyncIpCache for Arc<RwLock<HashMap<NodeId, SocketAddrV6>>> {
     }
 }
 
-/// Maps [SocketAddr] to [Port]s.
+/// Maps [SocketAddr] to [NetworkInterface]s.
 ///
 /// Returns [None] if no mapping to an interface is present.
 pub trait InterfaceMapper {
@@ -73,10 +77,9 @@ pub trait InterfaceMapper {
     fn get_interface(&self, input_addr: &SocketAddr) -> Option<NetworkInterface>;
 }
 
-/// Maps [SocketAddr] to [Port]s.
+/// Maps [SocketAddr] to [NetworkInterface]s.
 ///
 /// Returns [None] if no mapping to a interface is present.
-/// The caller then may use [Port::All] for HelloMessages to flood them to all ports.
 #[async_trait::async_trait]
 pub trait AsyncInterfaceMapper {
     /// Get the interface for a given address.
@@ -98,7 +101,8 @@ pub mod udp {
     /// [tokio::net::UdpSocket].
     /// This way multiple senders can send and multiple receivers can receive from the
     /// same [tokio::net::UdpSocket].
-    /// But all [ProtocolMessage]s will only arrive at one receiver at the time.
+    /// But all [ProtocolMessages](crate::messaging::messages::ProtocolMessage) will only arrive
+    /// at one receiver at the time.
     pub async fn async_channel<C, P>(
         port: u16,
         cache: C,
