@@ -71,7 +71,7 @@ pub struct NodeConfig {
 ///     valid operation of the application.
 /// - Fan-in-MPSC Channel: All events received through [AsyncProtocolMessageReceiver] and Broadcaster
 ///     are delegated to the fan-in. This channel has a limited size to create backpressure for
-///     the [AsyncProtocolMessageReceivers].
+///     the [AsyncProtocolMessageReceivers](r2kad_lib::messaging::receiver::AsyncProtocolMessageReceiver).
 ///
 /// Therefore events emitted through the Broadcaster won't be lost, but [AsyncProtocolMessageReceiver]s
 /// won't be pulled until there is space in the fan-in channel.
@@ -136,7 +136,8 @@ impl NodeHandle {
             let result = self.injection_result_receiver.try_recv();
             match result {
                 Ok(InjectionResult::SendFailed(message)) => {
-                    return Err(InjectMessageError::SendFailed(message));
+                    log::error!("Failed to send message: {:#?}", message);
+                    return Err(InjectMessageError::SendFailed);
                 }
                 Ok(InjectionResult::Isolated) => return Err(InjectMessageError::Isolated),
                 Ok(InjectionResult::Answered((message, interface))) => {
@@ -420,7 +421,7 @@ where
 
         // Start Signal handler to listen to OS signals
         runtime.spawn(async move {
-            let mut signals: Signals = Signals::new(&[SIGHUP, SIGTERM, SIGINT, SIGQUIT, SIGPIPE])
+            let mut signals: Signals = Signals::new([SIGHUP, SIGTERM, SIGINT, SIGQUIT, SIGPIPE])
                 .expect("failed to create signals");
 
             let received = signals.next().await;
@@ -642,13 +643,11 @@ mod errors {
     use std::error::Error;
     use std::fmt::{Debug, Display, Formatter};
 
-    use r2kad_lib::messaging::ProtocolMessage;
-
     #[derive(Debug)]
     pub enum InjectMessageError {
         BroadcastFailed(Box<dyn Debug>),
         Closed,
-        SendFailed(ProtocolMessage),
+        SendFailed,
         Isolated,
         Timeout,
     }
@@ -660,8 +659,8 @@ mod errors {
                     write!(f, "Failed to broadcast request injection: {:?}", inner)
                 }
                 Self::Closed => write!(f, "Channel to node closed while waiting for message"),
-                Self::SendFailed(message) => {
-                    write!(f, "Failed to send protocol message: {:#?}", message)
+                Self::SendFailed => {
+                    write!(f, "Failed to send protocol message")
                 }
                 Self::Isolated => write!(f, "Failed to send protocol message; Node is isolated"),
                 Self::Timeout => write!(f, "Request took to long"),

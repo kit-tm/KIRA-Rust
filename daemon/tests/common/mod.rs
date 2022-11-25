@@ -28,6 +28,12 @@ use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, ProtocolMessage, Protoc
 
 mod cable;
 
+/// Setup of the logging framework.
+///
+/// This creates a folder structure `log/integration_test/{test_name}` which contains the logs
+/// grouped by node id of the node which is running in the corresponding thread.
+/// The default log has the node id `0000000000000000000000000000` and is located in the file
+/// `0000000000.log`.
 pub fn setup(test_name: &'static str) {
     let logs_path = PathBuf::new()
         .join("log")
@@ -115,7 +121,7 @@ impl Append for ThreadSplitAppender {
     }
 }
 
-/// Implements an unordered pair.
+/// Implements an unordered pair identifying a link.
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct LinkIdx(NodeId, NodeId);
 
@@ -137,7 +143,7 @@ type NodesMap = HashMap<
     ),
 >;
 
-/// Represents the integration test network of nodes connected through links/cables.
+/// Represents the integration test network of nodes connected through [Cables](Cable).
 pub struct Network {
     links: HashMap<LinkIdx, Cable>,
     nodes: NodesMap,
