@@ -1,3 +1,5 @@
+//! Type definitions for hardware event handling.
+
 use std::collections::HashSet;
 
 use crate::domain::NetworkInterface;
@@ -11,7 +13,7 @@ pub enum HardwareEvent {
     InterfacesUp(HashSet<NetworkInterface>),
 }
 
-/// A registry used to register handlers of [HardwareEvents].
+/// A registry used to register handlers of [HardwareEvent]s.
 pub trait HardwareEventRegistry {
     /// Registers a new [HardwareEventHandler] to be notified when a [HardwareEvent] occurs.
     fn register_handler<H: 'static + HardwareEventHandler>(&self, handler: H);

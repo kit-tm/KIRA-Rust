@@ -13,7 +13,9 @@ use crate::messaging::{AsyncProtocolMessageReceiver, ProtocolMessageSender};
 
 const DEFAULT_CAPACITY: usize = 100;
 
-/// A [MessageSender] and [MessageReceiver] which stores messages in a FIFO way.
+/// A [ProtocolMessageSender] and
+/// [ProtocolMessageReceiver](crate::messaging::receiver::ProtocolMessageReceiver) which stores
+/// messages in a FIFO way.
 ///
 /// Instead of waiting for incoming messages this implementation returns an error
 /// if receive is called and the messages are empty.

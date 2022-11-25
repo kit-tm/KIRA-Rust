@@ -14,8 +14,8 @@ use crate::utils::tokio_utils;
 ///
 /// # Limitiations
 ///
-/// Calling the [Context] methods inside a async environment is currently only supported
-/// in a rt-multi-thread Tokio runtime.
+/// Calling the [UseCaseContext] methods is currently only supported outside of an async runtime
+/// or the rt-multi-thread Tokio runtime.
 #[derive(Debug, Clone)]
 pub struct TokioContext<RT, MS, RU, IS, FT> {
     root_id: NodeId,

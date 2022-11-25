@@ -1,3 +1,5 @@
+//! [UseCaseContext] related structures and traits.
+
 use std::cell::{Ref, RefMut};
 use std::collections::HashSet;
 use std::ops::{Deref, DerefMut};
@@ -12,6 +14,9 @@ pub mod sync_context;
 #[cfg(feature = "tokio")]
 pub mod tokio_context;
 
+/// Delegates read access to a type through internally supported RAII types.
+/// Conversion of supported RAII types into a [ReadGuard] is done through the [From] trait
+/// implementations.
 pub enum ReadGuard<'a, T> {
     Sync(Ref<'a, T>),
     Async(tokio::sync::RwLockReadGuard<'a, T>),
@@ -40,6 +45,9 @@ impl<'a, T> Deref for ReadGuard<'a, T> {
     }
 }
 
+/// Delegates write access to a type through internally supported RAII types.
+/// Conversion of supported RAII types into a [WriteGuard] is done through the [From] trait
+/// implementations.
 pub enum WriteGuard<'a, T> {
     Sync(RefMut<'a, T>),
     Async(tokio::sync::RwLockWriteGuard<'a, T>),
@@ -91,7 +99,7 @@ pub struct ContextConfig<RT, MS, RU, IS, FT> {
 
 /// Context a UseCase runs in.
 ///
-/// Provides access to the shared global state of the [Node].
+/// Provides access to the shared global state of the node.
 ///
 /// The methods return either a [ReadGuard] or [WriteGuard] depending on the mutability
 /// of the shared state returned.

@@ -169,7 +169,7 @@ impl<const SIZE: usize> Bucket<SIZE> {
     /// The **predicate** must only return *true* if the
     /// given [Contact] should be moved to the other [Bucket].
     ///
-    /// Returns an [InsertionError] if inserting into the new [Bucket]
+    /// Returns an [BucketInsertionError] if inserting into the new [Bucket]
     /// fails for any reason.
     pub fn split<F, const OTHER_SIZE: usize>(
         &mut self,

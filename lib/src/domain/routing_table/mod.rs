@@ -83,8 +83,9 @@ impl From<BucketSplitError> for InsertionError {
 ///
 /// As some RoutingTable implementation may handle physical neighbors in a different way
 /// the caller has to be careful when using [RoutingTable::bucket] and [RoutingTable::bucket_mut].
-/// In structures like [UnlimitedPNRoutingTable] the Neighbors may not be included
-/// in the buckets.
+/// In structures like
+/// [UnlimitedPNRoutingTable](crate::domain::routing_table::unlimited_pn_routing_table::UnlimitedPNRoutingTable) the Neighbors
+/// may not be included in the buckets.
 ///
 /// As mostly accessing the buckets directly only happens if Insertion fails, this will ne problem.
 pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
@@ -199,7 +200,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         shared_prefix_grouping: usize,
     ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError>;
 
-    /// Iterator over all [Contacts] in the [RoutingTable].
+    /// Iterator over all [Contact]s in the [RoutingTable].
     fn iter(&'a self) -> Self::Iter;
 
     /// Iterator over mutable references to all contacts in the [RoutingTable].

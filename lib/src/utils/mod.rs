@@ -1,3 +1,5 @@
+//! Utility types and functions used in some parts of the application which didn't fit into any other module.
+
 pub use backoff_map::*;
 pub use exponential_backoff::*;
 pub use tokio_utils::*;

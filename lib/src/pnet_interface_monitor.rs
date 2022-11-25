@@ -1,3 +1,6 @@
+//! [InterfaceMapper], [AsyncInterfaceMapper] and [HardwareEventRegistry] implementation using [libpnet](https://docs.rs/pnet/)
+//! to fetch network interface information and map the ip addresses to incoming [ProtocolMessages](crate::messaging::ProtocolMessage).
+
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -10,7 +13,7 @@ use crate::domain::NetworkInterface;
 use crate::hardware_events::{HardwareEvent, HardwareEventHandler, HardwareEventRegistry};
 use crate::messaging::{AsyncInterfaceMapper, InterfaceMapper};
 
-/// [PortMapper] and [AsyncPortMapper] implementation using [libpnet](https://docs.rs/pnet/)
+/// [InterfaceMapper], [AsyncInterfaceMapper] and [HardwareEventRegistry] implementation using [libpnet](https://docs.rs/pnet/)
 /// to fetch network interface information and map the ip addresses to incoming ProtocolMessages.
 ///
 /// Also implements [HardwareEventRegistry] to handle hardware events.
@@ -24,7 +27,7 @@ pub struct PNetInterfaceMonitor {
 }
 
 impl PNetInterfaceMonitor {
-    /// Creates a new [PNetPortMapper] with empty cache.
+    /// Creates a new [PNetInterfaceMonitor] with empty cache.
     pub fn new() -> Self {
         Self {
             interfaces: Arc::new(RwLock::new(HashSet::new())),

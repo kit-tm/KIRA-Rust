@@ -3,17 +3,19 @@ use crate::messaging::messages::ProtocolMessage;
 #[cfg(feature = "udp-tokio")]
 pub mod udp_tokio;
 
-/// Sends [Message]s to other Nodes.
+/// Sends [ProtocolMessage]s to other Nodes.
 ///
-/// Derives how and where to send the [Message] by analyzing its fields
+/// Derives how and where to send the [ProtocolMessage] by analyzing its fields
 /// and converts them to an appropriate format so that the corresponding
-/// [MessageReceiver] can convert it back to a [Message].
+/// [ProtocolMessageReceiver](crate::messaging::receiver::ProtocolMessageReceiver)
+/// can convert it back to a [ProtocolMessage].
 ///
 /// # Hello Messages
 ///
-/// [HelloMessage]s with a [NodeId::zero] destination have to be broadcast to all [Port]s.
+/// [ProtocolMessage::Hello]s with a [NodeId::zero](crate::domain::NodeId::zero) destination have
+/// to be broadcast to all [NetworkInterfaces](crate::domain::NetworkInterface).
 pub trait ProtocolMessageSender {
-    /// Sends a [Message] to another Node, converting it to an appropriate
+    /// Sends a [ProtocolMessage] to another Node, converting it to an appropriate
     /// format before sending.
     ///
     /// Returns an Error if the operation or formatting failed.
@@ -22,18 +24,20 @@ pub trait ProtocolMessageSender {
         M: Into<ProtocolMessage>;
 }
 
-/// Sends [Message]s to other Nodes.
+/// Sends [ProtocolMessage]s to other Nodes.
 ///
-/// Derives how and where to send the [Message] by analyzing its fields
+/// Derives how and where to send the [ProtocolMessage] by analyzing its fields
 /// and converts them to an appropriate format so that the corresponding
-/// [MessageReceiver] can convert it back to a [Message].
+/// [ProtocolMessageReceiver](crate::messaging::receiver::ProtocolMessageReceiver)
+/// can convert it back to a [ProtocolMessage].
 ///
 /// # Hello Messages
 ///
-/// [HelloMessage]s with a [NodeId::zero] destination have to be broadcast to all [Port]s.
+/// [ProtocolMessage::Hello]s with a [NodeId::zero](crate::domain::NodeId::zero) destination have
+/// to be broadcast to all [NetworkInterfaces](crate::domain::NetworkInterface).
 #[async_trait::async_trait]
 pub trait AsyncProtocolMessageSender {
-    /// Sends a [Message] to another Node, converting it to an appropriate
+    /// Sends a [ProtocolMessage] to another Node, converting it to an appropriate
     /// format before sending.
     ///
     /// Returns an Error if the operation or formatting failed.
@@ -47,7 +51,8 @@ pub mod error {
     use std::fmt::{Display, Formatter};
     use std::io;
 
-    /// Error type for [ProtocolMessageSender] and [AsyncProtocolMessageSender].
+    /// Error type for [ProtocolMessageSender](crate::messaging::sender::ProtocolMessageSender) and
+    /// [AsyncProtocolMessageSender](crate::messaging::sender::AsyncProtocolMessageSender).
     #[derive(Debug)]
     pub enum SenderError {
         /// Error while deserializing message.

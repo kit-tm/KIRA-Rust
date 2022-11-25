@@ -52,7 +52,7 @@ impl VicinityGraph {
     ///
     /// If no entry is present it will be created and if an entry is already present they will
     /// be extended with the given neighbors instead of replacing.
-    /// If replacement is required the method [insert] should be used.
+    /// If replacement is required the method [insert](VicinityGraph::insert) should be used.
     pub fn add(&mut self, node: NodeId, physical_neighbors: HashSet<NodeId>) {
         if let Some(neighbors) = self.neighbors.get_mut(&node) {
             neighbors.neighbors.extend(physical_neighbors);

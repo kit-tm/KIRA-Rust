@@ -1,8 +1,8 @@
 use crate::domain::path_id::PathId;
 use crate::domain::NodeId;
 
-/// Enum collecting all supported hash algorithms for configuration of the [DeriveFwdTableEntries]
-/// use case.
+/// Enum collecting all supported hash algorithms for configuration of use cases which calculate
+/// [PathId]s from a series of [NodeId]s.
 ///
 /// Default is **sha1**.
 /// **sha2** and **sha3** variants can be enabled through the feature flags `sha2, sha3`.

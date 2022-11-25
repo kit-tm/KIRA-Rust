@@ -40,7 +40,7 @@ impl Default for DistanceMap {
 /// Interval generating random values in a given range based on distance and two parameters.
 ///
 /// Used for rediscovery timeout calculation.
-/// See [FailureHandling] use case for additional information.
+/// See [FailureHandling](crate::use_cases::failure_handling::FailureHandling) use case for additional information.
 #[derive(Debug)]
 pub struct RediscoveryTimeoutInterval {
     distance_map: DistanceMap,

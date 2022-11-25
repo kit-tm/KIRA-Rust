@@ -12,7 +12,7 @@ use crate::domain::NodeId;
 
 pub const SHORT_OUTPUT_LENGTH: usize = 8;
 
-/// [PathId] uniquely identifies a [Path].
+/// [PathId] uniquely identifies a [Path](crate::domain::path::Path).
 ///
 /// Uses SHA-1, SHA-2 or SHA-3 for hash generation.
 /// The byte length of the [PathId] is not fixed and depends on the used hash algorithm.

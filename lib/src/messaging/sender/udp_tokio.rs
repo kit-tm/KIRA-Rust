@@ -11,7 +11,7 @@ use crate::messaging::{AsyncIpCache, AsyncProtocolMessageSender, ProtocolMessage
 /// Defaults to sending the request to multicast if neighbor is not present (which should not
 /// happen for physical neighbors).
 ///
-/// Delegates the sending of messages to lower layers based on the stored IP addresses in the [IpCache].
+/// Delegates the sending of messages to lower layers based on the stored IP addresses in the [AsyncIpCache].
 #[derive(Debug, Clone)]
 pub struct UdpSender<C> {
     format: ProtocolMessageFormat,

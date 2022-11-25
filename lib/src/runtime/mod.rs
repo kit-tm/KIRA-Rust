@@ -1,3 +1,5 @@
+//! Interface definition and implementation for use case interaction with a runtime.
+
 use std::time::Duration;
 
 #[cfg(test)]
@@ -14,7 +16,7 @@ pub mod sync_runtime;
 #[cfg(feature = "tokio")]
 pub mod tokio_runtime;
 
-/// Interface for the [UseCase]s to the runtime environment.
+/// Interface for the [UseCases](crate::use_cases::UseCase) to the runtime environment.
 pub trait UseCaseRuntime {
     /// Creates a timer which will later yield a TimerEvent.
     ///

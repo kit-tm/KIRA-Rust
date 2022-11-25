@@ -1,3 +1,5 @@
+//! Implementations of the use cases.
+
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
@@ -20,6 +22,7 @@ pub mod precompute_paths_and_path_ids;
 pub mod random_overlay_discovery;
 pub mod vicinity_discovery;
 
+/// Enumeration representing all events a [UseCase] can handle.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum UseCaseEvent {
     Message(ProtocolMessage, NetworkInterface),
@@ -30,6 +33,7 @@ pub enum UseCaseEvent {
     Shutdown,
 }
 
+/// Protocol message data to inject into the network.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum InjectionMessageData {
     FindNode(FindNodeReqData),
@@ -37,8 +41,8 @@ pub enum InjectionMessageData {
 
 /// Contact Events which can be handled by UseCases.
 ///
-/// This is only a subset of [RoutingTableEvent] as a UseCase should not react to
-/// all kinds of [RoutingTableEvent]s.
+/// This is only a subset of [RoutingTableEvent](crate::domain::routing_table::observable_routing_table::RoutingTableEvent) as a UseCase should not react to
+/// all kinds of [RoutingTableEvent](crate::domain::routing_table::observable_routing_table::RoutingTableEvent)s.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ContactEvent {
     New(Contact),
@@ -69,6 +73,7 @@ impl Display for TimerId {
     }
 }
 
+/// The state of a [UseCase] which is used to determine if a [UseCase] reached an unrecoverable state.
 pub trait UseCaseState {
     fn is_error(&self) -> bool;
 }
@@ -113,7 +118,7 @@ impl Display for MessageSentFailed {
 
 impl Error for MessageSentFailed {}
 
-/// Returned by [ForwardProtocolMessages::handle_event].
+/// Returned by [EventHandler::handle_event].
 ///
 /// Either means a [UseCaseEvent] was handled and should not delegated to the remaining use cases
 /// or it was not handled and can be delegated.
@@ -139,7 +144,7 @@ pub trait EventHandler {
     ) -> Result<Self::Value, Self::Error>;
 }
 
-/// A UseCase is an [EventHandler] which can be started in a given [UseCaseContext], has a
+/// A UseCase is an [EventHandler] which can be started in a given [UseCaseContext](crate::context::UseCaseContext), has a
 /// [UseCaseState] and either returns a predefined Value or Error type.
 pub trait UseCase: EventHandler {
     type State: UseCaseState + Sized;

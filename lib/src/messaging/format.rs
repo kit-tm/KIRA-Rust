@@ -5,6 +5,11 @@ use serde::Serialize;
 
 use crate::messaging::ProtocolMessage;
 
+/// Implementation of the interface ProtocolMessageFormat as closed set of
+/// supported formats.
+///
+/// Instead of using a trait this implementation supports easy to use methods for a closed set of transmission formats.
+/// As it's currently not desired to support a broad set of transmission formats this decision has been made.
 // TODO: Refactor this to be more efficient. Currently it doesn't support proper buffer writing.
 #[derive(Debug, Clone)]
 pub enum ProtocolMessageFormat {

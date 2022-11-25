@@ -54,7 +54,8 @@ impl Display for RecvError {
 
 impl Error for RecvError {}
 
-/// Error type for [ProtocolMessageSender::try_recv] and [AsyncProtocolMessageSender::try_recv].
+/// Error type for [ProtocolMessageReceiver::try_recv] and
+/// [ProtocolMessageReceiver::try_recv](crate::messaging::receiver::ProtocolMessageReceiver::try_recv).
 #[derive(Debug)]
 pub enum TryRecvError {
     /// The I/O-Layer returned some error.
@@ -96,60 +97,63 @@ impl Display for TryRecvError {
 
 impl Error for TryRecvError {}
 
-/// Receives [Message]s of other Nodes.
+/// Receives [ProtocolMessage]s of other Nodes.
 ///
 /// A single [ProtocolMessageReceiver] can be responsible for one or many [NetworkInterface]s.
 ///
-/// Converts a [Message] formatted by its corresponding [MessageSender] back
-/// to a [Message] and returns it.
+/// Converts a [ProtocolMessage] formatted by its corresponding
+/// [ProtocolMessageSender](crate::messaging::sender::ProtocolMessageSender) back
+/// to a [ProtocolMessage] and returns it.
 ///
 /// Every method is allowed to return [None] at any point in time.
 /// In cases where the [ProtocolMessageReceiver] is no longer able to receive messages
 /// an error has to be returned.
 pub trait ProtocolMessageReceiver {
-    /// Receives a [Message].
+    /// Receives a [ProtocolMessage].
     ///
     /// Returns an [Error] if receiving failed or the optional timeout was reached.
     ///
-    /// If no timeout was given the operation waits until a new [Message] arrived.
+    /// If no timeout was given the operation waits until a new [ProtocolMessage] arrived.
     ///
-    /// Returns [None] if no messages will be received from this [MessageReceiver] anymore.
+    /// Returns [None] if no messages will be received from this [ProtocolMessageReceiver] anymore.
     fn recv_timeout(
         &mut self,
         timeout: Option<Duration>,
     ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError>;
-    /// Receives a [Message].
+    /// Receives a [ProtocolMessage].
     ///
-    /// Short for calling [recv_timeout](MessageReceiver::recv_timeout) with [None](Option::None).
+    /// Short for calling [recv_timeout](ProtocolMessageReceiver::recv_timeout) with [None].
     fn recv(&mut self) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError> {
         self.recv_timeout(None)
     }
-    /// Tries to receive a [Message] and returns an [Error] if no message is present at the time.
+    /// Tries to receive a [ProtocolMessage] and returns an [Error] if no message is present at the time.
     fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, NetworkInterface)>, TryRecvError>;
 }
 
-/// Receives [Message]s of other Nodes.
+/// Receives [ProtocolMessage]s of other Nodes.
 ///
-/// Converts a [Message] formatted by its corresponding [MessageSender] back
-/// to a [Message] and returns it.
+/// Converts a [ProtocolMessage] formatted by its corresponding
+/// [ProtocolMessageSender](crate::messaging::sender::ProtocolMessageSender) back
+/// to a [ProtocolMessage] and returns it.
 #[async_trait::async_trait]
 pub trait AsyncProtocolMessageReceiver {
-    /// Receives a [Message].
+    /// Receives a [ProtocolMessage].
     ///
     /// Returns an [Error] if receiving failed or the optional timeout was reached.
     ///
-    /// If no timeout was given the operation waits until a new [Message] arrived.
+    /// If no timeout was given the operation waits until a new [ProtocolMessage] arrived.
     ///
-    /// Returns [None] if no messages will be received from this [MessageReceiver] anymore.
+    /// Returns [None] if no messages will be received from this [ProtocolMessageReceiver] anymore.
     async fn recv_timeout(
         &mut self,
         timeout: Option<Duration>,
     ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError>;
-    /// Receives a [Message].
+    /// Receives a [ProtocolMessage].
     ///
-    /// Short for calling [recv_timeout](MessageReceiver::recv_timeout) with [None](Option::None).
+    /// Short for calling [recv_timeout](ProtocolMessageReceiver::recv_timeout) with
+    /// [None].
     async fn recv(&mut self) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError>;
-    /// Tries to receive a [Message] and returns an [Error] if no message is present at the time.
+    /// Tries to receive a [ProtocolMessage] and returns an [Error] if no message is present at the time.
     async fn try_recv(
         &mut self,
     ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, TryRecvError>;

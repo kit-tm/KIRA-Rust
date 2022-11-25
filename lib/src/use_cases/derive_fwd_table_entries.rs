@@ -18,7 +18,7 @@ pub struct DeriveFwdTableEntriesConfig {
 ///
 /// ## Invariants
 ///
-/// - For every [Contact] in the [RoutingTable] a [NodeIdEntry] exists.
+/// - For every [Contact] in the [RoutingTable](crate::domain::routing_table::RoutingTable) a [NodeIdEntry] exists.
 /// - For every [Contact] which is not a physical neighbor a [PathIdEntry] exists.
 #[derive(Debug)]
 pub struct DeriveFwdTableEntries<C> {

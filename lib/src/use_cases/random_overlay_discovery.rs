@@ -29,7 +29,7 @@ impl Default for RODConfig {
     }
 }
 
-/// Probe a random [NodeId] to keep [Bucket]s up-to-date.
+/// Probe a random [NodeId] to keep [Buckets](crate::domain::Bucket) up-to-date.
 #[derive(Debug)]
 pub struct RandomOverlayDiscovery<C, const BUCKET_SIZE: usize> {
     _c: PhantomData<C>,
