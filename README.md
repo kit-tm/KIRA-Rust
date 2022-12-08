@@ -16,7 +16,7 @@ More specific information can be found in the repositories added as submodules a
 To simply clone the repository use this:
 
 ```shell
-git clone --recurse-submodules git@git.scc.kit.edu:ubesd/r2kad.git
+git clone --recurse-submodules git@git.scc.kit.edu:TM/kira/r2kad.git
 ```
 
 If you want to work on the project and its submodules change the branch in the submodules before changing anything.
