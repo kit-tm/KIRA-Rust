@@ -5,8 +5,8 @@ Hepp (2022) at the institute for telematics at KIT.
 
 ## Structure
 
-- [Submodule R²/Kad Routing Daemon](daemon): Contains the crate representing the routing daemon executable.
-- [Submodule R²/Kad Library](lib): Contains the different abstract modules, classes, traits to implement the routing
+- [Submodule R²/Kad Routing Daemon](https://git.scc.kit.edu/TM/kira/r2kad-daemon): Contains the crate representing the routing daemon executable.
+- [Submodule R²/Kad Library](https://git.scc.kit.edu/TM/kira/r2kad-lib): Contains the different abstract modules, classes, traits to implement the routing
   daemon.
 
 More specific information can be found in the repositories added as submodules and in the following chapters.
