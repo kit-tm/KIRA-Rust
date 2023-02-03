@@ -169,7 +169,7 @@ nft monitor
 ```
 
 # TODO
-- [] :exclamation: fix PathID forwarding (currently conflicting rules -> set & match fwmark?)
-- [] forwarding to physical neighbors
-- [] containernet integration
-- [] integrate forwarding into rust prototype
+- [ ] :exclamation: fix PathID forwarding (currently conflicting rules -> set & match fwmark?)
+- [ ] forwarding to physical neighbors
+- [ ] containernet integration
+- [ ] integrate forwarding into rust prototype
