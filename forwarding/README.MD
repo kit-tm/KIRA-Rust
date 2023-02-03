@@ -28,7 +28,7 @@ All local traffic addressed to other Nodes (`fc00::/16`) is routed through an `i
     B --> |fc00::/16| F
     D --> |no| E(Forward to neighbor)
     D --> |yes| F[Userspace]
-    C --> |yes| G(Decaspulate)
+    C --> |yes| G(Decapsulate)
     G --> D{local?} 
     C --> |no| H(Forward to next hop)
     H --> I{Routing}
