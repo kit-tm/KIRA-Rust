@@ -18,28 +18,48 @@ The following mappings must be provided by the routing tier:
     * This is also implemented with a nftables map.
 
 ## Encapsulation/Decapsulation
-All local traffic addressed to other Nodes (`fc00::/16`) is routed through an `ip6gre` dummy interface. There the inner IPv6 packet is encapsulated in a GRE IPv6 packet with destination address `fcaa::/16`. This outer IPv6 packet may be forwarded at the next hop until it reaches its destination. At the destination node the packet is again sent routed through a dummy ip6gre interface and the inner IPv6 packet is decapsulated. The packet can now be processed by an application or be forwarded to a physical neighbor.
+All local traffic addressed to other Nodes (`fc00::/16`) is routed through an `ip6gre` dummy interface. 
+There the inner IPv6 packet is encapsulated in a GRE IPv6 packet with destination address `fcaa::/16`. 
+This outer IPv6 packet may be forwarded at the next hop until it reaches its destination. 
+At the destination node the packet is again sent routed through a dummy ip6gre interface and the inner IPv6 packet is decapsulated. 
+The packet can now be processed by an application or be forwarded to a physical neighbor.
 
-## Packet flow
+## Packet flow for incoming traffic
 ```mermaid
     graph TD
     A[Incoming on 'ethX'] -->|prerouting| B{Destination}
-    B --> |fcaa::/16| C{Path ends here?}
-    B --> |fc00::/16| F
-    D --> |no| E(Forward to neighbor)
-    D --> |yes| F[Userspace]
+    B --> |fcaa::/16\n PathID| C{Path ends here?}
+    B --> |fc00::/16\n NodeID| F
     C --> |yes| G(Decapsulate)
-    G --> D{local?} 
+    G --> F{Local Destination?}
     C --> |no| H(Forward to next hop)
     H --> I{Routing}
     I --> Z[Outgoing on 'ethX']
-    F --> J{Destination}
-    J --> |fc00::/16| K{phys. neighbor?}
-    K --> |yes| E
+    F --> |yes|J[Applications]
+    F --> |no| K{Encapsulate\n in new PathID?}
+    K --> |no| H
+    K --> |yes| L(Encapsulate)
+    L --> I
+```
+This diagram depicts the flow of incoming packets on the physical network interfaces. 
+Only the traffic relevant for KIRA is shown.
+If a packet can not be forwarded because it does not match any mappings provided by the routing tier it is dropped.
+
+## Packet flow for local traffic
+```mermaid
+    graph TD
+    A[Applications] -->|output| B{Destination}
+    B --> |fc00::/16\n NodeID| K{Encapsulate\n in PathID?}
+    H --> I{Routing}
+    I --> Z[Outgoing on 'ethX']
+    K --> |yes| H(Forward to next hop)
     K --> |no| L(Encapsulate)
     L --> I
- 
 ```
+This diagram depicts the flow of packets generated locally by applications communicating via KIRA.
+Again only traffic relevant for KIRA is shown.
+Traffic that can not be forwarded will be dropped.
+
 
 ### Netfilter flow for reference
 ![netfilter flow](https://people.netfilter.org/pablo/nf-hooks.png "Netfilter flow")
@@ -81,7 +101,8 @@ docker run --rm -it --cap-add NET_ADMIN --network test --ip6 fcaa::2 \
 --sysctl net.ipv6.conf.all.forwarding=1 \ 
 test "fc00::2" bash
 ```
-The container above will have the NodeID `fc00::2`. For testing purposes the container is assigned the "PathID" `fcaa::2`. This way connectivity can be tested easily without a more elaborate setup.
+The container above will have the NodeID `fc00::2`. For testing purposes the container is assigned the "PathID" `fcaa::2`. 
+This way connectivity can be tested easily without a more elaborate setup.
 
 More containers can be started, but the PathID and NodeID have to be modified in the `docker run` command.
 
@@ -103,7 +124,8 @@ To mark a PathID as terminating on this host run:
 ---
 
 ### Testing Encapsulation and Decapsulation:
-Note: This example doesn't use PathIDs in the intended way. There is no proper generation of PathIDs or forwarding, this is for testing purposes only.
+Note: This example doesn't use PathIDs in the intended way. 
+There is no proper generation of PathIDs or forwarding, this is for testing purposes only.
 
 Create a docker network:
 ```sh
