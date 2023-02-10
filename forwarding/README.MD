@@ -28,8 +28,8 @@ The packet can now be processed by an application or be forwarded to a physical 
 ```mermaid
     graph TD
     A[Incoming on 'ethX'] -->|prerouting| B{Destination}
-    B --> |fcaa::/16\n PathID| C{Path ends here?}
-    B --> |fc00::/16\n NodeID| F
+    B --> |fcaa::/16 \n PathID| C{Path ends here?}
+    B --> |fc00::/16 \n NodeID| F
     C --> |yes| G(Decapsulate)
     G --> F{Local Destination?}
     C --> |no| H(Forward to next hop)
