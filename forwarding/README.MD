@@ -28,15 +28,15 @@ The packet can now be processed by an application or be forwarded to a physical 
 ```mermaid
     graph TD
     A[Incoming on 'ethX'] -->|prerouting| B{Destination}
-    B --> |fcaa::/16 \n PathID| C{Path ends here?}
-    B --> |fc00::/16 \n NodeID| F
+    B --> |fcaa::/16 PathID| C{Path ends here?}
+    B --> |fc00::/16 NodeID| F
     C --> |yes| G(Decapsulate)
     G --> F{Local Destination?}
     C --> |no| H(Forward to next hop)
     H --> I{Routing}
     I --> Z[Outgoing on 'ethX']
     F --> |yes|J[Applications]
-    F --> |no| K{Encapsulate\n in new PathID?}
+    F --> |no| K{Encapsulate in new PathID?}
     K --> |no| H
     K --> |yes| L(Encapsulate)
     L --> I
@@ -49,7 +49,7 @@ If a packet can not be forwarded because it does not match any mappings provided
 ```mermaid
     graph TD
     A[Applications] -->|output| B{Destination}
-    B --> |fc00::/16\n NodeID| K{Encapsulate\n in PathID?}
+    B --> |fc00::/16 NodeID| K{Encapsulate in PathID?}
     H --> I{Routing}
     I --> Z[Outgoing on 'ethX']
     K --> |yes| H(Forward to next hop)
