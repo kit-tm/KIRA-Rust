@@ -1,7 +1,7 @@
 FROM ubuntu:latest
 
 RUN apt update
-RUN apt install -y iproute2 nftables iputils-ping nano
+RUN apt install -y iproute2 nftables iputils-ping nano tcpdump
 
 COPY nftables.conf /nftables.conf
 COPY start.sh /start.sh
