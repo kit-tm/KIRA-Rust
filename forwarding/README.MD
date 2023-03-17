@@ -52,8 +52,8 @@ If a packet can not be forwarded because it does not match any mappings provided
     B --> |fc00::/16 NodeID| K{Encapsulate in PathID?}
     H --> I{Routing}
     I --> Z[Outgoing on 'ethX']
-    K --> |yes| H(Forward to next hop)
-    K --> |no| L(Encapsulate)
+    K --> |no| H(Forward to next hop)
+    K --> |yes| L(Encapsulate)
     L --> I
 ```
 This diagram depicts the flow of packets generated locally by applications communicating via KIRA.
