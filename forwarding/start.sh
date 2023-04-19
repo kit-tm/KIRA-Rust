@@ -7,13 +7,11 @@ nodeID=$1
 echo "NodeID is $nodeID."
 echo "Setting up forwarding..."
 
-# Local PathIP
-localIP=$(/sbin/ip -o -6 a list eth0 | awk '{print $4}' | cut -d/ -f1 | grep fcaa::)
-
-# TODO replace with local address with address not in PathID range
+# Local IP of container
+localIP=$(/sbin/ip -o -6 a list eth0 | awk '{print $4}' | cut -d/ -f1 | grep aaaa::)
 
 # Setup ip6gre interface for encapsulation/decapsulation
-ip link add name kira type ip6gre local $localIP remote beef::1
+ip link add name kira type ip6gre local $localIP remote beef::b
 ip addr add $nodeID/16 dev kira
 ip link set kira up
 
