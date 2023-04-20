@@ -7,24 +7,20 @@ nodeID=$1
 echo "NodeID is $nodeID."
 echo "Setting up forwarding..."
 
-# Local IP of container
-localIP=$(/sbin/ip -o -6 a list eth0 | awk '{print $4}' | cut -d/ -f1 | grep aaaa::)
-
 # Setup ip6gre interface for encapsulation/decapsulation
-ip link add name kira type ip6gre local $localIP remote beef::b
-ip addr add $nodeID/16 dev kira
+ip link add name kira type ip6gre local beef::a remote beef::b
+# ip addr add $nodeID/16 dev kira
 ip link set kira up
 
 # load nftables rules
-echo "define local = $localIP\n" | cat - nftables.conf > temp
-mv temp nftables.conf
 nft -f nftables.conf
 
-echo "$2" > command.sh
-chmod +x command.sh
-./command.sh
+# setup routing policy
+ip -6 rule add from all fwmark 0xff00 lookup 65280
+ip -6 route add default dev kira table 65280
 
-# TODO add path: in-out-interface (out could be "local" => add to localpaths)
-# TODO remove path
+# setup nodeID
+#ip addr add $nodeID/16 dev eth0
 
-# TODO find out if additional pathids must be added as addresses to eth0 or not
+# setup GRE interface (why is this necessary?)
+#ip addr add beef::a dev eth0
