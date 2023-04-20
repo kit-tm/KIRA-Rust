@@ -77,7 +77,11 @@ Traffic that can not be forwarded will be dropped.
 - IPv6 forwarding must be enabled for container
 - A Docker IPv6 network must be setup
 
-## Example
+## Containernet example
+A simple containernet example is included in [`encapsulation.py`](encapsulation.py).
+This example can be used as basis for further development and testing.
+
+## Manual Example (outdated)
 1. Copy the included `daemon.json` to `/etc/docker/daemon.json`:
 ```sh
 cp daemon.json /etc/docker/daemon.json
@@ -123,7 +127,7 @@ To mark a PathID as terminating on this host run:
 ```
 ---
 
-### Testing Encapsulation and Decapsulation:
+### Manually testing Encapsulation and Decapsulation: (outdated)
 Note: This example doesn't use PathIDs in the intended way. 
 There is no proper generation of PathIDs or forwarding, this is for testing purposes only.
 
@@ -189,9 +193,13 @@ Nftables tracing is enabled so packets flowing through the configured rules can 
 ```sh
 nft monitor
 ```
+Tcpdump is installed so all traffic can be observed with:
+```sh
+tcpdump -i any -n
+```
 
 # TODO
-- [ ] :exclamation: fix PathID forwarding (currently conflicting rules -> set & match fwmark?)
+- [ ] fix encapsulation 
+- [ ] use lower level interfaces than ip and nft binaries
 - [ ] forwarding to physical neighbors
-- [ ] containernet integration
 - [ ] integrate forwarding into rust prototype
