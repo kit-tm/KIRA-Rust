@@ -81,6 +81,27 @@ Traffic that can not be forwarded will be dropped.
 A simple containernet example is included in [`encapsulation.py`](encapsulation.py).
 This example can be used as basis for further development and testing.
 
+To run the setup execute:
+```sh
+python3 encapsulation.py
+```
+Inside the containernet shell run:
+```sh
+d1 ping fc00::2
+```
+To attach another shell to container run:
+```sh
+docker exec -it nm.d1 bash
+```
+Traffic and nftables activity can be monitored using
+```sh
+nft monitor
+```
+and
+```sh
+tcpdump -n -i any
+```
+
 ## Manual Example (outdated)
 1. Copy the included `daemon.json` to `/etc/docker/daemon.json`:
 ```sh
