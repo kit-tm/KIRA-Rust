@@ -1,4 +1,3 @@
 #!/bin/sh
 
-nft add element ip6 kira nodeidtopathid {"$1" : "$2"}
-nft add element ip6 kira encapsulate {"$1"}
+ip -6 route add $1/128 encap ip6 dst $2 src fc00::1 dev kira
