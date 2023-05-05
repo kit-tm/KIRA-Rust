@@ -14,7 +14,7 @@ from time import sleep
 
 setLogLevel('info')
 
-SYSCTL = {'net.ipv6.conf.all.disable_ipv6': 0}
+SYSCTL = {'net.ipv6.conf.all.disable_ipv6': 0, 'net.ipv6.conf.all.forwarding':1}
 
 net = Containernet(controller=Controller)
 d1 = net.addDocker(name="d1", ip='aaaa::1/16', sysctls=SYSCTL, cap_add=['net_admin'], dimage="test")
@@ -28,6 +28,7 @@ info(d1.cmd("./localpath.sh fcaa::1"))
 info(d1.cmd("./nodetopath.sh fc00::2 fcaa::2"))
 info(d1.cmd("ip a add fc00::1/16 dev d1-eth0"))
 info(d1.cmd("ip a add fcaa::1/16 dev d1-eth0"))
+info(d1.cmd("ip a add beef::a/16 dev d1-eth0"))
 
 # info(d1.cmd("ip a add beef::a/16 dev d1-eth0"))
 
@@ -36,6 +37,7 @@ info(d2.cmd("./localpath.sh fcaa::2"))
 info(d2.cmd("./nodetopath.sh fc00::1 fcaa::1"))
 info(d2.cmd("ip a add fc00::2/16 dev d2-eth0"))
 info(d2.cmd("ip a add fcaa::2/16 dev d2-eth0"))
+info(d2.cmd("ip a add beef::a/16 dev d2-eth0"))
 
 CLI(net)
 
