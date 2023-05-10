@@ -14,7 +14,7 @@ from time import sleep
 
 setLogLevel('info')
 
-SYSCTL = {'net.ipv6.conf.all.disable_ipv6': 0}
+SYSCTL = {'net.ipv6.conf.all.disable_ipv6': 0, 'net.ipv6.conf.all.forwarding': 1}
 
 net = Containernet(controller=Controller)
 d1 = net.addDocker(name="d1", sysctls=SYSCTL, cap_add=['net_admin'], dimage="kira")
