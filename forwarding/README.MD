@@ -90,7 +90,7 @@ d1 ping -I fc00::1 fc00::2
 Encapsulation and decapsulation is handled transparently.
 To observe the flow of encapsulated packets first attach another shell to the container:
 ```sh
-docker exec -it nm.d1 bash
+docker exec -it mn.d1 bash
 ```
 Then packet flow can be observed with
 ```sh
