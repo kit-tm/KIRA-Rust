@@ -1,0 +1,54 @@
+FROM rust:latest AS chef
+RUN cargo install cargo-chef
+WORKDIR /r2kad-daemon
+
+ENV USER=r2kad-daemon
+ENV UID=10001
+ENV WORKDIR=r2kad-daemon
+
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder
+
+RUN rustup target add x86_64-unknown-linux-musl
+RUN apt update && apt install -y musl-tools musl-dev
+RUN update-ca-certificates
+
+RUN adduser \
+    --disabled-password \
+    --gecos "" \
+    --home "/nonexistent" \
+    --shell "/sbin/nologin" \
+    --no-create-home \
+    --uid "${UID}" \
+    "${USER}"
+
+COPY --from=planner "/$WORKDIR/recipe.json" recipe.json
+RUN cargo chef cook --release --target x86_64-unknown-linux-musl --recipe-path recipe.json
+
+COPY ./ .
+
+RUN cargo build --target x86_64-unknown-linux-musl --release
+RUN strip -s /r2kad-daemon/target/x86_64-unknown-linux-musl/release/r2kad-daemon
+
+FROM ubuntu:latest
+
+RUN apt update && \
+    apt upgrade -y && \
+    apt install -y net-tools iproute2 nftables iputils-ping nano tcpdump bash strace
+
+COPY --from=builder /etc/passwd /etc/passwd
+COPY --from=builder /etc/group /etc/group
+
+WORKDIR /r2kad-daemon
+
+# Copy our build
+COPY --from=builder /r2kad-daemon/target/x86_64-unknown-linux-musl/release/r2kad-daemon ./
+
+#USER r2kad-daemon:r2kad-daemon
+
+EXPOSE 8080/udp
+
+CMD ["/r2kad-daemon/r2kad-daemon"]
