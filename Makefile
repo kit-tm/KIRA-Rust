@@ -40,7 +40,10 @@ build-image-bench:
 build-image-scratch:
 	sudo docker build -t r2kad-daemon:scratch -f daemon/docker/Dockerfile.scratch .
 
-build-images: build-image-scratch build-image-bench
+build-image-full:
+	sudo docker build -t r2kad-daemon:full -f daemon/docker/Dockerfile.full .
+
+build-images: build-image-scratch build-image-bench build-image-full
 
 setup-bench-daemon:
 	-sudo docker volume create r2kad-bench-volume
