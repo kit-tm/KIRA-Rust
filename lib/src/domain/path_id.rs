@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display, Formatter, LowerHex, UpperHex};
+use std::net::Ipv6Addr;
 use std::str::FromStr;
 
 use digest::Digest;
@@ -89,6 +90,16 @@ mod sha3_extension {
 impl AsRef<[u8]> for PathId {
     fn as_ref(&self) -> &[u8] {
         self.bytes.as_ref()
+    }
+}
+
+impl From<&PathId> for Ipv6Addr {
+    fn from(value: &PathId) -> Self {
+        let mut bytes = [0;16];
+        bytes[0] = 0xfc;
+        bytes[1] = 0xaa;
+        bytes[2..16].copy_from_slice(&value.bytes[0..14]);
+        Ipv6Addr::from(bytes)
     }
 }
 

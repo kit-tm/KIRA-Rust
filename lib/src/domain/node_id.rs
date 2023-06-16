@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::{Display, Formatter, LowerHex, UpperHex};
+use std::net::Ipv6Addr;
 use std::num::NonZeroUsize;
 use std::ops::BitXor;
 use std::str::FromStr;
@@ -418,6 +419,16 @@ impl Display for NodeId {
 impl Debug for NodeId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         UpperHex::fmt(self, f)
+    }
+}
+
+impl From<&NodeId> for Ipv6Addr {
+    fn from(value: &NodeId) -> Self {
+        let mut bytes = [0;16];
+        bytes[0] = 0xfc;
+        bytes[1] = 0x00;
+        bytes[2..16].copy_from_slice(&value.bytes[0..14]);
+        Ipv6Addr::from(bytes)
     }
 }
 
