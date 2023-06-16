@@ -7,6 +7,7 @@ use crate::domain::{NetworkInterface, NodeId};
 
 pub mod hasher;
 pub mod in_memory_tables;
+pub mod native_tables;
 
 /// An entry in the [NodeIdTable] identified by the destination/contacts [NodeId].
 #[derive(Debug, Eq, PartialEq, Clone, Hash)]
