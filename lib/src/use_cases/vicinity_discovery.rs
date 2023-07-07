@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
+use std::net::Ipv6Addr;
 use std::num::NonZeroUsize;
 use std::time::Duration;
 
@@ -285,7 +286,8 @@ where
             source: context.root_id().clone(),
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
         };
-        log::trace!(target: "vicinity_discovery", "Sending message {:?}", message);
+        let source_ip = Ipv6Addr::from(context.root_id()).to_string();
+        log::trace!(target: "vicinity_discovery", "Sending message {:?} from {:?}", message, source_ip);
         if let Err(e) = context.message_sender_mut().send_message(message) {
             log::error!(target: "vicinity_discovery",
                 "MessageSender failed: {}",
