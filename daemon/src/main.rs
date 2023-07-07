@@ -6,14 +6,14 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use clap::Parser;
+use r2kad_lib::forwarding::native_tables::NativeFwdTables;
 use tokio::sync::{mpsc, RwLock};
 
 use r2kad_daemon_lib::{Node, NodeConfig};
 use r2kad_lib::domain::NodeId;
-use r2kad_lib::forwarding::in_memory_tables::InMemoryFwdTables;
 use r2kad_lib::messaging::format::ProtocolMessageFormat;
 use r2kad_lib::messaging::sync_wrapper::SyncWrapper;
-use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetInterfaceMonitor};
+use r2kad_lib::messaging::PNetInterfaceMonitor;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -77,7 +77,7 @@ fn main() {
     let mapper = PNetInterfaceMonitor::new();
     mapper.blocking_refresh();
 
-    let fwd_table = InMemoryFwdTables::new();
+    let fwd_table = NativeFwdTables::new();
 
     let ip_cache = Arc::new(RwLock::new(HashMap::new()));
     let channel = r2kad_lib::messaging::udp::async_channel(
@@ -86,7 +86,7 @@ fn main() {
         mapper,
         ProtocolMessageFormat::MessagePack,
     );
-    let (message_sender, message_receiver) = runtime
+    let (message_sender, _) = runtime
         .block_on(channel)
         .expect("failed to initialize IO channel");
 
@@ -99,12 +99,7 @@ fn main() {
         .expect("failed to get bind addr");
     println!("Using Address: {}", addr);
 
-    let (pmr_sender, pmr_receiver) = mpsc::channel(1);
-    let boxed_receiver: Box<dyn AsyncProtocolMessageReceiver + Send> = Box::new(message_receiver);
-    if let Err(e) = pmr_sender.blocking_send(boxed_receiver) {
-        log::error!("Failed to send protocol message receiver to node: {}", e);
-        return;
-    }
+    let (_, pmr_receiver) = mpsc::channel(1);
 
     let config = NodeConfig {
         benchmark_path: benchmark_writer,
