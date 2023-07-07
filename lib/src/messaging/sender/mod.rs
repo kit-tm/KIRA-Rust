@@ -69,7 +69,7 @@ pub mod error {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             match self {
                 Self::MessageFormat(e) => write!(f, "Failed to serialize message: {}", e),
-                Self::SendError(e) => write!(f, "Sending failed: {}", e),
+                Self::SendError(e) => write!(f, "Sending failed: {:?}", e),
                 Self::Other(e) => write!(f, "{}", e),
                 Self::Closed => write!(f, "Sender closed"),
             }
