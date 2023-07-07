@@ -36,6 +36,8 @@ WORKDIR /r2kad-daemon
 
 # Copy our build
 COPY --from=builder /r2kad-daemon/target/x86_64-unknown-linux-musl/release/r2kad-daemon ./
+COPY daemon/docker/start.sh ./
+COPY daemon/docker/nftables.conf ./
 
 #USER r2kad-daemon:r2kad-daemon
 
