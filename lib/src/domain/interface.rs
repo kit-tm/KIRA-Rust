@@ -6,7 +6,7 @@ pub use pnet_conversion::*;
 /// Represents network interface (as in 'hardware device') by name.
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct NetworkInterface {
-    name: String,
+    pub name: String,
 }
 
 impl NetworkInterface {
