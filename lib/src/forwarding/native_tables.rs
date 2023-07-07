@@ -41,6 +41,8 @@ impl NodeIdTable for NativeFwdTables {
             let path_ip = Ipv6Addr::from(path_id).to_string();
             let node_ip = Ipv6Addr::from(&entry.destination).to_string();
 
+            let next_hop_ip = Ipv6Addr::from(&entry.next_hop).to_string();
+
             let output = Command::new("ip")
                 .args([
                     "-6", "route", "add", &node_ip, "encap", "ip6", "dst", &path_ip, "dev", "kira",
@@ -73,10 +75,40 @@ impl NodeIdTable for NativeFwdTables {
                     String::from_utf8_lossy(&output.stdout)
                 ),
             }
+
+            let output = Command::new("ip")
+                .args(["-6", "route", "add", &path_ip, "via", &next_hop_ip])
+                .output()
+                .expect("failed to execute ip command");
+
+            match output
+                .status
+                .code()
+                .expect("ip command externally terminated")
+            {
+                0 => {
+                    log::trace!(target: "native_fwd_table", "Added route to {:?} via {:?}", &path_ip, &next_hop_ip);
+                }
+                1 => panic!(
+                    "ip: syntax error: Err:\n{}\nOut:\n{}",
+                    String::from_utf8_lossy(&output.stderr),
+                    String::from_utf8_lossy(&output.stdout)
+                ),
+                2 => panic!(
+                    "ip: kernel error: Err:\n{}\nOut:\n{}",
+                    String::from_utf8_lossy(&output.stderr),
+                    String::from_utf8_lossy(&output.stdout)
+                ),
+                _ => panic!(
+                    "ip: unknown error: Err:\n{}\nOut:\n{}",
+                    String::from_utf8_lossy(&output.stderr),
+                    String::from_utf8_lossy(&output.stdout)
+                ),
+            }
         } else {
-            // No Path exists, forward to physical neighbor instead
-            // This is not implemented yet, see nftables.conf
-            todo!()
+            // No Path exists, forward to physical neighbor instead:
+            // This is handled automatically by configuring all network interfaces
+            // to allow forwarding and configuring routes to physical neighbors.
         }
 
         Ok(())
@@ -87,6 +119,8 @@ impl NodeIdTable for NativeFwdTables {
             if let Some(path_id) = &entry.out_path_id {
                 let path_ip = Ipv6Addr::from(path_id).to_string();
                 let node_ip = Ipv6Addr::from(&entry.destination).to_string();
+
+                let next_hop_ip = Ipv6Addr::from(&entry.next_hop).to_string();
 
                 let output = Command::new("ip")
                     .args([
@@ -102,7 +136,7 @@ impl NodeIdTable for NativeFwdTables {
                     .expect("ip command externally terminated")
                 {
                     0 => {
-                        log::trace!(target: "native_fwd_table", "Updated old: {:?}, new: {:?}", old_entry, entry);
+                        log::trace!(target: "native_fwd_table", "Updated old: {:?}, new: {:?}", &old_entry, &entry);
                         *old_entry = entry;
                     }
                     1 => panic!(
@@ -121,10 +155,40 @@ impl NodeIdTable for NativeFwdTables {
                         String::from_utf8_lossy(&output.stdout)
                     ),
                 }
+
+                let output = Command::new("ip")
+                    .args(["-6", "route", "change", &path_ip, "via", &next_hop_ip])
+                    .output()
+                    .expect("failed to execute ip command");
+
+                match output
+                    .status
+                    .code()
+                    .expect("ip command externally terminated")
+                {
+                    0 => {
+                        log::trace!(target: "native_fwd_table", "Changed route to {:?} via {:?}", &path_ip, &next_hop_ip);
+                    }
+                    1 => panic!(
+                        "ip: syntax error: Err:\n{}\nOut:\n{}",
+                        String::from_utf8_lossy(&output.stderr),
+                        String::from_utf8_lossy(&output.stdout)
+                    ),
+                    2 => panic!(
+                        "ip: kernel error: Err:\n{}\nOut:\n{}",
+                        String::from_utf8_lossy(&output.stderr),
+                        String::from_utf8_lossy(&output.stdout)
+                    ),
+                    _ => panic!(
+                        "ip: unknown error: Err:\n{}\nOut:\n{}",
+                        String::from_utf8_lossy(&output.stderr),
+                        String::from_utf8_lossy(&output.stdout)
+                    ),
+                }
             } else {
-                // No Path exists, forward to physical neighbor instead
-                // This is not implemented yet, see nftables.conf
-                todo!()
+                // No Path exists, forward to physical neighbor instead:
+                // This is handled automatically by configuring all network interfaces
+                // to allow forwarding and configuring routes to physical neighbors.
             }
 
             Ok(())
@@ -203,7 +267,7 @@ impl PathIdTable for NativeFwdTables {
                 "element",
                 "ip6",
                 "kira",
-                "pathidtopathid",
+                "forwardmap",
                 &format!("{{\"{}\" : \"{}\"}}", in_path_ip, out_path_ip),
             ])
             .output()
@@ -261,7 +325,7 @@ impl PathIdTable for NativeFwdTables {
                     "element",
                     "ip6",
                     "kira",
-                    "pathidtopathid",
+                    "forwardmap",
                     &format!("{{\"{}\"}}", in_path_ip),
                 ])
                 .output()
