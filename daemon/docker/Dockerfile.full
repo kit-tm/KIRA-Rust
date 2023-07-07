@@ -30,7 +30,6 @@ RUN apt update && \
 
 COPY --from=builder /etc/passwd /etc/passwd
 COPY --from=builder /etc/group /etc/group
-COPY start.sh /r2kad-daemon/
 
 WORKDIR /r2kad-daemon
 
