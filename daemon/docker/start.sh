@@ -4,4 +4,6 @@
 ip link add name kira type ip6gre external
 ip link set kira up
 
+sleep 5
+
 ./r2kad-daemon
