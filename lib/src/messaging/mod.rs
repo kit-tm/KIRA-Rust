@@ -88,7 +88,7 @@ pub trait AsyncInterfaceMapper {
 
 #[cfg(feature = "udp-tokio")]
 pub mod udp {
-    use std::net::SocketAddr;
+    use std::net::{Ipv6Addr, SocketAddr};
     use std::sync::Arc;
 
     use crate::messaging::format::ProtocolMessageFormat;
@@ -116,9 +116,14 @@ pub mod udp {
         C: AsyncIpCache + Clone + Send + Sync,
         P: AsyncInterfaceMapper + Clone + Send + Sync,
     {
-        let socket = Arc::new(
-            tokio::net::UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port))).await?,
+        let udp_socket =
+            tokio::net::UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port))).await?;
+        log::trace!(
+            "Error joining multicast group: {:?}",
+            udp_socket.join_multicast_v6(&Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 0), 0)
         );
+
+        let socket = Arc::new(udp_socket);
 
         let sender = sender::udp_tokio::UdpSender::from_socket(
             socket.clone(),

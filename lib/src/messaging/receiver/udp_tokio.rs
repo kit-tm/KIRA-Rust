@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use std::net::SocketAddr;
+use std::net::{Ipv6Addr, SocketAddr};
 use std::ops::DerefMut;
 use std::sync::Arc;
 use std::time::Duration;
@@ -58,9 +58,15 @@ impl<C, P> UdpReceiver<C, P> {
         ip_cache: C,
         interface_mapper: P,
     ) -> tokio::io::Result<Self> {
-        let socket = Arc::new(
-            UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?,
-        );
+        let udp_socket =
+            UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?;
+        if let Err(err) =
+            udp_socket.join_multicast_v6(&Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 0), 0)
+        {
+            log::trace!("Error joining multicast group: {:?}", err);
+        }
+
+        let socket = Arc::new(udp_socket);
 
         Ok(Self {
             buffer: RwLock::new([0u8; MTU_BYTES]),
@@ -229,6 +235,7 @@ mod tests {
 
         let handle = tokio::spawn(async move {
             let socket = UdpSocket::bind("[::]:0").await?;
+            // may need to join multicast group
 
             let protocol_message = ProtocolMessage::Hello(HelloMessage {
                 source: NodeId::one(),
@@ -283,6 +290,7 @@ mod tests {
 
         let handle = tokio::spawn(async move {
             let socket = UdpSocket::bind("[::]:0").await?;
+            // may need to join multicast group
 
             let protocol_message = ProtocolMessage::Hello(HelloMessage {
                 source: NodeId::one(),

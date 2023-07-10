@@ -29,6 +29,9 @@ impl<C> UdpSender<C> {
     ) -> io::Result<Self> {
         let socket =
             UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?;
+        if let Err(err) = socket.join_multicast_v6(&Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 0), 0) {
+            log::trace!("Error joining multicast group: {:?}", err);
+        }
 
         Ok(Self {
             socket: Arc::new(socket),
