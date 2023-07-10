@@ -120,7 +120,7 @@ pub mod udp {
             tokio::net::UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port))).await?;
 
         if let Err(err) =
-            udp_socket.join_multicast_v6(&Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 0), 0)
+            udp_socket.join_multicast_v6(&Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), 0)
         {
             log::trace!("Error joining multicast group: {:?}", err);
         }
