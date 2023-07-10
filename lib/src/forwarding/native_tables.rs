@@ -23,9 +23,11 @@ impl NativeFwdTables {
             .unwrap();
         match output.status.code().expect("failed to execute nft command") {
             0 => log::debug!(target: "native_fwd_table", "Loaded nftables successfully"),
-            _status => log::debug!(target: "native_fwd_table", "Loaded nftables config with status code {:?}", _status)
+            _status => {
+                log::debug!(target: "native_fwd_table", "Loaded nftables config with status code {:?} and error message {:?}", _status, String::from_utf8_lossy(&output.stderr))
+            }
         }
-        
+
         Self::default()
     }
 }
