@@ -17,14 +17,15 @@ pub struct NativeFwdTables {
 
 impl NativeFwdTables {
     pub fn new() -> Self {
-        let status = Command::new("nft")
-            .arg("-f nftables.conf")
+        let output = Command::new("nft")
+            .args(["-f", "nftables.conf"])
             .output()
-            .unwrap()
-            .status;
-
-        log::debug!(target: "native_fwd_table", "Loaded nftables config with status code {:?}", status);
-
+            .unwrap();
+        match output.status.code().expect("failed to execute nft command") {
+            0 => log::debug!(target: "native_fwd_table", "Loaded nftables successfully"),
+            _status => log::debug!(target: "native_fwd_table", "Loaded nftables config with status code {:?}", _status)
+        }
+        
         Self::default()
     }
 }
