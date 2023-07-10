@@ -18,7 +18,7 @@ pub struct NativeFwdTables {
 impl NativeFwdTables {
     pub fn new() -> Self {
         let output = Command::new("nft")
-            .args(["-f", "nftables.conf"])
+            .args(["-f", "/r2kad-daemon/nftables.conf"])
             .output()
             .unwrap();
         match output.status.code().expect("failed to execute nft command") {
