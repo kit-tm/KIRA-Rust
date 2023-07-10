@@ -23,7 +23,7 @@ impl NativeFwdTables {
             .unwrap()
             .status;
 
-        log::trace!(target: "native_fwd_table", "Loaded nftables config with status code {:?}", status);
+        log::debug!(target: "native_fwd_table", "Loaded nftables config with status code {:?}", status);
 
         Self::default()
     }
