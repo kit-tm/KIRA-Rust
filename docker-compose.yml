@@ -1,6 +1,7 @@
 services:
   node-1:
-    image: r2kad-daemon:scratch
+    image: r2kad-daemon:full
+    user: 0:0
     environment:
       NODE_ID: "0100000000000000000000000000"
       RUST_LOG: "debug"
@@ -9,8 +10,11 @@ services:
     networks:
       mynetv6-1:
         ipv6_address: "2001:db8:1::10"
+    cap_add:
+      - NET_ADMIN
   node-2:
-    image: r2kad-daemon:scratch
+    image: r2kad-daemon:full
+    user: 0:0
     environment:
       NODE_ID: "0200000000000000000000000000"
       RUST_LOG: "debug"
@@ -21,8 +25,11 @@ services:
         ipv6_address: "2001:db8:1::11"
       mynetv6-2:
         ipv6_address: "2001:db8:2::12"
+    cap_add:
+      - NET_ADMIN
   node-3:
-    image: r2kad-daemon:scratch
+    image: r2kad-daemon:full
+    user: 0:0
     environment:
       NODE_ID: "0300000000000000000000000000"
       RUST_LOG: "debug"
@@ -31,9 +38,12 @@ services:
     networks:
       mynetv6-2:
         ipv6_address: "2001:db8:2::13"
+    cap_add:
+      - NET_ADMIN
 
 networks:
   mynetv6-1:
     external: true
   mynetv6-2:
     external: true
+    
