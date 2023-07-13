@@ -9,12 +9,12 @@ setLogLevel('info')
 SYSCTL = {'net.ipv6.conf.all.disable_ipv6': 0, 'net.ipv6.conf.all.forwarding': 1}
 
 net = Containernet(controller=Controller)
-d1 = net.addDocker(name="d1", sysctls=SYSCTL, cap_add=['net_admin'], dimage="r2kad-daemon:full", ip='fc00::1', dcmd="/r2kad-daemon/r2kad-daemon", environment={"NODE_ID": f'{1:028}', "RUST_LOG": "info"})
-d2 = net.addDocker(name="d2", sysctls=SYSCTL, cap_add=['net_admin'], dimage="r2kad-daemon:full", ip='fc00::2', dcmd="/r2kad-daemon/r2kad-daemon", environment={"NODE_ID": f'{2:028}', "RUST_LOG": "info"})
-#d3 = net.addDocker(name="d3", sysctls=SYSCTL, cap_add=['net_admin'], dimage="r2kad-daemon:full", dcmd="/r2kad-daemon/r2kad-daemon", environment={"NODE_ID": f'{3:028}'})
+d1 = net.addDocker(name="d1", sysctls=SYSCTL, cap_add=['net_admin'], dimage="r2kad-daemon:full", ip='fc00::1', dcmd="bash /r2kad-daemon/start.sh", environment={"NODE_ID": f'{1:028}', "RUST_LOG": "trace"})
+d2 = net.addDocker(name="d2", sysctls=SYSCTL, cap_add=['net_admin'], dimage="r2kad-daemon:full", ip='fc00::2', dcmd="bash /r2kad-daemon/start.sh", environment={"NODE_ID": f'{2:028}', "RUST_LOG": "trace"})
+d3 = net.addDocker(name="d3", sysctls=SYSCTL, cap_add=['net_admin'], dimage="r2kad-daemon:full", ip='fc00::3', dcmd="bash /r2kad-daemon/start.sh", environment={"NODE_ID": f'{3:028}', "RUST_LOG": "trace"})
 
 net.addLink(d1, d2)
-#net.addLink(d2, d3)
+net.addLink(d2, d3)
 
 net.start()
 
