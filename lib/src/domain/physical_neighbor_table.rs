@@ -53,9 +53,9 @@ impl PNTable {
 
         if let Some(interface_old) = self.map.get(&id) {
             if interface_old != &interface {
-                self.insert_into_routing_table(&id, &interface)
+                self.remove_from_routing_table(&id, &interface);
             }
-        }
+        self.insert_into_routing_table(&id, &interface);
 
         let result = self.map.insert(id, interface);
         self.state_seq_nr += 1;
