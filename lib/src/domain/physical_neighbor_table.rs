@@ -85,6 +85,8 @@ impl PNTable {
     fn remove_from_routing_table(&self, id: &NodeId, interface: &NetworkInterface) {
         let node_ip = Ipv6Addr::from(id).to_string();
 
+        log::trace!(target: "physical_neighbor_table", "Trying to delete route to {:?} dev {:?}", node_ip, &interface.name);
+
         let output = Command::new("ip")
             .args([
                 "route", "del", &node_ip, "dev", &interface.name,
@@ -120,6 +122,8 @@ impl PNTable {
 
     fn insert_into_routing_table(&self, id: &NodeId, interface: &NetworkInterface) {
         let node_ip = Ipv6Addr::from(id).to_string();
+
+        log::trace!(target: "physical_neighbor_table", "Trying to add route to {:?} dev {:?}", node_ip, &interface.name);
 
         let output = Command::new("ip")
             .args([
