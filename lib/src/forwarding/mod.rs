@@ -49,19 +49,23 @@ pub struct PathIdEntry {
     /// [PathId] of incoming packages starting with the [NodeId] of the current node.
     pub in_path_id: PathId,
     /// [PathId] of the outgoing packages (in_path_id will be replaced by this) not starting
-    /// with the [NodeId] of the current node.
-    pub out_path_id: PathId,
-    /// [NetworkInterface] to delegate the data packet to.
-    pub out_interface: NetworkInterface,
+    /// with the [NodeId] of the current node. If this is None packets will be decapsulated.
+    pub out_path_id: Option<PathId>,
+    /// [NodeId] to delegate the data packet to.
+    pub next_hop: NodeId,
 }
 
 impl Display for PathIdEntry {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self.in_path_id, f)?;
         write!(f, " => (")?;
-        Display::fmt(&self.out_path_id, f)?;
+        if let Some(out_path_id) = &self.out_path_id {
+            Display::fmt(out_path_id, f)?;
+        } else {
+            Display::fmt("None", f)?;
+        }
         write!(f, ", ")?;
-        Display::fmt(&self.out_interface, f)?;
+        Display::fmt(&self.next_hop, f)?;
         write!(f, ")")
     }
 }

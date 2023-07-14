@@ -89,11 +89,10 @@ where
                 log::warn!(target: "precompute_paths_and_path_ids", "VicinityGraph generated path over invalid neighbor");
                 continue;
             }
-            let interface = interface.unwrap();
             let entry = PathIdEntry {
                 in_path_id: self.config.hasher.hash(&in_path),
-                out_path_id: self.config.hasher.hash(&out_path),
-                out_interface: interface,
+                out_path_id: Some(self.config.hasher.hash(&out_path)),
+                next_hop: out_path.first().clone(),
             };
             entries.insert(entry);
         }
@@ -1967,8 +1966,8 @@ mod tests {
             let in_path_id = hasher.hash(&in_path);
             let entry = PathIdEntry {
                 in_path_id: in_path_id.clone(),
-                out_path_id: hasher.hash(&out_path),
-                out_interface: interface,
+                out_path_id: Some(hasher.hash(&out_path)),
+                next_hop: out_path.first().clone(),
             };
             let created_entry = fwd_table.path_id_entry(&in_path_id);
             assert_eq!(

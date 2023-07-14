@@ -216,8 +216,8 @@ where
 
         let path_id_entry = PathIdEntry {
             in_path_id: in_path_id.clone(),
-            out_path_id,
-            out_interface: out_interface.clone(),
+            out_path_id: Some(out_path_id),
+            next_hop: out_path.first().clone(),
         };
 
         if let Some(entry) = entries.get_mut(&in_path_id) {

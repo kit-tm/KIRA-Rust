@@ -195,17 +195,13 @@ where
 
         let neighbor = contact.path().first().clone();
 
-        let out_interface =
-            context.pn_table().get(&neighbor).cloned().ok_or_else(|| {
-                error::DeriveFwdEntriesError::NeighborNotInPNTable(neighbor.clone())
-            })?;
         let in_path_id = self.config.hasher.hash(contact.path());
         let out_path_id = self.config.hasher.hash(contact.path().into_iter().skip(1));
 
         Ok(Some(PathIdEntry {
             in_path_id,
-            out_path_id,
-            out_interface,
+            out_path_id: Some(out_path_id),
+            next_hop: neighbor,
         }))
     }
 }
