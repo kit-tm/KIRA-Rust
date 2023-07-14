@@ -79,6 +79,8 @@ impl NodeIdTable for NativeFwdTables {
                 ),
             }
 
+            log::trace!(target: "native_fwd_table", "Trying to add route to {:?} via {:?}", &path_ip, &next_hop_ip);
+
             let output = Command::new("ip")
                 .args(["-6", "route", "add", &path_ip, "via", &next_hop_ip])
                 .output()
@@ -261,48 +263,28 @@ impl PathIdTable for NativeFwdTables {
             return Err(error::FwdTableError::EntryAlreadyExists);
         }
 
-        let in_path_ip = Ipv6Addr::from(&entry.in_path_id).to_string();
-        let out_path_ip = Ipv6Addr::from(&entry.out_path_id).to_string();
+        let in_path_ip = Ipv6Addr::from(&entry.in_path_id);
 
-        let output = Command::new("nft")
-            .args([
-                "add",
-                "element",
-                "ip6",
-                "kira",
-                "forwardmap",
-                &format!("{{\"{}\" : \"{}\"}}", in_path_ip, out_path_ip),
-            ])
-            .output()
-            .expect("failed to execute nft command");
+        let mut next_hop = Ipv6Addr::from(&entry.next_hop);
 
-        match output
-            .status
-            .code()
-            .expect("nft command externally terminated")
-        {
-            0 => {
-                log::trace!(target: "native_fwd_table", "Created {:?}", entry);
-                self.path_id_table.insert(entry.in_path_id.clone(), entry);
-            }
-            3 => {
-                panic!(
-                    "nft: unable to open netlink socket: Err\n{}\nOut:\n{}",
-                    String::from_utf8_lossy(&output.stderr),
-                    String::from_utf8_lossy(&output.stdout)
-                )
-            }
-            _ => {
-                panic!(
-                    "nft: unknown error: Err\n{}\nOut:\n{}",
-                    String::from_utf8_lossy(&output.stderr),
-                    String::from_utf8_lossy(&output.stdout)
-                )
-            }
+        // if an outgoing Path exists also create a via route for it
+        if let Some(out_path) = &entry.out_path_id {
+            next_hop = Ipv6Addr::from(out_path);
+
+            let via = Ipv6Addr::from(&entry.next_hop);
+
+            log::trace!(target: "native_fwd_table", "Trying to create via route: {:?} via {:?}", next_hop, via);
+            NativeFwdTables::create_via_route(next_hop, via);
         }
+
+        log::trace!(target: "native_fwd_table", "Trying to insert entry into forwardmap: {:?}", entry);
+
+        NativeFwdTables::insert_into_forwardmap(in_path_ip, next_hop);
 
         Ok(())
     }
+
+    
 
     fn update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
         if let Some(_) = self.path_id_table.get_mut(&entry.in_path_id) {
@@ -320,48 +302,136 @@ impl PathIdTable for NativeFwdTables {
 
     fn remove(&mut self, path_id: &PathId) -> Result<Option<PathIdEntry>, Self::Error> {
         if let Some(removed) = self.path_id_table.remove(path_id) {
-            let in_path_ip = Ipv6Addr::from(path_id).to_string();
+            let in_path_ip = Ipv6Addr::from(path_id);
 
-            let output = Command::new("nft")
-                .args([
-                    "delete",
-                    "element",
-                    "ip6",
-                    "kira",
-                    "forwardmap",
-                    &format!("{{\"{}\"}}", in_path_ip),
-                ])
-                .output()
-                .expect("failed to execute nft command");
+            log::trace!(target: "native_fwd_table", "Trying to remove entry from forwardmap: {:?}", removed);
 
-            match output
-                .status
-                .code()
-                .expect("nft command externally terminated")
-            {
-                0 => {
-                    log::trace!(target: "native_fwd_table", "Removed {:?}", removed)
-                }
-                3 => {
-                    panic!(
-                        "nft: unable to open netlink socket: Err\n{}\nOut:\n{}",
-                        String::from_utf8_lossy(&output.stderr),
-                        String::from_utf8_lossy(&output.stdout)
-                    )
-                }
-                _ => {
-                    panic!(
-                        "nft: unknown error: Err\n{}\nOut:\n{}",
-                        String::from_utf8_lossy(&output.stderr),
-                        String::from_utf8_lossy(&output.stdout)
-                    )
-                }
-            }
+            NativeFwdTables::delete_from_forwardmap(in_path_ip);
 
             Ok(Some(removed))
         } else {
             Ok(None)
         }
+    }
+}
+
+impl NativeFwdTables {
+    fn insert_into_forwardmap(from: Ipv6Addr, to: Ipv6Addr) {
+
+        let from_addr = from.to_string();
+        let to_addr = to.to_string();
+
+        let output = Command::new("nft")
+            .args([
+                "add",
+                "element",
+                "ip6",
+                "kira",
+                "forwardmap",
+                &format!("{{\"{}\" : \"{}\"}}", from_addr, to_addr),
+            ])
+            .output()
+            .expect("failed to execute nft command");
+
+        match output
+            .status
+            .code()
+            .expect("nft command externally terminated")
+        {
+            0 => {
+                log::trace!(target: "native_fwd_table", "Created forwardmap entry: ({:?} -> {:?})", from_addr, to_addr);
+            }
+            3 => {
+                panic!(
+                    "nft: unable to open netlink socket: Err\n{}\nOut:\n{}",
+                    String::from_utf8_lossy(&output.stderr),
+                    String::from_utf8_lossy(&output.stdout)
+                )
+            }
+            _ => {
+                panic!(
+                    "nft: unknown error: Err\n{}\nOut:\n{}",
+                    String::from_utf8_lossy(&output.stderr),
+                    String::from_utf8_lossy(&output.stdout)
+                )
+            }
+        }
+    }
+
+    fn delete_from_forwardmap(from: Ipv6Addr) {
+
+        let from_addr = from.to_string();
+
+        let output = Command::new("nft")
+            .args([
+                "delete",
+                "element",
+                "ip6",
+                "kira",
+                "forwardmap",
+                &format!("{{\"{}\"}}", from_addr),
+            ])
+            .output()
+            .expect("failed to execute nft command");
+
+        match output
+            .status
+            .code()
+            .expect("nft command externally terminated")
+        {
+            0 => {
+                log::trace!(target: "native_fwd_table", "Deleted forwardmap entry: ({:?} -> ?)", from_addr);
+            }
+            3 => {
+                panic!(
+                    "nft: unable to open netlink socket: Err\n{}\nOut:\n{}",
+                    String::from_utf8_lossy(&output.stderr),
+                    String::from_utf8_lossy(&output.stdout)
+                )
+            }
+            _ => {
+                panic!(
+                    "nft: unknown error: Err\n{}\nOut:\n{}",
+                    String::from_utf8_lossy(&output.stderr),
+                    String::from_utf8_lossy(&output.stdout)
+                )
+            }
+        }
+    }
+
+    fn create_via_route(ip: Ipv6Addr, via: Ipv6Addr) {
+        let ip_addr = ip.to_string();
+        let via_addr = via.to_string();
+
+        let output = Command::new("ip")
+                .args(["-6", "route", "add", &ip_addr, "via", &via_addr])
+                .output()
+                .expect("failed to execute ip command");
+
+            match output
+                .status
+                .code()
+                .expect("ip command externally terminated")
+            {
+                0 => {
+                    log::trace!(target: "native_fwd_table", "Added route to {:?} via {:?}", &ip_addr, &via_addr);
+                }
+                1 => panic!(
+                    "ip: syntax error: Err:\n{}\nOut:\n{}",
+                    String::from_utf8_lossy(&output.stderr),
+                    String::from_utf8_lossy(&output.stdout)
+                ),
+                2 => panic!(
+                    "ip: kernel error: Err:\n{}\nOut:\n{}",
+                    String::from_utf8_lossy(&output.stderr),
+                    String::from_utf8_lossy(&output.stdout)
+                ),
+                _ => panic!(
+                    "ip: unknown error: Err:\n{}\nOut:\n{}",
+                    String::from_utf8_lossy(&output.stderr),
+                    String::from_utf8_lossy(&output.stdout)
+                ),
+            }
     }
 }
 
