@@ -55,6 +55,7 @@ impl PNTable {
             if interface_old != &interface {
                 self.remove_from_routing_table(&id, &interface);
             }
+        }
         self.insert_into_routing_table(&id, &interface);
 
         let result = self.map.insert(id, interface);
