@@ -323,7 +323,7 @@ mod tests {
     fn contact_entries_added() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::new(0);
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);

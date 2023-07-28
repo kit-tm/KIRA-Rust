@@ -73,7 +73,7 @@ mod tests {
     #[test]
     fn simplify_pn_part() -> Result<(), Box<dyn std::error::Error>> {
         let mut pn_table = PNTable::new();
-        pn_table.insert(NodeId::zero(), NetworkInterface::new("0"));
+        pn_table.insert(NodeId::zero(), NetworkInterface::new(0));
 
         let routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;
 
@@ -99,7 +99,7 @@ mod tests {
     #[test]
     fn simplify_pn_end() -> Result<(), Box<dyn std::error::Error>> {
         let mut pn_table = PNTable::new();
-        pn_table.insert(NodeId::zero(), NetworkInterface::new("0"));
+        pn_table.insert(NodeId::zero(), NetworkInterface::new(0));
 
         let routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;
 
@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn simplify_multiple() -> Result<(), Box<dyn std::error::Error>> {
         let mut pn_table = PNTable::new();
-        pn_table.insert(NodeId::zero(), NetworkInterface::new("0"));
+        pn_table.insert(NodeId::zero(), NetworkInterface::new(0));
 
         let mut routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;
         routing_table.add(Contact::new(
