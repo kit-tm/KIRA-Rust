@@ -284,8 +284,6 @@ impl PathIdTable for NativeFwdTables {
         Ok(())
     }
 
-    
-
     fn update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
         if let Some(_) = self.path_id_table.get_mut(&entry.in_path_id) {
             // nft does not support updating elements
@@ -317,7 +315,6 @@ impl PathIdTable for NativeFwdTables {
 
 impl NativeFwdTables {
     fn insert_into_forwardmap(from: Ipv6Addr, to: Ipv6Addr) {
-
         let from_addr = from.to_string();
         let to_addr = to.to_string();
 
@@ -359,7 +356,6 @@ impl NativeFwdTables {
     }
 
     fn delete_from_forwardmap(from: Ipv6Addr) {
-
         let from_addr = from.to_string();
 
         let output = Command::new("nft")
@@ -404,34 +400,39 @@ impl NativeFwdTables {
         let via_addr = via.to_string();
 
         let output = Command::new("ip")
-                .args(["-6", "route", "add", &ip_addr, "via", &via_addr])
-                .output()
-                .expect("failed to execute ip command");
+            .args(["-6", "route", "add", &ip_addr, "via", &via_addr])
+            .output()
+            .expect("failed to execute ip command");
 
-            match output
-                .status
-                .code()
-                .expect("ip command externally terminated")
-            {
-                0 => {
-                    log::trace!(target: "native_fwd_table", "Added route to {:?} via {:?}", &ip_addr, &via_addr);
-                }
-                1 => panic!(
-                    "ip: syntax error: Err:\n{}\nOut:\n{}",
-                    String::from_utf8_lossy(&output.stderr),
-                    String::from_utf8_lossy(&output.stdout)
-                ),
-                2 => panic!(
-                    "ip: kernel error: Err:\n{}\nOut:\n{}",
-                    String::from_utf8_lossy(&output.stderr),
-                    String::from_utf8_lossy(&output.stdout)
-                ),
-                _ => panic!(
-                    "ip: unknown error: Err:\n{}\nOut:\n{}",
-                    String::from_utf8_lossy(&output.stderr),
-                    String::from_utf8_lossy(&output.stdout)
-                ),
+        match output
+            .status
+            .code()
+            .expect("ip command externally terminated")
+        {
+            0 => {
+                log::trace!(target: "native_fwd_table", "Added route to {:?} via {:?}", &ip_addr, &via_addr);
             }
+            1 => panic!(
+                "ip: syntax error: Err:\n{}\nOut:\n{}",
+                String::from_utf8_lossy(&output.stderr),
+                String::from_utf8_lossy(&output.stdout)
+            ),
+            2 => {
+                let err_string = String::from_utf8_lossy(&output.stderr);
+                if !err_string.contains("RTNETLINK answers: File exists") {
+                    panic!(
+                        "ip: kernel error: Err:\n{}\nOut:\n{}",
+                        String::from_utf8_lossy(&output.stderr),
+                        String::from_utf8_lossy(&output.stdout)
+                    )
+                }
+            }
+            _ => panic!(
+                "ip: unknown error: Err:\n{}\nOut:\n{}",
+                String::from_utf8_lossy(&output.stderr),
+                String::from_utf8_lossy(&output.stdout)
+            ),
+        }
     }
 }
 
