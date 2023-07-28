@@ -91,6 +91,8 @@ pub mod udp {
     use std::net::{Ipv6Addr, SocketAddr};
     use std::sync::Arc;
 
+    use unix_udp_sock::UdpSocket;
+
     use crate::messaging::format::ProtocolMessageFormat;
     use crate::messaging::{receiver, sender, AsyncInterfaceMapper, AsyncIpCache};
 
@@ -117,10 +119,10 @@ pub mod udp {
         P: AsyncInterfaceMapper + Clone + Send + Sync,
     {
         let udp_socket =
-            tokio::net::UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port))).await?;
+            UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port))).await?;
 
         if let Err(err) =
-            udp_socket.join_multicast_v6(&Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), 0)
+            udp_socket.join_multicast_v6(&Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), 0).await
         {
             log::trace!("Error joining multicast group: {:?}", err);
         }

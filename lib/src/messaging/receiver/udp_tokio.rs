@@ -4,7 +4,7 @@ use std::ops::DerefMut;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::net::UdpSocket;
+use unix_udp_sock::UdpSocket;
 use tokio::sync::RwLock;
 
 use crate::domain::NetworkInterface;
@@ -61,7 +61,7 @@ impl<C, P> UdpReceiver<C, P> {
         let udp_socket =
             UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?;
         if let Err(err) =
-            udp_socket.join_multicast_v6(&Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), 0)
+            udp_socket.join_multicast_v6(&Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), 0).await
         {
             log::trace!("Error joining multicast group: {:?}", err);
         }
@@ -125,15 +125,15 @@ where
         let mut buffer = self.buffer.write().await;
 
         let receive_with_optional_timeout = if let Some(duration) = timeout {
-            tokio::time::timeout(duration, socket.recv_from(buffer.deref_mut()))
+            tokio::time::timeout(duration, socket.recv_msg(buffer.deref_mut()))
                 .await
                 .map_err(|_| RecvError::Timeout)?
         } else {
-            socket.recv_from(buffer.deref_mut()).await
+            socket.recv_msg(buffer.deref_mut()).await
         };
 
-        let (received_bytes, received_from) = match receive_with_optional_timeout {
-            Ok(received) => received,
+        let (received_bytes, ifindex, received_from) = match receive_with_optional_timeout {
+            Ok(meta) => (meta.len, meta.ifindex, meta.addr),
             Err(e) => {
                 log::error!("Failed to receive data from socket: {}", e);
                 return Err(RecvError::IoError(Box::new(e)));
@@ -141,11 +141,7 @@ where
         };
 
         let message = self.deserialize(&buffer[..received_bytes]);
-        let interface = self
-            .interface_mapper
-            .get_interface(&received_from)
-            .await
-            .ok_or(RecvError::NoInterfaceFound)?;
+        let interface = NetworkInterface::new(ifindex);
 
         if let Some(message) = &message {
             log::trace!(target: "message_receiver", "Received {:?} from {}", &message, received_from);
@@ -184,17 +180,16 @@ where
         &mut self,
     ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, TryRecvError> {
         let mut buffer = self.buffer.write().await;
-        let (received_bytes, address) = match self.socket.try_recv_from(buffer.deref_mut()) {
-            Ok(received) => received,
+
+        let (received_bytes, ifindex) = match self.socket.recv_msg(buffer.deref_mut()).await {
+            Ok(meta) => {
+                (meta.len, meta.ifindex)
+            },
             Err(e) => return Err(TryRecvError::IoError(Box::new(e))),
         };
 
         let message = self.deserialize(&buffer[..received_bytes]);
-        let interface = self
-            .interface_mapper
-            .get_interface(&address)
-            .await
-            .ok_or(TryRecvError::NoInterfaceFound)?;
+        let interface = NetworkInterface::new(ifindex);
 
         Ok(message.map(|message| (message, interface)))
     }
