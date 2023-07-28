@@ -182,11 +182,17 @@ where
     }
 
     fn register_path(&mut self, context: &C, req: ReqRspMessage<PathSetupReqData>) {
-        let entries = match &mut self.state {
+        let entries;
+        let local_entries;
+        match &mut self.state {
             EPMState::Running {
                 externally_added_paths,
+                local_paths,
                 ..
-            } => externally_added_paths,
+            } => {
+                entries = externally_added_paths;
+                local_entries = local_paths;
+            }
             _ => {
                 log::warn!(target: "explicit_path_management", "Tried to register foreign path while not initialized");
                 return;
@@ -198,48 +204,79 @@ where
             Result::<Path, EmptyPathError>::from_iter(in_path.clone().into_iter().skip(1))
                 .map(Some)
                 .unwrap_or_else(|_| None);
-        if out_path.is_none() {
-            return;
-        }
-        let out_path = out_path.unwrap();
 
         let in_path_id = self.config.hasher.hash(&in_path);
-        let out_path_id = self.config.hasher.hash(&out_path);
 
-        let out_interface = match context.pn_table().get(out_path.first()).cloned() {
-            Some(interface) => interface,
-            None => {
-                log::warn!(target: "explicit_path_management", "Received PathSetupRequest for invalid physical neighbor {}; Ignoring", out_path.first());
-                return;
+        let out_path_id;
+        let next_hop;
+        let out_interface;
+
+        match out_path {
+            Some(out_path) => {
+                out_path_id = Some(self.config.hasher.hash(&out_path));
+                next_hop = out_path.first().clone();
+                out_interface = match context.pn_table().get(out_path.first()).cloned() {
+                    Some(interface) => Some(interface),
+                    None => {
+                        log::warn!(target: "explicit_path_management", "Received PathSetupRequest for invalid physical neighbor {}; Ignoring", out_path.first());
+                        return;
+                    }
+                };
             }
-        };
+            // In case the local path ends here, packets must be decapsulated
+            None => {
+                out_path_id = None;
+                next_hop = context.root_id().clone();
+                out_interface = None;
+                log::info!(target: "explicit_path_management", "New local path: {:?} -> {:?}", in_path_id, next_hop)
+            }
+        }
+
+        let is_local = out_path_id.is_none();
+        let is_new_local = !local_entries.contains(&in_path_id);
+        let is_new_entry = !entries.contains_key(&in_path_id);
 
         let path_id_entry = PathIdEntry {
             in_path_id: in_path_id.clone(),
-            out_path_id: Some(out_path_id),
-            next_hop: out_path.first().clone(),
+            out_path_id,
+            next_hop,
         };
 
-        if let Some(entry) = entries.get_mut(&in_path_id) {
-            // Already present -> Update validity and entry in fwd_tables
+        if is_local && is_new_local {
+            if let Err(e) = context.forwarding_tables_mut().create(path_id_entry) {
+                log::error!(target: "explicit_path_management", "Failed to create new entry: {:?}", e);
+                return;
+            }
+            local_entries.insert(in_path_id);
+        } else if is_local {
             if let Err(e) = context.forwarding_tables_mut().update(path_id_entry) {
                 log::error!(target: "explicit_path_management", "Failed to update existing entry: {:?}", e);
                 return;
             }
-            entry.last_seen = Instant::now();
-        } else {
-            // Not present -> Create new entry
-            if let Err(e) = context.forwarding_tables_mut().create(path_id_entry) {
+            local_entries.insert(in_path_id);
+        } else if !is_local && is_new_entry {
+            if let Err(e) = context.forwarding_tables_mut().update(path_id_entry) {
                 log::error!(target: "explicit_path_management", "Failed to update existing entry: {:?}", e);
                 return;
             }
-            entries.insert(
-                in_path_id,
-                Entry {
-                    interface: out_interface,
-                    last_seen: Instant::now(),
-                },
-            );
+            let entry = entries.get_mut(&in_path_id).unwrap();
+            entry.last_seen = Instant::now();
+        } else {
+            if let Err(e) = context.forwarding_tables_mut().create(path_id_entry) {
+                log::error!(target: "explicit_path_management", "Failed to create new entry: {:?}", e);
+                return;
+            }
+            if let Some(interface) = out_interface {
+                entries.insert(
+                    in_path_id,
+                    Entry {
+                        interface,
+                        last_seen: Instant::now(),
+                    },
+                );
+            } else {
+                log::error!(target: "explicit_path_management", "No interface incoming PathID {:?}", in_path_id);
+            }
         }
     }
 
@@ -435,6 +472,7 @@ where
             refresh_timer: refresh_timer_id,
             cleanup_timer: cleanup_timer_id,
             externally_added_paths: HashMap::default(),
+            local_paths: HashSet::default(),
         };
 
         Ok(())
@@ -461,6 +499,7 @@ pub enum EPMState {
         refresh_timer: TimerId,
         cleanup_timer: TimerId,
         externally_added_paths: HashMap<PathId, Entry>,
+        local_paths: HashSet<PathId>,
     },
     /// The [UseCase] reached an unrecoverable error state.
     Error,
