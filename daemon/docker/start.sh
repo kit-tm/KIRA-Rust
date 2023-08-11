@@ -5,6 +5,9 @@ ip link add name kira type ip6gre external
 ip link set kira up
 ip link set eth0 down
 
-sleep 5
+until [ -f /r2kad-daemon/start ]
+do
+     sleep 5
+done
 
 ./r2kad-daemon
