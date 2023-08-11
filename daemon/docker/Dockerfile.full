@@ -26,7 +26,7 @@ FROM ubuntu:latest
 
 RUN apt update && \
     apt upgrade -y && \
-    apt install -y net-tools iproute2 nftables iputils-ping nano tcpdump bash strace
+    apt install -y net-tools iproute2 nftables iputils-ping nano tcpdump bash strace iperf
 
 COPY --from=builder /etc/passwd /etc/passwd
 COPY --from=builder /etc/group /etc/group
