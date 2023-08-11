@@ -1,7 +1,7 @@
 # Overview
-In this experiment the KIRA Forwarding Tier is implemented using the capabilities of the [netfilter](https://www.netfilter.org/) project and the linux routing table.
+The KIRA Forwarding Tier is implemented using the capabilities of the [netfilter](https://www.netfilter.org/) project and the linux routing table.
 
-This way, all forwarding traffic is handled efficiently in kernelspace while paths can be set up and destroyed from the userspace routing tier.
+This way, all forwarding is handled efficiently in kernelspace while paths can be set up and destroyed from the userspace routing tier.
 
 Currently all communication with the kernel is handled by calling the `nft` and `ip` binaries to set up packet mangling, updating paths and modifying the routing table.
 
@@ -25,40 +25,19 @@ The packet can now be processed by an application or be forwarded to a physical 
 
 ## Packet flow for incoming traffic
 ```mermaid
-    graph TD
-    A[Incoming on 'ethX'] -->|prerouting| B{Destination}
-    B --> |fcaa::/16 PathID| C{Path ends here?}
-    B --> |fc00::/16 NodeID| F
-    C --> |yes| G(Decapsulate)
-    G --> F{Local Destination?}
-    C --> |no| H(Forward to next hop)
-    H --> I{Routing}
-    I --> Z[Outgoing on 'ethX']
-    F --> |yes|J[Applications]
-    F --> |no| K{Encapsulate in new PathID?}
-    K --> |no| H
-    K --> |yes| L(Encapsulate)
-    L --> I
+    flowchart TD
+    A[incoming on 'ethX'] --> B
+    B(nftables prerouting) --> C
+    C{routing table} --> |local destination| D
+    C --> |forward| F
+    C --> |encapsulate/decapsulate| E
+    D[userspace]
+    E[ip6gre interface]
+    E --> C
+    F[outgoing on 'ethX']
+    G[local traffic] --> C
 ```
-This diagram depicts the flow of incoming packets on the physical network interfaces. 
-Only the traffic relevant for KIRA is shown.
-If a packet can not be forwarded because it does not match any mappings provided by the routing tier it is dropped.
-
-## Packet flow for local traffic
-```mermaid
-    graph TD
-    A[Applications] -->|output| B{Destination}
-    B --> |fc00::/16 NodeID| K{Encapsulate in PathID?}
-    H --> I{Routing}
-    I --> Z[Outgoing on 'ethX']
-    K --> |no| H(Forward to next hop)
-    K --> |yes| L(Encapsulate)
-    L --> I
-```
-This diagram depicts the flow of packets generated locally by applications communicating via KIRA.
-Again only traffic relevant for KIRA is shown.
-Traffic that can not be forwarded will be dropped.
-
+This diagram depicts the flow of incoming and locally generated packets. Only traffic relevant for KIRA is shown.
 
 ### Netfilter flow for reference
 ![netfilter flow](https://people.netfilter.org/pablo/nf-hooks.png "Netfilter flow")
@@ -67,65 +46,42 @@ Traffic that can not be forwarded will be dropped.
 # Usage
 ## Prerequisites
 - The kernel module `ip6gre` must be available
-- IPv6 must be enabled and a subnet needs to be configured for the docker daemon
-([Docker Documentation](https://docs.docker.com/config/daemon/ipv6/), [`daemon.json`](daemon.json))
-
-## Configuration
-- Containers must be deployed with capability NET_ADMIN to allow access to nftables
-- IPv6 must be explicitly enabled for container
-- IPv6 forwarding must be enabled for container
-- A Docker IPv6 network must be setup
+- Containers need to be started with the capability `NET_ADMIN`
+- Containers need to have forwarding enabled on all relevant interfaces (`net.ipv6.conf.all.forwarding=1`)
 
 ## Containernet examples
 A few simple containernet tests are included in [tests](tests).
 
-To run the encapsulation test execute:
+To run a fully functional setup execute:
 ```sh
-python3 encapsulation.py
+python3 full.py
 ```
 Inside the containernet shell run:
 ```sh
-d1 ping -I fc00::1 fc00::2
+d1 ping fc00::2
 ```
 Encapsulation and decapsulation is handled transparently.
 To observe the flow of encapsulated packets first attach another shell to the container:
 ```sh
 docker exec -it mn.d1 bash
 ```
-Then packet flow can be observed with
+Then packet flow can be observed with:
 ```sh
-tcpdump -n -i any
+tcpdump -n -i any -Z root
 ```
 Additionally nftables tracing can be used to monitor nftables activity.
 ```sh
 nft monitor
 ```
-
-## Utilities & Development
-To display and modify the interface configuration the `iproute2` package is installed:
-```sh
-ip addr show
-```
-To view the loaded `nftables` configuration run:
+To see all currently configured forwarding rules run:
 ```sh
 nft list ruleset
 ```
-The configuration is included in the container in `/nftables.conf`. It can be modified and loaded with:
+The configured encapsulation and forwarding via routes are all in the default routing table:
 ```sh
-nft delete table ip6 kira
-nft -f /nftables.conf
-```
-Nftables tracing is enabled so packets flowing through the configured rules can be observed with:
-```sh
-nft monitor
-```
-Tcpdump is installed so all traffic can be observed with:
-```sh
-tcpdump -i any -n
+ip -6 route
 ```
 
 # TODO
-- [ ] fix PathIP forwarding
-- [ ] use lower level interfaces than ip and nft binaries
-- [ ] forwarding to physical neighbors
-- [ ] integrate forwarding into rust prototype
+- [ ] change source address of forwarded PathIP packets to local address
+- [ ] use async and lower level interfaces than ip and nft binaries
