@@ -77,6 +77,10 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
         (1 << ACC) - 1
     }
 
+    const fn first_on_level(index: usize) -> usize {
+        index - (index % Self::level_width())
+    }
+
     /// Returns a [NonZeroUsize] version of *ACC*. Workaround for using
     /// [NonZeroUsize] in const generics.
     fn non_zero_acc() -> NonZeroUsize {
@@ -265,6 +269,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
             Ordering::Greater
         };
 
+        // copy all valid elements from buckets[index] to result
         let mut result = Vec::with_capacity(n);
         for contact in &self.buckets[index] {
             if contact.state() != &ContactState::Valid {
@@ -274,18 +279,30 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
             let prefix = to.shared_prefix_len(contact.id(), shared_prefix_grouping)?;
             result.push((prefix, contact.clone()));
         }
+
         result.sort_by(sorter);
 
         if result.len() == n || self.buckets.len() == 1 {
+            // return early if enough contacts were found or only 1 bucket exists
             return Ok(result);
         }
 
-        // check lower or higher buckets in order
-        for i in 1..std::cmp::max(index, self.buckets.len() - index) {
-            let mut bucket_contents = Vec::with_capacity(2 * BUCKET_SIZE);
+        let first_bucket_on_level = Self::first_on_level(index);
+        let level_width = Self::level_width();
 
-            if index <= i {
-                for contact in &self.buckets[index - i] {
+        for (iteration_count, bucket) in self
+            .buckets
+            .iter()
+            .skip(first_bucket_on_level)
+            .step_by(level_width)
+            .enumerate()
+        {
+            let mut bucket_contents = Vec::with_capacity(2 * BUCKET_SIZE);
+            let level = first_bucket_on_level + iteration_count * level_width;
+
+            // if this is the last bucket copy content
+            if level == self.buckets.len() - 1 && level != index {
+                for contact in bucket.iter() {
                     if contact.state() != &ContactState::Valid {
                         continue;
                     }
@@ -293,15 +310,17 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
                     let prefix = to.shared_prefix_len(contact.id(), shared_prefix_grouping)?;
                     bucket_contents.push((prefix, contact.clone()));
                 }
-            }
-            if index + i < self.buckets.len() {
-                for contact in &self.buckets[index + i] {
-                    if contact.state() != &ContactState::Valid {
-                        continue;
-                    }
+            } else {
+                // else copy whole level
+                for bucket in self.buckets.iter().skip(level).take(level_width) {
+                    for contact in bucket.iter() {
+                        if contact.state() != &ContactState::Valid {
+                            continue;
+                        }
 
-                    let prefix = to.shared_prefix_len(contact.id(), shared_prefix_grouping)?;
-                    bucket_contents.push((prefix, contact.clone()));
+                        let prefix = to.shared_prefix_len(contact.id(), shared_prefix_grouping)?;
+                        bucket_contents.push((prefix, contact.clone()));
+                    }
                 }
             }
 
@@ -312,6 +331,32 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
             result.extend(next_contacts);
         }
 
+        // if we still do not have enough contacts, we go up the tree
+        for bucket in self
+            .buckets
+            .iter()
+            .rev()
+            .skip(self.buckets.len() - first_bucket_on_level)
+        {
+            for contact in bucket.iter() {
+                let mut bucket_contents = Vec::with_capacity(2 * BUCKET_SIZE);
+
+                if contact.state() != &ContactState::Valid {
+                    continue;
+                }
+
+                let prefix = to.shared_prefix_len(contact.id(), shared_prefix_grouping)?;
+                bucket_contents.push((prefix, contact.clone()));
+                bucket_contents.sort_by(sorter);
+
+                let remaining_contacts = n - result.len();
+                let next_contacts = bucket_contents.into_iter().take(remaining_contacts);
+                result.extend(next_contacts);
+            }
+            if result.len() >= n {
+                return Ok(result);
+            }
+        }
         Ok(result)
     }
 
