@@ -114,6 +114,7 @@ impl NodeIdTable for NativeFwdTables {
             // No Path exists, forward to physical neighbor instead:
             // This is handled automatically by configuring all network interfaces
             // to allow forwarding and configuring routes to physical neighbors.
+            self.node_id_table.insert(entry.destination.clone(), entry);
         }
 
         Ok(())
@@ -243,9 +244,9 @@ impl NodeIdTable for NativeFwdTables {
                     ),
                 }
             } else {
-                // No Path exists, forward to physical neighbor instead
-                // This is not implemented yet, see nftables.conf
-                todo!()
+                // No Path exists, forward to physical neighbor instead:
+                // This is handled automatically by configuring all network interfaces
+                // to allow forwarding and configuring routes to physical neighbors.
             }
 
             Ok(Some(removed))
@@ -280,6 +281,8 @@ impl PathIdTable for NativeFwdTables {
         log::trace!(target: "native_fwd_table", "Trying to insert entry into forwardmap: {:?}", entry);
 
         NativeFwdTables::insert_into_forwardmap(in_path_ip, next_hop);
+
+        self.path_id_table.insert(entry.in_path_id.clone(), entry);
 
         Ok(())
     }
