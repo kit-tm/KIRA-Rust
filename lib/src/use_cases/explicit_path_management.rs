@@ -228,7 +228,7 @@ where
                 out_path_id = None;
                 next_hop = context.root_id().clone();
                 out_interface = None;
-                log::info!(target: "explicit_path_management", "New local path: {:?} -> {:?}", in_path_id, next_hop)
+                log::debug!(target: "explicit_path_management", "New local path: {:?} -> {:?}", in_path_id, next_hop)
             }
         }
 
@@ -254,7 +254,7 @@ where
                 return;
             }
             local_entries.insert(in_path_id);
-        } else if !is_local && is_new_entry {
+        } else if !is_local && !is_new_entry {
             if let Err(e) = context.forwarding_tables_mut().update(path_id_entry) {
                 log::error!(target: "explicit_path_management", "Failed to update existing entry: {:?}", e);
                 return;
