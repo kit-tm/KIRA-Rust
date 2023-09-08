@@ -93,7 +93,7 @@ impl<S: Debug, FT> Node<S, FT> {
         sender: S,
         fwd_table: FT,
     ) -> Node<S, FT> {
-        log::info!(
+        log::trace!(
             "Created node {} with receivers {:#?} and sender {:#?}",
             root_id,
             async_receivers,
