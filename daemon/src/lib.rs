@@ -6,6 +6,7 @@ use std::io::BufWriter;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::Router;
 use futures::StreamExt;
 use signal_hook::consts::{SIGHUP, SIGINT, SIGKILL, SIGPIPE, SIGQUIT, SIGTERM};
 use signal_hook_tokio::Signals;
@@ -278,6 +279,8 @@ where
 
         log::info!("Using NodeId {}", root_id);
 
+        let node_id_string = root_id.to_string();
+
         let mut benchmark_log = BenchmarkLog::new();
         let mut bench_file_writer = config.benchmark_path.map(BufWriter::new);
 
@@ -515,6 +518,13 @@ where
         } else {
             None
         };
+
+        let router = Router::new().route("r2kademlia/stacks/default/node-id", axum::routing::get(|| async {node_id_string}));
+
+        let server = axum::Server::bind(&"0.0.0.0:8080".parse().unwrap())
+            .serve(router.into_make_service());
+
+        runtime.spawn(server);
 
         // Initialize common tasks
 
