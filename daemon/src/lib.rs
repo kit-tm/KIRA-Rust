@@ -519,9 +519,9 @@ where
             None
         };
 
-        let router = Router::new().route("r2kademlia/stacks/default/node-id", axum::routing::get(|| async {node_id_string}));
+        let router = Router::new().route("/r2kademlia/stacks/default/node-id", axum::routing::get(|| async {node_id_string}));
 
-        let server = axum::Server::bind(&"0.0.0.0:8080".parse().unwrap())
+        let server = axum::Server::bind(&"0.0.0.0:8081".parse().unwrap())
             .serve(router.into_make_service());
 
         runtime.spawn(server);
