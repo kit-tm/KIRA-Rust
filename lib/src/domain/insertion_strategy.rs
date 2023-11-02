@@ -142,17 +142,12 @@ where
             "replace_in_full_bucket is called on non-full bucket"
         );
 
-        // Get the contact with the longest path
+        // Get the contact with the longest path but only if longer than new contact
         let replaceable = bucket
             .iter_mut()
+            .filter(|c| c.path().size() > contact.path().size())
             // Invariant: acc contains the contact with the longest path in the bucket after processing the first entry
-            .fold(Option::<&mut Contact>::None, |acc, contact| {
-                if acc.is_none() || acc.as_ref().unwrap().path().size() < contact.path().size() {
-                    Some(contact)
-                } else {
-                    acc
-                }
-            });
+            .max_by_key(|c| c.path().size());
 
         if let Some(replaceable) = replaceable {
             let old_id = replaceable.id().clone();
