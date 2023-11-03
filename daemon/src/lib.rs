@@ -59,6 +59,8 @@ pub struct NodeConfig {
     pub benchmark_path: Option<BufWriter<File>>,
 }
 
+const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE;
+
 /// The main structure.
 ///
 /// Wrapped inside a struct to allow integration tests to test the executables setup.
@@ -298,7 +300,7 @@ where
 
         // Create a Routing Table which stores ALL physical neighbors
         let mut routing_table = ObservableRoutingTable::from(UnlimitedPNRoutingTable::from(
-            FlatRoutingTable::<DEFAULT_BUCKET_SIZE, 1>::new(root_id.clone())
+            FlatRoutingTable::<BUCKET_SIZE, 1>::new(root_id.clone())
                 .expect("invalid flat Routing Table parameters"),
         ));
 
@@ -406,12 +408,12 @@ where
             runtime: TokioRuntime::new(broadcaster.clone(), Arc::clone(&runtime)),
             insertion_strategy: PNSStrategy::<
                 ObservableRoutingTable<
-                    UnlimitedPNRoutingTable<DEFAULT_BUCKET_SIZE, 1>,
-                    DEFAULT_BUCKET_SIZE,
+                    UnlimitedPNRoutingTable<BUCKET_SIZE, 1>,
+                    BUCKET_SIZE,
                 >,
                 _,
                 _,
-                DEFAULT_BUCKET_SIZE,
+                BUCKET_SIZE,
             >::new(InOrderCycleRemover, ShortestFirstPathSimplifier),
             pn_table: PNTable::new(),
             forwarding_tables: fwd_table,
@@ -457,7 +459,7 @@ where
         }
 
         let mut on_disc =
-            OverlayNeighborhoodDiscovery::<_, DEFAULT_BUCKET_SIZE>::new(Default::default())
+            OverlayNeighborhoodDiscovery::<_, BUCKET_SIZE>::new(Default::default())
                 .expect("default grouping should be valid");
         if let Err(e) = on_disc.start(&context) {
             log::error!("Failed to start overlay neighbor discovery UseCase: {}", e);
