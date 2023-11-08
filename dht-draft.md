@@ -2,8 +2,7 @@
 
 ## Grundsätzliches zum Entwurf ## 
 
-- kein reines UML
-- unter anderem Vereinfachungen, wie dass Template-Bindings weggelassen wurden 
+- kein Anspruch reines UML zu sein (u.a. Template Typen, Enums anders)
 - als Workaround für einen [Mermaid Bug](https://github.com/mermaid-js/mermaid/issues/4578)
   wurden teilweise `≤` bzw. `≥` im Entwurf als identische Bedeutung für Typ-Parameter verwendet
 
@@ -19,17 +18,16 @@ classDiagram
             + handle: NodeId
             + data: D
             + store_duration: Duration
-            StoreReq~H: Into≤NodeId≥~(handle: H, data: D)
+            + replicate: bool
         }
         class StoreRsp {
             status: DHTStoreResult
         }
         class FetchReq["FetchReq"] {
             handle: NodeId
-            FetchReq~H: Into≤NodeId≥~(handle: H)
         }
         class FetchRsp["FetchRsp≤D: Deserialize≥"] {
-            data: D
+            data: DHTFetchResult~D~
         }
     }
     DHTReqRspMessage <|-- StoreReq
@@ -38,51 +36,49 @@ classDiagram
     DHTReqRspMessage <|-- FetchRsp
 
     namespace dht_domain {
-        class DHTId {
-            + bytes
-            + DHTId~H: Hash~(value: H)
-        }
-
-        class DHTStoreResult
-        class DHTStoreOk {
+        class StoreResult
+        class StoreOk {
             <<enumeration>>
             Created
             Updated
         }
-        class DHTStoreErr {
+        class StoreErr {
             <<enumeration>>
-            ReadOnly
-            TimeOut
+            TimeOutErr
+            DataTypeErr
         }
 
-        class DHTFetchResult["DHTFetchResult≤D≥"]
-        class DHTFetchOk["DHTFetchOk≤D≥"] {
-            <<enumeration>>
-            Ok
-        }
-        class DHTFetchErr {
+        class FetchResult["FetchResult≤D≥"]
+        class FetchErr {
             <<enumeration>>
             NotFoundErr
+            TimeOut
         }
+        
+        class DHTData
+        class Single
+        class Slice
+        class List
     }
     class Result~T,E~ { <<interface>> }
-    Result <|.. DHTStoreResult: «bind» DHTStoreOk, DHTStoreErr
-    DHTStoreResult <|-- DHTStoreErr
-    DHTStoreResult <|-- DHTStoreOk
-    Result <|.. DHTFetchResult: «bind» DHTFetchOk, DHTFetchErr
-    DHTFetchResult <|-- DHTFetchErr
-    DHTFetchResult <|-- DHTFetchOk
-    NodeId <|-- DHTId
-    class Into~T~ { <<interface>> }
-    Into <|.. DHTId: «bind» NodeId
-
+    Result <|.. StoreResult: «bind» StoreOk, StoreErr
+    StoreResult <.. StoreErr
+    StoreResult <.. StoreOk
+    Result <|.. FetchResult: «bind» D, FetchErr
+    FetchResult <.. FetchErr
+    Expiring~C~ <|.. DHTData
+    DHTData <|-- Single
+    DHTData <|-- Slice
+    DHTData <|-- List
+    
     namespace messaging {
         class ProtocolMessage { <<enumeration>> }
         class ReqRspMessage {
             + nonce: Nonce
         }
     }
-    ProtocolMessage <|-- DHTReqRspMessage
+    ProtocolMessage <|-- ReqRspMessage
+    ReqRspMessage <|-- DHTReqRspMessage
 
     namespace domain {
         class NodeId {
@@ -90,6 +86,9 @@ classDiagram
         } 
     } 
 ```
+#### Anmerkungen: ####
+
+- Erweiterung `ProtocolMessage` nur durch `DHTReqRspMessage`, damit einheitliches Verhalten in Use-Cases für DHT-Nachrichten erreicht werden kann (z.B. forwarding)
 
 ## Neue Use Cases ##
 
@@ -114,7 +113,7 @@ classDiagram
             Stopped
             Error
         }
-        class DistributedHashTable["DistributedHashTable≤H: Into≤NodeID≥, D: Serialize + Deserialize≥"] {
+        class DistributedHashTable["DistributedHashTable≤D: Serialize + Deserialize≥"] {
             + handle_event(context: UseCaseContext, event: UseCaseEvent)
             - handle_store_req(context: UseCaseContext, event: UseCaseEvent)
             - handle_fetch_req(context: UseCaseContext, event: UseCaseEvent)
@@ -158,25 +157,12 @@ classDiagram
     DHTReqRspMessage <.. DistributedHashTable
     
     DistributedHashTable --> "1 config" DistributedHashTableConfig
-    DHTId <.. DistributedHashTable: Handle (H)
     note for DistributedHashTable "verarbeitet eingehende DHT Anfragen"
     UseCaseState <|.. DHTState
-    DistributedHashTableConfig --> "1" ExpiringHashTable
-    DistributedHashTableConfig --> "1" TimeoutStrategy
+    DistributedHashTableConfig --> "1" ExpiringHashTable : «bind» NodeId, D
+    DistributedHashTableConfig --> "1" TimeoutStrategy : «bind» NodeId
     UseCase <|.. DistributedHashTable
 
-
-    
-
-    namespace messaging {
-        class ProtocolMessage { <<enumeration>> }
-        class ReqRspMessage {
-            + nonce: Nonce
-        }
-    }
-    
-    ProtocolMessage <|-- DHTReqRspMessage
-    
     namespace daemon {
         class Node {
         start()
@@ -184,12 +170,6 @@ classDiagram
         }
     }
     Node ..> UseCase
-    namespace dht_domain {
-        class DHTId {
-            + bytes
-            + DHTId~H: Hash~(value: H)
-        }
-    }
 ```
 
 #### Anmerkungen: ####
@@ -223,8 +203,8 @@ classDiagram
             Error
         }
         class DistributedHashTableInjector["DistributedHashTableInjector≤H: Into≤NodeID≥, D: Serialize + Deserialize≥"] {
-            + store(context: UseCaseContext, handle: H, data: D, restore: bool) DHTStoreResult
-            + fetch(context: UseCaseContext, handle: H) DHTFetchResult
+            + store(context: UseCaseContext, handle: H, data: D, restore: bool) StoreResult
+            + fetch(context: UseCaseContext, handle: H) FetchResult
             + handleEvent(context: UseCaseContext, event: UseCaseEvent)
         }
         class DistributedHashTableInjectorConfig {
