@@ -6,6 +6,7 @@ use std::num::NonZeroU64;
 
 use crate::domain::{Contact, Link, NodeId, NotVia, StateSeqNr};
 use crate::messaging::source_route::SourceRoute;
+use crate::messaging::dht_messaging::{DHTData, FetchReqData, FetchRspData, StoreReqData, StoreRspData};
 
 /// Randomly generated number to uniquely identify a protocol message and its
 /// response.
@@ -43,6 +44,10 @@ pub enum ProtocolMessage {
     PathTeardownReq(ReqRspMessage<PathTeardownReqData>),
     UpdateRouteReq(UpdateRouteReq),
     Error(ReqRspMessage<ErrorData>),
+    StoreReq(ReqRspMessage<StoreReqData<DHTData>>),
+    StoreRsp(ReqRspMessage<StoreRspData>),
+    FetchRep(ReqRspMessage<FetchReqData>),
+    FetchRsp(ReqRspMessage<FetchRspData<DHTData>>),
 }
 
 impl ProtocolMessage {
@@ -61,6 +66,10 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => Some(&mut req.source_route),
             Self::PathTeardownReq(req) => Some(&mut req.source_route),
             Self::UpdateRouteReq(req) => Some(&mut req.source_route),
+            Self::StoreReq(req) => Some(&mut req.source_route),
+            Self::StoreRsp(req) => Some(&mut req.source_route),
+            Self::FetchRep(req) => Some(&mut req.source_route),
+            Self::FetchRsp(req) => Some(&mut req.source_route)
         }
     }
 
@@ -79,6 +88,10 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => Some(&req.source_route),
             Self::PathTeardownReq(req) => Some(&req.source_route),
             Self::UpdateRouteReq(req) => Some(&req.source_route),
+            ProtocolMessage::StoreReq(req) => Some(&req.source_route),
+            ProtocolMessage::StoreRsp(req) => Some(&req.source_route),
+            ProtocolMessage::FetchRep(req) => Some(&req.source_route),
+            ProtocolMessage::FetchRsp(req) => Some(&req.source_route)
         }
     }
 
@@ -98,6 +111,10 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => Some(req.destination()),
             Self::PathTeardownReq(req) => Some(req.destination()),
             Self::UpdateRouteReq(req) => Some(req.source_route.destination()),
+            Self::StoreReq(req) => Some(req.source_route.destination()),
+            Self::StoreRsp(req) => Some(req.source_route.destination()),
+            Self::FetchRep(req) => Some(req.source_route.destination()),
+            Self::FetchRsp(req) => Some(req.source_route.destination())
         }
     }
 
@@ -116,6 +133,10 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => Some(&req.nonce),
             Self::PathTeardownReq(req) => Some(&req.nonce),
             Self::UpdateRouteReq(_) => None,
+            Self::StoreReq(req) => Some(&req.nonce),
+            Self::StoreRsp(req) => Some(&req.nonce),
+            Self::FetchRep(req) => Some(&req.nonce),
+            Self::FetchRsp(req) => Some(&req.nonce)
         }
     }
 
@@ -142,6 +163,10 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => req.source(),
             Self::PathTeardownReq(req) => req.source(),
             Self::UpdateRouteReq(req) => req.source_route.source(),
+            ProtocolMessage::StoreReq(req) => req.source(),
+            ProtocolMessage::StoreRsp(req) => req.source(),
+            ProtocolMessage::FetchRep(req) => req.source(),
+            ProtocolMessage::FetchRsp(req) => req.source()
         }
     }
 
@@ -160,6 +185,10 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => &req.source_state_seq_nr,
             Self::PathTeardownReq(req) => &req.source_state_seq_nr,
             Self::UpdateRouteReq(req) => &req.source_state_seq_nr,
+            ProtocolMessage::StoreReq(req) => &req.source_state_seq_nr,
+            ProtocolMessage::StoreRsp(req) => &req.source_state_seq_nr,
+            ProtocolMessage::FetchRep(req) => &req.source_state_seq_nr,
+            ProtocolMessage::FetchRsp(req) => &req.source_state_seq_nr
         }
     }
 
@@ -178,6 +207,10 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => Some(&req.not_via),
             Self::PathTeardownReq(req) => Some(&req.not_via),
             Self::UpdateRouteReq(req) => Some(&req.not_via),
+            ProtocolMessage::StoreReq(req) => Some(&req.not_via),
+            ProtocolMessage::StoreRsp(req) => Some(&req.not_via),
+            ProtocolMessage::FetchRep(req) => Some(&req.not_via),
+            ProtocolMessage::FetchRsp(req) => Some(&req.not_via)
         }
     }
 
