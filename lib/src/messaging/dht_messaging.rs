@@ -1,13 +1,8 @@
-use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use crate::domain::NodeId;
 
-// todo remove in domain
-pub enum DHTData {
-    Single(u8),
-    Slice([u8]),
-    List(u8)
-}
+// todo implement Error on Error states
+// todo derive sensible traits
 pub struct StoreReqData<D: Serialize> {
     handle: NodeId,
     data: D,

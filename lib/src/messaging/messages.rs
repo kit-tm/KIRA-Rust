@@ -5,8 +5,9 @@ use std::fmt::Debug;
 use std::num::NonZeroU64;
 
 use crate::domain::{Contact, Link, NodeId, NotVia, StateSeqNr};
+use crate::domain::dht::DHTData;
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::dht_messaging::{DHTData, FetchReqData, FetchRspData, StoreReqData, StoreRspData};
+use crate::messaging::dht_messaging::{FetchReqData, FetchRspData, StoreReqData, StoreRspData};
 
 /// Randomly generated number to uniquely identify a protocol message and its
 /// response.
