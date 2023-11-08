@@ -28,7 +28,7 @@ pub mod sender;
 pub mod source_route;
 #[cfg(any(feature = "sync-wrapper", test))]
 pub mod sync_wrapper;
-mod dht_messaging;
+pub mod dht_messaging;
 
 /// Maps a node id to an IPv6 Address.
 pub trait IpCache {
