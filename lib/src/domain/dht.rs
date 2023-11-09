@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::task::Context;
 use std::time::Instant;
 
 pub enum DHTData {
@@ -14,15 +15,11 @@ pub trait HashTable<H, D> {
     fn delete(handle: H);
 }
 
-pub trait TimeoutStrategy {
-    type Context;
-
-    fn is_timed_out(&self, context: &Self::Context, time: Instant) -> bool;
+pub trait TimeoutStrategy<C> {
+    fn is_timed_out(&self, context: C, time: Instant) -> bool;
 }
 
-pub trait Expiring {
-    type Context;
-
+pub trait Expiring<C> {
     fn expire();
-    fn expire_with_strategy(&self, strategy: impl TimeoutStrategy<Context=&Self::Context>);
+    fn expire_with_strategy(&self, strategy: impl TimeoutStrategy<C>);
 }
