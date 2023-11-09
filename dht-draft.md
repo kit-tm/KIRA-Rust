@@ -146,7 +146,7 @@ classDiagram
             ConstTimeoutStrategy(expireAfter: Duration) bool
         }
         
-        class ExpiringHashTable["ExpiringHashTable≤H,D: Expire≤H≥≥"] {
+        class ExpiringHashTable["ExpiringHashTable≤H,D≥"] {
             <<interface>>
         }
     }
