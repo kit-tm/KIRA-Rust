@@ -1,5 +1,4 @@
 use std::error::Error;
-use std::task::Context;
 use std::time::Instant;
 
 pub enum DHTData {
@@ -9,9 +8,12 @@ pub enum DHTData {
 }
 
 pub trait HashTable<H, D> {
-    type StoreError: Error;
-    fn store(handle: H, data: D) -> Result<(), Self::StoreError>;
-    fn fetch(handle: H) -> Some<D>;
+    type StoreErr: Error;
+    type StoreOK;
+    type FetchErr: Error;
+
+    fn store(handle: H, data: D) -> Result<Self::StoreOK, Self::StoreErr>;
+    fn fetch(handle: H) -> Result<D, Self::FetchErr>;
     fn delete(handle: H);
 }
 
