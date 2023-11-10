@@ -29,6 +29,9 @@ use r2kad_lib::messaging::{
     RecvError,
 };
 use r2kad_lib::runtime::TokioRuntime;
+use r2kad_lib::use_cases;
+use r2kad_lib::use_cases::api_message_handling::HandleApiMessages;
+use r2kad_lib::use_cases::forward_kelly_message::ForwardKellyMessageHandler;
 use r2kad_lib::use_cases::derive_fwd_table_entries::DeriveFwdTableEntries;
 use r2kad_lib::use_cases::explicit_path_management::{EPMConfig, ExplicitPathManagement};
 use r2kad_lib::use_cases::failure_handling::FailureHandling;
@@ -47,11 +50,15 @@ use r2kad_lib::use_cases::{
     ContactEvent, EventHandler, HandlingResult, InjectionMessageData, UseCase, UseCaseEvent,
     UseCaseState,
 };
+use crate::api::ApiConfig;
 
 use crate::benchmark_log::{BenchmarkEntry, BenchmarkLog};
 use crate::errors::InjectMessageError;
+use crate::kelly_connector::GrpcServerConfig;
 
 mod benchmark_log;
+mod api;
+mod kelly_connector;
 
 #[derive(Default, Debug)]
 pub struct NodeConfig {
@@ -284,6 +291,8 @@ where
         let (fan_in_sender, mut fan_in_receiver) =
             mpsc::channel::<(UseCaseEvent, Option<Instant>)>(100);
 
+        let new_sender = fan_in_sender.clone();
+
         // Create a task to fan in own created events
         let broadcast_fan_in_sender = fan_in_sender.clone();
         runtime.spawn(async move {
@@ -441,7 +450,25 @@ where
             }
         });
 
+        let api_config = ApiConfig::new(
+            "0.0.0.0:3000".parse().unwrap(),
+            root_id.clone().into(),
+            new_sender
+        );
+
+        runtime.spawn(api::start_http_server(api_config));
+
+        let grpc_config = GrpcServerConfig {
+            address: "0.0.0.0:3001".to_string()
+        };
+
+        runtime.spawn(kelly_connector::start_grpc_server(grpc_config));
+
         // Initialize the Use Cases
+
+        let mut api_handling = HandleApiMessages::default();
+
+        let mut forward_kelly_message_handler = ForwardKellyMessageHandler::default();
 
         let mut forward_message = ForwardProtocolMessage::default();
         if let Err(e) = forward_message.start(&context) {
@@ -547,6 +574,13 @@ where
             }
 
             // Actual use cases
+            if let Err(e) = api_handling.handle_event(&context, event.clone()) {
+                log::error!("Failure handling api event: {}", e)
+            }
+            if let Err(e) = forward_kelly_message_handler.handle_event(&context, event.clone()) {
+                log::error!("Failure handling kelly message forwarding: {:?}", e)
+            }
+
             if let Err(e) = failure_handling.handle_event(&context, event.clone()) {
                 log::error!("Failure handling returned error handling message: {}", e);
             }

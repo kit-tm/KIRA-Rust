@@ -1,0 +1,27 @@
+
+syntax = "proto3";
+
+package kellyconnector;
+
+service KellyConnector {
+
+  rpc sendRequest(stream KeLLyRequest) returns (stream KeLLyResponse) {}
+
+}
+
+message KeLLyRequest  {
+  NodeId nodeId = 1;
+}
+
+message KeLLyResponse {
+  NodeId nodeId = 1;
+  repeated Bucket buckets = 2;
+}
+
+message NodeId {
+  bytes id = 1;
+}
+
+message Bucket {
+
+}
