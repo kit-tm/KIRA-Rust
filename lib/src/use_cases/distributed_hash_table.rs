@@ -21,7 +21,7 @@ pub const DEFAULT_COLLECT_INTERVAL: Duration = Duration::from_secs(60);
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct DistributedHashTableConfig<C, D, S, H>
     where
-        H: HashTable<NodeId, D> + Expiring<C>,
+        H: HashTable<&NodeId, D> + Expiring<C>,
         S: TimeoutStrategy<C>
 {
     strategy: S,
@@ -85,10 +85,25 @@ pub struct DistributedHashTable<C, D, EC, S, H>
     config: DistributedHashTableConfig<EC, D, S, H>,
 }
 
-impl<C, D, H> Default for DistributedHashTable<C, D, &NodeId, ConstTimeoutStrategy, H>
+impl<C, D, EC, S, H> DistributedHashTable<C, D, EC, S, H>
     where
         D: Serialize + DeserializeOwned,
-        H: HashTable<&NodeId, D> + Expiring<C>,
+        H: HashTable<&NodeId, D> + Expiring<EC>,
+        S: TimeoutStrategy<EC>
+{
+    pub fn new(config: DistributedHashTableConfig<EC, D, S, H>) -> Self {
+        Self {
+            _c: Default::default(),
+            state: Default::default(),
+            config,
+        }
+    }
+}
+
+impl<C, D, EC, H> Default for DistributedHashTable<C, D, EC, ConstTimeoutStrategy, H>
+    where
+        D: Serialize + DeserializeOwned,
+        H: HashTable<&NodeId, D> + Expiring<EC>,
 {
     fn default() -> Self {
         Self {
@@ -99,7 +114,6 @@ impl<C, D, H> Default for DistributedHashTable<C, D, &NodeId, ConstTimeoutStrate
     }
 }
 
-// todo implement default
 
 impl<C, D, EC, S, H> DistributedHashTable<C, D, EC, S, H>
     where
@@ -215,7 +229,7 @@ impl<C, D, EC, S, H> UseCase for DistributedHashTable<C, D, EC, S, H>
     type State = ReactiveUseCaseState;
 
     fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error> {
-        self.state = ReactiveUseCaseState::default();
+        self.state = Self::State::default();
         Ok(())
     }
 
