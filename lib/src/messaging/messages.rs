@@ -89,10 +89,10 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => Some(&req.source_route),
             Self::PathTeardownReq(req) => Some(&req.source_route),
             Self::UpdateRouteReq(req) => Some(&req.source_route),
-            ProtocolMessage::StoreReq(req) => Some(&req.source_route),
-            ProtocolMessage::StoreRsp(req) => Some(&req.source_route),
-            ProtocolMessage::FetchRep(req) => Some(&req.source_route),
-            ProtocolMessage::FetchRsp(req) => Some(&req.source_route)
+            Self::StoreReq(req) => Some(&req.source_route),
+            Self::StoreRsp(req) => Some(&req.source_route),
+            Self::FetchRep(req) => Some(&req.source_route),
+            Self::FetchRsp(req) => Some(&req.source_route)
         }
     }
 
