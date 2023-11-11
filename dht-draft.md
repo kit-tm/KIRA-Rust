@@ -120,7 +120,6 @@ classDiagram
         }
         class DistributedHashTableConfig {
             + collect_interval: Duration
-            + send_timeout: Duration
         }
         
         class HashTable["HashTable≤H,D≥"] {
@@ -209,6 +208,7 @@ classDiagram
         }
         class DistributedHashTableInjectorConfig {
             + periodicRestore: Duration
+            + send_timeout: Duration
         }
         
         class HashMap["HashMap≤NodeId,D≥"]
