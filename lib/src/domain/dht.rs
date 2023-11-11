@@ -12,9 +12,9 @@ pub trait HashTable<H, D> {
     type StoreOK;
     type FetchErr: Error;
 
-    fn store(handle: H, data: D) -> Result<Self::StoreOK, Self::StoreErr>;
-    fn fetch(handle: H) -> Result<D, Self::FetchErr>;
-    fn delete(handle: H);
+    fn store(&self, handle: H, data: D) -> Result<Self::StoreOK, Self::StoreErr>;
+    fn fetch(&self, handle: H) -> Result<D, Self::FetchErr>;
+    fn delete(&self, handle: H);
 }
 
 pub trait TimeoutStrategy<C> {
