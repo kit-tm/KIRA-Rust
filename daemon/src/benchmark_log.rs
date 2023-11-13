@@ -19,8 +19,6 @@ pub enum MessageType {
     UpdateRouteReq,
     ProbeReq,
     ProbeRsp,
-    KellyReq,
-    KellyRsp,
 }
 
 impl<'a> From<&'a ProtocolMessage> for MessageType {
@@ -39,8 +37,6 @@ impl<'a> From<&'a ProtocolMessage> for MessageType {
             ProtocolMessage::PathTeardownReq(_) => MessageType::PathTeardownReq,
             ProtocolMessage::UpdateRouteReq(_) => MessageType::UpdateRouteReq,
             ProtocolMessage::Error(_) => MessageType::Error,
-            ProtocolMessage::KellyReq(_) => MessageType::KellyReq,
-            ProtocolMessage::KellyRsp(_) => MessageType::KellyRsp,
         }
     }
 }
@@ -61,8 +57,6 @@ impl Display for MessageType {
             Self::UpdateRouteReq => write!(f, "UpdateRouteReq"),
             Self::ProbeReq => write!(f, "ProbeReq"),
             Self::ProbeRsp => write!(f, "ProbeRsp"),
-            Self::KellyReq => write!(f, "KellyReq"),
-            Self::KellyRsp => write!(f, "KellyRsp"),
         }
     }
 }

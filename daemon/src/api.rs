@@ -1,11 +1,13 @@
 use std::net::SocketAddr;
+use std::ops::Add;
 use axum::extract::State;
 use axum::{Json, Router};
 use axum::routing::get;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use tokio::time::Instant;
-use r2kad_lib::domain::api::{NodeId, RoutingTable};
+use r2kad_lib::domain::api::{RoutingTable};
+use r2kad_lib::domain::NodeId;
 use r2kad_lib::use_cases::{ApiEvent, UseCaseEvent};
 
 pub(crate) async fn start_http_server(api_config: ApiConfig) {
@@ -18,6 +20,7 @@ pub(crate) async fn start_http_server(api_config: ApiConfig) {
 
     let app: Router = Router::new()
         .route("/node-id", get(get_node_id))
+        .route("/r2kademlia/stacks/default/node-id", get(get_node_id_for_test_env))
         .route("/routing-table", get(get_routing_table))
         .with_state(api_state);
 
@@ -50,8 +53,17 @@ impl ApiConfig {
     }
 }
 
-async fn get_node_id(State(state): State<ApiState>) -> Json<NodeId> {
-    Json(state.node_id)
+async fn get_node_id(State(state): State<ApiState>) -> Json<r2kad_lib::domain::api::NodeId> {
+    Json(state.node_id.into())
+}
+
+async fn get_node_id_for_test_env(State(state): State<ApiState>) -> String {
+    let test: String = state.node_id.bytes().iter().map(|x| format!("\\x{:02x}", x)).collect::<Vec<String>>().concat();
+    let mut result = "{ \"node-id\": \"".to_string();
+    result = result.add(&test);
+    result = result.add("\" }");
+
+    result
 }
 
 async fn get_routing_table(State(state): State<ApiState>) -> Json<RoutingTable> {
