@@ -48,6 +48,7 @@ use r2kad_lib::use_cases::{
     ContactEvent, EventHandler, HandlingResult, InjectionMessageData, UseCase, UseCaseEvent,
     UseCaseState,
 };
+use r2kad_lib::use_cases::forward_kelly_message::ForwardKellyMessageHandler;
 use crate::api::ApiConfig;
 
 use crate::benchmark_log::{BenchmarkEntry, BenchmarkLog};
@@ -457,6 +458,7 @@ where
         // Initialize the Use Cases
 
         let mut api_handling = HandleApiMessages::default();
+        let mut kelly_forwarding = ForwardKellyMessageHandler::default();
 
         let mut forward_message = ForwardProtocolMessage::default();
         if let Err(e) = forward_message.start(&context) {
@@ -564,6 +566,10 @@ where
             // Actual use cases
             if let Err(e) = api_handling.handle_event(&context, event.clone()) {
                 log::error!("Failure handling api event: {}", e)
+            }
+
+            if let Err(e) = kelly_forwarding.handle_event(&context, event.clone()) {
+                log::error!("Failure handling api event: {:?}", e)
             }
 
             if let Err(e) = failure_handling.handle_event(&context, event.clone()) {

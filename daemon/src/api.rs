@@ -2,10 +2,11 @@ use std::net::SocketAddr;
 use std::ops::Add;
 use axum::extract::State;
 use axum::{Json, Router};
-use axum::routing::get;
+use axum::routing::{get, post};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use tokio::time::Instant;
+use r2kad_lib::domain;
 use r2kad_lib::domain::api::{RoutingTable};
 use r2kad_lib::domain::NodeId;
 use r2kad_lib::use_cases::{ApiEvent, UseCaseEvent};
@@ -22,6 +23,7 @@ pub(crate) async fn start_http_server(api_config: ApiConfig) {
         .route("/node-id", get(get_node_id))
         .route("/r2kademlia/stacks/default/node-id", get(get_node_id_for_test_env))
         .route("/routing-table", get(get_routing_table))
+        .route("/kelly/request", post(send_kelly_request))
         .with_state(api_state);
 
     axum::Server::bind(&api_config.address)
@@ -67,12 +69,28 @@ async fn get_node_id_for_test_env(State(state): State<ApiState>) -> String {
 }
 
 async fn get_routing_table(State(state): State<ApiState>) -> Json<RoutingTable> {
+    log::info!("Returning routing table via api");
     let (tx, mut rx) = mpsc::unbounded_channel::<RoutingTable>();
 
     let res = state.sender.send((UseCaseEvent::API(ApiEvent::RoutingTable(tx)), None)).await;
 
     let result = rx.recv().await.unwrap();
     Json(result)
+
+}
+
+async fn send_kelly_request(State(state): State<ApiState>, Json(node): Json<domain::api::NodeId>) {
+
+    log::info!("Received api send kelly request for Node {}", node.node_id);
+
+    let result = state.sender.send((UseCaseEvent::API(ApiEvent::SendKellyReq(domain::api::NodeId { node_id: node.node_id })), None)).await;
+
+    if let Err(e) = result {
+        log::error!("Failed to send Kelly Request: {}", e)
+    } else {
+        log::info!("Sending successful");
+    }
+
 
 }
 
