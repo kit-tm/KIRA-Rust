@@ -16,8 +16,8 @@ pub trait HashTable<H, D> {
     type FetchErr: Error;
 
     fn store(&self, handle: H, data: D) -> Result<Self::StoreOK, Self::StoreErr>;
-    fn fetch(&self, handle: H) -> Result<D, Self::FetchErr>;
-    fn delete(&self, handle: H);
+    fn fetch(&self, handle: &H) -> Result<D, Self::FetchErr>;
+    fn delete(&self, handle: &H);
 }
 
 pub trait TimeoutStrategy<C> {
