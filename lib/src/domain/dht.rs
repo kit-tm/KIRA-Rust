@@ -1,9 +1,12 @@
 use std::error::Error;
 use std::time::Instant;
+const DEFAULT_SLICE_SIZE: usize = 8;
 
-pub enum DHTData {
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub enum DHTData<const SLICE_SIZE: usize = DEFAULT_SLICE_SIZE> {
     Single(u8),
-    Slice([u8]),
+    Slice([u8; SLICE_SIZE]),
     List(u8),
 }
 
