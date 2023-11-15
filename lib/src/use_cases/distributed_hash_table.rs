@@ -8,6 +8,7 @@ use serde::de::DeserializeOwned;
 use crate::context::UseCaseContext;
 use crate::domain::dht::{Expiring, HashTable, TimeoutStrategy};
 use crate::domain::{NodeId, StateSeqNr};
+use crate::domain::dht::expiring_hash_table::ExpiringHashTable;
 use crate::messaging::{ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
 use crate::messaging::dht_messaging::{FetchErr, FetchRspData, StoreErr, StoreRspData};
 use crate::messaging::error::SenderError;
@@ -33,7 +34,7 @@ impl<H, EC, D> Default for DistributedHashTableConfig<ConstTimeoutStrategy, H>
     fn default() -> Self {
         Self {
             strategy: ConstTimeoutStrategy::default(),
-            hash_table: (), // todo implement default hash table
+            hash_table: ExpiringHashTable::default(),
             collect_interval: DEFAULT_COLLECT_INTERVAL,
         }
     }
@@ -53,7 +54,7 @@ impl Default for ConstTimeoutStrategy {
 }
 
 impl<C> TimeoutStrategy<C> for ConstTimeoutStrategy {
-    fn is_timed_out(&self, context: C, time: Instant) -> bool {
+    fn is_timed_out(&self, context: C, time: &Instant) -> bool {
         Instant::now().duration_since(time) >= self.expire_after
     }
 }
@@ -136,7 +137,7 @@ impl<C, D, EC, S, H> EventHandler for DistributedHashTable<C, D, EC, S, H>
                 };
 
                 log::trace!(
-                    target: "distributed_hash_table",
+                    target: "dht",
                     "Sending message: {:?}",
                     rsp
                 );
@@ -161,7 +162,7 @@ impl<C, D, EC, S, H> EventHandler for DistributedHashTable<C, D, EC, S, H>
                 };
 
                 log::trace!(
-                    target: "distributed_hash_table",
+                    target: "dht",
                     "Sending message: {:?}",
                     rsp
                 );
@@ -173,6 +174,7 @@ impl<C, D, EC, S, H> EventHandler for DistributedHashTable<C, D, EC, S, H>
 
                 Ok(())
             }
+            // todo handle timer for periodic hashtable collection
             _ => Ok(())
         }
     }
@@ -193,6 +195,7 @@ impl<C, D, EC, S, H> UseCase for DistributedHashTable<C, D, EC, S, H>
     fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error> {
         self.state = Self::State::default();
         Ok(())
+        // todo start timer for periodic hashtable collection
     }
 
     fn state(&self) -> &Self::State {

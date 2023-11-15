@@ -45,10 +45,10 @@ pub enum ProtocolMessage {
     PathTeardownReq(ReqRspMessage<PathTeardownReqData>),
     UpdateRouteReq(UpdateRouteReq),
     Error(ReqRspMessage<ErrorData>),
-    StoreReq(ReqRspMessage<StoreReqData<DHTData>>),
+    StoreReq(ReqRspMessage<StoreReqData<DHTData<u8>>>),
     StoreRsp(ReqRspMessage<StoreRspData>),
     FetchRep(ReqRspMessage<FetchReqData>),
-    FetchRsp(ReqRspMessage<FetchRspData<DHTData>>),
+    FetchRsp(ReqRspMessage<FetchRspData<DHTData<u8>>>),
 }
 
 impl ProtocolMessage {

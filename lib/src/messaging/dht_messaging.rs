@@ -1,6 +1,5 @@
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 use serde::{Deserialize, Serialize};
-use serde::de::DeserializeOwned;
 use crate::domain::NodeId;
 use crate::messaging::{ProtocolMessage, ReqRspMessage};
 
