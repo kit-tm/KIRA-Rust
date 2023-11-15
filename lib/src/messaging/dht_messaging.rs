@@ -1,21 +1,21 @@
 use std::fmt::{Debug, Formatter};
-use serde::{Serialize};
+use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use crate::domain::NodeId;
 use crate::messaging::{ProtocolMessage, ReqRspMessage};
 
 // todo implement Error on Error states
-// todo derive sensible traits
-pub struct StoreReqData<D: Serialize> {
+#[derive(Debug)]
+pub struct StoreReqData<D: Serialize + Debug> {
     pub handle: NodeId,
     pub data: D,
     //store_duration: Duration,
     //replicate: bool
 }
 
-impl<D> From<ReqRspMessage<StoreReqData<D>>> for ProtocolMessage::StoreReq {
+impl<D: Serialize + Debug> From<ReqRspMessage<StoreReqData<D>>> for ProtocolMessage {
     fn from(data: ReqRspMessage<StoreReqData<D>>) -> Self {
-        Self(data)
+        Self::StoreReq(data)
     }
 }
 
@@ -36,13 +36,14 @@ pub struct StoreRspData {
     pub status: StoreResult,
 }
 
-impl From<ReqRspMessage<StoreRspData>> for ProtocolMessage::StoreRsp {
+impl From<ReqRspMessage<StoreRspData>> for ProtocolMessage {
     fn from(data: ReqRspMessage<StoreRspData>) -> Self {
-        Self(data)
+        Self::StoreRsp(data)
     }
 }
 
 
+#[derive(Debug)]
 pub struct FetchReqData {
     handle: NodeId,
 }
@@ -53,19 +54,12 @@ pub enum FetchErr {
     TimeOut,
 }
 
-pub struct FetchRspData<D: DeserializeOwned> {
+#[derive(Debug)]
+pub struct FetchRspData<D: Deserialize + Debug> {
     pub data: Result<D, FetchErr>,
 }
-
-impl<D: DeserializeOwned> Debug for FetchRspData<D> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut s = f.debug_struct("FetchRspData");
-
-        let mut s = match &self.data { // todo maybe improve this
-            Ok(_) => s.field("Data", "[rawdata]"),
-            Err(e) => s.field("FetchErr", e)
-        };
-
-        s.finish()
+impl<D: Deserialize + Debug> From<ReqRspMessage<FetchRspData<D>>> for ProtocolMessage {
+    fn from(data: ReqRspMessage<FetchRspData<D>>) -> Self {
+        Self::FetchRsp(data)
     }
 }
