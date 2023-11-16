@@ -1,6 +1,0 @@
-[submodule "lib"]
-	path = lib
-	url = git@git.scc.kit.edu:TM/kira/r2kad-lib.git
-[submodule "daemon"]
-	path = daemon
-	url = git@git.scc.kit.edu:TM/kira/r2kad-daemon.git
