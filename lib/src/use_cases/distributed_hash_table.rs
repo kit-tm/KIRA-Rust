@@ -14,8 +14,7 @@ use crate::messaging::dht_messaging::{FetchErr, FetchRspData, StoreErr, StoreRsp
 use crate::messaging::error::SenderError;
 use crate::messaging::source_route::SourceRoute;
 use crate::runtime::UseCaseRuntime;
-use crate::use_cases::{EventHandler, ReactiveUseCaseState, TimerId, UseCase, UseCaseEvent};
-use crate::use_cases::UseCaseEvent::Timer;
+use crate::use_cases::{EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60 * 60 * 24);
 pub const DEFAULT_COLLECT_INTERVAL: Duration = Duration::from_secs(60);
@@ -77,11 +76,25 @@ impl Display for DHTError {
 
 impl Error for DHTError {}
 
+#[derive(Debug, Eq, PartialEq, Clone, Default)]
+pub enum DHTState {
+    #[default]
+    Initialized,
+    Running(TimerId),
+    Error,
+}
+
+impl UseCaseState for DHTState {
+    fn is_error(&self) -> bool {
+        self == &Self::Error
+    }
+}
+
 pub struct DistributedHashTable<C, D, EC, S, H>
 {
     _c: PhantomData<C>,
     _d: PhantomData<D>,
-    state: ReactiveUseCaseState,
+    state: DHTState,
     config: DistributedHashTableConfig<S, H>,
 }
 
@@ -89,9 +102,9 @@ impl<C, D, EC, S, H> DistributedHashTable<C, D, EC, S, H>
 {
     pub fn new(config: DistributedHashTableConfig<S, H>) -> Self {
         Self {
-            _c: Default::default(),
-            _d: Default::default(),
-            state: Default::default(),
+            _c: PhantomData::default(),
+            _d: PhantomData::default(),
+            state: DHTState::default(),
             config,
         }
     }
@@ -103,12 +116,7 @@ impl<C, D, EC, H> Default for DistributedHashTable<C, D, EC, ConstTimeoutStrateg
             H: HashTable<NodeId, D> + Expiring<EC>,
 {
     fn default() -> Self {
-        Self {
-            _c: Default::default(),
-            _d: Default::default(),
-            state: Default::default(),
-            config: Default::default(),
-        }
+        Self::new(DistributedHashTableConfig::default())
     }
 }
 
@@ -126,9 +134,8 @@ impl<C, D, EC, S, H> EventHandler for DistributedHashTable<C, D, EC, S, H>
     type Value = ();
 
     fn handle_event(&mut self, context: &Self::Context, event: UseCaseEvent) -> Result<Self::Value, Self::Error> {
-        match event {
-            // StoreReq
-            UseCaseEvent::Message(ProtocolMessage::StoreReq(req), _) => {
+        match (event, &self.state) {
+            (UseCaseEvent::Message(ProtocolMessage::StoreReq(req), _), _) => {
                 let res = self.config.hash_table.store(context.root_id().clone(), req.data.data);
                 let rsp = ReqRspMessage {
                     nonce: req.nonce,
@@ -151,10 +158,8 @@ impl<C, D, EC, S, H> EventHandler for DistributedHashTable<C, D, EC, S, H>
                     log::error!("Failed to send message: {}", e);
                     return Err(DHTError::DHTSendError(e)); // todo return more descriptive error
                 }
-
-                Ok(())
             }
-            UseCaseEvent::Message(ProtocolMessage::FetchRep(req), _) => {
+            (UseCaseEvent::Message(ProtocolMessage::FetchRep(req), _), _) => {
                 let fetch_res = self.config.hash_table.fetch(context.root_id());
                 let rsp = ReqRspMessage {
                     nonce: req.nonce,
@@ -176,12 +181,16 @@ impl<C, D, EC, S, H> EventHandler for DistributedHashTable<C, D, EC, S, H>
                     log::error!("Failed to send message: {}", e);
                     return Err(DHTError::DHTSendError(e));
                 }
-
-                Ok(())
             }
-            // todo handle timer for periodic hashtable collection
-            _ => Ok(())
+            (UseCaseEvent::Timer(id), DHTState::Running(our_timer_id)) => {
+                if &id == our_timer_id {
+                    self.config.hash_table.expire_with_strategy(&self.config.strategy);
+                }
+            }
+            _ => {}
         }
+
+        Ok(())
     }
 }
 
@@ -195,12 +204,16 @@ impl<C, D, EC, S, H> UseCase for DistributedHashTable<C, D, EC, S, H>
         H: HashTable<NodeId, D, StoreErr=StoreErr, FetchErr=FetchErr> + Expiring<EC>,
         S: TimeoutStrategy<EC>
 {
-    type State = ReactiveUseCaseState;
+    type State = DHTState;
 
     fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error> {
-        self.state = Self::State::default();
+        let timer_id = context
+            .runtime()
+            .register_timer(self.config.collect_interval);
+
+        self.state = DHTState::Running(timer_id);
+
         Ok(())
-        // todo start timer for periodic hashtable collection
     }
 
     fn state(&self) -> &Self::State {
