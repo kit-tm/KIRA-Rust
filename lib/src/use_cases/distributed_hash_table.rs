@@ -14,7 +14,8 @@ use crate::messaging::dht_messaging::{FetchErr, FetchRspData, StoreErr, StoreRsp
 use crate::messaging::error::SenderError;
 use crate::messaging::source_route::SourceRoute;
 use crate::runtime::UseCaseRuntime;
-use crate::use_cases::{EventHandler, ReactiveUseCaseState, UseCase, UseCaseEvent};
+use crate::use_cases::{EventHandler, ReactiveUseCaseState, TimerId, UseCase, UseCaseEvent};
+use crate::use_cases::UseCaseEvent::Timer;
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60 * 60 * 24);
 pub const DEFAULT_COLLECT_INTERVAL: Duration = Duration::from_secs(60);
@@ -55,7 +56,11 @@ impl Default for ConstTimeoutStrategy {
 
 impl<C> TimeoutStrategy<C> for ConstTimeoutStrategy {
     fn is_timed_out(&self, context: C, time: &Instant) -> bool {
-        Instant::now().duration_since(time) >= self.expire_after
+        if let Some(duration) = Instant::now().checked_duration_since(*time) {
+            duration >= self.expire_after
+        } else {
+            false
+        }
     }
 }
 
