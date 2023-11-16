@@ -45,7 +45,10 @@ pub struct ExpiringHashTable<H, D> {
     map: HashMap<H, D>,
 }
 
-impl<H, T> Expiring<H> for ExpiringHashTable<H, TimedHTData<T>> where H: Eq + Hash
+impl<H, T> Expiring<H> for ExpiringHashTable<H, TimedHTData<T>>
+    where
+        H: Eq + Hash,
+        T: Eq + Hash
 {
     fn expire(&mut self) {
         self.map.clear() // maybe we should not keep the memory?
@@ -54,16 +57,20 @@ impl<H, T> Expiring<H> for ExpiringHashTable<H, TimedHTData<T>> where H: Eq + Ha
     fn expire_with_strategy(&mut self, strategy: &impl TimeoutStrategy<H>) {
         for (handle, data) in self.map.iter_mut() { // needs to be mutable for list edit
             match data {
-                TimedHTData::Single(tv)
-                | TimedHTData::Slice(tv) => {
+                TimedHTData::Single(tv) => {
                     if strategy.is_timed_out(handle, &tv.time) {
-                        self.map.remove(handle)
+                        self.map.remove(handle);
+                    }
+                }
+                TimedHTData::Slice(tv) => {
+                    if strategy.is_timed_out(handle, &tv.time) {
+                        self.map.remove(handle);
                     }
                 }
                 TimedHTData::Set(set) => {
-                    for tv in set {
+                    for tv in set.iter() {
                         if strategy.is_timed_out(handle, &tv.time) {
-                            set.remove(tv)
+                            set.remove(tv);
                         }
                     }
                 }
@@ -92,13 +99,13 @@ impl<H, T> HashTable<H, DHTData<T>> for ExpiringHashTable<H, TimedHTData<T>>
             }
             Some(TimedHTData::Single(..)) => {
                 if let DHTData::Single(s) = data {
-                    self.map.insert(handle, Self::Single(TimedValue::new(s)));
+                    self.map.insert(handle, TimedHTData::Single(TimedValue::new(s)));
                     return Ok(StoreOK::Updated);
                 }
             }
             Some(TimedHTData::Slice(..)) => {
                 if let DHTData::Slice(s) = data {
-                    self.map.insert(handle, Self::Single(TimedValue::new(s)));
+                    self.map.insert(handle, TimedHTData::Single(TimedValue::new(s)));
                     return Ok(StoreOK::Updated);
                 }
             }
@@ -109,7 +116,7 @@ impl<H, T> HashTable<H, DHTData<T>> for ExpiringHashTable<H, TimedHTData<T>>
                     DHTData::Set(lv) => {
                         let mut set = HashSet::default();
                         set.insert(TimedValue::new(lv));
-                        self.map.insert(handle, TimedHTData::Set(set));
+                        self.map.insert(handle, TimedHTData::Set(set))
                     }
                 }
                 return Ok(StoreOK::Created);

@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::time::Instant;
 use core::time::Duration;
 use std::marker::PhantomData;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 use crate::context::UseCaseContext;
 use crate::domain::dht::{Expiring, HashTable, TimeoutStrategy};
@@ -20,19 +20,26 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60 * 60 * 24);
 pub const DEFAULT_COLLECT_INTERVAL: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-pub struct DistributedHashTableConfig<S, H>
+pub struct DistributedHashTableConfig<EC, S, H, D>
+where
+    H: HashTable<NodeId, D> + Expiring<EC>,
+    S: TimeoutStrategy<EC>
 {
+    _ec: PhantomData<EC>,
+    _d: PhantomData<D>,
     strategy: S,
     hash_table: H,
     collect_interval: Duration,
 }
 
-impl<H, EC, D> Default for DistributedHashTableConfig<ConstTimeoutStrategy, H>
+impl<EC, H, D> Default for DistributedHashTableConfig<EC, ConstTimeoutStrategy, H, D>
     where
         H: HashTable<NodeId, D> + Expiring<EC>,
 {
     fn default() -> Self {
         Self {
+            _ec: PhantomData::default(),
+            _d: PhantomData::default(),
             strategy: ConstTimeoutStrategy::default(),
             hash_table: ExpiringHashTable::default(),
             collect_interval: DEFAULT_COLLECT_INTERVAL,
@@ -54,7 +61,7 @@ impl Default for ConstTimeoutStrategy {
 }
 
 impl<C> TimeoutStrategy<C> for ConstTimeoutStrategy {
-    fn is_timed_out(&self, context: C, time: &Instant) -> bool {
+    fn is_timed_out(&self, context: &C, time: &Instant) -> bool {
         if let Some(duration) = Instant::now().checked_duration_since(*time) {
             duration >= self.expire_after
         } else {
@@ -91,16 +98,22 @@ impl UseCaseState for DHTState {
 }
 
 pub struct DistributedHashTable<C, D, EC, S, H>
+where
+    H: HashTable<NodeId, D> + Expiring<EC>,
+    S: TimeoutStrategy<EC>
 {
     _c: PhantomData<C>,
     _d: PhantomData<D>,
     state: DHTState,
-    config: DistributedHashTableConfig<S, H>,
+    config: DistributedHashTableConfig<EC, S, H, D>,
 }
 
 impl<C, D, EC, S, H> DistributedHashTable<C, D, EC, S, H>
+where
+    H: HashTable<NodeId, D> + Expiring<EC>,
+    S: TimeoutStrategy<EC>
 {
-    pub fn new(config: DistributedHashTableConfig<S, H>) -> Self {
+    pub fn new(config: DistributedHashTableConfig<EC, S, H, D>) -> Self {
         Self {
             _c: PhantomData::default(),
             _d: PhantomData::default(),
@@ -112,7 +125,7 @@ impl<C, D, EC, S, H> DistributedHashTable<C, D, EC, S, H>
 
 impl<C, D, EC, H> Default for DistributedHashTable<C, D, EC, ConstTimeoutStrategy, H>
     where
-            for<'a> D: Serialize + Deserialize<'a>,
+            D: Serialize + DeserializeOwned,
             H: HashTable<NodeId, D> + Expiring<EC>,
 {
     fn default() -> Self {
@@ -125,7 +138,7 @@ impl<C, D, EC, S, H> EventHandler for DistributedHashTable<C, D, EC, S, H>
         C: UseCaseContext,
         C::MessageSender: ProtocolMessageSender,
         C::Runtime: UseCaseRuntime,
-        for<'a> D: Serialize + Deserialize<'a> + Debug,
+        D: Serialize + DeserializeOwned + Debug,
         H: HashTable<NodeId, D, StoreErr=StoreErr, FetchErr=FetchErr> + Expiring<EC>,
         S: TimeoutStrategy<EC>
 {
@@ -186,6 +199,7 @@ impl<C, D, EC, S, H> EventHandler for DistributedHashTable<C, D, EC, S, H>
                 if &id == our_timer_id {
                     self.config.hash_table.expire_with_strategy(&self.config.strategy);
                 }
+                // todo obtain new timer
             }
             _ => {}
         }
@@ -200,7 +214,7 @@ impl<C, D, EC, S, H> UseCase for DistributedHashTable<C, D, EC, S, H>
         C: UseCaseContext,
         C::MessageSender: ProtocolMessageSender,
         C::Runtime: UseCaseRuntime,
-        for<'a> D: Serialize + Deserialize<'a> + Debug,
+        D: Serialize + DeserializeOwned + Debug,
         H: HashTable<NodeId, D, StoreErr=StoreErr, FetchErr=FetchErr> + Expiring<EC>,
         S: TimeoutStrategy<EC>
 {

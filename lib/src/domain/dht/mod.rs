@@ -14,9 +14,9 @@ pub enum DHTData<T, const SLICE_SIZE: usize = DEFAULT_SLICE_SIZE> {
 }
 
 pub trait HashTable<H, D> {
-    type StoreErr: Error;
+    type StoreErr;
     type StoreOK;
-    type FetchErr: Error;
+    type FetchErr;
 
     fn store(&mut self, handle: H, data: D) -> Result<Self::StoreOK, Self::StoreErr>;
     fn fetch(&self, handle: &H) -> Result<D, Self::FetchErr>;

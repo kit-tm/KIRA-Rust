@@ -1,5 +1,6 @@
 use std::fmt::Debug;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use crate::domain::NodeId;
 use crate::messaging::{ProtocolMessage, ReqRspMessage};
 
@@ -54,10 +55,10 @@ pub enum FetchErr {
 }
 
 #[derive(Debug)]
-pub struct FetchRspData<D: Deserialize + Debug> {
+pub struct FetchRspData<D: DeserializeOwned + Debug> {
     pub data: Result<D, FetchErr>,
 }
-impl<D: Deserialize + Debug> From<ReqRspMessage<FetchRspData<D>>> for ProtocolMessage {
+impl<D: DeserializeOwned + Debug> From<ReqRspMessage<FetchRspData<D>>> for ProtocolMessage {
     fn from(data: ReqRspMessage<FetchRspData<D>>) -> Self {
         Self::FetchRsp(data)
     }
