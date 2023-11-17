@@ -290,6 +290,10 @@ where
             | ProtocolMessage::ProbeRsp(_)
             | ProtocolMessage::PathSetupReq(_)
             | ProtocolMessage::PathTeardownReq(_) => {}
+            ProtocolMessage::StoreReq(_)
+            | ProtocolMessage::StoreRsp(_)
+            |ProtocolMessage::FetchRep(_)
+            | ProtocolMessage::FetchRsp(_) => {} // todo maybe we need to extract stuff here
         }
 
         Ok(())
