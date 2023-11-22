@@ -1,8 +1,7 @@
 # R²/Kad Routing Daemon Implementation
 
 Rust crate representing the binary implementation of the R²/Kad routing daemon.
-For overall instructions please see the workspace
-repository [README](https://git.scc.kit.edu/TM/kira/r2kad/-/tree/main/).
+For overall instructions please see the overall [README](../README.md).
 
 ## Test Framework
 
