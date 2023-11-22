@@ -5,29 +5,18 @@ Hepp (2022) at the institute for telematics at KIT.
 
 ## Structure
 
-- [Submodule R²/Kad Routing Daemon](https://git.scc.kit.edu/TM/kira/r2kad-daemon): Contains the crate representing the routing daemon executable.
-- [Submodule R²/Kad Library](https://git.scc.kit.edu/TM/kira/r2kad-lib): Contains the different abstract modules, classes, traits to implement the routing
+- [R²/Kad Routing Daemon](daemon): Contains the crate representing the routing daemon executable.
+- [R²/Kad Library](lib): Contains the different abstract modules, classes, traits to implement the routing
   daemon.
 
-More specific information can be found in the repositories added as submodules and in the following chapters.
+More specific information can be found in the respective folders and in the following chapters.
 
 ## Cloning the repository
 
 To simply clone the repository use this:
 
 ```shell
-git clone --recurse-submodules git@git.scc.kit.edu:TM/kira/r2kad.git
-```
-
-If you want to work on the project and its submodules change the branch in the submodules before changing anything.
-Otherwise, some weird version control errors will happen.
-E.g.
-
-```shell
-cd daemon
-git checkout -b main
-cd ../lib
-git checkout -b main
+git clone git@gitlab.kit.edu:kit/tm/telematics/kira/kira-rust.git
 ```
 
 ## Tasks
