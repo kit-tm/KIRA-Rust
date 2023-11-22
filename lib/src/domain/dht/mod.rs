@@ -2,6 +2,7 @@ use std::time::Instant;
 
 pub mod hash_table;
 pub mod expiring_hash_table;
+pub mod const_timeout_strategy;
 
 pub trait TimeoutStrategy<C> {
     fn is_timed_out(&self, context: &C, time: &Instant) -> bool;

@@ -2,22 +2,19 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::time::Instant;
-use serde::{Serialize};
-use serde::de::DeserializeOwned;
 
 use crate::domain::dht::{ContextExpiring, TimeoutStrategy};
 use crate::domain::dht::hash_table::{FetchStrategy, InsertStrategy};
 use crate::messaging::dht::{FetchErr, StoreErr, StoreOK};
 
-#[derive(Debug)]
-pub enum DHTInput<T: Debug + DeserializeOwned + Serialize> {
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub enum DHTInput<T: Debug> {
     Single(T),
     Set(T),
 }
 
-impl<T> InsertStrategy<TimedHTData<T>> for DHTInput<T>
-    where T: Debug + DeserializeOwned + Serialize
-{
+impl<T: Eq + Hash + Debug> InsertStrategy<TimedHTData<T>> for DHTInput<T> {
     type InsertOk = StoreOK;
     type InsertErr = StoreErr;
 
@@ -44,37 +41,41 @@ impl<T> InsertStrategy<TimedHTData<T>> for DHTInput<T>
     }
 }
 
-impl<T> Into<TimedHTData<T>> for DHTInput<T> {
+impl<T: Eq + Hash + Debug> Into<TimedHTData<T>> for DHTInput<T> {
     fn into(self) -> TimedHTData<T> {
         match self {
             DHTInput::Single(value) => { TimedHTData::Single(TimedValue::new(value)) }
             DHTInput::Set(value) => {
                 let mut set = HashSet::default();
                 set.insert(TimedValue::new(value));
-                set
+                TimedHTData::Set(set)
             }
         }
     }
 }
 
-pub enum DHTOutput<T: Debug + DeserializeOwned + Serialize> {
+
+// TODO KEINE AHNUNG WIE ICH DAS HIER FIXEN SOLL
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub enum DHTOutput<T: Debug> {
     Single(T),
     Set(Vec<T>),
 }
 
-impl<T> FetchStrategy<TimedHTData<T>> for DHTOutput<T> {
+impl<T: Debug> FetchStrategy<TimedHTData<T>> for DHTOutput<&T> {
     type FetchErr = FetchErr;
 
     fn fetch(from: &TimedHTData<T>) -> Result<&Self, Self::FetchErr> {
-        match from {
+        let value = match from {
             TimedHTData::Single(timed_single) => { Self::Single(&timed_single.value) }
             TimedHTData::Set(set) => {
-                let vec: Vec<T> = set.into_iter().collect();
+                let vec: Vec<&T> = set.into_iter().collect();
                 Self::Set(vec)
             }
-        }
+        };
 
-        Err(FetchErr::NotFoundErr)
+        Some(value)
     }
 }
 
@@ -112,7 +113,7 @@ pub enum TimedHTData<T> {
     Set(HashSet<TimedValue<T>>),
 }
 
-impl<C, T> ContextExpiring<C> for TimedHTData<T> {
+impl<C, T: Eq + Hash> ContextExpiring<C> for TimedHTData<T> {
     fn collect_with_context(&mut self, context: &C, strategy: &impl TimeoutStrategy<C>) -> bool {
         match self {
             Self::Single(tv) => {

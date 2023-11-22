@@ -1,24 +1,26 @@
 use std::fmt::Debug;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 use crate::domain::NodeId;
 
 pub mod data;
 
-#[derive(Debug)]
-pub struct StoreReqData<D: Serialize + Debug> {
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct StoreReqData<D: Debug> {
     pub handle: NodeId,
     pub data: D,
     //store_duration: Duration,
     //replicate: bool
 }
 
-
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum StoreOK {
     Created,
     Updated,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum StoreErr {
     TimeOutErr,
     DataTypeErr,
@@ -26,25 +28,29 @@ pub enum StoreErr {
 
 pub type StoreResult = Result<StoreOK, StoreErr>;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct StoreRspData {
     pub status: StoreResult,
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct FetchReqData {
     handle: NodeId,
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum FetchErr {
     NotFoundErr,
     TimeOut,
 }
 
-#[derive(Debug)]
-pub struct FetchRspData<D: DeserializeOwned + Debug> {
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct FetchRspData<D: Debug> {
     pub data: Result<D, FetchErr>,
 }

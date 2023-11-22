@@ -5,6 +5,7 @@ use std::hash::Hash;
 use crate::domain::dht::Expiring;
 use crate::domain::dht::{TimeoutStrategy, ContextExpiring};
 use crate::domain::dht::hash_table::{FetchStrategy, HashTable, InsertStrategy};
+
 use crate::messaging::dht::{StoreOK, StoreErr, FetchErr};
 
 pub struct ExpiringHashTable<H, D> {
@@ -20,7 +21,7 @@ impl<H, D> Expiring<H> for ExpiringHashTable<H, D>
         let mut is_empty = true;
         for (handle, data) in self.map.iter_mut() {
             if data.collect_with_context(handle, strategy) {
-                self.map.remove(handle)
+                self.map.remove(handle);
             } else {
                 is_empty = false;
             }
@@ -33,8 +34,8 @@ impl<H, D> Expiring<H> for ExpiringHashTable<H, D>
 impl<H, I, O, D> HashTable<H, I, O> for ExpiringHashTable<H, D>
     where H: Eq + Hash,
           D: Eq + Hash,
-          I: InsertStrategy<D, InsertOk=Self::StoreOK, InsertErr=Self::StoreErr> + Into<D>,
-          O: FetchStrategy<D, FetchErr=Self::FetchErr>
+          I: InsertStrategy<D, InsertOk=StoreOK, InsertErr=StoreErr> + Into<D>,
+          O: FetchStrategy<D, FetchErr=FetchErr>
 {
     type StoreErr = StoreErr;
     type StoreOK = StoreOK;
@@ -51,10 +52,10 @@ impl<H, I, O, D> HashTable<H, I, O> for ExpiringHashTable<H, D>
             }
         }
     }
-    fn fetch(&self, handle: &H) -> Result<O, Self::FetchErr> {
+    fn fetch(&self, handle: &H) -> Result<&O, FetchErr> {
         match self.map.get(handle) {
             None => Err(FetchErr::NotFoundErr),
-            Some(intern_data) => O::from(intern_data)
+            Some(intern_data) => O::fetch(intern_data)
         }
     }
 }
