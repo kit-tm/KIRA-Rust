@@ -1,3 +1,0 @@
-[submodule "deps/unix-udp-sock"]
-	path = deps/unix-udp-sock
-	url = git@git.scc.kit.edu:TM/kira/unix-udp-sock.git
