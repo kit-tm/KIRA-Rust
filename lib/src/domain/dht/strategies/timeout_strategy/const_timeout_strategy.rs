@@ -16,10 +16,8 @@ impl Default for ConstTimeoutStrategy {
 
 impl<C> TimeoutStrategy<C> for ConstTimeoutStrategy {
     fn is_timed_out(&self, context: &C, time: &Instant) -> bool {
-        if let Some(duration) = Instant::now().checked_duration_since(*time) {
-            duration >= self.expire_after
-        } else {
-            false
-        }
+        Instant::now()
+            .checked_duration_since(*time)
+            .is_some_and(|d| d >= self.expire_after)
     }
 }
