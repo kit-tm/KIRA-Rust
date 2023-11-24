@@ -14,6 +14,8 @@ pub mod native_tables;
 pub struct NodeIdEntry {
     /// [NodeId] of the contact this entries path goes to.
     pub destination: NodeId,
+    /// length of the prefix if destination represents a prefix, 0 otherwise.
+    pub prefix_len: usize,
     /// [NodeId] of the next node to pass the data packet to.
     ///
     /// Is a physical neighbor of the current node.
@@ -29,6 +31,8 @@ pub struct NodeIdEntry {
 impl Display for NodeIdEntry {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self.destination, f)?;
+        write!(f, "/")?;
+        Display::fmt(&self.prefix_len, f)?;
         write!(f, " => (")?;
         Display::fmt(&self.next_hop, f)?;
         write!(f, ", ")?;

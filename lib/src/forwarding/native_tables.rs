@@ -42,10 +42,17 @@ impl NodeIdTable for NativeFwdTables {
 
         if let Some(path_id) = &entry.out_path_id {
             let path_ip = Ipv6Addr::from(path_id).to_string();
-            let node_ip = Ipv6Addr::from(&entry.destination).to_string();
+
+            let prefix_len = if entry.prefix_len == 0 {
+                128
+            } else {
+                16 + entry.prefix_len
+            };
+            let node_ip = format!("{}/{}", Ipv6Addr::from(&entry.destination), prefix_len);
 
             let next_hop_ip = Ipv6Addr::from(&entry.next_hop).to_string();
 
+            log::trace!(target: "native_fwd_table", "Trying to add encap route {:?} dst {:?}", &node_ip, &path_ip);
             let output = Command::new("ip")
                 .args([
                     "-6", "route", "add", &node_ip, "encap", "ip6", "dst", &path_ip, "dev", "kira",
@@ -77,6 +84,12 @@ impl NodeIdTable for NativeFwdTables {
                     String::from_utf8_lossy(&output.stderr),
                     String::from_utf8_lossy(&output.stdout)
                 ),
+            }
+
+            if prefix_len != 0 {
+                // If a prefix is configured, an already existing and configured next hop is used.
+                // To avoid configuring routes twice we return early here.
+                return Ok(())
             }
 
             log::trace!(target: "native_fwd_table", "Trying to add route to {:?} via {:?}", &path_ip, &next_hop_ip);
@@ -124,10 +137,17 @@ impl NodeIdTable for NativeFwdTables {
         if let Some(old_entry) = self.node_id_table.get_mut(&entry.destination) {
             if let Some(path_id) = &entry.out_path_id {
                 let path_ip = Ipv6Addr::from(path_id).to_string();
-                let node_ip = Ipv6Addr::from(&entry.destination).to_string();
+
+                let prefix_len = if entry.prefix_len == 0 {
+                    128
+                } else {
+                    16 + entry.prefix_len
+                };
+                let node_ip = format!("{}/{}", Ipv6Addr::from(&entry.destination), prefix_len);
 
                 let next_hop_ip = Ipv6Addr::from(&entry.next_hop).to_string();
 
+                log::trace!(target: "native_fwd_table", "Trying to change encap route {:?} dst {:?}", &node_ip, &path_ip);
                 let output = Command::new("ip")
                     .args([
                         "-6", "route", "change", &node_ip, "encap", "ip6", "dst", &path_ip, "dev",
@@ -163,7 +183,7 @@ impl NodeIdTable for NativeFwdTables {
                 }
 
                 let output = Command::new("ip")
-                    .args(["-6", "route", "change", &path_ip, "via", &next_hop_ip])
+                    .args(["-6", "route", "replace", &path_ip, "via", &next_hop_ip])
                     .output()
                     .expect("failed to execute ip command");
 

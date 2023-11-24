@@ -218,6 +218,10 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
     fn iter_mut(&'a mut self) -> Self::IterMut {
         IterMut::from(self)
     }
+
+    fn get_prefix(&self, of: &NodeId) -> Option<(NodeId, usize)> {
+        self.inner.get_prefix(of)
+    }
 }
 
 #[cfg(test)]

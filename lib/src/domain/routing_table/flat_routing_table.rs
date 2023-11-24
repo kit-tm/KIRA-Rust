@@ -77,7 +77,7 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
         (1 << ACC) - 1
     }
 
-    const fn first_on_level(index: usize) -> usize {
+    const fn first_bucket_on_level(index: usize) -> usize {
         index - (index % Self::level_width())
     }
 
@@ -220,6 +220,8 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         }
 
         let bucket_index = self.get_bucket_index(id);
+        log::trace!(target: "flat_routing_table", "splitting bucket with index {}", bucket_index);
+        log::trace!(target: "flat_routing_table", "before: {:?}", self.buckets);
         if bucket_index != self.buckets.len() - 1 {
             return Err(BucketSplitError::Unsplittable);
         }
@@ -233,7 +235,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
                 panic!("Error inserting after splitting last bucket: {}", e);
             }
         }
-
+        log::trace!(target: "flat_routing_table", "after: {:?}", self.buckets);
         Ok(())
     }
 
@@ -287,7 +289,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
             return Ok(result);
         }
 
-        let first_bucket_on_level = Self::first_on_level(index);
+        let first_bucket_on_level = Self::first_bucket_on_level(index);
         let level_width = Self::level_width();
 
         for (iteration_count, bucket) in self
@@ -376,6 +378,30 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
             // FIXME: Remove allocation
             .collect::<Vec<_>>()
             .into_iter()
+    }
+
+    fn get_prefix(&self, of: &NodeId) -> Option<(NodeId, usize)> {
+        let index = self.get_bucket_index(of);
+
+        // special handling if this is the last bucket
+        if index == self.buckets.len() - 1 {
+            if index == 0 {
+                return None;
+            } else {
+                // TODO
+                return None;
+            }
+        }
+        // in case there are multiple buckets calculate prefix length and find closest contact
+        else {
+            let prefix_len = ACC + ACC * (index / Self::level_width());
+            if let Some(closest) = self.buckets[index].iter().min_by_key(|c| c.path().size()) {
+                let prefix = closest.id().prefix(prefix_len);
+                log::trace!(target: "flat_routing_table", "calculated prefix {:?} for bucket (index {}) {:?}", (prefix.clone(), prefix_len), index, self.buckets[index]);
+                return Some((prefix, prefix_len));
+            }
+            None
+        }
     }
 }
 

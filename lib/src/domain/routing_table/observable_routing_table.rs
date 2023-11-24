@@ -290,6 +290,10 @@ where
     fn iter_mut(&'a mut self) -> Self::IterMut {
         Iter::new(&self.observers, self.inner.iter_mut())
     }
+
+    fn get_prefix(&self, of: &NodeId) -> Option<(NodeId, usize)> {
+        self.inner.get_prefix(of)
+    }
 }
 
 // Not using "NonObservableRoutingTable" Trait as rust emits recursion error (maybe a rust bug?)

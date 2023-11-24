@@ -134,6 +134,10 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
     fn iter_mut(&'a mut self) -> Self::IterMut {
         (&mut self.bucket).into_iter()
     }
+
+    fn get_prefix(&self, of: &NodeId) -> Option<(NodeId, usize)> {
+        None
+    }
 }
 
 impl<'a, const BUCKET_SIZE: usize> NonObservableRoutingTable<'a, BUCKET_SIZE>

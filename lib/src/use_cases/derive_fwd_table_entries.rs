@@ -2,7 +2,7 @@ use std::error::Error;
 use std::marker::PhantomData;
 
 use crate::context::UseCaseContext;
-use crate::domain::{Contact, ContactState, NodeId};
+use crate::domain::{Contact, ContactState, NodeId, RoutingTable};
 use crate::forwarding::hasher::Hasher;
 use crate::forwarding::{ForwardingTables, NodeIdEntry, NodeIdTable, PathIdEntry, PathIdTable};
 use crate::use_cases::{ContactEvent, EventHandler, ReactiveUseCaseState, UseCase, UseCaseEvent};
@@ -21,13 +21,13 @@ pub struct DeriveFwdTableEntriesConfig {
 /// - For every [Contact] in the [RoutingTable](crate::domain::routing_table::RoutingTable) a [NodeIdEntry] exists.
 /// - For every [Contact] which is not a physical neighbor a [PathIdEntry] exists.
 #[derive(Debug)]
-pub struct DeriveFwdTableEntries<C> {
+pub struct DeriveFwdTableEntries<C, const BUCKET_SIZE: usize> {
     state: ReactiveUseCaseState,
     _pd: PhantomData<C>,
     config: DeriveFwdTableEntriesConfig,
 }
 
-impl<C> DeriveFwdTableEntries<C> {
+impl<C, const BUCKET_SIZE: usize> DeriveFwdTableEntries<C, BUCKET_SIZE> {
     pub fn new(config: DeriveFwdTableEntriesConfig) -> Self {
         Self {
             state: ReactiveUseCaseState::Idle,
@@ -37,11 +37,12 @@ impl<C> DeriveFwdTableEntries<C> {
     }
 }
 
-impl<C> DeriveFwdTableEntries<C>
+impl<C, const BUCKET_SIZE: usize> DeriveFwdTableEntries<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::ForwardingTables: NodeIdTable,
     <C::ForwardingTables as NodeIdTable>::Error: 'static + Error,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     fn remove_node_id_entry(
         &self,
@@ -64,6 +65,13 @@ where
         context: &C,
         contact: Contact,
     ) -> Result<(), error::DeriveFwdEntriesError> {
+        if let Some(prefix_entry) = self.derive_prefix_entry(context, &contact)? {
+            context
+                .forwarding_tables_mut()
+                .create(prefix_entry)
+                .map_err(|e| error::DeriveFwdEntriesError::NodeIdTable(Box::new(e)))?
+        }
+
         let entry = self.derive_node_id_entry(context, contact)?;
         context
             .forwarding_tables_mut()
@@ -76,6 +84,13 @@ where
         context: &C,
         new_entry: Contact,
     ) -> Result<(), error::DeriveFwdEntriesError> {
+        if let Some(prefix_entry) = self.derive_prefix_entry(context, &new_entry)? {
+            context
+                .forwarding_tables_mut()
+                .update(prefix_entry)
+                .map_err(|e| error::DeriveFwdEntriesError::NodeIdTable(Box::new(e)))?
+        }
+
         let entry = self.derive_node_id_entry(context, new_entry)?;
         context
             .forwarding_tables_mut()
@@ -101,14 +116,42 @@ where
 
         Ok(NodeIdEntry {
             destination: contact.id().clone(),
+            prefix_len: 0,
             next_hop,
             out_path_id,
             out_interface,
         })
     }
+
+    fn derive_prefix_entry(
+        &self,
+        context: &C,
+        contact: &Contact,
+    ) -> Result<Option<NodeIdEntry>, error::DeriveFwdEntriesError> {
+        if let Some((prefix, prefix_len)) = context.routing_table().get_prefix(contact.id()) {
+            let next_hop = contact.path().first().clone();
+            let out_interface = context.pn_table().get(&next_hop).cloned().ok_or_else(|| {
+                error::DeriveFwdEntriesError::NeighborNotInPNTable(next_hop.clone())
+            })?;
+            let out_path_id = if contact.is_pn() {
+                None
+            } else {
+                Some(self.config.hasher.hash(contact.path().into_iter().skip(1)))
+            };
+
+            return Ok(Some(NodeIdEntry {
+                destination: prefix,
+                prefix_len,
+                next_hop,
+                out_path_id,
+                out_interface,
+            }));
+        }
+        Ok(None)
+    }
 }
 
-impl<C> DeriveFwdTableEntries<C>
+impl<C, const BUCKET_SIZE: usize> DeriveFwdTableEntries<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::ForwardingTables: PathIdTable,
@@ -206,12 +249,13 @@ where
     }
 }
 
-impl<C> EventHandler for DeriveFwdTableEntries<C>
+impl<C, const BUCKET_SIZE: usize> EventHandler for DeriveFwdTableEntries<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::ForwardingTables: ForwardingTables,
     <C::ForwardingTables as NodeIdTable>::Error: 'static + Error,
     <C::ForwardingTables as PathIdTable>::Error: 'static + Error,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     type Context = C;
     type Error = error::DeriveFwdEntriesError;
@@ -255,12 +299,13 @@ where
     }
 }
 
-impl<C> UseCase for DeriveFwdTableEntries<C>
+impl<C, const BUCKET_SIZE: usize> UseCase for DeriveFwdTableEntries<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::ForwardingTables: ForwardingTables,
     <C::ForwardingTables as NodeIdTable>::Error: 'static + Error,
     <C::ForwardingTables as PathIdTable>::Error: 'static + Error,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     type State = ReactiveUseCaseState;
 

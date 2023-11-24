@@ -192,13 +192,16 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// ## Improvements
     ///
     /// As this only returns a limited number of nodes an implementation based on iterators
-    /// would be ideal int he future.
+    /// would be ideal in the future.
     fn closest(
         &self,
         to: &NodeId,
         n: usize,
         shared_prefix_grouping: usize,
     ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError>;
+
+    /// Returns [Some] prefix and prefix length in case a prefix should be configured for the bucket of the given id.
+    fn get_prefix(&self, of: &NodeId) -> Option<(NodeId, usize)>;
 
     /// Iterator over all [Contact]s in the [RoutingTable].
     fn iter(&'a self) -> Self::Iter;

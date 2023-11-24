@@ -207,6 +207,32 @@ impl NodeId {
 
         Ok(result)
     }
+
+    /// Returns the prefix of the given length with the rest set to 0
+    pub fn prefix(&self, prefix_len: usize) -> Self {
+        let mut new_bytes = self.bytes;
+        let full_bytes = prefix_len / 8;
+        let partial_bits = prefix_len % 8;
+
+        if partial_bits > 0 && full_bytes < SIZE {
+            let mask = 0xFFu8 << (8 - partial_bits);
+            new_bytes[full_bytes] &= mask;
+        }
+
+        let start_zeroing_index = if partial_bits > 0 {
+            full_bytes + 1
+        } else {
+            full_bytes
+        };
+
+        for byte in new_bytes.iter_mut().skip(start_zeroing_index) {
+            *byte = 0;
+        }
+
+        log::trace!(target: "node_id", "prefix with length {} of {:?} is {:?}", prefix_len, self, NodeId { bytes: new_bytes });
+
+        NodeId { bytes: new_bytes }
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -424,7 +450,7 @@ impl Debug for NodeId {
 
 impl From<&NodeId> for Ipv6Addr {
     fn from(value: &NodeId) -> Self {
-        let mut bytes = [0;16];
+        let mut bytes = [0; 16];
         bytes[0] = 0xfc;
         bytes[1] = 0x00;
         bytes[2..16].copy_from_slice(&value.bytes[0..14]);
@@ -441,6 +467,11 @@ mod tests {
     use crate::domain::{node_id, SharedPrefix};
 
     use super::NodeId;
+
+    #[test]
+    fn prefix_one() {
+        assert_eq!(NodeId::max_value().prefix(1), NodeId::with_msb(0x80)) 
+    }
 
     #[test]
     fn from_hex_string() -> Result<(), Box<dyn Error>> {
