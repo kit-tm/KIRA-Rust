@@ -27,10 +27,11 @@ impl<H, D, IS, FS, TS> ExpiringHashTable<H, D, IS, FS, TS> {
     }
 }
 
-impl<H, D, IS, FS, TS, C> Expiring<C> for ExpiringHashTable<H, D, IS, FS, TS>
+impl<'a, H, D, IS, FS, TS, C> Expiring<C> for ExpiringHashTable<H, D, IS, FS, TS>
     where
         H: Eq + Hash,
-        D: Expiring<(C, TS, H), Result=bool>, // todo actually implement this for the internal type
+        C: 'a, TS: 'a, H: 'a,
+        D: Expiring<(&'a C, &'a TS, &'a H), Result=bool>,
         TS: TimeoutStrategy<C>,
 {
     type Result = ();
@@ -39,7 +40,6 @@ impl<H, D, IS, FS, TS, C> Expiring<C> for ExpiringHashTable<H, D, IS, FS, TS>
         let mut is_empty = true;
         for (handle, data) in self.map.iter_mut() {
             if data.collect(&(context, &self.timeout_strategy, handle)) {
-                // todo fix type error above ^
                 self.map.remove(handle);
             } else {
                 is_empty = false;
