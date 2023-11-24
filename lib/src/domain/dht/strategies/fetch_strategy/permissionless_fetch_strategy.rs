@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::hash::Hash;
+use std::sync::Arc;
 
 use crate::domain::dht::strategies::fetch_strategy::FetchStrategy;
 
@@ -18,8 +18,8 @@ impl Default for PermissionlessFetchStrategy {
 impl FetchStrategy for PermissionlessFetchStrategy
 {
     type Handle = NodeId;
-    type Composite = HashMap<NodeId, HashSet<TimedValue<DefaultLHTOutput>>>;
-    type OutputData = Vec<DefaultLHTOutput>;
+    type Composite = HashMap<NodeId, HashSet<TimedValue<Arc<[u8]>>>>;
+    type OutputData = DefaultLHTOutput;
     type Error = FetchErr;
 
     fn fetch(&self, handle: &Self::Handle, from: &mut Self::Composite) -> Result<Self::OutputData, Self::Error> {
@@ -28,8 +28,13 @@ impl FetchStrategy for PermissionlessFetchStrategy
                 Err(FetchErr::NotFoundErr)
             }
             Some(set) => {
-                // todo fix this here we need to copy the Arc
-                Ok(Vec::from_iter(set.map(|tv| tv.value)))
+                let mut vec = Vec::with_capacity(set.capacity());
+
+                for timed_value in set.iter() {
+                    vec.push(timed_value.value.clone())
+                }
+
+                Ok(vec)
             }
         }
     }
