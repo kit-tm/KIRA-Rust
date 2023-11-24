@@ -295,7 +295,7 @@ mod tests {
         let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id.clone(), NetworkInterface::new("test"));
+        pn_table.insert(neighbor_id.clone(), NetworkInterface::dummy("test"));
 
         let sync_context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
@@ -366,7 +366,7 @@ mod tests {
     fn received_answer_gets_returned() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::dummy("test");
 
         let root_id = NodeId::with_msb(1);
         let neighbor_id = NodeId::with_msb(3);

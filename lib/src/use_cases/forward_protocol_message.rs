@@ -491,7 +491,7 @@ mod tests {
         let mut use_case = ForwardProtocolMessage::default();
 
         let contact_id = NodeId::with_msb(2);
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::dummy("test");
         let event = UseCaseEvent::Message(
             PNDiscReq(ReqRspMessage {
                 nonce: Nonce::random(),
@@ -537,7 +537,7 @@ mod tests {
         let mut use_case = ForwardProtocolMessage::default();
 
         let neighbor_id = NodeId::with_msb(2);
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::dummy("test");
         let event = UseCaseEvent::Message(
             PNDiscReq(ReqRspMessage {
                 nonce: Nonce::random(),
@@ -570,7 +570,7 @@ mod tests {
     fn add_source_to_routing_table() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::dummy("test");
 
         let root_id = NodeId::with_msb(1);
         let source_id = NodeId::with_msb(2);
@@ -657,7 +657,7 @@ mod tests {
         let source_id = NodeId::with_msb(2);
         let neighbor_id = NodeId::with_msb(3);
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::dummy("test");
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
         let pn_table = PNTable::new();
@@ -724,7 +724,7 @@ mod tests {
         let root_id = NodeId::with_msb(1);
         let neighbor_id = NodeId::with_msb(2);
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::dummy("test");
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
         let mut pn_table = PNTable::new();
@@ -798,7 +798,7 @@ mod tests {
         let root_id = NodeId::with_msb(1);
         let neighbor_id = NodeId::with_msb(2);
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::dummy("test");
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
         let mut pn_table = PNTable::new();
@@ -873,7 +873,7 @@ mod tests {
         let source_id = NodeId::with_msb(2);
         let neighbor_id = NodeId::with_msb(15);
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::dummy("test");
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
         let mut pn_table = PNTable::new();
@@ -955,7 +955,7 @@ mod tests {
         let source_id = NodeId::with_msb(2);
         let neighbor_id = NodeId::with_msb(15);
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::dummy("test");
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
         let mut pn_table = PNTable::new();
@@ -1071,7 +1071,7 @@ mod tests {
         let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id.clone(), NetworkInterface::new("test"));
+        pn_table.insert(neighbor_id.clone(), NetworkInterface::dummy("test"));
 
         let sync_context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
@@ -1101,7 +1101,7 @@ mod tests {
 
         let result = use_case.handle_event(
             &sync_context,
-            UseCaseEvent::Message(message.into(), NetworkInterface::new("test")),
+            UseCaseEvent::Message(message.into(), NetworkInterface::dummy("test")),
         );
         assert!(
             result.is_ok(),
@@ -1139,7 +1139,7 @@ mod tests {
         let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id.clone(), NetworkInterface::new("test"));
+        pn_table.insert(neighbor_id.clone(), NetworkInterface::dummy("test"));
 
         let sync_context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
@@ -1173,7 +1173,7 @@ mod tests {
 
         let result = use_case.handle_event(
             &sync_context,
-            UseCaseEvent::Message(sent_request.clone().into(), NetworkInterface::new("test")),
+            UseCaseEvent::Message(sent_request.clone().into(), NetworkInterface::dummy("test")),
         );
         assert!(
             result.is_ok(),
@@ -1201,7 +1201,7 @@ mod tests {
     fn error_invalidates_failed_contact() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::dummy("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);

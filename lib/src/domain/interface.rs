@@ -7,14 +7,27 @@ pub use pnet_conversion::*;
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct NetworkInterface {
     pub index: u32,
-    pub name: String
+    pub name: String,
 }
 
 impl NetworkInterface {
     pub fn new(index: u32) -> Self {
         let interfaces = pnet::datalink::interfaces();
-        let interface = interfaces.iter().find(|i| i.index == index).expect("Unable to find interface");
-        Self {index, name: interface.name.clone()}
+        let interface = interfaces
+            .iter()
+            .find(|i| i.index == index)
+            .expect("Unable to find interface");
+        Self {
+            index,
+            name: interface.name.clone(),
+        }
+    }
+
+    pub fn dummy<S: Into<String>>(name: S) -> Self {
+        Self {
+            index: 0,
+            name: name.into(),
+        }
     }
 }
 
