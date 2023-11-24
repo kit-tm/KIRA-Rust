@@ -1,7 +1,9 @@
 use std::fmt::Debug;
+use std::sync::Arc;
 use crate::domain::NodeId;
 
-pub mod data;
+pub type DefaultLHTInput = Arc<[u8]>;
+pub type DefaultLHTOutput = Vec<Arc<[u8]>>;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -38,7 +40,7 @@ pub struct StoreRspData {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct FetchReqData {
-    handle: NodeId,
+    pub handle: NodeId,
 }
 
 
@@ -46,7 +48,7 @@ pub struct FetchReqData {
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum FetchErr {
     NotFoundErr,
-    TimeOut,
+    TimeOutErr,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

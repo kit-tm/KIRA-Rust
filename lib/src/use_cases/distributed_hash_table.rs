@@ -1,76 +1,51 @@
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-use std::time::Instant;
 use core::time::Duration;
+use std::collections::HashSet;
 use std::marker::PhantomData;
-use serde::Serialize;
-use serde::de::DeserializeOwned;
+use std::sync::Arc;
 use crate::context::UseCaseContext;
-use crate::domain::dht::{Expiring, HashTable, TimeoutStrategy};
-use crate::domain::{NodeId, StateSeqNr};
-use crate::domain::dht::expiring_hash_table::ExpiringHashTable;
-use crate::messaging::{ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
-use crate::messaging::dht_messaging::{FetchErr, FetchRspData, StoreErr, StoreRspData};
+use crate::domain::NodeId;
+use crate::domain::dht::{Expiring, TimedValue};
+use crate::domain::dht::hash_table::expiring_hash_table::ExpiringHashTable;
+use crate::domain::dht::hash_table::LocalHashTable;
+use crate::domain::dht::strategies::fetch_strategy::PermissionlessFetchStrategy;
+use crate::domain::dht::strategies::insert_strategy::PermissionlessInsertStrategy;
+use crate::domain::dht::strategies::timeout_strategy::ConstTimeoutStrategy;
+
 use crate::messaging::error::SenderError;
 use crate::messaging::source_route::SourceRoute;
+use crate::messaging::{ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
+use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchRspData, StoreResult, StoreRspData};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
-pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60 * 60 * 24);
 pub const DEFAULT_COLLECT_INTERVAL: Duration = Duration::from_secs(60);
+pub type HashTableData = HashSet<Arc<[u8]>>;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-pub struct DistributedHashTableConfig<EC, S, H, D>
-where
-    H: HashTable<NodeId, D> + Expiring<EC>,
-    S: TimeoutStrategy<EC>
+pub struct DistributedHashTableConfig<H>
 {
-    _ec: PhantomData<EC>,
-    _d: PhantomData<D>,
-    strategy: S,
     hash_table: H,
     collect_interval: Duration,
 }
 
-impl<EC, H, D> Default for DistributedHashTableConfig<EC, ConstTimeoutStrategy, H, D>
-    where
-        H: HashTable<NodeId, D> + Expiring<EC>,
-{
+impl Default for DistributedHashTableConfig<ExpiringHashTable<NodeId, HashSet<TimedValue<HashTableData>>, PermissionlessInsertStrategy, PermissionlessFetchStrategy, ConstTimeoutStrategy>> {
     fn default() -> Self {
+        let hash_table = ExpiringHashTable::new(
+            PermissionlessInsertStrategy::default(),
+            PermissionlessFetchStrategy::default(),
+            ConstTimeoutStrategy::default()
+        );
+
         Self {
-            _ec: PhantomData::default(),
-            _d: PhantomData::default(),
-            strategy: ConstTimeoutStrategy::default(),
-            hash_table: ExpiringHashTable::default(),
+            hash_table,
             collect_interval: DEFAULT_COLLECT_INTERVAL,
         }
     }
 }
 
-
-struct ConstTimeoutStrategy {
-    expire_after: Duration,
-}
-
-impl Default for ConstTimeoutStrategy {
-    fn default() -> Self {
-        Self {
-            expire_after: DEFAULT_TIMEOUT,
-        }
-    }
-}
-
-impl<C> TimeoutStrategy<C> for ConstTimeoutStrategy {
-    fn is_timed_out(&self, context: &C, time: &Instant) -> bool {
-        if let Some(duration) = Instant::now().checked_duration_since(*time) {
-            duration >= self.expire_after
-        } else {
-            false
-        }
-    }
-}
-
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug)]
 pub enum DHTError {
     DHTSendError(SenderError)
 }
@@ -91,56 +66,36 @@ pub enum DHTState {
     Error,
 }
 
+pub struct DistributedHashTable<C, H>
+{
+    _c: PhantomData<C>,
+    state: DHTState,
+    config: DistributedHashTableConfig<H>,
+}
+
 impl UseCaseState for DHTState {
     fn is_error(&self) -> bool {
         self == &Self::Error
     }
 }
 
-pub struct DistributedHashTable<C, D, EC, S, H>
-where
-    H: HashTable<NodeId, D> + Expiring<EC>,
-    S: TimeoutStrategy<EC>
+impl<C, H> DistributedHashTable<C, H>
 {
-    _c: PhantomData<C>,
-    _d: PhantomData<D>,
-    state: DHTState,
-    config: DistributedHashTableConfig<EC, S, H, D>,
-}
-
-impl<C, D, EC, S, H> DistributedHashTable<C, D, EC, S, H>
-where
-    H: HashTable<NodeId, D> + Expiring<EC>,
-    S: TimeoutStrategy<EC>
-{
-    pub fn new(config: DistributedHashTableConfig<EC, S, H, D>) -> Self {
+    pub fn new(config: DistributedHashTableConfig<H>) -> Self {
         Self {
             _c: PhantomData::default(),
-            _d: PhantomData::default(),
             state: DHTState::default(),
             config,
         }
     }
 }
 
-impl<C, D, EC, H> Default for DistributedHashTable<C, D, EC, ConstTimeoutStrategy, H>
-    where
-            D: Serialize + DeserializeOwned,
-            H: HashTable<NodeId, D> + Expiring<EC>,
-{
-    fn default() -> Self {
-        Self::new(DistributedHashTableConfig::default())
-    }
-}
-
-impl<C, D, EC, S, H> EventHandler for DistributedHashTable<C, D, EC, S, H>
+impl<C, H> EventHandler for DistributedHashTable<C, H>
     where
         C: UseCaseContext,
         C::MessageSender: ProtocolMessageSender,
         C::Runtime: UseCaseRuntime,
-        D: Serialize + DeserializeOwned + Debug,
-        H: HashTable<NodeId, D, StoreErr=StoreErr, FetchErr=FetchErr> + Expiring<EC>,
-        S: TimeoutStrategy<EC>
+        H: LocalHashTable<NodeId, DefaultLHTInput, DefaultLHTOutput, StoreRes=StoreResult, FetchErr=FetchErr> + Expiring<C>
 {
     type Context = C;
     type Error = DHTError;
@@ -149,38 +104,14 @@ impl<C, D, EC, S, H> EventHandler for DistributedHashTable<C, D, EC, S, H>
     fn handle_event(&mut self, context: &Self::Context, event: UseCaseEvent) -> Result<Self::Value, Self::Error> {
         match (event, &self.state) {
             (UseCaseEvent::Message(ProtocolMessage::StoreReq(req), _), _) => {
-                let res = self.config.hash_table.store(context.root_id().clone(), req.data.data);
+                let res = self.config.hash_table.store(req.data.handle, req.data.data);
                 let rsp = ReqRspMessage {
                     nonce: req.nonce,
-                    source_state_seq_nr: StateSeqNr::from(0), // <-- todo what here?
+                    source_state_seq_nr: *context.pn_table().state_seq_nr(),
                     data: StoreRspData {
                         status: res
                     },
-                    not_via: Default::default(),
-                    source_route: SourceRoute::from_reversed(req.source_route), // todo is this right?
-                    // maybe look into similar req -> send rsp occurrences
-                };
-
-                log::trace!(
-                    target: "dht",
-                    "Sending message: {:?}",
-                    rsp
-                );
-
-                if let Err(e) = context.message_sender_mut().send_message(rsp) {
-                    log::error!("Failed to send message: {}", e);
-                    return Err(DHTError::DHTSendError(e)); // todo return more descriptive error
-                }
-            }
-            (UseCaseEvent::Message(ProtocolMessage::FetchRep(req), _), _) => {
-                let fetch_res = self.config.hash_table.fetch(context.root_id());
-                let rsp = ReqRspMessage {
-                    nonce: req.nonce,
-                    source_state_seq_nr: StateSeqNr::from(0),
-                    data: FetchRspData {
-                        data: fetch_res,
-                    },
-                    not_via: Default::default(),
+                    not_via: context.not_via().clone(),
                     source_route: SourceRoute::from_reversed(req.source_route),
                 };
 
@@ -190,16 +121,44 @@ impl<C, D, EC, S, H> EventHandler for DistributedHashTable<C, D, EC, S, H>
                     rsp
                 );
 
-                if let Err(e) = context.message_sender_mut().send_message(rsp) {
+                if let Err(e) = context.message_sender_mut().send_message(ProtocolMessage::StoreRsp(rsp)) {
+                    log::error!("Failed to send message: {}", e);
+                    return Err(DHTError::DHTSendError(e));
+                }
+            }
+            (UseCaseEvent::Message(ProtocolMessage::FetchRep(req), _), _) => {
+                let fetch_res = self.config.hash_table.fetch(&req.data.handle);
+                let rsp = ReqRspMessage {
+                    nonce: req.nonce,
+                    source_state_seq_nr: *context.pn_table().state_seq_nr(),
+                    data: FetchRspData {
+                        data: fetch_res,
+                    },
+                    not_via: context.not_via().clone(),
+                    source_route: SourceRoute::from_reversed(req.source_route),
+                };
+
+                log::trace!(
+                    target: "dht",
+                    "Sending message: {:?}",
+                    rsp
+                );
+
+                if let Err(e) = context.message_sender_mut().send_message(ProtocolMessage::FetchRsp(rsp)) {
                     log::error!("Failed to send message: {}", e);
                     return Err(DHTError::DHTSendError(e));
                 }
             }
             (UseCaseEvent::Timer(id), DHTState::Running(our_timer_id)) => {
                 if &id == our_timer_id {
-                    self.config.hash_table.expire_with_strategy(&self.config.strategy);
+                    self.config.hash_table.collect(context);
                 }
-                // todo obtain new timer
+
+                let timer_id = context
+                    .runtime()
+                    .register_timer(self.config.collect_interval);
+
+                self.state = DHTState::Running(timer_id);
             }
             _ => {}
         }
@@ -209,14 +168,12 @@ impl<C, D, EC, S, H> EventHandler for DistributedHashTable<C, D, EC, S, H>
 }
 
 
-impl<C, D, EC, S, H> UseCase for DistributedHashTable<C, D, EC, S, H>
+impl<C, H> UseCase for DistributedHashTable<C, H>
     where
         C: UseCaseContext,
         C::MessageSender: ProtocolMessageSender,
         C::Runtime: UseCaseRuntime,
-        D: Serialize + DeserializeOwned + Debug,
-        H: HashTable<NodeId, D, StoreErr=StoreErr, FetchErr=FetchErr> + Expiring<EC>,
-        S: TimeoutStrategy<EC>
+        H: LocalHashTable<NodeId, DefaultLHTInput, DefaultLHTOutput, StoreRes=StoreResult, FetchErr=FetchErr> + Expiring<C>
 {
     type State = DHTState;
 

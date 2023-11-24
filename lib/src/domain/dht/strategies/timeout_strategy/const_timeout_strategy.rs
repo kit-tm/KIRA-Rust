@@ -1,5 +1,5 @@
 use std::time::{Duration, Instant};
-use crate::domain::dht::TimeoutStrategy;
+use super::TimeoutStrategy;
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60 * 60 * 24);
 pub struct ConstTimeoutStrategy {

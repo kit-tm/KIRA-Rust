@@ -1,17 +1,43 @@
+use std::hash::{Hash, Hasher};
 use std::time::Instant;
 
 pub mod hash_table;
-pub mod expiring_hash_table;
-pub mod const_timeout_strategy;
+pub mod strategies;
 
-pub trait TimeoutStrategy<C> {
-    fn is_timed_out(&self, context: &C, time: &Instant) -> bool;
-}
 
 pub trait Expiring<C> {
-    fn collect(&mut self, strategy: &impl TimeoutStrategy<C>) -> bool;
+    type Result;
+    fn collect(&mut self, context: &C) -> Self::Result;
+}
+pub struct TimedValue<V> {
+    pub value: V,
+    pub time: Instant,
 }
 
-pub trait ContextExpiring<C> {
-    fn collect_with_context(&mut self, context: &C, strategy: &impl TimeoutStrategy<C>) -> bool;
+// only derives hash and eq from value not time
+impl<V> TimedValue<V> {
+    pub fn new(value: V) -> Self {
+        Self {
+            value,
+            time: Instant::now(),
+        }
+    }
+
+    pub fn update(&mut self) {
+        self.time = Instant::now();
+    }
+}
+
+impl<V: Eq> PartialEq<Self> for TimedValue<V> {
+    fn eq(&self, other: &Self) -> bool {
+        self.time == other.time
+    }
+}
+
+impl<V: Eq> Eq for TimedValue<V> {}
+
+impl<V: Hash> Hash for TimedValue<V> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.time.hash(state)
+    }
 }
