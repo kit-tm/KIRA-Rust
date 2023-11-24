@@ -27,13 +27,13 @@ impl InsertionStrategy for PermissionlessInsertStrategy
         match into.get_mut(&handle) {
             None => {
                 let mut set = HashSet::new();
-                set.insert(TimedValue::new(data));
+                set.insert(TimedValue::new(data.clone()));
 
                 into.insert(handle, set);
                 Ok(StoreOK::Created)
             }
             Some(existing_data) => {
-                if Some(_) = existing_data.replace(TimedValue::new(data)) {
+                if let Some(_) = existing_data.replace(TimedValue::new(data.clone())) {
                     Ok(StoreOK::Created)
                 } else {
                     Ok(StoreOK::Updated)
