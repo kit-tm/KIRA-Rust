@@ -6,7 +6,7 @@ use std::num::NonZeroU64;
 use std::sync::Arc;
 
 use crate::domain::{Contact, Link, NodeId, NotVia, StateSeqNr};
-use crate::messaging::dht::{FetchReqData, FetchRspData, StoreReqData, StoreRspData};
+use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreReqData, StoreRspData};
 use crate::messaging::source_route::SourceRoute;
 
 /// Randomly generated number to uniquely identify a protocol message and its
@@ -45,10 +45,10 @@ pub enum ProtocolMessage {
     PathTeardownReq(ReqRspMessage<PathTeardownReqData>),
     UpdateRouteReq(UpdateRouteReq),
     Error(ReqRspMessage<ErrorData>),
-    StoreReq(ReqRspMessage<StoreReqData<Arc<[u8]>>>),
+    StoreReq(ReqRspMessage<StoreReqData<DefaultLHTInput>>),
     StoreRsp(ReqRspMessage<StoreRspData>),
     FetchRep(ReqRspMessage<FetchReqData>),
-    FetchRsp(ReqRspMessage<FetchRspData<Vec<Arc<[u8]>>>>),
+    FetchRsp(ReqRspMessage<FetchRspData<DefaultLHTOutput>>),
 }
 
 impl ProtocolMessage {

@@ -1,24 +1,18 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::collections::{HashMap};
 
 use crate::domain::dht::strategies::fetch_strategy::FetchStrategy;
 
-use crate::domain::dht::TimedValue;
 use crate::domain::NodeId;
 use crate::messaging::dht::{DefaultLHTOutput, FetchErr};
+use crate::use_cases::distributed_hash_table::HashTableData;
 
+#[derive(Default)]
 pub struct PermissionlessFetchStrategy {}
-
-impl Default for PermissionlessFetchStrategy {
-    fn default() -> Self {
-        Self {}
-    }
-}
 
 impl FetchStrategy for PermissionlessFetchStrategy
 {
     type Handle = NodeId;
-    type Composite = HashMap<NodeId, HashSet<TimedValue<Arc<[u8]>>>>;
+    type Composite = HashMap<NodeId, HashTableData>;
     type OutputData = DefaultLHTOutput;
     type Error = FetchErr;
 

@@ -4,24 +4,56 @@ use core::time::Duration;
 use std::collections::HashSet;
 use std::marker::PhantomData;
 use std::sync::Arc;
+
 use crate::context::UseCaseContext;
 use crate::domain::NodeId;
-use crate::domain::dht::{Expiring, TimedValue};
+use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchRspData, StoreResult, StoreRspData};
+
+use crate::domain::dht::TimedValue;
+use crate::domain::dht::expiring::Expiring;
 use crate::domain::dht::hash_table::expiring_hash_table::ExpiringHashTable;
 use crate::domain::dht::hash_table::LocalHashTable;
 use crate::domain::dht::strategies::fetch_strategy::PermissionlessFetchStrategy;
 use crate::domain::dht::strategies::insert_strategy::PermissionlessInsertStrategy;
-use crate::domain::dht::strategies::timeout_strategy::ConstTimeoutStrategy;
+use crate::domain::dht::strategies::timeout_strategy::{ConstTimeoutStrategy, TimeoutStrategy};
 
 use crate::messaging::error::SenderError;
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
-use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchRspData, StoreResult, StoreRspData};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
 pub const DEFAULT_COLLECT_INTERVAL: Duration = Duration::from_secs(60);
-pub type HashTableData = HashSet<Arc<[u8]>>;
+
+pub type HashTableSingle = TimedValue<Arc<[u8]>>;
+pub type HashTableData = HashSet<HashTableSingle>;
+pub type DefaultExpiringHashTable = ExpiringHashTable<
+    NodeId,
+    HashTableData,
+    PermissionlessInsertStrategy,
+    PermissionlessFetchStrategy,
+    ConstTimeoutStrategy<NodeId, Arc<[u8]>>,
+>;
+
+impl<TS> Expiring for ExpiringHashTable<
+    NodeId,
+    HashTableData,
+    PermissionlessInsertStrategy,
+    PermissionlessFetchStrategy,
+    TS,
+> where
+    TS: TimeoutStrategy<Context=NodeId, Expirable=HashTableSingle>
+{
+    type Context = ();
+    type Result = ();
+
+    fn expire(&mut self, context: &Self::Context) -> Self::Result {
+        for (h, set) in self.map.iter_mut() {
+            set.retain(|tv| !self.timeout_strategy.has_timed_out(h, tv));
+        }
+    }
+}
+
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct DistributedHashTableConfig<H>
@@ -30,12 +62,12 @@ pub struct DistributedHashTableConfig<H>
     collect_interval: Duration,
 }
 
-impl Default for DistributedHashTableConfig<ExpiringHashTable<NodeId, HashSet<TimedValue<HashTableData>>, PermissionlessInsertStrategy, PermissionlessFetchStrategy, ConstTimeoutStrategy>> {
+impl Default for DistributedHashTableConfig<DefaultExpiringHashTable> {
     fn default() -> Self {
         let hash_table = ExpiringHashTable::new(
             PermissionlessInsertStrategy::default(),
             PermissionlessFetchStrategy::default(),
-            ConstTimeoutStrategy::default()
+            ConstTimeoutStrategy::default(),
         );
 
         Self {
@@ -90,12 +122,12 @@ impl<C, H> DistributedHashTable<C, H>
     }
 }
 
-impl<C, H> EventHandler for DistributedHashTable<C, H>
+impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
     where
         C: UseCaseContext,
         C::MessageSender: ProtocolMessageSender,
         C::Runtime: UseCaseRuntime,
-        H: LocalHashTable<NodeId, DefaultLHTInput, DefaultLHTOutput, StoreRes=StoreResult, FetchErr=FetchErr> + Expiring<C>
+        H: LocalHashTable<NodeId, DefaultLHTInput, DefaultLHTOutput, StoreRes=StoreResult, FetchErr=FetchErr> + Expiring<Context=(), Result=RS>
 {
     type Context = C;
     type Error = DHTError;
@@ -151,7 +183,7 @@ impl<C, H> EventHandler for DistributedHashTable<C, H>
             }
             (UseCaseEvent::Timer(id), DHTState::Running(our_timer_id)) => {
                 if &id == our_timer_id {
-                    self.config.hash_table.collect(context);
+                    self.config.hash_table.expire(&());
                 }
 
                 let timer_id = context
@@ -168,12 +200,12 @@ impl<C, H> EventHandler for DistributedHashTable<C, H>
 }
 
 
-impl<C, H> UseCase for DistributedHashTable<C, H>
+impl<C, H, RS> UseCase for DistributedHashTable<C, H>
     where
         C: UseCaseContext,
         C::MessageSender: ProtocolMessageSender,
         C::Runtime: UseCaseRuntime,
-        H: LocalHashTable<NodeId, DefaultLHTInput, DefaultLHTOutput, StoreRes=StoreResult, FetchErr=FetchErr> + Expiring<C>
+        H: LocalHashTable<NodeId, DefaultLHTInput, DefaultLHTOutput, StoreRes=StoreResult, FetchErr=FetchErr> + Expiring<Context=(), Result=RS>
 {
     type State = DHTState;
 

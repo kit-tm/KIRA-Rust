@@ -3,12 +3,8 @@ use std::time::Instant;
 
 pub mod hash_table;
 pub mod strategies;
+pub mod expiring;
 
-
-pub trait Expiring<C> {
-    type Result;
-    fn collect(&mut self, context: &C) -> Self::Result;
-}
 pub struct TimedValue<V> {
     pub value: V,
     pub time: Instant,

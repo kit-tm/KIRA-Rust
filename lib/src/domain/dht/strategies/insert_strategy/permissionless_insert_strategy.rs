@@ -1,24 +1,19 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use crate::domain::dht::strategies::insert_strategy::InsertionStrategy;
 use crate::domain::dht::TimedValue;
 use crate::domain::NodeId;
 use crate::messaging::dht::{DefaultLHTInput, StoreOK, StoreResult};
+use crate::use_cases::distributed_hash_table::HashTableData;
 
+#[derive(Default)]
 pub struct PermissionlessInsertStrategy {}
-
-impl Default for PermissionlessInsertStrategy {
-    fn default() -> Self {
-        Self {}
-    }
-}
 
 impl InsertionStrategy for PermissionlessInsertStrategy
 
 {
     type Handle = NodeId;
-    type Composite = HashMap<NodeId, HashSet<TimedValue<Arc<[u8]>>>>;
+    type Composite = HashMap<NodeId, HashTableData>;
     type InputData = DefaultLHTInput;
     type Status = StoreResult;
 
@@ -32,7 +27,7 @@ impl InsertionStrategy for PermissionlessInsertStrategy
                 Ok(StoreOK::Created)
             }
             Some(existing_data) => {
-                if let Some(_) = existing_data.replace(TimedValue::new(data.clone())) {
+                if existing_data.replace(TimedValue::new(data.clone())).is_some() {
                     Ok(StoreOK::Created)
                 } else {
                     Ok(StoreOK::Updated)
