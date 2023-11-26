@@ -19,6 +19,10 @@ pub enum MessageType {
     UpdateRouteReq,
     ProbeReq,
     ProbeRsp,
+    StoreReq,
+    StoreRsp,
+    FetchReq,
+    FetchRsp
 }
 
 impl<'a> From<&'a ProtocolMessage> for MessageType {
@@ -37,6 +41,10 @@ impl<'a> From<&'a ProtocolMessage> for MessageType {
             ProtocolMessage::PathTeardownReq(_) => MessageType::PathTeardownReq,
             ProtocolMessage::UpdateRouteReq(_) => MessageType::UpdateRouteReq,
             ProtocolMessage::Error(_) => MessageType::Error,
+            ProtocolMessage::StoreReq(_) => MessageType::StoreReq,
+            ProtocolMessage::StoreRsp(_) => MessageType::StoreRsp,
+            ProtocolMessage::FetchRep(_) => MessageType::FetchReq,
+            ProtocolMessage::FetchRsp(_) => MessageType::FetchRsp
         }
     }
 }
@@ -57,6 +65,10 @@ impl Display for MessageType {
             Self::UpdateRouteReq => write!(f, "UpdateRouteReq"),
             Self::ProbeReq => write!(f, "ProbeReq"),
             Self::ProbeRsp => write!(f, "ProbeRsp"),
+            MessageType::StoreReq => write!(f, "StoreReq"),
+            MessageType::StoreRsp => write!(f, "StoreRsp"),
+            MessageType::FetchReq => write!(f, "FetchReq"),
+            MessageType::FetchRsp => write!(f, "FetchRsp"),
         }
     }
 }
