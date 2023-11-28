@@ -1,14 +1,11 @@
-use std::collections::HashMap;
-use std::hash::Hash;
-use crate::domain::dht::expiring::Expiring;
+use std::collections::{HashMap, HashSet};
 
+use crate::domain::dht::expiring::Expiring;
 use crate::domain::dht::hash_table::LocalHashTable;
 
 use crate::domain::dht::strategies::insert_strategy::InsertionStrategy;
 use crate::domain::dht::strategies::fetch_strategy::FetchStrategy;
 use crate::domain::dht::strategies::timeout_strategy::TimeoutStrategy;
-use crate::domain::NodeId;
-use crate::use_cases::distributed_hash_table::{HashTableData, HashTableSingle};
 
 
 pub struct ExpiringHashTable<H, D, IS, FS, TS>
@@ -45,15 +42,16 @@ impl<H, I, O, D, IS, FS, TS, RS, FE> LocalHashTable<H, I, O> for ExpiringHashTab
     }
 }
 
-impl<IS, FS, TS> Expiring for ExpiringHashTable<NodeId, HashTableData, IS, FS, TS> where
-    TS: TimeoutStrategy<Context=NodeId, Expirable=HashTableSingle>
+// todo maybe we can even remove the concrete HashSet
+impl<H, D, IS, FS, TS> Expiring for ExpiringHashTable<H, HashSet<D>, IS, FS, TS> where
+    TS: TimeoutStrategy<Context=H, Expirable=D>
 {
     type Context = ();
     type Result = ();
 
     fn expire(&mut self, context: &Self::Context) -> Self::Result {
-        for (h, set) in self.map.iter_mut() {
-            set.retain(|tv| !self.timeout_strategy.has_timed_out(h, tv));
+        for (handle, set) in self.map.iter_mut() {
+            set.retain(|data| !self.timeout_strategy.has_timed_out(handle, data));
         }
     }
 }
