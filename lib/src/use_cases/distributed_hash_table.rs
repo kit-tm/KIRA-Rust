@@ -35,13 +35,7 @@ pub type DefaultExpiringHashTable = ExpiringHashTable<
     ConstTimeoutStrategy<NodeId, Arc<[u8]>>,
 >;
 
-impl<TS> Expiring for ExpiringHashTable<
-    NodeId,
-    HashTableData,
-    PermissionlessInsertStrategy,
-    PermissionlessFetchStrategy,
-    TS,
-> where
+impl<IS, FS, TS> Expiring for ExpiringHashTable<NodeId, HashTableData, IS, FS, TS> where
     TS: TimeoutStrategy<Context=NodeId, Expirable=HashTableSingle>
 {
     type Context = ();
