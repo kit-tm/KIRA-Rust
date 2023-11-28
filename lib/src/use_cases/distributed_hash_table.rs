@@ -35,19 +35,6 @@ pub type DefaultExpiringHashTable = ExpiringHashTable<
     ConstTimeoutStrategy<NodeId, Arc<[u8]>>,
 >;
 
-impl<IS, FS, TS> Expiring for ExpiringHashTable<NodeId, HashTableData, IS, FS, TS> where
-    TS: TimeoutStrategy<Context=NodeId, Expirable=HashTableSingle>
-{
-    type Context = ();
-    type Result = ();
-
-    fn expire(&mut self, context: &Self::Context) -> Self::Result {
-        for (h, set) in self.map.iter_mut() {
-            set.retain(|tv| !self.timeout_strategy.has_timed_out(h, tv));
-        }
-    }
-}
-
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct DistributedHashTableConfig<H>

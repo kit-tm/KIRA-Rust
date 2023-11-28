@@ -1,10 +1,14 @@
 use std::collections::HashMap;
 use std::hash::Hash;
+use crate::domain::dht::expiring::Expiring;
 
 use crate::domain::dht::hash_table::LocalHashTable;
 
 use crate::domain::dht::strategies::insert_strategy::InsertionStrategy;
 use crate::domain::dht::strategies::fetch_strategy::FetchStrategy;
+use crate::domain::dht::strategies::timeout_strategy::TimeoutStrategy;
+use crate::domain::NodeId;
+use crate::use_cases::distributed_hash_table::{HashTableData, HashTableSingle};
 
 
 pub struct ExpiringHashTable<H, D, IS, FS, TS>
@@ -38,5 +42,18 @@ impl<H, I, O, D, IS, FS, TS, RS, FE> LocalHashTable<H, I, O> for ExpiringHashTab
     }
     fn fetch(&mut self, handle: &H) -> Result<O, Self::FetchErr> {
         self.fetch_strategy.fetch(handle, &mut self.map)
+    }
+}
+
+impl<IS, FS, TS> Expiring for ExpiringHashTable<NodeId, HashTableData, IS, FS, TS> where
+    TS: TimeoutStrategy<Context=NodeId, Expirable=HashTableSingle>
+{
+    type Context = ();
+    type Result = ();
+
+    fn expire(&mut self, context: &Self::Context) -> Self::Result {
+        for (h, set) in self.map.iter_mut() {
+            set.retain(|tv| !self.timeout_strategy.has_timed_out(h, tv));
+        }
     }
 }
