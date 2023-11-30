@@ -98,7 +98,7 @@ async fn send_kelly_response(State(state): State<ApiState>) {
 
     log::info!("Received api send kelly response message");
 
-    let result = state.sender.send((UseCaseEvent::API(ApiEvent::SendKellyRsp()), None)).await;
+    let result = state.sender.send((UseCaseEvent::API(ApiEvent::SendKellyRsp(todo!())), None)).await;
 
 }
 

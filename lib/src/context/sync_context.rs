@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
-use std::ops::Deref;
 
 use crate::context::{ContextConfig, ReadGuard, UseCaseContext, WriteGuard};
 use crate::domain::{NodeId, NotVia, PNTable};

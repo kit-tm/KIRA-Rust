@@ -28,6 +28,7 @@ use r2kad_lib::messaging::{
     AsyncProtocolMessageReceiver, FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageSender,
     RecvError,
 };
+use r2kad_lib::messaging::kelly_connector::KellyConnectorImpl;
 use r2kad_lib::runtime::TokioRuntime;
 use r2kad_lib::use_cases::api_message_handling::HandleApiMessages;
 use r2kad_lib::use_cases::derive_fwd_table_entries::DeriveFwdTableEntries;
@@ -460,7 +461,7 @@ where
         // Initialize the Use Cases
 
         let mut api_handling = HandleApiMessages::default();
-        let mut kelly_forwarding = ForwardKellyMessageHandler::default();
+        let mut kelly_forwarding = ForwardKellyMessageHandler::new(KellyConnectorImpl {client: todo!()});
 
         let mut forward_message = ForwardProtocolMessage::default();
         if let Err(e) = forward_message.start(&context) {

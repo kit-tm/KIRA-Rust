@@ -10,6 +10,7 @@ use crate::domain::api::NodeId;
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::messages::ProtocolMessage;
 use crate::messaging::{FindNodeReqData, Nonce};
+use crate::messaging::source_route::SourceRoute;
 
 pub mod derive_fwd_table_entries;
 pub mod explicit_path_management;
@@ -59,7 +60,7 @@ pub enum ContactEvent {
 pub enum ApiEvent {
     RoutingTable(UnboundedSender<crate::domain::api::RoutingTable>),
     SendKellyReq(NodeId),
-    SendKellyRsp()
+    SendKellyRsp(SourceRoute)
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]

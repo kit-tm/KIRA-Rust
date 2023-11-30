@@ -362,6 +362,7 @@ where
 
         // Is directed to us -> nothing to forward
         if next_hop.is_none() {
+            log::debug!("Returning not handled");
             return Ok(HandlingResult::NotHandled);
         }
         let next_hop = next_hop.unwrap();
