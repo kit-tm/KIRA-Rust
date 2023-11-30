@@ -9,7 +9,7 @@ pub struct NodeId {
 #[derive(Serialize)]
 pub struct Contact {
     node_id: NodeId,
-    node_degree: Option<u64>,
+    node_degree: Option<usize>,
     physical_neighbor_id_sum: Option<NodeId>,
     path_vector: Vec<NodeId>
 }
@@ -35,8 +35,8 @@ impl From<crate::domain::Contact> for Contact {
     fn from(value: crate::domain::Contact) -> Self {
         Self {
             node_id: value.id().clone().into(),
-            node_degree: None,
-            physical_neighbor_id_sum: None,
+            node_degree: value.number_of_pn().clone(),
+            physical_neighbor_id_sum: value.neighbor_sum().clone().map(|x| x.into()),
             path_vector: value.path().into_iter().map(|x| x.clone().into()).collect(),
         }
     }

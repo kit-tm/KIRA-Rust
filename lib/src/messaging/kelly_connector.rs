@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
 use crate::domain::NodeId;
@@ -16,7 +17,7 @@ pub struct SourcePath(Vec<crate::domain::api::NodeId>);
 
 impl From<SourceRoute> for SourcePath {
     fn from(value: SourceRoute) -> Self {
-        Self(value.ids())
+        todo!() //Self(value.ids())
     }
 }
 
@@ -28,11 +29,11 @@ pub struct KellyRequest(crate::domain::api::NodeId, SourcePath);
 pub struct KellyConnectorImpl {
     client: reqwest::Client,
     address: String,
-    runtime: Runtime
+    runtime: Arc<Runtime>
 }
 
 impl KellyConnectorImpl {
-    fn new(address: String, runtime: Runtime) -> Self {
+    pub fn new(address: String, runtime: Arc<Runtime>) -> Self {
         Self {
             client: reqwest::Client::new(),
             address,
@@ -45,17 +46,19 @@ impl KellyConnectorImpl {
 impl KellyConnector for KellyConnectorImpl {
 
     fn forward_request(&self, node_id: NodeId, source_route: SourceRoute) {
-        let body = KellyRequest(node_id.into(), source_route.into());
-        self.runtime.spawn(|| self.client
-            .post(self.address.clone() + "/request")
-            .body(body)
-            .send());
+        todo!();
+        //let body = KellyRequest(node_id.into(), source_route.into());
+        //self.runtime.spawn(self.client
+        //    .post(self.address.clone() + "/request")
+        //    .body(todo!())
+        //    .send());
     }
 
     fn forward_response(&self) {
-        self.runtime.spawn(|| self.client
-            .post(self.address.clone() + "/response")
-            .body(todo!())
-            .send());
+        todo!();
+        //self.runtime.spawn(self.client
+        //    .post(self.address.clone() + "/response")
+        //    .body(todo!())
+        //    .send());
     }
 }

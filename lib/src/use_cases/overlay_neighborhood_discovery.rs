@@ -243,6 +243,8 @@ where
                 exact: false,
                 neighborhood: self.config.overlay_neighborhood_size,
                 target: context.root_id().clone(),
+                origin_degree: context.routing_table().num_physical_neighbors(),
+                origin_neighbor_id_sum: context.routing_table().neighbor_id_sum()
             },
             not_via: context.not_via().clone(),
             source_route: route_to_closest_on,

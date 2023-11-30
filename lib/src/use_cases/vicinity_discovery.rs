@@ -212,12 +212,19 @@ where
             return Err(VDError::NeighborInconsistency);
         }
 
+        let (origin_degree, origin_neighbor_id_sum) = match context.routing_table().is_in_last_two_buckets(contact.id()) {
+            true => (context.routing_table().num_physical_neighbors(), context.routing_table().neighbor_id_sum()),
+            false => (None, None)
+        };
+
         // Request only physical Neighborhood of that Node
         let request = ReqRspMessage {
             nonce: Nonce::random(),
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
             data: QueryRouteReqData {
                 query_type: QueryRouteType::PhysicalNeighbors,
+                origin_degree,
+                origin_neighbor_id_sum
             },
             not_via: context.not_via().clone(),
             source_route: route,

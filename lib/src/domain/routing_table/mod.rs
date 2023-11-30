@@ -3,6 +3,7 @@ use std::fmt::{Display, Formatter};
 use std::ops::DerefMut;
 
 use crate::domain::{Bucket, Contact, GroupingError, NodeId, ReplacementError, SharedPrefix};
+use crate::domain::observable_routing_table::ContactWriteGuard;
 
 pub mod flat_routing_table;
 pub mod observable_routing_table;
@@ -205,4 +206,10 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
 
     /// Iterator over mutable references to all contacts in the [RoutingTable].
     fn iter_mut(&'a mut self) -> Self::IterMut;
+
+    fn neighbor_id_sum(&self) -> Option<NodeId>;
+
+    fn is_in_last_two_buckets(&self, node_id: &NodeId) -> bool;
+
+    fn num_physical_neighbors(&self) -> Option<usize>;
 }

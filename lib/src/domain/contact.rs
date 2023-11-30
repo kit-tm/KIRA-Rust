@@ -93,18 +93,22 @@ pub struct Contact {
     last_seen: Timestamp,
     path: Path,
     state_seq_nr: StateSeqNr,
+    number_of_pn: Option<usize>,
+    neighbor_sum: Option<NodeId>
 }
 
 impl Display for Contact {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Contact [id: {}, age: {}, state_seq_nr: {}, state: {}, path: {}]",
+            "Contact [id: {}, age: {}, state_seq_nr: {}, state: {}, path: {}, number_of_pn: {:?}, neighbor_id_sum: {:?}]",
             self.id(),
             self.last_seen.to_age_duration(),
             self.state_seq_nr,
             self.state,
-            self.path
+            self.path,
+            self.number_of_pn,
+            self.neighbor_sum
         )
     }
 }
@@ -113,12 +117,14 @@ impl Contact {
     /// Creates a new [Contact] with default values.
     ///
     /// The given [Path] has to end with the [NodeId] of the Contact.
-    pub fn new(path: Path, state_seq_nr: StateSeqNr) -> Self {
+    pub fn new(path: Path, state_seq_nr: StateSeqNr, number_of_pn: Option<usize>, neighbor_sum: Option<NodeId>) -> Self {
         Self {
             state: ContactState::Valid,
             last_seen: Timestamp::from(Utc::now()),
             path,
             state_seq_nr,
+            number_of_pn,
+            neighbor_sum
         }
     }
 
@@ -201,5 +207,13 @@ impl Contact {
 
     pub fn state_seq_nr_mut(&mut self) -> &mut StateSeqNr {
         &mut self.state_seq_nr
+    }
+
+    pub fn neighbor_sum(&self) -> &Option<NodeId> {
+        &self.neighbor_sum
+    }
+
+    pub fn number_of_pn(&self) -> &Option<usize> {
+        &self.number_of_pn
     }
 }

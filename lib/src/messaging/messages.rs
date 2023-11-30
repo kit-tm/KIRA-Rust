@@ -346,6 +346,8 @@ pub struct RTableData {
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct QueryRouteReqData {
     pub query_type: QueryRouteType,
+    pub origin_degree: Option<usize>,
+    pub origin_neighbor_id_sum: Option<NodeId>
 }
 
 /// Data struct representing the type of a QueryRouteReq.
@@ -384,6 +386,8 @@ pub struct FindNodeReqData {
     /// - Path Probing: Same as destination. Specific contact is probed for connectivity.
     /// - Overlay Neighborhood Discovery: NodeId of the current node.
     pub target: NodeId,
+    pub origin_degree: Option<usize>,
+    pub origin_neighbor_id_sum: Option<NodeId>,
 }
 
 impl From<ReqRspMessage<FindNodeReqData>> for ProtocolMessage {

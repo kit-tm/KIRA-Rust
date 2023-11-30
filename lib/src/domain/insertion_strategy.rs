@@ -108,7 +108,8 @@ where
 
         // But: If only age is updated, don't emit anything
         let return_result =
-            if contact.path() == existing.path() && contact.state() == existing.state() {
+            if contact.path() == existing.path() && contact.state() == existing.state()
+                && contact.neighbor_sum() == existing.neighbor_sum() && contact.number_of_pn() == existing.number_of_pn() {
                 log::trace!(
                     target: "routing_table",
                     "Not updating contacts path because its the same and doesn't change state [{}]",
@@ -121,6 +122,10 @@ where
                     "Updated contact [{:?}]",
                     contact
                 );
+                if (contact.number_of_pn().is_none() && existing.number_of_pn().is_some())
+                    || (contact.neighbor_sum().is_none() && existing.neighbor_sum().is_some()) {
+                    log::debug!("Warning: Removing neighbor sum due to contact update: {}, {:?}", contact, existing.number_of_pn())
+                }
                 InsertionStrategyResult::Updated
             };
 

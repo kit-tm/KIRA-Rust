@@ -62,6 +62,14 @@ where
         path
     }
 
+    fn extract_degree_and_neighbor_sum(&self, message: &ProtocolMessage) -> (Option<usize>, Option<NodeId>) {
+        match message {
+            ProtocolMessage::FindNodeReq(data) => (data.data.origin_degree, data.data.origin_neighbor_id_sum.clone()),
+            ProtocolMessage::QueryRouteReq(data) => (data.data.origin_degree, data.data.origin_neighbor_id_sum.clone()),
+            _ => (None, None)
+        }
+    }
+
     /// Extracts source information, inserts it into the [PNTable] and [RoutingTable] and returns
     /// the extracted [Contact] information.
     fn extract_source_information(
@@ -71,7 +79,8 @@ where
         interface: NetworkInterface,
     ) -> Contact {
         let path = self.extract_path_to_source(message);
-        let contact = Contact::new(path.clone(), *message.source_state_seq_nr());
+        let (degree, neighbor_sum) = self.extract_degree_and_neighbor_sum(message);
+        let contact = Contact::new(path.clone(), *message.source_state_seq_nr(), degree, neighbor_sum);
 
         {
             let mut lock = context.pn_table_mut();
@@ -362,7 +371,7 @@ where
 
         // Is directed to us -> nothing to forward
         if next_hop.is_none() {
-            log::debug!("Returning not handled");
+            //log::debug!("Returning not handled");
             return Ok(HandlingResult::NotHandled);
         }
         let next_hop = next_hop.unwrap();

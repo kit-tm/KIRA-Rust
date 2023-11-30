@@ -134,6 +134,18 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
     fn iter_mut(&'a mut self) -> Self::IterMut {
         (&mut self.bucket).into_iter()
     }
+
+    fn neighbor_id_sum(&self) -> Option<NodeId> {
+        None // We are not sure here if we know all physical neighbors, so we return None
+    }
+
+    fn is_in_last_two_buckets(&self, node_id: &NodeId) -> bool {
+        true
+    }
+
+    fn num_physical_neighbors(&self) -> Option<usize> {
+        None // We are not sure here if we know all physical neighbors, so we return None
+    }
 }
 
 impl<'a, const BUCKET_SIZE: usize> NonObservableRoutingTable<'a, BUCKET_SIZE>

@@ -393,6 +393,19 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
             .collect::<Vec<_>>()
             .into_iter()
     }
+
+    fn neighbor_id_sum(&self) -> Option<NodeId> {
+        None // we do not know if we know all neighbors, so we return None here.
+    }
+
+    fn is_in_last_two_buckets(&self, node_id: &NodeId) -> bool {
+        let index = self.get_bucket_index(node_id);
+        index == self.num_buckets() - 1 || index == self.num_buckets() - 2
+    }
+
+    fn num_physical_neighbors(&self) -> Option<usize> {
+        None // we do not know if all physical neighbors, so we return None here
+    }
 }
 
 #[cfg(test)]

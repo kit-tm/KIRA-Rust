@@ -101,7 +101,7 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
 
         if closer_contacts.is_empty() {
             log::info!("Consuming message, because this node is the closest node to the target");
-            self.kelly_connector.forward_request(data.data.node_id);
+            self.kelly_connector.forward_request(data.data.node_id, data.source_route);
             return;
         }
 
