@@ -18,7 +18,7 @@ use crate::domain::{
 /// # Invariant
 ///
 /// No physical neighbors are in the inner routing table.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct UnlimitedPNRoutingTable<const BUCKET_SIZE: usize, const ACC: usize> {
     pn_contacts: HashMap<NodeId, Contact>,
     inner: FlatRoutingTable<BUCKET_SIZE, ACC>,
@@ -32,6 +32,12 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> From<FlatRoutingTable<BUCKET_SI
             pn_contacts: Default::default(),
             inner: routing_table,
         }
+    }
+}
+
+impl<const BUCKET_SIZE: usize, const ACC: usize> From<UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>> for crate::domain::api::RoutingTable {
+    fn from(value: UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>) -> Self {
+        value.inner.into()
     }
 }
 

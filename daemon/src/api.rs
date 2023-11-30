@@ -24,6 +24,7 @@ pub(crate) async fn start_http_server(api_config: ApiConfig) {
         .route("/r2kademlia/stacks/default/node-id", get(get_node_id_for_test_env))
         .route("/routing-table", get(get_routing_table))
         .route("/kelly/request", post(send_kelly_request))
+        .route("/kelly/response", post(send_kelly_response))
         .with_state(api_state);
 
     axum::Server::bind(&api_config.address)
@@ -90,7 +91,14 @@ async fn send_kelly_request(State(state): State<ApiState>, Json(node): Json<doma
     } else {
         log::info!("Sending successful");
     }
+    
+}
 
+async fn send_kelly_response(State(state): State<ApiState>) {
+
+    log::info!("Received api send kelly response message");
+
+    let result = state.sender.send((UseCaseEvent::API(ApiEvent::SendKellyRsp()), None)).await;
 
 }
 

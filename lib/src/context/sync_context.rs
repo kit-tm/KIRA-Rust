@@ -1,8 +1,10 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
+use std::ops::Deref;
 
 use crate::context::{ContextConfig, ReadGuard, UseCaseContext, WriteGuard};
 use crate::domain::{NodeId, NotVia, PNTable};
+use crate::domain::api::RoutingTable;
 
 /// Implements a [UseCaseContext] which can only be used in a single threaded synchronous environment.
 ///
@@ -21,7 +23,8 @@ pub struct SyncContext<RT, MS, RU, IS, FT> {
     not_via: RefCell<HashSet<NotVia>>,
 }
 
-impl<RT, MS, RU, IS, FT> UseCaseContext for SyncContext<RT, MS, RU, IS, FT> {
+impl<RT, MS, RU, IS, FT> UseCaseContext for SyncContext<RT, MS, RU, IS, FT>
+where RT: Into<crate::domain::api::RoutingTable> + Clone{
     type RoutingTable = RT;
     type MessageSender = MS;
     type Runtime = RU;
@@ -91,5 +94,13 @@ impl<RT, MS, RU, IS, FT> UseCaseContext for SyncContext<RT, MS, RU, IS, FT> {
 
     fn not_via_mut(&self) -> WriteGuard<'_, HashSet<NotVia>> {
         self.not_via.borrow_mut().into()
+    }
+
+    fn to_api_model(&self) -> RoutingTable {
+        //let test: RefCell<Self::RoutingTable> = self.routing_table.into();
+        //let test2: &Self::RoutingTable = test.into();
+        //let test3: RoutingTable = (*test2).clone().into();
+        //test3
+        self.routing_table.borrow().clone().into()
     }
 }

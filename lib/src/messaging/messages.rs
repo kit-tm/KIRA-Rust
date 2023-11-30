@@ -43,6 +43,8 @@ pub enum ProtocolMessage {
     PathTeardownReq(ReqRspMessage<PathTeardownReqData>),
     UpdateRouteReq(UpdateRouteReq),
     Error(ReqRspMessage<ErrorData>),
+    KellyReq(ReqRspMessage<KellyReqData>),
+    KellyRsp(ReqRspMessage<KellyRspData>),
 }
 
 impl ProtocolMessage {
@@ -61,6 +63,8 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => Some(&mut req.source_route),
             Self::PathTeardownReq(req) => Some(&mut req.source_route),
             Self::UpdateRouteReq(req) => Some(&mut req.source_route),
+            Self::KellyReq(req) => Some(&mut req.source_route),
+            Self::KellyRsp(req) => Some(&mut req.source_route),
         }
     }
 
@@ -79,6 +83,8 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => Some(&req.source_route),
             Self::PathTeardownReq(req) => Some(&req.source_route),
             Self::UpdateRouteReq(req) => Some(&req.source_route),
+            Self::KellyReq(req) => Some(&req.source_route),
+            Self::KellyRsp(req) => Some(&req.source_route),
         }
     }
 
@@ -98,6 +104,8 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => Some(req.destination()),
             Self::PathTeardownReq(req) => Some(req.destination()),
             Self::UpdateRouteReq(req) => Some(req.source_route.destination()),
+            Self::KellyReq(req) => Some(req.source_route.destination()),
+            Self::KellyRsp(req) => Some(req.source_route.destination()),
         }
     }
 
@@ -116,6 +124,8 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => Some(&req.nonce),
             Self::PathTeardownReq(req) => Some(&req.nonce),
             Self::UpdateRouteReq(_) => None,
+            Self::KellyReq(req) => Some(&req.nonce),
+            Self::KellyRsp(req) => Some(&req.nonce),
         }
     }
 
@@ -142,6 +152,8 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => req.source(),
             Self::PathTeardownReq(req) => req.source(),
             Self::UpdateRouteReq(req) => req.source_route.source(),
+            Self::KellyReq(req) => req.source_route.source(),
+            Self::KellyRsp(req) => req.source_route.source(),
         }
     }
 
@@ -160,6 +172,8 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => &req.source_state_seq_nr,
             Self::PathTeardownReq(req) => &req.source_state_seq_nr,
             Self::UpdateRouteReq(req) => &req.source_state_seq_nr,
+            Self::KellyReq(req) => &req.source_state_seq_nr,
+            Self::KellyRsp(req) => &req.source_state_seq_nr,
         }
     }
 
@@ -178,6 +192,8 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => Some(&req.not_via),
             Self::PathTeardownReq(req) => Some(&req.not_via),
             Self::UpdateRouteReq(req) => Some(&req.not_via),
+            Self::KellyReq(req) => Some(&req.not_via),
+            Self::KellyRsp(req) => Some(&req.not_via),
         }
     }
 
@@ -414,5 +430,29 @@ impl ReqRspMessage<ErrorData> {
 impl From<ReqRspMessage<ErrorData>> for ProtocolMessage {
     fn from(message: ReqRspMessage<ErrorData>) -> Self {
         Self::Error(message)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct KellyReqData {
+    pub node_id: NodeId
+}
+
+impl From<ReqRspMessage<KellyReqData>> for ProtocolMessage {
+    fn from(value: ReqRspMessage<KellyReqData>) -> Self {
+        Self::KellyReq(value)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct KellyRspData {
+
+}
+
+impl From<ReqRspMessage<KellyRspData>> for ProtocolMessage {
+    fn from(value: ReqRspMessage<KellyRspData>) -> Self {
+        Self::KellyRsp(value)
     }
 }

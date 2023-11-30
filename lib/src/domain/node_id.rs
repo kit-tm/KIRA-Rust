@@ -207,6 +207,10 @@ impl NodeId {
 
         Ok(result)
     }
+
+    pub fn bytes(&self) -> Vec<u8> {
+        self.bytes.clone().to_vec()
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]

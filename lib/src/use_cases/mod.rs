@@ -3,8 +3,10 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::domain::{Contact, NetworkInterface};
+use crate::domain::api::NodeId;
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::messages::ProtocolMessage;
 use crate::messaging::{FindNodeReqData, Nonce};
@@ -21,15 +23,18 @@ pub mod path_probing;
 pub mod precompute_paths_and_path_ids;
 pub mod random_overlay_discovery;
 pub mod vicinity_discovery;
+pub mod api_message_handling;
+pub mod forward_kelly_message;
 
 /// Enumeration representing all events a [UseCase] can handle.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum UseCaseEvent {
     Message(ProtocolMessage, NetworkInterface),
     Timer(TimerId),
     Contact(ContactEvent),
     InjectMessage(Nonce, InjectionMessageData),
     Hardware(HardwareEvent),
+    API(ApiEvent),
     Shutdown,
 }
 
@@ -48,6 +53,13 @@ pub enum ContactEvent {
     New(Contact),
     Updated { new: Contact, old: Contact },
     Removed(Contact),
+}
+
+#[derive(Debug, Clone)]
+pub enum ApiEvent {
+    RoutingTable(UnboundedSender<crate::domain::api::RoutingTable>),
+    SendKellyReq(NodeId),
+    SendKellyRsp()
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]

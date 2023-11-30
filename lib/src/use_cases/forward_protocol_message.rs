@@ -289,7 +289,10 @@ where
             | ProtocolMessage::ProbeReq(_)
             | ProtocolMessage::ProbeRsp(_)
             | ProtocolMessage::PathSetupReq(_)
-            | ProtocolMessage::PathTeardownReq(_) => {}
+            | ProtocolMessage::PathTeardownReq(_) => {},
+            ProtocolMessage::KellyReq(_) | ProtocolMessage::KellyRsp(_) => {
+                log::info!("Forwarding Kelly message");
+            }
         }
 
         Ok(())

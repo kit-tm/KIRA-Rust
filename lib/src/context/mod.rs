@@ -154,4 +154,6 @@ pub trait UseCaseContext {
     fn not_via(&self) -> ReadGuard<'_, HashSet<NotVia>>;
 
     fn not_via_mut(&self) -> WriteGuard<'_, HashSet<NotVia>>;
+
+    fn to_api_model(&self) -> crate::domain::api::RoutingTable;
 }

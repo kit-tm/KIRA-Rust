@@ -132,10 +132,31 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> NonObservableRoutingTable<'
 {
 }
 
-/// Wrapper for [NonObservableRoutingTable]s to gain observability.
+
 pub struct ObservableRoutingTable<RT, const BUCKET_SIZE: usize> {
     observers: Vec<Box<dyn RoutingTableObserver<BUCKET_SIZE>>>,
     inner: RT,
+}
+
+impl<RT, const BUCKET_SIZE: usize> Clone for ObservableRoutingTable<RT, BUCKET_SIZE>
+where
+    RT: Clone
+{
+    fn clone(&self) -> Self {
+        Self {
+            observers: Vec::new(),
+            inner: self.inner.clone()
+        }
+    }
+}
+
+impl<RT, const BUCKET_SIZE: usize> From<ObservableRoutingTable<RT, BUCKET_SIZE>> for crate::domain::api::RoutingTable
+where
+    RT: Into<crate::domain::api::RoutingTable>
+{
+    fn from(value: ObservableRoutingTable<RT, BUCKET_SIZE>) -> Self {
+        value.inner.into()
+    }
 }
 
 impl<RT: Debug, const BUCKET_SIZE: usize> Debug for ObservableRoutingTable<RT, BUCKET_SIZE> {

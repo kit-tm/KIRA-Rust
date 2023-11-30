@@ -57,6 +57,14 @@ impl SourceRoute {
         self
     }
 
+    pub fn append(&mut self, ids: Vec<NodeId>) -> &mut Self {
+        for id in ids {
+            self.ids.push_back(id);
+        }
+
+        self
+    }
+
     /// Returns the previous node in the [SourceRoute].
     pub fn prev_hop(&self) -> &NodeId {
         assert!(self.progress > 0);

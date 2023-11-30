@@ -23,7 +23,7 @@ pub const DEFAULT_ACCELERATION: usize = 1;
 /// Due to the missing support for const generics in const expressions (can be enabled on nightly
 /// with `feature(generic_const_exprs)`.
 /// Until [this issue](https://github.com/rust-lang/rust/issues/76560) is fixed, we have to stick with a Vec
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct FlatRoutingTable<
     const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE,
     const ACC: usize = DEFAULT_ACCELERATION,
@@ -38,6 +38,22 @@ impl FlatRoutingTable<DEFAULT_BUCKET_SIZE, DEFAULT_ACCELERATION> {
         Self {
             buckets: vec![Bucket::new()],
             root,
+        }
+    }
+}
+
+impl<const BUCKET_SIZE: usize, const ACC: usize> From<FlatRoutingTable<BUCKET_SIZE, ACC>> for crate::domain::api::RoutingTable {
+    fn from(value: FlatRoutingTable<BUCKET_SIZE, ACC>) -> Self {
+        crate::domain::api::RoutingTable {
+            node_id: value.root.into(),
+            buckets: value.buckets.into_iter()
+                .map(|x|  {
+                    crate::domain::api::Bucket {
+                        prefix: "".to_string(),
+                        contacts: x.iter().cloned().map(|contact| contact.into()).collect::<Vec<crate::domain::api::Contact>>()
+                    }
+                })
+                .collect()
         }
     }
 }

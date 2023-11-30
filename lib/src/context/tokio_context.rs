@@ -7,6 +7,7 @@ use tokio::sync::RwLock;
 use crate::broadcaster::Broadcaster;
 use crate::context::{ContextConfig, ReadGuard, UseCaseContext, WriteGuard};
 use crate::domain::{NodeId, NotVia, PNTable};
+use crate::domain::api::RoutingTable;
 use crate::runtime::TokioRuntime;
 use crate::utils::tokio_utils;
 
@@ -30,6 +31,8 @@ pub struct TokioContext<RT, MS, RU, IS, FT> {
 
 impl<RT, MS, B: Broadcaster, IS, FT> UseCaseContext
     for TokioContext<RT, MS, TokioRuntime<B>, IS, FT>
+where
+    RT: Into<crate::domain::api::RoutingTable> + Clone
 {
     type RoutingTable = RT;
     type MessageSender = MS;
@@ -100,6 +103,13 @@ impl<RT, MS, B: Broadcaster, IS, FT> UseCaseContext
 
     fn not_via_mut(&self) -> WriteGuard<'_, HashSet<NotVia>> {
         tokio_utils::get_write_guard(self.not_via.deref()).into()
+    }
+
+    fn to_api_model(&self) -> RoutingTable {
+        let test: ReadGuard<Self::RoutingTable> = tokio_utils::get_read_guard(self.routing_table.deref()).into();
+        let test2: &Self::RoutingTable = test.deref();
+        let test3: RoutingTable = (*test2).clone().into();
+        test3
     }
 }
 
