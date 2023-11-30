@@ -311,18 +311,10 @@ where
     fn iter_mut(&'a mut self) -> Self::IterMut {
         Iter::new(&self.observers, self.inner.iter_mut())
     }
-
-    fn neighbor_id_sum(&self) -> Option<NodeId> {
-        self.inner.neighbor_id_sum()
-    }
-
     fn is_in_last_two_buckets(&self, node_id: &NodeId) -> bool {
         self.inner.is_in_last_two_buckets(node_id)
     }
 
-    fn num_physical_neighbors(&self) -> Option<usize> {
-        self.inner.num_physical_neighbors()
-    }
 }
 
 // Not using "NonObservableRoutingTable" Trait as rust emits recursion error (maybe a rust bug?)

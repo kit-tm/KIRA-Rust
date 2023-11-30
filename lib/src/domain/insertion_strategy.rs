@@ -79,6 +79,9 @@ where
         );
         if contact.state() != &ContactState::Valid {
             log::trace!(target: "routing_table", "Dropped path: Invalid [{:?}]", contact);
+            if (contact.number_of_pn().is_some() && existing.number_of_pn().is_none()) || (contact.neighbor_sum().is_some() && existing.neighbor_sum().is_none()) {
+                log::debug!("Dropping contact with xor sums, because contact is invalid: {}", contact);
+            }
             return InsertionStrategyResult::Dropped;
         }
         if existing.state() == &ContactState::Invalid && contact.state() == &ContactState::Valid {
@@ -97,6 +100,9 @@ where
                     existing.age(),
                     existing.state_seq_nr(),
                 );
+                if (contact.number_of_pn().is_some() && existing.number_of_pn().is_none()) || (contact.neighbor_sum().is_some() && existing.neighbor_sum().is_none()) {
+                    log::debug!("Dropping contact with xor sums, because contact is older: {}", contact);
+                }
                 return InsertionStrategyResult::Dropped;
             }
             // If less or equal -> replace
@@ -124,7 +130,9 @@ where
                 );
                 if (contact.number_of_pn().is_none() && existing.number_of_pn().is_some())
                     || (contact.neighbor_sum().is_none() && existing.neighbor_sum().is_some()) {
-                    log::debug!("Warning: Removing neighbor sum due to contact update: {}, {:?}", contact, existing.number_of_pn())
+                    //log::debug!("Warning: Removing neighbor sum due to contact update, but copying sums: {}, {:?}", contact, existing.number_of_pn());
+                    contact.set_neighbor_sum(existing.neighbor_sum().clone());
+                    contact.set_number_of_pn(existing.number_of_pn().clone());
                 }
                 InsertionStrategyResult::Updated
             };

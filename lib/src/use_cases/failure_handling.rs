@@ -209,6 +209,8 @@ where
             nonce
         };
 
+        log::debug!("own degree and neighbor sum: {:?} {:?}", context.pn_table().size(), context.pn_table().neighbor_sum());
+
         let find_node_request = ReqRspMessage {
             nonce,
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
@@ -216,8 +218,8 @@ where
                 exact: true,
                 neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
                 target: contact.id().clone(),
-                origin_degree: context.routing_table().num_physical_neighbors(), // Add here, because root id is always in two last buckets
-                origin_neighbor_id_sum: context.routing_table().neighbor_id_sum()
+                origin_degree: context.pn_table().size(), // Add here, because root id is always in two last buckets
+                origin_neighbor_id_sum: context.pn_table().neighbor_sum(),
             },
             not_via: context.not_via().clone(),
             source_route: SourceRoute::new(
@@ -305,7 +307,11 @@ where
         };
 
         let (origin_degree, origin_neighbor_id_sum) = match context.routing_table().is_in_last_two_buckets(node_id) {
-            true => (context.routing_table().num_physical_neighbors(), context.routing_table().neighbor_id_sum()),
+            true => {
+                let result = (context.pn_table().size(), context.pn_table().neighbor_sum());
+                log::debug!("degree and neighbor sum: {:?}, {:?}", result.0, result.1);
+                result
+            },
             false => (None, None)
         };
         let find_node_request = ReqRspMessage {

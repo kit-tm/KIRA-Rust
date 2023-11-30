@@ -157,6 +157,20 @@ impl PNTable {
             ),
         }
     }
+
+    pub(crate) fn size(&self) -> Option<usize> {
+        if self.map.is_empty() {
+            return None;
+        }
+        Some(self.map.len())
+    }
+
+    pub(crate) fn neighbor_sum(&self) -> Option<NodeId> {
+        if self.map.is_empty() {
+            return None;
+        }
+        Some(self.map.keys().fold(NodeId::zero(), |acc, x| acc ^ x.clone()))
+    }
 }
 
 impl<'a> IntoIterator for &'a PNTable {

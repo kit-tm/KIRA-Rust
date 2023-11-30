@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
+use std::mem::size_of;
 use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::time::Duration;
 
@@ -236,6 +237,7 @@ where
             return Err(ONDError::NeighborInconsistency);
         }
 
+        log::debug!("own degree and neighbor sum: {:?}, {:?}", context.pn_table().size(), context.pn_table().neighbor_sum());
         let request = ReqRspMessage {
             nonce,
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
@@ -243,8 +245,8 @@ where
                 exact: false,
                 neighborhood: self.config.overlay_neighborhood_size,
                 target: context.root_id().clone(),
-                origin_degree: context.routing_table().num_physical_neighbors(),
-                origin_neighbor_id_sum: context.routing_table().neighbor_id_sum()
+                origin_degree: context.pn_table().size(),
+                origin_neighbor_id_sum: context.pn_table().neighbor_sum()
             },
             not_via: context.not_via().clone(),
             source_route: route_to_closest_on,

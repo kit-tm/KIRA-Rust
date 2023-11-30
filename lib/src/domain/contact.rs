@@ -209,11 +209,19 @@ impl Contact {
         &mut self.state_seq_nr
     }
 
+    pub fn set_neighbor_sum(&mut self, neighbor_sum: Option<NodeId>) {
+        self.neighbor_sum = neighbor_sum;
+    }
+
     pub fn neighbor_sum(&self) -> &Option<NodeId> {
         &self.neighbor_sum
     }
 
     pub fn number_of_pn(&self) -> &Option<usize> {
         &self.number_of_pn
+    }
+
+    pub fn set_number_of_pn(&mut self, number_of_pn: Option<usize>) {
+        self.number_of_pn = number_of_pn;
     }
 }

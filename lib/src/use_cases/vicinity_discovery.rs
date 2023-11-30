@@ -213,7 +213,11 @@ where
         }
 
         let (origin_degree, origin_neighbor_id_sum) = match context.routing_table().is_in_last_two_buckets(contact.id()) {
-            true => (context.routing_table().num_physical_neighbors(), context.routing_table().neighbor_id_sum()),
+            true => {
+                let result = (context.pn_table().size(), context.pn_table().neighbor_sum());
+                log::debug!("degree and neighbor sum: {:?}, {:?}", result.0, result.1);
+                result
+            },
             false => (None, None)
         };
 

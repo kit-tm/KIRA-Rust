@@ -225,16 +225,9 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         IterMut::from(self)
     }
 
-    fn neighbor_id_sum(&self) -> Option<NodeId> {
-        Some(self.pn_contacts.keys().fold(NodeId::zero(), |a, b| a ^ b.clone()))
-    }
 
     fn is_in_last_two_buckets(&self, node_id: &NodeId) -> bool {
         self.inner.is_in_last_two_buckets(node_id)
-    }
-
-    fn num_physical_neighbors(&self) -> Option<usize> {
-        Some(self.pn_contacts.len())
     }
 }
 

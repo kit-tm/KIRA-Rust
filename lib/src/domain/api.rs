@@ -23,7 +23,9 @@ pub struct Bucket {
 #[derive(Serialize)]
 pub struct RoutingTable {
     pub node_id: NodeId,
-    pub buckets: Vec<Bucket>
+    pub buckets: Vec<Bucket>,
+    pub degree: Option<usize>,
+    pub physical_neighbor_id_sum: Option<NodeId>,
 }
 
 impl From<crate::domain::NodeId> for NodeId {
