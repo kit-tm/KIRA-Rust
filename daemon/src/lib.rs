@@ -48,14 +48,11 @@ use r2kad_lib::use_cases::{
     UseCaseState,
 };
 use r2kad_lib::use_cases::distributed_hash_table::{DistributedHashTable, DistributedHashTableConfig};
-use crate::api::ApiConfig;
-
 
 use crate::benchmark_log::{BenchmarkEntry, BenchmarkLog};
 use crate::errors::InjectMessageError;
 
 mod benchmark_log;
-mod api;
 
 #[derive(Default, Debug)]
 pub struct NodeConfig {
@@ -290,8 +287,6 @@ where
         let (fan_in_sender, mut fan_in_receiver) =
             mpsc::channel::<(UseCaseEvent, Option<Instant>)>(100);
 
-        let new_sender = fan_in_sender.clone();
-
         // Create a task to fan in own created events
         let broadcast_fan_in_sender = fan_in_sender.clone();
         runtime.spawn(async move {
@@ -448,15 +443,6 @@ where
                 log::error!("Failed to broadcast signal triggered shutdown: {}", e);
             }
         });
-
-        let api_config = ApiConfig::new(
-            "0.0.0.0:8080".parse().unwrap(),
-            root_id.clone().into(),
-            new_sender
-        );
-
-        runtime.spawn(api::start_http_server(api_config));
-
 
         // Initialize the Use Cases
 

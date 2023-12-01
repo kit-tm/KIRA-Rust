@@ -24,13 +24,12 @@ pub mod vicinity_discovery;
 pub mod distributed_hash_table;
 
 /// Enumeration representing all events a [UseCase] can handle.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum UseCaseEvent {
     Message(ProtocolMessage, NetworkInterface),
     Timer(TimerId),
     Contact(ContactEvent),
     InjectMessage(Nonce, InjectionMessageData),
-    API(ApiEvent),
     Hardware(HardwareEvent),
     Shutdown,
 }
@@ -51,11 +50,6 @@ pub enum ContactEvent {
     Updated { new: Contact, old: Contact },
     Removed(Contact),
 }
-
-#[derive(Debug, Clone)]
-pub enum ApiEvent {
-}
-
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct TimerId(usize);
