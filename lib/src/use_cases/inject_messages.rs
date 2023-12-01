@@ -20,7 +20,7 @@ use crate::use_cases::{
 /// Sender for [InjectionResult]s.
 ///
 /// Used to send results for injected messages back to the outside (main component).
-pub trait InjectionResultSender {
+pub trait InjectionResultSender: Clone {
     type Error: Error;
 
     fn send_result(&self, result: InjectionResult) -> Result<(), Self::Error>;

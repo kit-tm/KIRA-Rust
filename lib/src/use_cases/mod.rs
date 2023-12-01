@@ -22,6 +22,7 @@ pub mod precompute_paths_and_path_ids;
 pub mod random_overlay_discovery;
 pub mod vicinity_discovery;
 pub mod distributed_hash_table;
+pub mod distributed_hash_table_injector;
 
 /// Enumeration representing all events a [UseCase] can handle.
 #[derive(Debug, Clone, Eq, PartialEq)]

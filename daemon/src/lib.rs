@@ -48,6 +48,7 @@ use r2kad_lib::use_cases::{
     UseCaseState,
 };
 use r2kad_lib::use_cases::distributed_hash_table::{DistributedHashTable, DistributedHashTableConfig};
+use r2kad_lib::use_cases::distributed_hash_table_injector::{DistributedHashTableInjector, DistributedHashTableInjectorConfig};
 
 use crate::benchmark_log::{BenchmarkEntry, BenchmarkLog};
 use crate::errors::InjectMessageError;
@@ -191,11 +192,11 @@ struct HandleLoopConfig<S, FT> {
 }
 
 impl<S, FT> Node<S, FT>
-where
-    S: ProtocolMessageSender + Send + 'static,
-    FT: ForwardingTables + Send + 'static,
-    <FT as NodeIdTable>::Error: Error,
-    <FT as PathIdTable>::Error: Error,
+    where
+        S: ProtocolMessageSender + Send + 'static,
+        FT: ForwardingTables + Send + 'static,
+        <FT as NodeIdTable>::Error: Error,
+        <FT as PathIdTable>::Error: Error,
 {
     /// Initializes the event loop and runs it.
     ///
@@ -512,9 +513,9 @@ where
             return;
         }
 
-        let mut inject_messages = if let Some(injection_sender) = injection_sender {
+        let mut inject_messages = if let Some(injection_sender) = injection_sender.as_ref() {
             let mut inject_messages =
-                InjectMessages::new(InjectMessagesConfig::default(), injection_sender)
+                InjectMessages::new(InjectMessagesConfig::default(), injection_sender.clone())
                     .expect("default grouping should be valid");
             if let Err(e) = inject_messages.start(&context) {
                 log::error!("Failed to start inject messages UseCase: {}", e);
@@ -524,6 +525,19 @@ where
         } else {
             None
         };
+
+        let mut distributed_hash_table_injector = if let Some(injection_sender) = injection_sender.as_ref() {
+            let mut distributed_hash_table_injector =
+                DistributedHashTableInjector::with_default_config(injection_sender.clone());
+            if let Err(e) = distributed_hash_table_injector.start(&context) {
+                log::error!("Failed to start distributed hash table injector UseCase: {}", e);
+                return;
+            }
+            Some(distributed_hash_table_injector)
+        } else {
+            None
+        };
+
 
         // Initialize common tasks
 
@@ -600,6 +614,12 @@ where
                 .map(|use_case| use_case.handle_event(&context, event.clone()))
             {
                 log::error!("Injecting Messages returned error handling message: {}", e);
+            }
+            if let Some(Err(e)) = distributed_hash_table_injector
+                .as_mut()
+                .map(|use_case| use_case.handle_event(&context, event.clone()))
+            {
+                log::error!("Injecting DHT Messages returned error handling message: {}", e);
             }
 
             // Check States as returning an error doesn't show an unrecoverable error
