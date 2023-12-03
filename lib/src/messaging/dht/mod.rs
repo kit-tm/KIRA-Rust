@@ -13,7 +13,6 @@ pub struct StoreReqData<D: Debug> {
     pub handle: NodeId,
     pub data: D,
     //store_duration: Duration,
-    //replicate: bool
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
