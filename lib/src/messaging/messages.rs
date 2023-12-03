@@ -47,7 +47,7 @@ pub enum ProtocolMessage {
     Error(ReqRspMessage<ErrorData>),
     StoreReq(ReqRspMessage<StoreReqData<DefaultLHTInput>>),
     StoreRsp(ReqRspMessage<StoreRspData>),
-    FetchRep(ReqRspMessage<FetchReqData>),
+    FetchReq(ReqRspMessage<FetchReqData>),
     FetchRsp(ReqRspMessage<FetchRspData<DefaultLHTOutput>>),
 }
 
@@ -69,7 +69,7 @@ impl ProtocolMessage {
             Self::UpdateRouteReq(req) => Some(&mut req.source_route),
             Self::StoreReq(req) => Some(&mut req.source_route),
             Self::StoreRsp(req) => Some(&mut req.source_route),
-            Self::FetchRep(req) => Some(&mut req.source_route),
+            Self::FetchReq(req) => Some(&mut req.source_route),
             Self::FetchRsp(req) => Some(&mut req.source_route)
         }
     }
@@ -91,7 +91,7 @@ impl ProtocolMessage {
             Self::UpdateRouteReq(req) => Some(&req.source_route),
             Self::StoreReq(req) => Some(&req.source_route),
             Self::StoreRsp(req) => Some(&req.source_route),
-            Self::FetchRep(req) => Some(&req.source_route),
+            Self::FetchReq(req) => Some(&req.source_route),
             Self::FetchRsp(req) => Some(&req.source_route)
         }
     }
@@ -114,7 +114,7 @@ impl ProtocolMessage {
             Self::UpdateRouteReq(req) => Some(req.source_route.destination()),
             Self::StoreReq(req) => Some(req.source_route.destination()),
             Self::StoreRsp(req) => Some(req.source_route.destination()),
-            Self::FetchRep(req) => Some(req.source_route.destination()),
+            Self::FetchReq(req) => Some(req.source_route.destination()),
             Self::FetchRsp(req) => Some(req.source_route.destination())
         }
     }
@@ -136,7 +136,7 @@ impl ProtocolMessage {
             Self::UpdateRouteReq(_) => None,
             Self::StoreReq(req) => Some(&req.nonce),
             Self::StoreRsp(req) => Some(&req.nonce),
-            Self::FetchRep(req) => Some(&req.nonce),
+            Self::FetchReq(req) => Some(&req.nonce),
             Self::FetchRsp(req) => Some(&req.nonce)
         }
     }
@@ -166,7 +166,7 @@ impl ProtocolMessage {
             Self::UpdateRouteReq(req) => req.source_route.source(),
             ProtocolMessage::StoreReq(req) => req.source(),
             ProtocolMessage::StoreRsp(req) => req.source(),
-            ProtocolMessage::FetchRep(req) => req.source(),
+            ProtocolMessage::FetchReq(req) => req.source(),
             ProtocolMessage::FetchRsp(req) => req.source()
         }
     }
@@ -188,7 +188,7 @@ impl ProtocolMessage {
             Self::UpdateRouteReq(req) => &req.source_state_seq_nr,
             ProtocolMessage::StoreReq(req) => &req.source_state_seq_nr,
             ProtocolMessage::StoreRsp(req) => &req.source_state_seq_nr,
-            ProtocolMessage::FetchRep(req) => &req.source_state_seq_nr,
+            ProtocolMessage::FetchReq(req) => &req.source_state_seq_nr,
             ProtocolMessage::FetchRsp(req) => &req.source_state_seq_nr
         }
     }
@@ -210,7 +210,7 @@ impl ProtocolMessage {
             Self::UpdateRouteReq(req) => Some(&req.not_via),
             ProtocolMessage::StoreReq(req) => Some(&req.not_via),
             ProtocolMessage::StoreRsp(req) => Some(&req.not_via),
-            ProtocolMessage::FetchRep(req) => Some(&req.not_via),
+            ProtocolMessage::FetchReq(req) => Some(&req.not_via),
             ProtocolMessage::FetchRsp(req) => Some(&req.not_via)
         }
     }

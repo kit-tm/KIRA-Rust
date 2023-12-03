@@ -43,7 +43,7 @@ impl<'a> From<&'a ProtocolMessage> for MessageType {
             ProtocolMessage::Error(_) => MessageType::Error,
             ProtocolMessage::StoreReq(_) => MessageType::StoreReq,
             ProtocolMessage::StoreRsp(_) => MessageType::StoreRsp,
-            ProtocolMessage::FetchRep(_) => MessageType::FetchReq,
+            ProtocolMessage::FetchReq(_) => MessageType::FetchReq,
             ProtocolMessage::FetchRsp(_) => MessageType::FetchRsp
         }
     }

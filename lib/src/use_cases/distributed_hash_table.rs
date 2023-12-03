@@ -139,7 +139,7 @@ impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
                     return Err(DHTError::DHTSendError(e));
                 }
             }
-            (UseCaseEvent::Message(ProtocolMessage::FetchRep(req), _), _) => {
+            (UseCaseEvent::Message(ProtocolMessage::FetchReq(req), _), _) => {
                 let fetch_res = self.config.hash_table.fetch(&req.data.handle);
                 let rsp = ReqRspMessage {
                     nonce: req.nonce,

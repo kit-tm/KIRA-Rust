@@ -292,7 +292,7 @@ where
             | ProtocolMessage::PathTeardownReq(_) => {}
             ProtocolMessage::StoreReq(_)
             | ProtocolMessage::StoreRsp(_)
-            |ProtocolMessage::FetchRep(_)
+            |ProtocolMessage::FetchReq(_)
             | ProtocolMessage::FetchRsp(_) => {} // todo maybe we need to extract stuff here
         }
 
