@@ -8,6 +8,7 @@ use crate::domain::{Contact, NetworkInterface};
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::messages::ProtocolMessage;
 use crate::messaging::{FindNodeReqData, Nonce};
+use crate::messaging::dht::{DefaultLHTInput, FetchReqData, StoreReqData};
 
 pub mod derive_fwd_table_entries;
 pub mod explicit_path_management;
@@ -39,6 +40,8 @@ pub enum UseCaseEvent {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum InjectionMessageData {
     FindNode(FindNodeReqData),
+    Store(StoreReqData<DefaultLHTInput>),
+    Fetch(FetchReqData),
 }
 
 /// Contact Events which can be handled by UseCases.
