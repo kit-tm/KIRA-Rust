@@ -1,7 +1,7 @@
 //! Implementations of the use cases.
 
 use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 
 use crate::domain::{Contact, NetworkInterface};
@@ -40,8 +40,14 @@ pub enum UseCaseEvent {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum InjectionMessageData {
     FindNode(FindNodeReqData),
-    Store(StoreReqData<DefaultLHTInput>),
+    Store(StoreInjectData<DefaultLHTInput>),
     Fetch(FetchReqData),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct StoreInjectData<D: Debug> {
+    data: StoreReqData<D>,
+    restore: bool
 }
 
 /// Contact Events which can be handled by UseCases.
