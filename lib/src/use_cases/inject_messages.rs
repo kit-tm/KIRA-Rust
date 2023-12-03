@@ -73,7 +73,7 @@ pub enum InjectionResult {
     /// The node is isolated and the message couldn't be injected.
     Isolated,
     /// Injecting the [ProtocolMessage] failed.
-    SendFailed(ProtocolMessage),
+    SendFailed(Nonce),
 }
 
 /// Configuration for message injection in general.

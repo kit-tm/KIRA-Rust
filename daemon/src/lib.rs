@@ -139,8 +139,8 @@ impl NodeHandle {
         loop {
             let result = self.injection_result_receiver.try_recv();
             match result {
-                Ok(InjectionResult::SendFailed(message)) => {
-                    log::error!("Failed to send message: {:#?}", message);
+                Ok(InjectionResult::SendFailed(nonce)) => {
+                    log::error!("Failed to send message with nonce {:?}", nonce);
                     return Err(InjectMessageError::SendFailed);
                 }
                 Ok(InjectionResult::Isolated) => return Err(InjectMessageError::Isolated),
