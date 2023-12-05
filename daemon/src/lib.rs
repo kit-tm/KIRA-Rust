@@ -462,7 +462,7 @@ where
 
         let mut api_handling = HandleApiMessages::default();
         let mut kelly_forwarding = ForwardKellyMessageHandler::new(
-            KellyConnectorImpl::new("localhost:8081".to_string(), runtime.clone()));
+            KellyConnectorImpl::new("http://localhost:8081".to_string(), runtime.clone()));
 
         let mut forward_message = ForwardProtocolMessage::default();
         if let Err(e) = forward_message.start(&context) {

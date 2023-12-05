@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct NodeId {
     #[serde(rename(serialize = "node-id", deserialize = "node-id"))]
     pub node_id: String
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub struct Contact {
     node_id: NodeId,
     node_degree: Option<usize>,
@@ -14,13 +14,13 @@ pub struct Contact {
     path_vector: Vec<NodeId>
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub struct Bucket {
     pub(crate) prefix: String,
     pub(crate) contacts: Vec<Contact>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct RoutingTable {
     pub node_id: NodeId,
     pub buckets: Vec<Bucket>,

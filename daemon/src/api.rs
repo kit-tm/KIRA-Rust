@@ -3,6 +3,7 @@ use std::ops::Add;
 use axum::extract::State;
 use axum::{Json, Router};
 use axum::routing::{get, post};
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use tokio::time::Instant;
@@ -46,6 +47,12 @@ pub struct ApiConfig {
     sender: Sender<(UseCaseEvent, Option<Instant>)>
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+struct KellyResponse {
+    route: Vec<domain::api::NodeId>,
+    routing_table: RoutingTable
+}
+
 impl ApiConfig {
 
     pub(crate) fn new(address: SocketAddr, node_id: NodeId, sender: Sender<(UseCaseEvent, Option<Instant>)>) -> ApiConfig {
@@ -71,7 +78,7 @@ async fn get_node_id_for_test_env(State(state): State<ApiState>) -> String {
 }
 
 async fn get_routing_table(State(state): State<ApiState>) -> Json<RoutingTable> {
-    log::info!("Returning routing table via api");
+    log::warn!("Returning routing table via api");
     let (tx, mut rx) = mpsc::unbounded_channel::<RoutingTable>();
 
     let res = state.sender.send((UseCaseEvent::API(ApiEvent::RoutingTable(tx)), None)).await;
@@ -83,7 +90,7 @@ async fn get_routing_table(State(state): State<ApiState>) -> Json<RoutingTable> 
 
 async fn send_kelly_request(State(state): State<ApiState>, Json(node): Json<domain::api::NodeId>) {
 
-    log::info!("Received api send kelly request for Node {}", node.node_id);
+    log::warn!("Received api send kelly.py request for Node {}", node.node_id);
 
     let result = state.sender.send((UseCaseEvent::API(ApiEvent::SendKellyReq(domain::api::NodeId { node_id: node.node_id })), None)).await;
 
@@ -95,11 +102,11 @@ async fn send_kelly_request(State(state): State<ApiState>, Json(node): Json<doma
     
 }
 
-async fn send_kelly_response(State(state): State<ApiState>) {
+async fn send_kelly_response(State(state): State<ApiState>, Json(response): Json<KellyResponse>) {
 
-    log::info!("Received api send kelly response message");
+    log::info!("Received api send kelly.py response message");
 
-    let result = state.sender.send((UseCaseEvent::API(ApiEvent::SendKellyRsp(todo!())), None)).await;
+    let result = state.sender.send((UseCaseEvent::API(ApiEvent::SendKellyRsp(response.route, response.routing_table)), None)).await;
 
 }
 

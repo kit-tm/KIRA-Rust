@@ -237,7 +237,6 @@ where
             return Err(ONDError::NeighborInconsistency);
         }
 
-        log::debug!("own degree and neighbor sum: {:?}, {:?}", context.pn_table().size(), context.pn_table().neighbor_sum());
         let request = ReqRspMessage {
             nonce,
             source_state_seq_nr: *context.pn_table().state_seq_nr(),

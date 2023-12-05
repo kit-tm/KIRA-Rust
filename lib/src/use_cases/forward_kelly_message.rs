@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use hex::FromHex;
 use crate::context::UseCaseContext;
-use crate::domain::{Contact, node_id, NodeId, Path, RoutingTable, SharedPrefix};
+use crate::domain::{api, Contact, node_id, NodeId, Path, RoutingTable, SharedPrefix};
 use crate::messaging::{KellyReqData, KellyRspData, Nonce, ProtocolMessageSender, ReqRspMessage};
 use crate::messaging::kelly_connector::KellyConnector;
 use crate::messaging::source_route::SourceRoute;
@@ -27,7 +27,7 @@ where
     fn handle_event(&mut self, context: &Self::Context, event: UseCaseEvent) -> Result<Self::Value, Self::Error> {
         match event {
             UseCaseEvent::API(ApiEvent::SendKellyReq(node_id)) => self.send_initial_kelly_request(node_id, context),
-            UseCaseEvent::API(ApiEvent::SendKellyRsp(source_route)) => self.send_initial_kelly_response(source_route, context),
+            UseCaseEvent::API(ApiEvent::SendKellyRsp(route, routing_table)) => self.send_initial_kelly_response(route, routing_table, context),
             UseCaseEvent::Message(crate::messaging::ProtocolMessage::KellyReq(data), _) => self.forward_or_consume_kelly_request(data, context),
             UseCaseEvent::Message(crate::messaging::ProtocolMessage::KellyRsp(data), _) => self.consume_kelly_response(data, context),
             _ => {}
@@ -80,11 +80,18 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
     }
 
 
-    fn send_initial_kelly_response(&self, source_route: SourceRoute, context: &C) {
+    fn send_initial_kelly_response(&self, source_route: Vec<crate::domain::api::NodeId>, routing_table: crate::domain::api::RoutingTable, context: &C) {
+
+        log::warn!("Sending Kelly response via route {:?}", source_route);
+
+        let source_route = SourceRoute::from(source_route.into_iter().map(|x| NodeId::from(TryInto::<[u8; node_id::SIZE]>::try_into(Vec::from_hex(x.node_id).unwrap()).unwrap())).collect::<Vec<NodeId>>());
+
         let message = ReqRspMessage {
             nonce: Nonce::random(),
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
-            data: KellyRspData {},
+            data: KellyRspData {
+                routing_table
+            },
             not_via: context.not_via().clone(),
             source_route
         };
@@ -134,7 +141,9 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
     fn consume_kelly_response(&self, data: ReqRspMessage<KellyRspData>, context: &C) {
         // we have the complete route to send the response, so we dont need to check if we need to forward it
 
-        self.kelly_connector.forward_response();
+        log::warn!("Forwarding Response to Kelly");
+
+        self.kelly_connector.forward_response(data.data.routing_table);
 
     }
 

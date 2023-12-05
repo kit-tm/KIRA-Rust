@@ -100,11 +100,7 @@ where
         route.push_front(context.root_id().clone());
 
         let (origin_degree, origin_neighbor_id_sum) = match context.routing_table().is_in_last_two_buckets(&random_id) {
-            true => {
-                let result = (context.pn_table().size(), context.pn_table().neighbor_sum());
-                log::debug!("degree and neighbor sum: {:?}, {:?}", result.0, result.1);
-                result
-            },
+            true => (context.pn_table().size(), context.pn_table().neighbor_sum()),
             false => (None, None)
         };
 

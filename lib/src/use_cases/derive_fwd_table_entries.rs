@@ -222,6 +222,7 @@ where
         context: &Self::Context,
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
+        return Ok(());
         match event {
             UseCaseEvent::Contact(ContactEvent::New(contact)) => {
                 self.create_node_id_entry(context, contact.clone())?;

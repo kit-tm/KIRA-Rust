@@ -60,7 +60,7 @@ pub enum ContactEvent {
 pub enum ApiEvent {
     RoutingTable(UnboundedSender<crate::domain::api::RoutingTable>),
     SendKellyReq(NodeId),
-    SendKellyRsp(SourceRoute)
+    SendKellyRsp(Vec<NodeId>, crate::domain::api::RoutingTable)
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]

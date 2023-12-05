@@ -160,6 +160,10 @@ impl SourceRoute {
             Err(_) => panic!("Invalid invariant"),
         }
     }
+
+    pub fn ids(&self) -> Vec<NodeId> {
+        self.ids.clone().into_iter().collect()
+    }
 }
 
 impl Extend<NodeId> for SourceRoute {
@@ -191,6 +195,16 @@ impl From<NodeId> for SourceRoute {
     fn from(id: NodeId) -> Self {
         Self {
             ids: VecDeque::from([id]),
+            progress: 1,
+        }
+    }
+}
+
+
+impl From<Vec<NodeId>> for SourceRoute {
+    fn from(ids: Vec<NodeId>) -> Self {
+        Self {
+            ids: VecDeque::from(ids),
             progress: 1,
         }
     }

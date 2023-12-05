@@ -209,8 +209,6 @@ where
             nonce
         };
 
-        log::debug!("own degree and neighbor sum: {:?} {:?}", context.pn_table().size(), context.pn_table().neighbor_sum());
-
         let find_node_request = ReqRspMessage {
             nonce,
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
@@ -307,11 +305,7 @@ where
         };
 
         let (origin_degree, origin_neighbor_id_sum) = match context.routing_table().is_in_last_two_buckets(node_id) {
-            true => {
-                let result = (context.pn_table().size(), context.pn_table().neighbor_sum());
-                log::debug!("degree and neighbor sum: {:?}, {:?}", result.0, result.1);
-                result
-            },
+            true => (context.pn_table().size(), context.pn_table().neighbor_sum()),
             false => (None, None)
         };
         let find_node_request = ReqRspMessage {

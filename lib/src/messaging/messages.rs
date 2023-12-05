@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use std::num::NonZeroU64;
 
 use crate::domain::{Contact, Link, NodeId, NotVia, StateSeqNr};
+use crate::domain::api::RoutingTable;
 use crate::messaging::source_route::SourceRoute;
 
 /// Randomly generated number to uniquely identify a protocol message and its
@@ -452,7 +453,7 @@ impl From<ReqRspMessage<KellyReqData>> for ProtocolMessage {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct KellyRspData {
-
+    pub routing_table: RoutingTable
 }
 
 impl From<ReqRspMessage<KellyRspData>> for ProtocolMessage {
