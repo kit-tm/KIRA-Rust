@@ -166,12 +166,6 @@ impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
                 if &id == our_timer_id {
                     self.config.hash_table.expire(&());
                 }
-
-                let timer_id = context
-                    .runtime()
-                    .register_timer(self.config.collect_interval);
-
-                self.state = DHTState::Running(timer_id);
             }
             _ => {}
         }
@@ -193,7 +187,7 @@ impl<C, H, RS> UseCase for DistributedHashTable<C, H>
     fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error> {
         let timer_id = context
             .runtime()
-            .register_timer(self.config.collect_interval);
+            .register_periodic_timer(self.config.collect_interval);
 
         self.state = DHTState::Running(timer_id);
 
