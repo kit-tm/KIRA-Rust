@@ -3,7 +3,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::num::NonZeroU64;
-use std::sync::Arc;
 
 use crate::domain::{Contact, Link, NodeId, NotVia, StateSeqNr};
 use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreReqData, StoreRspData};

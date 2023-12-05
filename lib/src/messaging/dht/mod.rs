@@ -1,8 +1,6 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 use crate::domain::NodeId;
-use crate::use_cases::InjectionMessageData;
-use crate::use_cases::InjectionMessageData::Store;
 
 pub type DefaultLHTInput = Arc<[u8]>;
 pub type DefaultLHTOutput = Vec<Arc<[u8]>>;

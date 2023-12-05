@@ -4,7 +4,6 @@ use std::collections::{HashMap, LinkedList};
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::time::Instant;
-use log::error;
 
 use crate::context::UseCaseContext;
 use crate::domain::{NodeId, RoutingTable};
@@ -66,7 +65,7 @@ impl<C, IRS, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, IRS, BUCK
 {
     pub fn new(config: DistributedHashTableInjectorConfig, sender: IRS) -> Self {
         Self {
-            _c: PhantomData::default(),
+            _c: PhantomData,
             state: DHTInjectorState::default(),
             config,
             injection_result_sender: sender,

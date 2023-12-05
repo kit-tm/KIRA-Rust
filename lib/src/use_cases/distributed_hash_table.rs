@@ -15,7 +15,7 @@ use crate::domain::dht::hash_table::expiring_hash_table::ExpiringHashTable;
 use crate::domain::dht::hash_table::LocalHashTable;
 use crate::domain::dht::strategies::fetch_strategy::PermissionlessFetchStrategy;
 use crate::domain::dht::strategies::insert_strategy::PermissionlessInsertStrategy;
-use crate::domain::dht::strategies::timeout_strategy::{ConstTimeoutStrategy, TimeoutStrategy};
+use crate::domain::dht::strategies::timeout_strategy::ConstTimeoutStrategy;
 
 use crate::messaging::error::SenderError;
 use crate::messaging::source_route::SourceRoute;
@@ -96,7 +96,7 @@ impl<C, H> DistributedHashTable<C, H>
 {
     pub fn new(config: DistributedHashTableConfig<H>) -> Self {
         Self {
-            _c: PhantomData::default(),
+            _c: PhantomData,
             state: DHTState::default(),
             config,
         }
