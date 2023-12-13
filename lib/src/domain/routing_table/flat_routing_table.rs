@@ -1,13 +1,11 @@
-use std::cmp::Ordering;
+use std::cmp::{min, Ordering};
 use std::num::NonZeroUsize;
 use std::ops::IndexMut;
 
 use rand::Rng;
 
-use crate::domain::{
-    node_id, AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, ContactState,
-    GroupingError, NodeId, ReplacementError, RoutingTable, SharedPrefix, DEFAULT_BUCKET_SIZE,
-};
+use crate::domain::{node_id, AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, ContactState, GroupingError, NodeId, ReplacementError, RoutingTable, SharedPrefix, DEFAULT_BUCKET_SIZE, DiscoveryRangeProvider};
+use crate::domain::api::{DiscoveryRange, RoutingTableLayer};
 
 pub const DEFAULT_ACCELERATION: usize = 1;
 
@@ -45,17 +43,9 @@ impl FlatRoutingTable<DEFAULT_BUCKET_SIZE, DEFAULT_ACCELERATION> {
 impl<const BUCKET_SIZE: usize, const ACC: usize> From<FlatRoutingTable<BUCKET_SIZE, ACC>> for crate::domain::api::RoutingTable {
     fn from(value: FlatRoutingTable<BUCKET_SIZE, ACC>) -> Self {
         crate::domain::api::RoutingTable {
-            node_id: value.root.clone().into(),
-            degree: None, // not known here
-            physical_neighbor_id_sum: None,
-            buckets: value.buckets.into_iter()
-                .map(|x|  {
-                    crate::domain::api::Bucket {
-                        prefix: "".to_string(),
-                        contacts: x.iter().cloned().map(|contact| contact.into()).collect::<Vec<crate::domain::api::Contact>>()
-                    }
-                })
-                .collect(),
+            layers: value.get_layers(),
+            acceleration_factor: ACC,
+            bucket_size: BUCKET_SIZE,
         }
     }
 }
@@ -167,6 +157,51 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
         assert!(index <= Self::max_buckets());
 
         index.min(num_buckets - 1) // Always at least one bucket present
+    }
+
+    pub fn get_layers(&self) -> Vec<RoutingTableLayer> {
+        // we have one bucket less than level width
+        let level_width = 2 ^ ACC - 1;
+        let number_of_levels = self.num_buckets() / level_width;
+        let mut result = Vec::new();
+        log::warn!("Num Buckets: {}, ACC: {}, level width: {}, num levels: {}", self.num_buckets(), ACC, level_width, number_of_levels);
+
+        let mut last_index = 0;
+        for level in 0..min(number_of_levels-1, number_of_levels) { // TODO remove this hack when number of levels < 0
+            let mut layer_vec = Vec::new();
+            for level_index in 0..level_width {
+                log::warn!("level: {}, level_index: {}", level, level_index);
+                last_index = level * level_width + level_index;
+                layer_vec.push(self.buckets[last_index].clone().into())
+            }
+            result.push(RoutingTableLayer { buckets: layer_vec } )
+        }
+
+        let mut last_layer = Vec::new();
+        for i in last_index..self.num_buckets() {
+            last_layer.push(self.buckets[i].clone().into())
+        }
+
+        result.push(RoutingTableLayer { buckets: last_layer });
+
+        result
+    }
+}
+
+impl<const BUCKET_SIZE: usize, const ACC: usize> DiscoveryRangeProvider for FlatRoutingTable<BUCKET_SIZE, ACC> {
+    fn get_discovery_range(&self) -> DiscoveryRange {
+        // only look at last layer
+        // get bucket that matches own id and other non full buckets of this layer
+
+        let own_index = self.get_bucket_index(self.root());
+        let level_width = 2 ^ ACC - 1;
+
+
+        // TODO
+        DiscoveryRange {
+            start: NodeId::zero().into(),
+            end: NodeId::zero().into(),
+        }
     }
 }
 
@@ -397,9 +432,17 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
     }
 
     fn is_in_last_two_buckets(&self, node_id: &NodeId) -> bool {
+        if self.num_buckets() <= 2 {
+            return true;
+        }
         let index = self.get_bucket_index(node_id);
         index == self.num_buckets() - 1 || index == self.num_buckets() - 2
     }
+
+    fn range_last_two_buckets(&self) -> (NodeId, NodeId) {
+        todo!()
+    }
+
 
 }
 

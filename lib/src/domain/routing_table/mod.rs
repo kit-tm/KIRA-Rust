@@ -3,6 +3,7 @@ use std::fmt::{Display, Formatter};
 use std::ops::DerefMut;
 
 use crate::domain::{Bucket, Contact, GroupingError, NodeId, ReplacementError, SharedPrefix};
+use crate::domain::api::DiscoveryRange;
 use crate::domain::observable_routing_table::ContactWriteGuard;
 
 pub mod flat_routing_table;
@@ -32,6 +33,10 @@ impl Error for AddError {}
 pub enum BucketSplitError {
     Unsplittable,
     MaxBucketsReached,
+}
+
+pub trait DiscoveryRangeProvider {
+    fn get_discovery_range(&self) -> DiscoveryRange;
 }
 
 impl Display for BucketSplitError {
@@ -89,7 +94,7 @@ impl From<BucketSplitError> for InsertionError {
 /// may not be included in the buckets.
 ///
 /// As mostly accessing the buckets directly only happens if Insertion fails, this will ne problem.
-pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
+pub trait RoutingTable<'a, const BUCKET_SIZE: usize>: DiscoveryRangeProvider {
     /// Possible Write Guard for a mutable contact reference.
     ///
     /// Allows implementations to support RAII types to watch mutability of a contact.
@@ -207,5 +212,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// Iterator over mutable references to all contacts in the [RoutingTable].
     fn iter_mut(&'a mut self) -> Self::IterMut;
     fn is_in_last_two_buckets(&self, node_id: &NodeId) -> bool;
+
+    fn range_last_two_buckets(&self) -> (NodeId, NodeId);
 
 }

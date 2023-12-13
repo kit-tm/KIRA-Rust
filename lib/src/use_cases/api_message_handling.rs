@@ -1,7 +1,9 @@
 use std::marker::PhantomData;
+use std::ops::Deref;
+use std::ptr::copy_nonoverlapping;
 use tokio::sync::mpsc::error::SendError;
 use crate::context::UseCaseContext;
-use crate::domain::api::{RoutingTable};
+use crate::domain::api::{NodeApi, NodeIdApi, RoutingTable, RoutingTableResponse};
 use crate::use_cases::{ApiEvent, EventHandler, UseCaseEvent};
 
 pub struct HandleApiMessages<C, const BUCKET_SIZE: usize> {
@@ -28,7 +30,18 @@ where
     fn handle_event(&mut self, context: &Self::Context, event: UseCaseEvent) -> Result<Self::Value, Self::Error> {
         match event {
             UseCaseEvent::API(ApiEvent::RoutingTable(tx)) => {
-                tx.send(context.to_api_model())?;
+                let pn_table = context.pn_table();
+                let (neighbor_sum, degree) = (pn_table.neighbor_sum(), pn_table.size());
+                let (routing_table, discovery_range) = context.to_api_model();
+                tx.send(RoutingTableResponse {
+                    node: NodeApi {
+                        id: context.root_id().clone().into(),
+                        neighbor_id_sum: neighbor_sum.unwrap().into(),
+                        degree: degree.unwrap(),
+                    },
+                    discovery_range,
+                    routing_table,
+                }).unwrap();
                 Ok(())
             }
             _ => Ok(())

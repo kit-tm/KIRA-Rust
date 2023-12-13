@@ -5,14 +5,14 @@ use std::fmt::Debug;
 use std::num::NonZeroU64;
 
 use crate::domain::{Contact, Link, NodeId, NotVia, StateSeqNr};
-use crate::domain::api::RoutingTable;
+use crate::domain::api::{KellyResponse, RoutingTable};
 use crate::messaging::source_route::SourceRoute;
 
 /// Randomly generated number to uniquely identify a protocol message and its
 /// response.
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct Nonce(u128);
+pub struct Nonce(pub u128);
 
 impl From<u128> for Nonce {
     fn from(value: u128) -> Self {
@@ -441,7 +441,8 @@ impl From<ReqRspMessage<ErrorData>> for ProtocolMessage {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct KellyReqData {
-    pub node_id: NodeId
+    pub node_id: NodeId,
+    pub nonce: Nonce
 }
 
 impl From<ReqRspMessage<KellyReqData>> for ProtocolMessage {
@@ -453,7 +454,7 @@ impl From<ReqRspMessage<KellyReqData>> for ProtocolMessage {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct KellyRspData {
-    pub routing_table: RoutingTable
+    pub response: KellyResponse
 }
 
 impl From<ReqRspMessage<KellyRspData>> for ProtocolMessage {

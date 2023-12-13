@@ -3,10 +3,8 @@ use std::collections::HashMap;
 
 use rand::Rng;
 
-use crate::domain::{
-    AddError, Bucket, BucketSplitError, Contact, ContactState, FlatRoutingTable, GroupingError,
-    NodeId, ReplacementError, RoutingTable, SharedPrefix,
-};
+use crate::domain::{AddError, Bucket, BucketSplitError, Contact, ContactState, DiscoveryRangeProvider, FlatRoutingTable, GroupingError, NodeId, ReplacementError, RoutingTable, SharedPrefix};
+use crate::domain::api::DiscoveryRange;
 
 /// A routing table which uses an additional data structure to store all
 /// physical neighbors.
@@ -86,6 +84,12 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> Iterator for IterMut<'a, BU
 
     fn next(&mut self) -> Option<Self::Item> {
         self.pn_iter.next().or_else(|| self.inner_iter.next())
+    }
+}
+
+impl<const BUCKET_SIZE: usize, const ACC: usize> DiscoveryRangeProvider for UnlimitedPNRoutingTable<BUCKET_SIZE, ACC> {
+    fn get_discovery_range(&self) -> DiscoveryRange {
+        self.inner.get_discovery_range()
     }
 }
 
@@ -229,6 +233,11 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
     fn is_in_last_two_buckets(&self, node_id: &NodeId) -> bool {
         self.inner.is_in_last_two_buckets(node_id)
     }
+
+    fn range_last_two_buckets(&self) -> (NodeId, NodeId) {
+        self.inner.range_last_two_buckets()
+    }
+
 }
 
 #[cfg(test)]

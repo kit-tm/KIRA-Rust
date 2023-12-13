@@ -9,6 +9,7 @@ pub use sync_context::*;
 pub use tokio_context::*;
 
 use crate::domain::{NodeId, NotVia, PNTable};
+use crate::domain::api::DiscoveryRange;
 
 pub mod sync_context;
 #[cfg(feature = "tokio")]
@@ -155,5 +156,5 @@ pub trait UseCaseContext {
 
     fn not_via_mut(&self) -> WriteGuard<'_, HashSet<NotVia>>;
 
-    fn to_api_model(&self) -> crate::domain::api::RoutingTable;
+    fn to_api_model(&self) -> (crate::domain::api::RoutingTable, DiscoveryRange);
 }

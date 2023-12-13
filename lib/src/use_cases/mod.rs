@@ -6,7 +6,7 @@ use std::ops::Deref;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::domain::{Contact, NetworkInterface};
-use crate::domain::api::NodeId;
+use crate::domain::api::{KellyResponse, NodeIdApi, OutgoingKellyRequest};
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::messages::ProtocolMessage;
 use crate::messaging::{FindNodeReqData, Nonce};
@@ -58,9 +58,9 @@ pub enum ContactEvent {
 
 #[derive(Debug, Clone)]
 pub enum ApiEvent {
-    RoutingTable(UnboundedSender<crate::domain::api::RoutingTable>),
-    SendKellyReq(NodeId),
-    SendKellyRsp(Vec<NodeId>, crate::domain::api::RoutingTable)
+    RoutingTable(UnboundedSender<crate::domain::api::RoutingTableResponse>),
+    SendKellyReq(OutgoingKellyRequest),
+    SendKellyRsp(Vec<NodeIdApi>, KellyResponse)
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]

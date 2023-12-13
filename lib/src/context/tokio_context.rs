@@ -1,13 +1,14 @@
 use std::collections::HashSet;
 use std::ops::Deref;
 use std::sync::Arc;
+use pnet::packet::ipv6::Routing;
 
 use tokio::sync::RwLock;
 
 use crate::broadcaster::Broadcaster;
 use crate::context::{ContextConfig, ReadGuard, UseCaseContext, WriteGuard};
-use crate::domain::{NodeId, NotVia, PNTable};
-use crate::domain::api::RoutingTable;
+use crate::domain::{DiscoveryRangeProvider, NodeId, NotVia, PNTable, RoutingTable};
+use crate::domain::api::{DiscoveryRange};
 use crate::runtime::TokioRuntime;
 use crate::utils::tokio_utils;
 
@@ -32,7 +33,7 @@ pub struct TokioContext<RT, MS, RU, IS, FT> {
 impl<RT, MS, B: Broadcaster, IS, FT> UseCaseContext
     for TokioContext<RT, MS, TokioRuntime<B>, IS, FT>
 where
-    RT: Into<crate::domain::api::RoutingTable> + Clone
+    for<'a> RT: Into<crate::domain::api::RoutingTable> + DiscoveryRangeProvider + Clone
 {
     type RoutingTable = RT;
     type MessageSender = MS;
@@ -105,11 +106,12 @@ where
         tokio_utils::get_write_guard(self.not_via.deref()).into()
     }
 
-    fn to_api_model(&self) -> RoutingTable {
-        let test: ReadGuard<Self::RoutingTable> = tokio_utils::get_read_guard(self.routing_table.deref()).into();
-        let test2: &Self::RoutingTable = test.deref();
-        let test3: RoutingTable = (*test2).clone().into();
-        test3
+    fn to_api_model(&self) -> (crate::domain::api::RoutingTable, DiscoveryRange) {
+        let read_guard: ReadGuard<Self::RoutingTable> = tokio_utils::get_read_guard(self.routing_table.deref()).into();
+        let rt_old: Self::RoutingTable = (*read_guard.deref()).clone();
+        let discovery_range = rt_old.get_discovery_range();
+
+        (rt_old.into(), discovery_range)
     }
 }
 

@@ -2,6 +2,7 @@ use std::marker::PhantomData;
 use hex::FromHex;
 use crate::context::UseCaseContext;
 use crate::domain::{api, Contact, node_id, NodeId, Path, RoutingTable, SharedPrefix};
+use crate::domain::api::{KellyResponse, NodeIdApi};
 use crate::messaging::{KellyReqData, KellyRspData, Nonce, ProtocolMessageSender, ReqRspMessage};
 use crate::messaging::kelly_connector::KellyConnector;
 use crate::messaging::source_route::SourceRoute;
@@ -26,7 +27,7 @@ where
 
     fn handle_event(&mut self, context: &Self::Context, event: UseCaseEvent) -> Result<Self::Value, Self::Error> {
         match event {
-            UseCaseEvent::API(ApiEvent::SendKellyReq(node_id)) => self.send_initial_kelly_request(node_id, context),
+            UseCaseEvent::API(ApiEvent::SendKellyReq(request)) => self.send_initial_kelly_request(NodeIdApi { node_id: request.node_id }, request.nonce.into(),context),
             UseCaseEvent::API(ApiEvent::SendKellyRsp(route, routing_table)) => self.send_initial_kelly_response(route, routing_table, context),
             UseCaseEvent::Message(crate::messaging::ProtocolMessage::KellyReq(data), _) => self.forward_or_consume_kelly_request(data, context),
             UseCaseEvent::Message(crate::messaging::ProtocolMessage::KellyRsp(data), _) => self.consume_kelly_response(data, context),
@@ -51,7 +52,7 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
         }
     }
 
-    fn send_initial_kelly_request(&self, node_id: crate::domain::api::NodeId, context: &C) {
+    fn send_initial_kelly_request(&self, node_id: crate::domain::api::NodeIdApi, nonce: Nonce, context: &C) {
 
         log::info!("Sending Kelly message to node {:?}", node_id);
         let node_id = NodeId::from(TryInto::<[u8; node_id::SIZE]>::try_into(Vec::from_hex(node_id.node_id).unwrap()).unwrap());
@@ -69,7 +70,7 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
         let message = ReqRspMessage {
             nonce: Nonce::random(),
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
-            data: KellyReqData { node_id },
+            data:  KellyReqData { node_id, nonce },
             not_via: context.not_via().clone(),
             source_route: route,
         };
@@ -80,7 +81,7 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
     }
 
 
-    fn send_initial_kelly_response(&self, source_route: Vec<crate::domain::api::NodeId>, routing_table: crate::domain::api::RoutingTable, context: &C) {
+    fn send_initial_kelly_response(&self, source_route: Vec<crate::domain::api::NodeIdApi>, response: KellyResponse, context: &C) {
 
         log::warn!("Sending Kelly response via route {:?}", source_route);
 
@@ -90,7 +91,7 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
             nonce: Nonce::random(),
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
             data: KellyRspData {
-                routing_table
+                response
             },
             not_via: context.not_via().clone(),
             source_route
@@ -108,7 +109,7 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
 
         if closer_contacts.is_empty() {
             log::info!("Consuming message, because this node is the closest node to the target");
-            self.kelly_connector.forward_request(data.data.node_id, data.source_route);
+            self.kelly_connector.forward_request(data.data.node_id, data.source_route, data.data.nonce.into());
             return;
         }
 
@@ -143,7 +144,7 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
 
         log::warn!("Forwarding Response to Kelly");
 
-        self.kelly_connector.forward_response(data.data.routing_table);
+        self.kelly_connector.forward_response(data.data.response);
 
     }
 

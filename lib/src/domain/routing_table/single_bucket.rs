@@ -135,16 +135,12 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
         (&mut self.bucket).into_iter()
     }
 
-    fn neighbor_id_sum(&self) -> Option<NodeId> {
-        None // We are not sure here if we know all physical neighbors, so we return None
-    }
-
     fn is_in_last_two_buckets(&self, node_id: &NodeId) -> bool {
         true
     }
 
-    fn num_physical_neighbors(&self) -> Option<usize> {
-        None // We are not sure here if we know all physical neighbors, so we return None
+    fn range_last_two_buckets(&self) -> (NodeId, NodeId) {
+        (NodeId::zero(),NodeId::max_value())
     }
 }
 

@@ -3,10 +3,8 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
 use crate::domain::unlimited_pn_routing_table::UnlimitedPNRoutingTable;
-use crate::domain::{
-    AddError, Bucket, BucketSplitError, Contact, FlatRoutingTable, GroupingError, NodeId,
-    ReplacementError, RoutingTable, SharedPrefix,
-};
+use crate::domain::{AddError, Bucket, BucketSplitError, Contact, DiscoveryRangeProvider, FlatRoutingTable, GroupingError, NodeId, ReplacementError, RoutingTable, SharedPrefix};
+use crate::domain::api::DiscoveryRange;
 
 /// An Event emitted by the [ObservableRoutingTable].
 ///
@@ -205,6 +203,13 @@ impl<RT, const BUCKET_SIZE: usize> ObservableRoutingTable<RT, BUCKET_SIZE> {
     }
 }
 
+impl<'a, RT, const BUCKET_SIZE: usize> DiscoveryRangeProvider for ObservableRoutingTable<RT, BUCKET_SIZE>
+    where RT: 'a + NonObservableRoutingTable<'a, BUCKET_SIZE> {
+    fn get_discovery_range(&self) -> DiscoveryRange {
+        self.inner.get_discovery_range()
+    }
+}
+
 impl<'a, RT, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE>
     for ObservableRoutingTable<RT, BUCKET_SIZE>
 where
@@ -315,6 +320,9 @@ where
         self.inner.is_in_last_two_buckets(node_id)
     }
 
+    fn range_last_two_buckets(&self) -> (NodeId, NodeId) {
+        self.inner.range_last_two_buckets()
+    }
 }
 
 // Not using "NonObservableRoutingTable" Trait as rust emits recursion error (maybe a rust bug?)
