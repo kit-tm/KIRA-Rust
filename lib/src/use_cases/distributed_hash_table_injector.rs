@@ -6,7 +6,7 @@ use std::num::NonZeroUsize;
 use std::time::Instant;
 
 use crate::context::UseCaseContext;
-use crate::domain::{NodeId, RoutingTable};
+use crate::domain::{GroupingError, node_id, NodeId, RoutingTable};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{EventHandler, InjectionMessageData, OneshotInjectMessageCallback, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
@@ -61,21 +61,28 @@ impl UseCaseState for DHTInjectorState {
 
 impl<C, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCKET_SIZE>
 {
-    pub fn new(config: DistributedHashTableInjectorConfig) -> Self {
-        Self {
+    pub fn new(config: DistributedHashTableInjectorConfig) -> Result<Self, GroupingError> {
+        if config.shared_prefix_grouping.get() > node_id::BIT_SIZE {
+            return Err(GroupingError::Invalid {
+                group_size: config.shared_prefix_grouping.get(),
+                id_size: node_id::BIT_SIZE,
+            });
+        }
+
+        Ok(Self {
             _c: PhantomData,
             state: DHTInjectorState::default(),
             config,
             nonces: HashMap::default(),
             restore_data: LinkedList::default(),
-        }
+        })
     }
-
 }
 
 impl<C, const BUCKET_SIZE: usize> Default for DistributedHashTableInjector<C, BUCKET_SIZE> {
     fn default() -> Self {
         Self::new(DistributedHashTableInjectorConfig::default())
+            .expect("default grouping has to be valid")
     }
 }
 
