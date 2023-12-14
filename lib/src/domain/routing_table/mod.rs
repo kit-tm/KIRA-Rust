@@ -3,6 +3,7 @@ use std::fmt::{Display, Formatter};
 use std::ops::DerefMut;
 
 use crate::domain::{Bucket, Contact, GroupingError, NodeId, ReplacementError, SharedPrefix};
+use crate::messaging::source_route::SourceRoute;
 
 pub mod flat_routing_table;
 pub mod observable_routing_table;
@@ -199,6 +200,45 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         n: usize,
         shared_prefix_grouping: usize,
     ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError>;
+
+    /// Returns the next overlay hop to the given [NodeId]
+    /// This method returns [None] if we are the closest overlay hop
+    ///
+    /// This method checks the **n** closest neighbors as next hop candidates
+    fn next_hop(&self, to: &NodeId, n: usize, shared_prefix_grouping: usize) -> Result<Option<Contact>, GroupingError> {
+        let closest = self.closest(to, n, shared_prefix_grouping)?;
+        let (nearest_prefix, mut next_hop) = match closest.first() {
+            None => return Ok(None), // bucket empty => we are the next hop
+            Some((nearest_prefix, contact)) => (nearest_prefix, contact)
+        };
+
+        // check if we are nearest
+        // todo .len or this is fine?
+        if *nearest_prefix > self.root().shared_prefix_len(to, shared_prefix_grouping)? {
+            return Ok(None);
+        }
+
+        for (prefix, contact) in closest.iter() {
+            if prefix.length < nearest_prefix.length { break; } // all nearest contacts seen since ordered Vec
+            if contact.path().size() < next_hop.path().size() {
+                next_hop = contact;
+            }
+        }
+
+        Ok(Some(next_hop.clone()))
+        // todo test send to self if 1) isolated or 2) root closer than closest routing table entry
+        // todo test if edge case lowest bucket (only XOR based) is covered
+    }
+
+    /// Returns the source route to the next overlay hop
+    fn next_source_route(&self, to: &NodeId, n: usize, shared_prefix_grouping: usize) -> SourceRoute {
+        let mut route = self.next_hop(&to, n, shared_prefix_grouping)
+            .unwrap()
+            .map(|next_hop| {SourceRoute::from(next_hop.path().clone()) })
+            .unwrap_or_else(|| { Into::into(self.root().clone()) });
+        route.push_front(self.root().clone());
+        route
+    }
 
     /// Iterator over all [Contact]s in the [RoutingTable].
     fn iter(&'a self) -> Self::Iter;

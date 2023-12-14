@@ -342,7 +342,7 @@ where
         if source_route.is_none() {
             return Ok(HandlingResult::NotHandled);
         }
-        let source_route = source_route.unwrap();
+        let mut source_route = source_route.unwrap();
 
         // Current hop has to be us
         if source_route.current_hop() != context.root_id() {
@@ -355,11 +355,28 @@ where
             return Ok(HandlingResult::Handled);
         }
 
-        let next_hop = source_route.next_hop();
+        let mut next_hop = source_route.next_hop();
 
-        // Is directed to us -> nothing to forward
         if next_hop.is_none() {
-            return Ok(HandlingResult::NotHandled);
+            // is directed to us -> nothing to forward
+            if !message.is_overlay_message() {
+                return Ok(HandlingResult::NotHandled);
+            }
+
+            // overlay routing
+            let dest = message
+                .destination()
+                .expect("Overlay messages are required to have a destination field");
+
+            // todo support other shared_prefix_grouping via config
+            source_route = context.routing_table().next_source_route(dest, 20, 1);
+
+            // is directed to us -> nothing to forward
+            if source_route.next_hop().is_none() {
+                return Ok(HandlingResult::NotHandled)
+            }
+
+            next_hop = source_route.next_hop();
         }
         let next_hop = next_hop.unwrap();
 
