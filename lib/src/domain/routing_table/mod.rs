@@ -205,6 +205,9 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// This method returns [None] if we are the closest overlay hop
     ///
     /// This method checks the **n** closest neighbors as next hop candidates
+    ///
+    /// The method is using **proximity routing** to determine the next overlay neighbor
+    /// if there are multiple that would result in the same prefix progress
     fn next_hop(&self, to: &NodeId, n: usize, shared_prefix_grouping: usize) -> Result<Option<Contact>, GroupingError> {
         let closest = self.closest(to, n, shared_prefix_grouping)?;
         let (nearest_prefix, mut next_hop) = match closest.first() {
@@ -231,6 +234,9 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     }
 
     /// Returns the source route to the next overlay hop
+    /// including a loopback to ourselves if we are the "next"
+    ///
+    /// This method uses proximity routing
     fn next_source_route(&self, to: &NodeId, n: usize, shared_prefix_grouping: usize) -> SourceRoute {
         let mut route = self.next_hop(&to, n, shared_prefix_grouping)
             .unwrap()
