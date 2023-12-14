@@ -28,7 +28,7 @@ pub trait InjectionResultSender: Clone {
 
 #[cfg(feature = "tokio")]
 mod tokio_extension {
-    use tokio::sync::{broadcast, mpsc};
+    use tokio::sync::{broadcast, mpsc, oneshot};
 
     use crate::use_cases::inject_messages::{InjectionResult, InjectionResultSender};
 

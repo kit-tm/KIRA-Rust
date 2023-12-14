@@ -8,7 +8,7 @@ use std::time::Instant;
 use crate::context::UseCaseContext;
 use crate::domain::{NodeId, RoutingTable};
 use crate::runtime::UseCaseRuntime;
-use crate::use_cases::{EventHandler, InjectionMessageData, TimerId, UseCase, UseCaseEvent, UseCaseState};
+use crate::use_cases::{ApiEvent, EventHandler, InjectionMessageData, OneshotInjectMessageCallback, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
 use crate::messaging::{Nonce, ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
 use crate::messaging::dht::{DefaultLHTInput, FetchReqData, StoreReqData};
@@ -45,13 +45,12 @@ pub enum DHTInjectorState {
     Error,
 }
 
-pub struct DistributedHashTableInjector<C, IRS, const BUCKET_SIZE: usize>
+pub struct DistributedHashTableInjector<C, const BUCKET_SIZE: usize>
 {
     _c: PhantomData<C>,
     state: DHTInjectorState,
     config: DistributedHashTableInjectorConfig,
-    injection_result_sender: IRS,
-    nonces: HashMap<Nonce, Instant>, // todo do re really need to keep track of the time we started the request?
+    nonces: HashMap<Nonce, (Instant, OneshotInjectMessageCallback)>, // todo do re really need to keep track of the time we started the request?
     restore_data: LinkedList<StoreReqData<DefaultLHTInput>>,
 }
 
@@ -61,25 +60,27 @@ impl UseCaseState for DHTInjectorState {
     }
 }
 
-impl<C, IRS, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, IRS, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCKET_SIZE>
 {
-    pub fn new(config: DistributedHashTableInjectorConfig, sender: IRS) -> Self {
+    pub fn new(config: DistributedHashTableInjectorConfig) -> Self {
         Self {
             _c: PhantomData,
             state: DHTInjectorState::default(),
             config,
-            injection_result_sender: sender,
             nonces: HashMap::default(),
             restore_data: LinkedList::default(),
         }
     }
 
-    pub fn with_default_config(sender: IRS) -> Self {
-        Self::new(DistributedHashTableInjectorConfig::default(), sender)
+}
+
+impl<C, const BUCKET_SIZE: usize> Default for DistributedHashTableInjector<C, BUCKET_SIZE> {
+    fn default() -> Self {
+        Self::new(DistributedHashTableInjectorConfig::default())
     }
 }
 
-impl<C, IRS, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, IRS, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCKET_SIZE>
     where
         C: UseCaseContext,
         for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
@@ -146,22 +147,22 @@ impl<C, IRS, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, IRS, BUCK
     }
 }
 
-impl<C, IRS: InjectionResultSender, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, IRS, BUCKET_SIZE> {
-    fn send_inject_result(&self, result: InjectionResult) -> Result<(), InjectMessageError> {
-        self.injection_result_sender.send_result(result).map_err(|e| {
-            log::error!(target: "inject_messages", "failed to send inject result: {}", e);
+impl<C, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCKET_SIZE> {
+    fn send_inject_result(&self, result: InjectionResult, callback: OneshotInjectMessageCallback) -> Result<(), InjectMessageError> {
+        callback.send(result).map_err(|e| {
+            log::error!(target: "inject_messages", "failed to send inject result: {:#?}", e);
 
             InjectMessageError::SendResultFailed
         })
     }
 
-    fn inform_injector_about_send_error(&self, injection_error: InjectMessageError, nonce: &Nonce) -> Result<(), InjectMessageError> {
+    fn inform_injector_about_send_error(&self, injection_error: InjectMessageError, nonce: &Nonce, callback: OneshotInjectMessageCallback) -> Result<(), InjectMessageError> {
         match injection_error {
             InjectMessageError::Isolated => {
-                self.send_inject_result(InjectionResult::Isolated)?
+                self.send_inject_result(InjectionResult::Isolated, callback)?
             }
             InjectMessageError::SendFailed => {
-                self.send_inject_result(InjectionResult::SendFailed(nonce.clone()))?
+                self.send_inject_result(InjectionResult::SendFailed(nonce.clone()), callback)?
             }
             InjectMessageError::SendResultFailed => {
                 // no information since the cause was that we couldn't reach the injector
@@ -174,13 +175,12 @@ impl<C, IRS: InjectionResultSender, const BUCKET_SIZE: usize> DistributedHashTab
 }
 
 
-impl<C, IRS, const BUCKET_SIZE: usize> EventHandler for DistributedHashTableInjector<C, IRS, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize> EventHandler for DistributedHashTableInjector<C, BUCKET_SIZE>
     where
         C: UseCaseContext,
         for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
         C::MessageSender: ProtocolMessageSender,
         C::Runtime: UseCaseRuntime,
-        IRS: InjectionResultSender,
 {
     type Context = C;
     type Error = InjectMessageError;
@@ -188,28 +188,28 @@ impl<C, IRS, const BUCKET_SIZE: usize> EventHandler for DistributedHashTableInje
 
     fn handle_event(&mut self, context: &Self::Context, event: UseCaseEvent) -> Result<Self::Value, Self::Error> {
         match (event, &self.state) {
-            (UseCaseEvent::InjectMessage(nonce, InjectionMessageData::Store(payload)), _) => {
+            (UseCaseEvent::InjectMessage(nonce, InjectionMessageData::Store(payload, callback)), _) => {
                 self.send_store_req(context, nonce.clone(), payload.data.clone())
                     .or_else(|inject_err| {
-                        self.inform_injector_about_send_error(inject_err, &nonce)
+                        self.inform_injector_about_send_error(inject_err, &nonce, callback)
                     })?;
 
-                self.nonces.insert(nonce.clone(), Instant::now());
+                self.nonces.insert(nonce.clone(), (Instant::now(), callback.clone()));
                 if payload.restore {
                     self.restore_data.push_back(payload.data);
                 }
             }
-            (UseCaseEvent::InjectMessage(nonce, InjectionMessageData::Fetch(payload)), _) => {
+            (UseCaseEvent::InjectMessage(nonce, InjectionMessageData::Fetch(payload, callback)), _) => {
                 self.send_fetch_req(context, nonce.clone(), payload)
                     .or_else(|inject_err| {
-                        self.inform_injector_about_send_error(inject_err, &nonce)
+                        self.inform_injector_about_send_error(inject_err, &nonce, callback)
                     })?;
             }
             (UseCaseEvent::Message(message, interface), _) => {
-                if let Some(Some(instant)) = message.nonce().map(|nonce| self.nonces.remove(nonce))
+                if let Some(Some((instant, callback))) = message.nonce().map(|nonce| self.nonces.remove(nonce))
                 {
                     let elapsed = instant.elapsed();
-                    self.send_inject_result(InjectionResult::Answered((message.clone(), interface)))?;
+                    self.send_inject_result(InjectionResult::Answered((message.clone(), interface)), callback)?;
 
                     log::trace!(target: "inject_messages", "Received response for nonce {:?} after {:?}", message.nonce(), elapsed);
                 }
@@ -232,13 +232,12 @@ impl<C, IRS, const BUCKET_SIZE: usize> EventHandler for DistributedHashTableInje
 }
 
 
-impl<C, IRS, const BUCKET_SIZE: usize> UseCase for DistributedHashTableInjector<C, IRS, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize> UseCase for DistributedHashTableInjector<C, BUCKET_SIZE>
     where
         C: UseCaseContext,
         for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
         C::MessageSender: ProtocolMessageSender,
         C::Runtime: UseCaseRuntime,
-        IRS: InjectionResultSender,
 {
     type State = DHTInjectorState;
 

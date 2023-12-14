@@ -3,12 +3,15 @@
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
+use std::sync::Arc;
+use tokio::sync::oneshot;
 
 use crate::domain::{Contact, NetworkInterface};
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::messages::ProtocolMessage;
 use crate::messaging::{FindNodeReqData, Nonce};
-use crate::messaging::dht::{DefaultLHTInput, FetchReqData, StoreReqData};
+use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreReqData, StoreRspData};
+use crate::use_cases::inject_messages::{InjectionResult, InjectionResultSender};
 
 pub mod derive_fwd_table_entries;
 pub mod explicit_path_management;
@@ -25,6 +28,8 @@ pub mod vicinity_discovery;
 pub mod distributed_hash_table;
 pub mod distributed_hash_table_injector;
 
+pub type OneshotInjectMessageCallback = Arc<oneshot::Sender<InjectionResult>>;
+
 /// Enumeration representing all events a [UseCase] can handle.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum UseCaseEvent {
@@ -40,8 +45,8 @@ pub enum UseCaseEvent {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum InjectionMessageData {
     FindNode(FindNodeReqData),
-    Store(StoreInjectData<DefaultLHTInput>),
-    Fetch(FetchReqData),
+    Store(StoreInjectData<DefaultLHTInput>, OneshotInjectMessageCallback), // todo can we do this without deriving clone and/or without `Arc`
+    Fetch(FetchReqData, OneshotInjectMessageCallback),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
