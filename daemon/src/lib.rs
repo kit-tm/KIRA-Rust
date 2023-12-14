@@ -540,18 +540,11 @@ where
             None
         };
 
-        let mut distributed_hash_table_injector = if let Some(injection_sender) = injection_sender.as_ref() {
-            let mut distributed_hash_table_injector =
-                DistributedHashTableInjector::with_default_config(injection_sender.clone());
-            if let Err(e) = distributed_hash_table_injector.start(&context) {
+        let mut distributed_hash_table_injector = DistributedHashTableInjector::default();
+        if let Err(e) = distributed_hash_table_injector.start(&context) {
                 log::error!("Failed to start distributed hash table injector UseCase: {}", e);
                 return;
-            }
-            Some(distributed_hash_table_injector)
-        } else {
-            None
-        };
-
+        }
 
         // Initialize common tasks
 
@@ -629,9 +622,7 @@ where
             {
                 log::error!("Injecting Messages returned error handling message: {}", e);
             }
-            if let Some(Err(e)) = distributed_hash_table_injector
-                .as_mut()
-                .map(|use_case| use_case.handle_event(&context, event.clone()))
+            if let Err(e) = distributed_hash_table_injector.handle_event(&context, event.clone())
             {
                 log::error!("Injecting DHT Messages returned error handling message: {}", e);
             }

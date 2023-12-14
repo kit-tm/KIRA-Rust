@@ -3,6 +3,7 @@ use std::error::Error;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::time::Instant;
+use serde::Serialize;
 
 pub use std_extension::*;
 #[cfg(feature = "tokio")]

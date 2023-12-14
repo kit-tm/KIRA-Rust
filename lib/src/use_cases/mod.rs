@@ -3,15 +3,15 @@
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
-use std::sync::Arc;
-use tokio::sync::oneshot;
+use serde::Deserialize;
+use tokio::sync::mpsc; // use tokio::sync::oneshot;
 
 use crate::domain::{Contact, NetworkInterface};
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::messages::ProtocolMessage;
 use crate::messaging::{FindNodeReqData, Nonce};
-use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreReqData, StoreRspData};
-use crate::use_cases::inject_messages::{InjectionResult, InjectionResultSender};
+use crate::messaging::dht::{DefaultLHTInput, FetchReqData, StoreReqData};
+use crate::use_cases::inject_messages::InjectionResult;
 
 pub mod derive_fwd_table_entries;
 pub mod explicit_path_management;
@@ -28,10 +28,10 @@ pub mod vicinity_discovery;
 pub mod distributed_hash_table;
 pub mod distributed_hash_table_injector;
 
-pub type OneshotInjectMessageCallback = Arc<oneshot::Sender<InjectionResult>>;
+pub type OneshotInjectMessageCallback = mpsc::UnboundedSender<InjectionResult>; // todo change back to oneshot after we figured out how to eliminate the need of deriving clone
 
 /// Enumeration representing all events a [UseCase] can handle.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum UseCaseEvent {
     Message(ProtocolMessage, NetworkInterface),
     Timer(TimerId),
@@ -42,14 +42,14 @@ pub enum UseCaseEvent {
 }
 
 /// Protocol message data to inject into the network.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum InjectionMessageData {
     FindNode(FindNodeReqData),
-    Store(StoreInjectData<DefaultLHTInput>, OneshotInjectMessageCallback), // todo can we do this without deriving clone and/or without `Arc`
+    Store(StoreInjectData<DefaultLHTInput>, OneshotInjectMessageCallback),
     Fetch(FetchReqData, OneshotInjectMessageCallback),
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
 pub struct StoreInjectData<D: Debug> {
     data: StoreReqData<D>,
     restore: bool

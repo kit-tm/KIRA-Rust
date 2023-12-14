@@ -8,7 +8,7 @@ use std::time::Instant;
 use crate::context::UseCaseContext;
 use crate::domain::{NodeId, RoutingTable};
 use crate::runtime::UseCaseRuntime;
-use crate::use_cases::{ApiEvent, EventHandler, InjectionMessageData, OneshotInjectMessageCallback, TimerId, UseCase, UseCaseEvent, UseCaseState};
+use crate::use_cases::{EventHandler, InjectionMessageData, OneshotInjectMessageCallback, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
 use crate::messaging::{Nonce, ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
 use crate::messaging::dht::{DefaultLHTInput, FetchReqData, StoreReqData};
@@ -87,6 +87,7 @@ impl<C, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCKET_SIZE>
         C::MessageSender: ProtocolMessageSender
 {
     fn construct_req_rsp_msg<T: Debug>(&self, context: &C, nonce: Nonce, data: T, destination: NodeId) -> Result<ReqRspMessage<T>, InjectMessageError> {
+        // todo refactor into dedicated usecase
         let closest_route = context
             .routing_table()
             .closest(&destination, 20, self.config.shared_prefix_grouping.get())
@@ -189,21 +190,21 @@ impl<C, const BUCKET_SIZE: usize> EventHandler for DistributedHashTableInjector<
     fn handle_event(&mut self, context: &Self::Context, event: UseCaseEvent) -> Result<Self::Value, Self::Error> {
         match (event, &self.state) {
             (UseCaseEvent::InjectMessage(nonce, InjectionMessageData::Store(payload, callback)), _) => {
-                self.send_store_req(context, nonce.clone(), payload.data.clone())
-                    .or_else(|inject_err| {
-                        self.inform_injector_about_send_error(inject_err, &nonce, callback)
-                    })?;
-
-                self.nonces.insert(nonce.clone(), (Instant::now(), callback.clone()));
-                if payload.restore {
-                    self.restore_data.push_back(payload.data);
+                if let Err(inject_err) = self.send_store_req(context, nonce.clone(), payload.data.clone()) {
+                    self.inform_injector_about_send_error(inject_err, &nonce, callback)?;
+                } else {
+                    self.nonces.insert(nonce.clone(), (Instant::now(), callback));
+                    if payload.restore {
+                        self.restore_data.push_back(payload.data);
+                    }
                 }
             }
             (UseCaseEvent::InjectMessage(nonce, InjectionMessageData::Fetch(payload, callback)), _) => {
-                self.send_fetch_req(context, nonce.clone(), payload)
-                    .or_else(|inject_err| {
-                        self.inform_injector_about_send_error(inject_err, &nonce, callback)
-                    })?;
+                if let Err(inject_err) = self.send_fetch_req(context, nonce.clone(), payload) {
+                    self.inform_injector_about_send_error(inject_err, &nonce, callback)?;
+                } else {
+                    self.nonces.insert(nonce.clone(), (Instant::now(), callback.clone()));
+                }
             }
             (UseCaseEvent::Message(message, interface), _) => {
                 if let Some(Some((instant, callback))) = message.nonce().map(|nonce| self.nonces.remove(nonce))
