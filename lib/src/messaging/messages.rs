@@ -207,10 +207,10 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => Some(&req.not_via),
             Self::PathTeardownReq(req) => Some(&req.not_via),
             Self::UpdateRouteReq(req) => Some(&req.not_via),
-            ProtocolMessage::StoreReq(req) => Some(&req.not_via),
-            ProtocolMessage::StoreRsp(req) => Some(&req.not_via),
-            ProtocolMessage::FetchReq(req) => Some(&req.not_via),
-            ProtocolMessage::FetchRsp(req) => Some(&req.not_via)
+            Self::StoreReq(req) => Some(&req.not_via),
+            Self::StoreRsp(req) => Some(&req.not_via),
+            Self::FetchReq(req) => Some(&req.not_via),
+            Self::FetchRsp(req) => Some(&req.not_via)
         }
     }
 

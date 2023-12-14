@@ -93,15 +93,15 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// Possible Write Guard for a mutable contact reference.
     ///
     /// Allows implementations to support RAII types to watch mutability of a contact.
-    type ContactWriteGuard: DerefMut<Target = Contact>;
+    type ContactWriteGuard: DerefMut<Target=Contact>;
     /// Possible Write Guard for a mutable bucket reference.
     ///
     /// Allows implementations to support RAII types to watch mutability of a bucket.
-    type BucketWriteGuard: DerefMut<Target = Bucket<BUCKET_SIZE>>;
+    type BucketWriteGuard: DerefMut<Target=Bucket<BUCKET_SIZE>>;
     /// Iterator type over all [Contact]s.
-    type Iter: Iterator<Item = &'a Contact>;
+    type Iter: Iterator<Item=&'a Contact>;
     /// Iterator type over mutable references of all [Contact]s.
-    type IterMut: Iterator<Item = Self::ContactWriteGuard>;
+    type IterMut: Iterator<Item=Self::ContactWriteGuard>;
 
     /// Returns the root [NodeId] of the [RoutingTable].
     fn root(&self) -> &NodeId;
@@ -169,7 +169,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// Extends the [RoutingTable] with [Contact]s with an option to ignore errors.
     ///
     /// Will not return an [Error] if *drop_on_error* is *true*.
-    fn extend<I: IntoIterator<Item = Contact>>(
+    fn extend<I: IntoIterator<Item=Contact>>(
         &mut self,
         drop_on_error: bool,
         iter: I,
