@@ -12,9 +12,8 @@ use crate::use_cases::{EventHandler, InjectionMessageData, OneshotInjectMessageC
 
 use crate::messaging::{Nonce, ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
 use crate::messaging::dht::{DefaultLHTInput, FetchReqData, StoreReqData};
-use crate::messaging::source_route::SourceRoute;
 use crate::use_cases::distributed_hash_table_injector::DHTInjectorState::Running;
-use crate::use_cases::inject_messages::{InjectionResult, InjectionResultSender};
+use crate::use_cases::inject_messages::InjectionResult;
 use crate::use_cases::inject_messages::errors::InjectMessageError;
 
 // todo what would be a sensible value here?
@@ -50,7 +49,7 @@ pub struct DistributedHashTableInjector<C, const BUCKET_SIZE: usize>
     _c: PhantomData<C>,
     state: DHTInjectorState,
     config: DistributedHashTableInjectorConfig,
-    nonces: HashMap<Nonce, (Instant, OneshotInjectMessageCallback)>, // todo do re really need to keep track of the time we started the request?
+    nonces: HashMap<Nonce, (Instant, OneshotInjectMessageCallback)>,
     restore_data: LinkedList<StoreReqData<DefaultLHTInput>>,
 }
 
@@ -86,38 +85,23 @@ impl<C, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCKET_SIZE>
         for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
         C::MessageSender: ProtocolMessageSender
 {
-    fn construct_req_rsp_msg<T: Debug>(&self, context: &C, nonce: Nonce, data: T, destination: NodeId) -> Result<ReqRspMessage<T>, InjectMessageError> {
-        // todo refactor into dedicated usecase
-        let closest_route = context
+    fn construct_req_rsp_msg<T: Debug>(&self, context: &C, nonce: Nonce, data: T, destination: NodeId) -> ReqRspMessage<T> {
+        let source_route = context
             .routing_table()
-            .closest(&destination, 20, self.config.shared_prefix_grouping.get())
-            .expect("grouping has to be checked on init")
-            .first()
-            .map(|(_, contact)| {
-                let mut route = SourceRoute::from(contact.path().clone());
-                route.push_front(context.root_id().clone());
-                route
-            });
+            .next_source_route(&destination, 20, self.config.shared_prefix_grouping.get());
 
-        if closest_route.is_none() {
-            return Err(InjectMessageError::Isolated);
-        }
-        let source_route = closest_route.unwrap();
-
-        let message = ReqRspMessage {
+        ReqRspMessage {
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
             not_via: context.not_via().clone(),
             data,
             nonce,
             source_route,
-        };
-
-        Ok(message)
+        }
     }
 
     fn send_store_req(&self, context: &C, nonce: Nonce, data: StoreReqData<DefaultLHTInput>) -> Result<(), InjectMessageError> {
         let dest = data.handle.clone();
-        let message = self.construct_req_rsp_msg(context, nonce, data, dest)?;
+        let message = self.construct_req_rsp_msg(context, nonce, data, dest);
 
         log::trace!(target: "inject_messages", "Sending StoreReq from {} with target {}",
             message.source_route.source(),
@@ -133,7 +117,7 @@ impl<C, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCKET_SIZE>
 
     fn send_fetch_req(&self, context: &C, nonce: Nonce, data: FetchReqData) -> Result<(), InjectMessageError> {
         let dest = data.handle.clone();
-        let message = self.construct_req_rsp_msg(context, nonce, data, dest)?;
+        let message = self.construct_req_rsp_msg(context, nonce, data, dest);
 
         log::trace!(target: "inject_messages", "Sending FetchReq from {} with target {}",
             message.source_route.source(),

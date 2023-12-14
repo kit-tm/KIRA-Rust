@@ -216,7 +216,7 @@ impl ProtocolMessage {
 
     pub fn is_overlay_message(&self) -> bool {
         match self {
-            // todo are there overlay messages that are currently not send correctly?
+            Self::StoreReq(_) | Self::StoreRsp(_) | Self::FetchReq(_) | Self::FetchRsp(_) => true,
             _ => false
         }
     }
