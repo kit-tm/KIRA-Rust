@@ -214,6 +214,13 @@ impl ProtocolMessage {
         }
     }
 
+    pub fn is_overlay_message(&self) -> bool {
+        match self {
+            // todo are there overlay messages that are currently not send correctly?
+            _ => false
+        }
+    }
+
     /// Current hop of the message.
     ///
     /// Is only [Option::None] if the message has no source route (PNHello).
