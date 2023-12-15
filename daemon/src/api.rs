@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use axum::extract::State;
 use axum::{Json, Router};
@@ -12,7 +13,7 @@ use r2kad_lib::domain::NodeId;
 use r2kad_lib::domain::api::ApiErr;
 use r2kad_lib::use_cases::inject_messages::InjectionResult;
 use r2kad_lib::use_cases::{InjectionMessageData, StoreInjectData, UseCaseEvent};
-use r2kad_lib::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreRspData};
+use r2kad_lib::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreReqData, StoreRspData};
 use r2kad_lib::messaging::{Nonce, ProtocolMessage};
 
 
@@ -27,7 +28,9 @@ pub(crate) async fn start_http_server(api_config: ApiConfig) {
     let app: Router = Router::new()
         .route("/node-id", get(get_node_id))
         .route("/dht/store", post(store_dht_data))
+        .route("/dht/dev/store_example", get(store_dht_data_example))
         .route("/dht/fetch", post(fetch_dht_data))
+        .route("/dht/dev/fetch_example", get(fetch_dht_data_example))
         .with_state(api_state);
 
     axum::Server::bind(&api_config.address)
@@ -81,6 +84,15 @@ async fn store_dht_data(State(state): State<ApiState>, Json(payload): Json<Store
     }
 }
 
+async fn store_dht_data_example(_: State<ApiState>) -> Json<StoreInjectData<DefaultLHTInput>> {
+    let example = StoreInjectData {
+        data: StoreReqData { handle: NodeId::random(), data: Arc::from([1,2,4,8,16]) },
+        restore: false,
+    };
+
+    Json(example)
+}
+
 async fn fetch_dht_data(State(state): State<ApiState>, Json(payload): Json<FetchReqData>) -> Result<Json<FetchRspData<DefaultLHTOutput>>, Json<ApiErr>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
 
@@ -97,4 +109,12 @@ async fn fetch_dht_data(State(state): State<ApiState>, Json(payload): Json<Fetch
         InjectionResult::SendFailed(_) => Err(Json(ApiErr::SendError)),
         InjectionResult::Answered(_) => Err(Json(ApiErr::MessageReceiveMissmatch))
     }
+}
+
+async fn fetch_dht_data_example(_: State<ApiState>) -> Json<FetchReqData> {
+    let example = FetchReqData {
+        handle: NodeId::random(),
+    };
+
+    Json(example)
 }

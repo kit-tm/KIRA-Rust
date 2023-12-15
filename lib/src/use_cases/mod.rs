@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc; // use tokio::sync::oneshot;
 
 use crate::domain::{Contact, NetworkInterface};
@@ -49,10 +49,10 @@ pub enum InjectionMessageData {
     Fetch(FetchReqData, OneshotInjectMessageCallback),
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub struct StoreInjectData<D: Debug> {
-    data: StoreReqData<D>,
-    restore: bool
+    pub data: StoreReqData<D>,
+    pub restore: bool
 }
 
 /// Contact Events which can be handled by UseCases.
