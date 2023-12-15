@@ -258,6 +258,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         let index = self.get_bucket_index(to);
 
         // Longer prefix has to be in front
+        // todo this shouldn't be necessary since the default order on tuples is already lexicographical
         let sorter = |first: &(SharedPrefix, Contact), second: &(SharedPrefix, Contact)| {
             if first.0 < second.0 {
                 return Ordering::Less;
