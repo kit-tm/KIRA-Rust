@@ -202,24 +202,50 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError>;
 
     /// Returns the next overlay hop to the given [NodeId]
-    /// This method returns [None] if we are the closest overlay hop
+    /// This method returns [None] if we are the closest overlay hop.
     ///
-    /// This method checks the **n** closest neighbors as next hop candidates
+    /// This method checks the **n** closest neighbors as next hop candidates.
+    ///
+    /// The method is using **proximity routing** to determine the next overlay neighbor
+    /// if there are multiple that would result in the same prefix progress.
+    ///
+    /// Using **n=1** disables proximity routing.
     fn next_hop(&self, to: &NodeId, n: usize, shared_prefix_grouping: usize) -> Result<Option<Contact>, GroupingError> {
         let closest = self.closest(to, n, shared_prefix_grouping)?;
         let (nearest_prefix, mut next_hop) = match closest.first() {
-            None => return Ok(None), // bucket empty => we are the next hop
+            None => return Ok(None), // table empty => we are the next hop
             Some((nearest_prefix, contact)) => (nearest_prefix, contact)
         };
+        let root_prefix = self.root().shared_prefix_len(to, shared_prefix_grouping)?;
 
         // check if we are nearest
-        // todo .len or this is fine?
-        if *nearest_prefix > self.root().shared_prefix_len(to, shared_prefix_grouping)? {
+        if nearest_prefix.length > root_prefix.length {
             return Ok(None);
         }
 
-        for (prefix, contact) in closest.iter() {
-            if prefix.length < nearest_prefix.length { break; } // all nearest contacts seen since ordered Vec
+        // we can't make prefix progress or no proximity routing
+        // uniquely select closest neighbor by XOR metric
+        if nearest_prefix.length == root_prefix.length || n == 1 {
+            return if root_prefix.xor < nearest_prefix.xor {
+                Ok(None)
+            } else {
+                // assuming sorted list first is closest by XOR metric
+                Ok(Some(next_hop.clone()))
+            }
+        }
+
+        // check if lowest bucket
+        // todo do this more efficiently
+        let lowest = self.closest(self.root(), 1, shared_prefix_grouping)?;
+        if lowest.first().is_some_and(|(prefix, _)| prefix == nearest_prefix) {
+            // select closest by XOR
+            return Ok(Some(next_hop.clone()));
+        }
+
+        // all contacts with the greatest prefix progress
+        let closest = closest.iter().take_while(|(prefix, _)| prefix.length == nearest_prefix.length);
+        for (_, contact) in closest {
+            // todo select by xor if all path lengths (size) are the same
             if contact.path().size() < next_hop.path().size() {
                 next_hop = contact;
             }
@@ -231,6 +257,9 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     }
 
     /// Returns the source route to the next overlay hop
+    /// including a loopback to ourselves if we are the "next"
+    ///
+    /// This method uses proximity routing unless **n=1**
     fn next_source_route(&self, to: &NodeId, n: usize, shared_prefix_grouping: usize) -> SourceRoute {
         let mut route = self.next_hop(&to, n, shared_prefix_grouping)
             .unwrap()
