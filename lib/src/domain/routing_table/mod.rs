@@ -223,15 +223,23 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
             return Ok(None);
         }
 
-        // we can't make prefix progress -> lowest bucket
+        // we can't make prefix progress or no proximity routing
         // uniquely select closest neighbor by XOR metric
-        if nearest_prefix.length == root_prefix.length {
+        if nearest_prefix.length == root_prefix.length || n == 1 {
             return if root_prefix.xor < nearest_prefix.xor {
                 Ok(None)
             } else {
                 // assuming sorted list first is closest by XOR metric
                 Ok(Some(next_hop.clone()))
             }
+        }
+
+        // check if lowest bucket
+        // todo do this more efficiently
+        let lowest = self.closest(self.root(), 1, shared_prefix_grouping)?;
+        if lowest.first().is_some_and(|(prefix, _)| prefix == nearest_prefix) {
+            // select closest by XOR
+            return Ok(Some(next_hop.clone()));
         }
 
         // all contacts with the greatest prefix progress
