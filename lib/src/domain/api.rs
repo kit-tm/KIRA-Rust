@@ -1,3 +1,4 @@
+use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -12,10 +13,13 @@ impl From<crate::domain::NodeId> for NodeId {
     }
 }
 
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+
 #[derive(Serialize)]
 pub enum ApiErr {
     SendError,
     Isolated,
     ReceiveError,
-    MessageReceiveMissmatch
+    Timeout,
+    MessageReceiveMismatch
 }

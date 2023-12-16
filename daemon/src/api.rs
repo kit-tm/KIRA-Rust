@@ -1,16 +1,17 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::State;
 use axum::{Json, Router};
 use axum::routing::{get, post};
 use axum_macros::debug_handler;
 
-use tokio::time::Instant;
+use tokio::time::{Instant, timeout};
 use tokio::sync::mpsc;
 
 use r2kad_lib::domain::NodeId;
-use r2kad_lib::domain::api::ApiErr;
+use r2kad_lib::domain::api::{ApiErr, DEFAULT_TIMEOUT};
 use r2kad_lib::use_cases::inject_messages::InjectionResult;
 use r2kad_lib::use_cases::{InjectionMessageData, StoreInjectData, UseCaseEvent};
 use r2kad_lib::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreReqData, StoreRspData};
@@ -75,12 +76,15 @@ async fn store_dht_data(State(state): State<ApiState>, Json(payload): Json<Store
     );
 
     state.sender.send((event, None)).await.map_err(|_| Json(ApiErr::SendError))?;
-    let injection_result = rx.recv().await.ok_or(Json(ApiErr::ReceiveError))?; // todo timeout
+    let injection_result = timeout(DEFAULT_TIMEOUT, rx.recv())
+        .await
+        .map(|received| received.ok_or(Json(ApiErr::ReceiveError)))
+        .map_err(|_| Json(ApiErr::Timeout))??;
     match injection_result {
         InjectionResult::Answered((ProtocolMessage::StoreRsp(payload), _)) => Ok(Json(payload.data)),
         InjectionResult::Isolated => Err(Json(ApiErr::Isolated)),
         InjectionResult::SendFailed(_) => Err(Json(ApiErr::SendError)),
-        InjectionResult::Answered(_) => Err(Json(ApiErr::MessageReceiveMissmatch))
+        InjectionResult::Answered(_) => Err(Json(ApiErr::MessageReceiveMismatch))
     }
 }
 
@@ -102,12 +106,15 @@ async fn fetch_dht_data(State(state): State<ApiState>, Json(payload): Json<Fetch
     );
 
     state.sender.send((event, None)).await.map_err(|_| Json(ApiErr::SendError))?;
-    let injection_result = rx.recv().await.ok_or(Json(ApiErr::ReceiveError))?; // todo timeout
+    let injection_result = timeout(DEFAULT_TIMEOUT, rx.recv())
+        .await
+        .map(|received| received.ok_or(Json(ApiErr::ReceiveError)))
+        .map_err(|_| Json(ApiErr::Timeout))??;
     match injection_result {
         InjectionResult::Answered((ProtocolMessage::FetchRsp(payload), _)) => Ok(Json(payload.data)),
         InjectionResult::Isolated => Err(Json(ApiErr::Isolated)),
         InjectionResult::SendFailed(_) => Err(Json(ApiErr::SendError)),
-        InjectionResult::Answered(_) => Err(Json(ApiErr::MessageReceiveMissmatch))
+        InjectionResult::Answered(_) => Err(Json(ApiErr::MessageReceiveMismatch))
     }
 }
 
