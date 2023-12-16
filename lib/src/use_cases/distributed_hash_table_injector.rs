@@ -198,6 +198,12 @@ impl<C, const BUCKET_SIZE: usize> EventHandler for DistributedHashTableInjector<
                 }
             }
             (UseCaseEvent::Message(message, interface), _) => {
+                // don't react on looped requests
+                match message {
+                    ProtocolMessage::StoreReq(_) | ProtocolMessage::FetchReq(_) => return Ok(()),
+                    _ => {}
+                }
+
                 if let Some(Some((instant, callback))) = message.nonce().map(|nonce| self.nonces.remove(nonce))
                 {
                     let elapsed = instant.elapsed();
