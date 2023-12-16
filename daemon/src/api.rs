@@ -80,6 +80,8 @@ async fn store_dht_data(State(state): State<ApiState>, Json(payload): Json<Store
         .await
         .map(|received| received.ok_or(Json(ApiErr::ReceiveError)))
         .map_err(|_| Json(ApiErr::Timeout))??;
+    log::trace!(target: "api_backend", "Received injection result [{:?}]", injection_result);
+
     match injection_result {
         InjectionResult::Answered((ProtocolMessage::StoreRsp(payload), _)) => Ok(Json(payload.data)),
         InjectionResult::Isolated => Err(Json(ApiErr::Isolated)),
@@ -110,6 +112,8 @@ async fn fetch_dht_data(State(state): State<ApiState>, Json(payload): Json<Fetch
         .await
         .map(|received| received.ok_or(Json(ApiErr::ReceiveError)))
         .map_err(|_| Json(ApiErr::Timeout))??;
+    log::trace!(target: "api_backend", "Received injection result [{:?}]", injection_result);
+
     match injection_result {
         InjectionResult::Answered((ProtocolMessage::FetchRsp(payload), _)) => Ok(Json(payload.data)),
         InjectionResult::Isolated => Err(Json(ApiErr::Isolated)),
