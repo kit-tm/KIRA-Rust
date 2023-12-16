@@ -69,13 +69,18 @@ where
         context: &C,
         message: &ProtocolMessage,
         interface: NetworkInterface,
-    ) -> Contact {
+    ) -> Option<Contact> {
         let path = self.extract_path_to_source(message);
         let contact = Contact::new(path.clone(), *message.source_state_seq_nr());
 
         {
             let mut lock = context.pn_table_mut();
             let neighbor_id = path.first();
+            // loopback: the sender was us
+            if neighbor_id == context.root_id() {
+                return None
+            }
+
             if !lock.contains(neighbor_id) {
                 if let Some(replaced) = lock.insert(neighbor_id.clone(), interface.clone()) {
                     // Not allowed to happen as lock is held
@@ -94,7 +99,7 @@ where
 
         self.update_contact(context, contact.clone());
 
-        contact
+        Some(contact)
     }
 
     /// Attempts to insert the contact into the routing table which may create a new entry,
@@ -275,7 +280,9 @@ where
             | ProtocolMessage::PNDiscRsp(msg)
             | ProtocolMessage::QueryRouteRsp(msg)
             | ProtocolMessage::FindNodeRsp(msg) => {
-                self.extract_rtable_reqrsp(context, msg, source_contact.path().clone())
+                if let Some(source_contact) = source_contact {
+                    self.extract_rtable_reqrsp(context, msg, source_contact.path().clone())
+                }
             }
             ProtocolMessage::Error(error_rsp) => self.extract_failed_contact(context, error_rsp),
             // These are already covered by source info extraction
@@ -377,8 +384,15 @@ where
 
             // is directed to us -> nothing to forward
             if source_route.next_hop().is_none() {
-                return Ok(HandlingResult::NotHandled)
+                log::trace!(
+                    target: "forward_protocol_message",
+                    "Not forwarding overlay message [{:?}] since directed to us",
+                    message
+                );
+                return Ok(HandlingResult::NotHandled);
             }
+
+            log::trace!(target: "forward_protocol_message", "Forwarding overlay message [{:?}]", message);
 
             next_hop = source_route.next_hop();
         }
