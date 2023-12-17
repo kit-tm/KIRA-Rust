@@ -211,21 +211,28 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     ///
     /// Using **n=1** disables proximity routing.
     fn next_hop(&self, to: &NodeId, n: usize, shared_prefix_grouping: usize) -> Result<Option<Contact>, GroupingError> {
+        log::trace!(target: "routing_table", "Calculating next hop to {}", to);
+
         let closest = self.closest(to, n, shared_prefix_grouping)?;
         let (nearest_prefix, mut next_hop) = match closest.first() {
-            None => return Ok(None), // table empty => we are the next hop
+            None => {
+                log::warn!(target: "routing_table", "Node is isolated! Loopback message to ourselves.");
+                return Ok(None);
+            }, // table empty => we are the next hop
             Some((nearest_prefix, contact)) => (nearest_prefix, contact)
         };
         let root_prefix = self.root().shared_prefix_len(to, shared_prefix_grouping)?;
 
         // check if we are nearest
         if nearest_prefix.length > root_prefix.length {
+            log::warn!(target: "routing_table", "Next hop is us.");
             return Ok(None);
         }
 
         // we can't make prefix progress or no proximity routing
         // uniquely select closest neighbor by XOR metric
         if nearest_prefix.length == root_prefix.length || n == 1 {
+            log::trace!(target: "routing_table", "Unable to do prefix progress, selecting by XOR between us [{}] and nearest contact [{}]", root_prefix.xor, nearest_prefix.xor);
             return if root_prefix.xor < nearest_prefix.xor {
                 Ok(None)
             } else {
@@ -238,6 +245,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         // todo do this more efficiently
         let lowest = self.closest(self.root(), 1, shared_prefix_grouping)?;
         if lowest.first().is_some_and(|(prefix, _)| prefix == nearest_prefix) {
+            log::trace!(target: "routing_table", "Lowest bucket, select by XOR");
             // select closest by XOR
             return Ok(Some(next_hop.clone()));
         }
