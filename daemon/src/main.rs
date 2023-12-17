@@ -11,7 +11,6 @@ use tokio::sync::{mpsc, RwLock};
 
 use r2kad_daemon_lib::{Node, NodeConfig};
 use r2kad_lib::domain::NodeId;
-use r2kad_lib::forwarding::in_memory_tables::InMemoryFwdTables;
 use r2kad_lib::messaging::format::ProtocolMessageFormat;
 use r2kad_lib::messaging::sync_wrapper::SyncWrapper;
 use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetInterfaceMonitor};
@@ -78,7 +77,7 @@ fn main() {
     let mapper = PNetInterfaceMonitor::new();
     mapper.blocking_refresh();
 
-    let fwd_table = InMemoryFwdTables::new();
+    let fwd_table = NativeFwdTables::new();
 
     let ip_cache = Arc::new(RwLock::new(HashMap::new()));
     let channel = r2kad_lib::messaging::udp::async_channel(
