@@ -2,6 +2,7 @@
 
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
+use std::mem::discriminant;
 use std::ops::Deref;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc; // use tokio::sync::oneshot;
@@ -31,7 +32,7 @@ pub mod distributed_hash_table_injector;
 pub type OneshotInjectMessageCallback = mpsc::UnboundedSender<InjectionResult>; // todo change back to oneshot after we figured out how to eliminate the need of deriving clone
 
 /// Enumeration representing all events a [UseCase] can handle.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum UseCaseEvent {
     Message(ProtocolMessage, NetworkInterface),
     Timer(TimerId),
@@ -47,6 +48,30 @@ pub enum InjectionMessageData {
     FindNode(FindNodeReqData),
     Store(StoreInjectData<DefaultLHTInput>, OneshotInjectMessageCallback),
     Fetch(FetchReqData, OneshotInjectMessageCallback),
+}
+
+impl PartialEq for InjectionMessageData {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            Self::FindNode(data) => {
+                if let Self::FindNode(other_data) = other {
+                    return data == other_data
+                }
+            }
+            Self::Store(data, _) => {
+                if let Self::Store(other_data, _) = other {
+                    return data == other_data
+                }
+            }
+            Self::Fetch(data, _) => {
+                if let Self::Fetch(other_data, _) = other {
+                    return data == other_data
+                }
+            }
+        }
+
+        false
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
