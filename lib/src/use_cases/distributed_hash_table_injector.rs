@@ -254,18 +254,21 @@ impl<C, const BUCKET_SIZE: usize> UseCase for DistributedHashTableInjector<C, BU
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
+    use std::time::Instant;
     use crate::broadcaster::MPSCBroadcaster;
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
-    use crate::domain::{InsertionStrategyResult, NodeId, PNTable, TestInsertionStrategy};
+    use crate::domain::{InsertionStrategyResult, NetworkInterface, NodeId, PNTable, StateSeqNr, TestInsertionStrategy};
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
-    use crate::messaging::{InMemoryMessageChannel, Nonce};
-    use crate::messaging::dht::StoreReqData;
+    use crate::messaging::{InMemoryMessageChannel, Nonce, ProtocolMessage, ReqRspMessage};
+    use crate::messaging::dht::{FetchReqData, FetchRspData, StoreOK, StoreReqData, StoreRspData};
+    use crate::messaging::source_route::SourceRoute;
     use crate::runtime::ImmediateRuntime;
     use crate::use_cases::distributed_hash_table_injector::DistributedHashTableInjector;
     use crate::use_cases::{EventHandler, InjectionMessageData, StoreInjectData, UseCase, UseCaseEvent};
+    use crate::use_cases::inject_messages::InjectionResult;
 
     #[test]
     fn startup_test() {
@@ -273,7 +276,7 @@ mod tests {
 
         let routing_table = SingleBucketRT::<20>::new(root_id.clone());
 
-        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
+        let (hub_sender, hub_receiver) = InMemoryMessageChannel::with_interface(NetworkInterface::with_name("test")).into_parts();
 
         let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
 
@@ -297,11 +300,13 @@ mod tests {
 
     #[test]
     fn inject_store_req() {
+        crate::tests::init();
+
         let root_id = NodeId::with_msb(0);
 
         let routing_table = SingleBucketRT::<20>::new(root_id.clone());
 
-        let (hub_sender, hub_receiver) = InMemoryMessageChannel::default().into_parts();
+        let (hub_sender, hub_receiver) = InMemoryMessageChannel::with_interface(NetworkInterface::with_name("test")).into_parts();
 
         let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
 
@@ -327,7 +332,7 @@ mod tests {
                     data: StoreReqData { handle: NodeId::with_msb(1), data: Arc::new([]) },
                     restore: false,
                 },
-                tokio::sync::mpsc::unbounded_channel().0)
+                tokio::sync::mpsc::unbounded_channel().0),
         );
 
         let handle_result = use_case.handle_event(&context, inject_event);
@@ -336,5 +341,299 @@ mod tests {
             "Handling inserting a StoreReq returned error: {:?}",
             handle_result
         )
+    }
+
+    #[test]
+    fn received_store_answer_gets_returned() {
+        crate::tests::init();
+
+        let root_id = NodeId::with_msb(0);
+        let interface = NetworkInterface::with_name("test");
+
+        let routing_table = SingleBucketRT::<20>::new(root_id.clone());
+
+        let (hub_sender, hub_receiver) =
+            InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
+
+        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
+
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table,
+            pn_table: PNTable::new(),
+            insertion_strategy,
+            message_sender: hub_sender,
+            runtime: ImmediateRuntime::new(broadcaster.clone()),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+
+        let mut use_case = DistributedHashTableInjector::default();
+
+        let nonce = Nonce::from(1);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+        use_case.nonces = HashMap::with_capacity(1);
+        use_case.nonces.insert(nonce.clone(), (Instant::now(), tx));
+
+        let response = ProtocolMessage::StoreRsp(
+            ReqRspMessage {
+                nonce,
+                source_state_seq_nr: StateSeqNr::from(0),
+                data: StoreRspData {
+                    status: Ok(StoreOK::Created),
+                },
+                not_via: Default::default(),
+                source_route: SourceRoute::from(root_id.clone()),
+            }
+        );
+
+        let inject_event = UseCaseEvent::Message(response.clone(), interface.clone());
+
+        let handle_result = use_case.handle_event(&context, inject_event);
+        assert!(
+            handle_result.is_ok(),
+            "Handling StoreRsp returned error: {:?}",
+            handle_result
+        );
+
+        let result = rx.try_recv();
+        assert!(result.is_ok(), "No result sent: {:?}", result);
+        let result = result.unwrap();
+        assert_eq!(
+            result,
+            InjectionResult::Answered((response.clone(), interface.clone()))
+        );
+    }
+
+    #[test]
+    fn dont_return_store_req_as_answer() {
+        crate::tests::init();
+
+        let root_id = NodeId::with_msb(0);
+        let interface = NetworkInterface::with_name("test");
+
+        let routing_table = SingleBucketRT::<20>::new(root_id.clone());
+
+        let (hub_sender, hub_receiver) =
+            InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
+
+        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
+
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table,
+            pn_table: PNTable::new(),
+            insertion_strategy,
+            message_sender: hub_sender,
+            runtime: ImmediateRuntime::new(broadcaster.clone()),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+        let mut use_case = DistributedHashTableInjector::default();
+
+        let nonce = Nonce::from(1);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+        use_case.nonces = HashMap::with_capacity(1);
+        use_case.nonces.insert(nonce.clone(), (Instant::now(), tx));
+
+        let store_req = ProtocolMessage::StoreReq(
+            ReqRspMessage {
+                nonce,
+                source_state_seq_nr: StateSeqNr::from(0),
+                data: StoreReqData {
+                    handle: root_id.clone(),
+                    data: Arc::new([]),
+                },
+                not_via: Default::default(),
+                source_route: SourceRoute::from(root_id.clone()),
+            }
+        );
+
+        let handle_result = use_case.handle_event(&context, UseCaseEvent::Message(store_req, interface.clone()));
+        assert!(
+            handle_result.is_ok(),
+            "Handling StoreReq returned error: {:?}",
+            handle_result
+        );
+
+        let result = rx.try_recv();
+        assert!(result.is_err(), "Result sent: {:?}", result);
+    }
+
+    #[test]
+    fn inject_fetch_req() {
+        crate::tests::init();
+
+        let root_id = NodeId::with_msb(0);
+
+        let routing_table = SingleBucketRT::<20>::new(root_id.clone());
+
+        let (hub_sender, hub_receiver) = InMemoryMessageChannel::with_interface(NetworkInterface::with_name("test")).into_parts();
+
+        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
+
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table,
+            pn_table: PNTable::new(),
+            insertion_strategy,
+            message_sender: hub_sender,
+            runtime: ImmediateRuntime::new(broadcaster.clone()),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+        let mut use_case = DistributedHashTableInjector::default();
+
+        let inject_event = UseCaseEvent::InjectMessage(
+            Nonce::from(1),
+            InjectionMessageData::Fetch(
+                FetchReqData {
+                    handle: root_id.clone(),
+                },
+                tokio::sync::mpsc::unbounded_channel().0),
+        );
+
+        let handle_result = use_case.handle_event(&context, inject_event);
+        assert!(
+            handle_result.is_ok(),
+            "Handling inserting a StoreReq returned error: {:?}",
+            handle_result
+        )
+    }
+
+    #[test]
+    fn received_fetch_answer_gets_returned() {
+        crate::tests::init();
+
+        let root_id = NodeId::with_msb(0);
+        let interface = NetworkInterface::with_name("test");
+
+        let routing_table = SingleBucketRT::<20>::new(root_id.clone());
+
+        let (hub_sender, hub_receiver) =
+            InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
+
+        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
+
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table,
+            pn_table: PNTable::new(),
+            insertion_strategy,
+            message_sender: hub_sender,
+            runtime: ImmediateRuntime::new(broadcaster.clone()),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+
+        let mut use_case = DistributedHashTableInjector::default();
+
+        let nonce = Nonce::from(1);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+        use_case.nonces = HashMap::with_capacity(1);
+        use_case.nonces.insert(nonce.clone(), (Instant::now(), tx));
+
+        let response = ProtocolMessage::FetchRsp(
+            ReqRspMessage {
+                nonce,
+                source_state_seq_nr: StateSeqNr::from(0),
+                data: FetchRspData {
+                    data: Ok(vec![Arc::new([])]),
+                },
+                not_via: Default::default(),
+                source_route: SourceRoute::from(root_id.clone()),
+            }
+        );
+
+        let inject_event = UseCaseEvent::Message(response.clone(), interface.clone());
+
+        let handle_result = use_case.handle_event(&context, inject_event);
+        assert!(
+            handle_result.is_ok(),
+            "Handling FetchRsp returned error: {:?}",
+            handle_result
+        );
+
+        let result = rx.try_recv();
+        assert!(result.is_ok(), "No result sent: {:?}", result);
+        let result = result.unwrap();
+        assert_eq!(
+            result,
+            InjectionResult::Answered((response.clone(), interface.clone()))
+        );
+    }
+
+    #[test]
+    fn dont_return_fetch_req_as_answer() {
+        crate::tests::init();
+
+        let root_id = NodeId::with_msb(0);
+        let interface = NetworkInterface::with_name("test");
+
+        let routing_table = SingleBucketRT::<20>::new(root_id.clone());
+
+        let (hub_sender, hub_receiver) =
+            InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
+
+        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
+
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table,
+            pn_table: PNTable::new(),
+            insertion_strategy,
+            message_sender: hub_sender,
+            runtime: ImmediateRuntime::new(broadcaster.clone()),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+        let mut use_case = DistributedHashTableInjector::default();
+
+        let nonce = Nonce::from(1);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+        use_case.nonces = HashMap::with_capacity(1);
+        use_case.nonces.insert(nonce.clone(), (Instant::now(), tx));
+
+        let store_req = ProtocolMessage::FetchReq(
+            ReqRspMessage {
+                nonce,
+                source_state_seq_nr: StateSeqNr::from(0),
+                data: FetchReqData {
+                    handle: root_id.clone(),
+                },
+                not_via: Default::default(),
+                source_route: SourceRoute::from(root_id.clone()),
+            }
+        );
+
+        let handle_result = use_case.handle_event(&context, UseCaseEvent::Message(store_req, interface.clone()));
+        assert!(
+            handle_result.is_ok(),
+            "Handling FetchReq returned error: {:?}",
+            handle_result
+        );
+
+        let result = rx.try_recv();
+        assert!(result.is_err(), "Result sent: {:?}", result);
+
     }
 }
