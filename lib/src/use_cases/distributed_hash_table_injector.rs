@@ -262,12 +262,13 @@ mod tests {
     use crate::domain::{InsertionStrategyResult, NetworkInterface, NodeId, PNTable, StateSeqNr, TestInsertionStrategy};
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
-    use crate::messaging::{InMemoryMessageChannel, Nonce, ProtocolMessage, ReqRspMessage};
-    use crate::messaging::dht::{FetchReqData, FetchRspData, StoreOK, StoreReqData, StoreRspData};
+    use crate::messaging::{AsyncProtocolMessageReceiver, InMemoryMessageChannel, Nonce, ProtocolMessage, ReqRspMessage};
+    use crate::messaging::dht::{DefaultLHTInput, FetchReqData, FetchRspData, StoreOK, StoreReqData, StoreRspData};
     use crate::messaging::source_route::SourceRoute;
     use crate::runtime::ImmediateRuntime;
-    use crate::use_cases::distributed_hash_table_injector::DistributedHashTableInjector;
+    use crate::use_cases::distributed_hash_table_injector::{DHTInjectorState, DistributedHashTableInjector};
     use crate::use_cases::{EventHandler, InjectionMessageData, StoreInjectData, UseCase, UseCaseEvent};
+    use crate::use_cases::distributed_hash_table_injector::DHTInjectorState::Running;
     use crate::use_cases::inject_messages::InjectionResult;
 
     #[test]
@@ -634,6 +635,69 @@ mod tests {
 
         let result = rx.try_recv();
         assert!(result.is_err(), "Result sent: {:?}", result);
+    }
 
+    #[tokio::test]
+    async fn restoring_data() {
+        crate::tests::init();
+
+        let root_id = NodeId::with_msb(0);
+        let interface = NetworkInterface::with_name("test");
+
+        let routing_table = SingleBucketRT::<20>::new(root_id.clone());
+
+        let (hub_sender, mut hub_receiver) =
+            InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
+
+        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
+
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table,
+            pn_table: PNTable::new(),
+            insertion_strategy,
+            message_sender: hub_sender,
+            runtime: ImmediateRuntime::new(broadcaster.clone()),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+        let mut use_case = DistributedHashTableInjector::default();
+
+        let nonce = Nonce::from(1);
+        let restore_data: StoreReqData<DefaultLHTInput> = StoreReqData {
+            handle: root_id.clone(),
+            data: Arc::new([]),
+        };
+        use_case.restore_data.push_back(restore_data.clone());
+
+        assert!(use_case.start(&context).is_ok());
+
+        assert!(matches!(use_case.state, Running(_)), "UseCase isn't running: {:?}", use_case.state);
+        let Running(id) = use_case.state else { panic!("UseCase isn't running!") };
+
+        let handle_result = use_case.handle_event(&context, UseCaseEvent::Timer(id));
+        assert!(
+            handle_result.is_ok(),
+            "Handling StoreReq returned error: {:?}",
+            handle_result
+        );
+
+        let result = hub_receiver.try_recv().await;
+        assert!(result.is_ok(), "No restore sent: {:?}", result);
+        let result = result.unwrap();
+        assert!(result.is_some(), "No restore sent: {:?}", result);
+        let (message, _) = result.unwrap();
+        assert!(matches!(message, ProtocolMessage::StoreReq(_)), "No StoreReq for restore sent: {:?}", message);
+        let ProtocolMessage::StoreReq(ReqRspMessage{data: restored_data, ..})
+            = message else { panic!("o StoreReq for restore sent") };
+        assert_eq!(restore_data.clone(),
+                   restored_data,
+                   "Restored data isn't equal to original data: {:?} != {:?}",
+                    restore_data,
+                    restored_data
+        )
     }
 }
