@@ -1,4 +1,5 @@
 use std::fmt::{Display, Formatter};
+use rand::random;
 
 #[cfg(feature = "pnet")]
 pub use pnet_conversion::*;
@@ -15,6 +16,18 @@ impl NetworkInterface {
         let interfaces = pnet::datalink::interfaces();
         let interface = interfaces.iter().find(|i| i.index == index).expect("Unable to find interface");
         Self {index, name: interface.name.clone()}
+    }
+}
+
+#[cfg(test)]
+impl NetworkInterface {
+    // method only for tests
+    // todo find a better way to make this work for tests
+    pub fn with_name<S: Into<String>>(name: S) -> Self {
+        Self {
+            index: u32::MAX,
+            name: name.into(),
+        }
     }
 }
 

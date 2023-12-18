@@ -282,7 +282,7 @@ mod tests {
             .expect("failed to add into empty RT");
         context
             .pn_table_mut()
-            .insert(neighbor.id().clone(), NetworkInterface::new("test"));
+            .insert(neighbor.id().clone(), NetworkInterface::with_name("test"));
 
         let mut use_case = RandomOverlayDiscovery::new(RODConfig {
             timeout: Duration::from_secs(0),

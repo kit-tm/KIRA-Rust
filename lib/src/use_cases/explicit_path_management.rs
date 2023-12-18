@@ -557,7 +557,7 @@ mod tests {
     async fn path_setup_on_new_contact() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -659,7 +659,7 @@ mod tests {
     async fn path_teardown_on_removed_contact() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -761,8 +761,8 @@ mod tests {
     async fn incoming_path_setup_create_fwd_table_entry() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
-        let interface2 = NetworkInterface::new("test 2");
+        let interface = NetworkInterface::with_name("test");
+        let interface2 = NetworkInterface::with_name("test 2");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -801,10 +801,12 @@ mod tests {
             NodeId::with_lsb(10),
         ]);
         let output_path_id = Hasher::Sha1.hash(&path_after);
+        // FIXME
         let path_id_entry = PathIdEntry {
             in_path_id: input_path_id.clone(),
-            out_path_id: output_path_id,
-            out_interface: interface2.clone(),
+            out_path_id: Some(output_path_id),
+            //out_interface: interface2.clone(),
+            next_hop: path_after.second().unwrap().clone()
         };
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
@@ -876,8 +878,8 @@ mod tests {
     async fn incoming_path_teardown_removes_fwd_table_entry() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
-        let interface2 = NetworkInterface::new("test 2");
+        let interface = NetworkInterface::with_name("test");
+        let interface2 = NetworkInterface::with_name("test 2");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -916,10 +918,12 @@ mod tests {
             NodeId::with_lsb(10),
         ]);
         let output_path_id = Hasher::Sha1.hash(&path_after);
+        // FIXME
         let path_id_entry = PathIdEntry {
             in_path_id: input_path_id.clone(),
-            out_path_id: output_path_id,
-            out_interface: interface2.clone(),
+            out_path_id: Some(output_path_id),
+            //out_interface: interface2.clone(),
+            next_hop: path_after.second().unwrap().clone()
         };
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);

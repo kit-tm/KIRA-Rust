@@ -396,17 +396,17 @@ mod tests {
         let path_id_entry = path_id_entry.unwrap();
         assert_eq!(&path_id_entry.in_path_id, &path_id_in);
         assert_eq!(
-            &path_id_entry.out_path_id,
+            path_id_entry.out_path_id.as_ref().unwrap(),
             &Hasher::Sha1.hash(vicinity_contact.path().into_iter().skip(1))
         );
-        assert_eq!(&path_id_entry.out_interface, &interface);
+        //assert_eq!(&path_id_entry.out_interface, &interface);
     }
 
     #[test]
     fn neighbor_entries_added() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -477,7 +477,7 @@ mod tests {
     fn contact_entries_removed() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -535,8 +535,8 @@ mod tests {
                 &mut fwd_table,
                 PathIdEntry {
                     in_path_id: in_path_id.clone(),
-                    out_path_id,
-                    out_interface: interface,
+                    out_path_id: Some(out_path_id),
+                    next_hop: root_id.clone() // FIXME
                 },
             )
             .is_ok(),
@@ -608,7 +608,7 @@ mod tests {
     fn contact_updated() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -666,8 +666,8 @@ mod tests {
                 &mut fwd_table,
                 PathIdEntry {
                     in_path_id: in_path_id.clone(),
-                    out_path_id,
-                    out_interface: interface.clone(),
+                    out_path_id: Some(out_path_id),
+                    next_hop: root_id.clone() // FIXME
                 },
             )
             .is_ok(),
@@ -740,7 +740,7 @@ mod tests {
         );
         let path_id_entry = path_id_entry.unwrap();
         assert_eq!(&path_id_entry.in_path_id, &new_in_path_id);
-        assert_eq!(&path_id_entry.out_path_id, &new_out_path_id);
-        assert_eq!(&path_id_entry.out_interface, &interface);
+        assert_eq!(path_id_entry.out_path_id.as_ref().unwrap(), &new_out_path_id);
+        //assert_eq!(&path_id_entry.out_interface, &interface);
     }
 }

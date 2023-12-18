@@ -325,7 +325,7 @@ mod tests {
         let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id.clone(), NetworkInterface::new("test"));
+        pn_table.insert(neighbor_id.clone(), NetworkInterface::with_name("test"));
 
         let sync_context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
@@ -427,7 +427,7 @@ mod tests {
             StateSeqNr::from(23),
         );
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
 
@@ -554,7 +554,7 @@ mod tests {
 
         let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
 
@@ -671,7 +671,7 @@ mod tests {
             StateSeqNr::from(13),
         );
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
 
@@ -795,7 +795,7 @@ mod tests {
 
         let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
 
@@ -931,7 +931,7 @@ mod tests {
             StateSeqNr::from(16),
         );
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
 
@@ -1088,7 +1088,7 @@ mod tests {
             StateSeqNr::from(16),
         );
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
 

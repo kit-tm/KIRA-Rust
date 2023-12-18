@@ -503,7 +503,7 @@ mod tests {
     async fn update_route_req_is_sent_for_invalidated_contact() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -582,7 +582,7 @@ mod tests {
     async fn error_responses_yield_new_find_node_until_max_retries() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -765,7 +765,7 @@ mod tests {
     async fn timeouts_yield_new_find_node_until_max_retries_with_exponential_backoff() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -943,8 +943,8 @@ mod tests {
     fn hardware_event_invalidates_all_affected_contacts() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
-        let other_interface = NetworkInterface::new("test 2");
+        let interface = NetworkInterface::with_name("test");
+        let other_interface = NetworkInterface::with_name("test 2");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);

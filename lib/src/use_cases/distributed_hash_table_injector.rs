@@ -254,5 +254,87 @@ impl<C, const BUCKET_SIZE: usize> UseCase for DistributedHashTableInjector<C, BU
 
 #[cfg(test)]
 mod tests {
-    // todo implement tests
+    use std::collections::HashSet;
+    use std::sync::Arc;
+    use crate::broadcaster::MPSCBroadcaster;
+    use crate::context::{ContextConfig, SyncContext, UseCaseContext};
+    use crate::domain::{InsertionStrategyResult, NodeId, PNTable, TestInsertionStrategy};
+    use crate::domain::single_bucket::SingleBucketRT;
+    use crate::forwarding::in_memory_tables::InMemoryFwdTables;
+    use crate::messaging::{InMemoryMessageChannel, Nonce};
+    use crate::messaging::dht::StoreReqData;
+    use crate::runtime::ImmediateRuntime;
+    use crate::use_cases::distributed_hash_table_injector::DistributedHashTableInjector;
+    use crate::use_cases::{EventHandler, InjectionMessageData, StoreInjectData, UseCase, UseCaseEvent};
+
+    #[test]
+    fn startup_test() {
+        let root_id = NodeId::one();
+
+        let routing_table = SingleBucketRT::<20>::new(root_id.clone());
+
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
+
+        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
+
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table,
+            pn_table: PNTable::new(),
+            insertion_strategy,
+            message_sender: hub_sender,
+            runtime: ImmediateRuntime::new(broadcaster.clone()),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+        let mut use_case = DistributedHashTableInjector::default();
+
+        assert!(use_case.start(&context).is_ok());
+    }
+
+    #[test]
+    fn inject_store_req() {
+        let root_id = NodeId::with_msb(0);
+
+        let routing_table = SingleBucketRT::<20>::new(root_id.clone());
+
+        let (hub_sender, hub_receiver) = InMemoryMessageChannel::default().into_parts();
+
+        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
+
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table,
+            pn_table: PNTable::new(),
+            insertion_strategy,
+            message_sender: hub_sender,
+            runtime: ImmediateRuntime::new(broadcaster.clone()),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+        let mut use_case = DistributedHashTableInjector::default();
+
+        let inject_event = UseCaseEvent::InjectMessage(
+            Nonce::from(1),
+            InjectionMessageData::Store(
+                StoreInjectData {
+                    data: StoreReqData { handle: NodeId::with_msb(1), data: Arc::new([]) },
+                    restore: false,
+                },
+                tokio::sync::mpsc::unbounded_channel().0)
+        );
+
+        let handle_result = use_case.handle_event(&context, inject_event);
+        assert!(
+            handle_result.is_ok(),
+            "Handling inserting a StoreReq returned error: {:?}",
+            handle_result
+        )
+    }
 }
