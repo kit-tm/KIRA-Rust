@@ -686,13 +686,13 @@ mod tests {
         );
 
         let result = hub_receiver.try_recv().await;
-        assert!(result.is_ok(), "No restore sent: {:?}", result);
+        assert!(result.is_ok(), "Error listening for restore: {:?}", result);
         let result = result.unwrap();
         assert!(result.is_some(), "No restore sent: {:?}", result);
         let (message, _) = result.unwrap();
         assert!(matches!(message, ProtocolMessage::StoreReq(_)), "No StoreReq for restore sent: {:?}", message);
         let ProtocolMessage::StoreReq(ReqRspMessage{data: restored_data, ..})
-            = message else { panic!("o StoreReq for restore sent") };
+            = message else { panic!("StoreReq for restore sent") };
         assert_eq!(restore_data.clone(),
                    restored_data,
                    "Restored data isn't equal to original data: {:?} != {:?}",
