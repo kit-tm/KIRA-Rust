@@ -255,16 +255,13 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         }
 
         // all contacts with the greatest prefix progress
-        let closest = closest.iter().take_while(|(prefix, _)| prefix.length == nearest_prefix.length);
-        // todo use min_by method
-        for (_, contact) in closest {
-            // todo select by xor if all path lengths (size) are the same
-            if contact.path().size() < next_hop.path().size() {
-                next_hop = contact;
-            }
-        }
+        let next_hop = closest.iter()
+            .take_while(|(prefix, _)| prefix.length == nearest_prefix.length)
+            .map(|(_, contact)| contact)
+            .min_by(|ca, cb| ca.path().size().cmp(&cb.path().size()));
+        // todo select by xor if all path lengths (size) are the same
 
-        Ok(Some(next_hop.clone()))
+        Ok(next_hop.cloned())
         // todo test send to self if 1) isolated or 2) root closer than closest routing table entry
         // todo test if edge case lowest bucket (only XOR based) is covered
     }
