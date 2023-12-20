@@ -216,7 +216,11 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         let closest = self.closest(to, n, shared_prefix_grouping)?;
         let (nearest_prefix, mut next_hop) = match closest.first() {
             None => {
-                log::warn!(target: "routing_table", "Node is isolated! Loopback message to ourselves.");
+                log::warn!(target: "routing_table",
+                    "Node is isolated! Loopback message to ourselves: [{:?}], [{:?}]",
+                    closest,
+                    self.bucket(to)
+                );
                 return Ok(None);
             }, // table empty => we are the next hop
             Some((nearest_prefix, contact)) => (nearest_prefix, contact)
@@ -252,6 +256,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
 
         // all contacts with the greatest prefix progress
         let closest = closest.iter().take_while(|(prefix, _)| prefix.length == nearest_prefix.length);
+        // todo use min_by method
         for (_, contact) in closest {
             // todo select by xor if all path lengths (size) are the same
             if contact.path().size() < next_hop.path().size() {
