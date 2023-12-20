@@ -74,7 +74,7 @@ impl PartialEq for InjectionMessageData {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct StoreInjectData<D: Debug> {
     pub data: StoreReqData<D>,
     pub restore: bool
