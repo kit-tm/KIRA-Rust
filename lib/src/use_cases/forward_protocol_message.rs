@@ -382,9 +382,9 @@ where
             // todo support other shared_prefix_grouping via config
             source_route = context.routing_table().next_source_route(dest, 20, 1);
 
-            // is directed to us -> nothing to forward
-            if source_route.next_hop().is_none() {
-                log::trace!(
+            // is directed to us -> nothing to forward,
+            if source_route.destination() == context.root_id() {
+                log::debug!(
                     target: "forward_protocol_message",
                     "Not forwarding overlay message [{:?}] since directed to us",
                     message
