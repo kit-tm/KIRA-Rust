@@ -216,11 +216,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         let closest = self.closest(to, n, shared_prefix_grouping)?;
         let (nearest_prefix, mut next_hop) = match closest.first() {
             None => {
-                log::warn!(target: "routing_table",
-                    "Node is isolated! Loopback message to ourselves: [{:?}], [{:?}]",
-                    closest,
-                    self.bucket(to)
-                );
+                log::warn!(target: "routing_table","Node is isolated!");
                 return Ok(None);
             }, // table empty => we are the next hop
             Some((nearest_prefix, contact)) => (nearest_prefix, contact)
@@ -229,14 +225,24 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
 
         // check if we are nearest
         if root_prefix.length > nearest_prefix.length {
-            log::warn!(target: "routing_table", "Next hop is us.");
+            log::debug!(
+                target: "routing_table",
+                "Next hop is us since prefix of us is longer: {} > {}",
+                root_prefix.length,
+                nearest_prefix.length
+            );
             return Ok(None);
         }
 
         // we can't make prefix progress or no proximity routing
         // uniquely select closest neighbor by XOR metric
         if nearest_prefix.length == root_prefix.length || n == 1 {
-            log::trace!(target: "routing_table", "Unable to do prefix progress, selecting by XOR between us [{}] and nearest contact [{}]", root_prefix.xor, nearest_prefix.xor);
+            log::debug!(
+                target: "routing_table",
+                "Unable to do prefix progress, selecting by XOR between us [{}] and nearest contact [{}]",
+                root_prefix.xor,
+                nearest_prefix.xor
+            );
             return if root_prefix.xor < nearest_prefix.xor {
                 Ok(None)
             } else {
@@ -276,6 +282,12 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
             .map(|next_hop| {SourceRoute::from(next_hop.path().clone()) })
             .unwrap_or_else(|| { Into::into(self.root().clone()) });
         route.push_front(self.root().clone());
+        log::trace!(
+            target: "routing_table",
+            "Source route to [{:?}] calculated: {:?}.",
+            to,
+            route
+        );
         route
     }
 
