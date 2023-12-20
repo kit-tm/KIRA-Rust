@@ -369,9 +369,8 @@ where
                             }
                         };
 
-                        // ignoring messages from us
-                        // but allow loopback of overlay messages
-                        if message.source() == &root_node_id && !message.is_overlay_message() {
+                        if message.source() == &root_node_id {
+                            // ignoring messages from us
                             continue;
                         }
 
