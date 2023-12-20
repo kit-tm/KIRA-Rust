@@ -228,7 +228,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         let root_prefix = self.root().shared_prefix_len(to, shared_prefix_grouping)?;
 
         // check if we are nearest
-        if nearest_prefix.length > root_prefix.length {
+        if root_prefix.length > nearest_prefix.length {
             log::warn!(target: "routing_table", "Next hop is us.");
             return Ok(None);
         }
