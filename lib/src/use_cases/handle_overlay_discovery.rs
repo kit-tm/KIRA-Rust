@@ -1,10 +1,11 @@
 use std::collections::HashSet;
-use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 
 use crate::context::UseCaseContext;
-use crate::domain::{node_id, Contact, GroupingError, NotVia, RoutingTable, StateSeqNr, DEFAULT_BUCKET_SIZE, InsertionError};
+use crate::domain::{
+    node_id, Contact, GroupingError, NotVia, RoutingTable, StateSeqNr, DEFAULT_BUCKET_SIZE,
+};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     ErrorData, FindNodeReqData, ProtocolMessage, ProtocolMessageSender, RTableData, ReqRspMessage,
@@ -100,33 +101,6 @@ impl<C, const BUCKET_SIZE: usize> HandleOverlayDiscovery<C, BUCKET_SIZE> {
     }
 }
 
-#[derive(Debug)]
-pub enum HandleOverlayDiscoveryError {
-    MessageSentFailed(MessageSentFailed),
-    InsertionError(InsertionError)
-}
-
-impl Display for HandleOverlayDiscoveryError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            HandleOverlayDiscoveryError::MessageSentFailed(err) => err.fmt(f),
-            HandleOverlayDiscoveryError::InsertionError(err) => err.fmt(f)
-        }
-    }
-}
-
-impl From<MessageSentFailed> for HandleOverlayDiscoveryError {
-    fn from(value: MessageSentFailed) -> Self {
-        Self::MessageSentFailed(value)
-    }
-}
-
-impl From<InsertionError> for HandleOverlayDiscoveryError {
-    fn from(value: InsertionError) -> Self {
-        Self::InsertionError(value)
-    }
-}
-
 impl<C, const BUCKET_SIZE: usize> EventHandler for HandleOverlayDiscovery<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
@@ -134,7 +108,7 @@ where
     C::MessageSender: ProtocolMessageSender,
 {
     type Context = C;
-    type Error = HandleOverlayDiscoveryError;
+    type Error = MessageSentFailed;
     type Value = ();
 
     fn handle_event(
@@ -142,54 +116,106 @@ where
         context: &Self::Context,
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
-        match event {
-            // react on FindNodeReq
-            UseCaseEvent::Message(ProtocolMessage::FindNodeReq(req), _) => {
-                if req.destination() != context.root_id() {
-                    return Ok(());
+        if let UseCaseEvent::Message(ProtocolMessage::FindNodeReq(req), _) = event {
+            if req.destination() != context.root_id() {
+                return Ok(());
+            }
+
+            let number_of_neighbors = match usize::try_from(req.data.neighborhood.get()) {
+                Ok(value) => value,
+                Err(e) => {
+                    log::warn!("FindNodeReq requested more contacts as host architecture can address: {}. Returning max value", e);
+                    usize::MAX
+                }
+            };
+
+            let closest = context
+                .routing_table()
+                .closest(
+                    &req.data.target,
+                    number_of_neighbors,
+                    self.config.shared_prefix_bits_grouping.get(),
+                )
+                .expect("grouping has to be checked on initialization");
+
+            // Get any contact not contained in local or included not_via data
+            let closest_node = closest.iter().find(|(_, contact)| {
+                if context.not_via().iter().any(|not_via| match not_via {
+                    NotVia::Link(link) => contact.path().contains_link(link),
+                }) {
+                    return false;
+                }
+                if req.not_via.iter().any(|not_via| match not_via {
+                    NotVia::Link(link) => contact.path().contains_link(link),
+                }) {
+                    return false;
                 }
 
-                let number_of_neighbors = match usize::try_from(req.data.neighborhood.get()) {
-                    Ok(value) => value,
-                    Err(e) => {
-                        log::warn!("FindNodeReq requested more contacts as host architecture can address: {}. Returning max value", e);
-                        usize::MAX
-                    }
-                };
+                true
+            });
 
-                let closest = context
-                    .routing_table()
-                    .closest(
-                        &req.data.target,
-                        number_of_neighbors,
-                        self.config.shared_prefix_bits_grouping.get(),
+            // (exact, target, target is us, closest known)
+            let outgoing_message = match (
+                &req.data.exact,
+                &req.data.target,
+                &req.data.target == context.root_id(),
+                &closest_node,
+            ) {
+                (true, _, true, _) => {
+                    let closest = closest.into_iter().map(|(_, contact)| contact).collect();
+
+                    self.build_find_node_rsp(
+                        context.not_via().clone(),
+                        req.clone(),
+                        *context.pn_table().state_seq_nr(),
+                        closest,
                     )
-                    .expect("grouping has to be checked on initialization");
+                }
+                (true, target, false, Some((closest_known_distance, contact))) => {
+                    let own_distance = context
+                        .root_id()
+                        .shared_prefix_len(target, self.config.shared_prefix_bits_grouping.get())
+                        .expect("grouping was checked on init");
 
-                // Get any contact not contained in local or included not_via data
-                let closest_node = closest.iter().find(|(_, contact)| {
-                    if context.not_via().iter().any(|not_via| match not_via {
-                        NotVia::Link(link) => contact.path().contains_link(link),
-                    }) {
-                        return false;
+                    if &own_distance > closest_known_distance && req.source() != contact.id() {
+                        self.build_find_node_to_next_hop(
+                            context.not_via().clone(),
+                            req.clone(),
+                            Contact::clone(contact),
+                        )
+                    } else {
+                        self.build_error(
+                            context.not_via().clone(),
+                            req.clone(),
+                            *context.pn_table().state_seq_nr(),
+                        )
                     }
-                    if req.not_via.iter().any(|not_via| match not_via {
-                        NotVia::Link(link) => contact.path().contains_link(link),
-                    }) {
-                        return false;
-                    }
+                }
+                (true, _, false, None) => self.build_error(
+                    context.not_via().clone(),
+                    req.clone(),
+                    *context.pn_table().state_seq_nr(),
+                ),
+                (false, _, true, _) => {
+                    log::warn!(
+                        "Received FindNodeReq with 'exact=false' with us as target: {:?}",
+                        req
+                    );
+                    return Ok(());
+                }
+                (false, target, false, Some((closest_known_distance, contact))) => {
+                    let own_distance = context
+                        .root_id()
+                        .shared_prefix_len(target, self.config.shared_prefix_bits_grouping.get())
+                        .expect("grouping was checked on init");
 
-                    true
-                });
-
-                // (exact, target, target is us, closest known)
-                let outgoing_message = match (
-                    &req.data.exact,
-                    &req.data.target,
-                    &req.data.target == context.root_id(),
-                    &closest_node,
-                ) {
-                    (true, _, true, _) => {
+                    if &own_distance > closest_known_distance && req.source() != contact.id() {
+                        self.build_find_node_to_next_hop(
+                            context.not_via().clone(),
+                            req.clone(),
+                            Contact::clone(contact),
+                        )
+                    } else {
                         let closest = closest.into_iter().map(|(_, contact)| contact).collect();
 
                         self.build_find_node_rsp(
@@ -199,84 +225,19 @@ where
                             closest,
                         )
                     }
-                    (true, target, false, Some((closest_known_distance, contact))) => {
-                        let own_distance = context
-                            .root_id()
-                            .shared_prefix_len(target, self.config.shared_prefix_bits_grouping.get())
-                            .expect("grouping was checked on init");
-
-                        if &own_distance > closest_known_distance && req.source() != contact.id() {
-                            self.build_find_node_to_next_hop(
-                                context.not_via().clone(),
-                                req.clone(),
-                                Contact::clone(contact),
-                            )
-                        } else {
-                            self.build_error(
-                                context.not_via().clone(),
-                                req.clone(),
-                                *context.pn_table().state_seq_nr(),
-                            )
-                        }
-                    }
-                    (true, _, false, None) => self.build_error(
-                        context.not_via().clone(),
-                        req.clone(),
-                        *context.pn_table().state_seq_nr(),
-                    ),
-                    (false, _, true, _) => {
-                        log::warn!(
-                        "Received FindNodeReq with 'exact=false' with us as target: {:?}",
-                        req
-                    );
-                        return Ok(());
-                    }
-                    (false, target, false, Some((closest_known_distance, contact))) => {
-                        let own_distance = context
-                            .root_id()
-                            .shared_prefix_len(target, self.config.shared_prefix_bits_grouping.get())
-                            .expect("grouping was checked on init");
-
-                        if &own_distance > closest_known_distance && req.source() != contact.id() {
-                            self.build_find_node_to_next_hop(
-                                context.not_via().clone(),
-                                req.clone(),
-                                Contact::clone(contact),
-                            )
-                        } else {
-                            let closest = closest.into_iter().map(|(_, contact)| contact).collect();
-
-                            self.build_find_node_rsp(
-                                context.not_via().clone(),
-                                req.clone(),
-                                *context.pn_table().state_seq_nr(),
-                                closest,
-                            )
-                        }
-                    }
-                    (false, _, false, None) => self.build_find_node_rsp(
-                        context.not_via().clone(),
-                        req.clone(),
-                        *context.pn_table().state_seq_nr(),
-                        Vec::with_capacity(0),
-                    ),
-                };
-
-                if let Err(e) = context.message_sender_mut().send_message(outgoing_message) {
-                    log::error!("Failed to send message: {}", e);
-                    return Err(MessageSentFailed.into());
                 }
-            },
-            // react on FindNodeRsp
-            UseCaseEvent::Message(ProtocolMessage::FindNodeRsp(ReqRspMessage {data: RTableData{contacts, }, ..}), _) => {
-                log::trace!(target: "handle_overlay_discovery", "Received FindeNodeRsp. Adding contacts to routing table.");
-                // todo check if this is the right thing to do
-                contacts
-                    .iter()
-                    .try_for_each(|contact| context.routing_table_mut().insert(contact.clone()))
-                    .map_err(Into::<HandleOverlayDiscoveryError>::into)?
+                (false, _, false, None) => self.build_find_node_rsp(
+                    context.not_via().clone(),
+                    req.clone(),
+                    *context.pn_table().state_seq_nr(),
+                    Vec::with_capacity(0),
+                ),
+            };
+
+            if let Err(e) = context.message_sender_mut().send_message(outgoing_message) {
+                log::error!("Failed to send message: {}", e);
+                return Err(MessageSentFailed);
             }
-            _ => {}
         }
 
         Ok(())
