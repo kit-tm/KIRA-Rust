@@ -394,7 +394,9 @@ where
 
             log::trace!(target: "forward_protocol_message", "Forwarding overlay message [{:?}]", message);
 
+            // update message
             next_hop = source_route.next_hop();
+            *message.source_route_mut().unwrap() = source_route.clone();
         }
         let next_hop = next_hop.unwrap();
 
