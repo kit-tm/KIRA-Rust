@@ -54,7 +54,7 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
 
     fn send_initial_kelly_request(&self, node_id: crate::domain::api::NodeIdApi, nonce: Nonce, context: &C) {
 
-        log::info!("Sending Kelly message to node {:?}", node_id);
+        log::warn!("Sending Kelly message to node {:?} with hex{:?}", node_id, Vec::from_hex(node_id.node_id.clone()));
         let node_id = NodeId::from(TryInto::<[u8; node_id::SIZE]>::try_into(Vec::from_hex(node_id.node_id).unwrap()).unwrap());
 
         let closest_path = self.get_closest_path(&node_id, &context);

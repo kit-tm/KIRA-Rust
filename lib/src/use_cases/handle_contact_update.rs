@@ -133,7 +133,7 @@ where
                 self.invalidate_all_affected_contacts(context, &contact);
 
                 if context.pn_table_mut().remove(contact.id()).is_some() {
-                    log::trace!(target: "handle_contact_update", "removed {} from physical neighbors", contact.id());
+                    log::debug!(target: "handle_contact_update", "removed {} from physical neighbors", contact.id());
                 }
             }
             UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {

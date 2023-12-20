@@ -186,6 +186,43 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
 
         result
     }
+
+    pub fn get_prefix_for_bucket_index(&self, index: usize, fill_with_ones: bool) -> SharedPrefix {
+        let mut bytes = self.root.clone().bytes();
+
+
+        let prefix_length = (index / Self::level_width() + 1) * ACC + index;
+
+        let complete_bytes = prefix_length / 8;
+        let from_incomplete_byte = prefix_length % 8;
+
+        if fill_with_ones {
+            bytes[complete_bytes] = (u8::MAX << (8 - from_incomplete_byte)) & bytes[complete_bytes] | (u8::MAX >> 8 - (8 - from_incomplete_byte));
+
+            for i in complete_bytes..bytes.len() {
+                bytes[i] = u8::MAX;
+            }
+        } else {
+            bytes[complete_bytes] = (u8::MAX << (8 - from_incomplete_byte)) & bytes[complete_bytes];
+
+            for i in complete_bytes..bytes.len() {
+                bytes[i] = 0;
+            }
+
+        }
+
+
+
+
+        let result = SharedPrefix {
+            xor: NodeId::from(<[u8; 14]>::try_from(bytes).unwrap()),
+            length: prefix_length,
+        };
+
+        result
+
+
+    }
 }
 
 impl<const BUCKET_SIZE: usize, const ACC: usize> DiscoveryRangeProvider for FlatRoutingTable<BUCKET_SIZE, ACC> {
@@ -194,13 +231,37 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> DiscoveryRangeProvider for Flat
         // get bucket that matches own id and other non full buckets of this layer
 
         let own_index = self.get_bucket_index(self.root());
-        let level_width = 2 ^ ACC - 1;
+        let number_not_full_levels = self.num_buckets() / Self::level_width() - 1;
+
+        let mut own_found = false;
+        let mut range_bucket_ids = Vec::new();
+
+        log::warn!("own index: {}, number_not_full_levels: {}, first on level: {}, num_buckets: {}, level_width: {}",
+            own_index, number_not_full_levels, Self::first_on_level(number_not_full_levels), self.num_buckets(), Self::level_width());
+
+        for i in Self::first_on_level(number_not_full_levels)..self.num_buckets() {
+            if self.buckets[i].len() != self.buckets[i].max_size() || i == own_index {
+                range_bucket_ids.push(i);
+                if i == own_index {
+                    own_found = true;
+                }
+            } else {
+                if own_found {
+                    break;
+                } else {
+                    range_bucket_ids.clear();
+                }
+            }
+
+        }
+
+        assert!(!range_bucket_ids.is_empty());
 
 
         // TODO
         DiscoveryRange {
-            start: NodeId::zero().into(),
-            end: NodeId::zero().into(),
+            start: self.get_prefix_for_bucket_index(number_not_full_levels, false).xor.into(),
+            end:self.get_prefix_for_bucket_index(number_not_full_levels, true).xor.into(),
         }
     }
 }

@@ -137,7 +137,7 @@ where
                 .unwrap_or(false)
         {
             context.pn_table_mut().remove(contact.id());
-            log::trace!(target: "forward_protocol_message", "Removed {} from PNTable as no more a physical neighbor; {:?}", contact.id(), contact);
+            log::debug!(target: "forward_protocol_message", "Removed {} from PNTable as no more a physical neighbor; {:?}", contact.id(), contact);
         }
     }
 
