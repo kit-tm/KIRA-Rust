@@ -1,8 +1,11 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::str::FromStr;
 use std::sync::Arc;
 
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::{Json, Router};
+use axum::body::Bytes;
 use axum::routing::{get, post};
 
 use tokio::time::{Instant, timeout};
@@ -10,7 +13,7 @@ use tokio::sync::mpsc;
 
 use r2kad_lib::domain::NodeId;
 use r2kad_lib::domain::api;
-use r2kad_lib::domain::api::{ApiErr, DEFAULT_TIMEOUT};
+use r2kad_lib::domain::api::{ApiErr, ApiFormatErr, DEFAULT_TIMEOUT};
 use r2kad_lib::use_cases::inject_messages::InjectionResult;
 use r2kad_lib::use_cases::{FetchInjectData, InjectionMessageData, StoreInjectData, UseCaseEvent};
 use r2kad_lib::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreReqData, StoreRspData};
@@ -27,10 +30,9 @@ pub(crate) async fn start_http_server(api_config: ApiConfig) {
 
     let app: Router = Router::new()
         .route("/node-id", get(get_node_id))
+        .route("/dht", post(store_dht_data).get(fetch_dht_data))
         .route("/dht/store", post(store_dht_data))
-        .route("/dht/dev/store_example", get(store_dht_data_example))
-        .route("/dht/fetch", post(fetch_dht_data))
-        .route("/dht/dev/fetch_example", get(fetch_dht_data_example))
+        .route("/dht/fetch", get(fetch_dht_data))
         .with_state(api_state);
 
     axum::Server::bind(&api_config.address)
@@ -65,12 +67,24 @@ async fn get_node_id(State(state): State<ApiState>) -> Json<api::NodeId> {
     Json(state.node_id.into())
 }
 
-async fn store_dht_data(State(state): State<ApiState>, Json(args): Json<api::StoreArgs>) -> Result<Json<api::StoreRsp>, Json<ApiErr>> {
+async fn store_dht_data(State(state): State<ApiState>, Query(mut params): Query<HashMap<String, String>>, body: Bytes) -> Result<Json<api::StoreRsp>, Json<ApiErr>> {
     // todo factor out essentials to reduce code duplication
     // todo move `StoreErr` into ApiErr
+    let args = api::StoreArgs {
+        handle: params
+            .remove("handle")
+            .ok_or_else(|| Json(ApiFormatErr::MissingParam("handle".to_string()).into()))?,
+        restore: params
+            .remove("restore")
+            .as_deref()
+            .map(bool::from_str)
+            .unwrap_or(Ok(false))
+            .map_err(|_| Json(ApiFormatErr::BoolFormatError.into()))?,
+        data: Arc::from(body.as_ref()),
+    };
     let (tx, mut rx) = mpsc::unbounded_channel();
 
-    let payload = args.try_into().map_err(|_| Json(ApiErr::HexFormatError))?;
+    let payload = args.try_into().map_err(|_| Json(ApiFormatErr::HexFormatError.into()))?;
     let event = UseCaseEvent::InjectMessage(
         Nonce::random(),
         InjectionMessageData::Store(payload, tx),
@@ -91,23 +105,18 @@ async fn store_dht_data(State(state): State<ApiState>, Json(args): Json<api::Sto
     }
 }
 
-async fn store_dht_data_example(_: State<ApiState>) -> Json<api::StoreArgs> {
-    let example = StoreInjectData {
-        handle: NodeId::random(),
-        data: Arc::from([1,2,4,8,16]),
-        restore: true,
-    };
-
-    Json(example.into())
-}
-
-async fn fetch_dht_data(State(state): State<ApiState>, Json(args): Json<api::FetchArgs>) -> Result<Json<api::FetchRsp>, Json<ApiErr>> {
+async fn fetch_dht_data(State(state): State<ApiState>, Query(mut params): Query<HashMap<String, String>>) -> Result<Json<api::FetchRsp>, Json<ApiErr>> {
     // todo move `FetchErr` into ApiErr
+    let args = api::FetchArgs {
+        handle: params
+            .remove("handle")
+            .ok_or_else(|| Json(ApiFormatErr::MissingParam("handle".to_string()).into()))?,
+    };
     let (tx, mut rx) = mpsc::unbounded_channel();
 
     let event = UseCaseEvent::InjectMessage(
         Nonce::random(),
-        InjectionMessageData::Fetch(args.try_into().map_err(|_| Json(ApiErr::HexFormatError))?, tx),
+        InjectionMessageData::Fetch(args.try_into().map_err(|_| Json(ApiFormatErr::HexFormatError.into()))?, tx),
     );
 
     state.sender.send((event, None)).await.map_err(|_| Json(ApiErr::SendError))?;
@@ -123,12 +132,4 @@ async fn fetch_dht_data(State(state): State<ApiState>, Json(args): Json<api::Fet
         InjectionResult::SendFailed(_) => Err(Json(ApiErr::SendError)),
         InjectionResult::Answered(_) => Err(Json(ApiErr::MessageReceiveMismatch))
     }
-}
-
-async fn fetch_dht_data_example(_: State<ApiState>) -> Json<api::FetchArgs> {
-    let example = FetchInjectData {
-        handle: NodeId::random(),
-    };
-
-    Json(example.into())
 }
