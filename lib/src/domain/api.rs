@@ -4,7 +4,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use hex::{FromHex, FromHexError};
 use serde::{Deserialize, Serialize};
-use crate::messaging::dht::{DefaultLHTInput, FetchReqData};
+use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchReqData, FetchRspData, StoreResult, StoreRspData};
+use crate::use_cases::{FetchInjectData, StoreInjectData};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct NodeId {
@@ -27,7 +28,7 @@ impl TryFrom<NodeId> for crate::domain::NodeId {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct StoreApiData {
+pub struct StoreArgs {
     pub handle: String,
 
     #[serde(default = "restore_default")]
@@ -40,53 +41,77 @@ fn restore_default() -> bool {
 }
 
 
-impl From<crate::use_cases::StoreInjectData<DefaultLHTInput>> for StoreApiData {
-    fn from(value: crate::use_cases::StoreInjectData<DefaultLHTInput>) -> Self {
-        let handle = NodeId::from(value.data.handle).node_id;
+impl From<StoreInjectData<DefaultLHTInput>> for StoreArgs {
+    fn from(value: StoreInjectData<DefaultLHTInput>) -> Self {
+        let handle = NodeId::from(value.handle).node_id;
         Self {
             handle,
             restore: value.restore,
-            data: hex::encode(value.data.data),
+            data: hex::encode(value.data),
         }
     }
 }
 
-impl TryFrom<StoreApiData> for crate::use_cases::StoreInjectData<DefaultLHTInput>
+impl TryFrom<StoreArgs> for StoreInjectData<DefaultLHTInput>
 {
     type Error = FromHexError;
 
-    fn try_from(value: StoreApiData) -> Result<Self, Self::Error> {
+    fn try_from(value: StoreArgs) -> Result<Self, Self::Error> {
         let handle = NodeId::try_into(NodeId { node_id: value.handle })?;
         let data = hex::decode(value.data)?;
         let data = data.into_boxed_slice().into();
         Ok(Self {
-            data: crate::messaging::dht::StoreReqData {
-                handle,
-                data,
-            },
+            handle,
+            data,
             restore: value.restore,
         })
     }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct FetchApiData {
+pub struct FetchArgs {
     pub handle: String,
 }
 
-impl From<FetchReqData> for FetchApiData {
-    fn from(value: FetchReqData) -> Self {
+impl From<FetchInjectData> for FetchArgs {
+    fn from(value: FetchInjectData) -> Self {
         let handle = NodeId::from(value.handle).node_id;
         Self { handle }
     }
 }
 
-impl TryFrom<FetchApiData> for FetchReqData {
+impl TryFrom<FetchArgs> for FetchInjectData {
     type Error = FromHexError;
 
-    fn try_from(value: FetchApiData) -> Result<Self, Self::Error> {
+    fn try_from(value: FetchArgs) -> Result<Self, Self::Error> {
         let handle = NodeId::try_into(NodeId { node_id: value.handle })?;
         Ok(Self { handle })
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct StoreRsp {
+    #[serde(flatten)]
+    status: StoreResult
+}
+
+impl From<StoreRspData> for StoreRsp {
+    fn from(value: StoreRspData) -> Self {
+        Self { status: value.status}
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FetchRsp {
+    #[serde(flatten)]
+    data: Result<Vec<String>, FetchErr>
+}
+
+impl From<FetchRspData<DefaultLHTOutput>> for FetchRsp{
+    fn from(value: FetchRspData<DefaultLHTOutput>) -> Self {
+        let data = value.data
+            .map(|data| data.into_iter().map(hex::encode).collect());
+        Self { data }
     }
 }
 

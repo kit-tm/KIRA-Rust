@@ -379,11 +379,19 @@ where
                 .destination()
                 .expect("Overlay messages are required to have a destination field");
 
+            // is directed to us -> nothing to forward
+            if dest == context.root_id() {
+                return Ok(HandlingResult::NotHandled)
+            }
+
             // todo support other shared_prefix_grouping via config
             source_route = context.routing_table().next_source_route(dest, 20, 1);
 
-            // is directed to us -> nothing to forward,
-            if source_route.destination() == context.root_id() {
+            // we need to push the root id once more so current_hop == root_id
+            source_route.push_front(context.root_id().clone());
+
+            // we are the best destination -> nothing to forward,
+            if source_route.destination() == context.root_id() || source_route.next_hop().is_none() {
                 log::debug!(
                     target: "forward_protocol_message",
                     "Not forwarding overlay message [{:?}] since directed to us",
@@ -468,7 +476,10 @@ where
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
         if let UseCaseEvent::Message(message, interface) = event {
-            self.extract_message_info(context, message.clone(), interface)?;
+            // todo make more efficient pls
+            if interface != NetworkInterface::loopback() {
+                self.extract_message_info(context, message.clone(), interface)?;
+            }
 
             self.handle_forwarding(context, message)
         } else {

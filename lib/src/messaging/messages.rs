@@ -111,10 +111,10 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => Some(req.destination()),
             Self::PathTeardownReq(req) => Some(req.destination()),
             Self::UpdateRouteReq(req) => Some(req.source_route.destination()),
-            Self::StoreReq(req) => Some(req.source_route.destination()),
-            Self::StoreRsp(req) => Some(req.source_route.destination()),
-            Self::FetchReq(req) => Some(req.source_route.destination()),
-            Self::FetchRsp(req) => Some(req.source_route.destination())
+            Self::StoreReq(ReqRspMessage {data, ..}) => Some(&data.handle),
+            Self::StoreRsp(ReqRspMessage {data, ..}) => Some(&data.storer),
+            Self::FetchReq(ReqRspMessage {data, ..}) => Some(&data.handle),
+            Self::FetchRsp(ReqRspMessage {data, ..}) => Some(&data.fetcher)
         }
     }
 

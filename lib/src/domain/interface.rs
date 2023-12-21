@@ -17,6 +17,17 @@ impl NetworkInterface {
         let interface = interfaces.iter().find(|i| i.index == index).expect("Unable to find interface");
         Self {index, name: interface.name.clone()}
     }
+
+    // todo use lazy initialization
+    pub fn loopback() -> Self {
+        let interfaces = pnet::datalink::interfaces();
+        let interface = interfaces.iter().find(|i| i.is_loopback()).expect("Unable to find loopback interface");
+
+        Self {
+            index: interface.index,
+            name: interface.name.clone()
+        }
+    }
 }
 
 #[cfg(test)]

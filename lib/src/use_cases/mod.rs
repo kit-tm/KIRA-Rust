@@ -7,7 +7,7 @@ use std::ops::Deref;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc; // use tokio::sync::oneshot;
 
-use crate::domain::{Contact, NetworkInterface};
+use crate::domain::{Contact, NetworkInterface, NodeId};
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::messages::ProtocolMessage;
 use crate::messaging::{FindNodeReqData, Nonce};
@@ -47,7 +47,7 @@ pub enum UseCaseEvent {
 pub enum InjectionMessageData {
     FindNode(FindNodeReqData),
     Store(StoreInjectData<DefaultLHTInput>, OneshotInjectMessageCallback),
-    Fetch(FetchReqData, OneshotInjectMessageCallback),
+    Fetch(FetchInjectData, OneshotInjectMessageCallback),
 }
 
 impl PartialEq for InjectionMessageData {
@@ -76,8 +76,14 @@ impl PartialEq for InjectionMessageData {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct StoreInjectData<D: Debug> {
-    pub data: StoreReqData<D>,
+    pub handle: NodeId,
+    pub data: D,
     pub restore: bool
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct FetchInjectData {
+    pub handle: NodeId
 }
 
 /// Contact Events which can be handled by UseCases.

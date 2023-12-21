@@ -60,7 +60,7 @@ impl Default for DistributedHashTableConfig<DefaultExpiringHashTable> {
 
 #[derive(Debug)]
 pub enum DHTError {
-    DHTSendError(SenderError)
+    DHTSendError
 }
 
 impl Display for DHTError {
@@ -110,11 +110,11 @@ impl<C, H> DistributedHashTable<C, H>
     }
 }
 
-impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
+impl<C, H, RS, D> EventHandler for DistributedHashTable<C, H>
     where
         C: UseCaseContext,
-        C::MessageSender: ProtocolMessageSender,
-        C::Runtime: UseCaseRuntime,
+        C::Runtime: UseCaseRuntime<SendError=D>,
+        D: Debug,
         H: LocalHashTable<NodeId, DefaultLHTInput, DefaultLHTOutput, StoreRes=StoreResult, FetchErr=FetchErr> + Expiring<Context=(), Result=RS>
 {
     type Context = C;
@@ -125,15 +125,18 @@ impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
         match (event, &self.state) {
             (UseCaseEvent::Message(ProtocolMessage::StoreReq(req), _), _) => {
                 let res = self.config.hash_table.store(req.data.handle, req.data.data);
-                // todo use new overlay routing method?
+                let mut source_route = SourceRoute::from(context.root_id().clone());
+                source_route.push_front(context.root_id().clone());
+
                 let rsp = ReqRspMessage {
                     nonce: req.nonce,
                     source_state_seq_nr: *context.pn_table().state_seq_nr(),
                     data: StoreRspData {
+                        storer: req.data.storer,
                         status: res
                     },
                     not_via: context.not_via().clone(),
-                    source_route: SourceRoute::from_reversed(req.source_route),
+                    source_route,
                 };
 
                 log::trace!(
@@ -142,22 +145,25 @@ impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
                     rsp
                 );
 
-                if let Err(e) = context.message_sender_mut().send_message(ProtocolMessage::StoreRsp(rsp)) {
-                    log::error!("Failed to send message: {}", e);
-                    return Err(DHTError::DHTSendError(e));
+                if let Err(e) = context.runtime().send_message(ProtocolMessage::StoreRsp(rsp)) {
+                    log::error!("Failed to send message: {:?}", e);
+                    return Err(DHTError::DHTSendError);
                 }
             }
             (UseCaseEvent::Message(ProtocolMessage::FetchReq(req), _), _) => {
                 let fetch_res = self.config.hash_table.fetch(&req.data.handle);
-                // todo use new overlay routing method?
+                let mut source_route = SourceRoute::from(context.root_id().clone());
+                source_route.push_front(context.root_id().clone());
+
                 let rsp = ReqRspMessage {
                     nonce: req.nonce,
                     source_state_seq_nr: *context.pn_table().state_seq_nr(),
                     data: FetchRspData {
+                        fetcher: req.data.fetcher,
                         data: fetch_res,
                     },
                     not_via: context.not_via().clone(),
-                    source_route: SourceRoute::from_reversed(req.source_route),
+                    source_route
                 };
 
                 log::trace!(
@@ -166,9 +172,9 @@ impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
                     rsp
                 );
 
-                if let Err(e) = context.message_sender_mut().send_message(ProtocolMessage::FetchRsp(rsp)) {
-                    log::error!("Failed to send message: {}", e);
-                    return Err(DHTError::DHTSendError(e));
+                if let Err(e) = context.runtime().send_message(ProtocolMessage::FetchRsp(rsp)) {
+                    log::error!("Failed to send message: {:?}", e);
+                    return Err(DHTError::DHTSendError);
                 }
             }
             (UseCaseEvent::Timer(id), DHTState::Running(our_timer_id)) => {
@@ -184,11 +190,11 @@ impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
 }
 
 
-impl<C, H, RS> UseCase for DistributedHashTable<C, H>
+impl<C, H, RS, D> UseCase for DistributedHashTable<C, H>
     where
         C: UseCaseContext,
-        C::MessageSender: ProtocolMessageSender,
-        C::Runtime: UseCaseRuntime,
+        C::Runtime: UseCaseRuntime<SendError=D>,
+        D: Debug,
         H: LocalHashTable<NodeId, DefaultLHTInput, DefaultLHTOutput, StoreRes=StoreResult, FetchErr=FetchErr> + Expiring<Context=(), Result=RS>
 {
     type State = DHTState;

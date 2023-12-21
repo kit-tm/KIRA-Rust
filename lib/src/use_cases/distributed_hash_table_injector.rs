@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use core::time::Duration;
 use std::collections::{HashMap, LinkedList};
 use std::marker::PhantomData;
@@ -6,12 +6,13 @@ use std::num::NonZeroUsize;
 use std::time::Instant;
 
 use crate::context::UseCaseContext;
-use crate::domain::{GroupingError, node_id, NodeId, RoutingTable};
+use crate::domain::{GroupingError, node_id, RoutingTable};
 use crate::runtime::UseCaseRuntime;
-use crate::use_cases::{EventHandler, InjectionMessageData, OneshotInjectMessageCallback, TimerId, UseCase, UseCaseEvent, UseCaseState};
+use crate::use_cases::{EventHandler, FetchInjectData, InjectionMessageData, OneshotInjectMessageCallback, StoreInjectData, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
 use crate::messaging::{Nonce, ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
 use crate::messaging::dht::{DefaultLHTInput, FetchReqData, StoreReqData};
+use crate::messaging::source_route::SourceRoute;
 use crate::use_cases::distributed_hash_table_injector::DHTInjectorState::Running;
 use crate::use_cases::inject_messages::InjectionResult;
 use crate::use_cases::inject_messages::errors::InjectMessageError;
@@ -86,16 +87,15 @@ impl<C, const BUCKET_SIZE: usize> Default for DistributedHashTableInjector<C, BU
     }
 }
 
-impl<C, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize, D: Debug> DistributedHashTableInjector<C, BUCKET_SIZE>
     where
         C: UseCaseContext,
         for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-        C::MessageSender: ProtocolMessageSender
+        C::Runtime: UseCaseRuntime<SendError=D>,
 {
-    fn construct_req_rsp_msg<T: Debug>(&self, context: &C, nonce: Nonce, data: T, destination: NodeId) -> ReqRspMessage<T> {
-        let source_route = context
-            .routing_table()
-            .next_source_route(&destination, 20, self.config.shared_prefix_grouping.get());
+    fn construct_req_rsp_msg<T: Debug>(context: &C, nonce: Nonce, data: T) -> ReqRspMessage<T> {
+        let mut source_route = SourceRoute::from(context.root_id().clone());
+        source_route.push_front(context.root_id().clone());
 
         ReqRspMessage {
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
@@ -107,33 +107,31 @@ impl<C, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCKET_SIZE>
     }
 
     fn send_store_req(&self, context: &C, nonce: Nonce, data: StoreReqData<DefaultLHTInput>) -> Result<(), InjectMessageError> {
-        let dest = data.handle.clone();
-        let message = self.construct_req_rsp_msg(context, nonce, data, dest);
+        let message = Self::construct_req_rsp_msg(context, nonce, data);
 
-        log::trace!(target: "inject_dht_messages", "Sending StoreReq from {} with target {}",
+        log::trace!(target: "inject_dht_messages", "Sending StoreReq from {} with destination {}",
             message.source_route.source(),
-            message.source_route.destination()
+            message.data.handle
         );
 
         let message = ProtocolMessage::StoreReq(message);
-        context.message_sender_mut().send_message(message).map_err(|e| {
-            log::error!(target: "inject_dht_messages", "Failed to send triggered message: {}", e);
+        context.runtime().send_message(message).map_err(|e| {
+            log::error!(target: "inject_dht_messages", "Failed to send triggered message: {:?}", e);
             InjectMessageError::SendFailed
         })
     }
 
     fn send_fetch_req(&self, context: &C, nonce: Nonce, data: FetchReqData) -> Result<(), InjectMessageError> {
-        let dest = data.handle.clone();
-        let message = self.construct_req_rsp_msg(context, nonce, data, dest);
+        let message = Self::construct_req_rsp_msg(context, nonce, data);
 
-        log::trace!(target: "inject_dht_messages", "Sending FetchReq from {} with target {}",
+        log::trace!(target: "inject_dht_messages", "Sending FetchReq from {} with destination {}",
             message.source_route.source(),
-            message.source_route.destination()
+            message.data.handle
         );
 
         let message = ProtocolMessage::FetchReq(message);
-        context.message_sender_mut().send_message(message).map_err(|e| {
-            log::error!(target: "inject_dht_messages", "Failed to send triggered message: {}", e);
+        context.runtime().send_message(message).map_err(|e| {
+            log::error!(target: "inject_dht_messages", "Failed to send triggered message: {:?}", e);
             InjectMessageError::SendFailed
         })
     }
@@ -167,12 +165,12 @@ impl<C, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCKET_SIZE> {
 }
 
 
-impl<C, const BUCKET_SIZE: usize> EventHandler for DistributedHashTableInjector<C, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize, D: Debug> EventHandler for DistributedHashTableInjector<C, BUCKET_SIZE>
     where
         C: UseCaseContext,
         for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
         C::MessageSender: ProtocolMessageSender,
-        C::Runtime: UseCaseRuntime,
+        C::Runtime: UseCaseRuntime<SendError=D>,
 {
     type Context = C;
     type Error = InjectMessageError;
@@ -180,17 +178,28 @@ impl<C, const BUCKET_SIZE: usize> EventHandler for DistributedHashTableInjector<
 
     fn handle_event(&mut self, context: &Self::Context, event: UseCaseEvent) -> Result<Self::Value, Self::Error> {
         match (event, &self.state) {
-            (UseCaseEvent::InjectMessage(nonce, InjectionMessageData::Store(payload, callback)), _) => {
-                if let Err(inject_err) = self.send_store_req(context, nonce.clone(), payload.data.clone()) {
+            (UseCaseEvent::InjectMessage(nonce, InjectionMessageData::Store(StoreInjectData { handle, data, restore }, callback)), _) => {
+                let payload = StoreReqData {
+                    storer: context.root_id().clone(),
+                    handle,
+                    data,
+                };
+
+                if let Err(inject_err) = self.send_store_req(context, nonce.clone(), payload.clone()) {
                     self.inform_injector_about_send_error(inject_err, &nonce, callback)?;
                 } else {
                     self.nonces.insert(nonce.clone(), (Instant::now(), callback));
-                    if payload.restore {
-                        self.restore_data.push_back(payload.data);
+                    if restore {
+                        self.restore_data.push_back(payload);
                     }
                 }
             }
-            (UseCaseEvent::InjectMessage(nonce, InjectionMessageData::Fetch(payload, callback)), _) => {
+            (UseCaseEvent::InjectMessage(nonce, InjectionMessageData::Fetch(FetchInjectData { handle }, callback)), _) => {
+                let payload = FetchReqData {
+                    fetcher: context.root_id().clone(),
+                    handle,
+                };
+
                 if let Err(inject_err) = self.send_fetch_req(context, nonce.clone(), payload) {
                     self.inform_injector_about_send_error(inject_err, &nonce, callback)?;
                 } else {
