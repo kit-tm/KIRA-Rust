@@ -166,14 +166,15 @@ where
 
                 not_via.insert(NotVia::Link(link.clone()));
 
-                let contacts_id = request.request_destination();
-
-                if let Some(mut contact) = routing_table.contact_mut(contacts_id) {
-                    *contact.state_mut() = ContactState::Invalid;
-                }
+                // I do not know what this does that is not included in the for loop below
+                //let contacts_id = request.request_destination();
+                //if let Some(mut contact) = routing_table.contact_mut(contacts_id) {
+                //    *contact.state_mut() = ContactState::Invalid;
+                //}
 
                 for mut contact in routing_table.iter_mut() {
                     if contact.path().contains_link(link) {
+                        log::trace!("Invalidate Contact due to failed link: {:?} {:?}", link, *contact);
                         *contact.state_mut() = ContactState::Invalid;
                     }
                 }
@@ -255,8 +256,11 @@ where
                         && old_contact.is_older_than(&updated_contact)
                         && updated_contact.state() == &ContactState::Valid
                     {
-                        *old_contact.state_mut() = ContactState::Invalid;
-                        log::trace!(target: "forward_protocol_message", "Invalidated contact {} based on route update data of {} [Worsened]", old_contact.id(), source_id);
+                        // This is definitely wrong: The conditions above check whether the old path is longer and the information is newer and the new contact is valid. Why should we invalidate here?
+                        //*old_contact.state_mut() = ContactState::Invalid;
+                        // TODO use shorter path
+                        // TODO check what we actually have to do here
+                        //log::trace!(target: "forward_protocol_message", "Invalidated contact {} based on route update data of {} [Worsened]", old_contact.id(), source_id);
                     }
                 }
             }
@@ -336,6 +340,7 @@ where
             not_via: context.not_via().clone(),
             source_route: SourceRoute::from_reversed(message.source_route().unwrap().clone()),
         };
+        log::trace!("Sending SegmentFailure: {:?}", error_message);
 
         if let Err(e) = context.message_sender_mut().send_message(error_message) {
             log::error!("Failed to reply with error message: {}", e);
@@ -383,6 +388,7 @@ where
             context.root_id().clone(),
             next_hop.clone(),
         ))) {
+            log::trace!("Error next hop in not-via: {}", next_hop);
             self.handle_next_hop_failed(context, message)?;
             return Ok(HandlingResult::Handled);
         }
@@ -390,6 +396,7 @@ where
         // Next hop is not a physical neighbor -> Error -> Drop
         let neighbor_interface = context.pn_table().get(next_hop).cloned();
         if neighbor_interface.is_none() {
+            log::trace!("Error next hop not a physical neighbor: {}", next_hop);
             self.handle_next_hop_failed(context, message)?;
             return Ok(HandlingResult::Handled);
         }

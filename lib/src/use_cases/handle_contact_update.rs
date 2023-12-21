@@ -120,21 +120,23 @@ where
     ) -> Result<Self::Value, Self::Error> {
         match event {
             UseCaseEvent::Contact(ContactEvent::Removed(contact)) => {
-                let mut updates = HashMap::new();
-                updates.insert(contact.clone(), RouteUpdate::Removed);
+                // We shouldn't tell others that we have removed a Contact as this can happen also
+                // because it was replaced by a new one in a higher bucket
+                //let mut updates = HashMap::new();
+                //updates.insert(contact.clone(), RouteUpdate::Removed);
 
-                self.send_update(context, updates)?;
-                context.not_via_mut().retain(|not_via| match not_via {
-                    NotVia::Link(link) => {
-                        link.first() != contact.id() && link.second() != contact.id()
-                    }
-                });
+                //self.send_update(context, updates)?;
+                //context.not_via_mut().retain(|not_via| match not_via {
+                    //NotVia::Link(link) => {
+                        //link.first() != contact.id() && link.second() != contact.id()
+                    //}
+                //});
 
-                self.invalidate_all_affected_contacts(context, &contact);
+                //self.invalidate_all_affected_contacts(context, &contact);
 
-                if context.pn_table_mut().remove(contact.id()).is_some() {
-                    log::debug!(target: "handle_contact_update", "removed {} from physical neighbors", contact.id());
-                }
+                //if context.pn_table_mut().remove(contact.id()).is_some() {
+                    //log::trace!(target: "handle_contact_update", "removed {} from physical neighbors", contact.id());
+                //}
             }
             UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {
                 let mut updates = HashMap::new();

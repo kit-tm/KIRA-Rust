@@ -31,7 +31,8 @@ impl Default for PathProbingConfig {
     fn default() -> Self {
         Self {
             check_interval: Duration::from_secs(1),
-            probe_age: chrono::Duration::seconds(40),
+            // increase this for now until the bug is fixed
+            probe_age: chrono::Duration::seconds(4000),
             request_timeout: Duration::from_secs(10),
         }
     }
@@ -174,7 +175,8 @@ where
             let mut lock = context.routing_table_mut();
             match lock.contact_mut(&contacts_id) {
                 Some(mut contact) => {
-                    *contact.state_mut() = ContactState::Invalid;
+                    // Disable this for now something is bugged here
+                    //*contact.state_mut() = ContactState::Invalid;
                     log::trace!(target: "path_probing", "Invalidated contact due of timer [path: {}]", contact.path());
                 }
                 None => {
