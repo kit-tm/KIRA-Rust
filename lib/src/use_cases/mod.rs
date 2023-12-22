@@ -58,14 +58,14 @@ impl PartialEq for InjectionMessageData {
                     return data == other_data
                 }
             }
-            Self::Store(data, _) => {
-                if let Self::Store(other_data, _) = other {
-                    return data == other_data
+            Self::Store(data, sender) => {
+                if let Self::Store(other_data, other_sender) = other {
+                    return data == other_data && sender.same_channel(other_sender)
                 }
             }
-            Self::Fetch(data, _) => {
-                if let Self::Fetch(other_data, _) = other {
-                    return data == other_data
+            Self::Fetch(data, sender) => {
+                if let Self::Fetch(other_data, other_sender) = other {
+                    return data == other_data && sender.same_channel(other_sender)
                 }
             }
         }
