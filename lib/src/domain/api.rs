@@ -1,10 +1,14 @@
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 use hex::{FromHex, FromHexError};
 use serde::{Deserialize, Serialize};
+use crate::domain::dht::hash_table::expiring_hash_table::ExpiringHashTable;
 use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchReqData, FetchRspData, StoreResult, StoreRspData};
 use crate::use_cases::{FetchInjectData, StoreInjectData};
+use crate::use_cases::distributed_hash_table::{DefaultExpiringHashTable, HashTableData};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct NodeId {
@@ -110,6 +114,12 @@ impl From<FetchRspData<DefaultLHTOutput>> for FetchRsp{
             .map(|data| data.into_iter().map(hex::encode).collect());
         Self { data }
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LocalHashTable {
+    #[serde(flatten)]
+    ht: HashMap<NodeId, HashTableData>
 }
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);

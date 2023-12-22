@@ -33,6 +33,7 @@ pub(crate) async fn start_http_server(api_config: ApiConfig) {
         .route("/dht", post(store_dht_data).get(fetch_dht_data))
         .route("/dht/store", post(store_dht_data))
         .route("/dht/fetch", get(fetch_dht_data))
+        .route("/dht/_dev/local-hashtable", get(dump_local_hashtable))
         .with_state(api_state);
 
     axum::Server::bind(&api_config.address)
@@ -132,4 +133,8 @@ async fn fetch_dht_data(State(state): State<ApiState>, Query(mut params): Query<
         InjectionResult::SendFailed(_) => Err(Json(ApiErr::SendError)),
         InjectionResult::Answered(_) => Err(Json(ApiErr::MessageReceiveMismatch))
     }
+}
+
+async fn dump_local_hashtablefetch_dht_data(State(state): State<ApiState>) -> Json<api::LocalHashTable> {
+
 }

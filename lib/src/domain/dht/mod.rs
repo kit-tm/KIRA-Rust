@@ -1,10 +1,12 @@
 use std::hash::{Hash, Hasher};
 use std::time::Instant;
+use serde::Serialize;
 
 pub mod hash_table;
 pub mod strategies;
 pub mod expiring;
 
+#[derive(Debug, Clone, Serialize)]
 pub struct TimedValue<V> {
     pub value: V,
     pub time: Instant,

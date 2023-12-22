@@ -2,16 +2,15 @@
 
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-use std::mem::discriminant;
 use std::ops::Deref;
-use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc; // use tokio::sync::oneshot;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::UnboundedSender; // use tokio::sync::oneshot;
 
 use crate::domain::{Contact, NetworkInterface, NodeId};
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::messages::ProtocolMessage;
 use crate::messaging::{FindNodeReqData, Nonce};
-use crate::messaging::dht::{DefaultLHTInput, FetchReqData, StoreReqData};
+use crate::messaging::dht::DefaultLHTInput;
 use crate::use_cases::inject_messages::InjectionResult;
 
 pub mod derive_fwd_table_entries;
@@ -39,6 +38,7 @@ pub enum UseCaseEvent {
     Contact(ContactEvent),
     InjectMessage(Nonce, InjectionMessageData),
     Hardware(HardwareEvent),
+    API(ApiEvent),
     Shutdown,
 }
 
@@ -66,6 +66,25 @@ impl PartialEq for InjectionMessageData {
             Self::Fetch(data, sender) => {
                 if let Self::Fetch(other_data, other_sender) = other {
                     return data == other_data && sender.same_channel(other_sender)
+                }
+            }
+        }
+
+        false
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ApiEvent {
+    LocalHashTable(UnboundedSender<crate::domain::api::LocalHashTable>)
+}
+
+impl PartialEq for ApiEvent {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            ApiEvent::LocalHashTable(sender) => {
+                if let ApiEvent::LocalHashTable(other_sender) = other {
+                    return sender.same_channel(other_sender)
                 }
             }
         }
