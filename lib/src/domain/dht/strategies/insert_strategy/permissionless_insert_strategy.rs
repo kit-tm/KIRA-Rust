@@ -6,7 +6,7 @@ use crate::domain::NodeId;
 use crate::messaging::dht::{DefaultLHTInput, StoreOK, StoreResult};
 use crate::use_cases::distributed_hash_table::HashTableData;
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone)]
 pub struct PermissionlessInsertStrategy {}
 
 impl InsertionStrategy for PermissionlessInsertStrategy

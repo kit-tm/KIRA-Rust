@@ -4,6 +4,8 @@ use crate::domain::dht::TimedValue;
 use super::TimeoutStrategy;
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60 * 60 * 24);
+
+#[derive(Debug, Clone)]
 pub struct ConstTimeoutStrategy<C, D> {
     _c: PhantomData<C>,
     _d: PhantomData<D>,

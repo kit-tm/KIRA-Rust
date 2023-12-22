@@ -6,7 +6,7 @@ use crate::domain::NodeId;
 use crate::messaging::dht::{DefaultLHTOutput, FetchErr};
 use crate::use_cases::distributed_hash_table::HashTableData;
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone)]
 pub struct PermissionlessFetchStrategy {}
 
 impl FetchStrategy for PermissionlessFetchStrategy

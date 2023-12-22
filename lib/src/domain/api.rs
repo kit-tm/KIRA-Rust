@@ -1,16 +1,15 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::Duration;
-use hex::{FromHex, FromHexError};
+use hex::FromHexError;
 use serde::{Deserialize, Serialize};
-use crate::domain::dht::hash_table::expiring_hash_table::ExpiringHashTable;
-use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchReqData, FetchRspData, StoreResult, StoreRspData};
+use crate::domain::dht::TimedValue;
+use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchRspData, StoreResult, StoreRspData};
 use crate::use_cases::{FetchInjectData, StoreInjectData};
-use crate::use_cases::distributed_hash_table::{DefaultExpiringHashTable, HashTableData};
+use crate::use_cases::distributed_hash_table::{DefaultExpiringHashTable, HashTableData, HashTableSingle};
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Hash, PartialEq, Eq)]
 pub struct NodeId {
     #[serde(rename(serialize = "node-id", deserialize = "node-id"))]
     pub node_id: String,
@@ -119,7 +118,27 @@ impl From<FetchRspData<DefaultLHTOutput>> for FetchRsp{
 #[derive(Debug, Clone, Serialize)]
 pub struct LocalHashTable {
     #[serde(flatten)]
-    ht: HashMap<NodeId, HashTableData>
+    ht: HashMap<String, Vec<TimedValue<String>>>
+}
+
+impl From<HashTableSingle> for TimedValue<String> {
+    fn from(value: HashTableSingle) -> Self {
+        let time = value.time;
+        let value = hex::encode(value.value);
+
+        Self { value, time}
+    }
+}
+
+impl From<DefaultExpiringHashTable> for LocalHashTable {
+    fn from(value: DefaultExpiringHashTable) -> Self {
+        Self {
+            ht: value.map
+                .into_iter()
+                .map(|(k, v)| (NodeId::from(k).node_id, v.into_iter().map(Into::into).collect()))
+                .collect()
+        }
+    }
 }
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);

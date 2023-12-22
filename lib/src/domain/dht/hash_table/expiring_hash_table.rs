@@ -7,7 +7,7 @@ use crate::domain::dht::strategies::insert_strategy::InsertionStrategy;
 use crate::domain::dht::strategies::fetch_strategy::FetchStrategy;
 use crate::domain::dht::strategies::timeout_strategy::TimeoutStrategy;
 
-
+#[derive(Clone)]
 pub struct ExpiringHashTable<H, D, IS, FS, TS>
 {
     pub map: HashMap<H, D>,
