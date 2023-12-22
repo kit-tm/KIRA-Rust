@@ -76,7 +76,7 @@ async fn store_dht_data(State(state): State<ApiState>, Query(mut params): Query<
             .ok_or_else(|| Json(ApiFormatErr::MissingParam("handle".to_string()).into()))?,
         restore: params
             .remove("restore")
-            .as_deref()
+            .as_deref().map(str::to_lowercase).as_deref()
             .map(bool::from_str)
             .unwrap_or(Ok(false))
             .map_err(|_| Json(ApiFormatErr::BoolFormatError.into()))?,
