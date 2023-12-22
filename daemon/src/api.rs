@@ -15,7 +15,7 @@ use r2kad_lib::domain::NodeId;
 use r2kad_lib::domain::api;
 use r2kad_lib::domain::api::{ApiErr, ApiFormatErr, DEFAULT_TIMEOUT};
 use r2kad_lib::use_cases::inject_messages::InjectionResult;
-use r2kad_lib::use_cases::{FetchInjectData, InjectionMessageData, StoreInjectData, UseCaseEvent};
+use r2kad_lib::use_cases::{ApiEvent, FetchInjectData, InjectionMessageData, StoreInjectData, UseCaseEvent};
 use r2kad_lib::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreReqData, StoreRspData};
 use r2kad_lib::messaging::{Nonce, ProtocolMessage};
 
@@ -135,6 +135,16 @@ async fn fetch_dht_data(State(state): State<ApiState>, Query(mut params): Query<
     }
 }
 
-async fn dump_local_hashtablefetch_dht_data(State(state): State<ApiState>) -> Json<api::LocalHashTable> {
+async fn dump_local_hashtable(State(state): State<ApiState>) -> Result<Json<api::LocalHashTable>,Json<ApiErr>> {
+    let (tx, mut rx) = mpsc::unbounded_channel();
 
+    let event = UseCaseEvent::API(ApiEvent::LocalHashTable(tx));
+
+    state.sender.send((event, None)).await.map_err(|_| Json(ApiErr::SendError))?;
+
+    let local_ht = rx.recv().await
+        .map(Json)
+        .ok_or(Json(ApiErr::ReceiveError));
+
+    return local_ht;
 }
