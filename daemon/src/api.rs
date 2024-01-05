@@ -15,8 +15,8 @@ use r2kad_lib::domain::NodeId;
 use r2kad_lib::domain::api;
 use r2kad_lib::domain::api::{ApiErr, ApiFormatErr, DEFAULT_TIMEOUT};
 use r2kad_lib::use_cases::inject_messages::InjectionResult;
-use r2kad_lib::use_cases::{ApiEvent, FetchInjectData, InjectionMessageData, StoreInjectData, UseCaseEvent};
-use r2kad_lib::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreReqData, StoreRspData};
+use r2kad_lib::use_cases::{ApiEvent, InjectionMessageData, UseCaseEvent};
+use r2kad_lib::messaging::dht::{DefaultLHTOutput};
 use r2kad_lib::messaging::{Nonce, ProtocolMessage};
 
 
@@ -68,83 +68,83 @@ async fn get_node_id(State(state): State<ApiState>) -> Json<api::NodeId> {
     Json(state.node_id.into())
 }
 
-async fn store_dht_data(State(state): State<ApiState>, Query(mut params): Query<HashMap<String, String>>, body: Bytes) -> Result<Json<api::StoreRsp>, Json<ApiErr>> {
+async fn store_dht_data(State(state): State<ApiState>, Query(mut params): Query<HashMap<String, String>>, body: Bytes) -> Result<api::StoreOK, api::ApiErr> {
     // todo factor out essentials to reduce code duplication
     // todo move `StoreErr` into ApiErr
     let args = api::StoreArgs {
         handle: params
             .remove("handle")
-            .ok_or_else(|| Json(ApiFormatErr::MissingParam("handle".to_string()).into()))?,
+            .ok_or_else(|| ApiFormatErr::MissingParams(vec!["handle".to_owned()]))?,
         restore: params
             .remove("restore")
             .as_deref().map(str::to_lowercase).as_deref()
             .map(bool::from_str)
             .unwrap_or(Ok(false))
-            .map_err(|_| Json(ApiFormatErr::BoolFormatError.into()))?,
+            .map_err(|_| ApiFormatErr::BoolFormatError)?,
         data: Arc::from(body.as_ref()),
     };
     let (tx, mut rx) = mpsc::unbounded_channel();
 
-    let payload = args.try_into().map_err(|_| Json(ApiFormatErr::HexFormatError.into()))?;
+    let payload = args.try_into().map_err(|_| ApiFormatErr::HexFormatError)?;
     let event = UseCaseEvent::InjectMessage(
         Nonce::random(),
         InjectionMessageData::Store(payload, tx),
     );
 
-    state.sender.send((event, None)).await.map_err(|_| Json(ApiErr::SendError))?;
+    state.sender.send((event, None)).await.map_err(|_| ApiErr::SendError)?;
     let injection_result = timeout(DEFAULT_TIMEOUT, rx.recv())
         .await
-        .map(|received| received.ok_or(Json(ApiErr::ReceiveError)))
-        .map_err(|_| Json(ApiErr::Timeout))??;
+        .map(|received| received.ok_or(ApiErr::ReceiveError))
+        .map_err(|_| ApiErr::Timeout)??;
     log::trace!(target: "api_backend", "Received injection result [{:?}]", injection_result);
 
     match injection_result {
-        InjectionResult::Answered((ProtocolMessage::StoreRsp(payload), _)) => Ok(Json(payload.data.into())),
-        InjectionResult::Isolated => Err(Json(ApiErr::Isolated)),
-        InjectionResult::SendFailed(_) => Err(Json(ApiErr::SendError)),
-        InjectionResult::Answered(_) => Err(Json(ApiErr::MessageReceiveMismatch))
+        InjectionResult::Answered((ProtocolMessage::StoreRsp(payload), _)) => Ok(payload.data.status?.into()),
+        InjectionResult::Isolated => Err(ApiErr::Isolated),
+        InjectionResult::SendFailed(_) => Err(ApiErr::SendError),
+        InjectionResult::Answered(_) => Err(ApiErr::MessageReceiveMismatch)
     }
 }
 
-async fn fetch_dht_data(State(state): State<ApiState>, Query(mut params): Query<HashMap<String, String>>) -> Result<Json<api::FetchRsp>, Json<ApiErr>> {
-    // todo move `FetchErr` into ApiErr
+// todo dont use JSON for DHTOutput
+async fn fetch_dht_data(State(state): State<ApiState>, Query(mut params): Query<HashMap<String, String>>) -> Result<Json<DefaultLHTOutput>, api::ApiErr> {
     let args = api::FetchArgs {
         handle: params
             .remove("handle")
-            .ok_or_else(|| Json(ApiFormatErr::MissingParam("handle".to_string()).into()))?,
+            .ok_or_else(|| ApiFormatErr::MissingParams(vec!["handle".to_owned()]))?,
     };
     let (tx, mut rx) = mpsc::unbounded_channel();
 
     let event = UseCaseEvent::InjectMessage(
         Nonce::random(),
-        InjectionMessageData::Fetch(args.try_into().map_err(|_| Json(ApiFormatErr::HexFormatError.into()))?, tx),
+        InjectionMessageData::Fetch(args.try_into().map_err(|_| ApiFormatErr::HexFormatError)?, tx),
     );
 
-    state.sender.send((event, None)).await.map_err(|_| Json(ApiErr::SendError))?;
+    state.sender.send((event, None)).await.map_err(|_| ApiErr::SendError)?;
     let injection_result = timeout(DEFAULT_TIMEOUT, rx.recv())
         .await
-        .map(|received| received.ok_or(Json(ApiErr::ReceiveError)))
-        .map_err(|_| Json(ApiErr::Timeout))??;
+        .map(|received| received.ok_or(ApiErr::ReceiveError))
+        .map_err(|_| ApiErr::Timeout)??;
     log::trace!(target: "api_backend", "Received injection result [{:?}]", injection_result);
 
     match injection_result {
-        InjectionResult::Answered((ProtocolMessage::FetchRsp(payload), _)) => Ok(Json(payload.data.into())),
-        InjectionResult::Isolated => Err(Json(ApiErr::Isolated)),
-        InjectionResult::SendFailed(_) => Err(Json(ApiErr::SendError)),
-        InjectionResult::Answered(_) => Err(Json(ApiErr::MessageReceiveMismatch))
+        InjectionResult::Answered((ProtocolMessage::FetchRsp(payload), _)) => Ok(Json(payload.data.data?)),
+        InjectionResult::Isolated => Err(ApiErr::Isolated),
+        InjectionResult::SendFailed(_) => Err(ApiErr::SendError),
+        InjectionResult::Answered(_) => Err(ApiErr::MessageReceiveMismatch)
     }
 }
 
-async fn dump_local_hashtable(State(state): State<ApiState>) -> Result<Json<api::LocalHashTable>,Json<ApiErr>> {
+async fn dump_local_hashtable(State(state): State<ApiState>) -> Result<Json<api::LocalHashTable>, api::ApiErr> {
     let (tx, mut rx) = mpsc::unbounded_channel();
 
     let event = UseCaseEvent::API(ApiEvent::LocalHashTable(tx));
 
-    state.sender.send((event, None)).await.map_err(|_| Json(ApiErr::SendError))?;
+    state.sender.send((event, None)).await.map_err(|_| ApiErr::SendError)?;
 
     let local_ht = rx.recv().await
         .map(Json)
-        .ok_or(Json(ApiErr::ReceiveError));
+        .ok_or(ApiErr::ReceiveError);
 
     return local_ht;
 }

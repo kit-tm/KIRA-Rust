@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 use std::sync::Arc;
-use serde::{Deserialize, Serialize};
 use crate::domain::NodeId;
 
 pub type DefaultLHTInput = Arc<[u8]>;
@@ -25,8 +24,6 @@ pub enum StoreOK {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum StoreErr {
-    TimeOutErr,
-    DataTypeErr,
 }
 
 pub type StoreResult = Result<StoreOK, StoreErr>;
