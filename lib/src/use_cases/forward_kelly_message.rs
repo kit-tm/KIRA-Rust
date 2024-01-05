@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use hex::FromHex;
 use crate::context::UseCaseContext;
-use crate::domain::{api, Contact, node_id, NodeId, Path, RoutingTable, SharedPrefix};
+use crate::domain::{Contact, node_id, NodeId, Path, RoutingTable, SharedPrefix};
 use crate::domain::api::{KellyResponse, NodeIdApi};
 use crate::messaging::{KellyReqData, KellyRspData, Nonce, ProtocolMessageSender, ReqRspMessage};
 use crate::messaging::kelly_connector::KellyConnector;

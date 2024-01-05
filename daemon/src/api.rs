@@ -9,7 +9,7 @@ use tokio::sync::mpsc::Sender;
 use tokio::time::Instant;
 use r2kad_lib::context::UseCaseContext;
 use r2kad_lib::domain;
-use r2kad_lib::domain::api::{KellyRequest, NodeIdApi, OutgoingKellyRequest, OutgoingKellyResponse, RoutingTable, RoutingTableResponse};
+use r2kad_lib::domain::api::{NodeIdApi, OutgoingKellyRequest, OutgoingKellyResponse, RoutingTable, RoutingTableResponse};
 use r2kad_lib::domain::NodeId;
 use r2kad_lib::use_cases::{ApiEvent, UseCaseEvent};
 use r2kad_lib::use_cases::ApiEvent::SendKellyReq;
@@ -70,7 +70,7 @@ async fn get_node_id(State(state): State<ApiState>) -> Json<r2kad_lib::domain::a
 }
 
 async fn get_node_id_for_test_env(State(state): State<ApiState>) -> String {
-    let test: String = state.node_id.bytes().iter().map(|x| format!("\\x{:02x}", x)).collect::<Vec<String>>().concat();
+    let test: String = state.node_id.bytes_vec().iter().map(|x| format!("\\x{:02x}", x)).collect::<Vec<String>>().concat();
     let mut result = "{ \"node-id\": \"".to_string();
     result = result.add(&test);
     result = result.add("\" }");

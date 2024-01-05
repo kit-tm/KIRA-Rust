@@ -1,9 +1,7 @@
 use std::marker::PhantomData;
-use std::ops::Deref;
-use std::ptr::copy_nonoverlapping;
 use tokio::sync::mpsc::error::SendError;
 use crate::context::UseCaseContext;
-use crate::domain::api::{NodeApi, NodeIdApi, RoutingTable, RoutingTableResponse};
+use crate::domain::api::{NodeApi, RoutingTable, RoutingTableResponse};
 use crate::use_cases::{ApiEvent, EventHandler, UseCaseEvent};
 
 pub struct HandleApiMessages<C, const BUCKET_SIZE: usize> {

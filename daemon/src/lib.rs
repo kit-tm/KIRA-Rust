@@ -52,7 +52,7 @@ use r2kad_lib::use_cases::{
 use r2kad_lib::use_cases::forward_kelly_message::ForwardKellyMessageHandler;
 use crate::api::ApiConfig;
 
-use crate::benchmark_log::{BenchmarkEntry, BenchmarkLog};
+use crate::benchmark_log::BenchmarkLog;
 use crate::errors::InjectMessageError;
 
 mod benchmark_log;
@@ -289,7 +289,7 @@ where
         let mut bench_file_writer = config.benchmark_path.map(BufWriter::new);
 
         let (fan_in_sender, mut fan_in_receiver) =
-            mpsc::channel::<(UseCaseEvent, Option<Instant>)>(100);
+            mpsc::channel::<(UseCaseEvent, Option<Instant>)>(10000);
 
         let new_sender = fan_in_sender.clone();
 

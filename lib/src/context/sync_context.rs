@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 
 use crate::context::{ContextConfig, ReadGuard, UseCaseContext, WriteGuard};
-use crate::domain::{DiscoveryRangeProvider, NodeId, NotVia, PNTable, RoutingTable};
+use crate::domain::{DiscoveryRangeProvider, NodeId, NotVia, PNTable};
 use crate::domain::api::{DiscoveryRange};
 
 /// Implements a [UseCaseContext] which can only be used in a single threaded synchronous environment.

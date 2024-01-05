@@ -52,10 +52,7 @@ where
 {
     fn extract_path_to_source(&self, message: &ProtocolMessage) -> Path {
         let route = message.source_route().map(SourceRoute::traveled_path);
-        let mut path = match route {
-            None => Path::from(message.source().clone()),
-            Some(path) => path,
-        };
+        let mut path = route.unwrap_or_else(|| Path::from(message.source().clone()));
 
         path.reverse();
 

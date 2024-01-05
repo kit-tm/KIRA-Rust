@@ -1,8 +1,12 @@
 use std::cmp::{min, Ordering};
+use std::io::Read;
 use std::num::NonZeroUsize;
 use std::ops::IndexMut;
 
+use bitvec::prelude::*;
+
 use rand::Rng;
+use serde_json::from_slice;
 
 use crate::domain::{node_id, AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, ContactState, GroupingError, NodeId, ReplacementError, RoutingTable, SharedPrefix, DEFAULT_BUCKET_SIZE, DiscoveryRangeProvider};
 use crate::domain::api::{DiscoveryRange, RoutingTableLayer};
@@ -127,7 +131,7 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
             .expect("GroupingError after checking");
 
         // bitindex is now the index of the LSB of the first non-zero digit in delta
-        let bit_index = (node_id::BIT_SIZE).checked_sub((prefix_len + 1) * ACC);
+        let bit_index = node_id::BIT_SIZE.checked_sub((prefix_len + 1) * ACC);
         let bit_index = match bit_index {
             // This is the root key
             None => return num_buckets - 1, // Always at least one bucket present
@@ -188,46 +192,27 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
         result
     }
 
-    // FIXME works only for last level
-    pub fn get_prefix_for_bucket_index(&self, level: usize, position_in_level: usize, fill_with_ones: bool) -> SharedPrefix {
-        let mut bytes = self.root.clone().bytes();
+    // TODO Rename this
+    pub fn get_prefix_for_bucket_in_last_level(&self, last_level: usize, position_in_level: usize, fill_with_ones: bool) -> NodeId {
+        let mut bytes = self.root.clone().bytes_vec();
 
+        let prefix_length = (last_level - 1) * ACC;
 
-        let prefix_length = level * ACC;
-        let complete_bytes = prefix_length / 8;
-        let from_incomplete_byte = prefix_length % 8;
+        let mut bitvec = BitVec::<u8, Msb0>::from_vec(bytes.clone());
 
-        log::warn!("own_id: {}, prefix_length: {}, complete bytes: {}, from_incomplete_bytes: {}", self.root(),
-            prefix_length, complete_bytes, from_incomplete_byte);
+        let bucket_offset_slice = BitSlice::<usize, Msb0>::from_element(&position_in_level);
 
-        if fill_with_ones {
-            bytes[complete_bytes] = (u8::MAX << (8 - from_incomplete_byte)) & bytes[complete_bytes] | (u8::MAX >> 8 - (8 - from_incomplete_byte));
-
-            for i in complete_bytes+1..bytes.len() {
-                bytes[i] = u8::MAX;
-            }
-        } else {
-            let bitmask = u8::MAX << (8 - from_incomplete_byte);
-            log::warn!("byte: {}, bitmask: {}, applied: {}", bytes[complete_bytes], bitmask, bitmask & bytes[complete_bytes]);
-
-            bytes[complete_bytes] = (u8::MAX << (8 - from_incomplete_byte)) & bytes[complete_bytes];
-
-            for i in complete_bytes+1..bytes.len() {
-                bytes[i] = 0;
-            }
-
+        let offset = bucket_offset_slice.len() - ACC;
+        for i in 0..ACC {
+            log::warn!("prefix_length + i {}, offset + i: {}, bit: {}, slice: {}", prefix_length + i, offset + i, bucket_offset_slice[offset+i], bucket_offset_slice);
+            bitvec.set(prefix_length+i, bucket_offset_slice[offset+i]);
         }
 
-        log::warn!("own id: {}", self.root);
+        for i in prefix_length+ACC..bitvec.len() {
+            bitvec.set(i, fill_with_ones);
+        }
 
-
-        let result = SharedPrefix {
-            xor: NodeId::from(<[u8; 14]>::try_from(bytes).unwrap()),
-            length: prefix_length,
-        };
-
-        result
-
+        NodeId::from(<[u8; 14]>::try_from(bitvec.into_vec()).unwrap())
 
     }
 }
@@ -235,17 +220,19 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
 impl<const BUCKET_SIZE: usize, const ACC: usize> DiscoveryRangeProvider for FlatRoutingTable<BUCKET_SIZE, ACC> {
     fn get_discovery_range(&self) -> DiscoveryRange {
         // only look at last layer
-        // get bucket that matches own id and other non full buckets of this layer
 
         let own_index = self.get_bucket_index(self.root());
-        let number_not_full_levels = self.num_buckets() / Self::level_width() - 1;
+
+        // level width returns width of incomplete levels, so last bucket ist on its own level if
+        let number_levels = self.num_buckets() / Self::level_width() - 1;
 
         let mut own_found = false;
         let mut range_bucket_ids = Vec::new();
+        // first_on_level does not work for
         let first_on_level = Self::first_on_level(if own_index == self.num_buckets() - 1 { own_index - 1 } else { own_index });
 
-        log::warn!("own index: {}, number_not_full_levels: {}, first on level: {}, num_buckets: {}, level_width: {}",
-            own_index, number_not_full_levels, first_on_level, self.num_buckets(), Self::level_width());
+        log::warn!("own index: {}, number_levels: {}, first on level: {}, num_buckets: {}, level_width: {}",
+            own_index, number_levels, first_on_level, self.num_buckets(), Self::level_width());
 
         for i in first_on_level..self.num_buckets() {
             log::warn!("i: {}, bucket len: {}", i, self.buckets[i].len());
@@ -269,10 +256,9 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> DiscoveryRangeProvider for Flat
 
         log::warn!("first index: {}, last index: {}", range_bucket_ids.first().unwrap(), range_bucket_ids.last().unwrap());
 
-        // FIXME
         let discovery_range = DiscoveryRange {
-            start: self.get_prefix_for_bucket_index(first_on_level, false).xor.into(),
-            end: self.get_prefix_for_bucket_index(first_on_level, range_bucket_ids.last().unwrap().clone(), true).xor.into(),
+            start: self.get_prefix_for_bucket_in_last_level(number_levels, range_bucket_ids.first().unwrap() - first_on_level, false).into(),
+            end: self.get_prefix_for_bucket_in_last_level(number_levels, range_bucket_ids.last().unwrap() - first_on_level, true).into(),
         };
 
         log::warn!("Discovery Range: {:?}", discovery_range);

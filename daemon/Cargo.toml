@@ -31,6 +31,7 @@ tokio = { version = "1.20.1", features = ["macros", "time", "net", "rt", "signal
 axum = "0.6.20"
 serde = "1.0.190"
 reqwest = { version = "0.11.22", default-features = false, features = ["serde_json", "json", "rustls-tls"] }
+bitvec = "1.0.1"
 
 [dev-dependencies]
 anyhow = "1.0.66"

@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
 use crate::domain::{NodeId, RoutingTable};
 use crate::domain::api::{KellyRequest, KellyResponse, NodeIdApi as NodeIdApi};
-use crate::messaging::Nonce;
 use crate::messaging::source_route::SourceRoute;
 
 pub trait KellyConnector {

@@ -208,7 +208,11 @@ impl NodeId {
         Ok(result)
     }
 
-    pub fn bytes(&self) -> Vec<u8> {
+    pub fn bytes(&self) -> [u8; 14] {
+        self.bytes.clone()
+    }
+
+    pub fn bytes_vec(&self) -> Vec<u8> {
         self.bytes.clone().to_vec()
     }
 }

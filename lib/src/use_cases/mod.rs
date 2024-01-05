@@ -10,7 +10,6 @@ use crate::domain::api::{KellyResponse, NodeIdApi, OutgoingKellyRequest};
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::messages::ProtocolMessage;
 use crate::messaging::{FindNodeReqData, Nonce};
-use crate::messaging::source_route::SourceRoute;
 
 pub mod derive_fwd_table_entries;
 pub mod explicit_path_management;

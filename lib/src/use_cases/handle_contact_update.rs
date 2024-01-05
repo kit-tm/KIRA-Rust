@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 
 use crate::context::UseCaseContext;
-use crate::domain::{Contact, ContactState, NotVia, RoutingTable};
+use crate::domain::{Contact, ContactState, RoutingTable};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{ProtocolMessageSender, RouteUpdate, UpdateRouteReq};
 use crate::use_cases::{ContactEvent, EventHandler, MessageSentFailed, UseCaseEvent};

@@ -4,7 +4,6 @@ use std::ops::DerefMut;
 
 use crate::domain::{Bucket, Contact, GroupingError, NodeId, ReplacementError, SharedPrefix};
 use crate::domain::api::DiscoveryRange;
-use crate::domain::observable_routing_table::ContactWriteGuard;
 
 pub mod flat_routing_table;
 pub mod observable_routing_table;
