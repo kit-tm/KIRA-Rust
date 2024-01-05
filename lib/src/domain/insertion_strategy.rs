@@ -110,6 +110,17 @@ where
             Ordering::Equal => {}
         }
 
+        // if path is different but longer or same length just update some data in the old entry
+        if contact.path() != existing.path() && contact.path().size() >= existing.path().size() {
+            if (existing.number_of_pn().is_none() && contact.number_of_pn().is_some())
+                || (existing.neighbor_sum().is_none() && contact.neighbor_sum().is_some()) {
+                //log::debug!("Warning: Removing neighbor sum due to contact update, but copying sums: {}, {:?}", contact, existing.number_of_pn());
+                existing.set_neighbor_sum(contact.neighbor_sum().clone());
+                existing.set_number_of_pn(contact.number_of_pn().clone());
+                }
+            return InsertionStrategyResult::Dropped;
+        }
+
         // contact is newer, better or fixes a contact
 
         // But: If only age is updated, don't emit anything

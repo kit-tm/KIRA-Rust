@@ -67,6 +67,8 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
         let mut route = SourceRoute::from(closest_path);
         route.push_front(context.root_id().clone());
 
+        log::warn!("Sending message via route {:?}", route);
+
         let message = ReqRspMessage {
             nonce: Nonce::random(),
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
@@ -108,7 +110,7 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
         let closer_contacts = self.get_closer_contacts(&data.data.node_id, context);
 
         if closer_contacts.is_empty() {
-            log::info!("Consuming message, because this node is the closest node to the target");
+            log::warn!("Consuming message, because this node is the closest node to the target");
             self.kelly_connector.forward_request(data.data.node_id, data.source_route, data.data.nonce.into());
             return;
         }
@@ -117,13 +119,13 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
 
         let mut new_route = data.source_route.clone();
 
-        log::info!("Old source route: {:?}", new_route);
-        log::info!("closest path: {:?}", closest_path);
+        log::warn!("Old source route: {:?}", new_route);
+        log::warn!("closest path: {:?}", closest_path);
 
         new_route.append(closest_path.into());
         new_route.advance();
 
-        log::info!("New source route: {:?}", new_route);
+        log::warn!("New source route: {:?}", new_route);
 
         let message = ReqRspMessage {
             nonce: Nonce::random(),

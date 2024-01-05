@@ -304,7 +304,7 @@ where
             | ProtocolMessage::PathSetupReq(_)
             | ProtocolMessage::PathTeardownReq(_) => {},
             ProtocolMessage::KellyReq(_) | ProtocolMessage::KellyRsp(_) => {
-                log::info!("Forwarding Kelly message");
+                log::warn!("Forwarding Kelly message");
             }
         }
 
@@ -355,6 +355,13 @@ where
         context: &C,
         mut message: ProtocolMessage,
     ) -> Result<HandlingResult, MessageSentFailed> {
+        if let ProtocolMessage::KellyReq(_) = message {
+            log::warn!("Forwarding KeLLy request: forwarding handler");
+        }
+        if let ProtocolMessage::KellyRsp(_) = message {
+            log::warn!("Forwarding KeLLy response: forwarding handler");
+        }
+
         let source_route = message.source_route().cloned();
         if source_route.is_none() {
             return Ok(HandlingResult::NotHandled);
@@ -373,6 +380,13 @@ where
         }
 
         let next_hop = source_route.next_hop();
+
+        if let ProtocolMessage::KellyReq(_) = message {
+            log::warn!("Forwarding KeLLy request: route: {:?}, next hop: {:?}", source_route, next_hop);
+        }
+        if let ProtocolMessage::KellyRsp(_) = message {
+            log::warn!("Forwarding KeLLy response: route: {:?}, next hop: {:?}", source_route, next_hop);
+        }
 
         // Is directed to us -> nothing to forward
         if next_hop.is_none() {

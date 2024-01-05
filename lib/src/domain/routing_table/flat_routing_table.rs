@@ -85,6 +85,7 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
         (1 << ACC) - 1
     }
 
+    // FIXME does not work for last level
     const fn first_on_level(index: usize) -> usize {
         index - (index % Self::level_width())
     }
@@ -187,31 +188,37 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
         result
     }
 
-    pub fn get_prefix_for_bucket_index(&self, index: usize, fill_with_ones: bool) -> SharedPrefix {
+    // FIXME works only for last level
+    pub fn get_prefix_for_bucket_index(&self, level: usize, position_in_level: usize, fill_with_ones: bool) -> SharedPrefix {
         let mut bytes = self.root.clone().bytes();
 
 
-        let prefix_length = (index / Self::level_width() + 1) * ACC + index;
-
+        let prefix_length = level * ACC;
         let complete_bytes = prefix_length / 8;
         let from_incomplete_byte = prefix_length % 8;
+
+        log::warn!("own_id: {}, prefix_length: {}, complete bytes: {}, from_incomplete_bytes: {}", self.root(),
+            prefix_length, complete_bytes, from_incomplete_byte);
 
         if fill_with_ones {
             bytes[complete_bytes] = (u8::MAX << (8 - from_incomplete_byte)) & bytes[complete_bytes] | (u8::MAX >> 8 - (8 - from_incomplete_byte));
 
-            for i in complete_bytes..bytes.len() {
+            for i in complete_bytes+1..bytes.len() {
                 bytes[i] = u8::MAX;
             }
         } else {
+            let bitmask = u8::MAX << (8 - from_incomplete_byte);
+            log::warn!("byte: {}, bitmask: {}, applied: {}", bytes[complete_bytes], bitmask, bitmask & bytes[complete_bytes]);
+
             bytes[complete_bytes] = (u8::MAX << (8 - from_incomplete_byte)) & bytes[complete_bytes];
 
-            for i in complete_bytes..bytes.len() {
+            for i in complete_bytes+1..bytes.len() {
                 bytes[i] = 0;
             }
 
         }
 
-
+        log::warn!("own id: {}", self.root);
 
 
         let result = SharedPrefix {
@@ -235,11 +242,13 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> DiscoveryRangeProvider for Flat
 
         let mut own_found = false;
         let mut range_bucket_ids = Vec::new();
+        let first_on_level = Self::first_on_level(if own_index == self.num_buckets() - 1 { own_index - 1 } else { own_index });
 
         log::warn!("own index: {}, number_not_full_levels: {}, first on level: {}, num_buckets: {}, level_width: {}",
-            own_index, number_not_full_levels, Self::first_on_level(number_not_full_levels), self.num_buckets(), Self::level_width());
+            own_index, number_not_full_levels, first_on_level, self.num_buckets(), Self::level_width());
 
-        for i in Self::first_on_level(number_not_full_levels)..self.num_buckets() {
+        for i in first_on_level..self.num_buckets() {
+            log::warn!("i: {}, bucket len: {}", i, self.buckets[i].len());
             if self.buckets[i].len() != self.buckets[i].max_size() || i == own_index {
                 range_bucket_ids.push(i);
                 if i == own_index {
@@ -258,11 +267,16 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> DiscoveryRangeProvider for Flat
         assert!(!range_bucket_ids.is_empty());
 
 
-        // TODO
-        DiscoveryRange {
-            start: self.get_prefix_for_bucket_index(number_not_full_levels, false).xor.into(),
-            end:self.get_prefix_for_bucket_index(number_not_full_levels, true).xor.into(),
-        }
+        log::warn!("first index: {}, last index: {}", range_bucket_ids.first().unwrap(), range_bucket_ids.last().unwrap());
+
+        // FIXME
+        let discovery_range = DiscoveryRange {
+            start: self.get_prefix_for_bucket_index(first_on_level, false).xor.into(),
+            end: self.get_prefix_for_bucket_index(first_on_level, range_bucket_ids.last().unwrap().clone(), true).xor.into(),
+        };
+
+        log::warn!("Discovery Range: {:?}", discovery_range);
+        discovery_range
     }
 }
 

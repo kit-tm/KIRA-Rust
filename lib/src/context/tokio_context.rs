@@ -105,13 +105,17 @@ where
     fn not_via_mut(&self) -> WriteGuard<'_, HashSet<NotVia>> {
         tokio_utils::get_write_guard(self.not_via.deref()).into()
     }
-
     fn to_api_model(&self) -> (crate::domain::api::RoutingTable, DiscoveryRange) {
+        log::warn!("Starting to acquire read lock for routing table");
         let read_guard: ReadGuard<Self::RoutingTable> = tokio_utils::get_read_guard(self.routing_table.deref()).into();
+        log::warn!("read lock acquired, cloning routing table");
         let rt_old: Self::RoutingTable = (*read_guard.deref()).clone();
+        log::warn!("routing table cloned, calculating discovery range");
         let discovery_range = rt_old.get_discovery_range();
-
-        (rt_old.into(), discovery_range)
+        log::warn!("discovery range calculated, calculating result");
+        let result = (rt_old.into(), discovery_range);
+        log::warn!("Routing table to api done");
+        result
     }
 }
 

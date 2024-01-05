@@ -142,8 +142,9 @@ where
                 let mut updates = HashMap::new();
                 updates.insert(new.clone(), RouteUpdate::Updated);
 
-                self.send_update(context, updates)?;
                 if old.state() == &ContactState::Valid && new.state() != &ContactState::Valid {
+                    // TODO: for now send updates only if the contact has failed
+                    self.send_update(context, updates)?;
                     // Add to not-via data if path gets invalid (maybe done already)
                     self.invalidate_all_affected_contacts(context, &new);
                 }

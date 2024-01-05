@@ -79,13 +79,13 @@ async fn get_node_id_for_test_env(State(state): State<ApiState>) -> String {
 }
 
 async fn get_routing_table(State(state): State<ApiState>) -> Json<RoutingTableResponse> {
-    log::warn!("Returning routing table via api");
+    log::debug!("Returning routing table via api");
     let (tx, mut rx) = mpsc::unbounded_channel::<RoutingTableResponse>();
 
     let res = state.sender.send((UseCaseEvent::API(ApiEvent::RoutingTable(tx)), None)).await;
 
     let result = rx.recv().await.unwrap();
-    log::warn!("Got routing table, sending: {:?}", result);
+    log::trace!("Got routing table, sending: {:?}", result);
     Json(result)
 
 }
