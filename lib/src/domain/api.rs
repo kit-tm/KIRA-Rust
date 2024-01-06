@@ -6,7 +6,7 @@ use axum::http;
 use hex::FromHexError;
 use serde::{Deserialize, Serialize};
 use crate::domain::dht::TimedValue;
-use crate::messaging::dht::{DefaultLHTInput, FetchErr, StoreErr};
+use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchRspData, StoreErr};
 use crate::use_cases::{FetchInjectData, StoreInjectData};
 use crate::use_cases::distributed_hash_table::{DefaultExpiringHashTable, HashTableSingle};
 use axum::response::{IntoResponse, Response};
@@ -106,7 +106,6 @@ impl Display for StoreOK {
     }
 }
 
-
 impl From<crate::messaging::dht::StoreOK> for StoreOK {
     fn from(value: crate::messaging::dht::StoreOK) -> Self {
         match value {
@@ -130,6 +129,15 @@ impl IntoResponse for StoreOK {
         };
 
         (status, self.to_string()).into_response()
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FetchRsp(Vec<String>);
+
+impl From<DefaultLHTOutput> for FetchRsp {
+    fn from(value: DefaultLHTOutput) -> Self {
+        Self(value.into_iter().map(hex::encode).collect())
     }
 }
 

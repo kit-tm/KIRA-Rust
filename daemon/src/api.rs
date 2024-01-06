@@ -16,7 +16,6 @@ use r2kad_lib::domain::api;
 use r2kad_lib::domain::api::{ApiErr, ApiFormatErr, DEFAULT_TIMEOUT};
 use r2kad_lib::use_cases::inject_messages::InjectionResult;
 use r2kad_lib::use_cases::{ApiEvent, InjectionMessageData, UseCaseEvent};
-use r2kad_lib::messaging::dht::{DefaultLHTOutput};
 use r2kad_lib::messaging::{Nonce, ProtocolMessage};
 
 
@@ -74,7 +73,7 @@ async fn store_dht_data(State(state): State<ApiState>, Query(mut params): Query<
     let args = api::StoreArgs {
         handle: params
             .remove("handle")
-            .ok_or_else(|| ApiFormatErr::MissingParams(vec!["handle".to_owned()]))?,
+            .ok_or_else(|| ApiFormatErr::MissingParams(vec!["handle".to_string()]))?,
         restore: params
             .remove("restore")
             .as_deref().map(str::to_lowercase).as_deref()
@@ -107,11 +106,11 @@ async fn store_dht_data(State(state): State<ApiState>, Query(mut params): Query<
 }
 
 // todo dont use JSON for DHTOutput
-async fn fetch_dht_data(State(state): State<ApiState>, Query(mut params): Query<HashMap<String, String>>) -> Result<Json<DefaultLHTOutput>, api::ApiErr> {
+async fn fetch_dht_data(State(state): State<ApiState>, Query(mut params): Query<HashMap<String, String>>) -> Result<Json<api::FetchRsp>, api::ApiErr> {
     let args = api::FetchArgs {
         handle: params
             .remove("handle")
-            .ok_or_else(|| ApiFormatErr::MissingParams(vec!["handle".to_owned()]))?,
+            .ok_or_else(|| ApiFormatErr::MissingParams(vec!["handle".to_string()]))?,
     };
     let (tx, mut rx) = mpsc::unbounded_channel();
 
@@ -128,7 +127,7 @@ async fn fetch_dht_data(State(state): State<ApiState>, Query(mut params): Query<
     log::trace!(target: "api_backend", "Received injection result [{:?}]", injection_result);
 
     match injection_result {
-        InjectionResult::Answered((ProtocolMessage::FetchRsp(payload), _)) => Ok(Json(payload.data.data?)),
+        InjectionResult::Answered((ProtocolMessage::FetchRsp(payload), _)) => Ok(Json(payload.data.data?.into())),
         InjectionResult::Isolated => Err(ApiErr::Isolated),
         InjectionResult::SendFailed(_) => Err(ApiErr::SendError),
         InjectionResult::Answered(_) => Err(ApiErr::MessageReceiveMismatch)
