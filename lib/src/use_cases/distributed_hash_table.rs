@@ -454,5 +454,5 @@ mod tests {
         assert_eq!(stored_data, data(), "Data stored is wrong: {:?}", stored_data);
     }
 
-     // todo test collect, appending data to existing data
+     // todo test collect, appending data to existing data, updating data without inserting new data
 }

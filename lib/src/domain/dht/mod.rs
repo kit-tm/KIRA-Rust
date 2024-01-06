@@ -47,7 +47,7 @@ impl<V> TimedValue<V> {
 
 impl<V: Eq> PartialEq<Self> for TimedValue<V> {
     fn eq(&self, other: &Self) -> bool {
-        self.time == other.time
+        self.value == other.value
     }
 }
 
@@ -55,6 +55,6 @@ impl<V: Eq> Eq for TimedValue<V> {}
 
 impl<V: Hash> Hash for TimedValue<V> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.time.hash(state)
+        self.value.hash(state)
     }
 }
