@@ -67,13 +67,27 @@ async fn get_node_id(State(state): State<ApiState>) -> Json<api::NodeId> {
     Json(state.node_id.into())
 }
 
+fn _extract_dht_handle(params: &mut HashMap<String, String>) -> Result<api::Handle, ApiErr> {
+    let handle = params.remove("handle");
+    let reference = params.remove("reference");
+
+
+    match (handle, reference) {
+        (Some(_), Some(_)) => Err(ApiFormatErr::AmbiguousParams.into()),
+        (Some(handle), _) => Ok(api::Handle::Handle(api::NodeId {node_id: handle })),
+        (_, Some(reference)) => Ok(api::Handle::Reference(reference)),
+        (None, None) => Err(ApiFormatErr::MissingParams(vec![
+            "handle".to_string(),
+            "reference".to_string()
+        ]).into())
+    }
+}
+
 async fn store_dht_data(State(state): State<ApiState>, Query(mut params): Query<HashMap<String, String>>, body: Bytes) -> Result<api::StoreOK, api::ApiErr> {
     // todo factor out essentials to reduce code duplication
     // todo move `StoreErr` into ApiErr
     let args = api::StoreArgs {
-        handle: params
-            .remove("handle")
-            .ok_or_else(|| ApiFormatErr::MissingParams(vec!["handle".to_string()]))?,
+        handle: _extract_dht_handle(&mut params)?,
         restore: params
             .remove("restore")
             .as_deref().map(str::to_lowercase).as_deref()
@@ -108,9 +122,7 @@ async fn store_dht_data(State(state): State<ApiState>, Query(mut params): Query<
 // todo dont use JSON for DHTOutput
 async fn fetch_dht_data(State(state): State<ApiState>, Query(mut params): Query<HashMap<String, String>>) -> Result<Json<api::FetchRsp>, api::ApiErr> {
     let args = api::FetchArgs {
-        handle: params
-            .remove("handle")
-            .ok_or_else(|| ApiFormatErr::MissingParams(vec!["handle".to_string()]))?,
+        handle: _extract_dht_handle(&mut params)?,
     };
     let (tx, mut rx) = mpsc::unbounded_channel();
 

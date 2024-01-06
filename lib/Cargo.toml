@@ -47,7 +47,7 @@ serde_json = { version = "1.0.81", optional = true }
 # PathID generation
 sha1 = "0.10.5"
 # PathID generation
-sha2 = { version = "0.10.6", optional = true }
+sha2 = { version = "0.10.6"}
 # PathID generation
 sha3 = { version = "0.10.5", optional = true }
 # Used to support sync and async rwlock on context
