@@ -4,7 +4,8 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::UnboundedSender; // use tokio::sync::oneshot;
+use tokio::sync::mpsc::UnboundedSender;
+use std::sync::mpsc::Receiver; // use tokio::sync::oneshot;
 
 use crate::domain::{Contact, NetworkInterface, NodeId};
 use crate::hardware_events::HardwareEvent;
@@ -217,4 +218,23 @@ pub trait UseCase: EventHandler {
 
     fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error>;
     fn state(&self) -> &Self::State;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc::Receiver;
+    use crate::messaging::ProtocolMessage;
+    use crate::use_cases::UseCaseEvent;
+
+    pub fn wait_for_message(recv: Receiver<UseCaseEvent>) -> ProtocolMessage {
+        loop {
+            let response = recv.recv();
+            assert!(response.is_ok(), "Error receiving result: {:?}", response);
+
+            if let UseCaseEvent::Message(message, ..) = response.unwrap() {
+                break message
+            }
+        }
+    }
+
 }

@@ -275,8 +275,9 @@ mod tests {
     use crate::messaging::dht::{DefaultLHTInput, FetchReqData, FetchRspData, StoreOK, StoreReqData, StoreRspData};
     use crate::messaging::source_route::SourceRoute;
     use crate::runtime::ImmediateRuntime;
+    use crate::use_cases;
     use crate::use_cases::distributed_hash_table_injector::{DHTInjectorState, DistributedHashTableInjector};
-    use crate::use_cases::{EventHandler, InjectionMessageData, StoreInjectData, UseCase, UseCaseEvent};
+    use crate::use_cases::{EventHandler, FetchInjectData, InjectionMessageData, StoreInjectData, UseCase, UseCaseEvent};
     use crate::use_cases::distributed_hash_table_injector::DHTInjectorState::Running;
     use crate::use_cases::inject_messages::InjectionResult;
 
@@ -339,7 +340,8 @@ mod tests {
             Nonce::from(1),
             InjectionMessageData::Store(
                 StoreInjectData {
-                    data: StoreReqData { handle: NodeId::with_msb(1), data: Arc::new([]) },
+                    handle: NodeId::with_msb(1),
+                    data:Arc::new([]),
                     restore: false,
                 },
                 tokio::sync::mpsc::unbounded_channel().0),
@@ -394,6 +396,7 @@ mod tests {
                 nonce,
                 source_state_seq_nr: StateSeqNr::from(0),
                 data: StoreRspData {
+                    storer: NodeId::with_msb(1),
                     status: Ok(StoreOK::Created),
                 },
                 not_via: Default::default(),
@@ -459,6 +462,7 @@ mod tests {
                 nonce,
                 source_state_seq_nr: StateSeqNr::from(0),
                 data: StoreReqData {
+                    storer: NodeId::with_msb(1),
                     handle: root_id.clone(),
                     data: Arc::new([]),
                 },
@@ -508,7 +512,7 @@ mod tests {
         let inject_event = UseCaseEvent::InjectMessage(
             Nonce::from(1),
             InjectionMessageData::Fetch(
-                FetchReqData {
+                FetchInjectData {
                     handle: root_id.clone(),
                 },
                 tokio::sync::mpsc::unbounded_channel().0),
@@ -563,6 +567,7 @@ mod tests {
                 nonce,
                 source_state_seq_nr: StateSeqNr::from(0),
                 data: FetchRspData {
+                    fetcher: NodeId::with_msb(1),
                     data: Ok(vec![Arc::new([])]),
                 },
                 not_via: Default::default(),
@@ -628,6 +633,7 @@ mod tests {
                 nonce,
                 source_state_seq_nr: StateSeqNr::from(0),
                 data: FetchReqData {
+                    fetcher: NodeId::with_msb(1),
                     handle: root_id.clone(),
                 },
                 not_via: Default::default(),
@@ -677,6 +683,7 @@ mod tests {
 
         let nonce = Nonce::from(1);
         let restore_data: StoreReqData<DefaultLHTInput> = StoreReqData {
+            storer: root_id.clone(),
             handle: root_id.clone(),
             data: Arc::new([]),
         };
@@ -694,14 +701,10 @@ mod tests {
             handle_result
         );
 
-        let result = hub_receiver.try_recv().await;
-        assert!(result.is_ok(), "Error listening for restore: {:?}", result);
-        let result = result.unwrap();
-        assert!(result.is_some(), "No restore sent: {:?}", result);
-        let (message, _) = result.unwrap();
-        assert!(matches!(message, ProtocolMessage::StoreReq(_)), "No StoreReq for restore sent: {:?}", message);
+        let message = use_cases::tests::wait_for_message(broadcast_receiver);
+        assert!(matches!(message, ProtocolMessage::StoreReq(_)), "No StoreReq to restore value sent: {:?}", message);
         let ProtocolMessage::StoreReq(ReqRspMessage{data: restored_data, ..})
-            = message else { panic!("StoreReq for restore sent") };
+            = message else { panic!("StoreReq to restore sent") };
         assert_eq!(restore_data.clone(),
                    restored_data,
                    "Restored data isn't equal to original data: {:?} != {:?}",

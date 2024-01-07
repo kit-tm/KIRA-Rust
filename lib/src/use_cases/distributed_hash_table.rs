@@ -17,7 +17,6 @@ use crate::domain::dht::strategies::fetch_strategy::PermissionlessFetchStrategy;
 use crate::domain::dht::strategies::insert_strategy::PermissionlessInsertStrategy;
 use crate::domain::dht::strategies::timeout_strategy::ConstTimeoutStrategy;
 
-use crate::messaging::error::SenderError;
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
@@ -225,22 +224,27 @@ impl<C, H, RS, D> UseCase for DistributedHashTable<C, H>
 mod tests {
     use std::collections::HashSet;
     use std::sync::Arc;
+    use std::time::Instant;
     use crate::broadcaster::MPSCBroadcaster;
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::{InsertionStrategyResult, NetworkInterface, NodeId, PNTable, StateSeqNr, TestInsertionStrategy};
     use crate::domain::dht::hash_table::LocalHashTable;
+    use crate::domain::dht::TimedValue;
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
-    use crate::messaging::{AsyncProtocolMessageReceiver, InMemoryMessageChannel, Nonce, ProtocolMessage, ReqRspMessage};
-    use crate::messaging::dht::{StoreOK, StoreReqData, StoreResult, StoreRspData};
+    use crate::messaging::{InMemoryMessageChannel, Nonce, ProtocolMessage, ReqRspMessage};
+    use crate::messaging::dht::{StoreOK, StoreReqData, StoreRspData};
     use crate::messaging::source_route::SourceRoute;
     use crate::runtime::ImmediateRuntime;
+    use crate::use_cases;
     use crate::use_cases::distributed_hash_table::DistributedHashTable;
     use crate::use_cases::{EventHandler, UseCase, UseCaseEvent};
 
     fn root() -> NodeId { NodeId::with_msb(0) }
 
-    fn data_handle() -> NodeId { NodeId::with_msb(1) }
+    fn sender() -> NodeId { NodeId::with_msb(1) }
+
+    fn data_handle() -> NodeId { NodeId::with_msb(2) }
 
     fn data() -> Arc<[u8]> { Arc::new([42]) }
 
@@ -250,6 +254,7 @@ mod tests {
                 nonce: Nonce::from(1),
                 source_state_seq_nr: StateSeqNr::from(0),
                 data: StoreReqData {
+                    storer: sender(),
                     handle: data_handle(),
                     data: data(),
                 },
@@ -317,14 +322,14 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn send_rsp_on_store_req() {
+    #[test]
+    fn send_rsp_on_store_req() {
         crate::tests::init();
 
         let routing_table = SingleBucketRT::<20>::new(root());
         let interface = NetworkInterface::with_name("test");
-        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
-        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
+        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let context = SyncContext::new(ContextConfig {
             root_id: root(),
@@ -349,28 +354,22 @@ mod tests {
             handle_result
         );
 
-        let response = hub_receiver.try_recv().await;
-        assert!(response.is_ok(), "No result sent: {:?}", response);
-
-        let response = response.unwrap();
-        assert!(response.is_some(), "No result sent: {:?}", response);
-
-        let (message, _) = response.unwrap();
+        let message = use_cases::tests::wait_for_message(broadcast_receiver);
         assert!(matches!(message, ProtocolMessage::StoreRsp(_)), "Wrong response type sent: {:?}", message);
 
-        let ProtocolMessage::StoreRsp(ReqRspMessage { data: StoreRspData { status }, .. })
+        let ProtocolMessage::StoreRsp(ReqRspMessage { data: StoreRspData { status, .. }, .. })
             = message else { panic!("Wrong response type sent") };
         assert!(matches!(status, Ok(StoreOK::Created)), "Wrong response status returned: {:?}", status);
     }
 
-    #[tokio::test]
-    async fn send_update_rsp_on_existing_data() {
+    #[test]
+    fn send_storer_on_store_req() {
         crate::tests::init();
 
         let routing_table = SingleBucketRT::<20>::new(root());
         let interface = NetworkInterface::with_name("test");
-        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
-        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
+        let (broadcaster, mut broadcast_receiver) = MPSCBroadcaster::new(10);
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let context = SyncContext::new(ContextConfig {
             root_id: root(),
@@ -384,9 +383,6 @@ mod tests {
         });
 
         let mut use_case = DistributedHashTable::default();
-        let existing_data = Arc::new([1,2,3,4]);
-        let insert_result = use_case.config.hash_table.store(data_handle(), existing_data);
-        assert!(insert_result.is_ok(), "Failed to insert data: {:?}", insert_result);
         assert!(use_case.start(&context).is_ok());
 
         let receive_event = UseCaseEvent::Message(store_req(), interface.clone());
@@ -398,18 +394,70 @@ mod tests {
             handle_result
         );
 
-        let response = hub_receiver.try_recv().await;
-        assert!(response.is_ok(), "No result sent: {:?}", response);
+        let message = use_cases::tests::wait_for_message(broadcast_receiver);
+        assert_eq!(message.destination(), Some(&sender()), "Wrong destination returned: {:?}", message.destination());
+    }
 
-        let response = response.unwrap();
-        assert!(response.is_some(), "No result sent: {:?}", response);
+    #[test]
+    fn update_existing_data() {
+        crate::tests::init();
 
-        let (message, _) = response.unwrap();
+        let routing_table = SingleBucketRT::<20>::new(root());
+        let interface = NetworkInterface::with_name("test");
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
+        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+        let context = SyncContext::new(ContextConfig {
+            root_id: root(),
+            routing_table,
+            pn_table: PNTable::new(),
+            insertion_strategy,
+            message_sender: hub_sender,
+            runtime: ImmediateRuntime::new(broadcaster.clone()),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+        let mut use_case = DistributedHashTable::default();
+        let existing_data = data();
+        let insert_result = use_case.config.hash_table.store(data_handle(), existing_data);
+        assert!(insert_result.is_ok(), "Failed to insert data: {:?}", insert_result);
+        assert!(use_case.start(&context).is_ok());
+        let insert_time = Instant::now();
+
+        let receive_event = UseCaseEvent::Message(store_req(), interface.clone());
+
+        let handle_result = use_case.handle_event(&context, receive_event);
+        assert!(
+            handle_result.is_ok(),
+            "Handling a StoreReq returned error: {:?}",
+            handle_result
+        );
+
+        let message = use_cases::tests::wait_for_message(broadcast_receiver);
         assert!(matches!(message, ProtocolMessage::StoreRsp(_)), "Wrong response type sent: {:?}", message);
 
-        let ProtocolMessage::StoreRsp(ReqRspMessage { data: StoreRspData { status }, .. })
+        let ProtocolMessage::StoreRsp(ReqRspMessage { data: StoreRspData { status, .. }, .. })
             = message else { panic!("Wrong response type sent") };
         assert!(matches!(status, Ok(StoreOK::Updated)), "Wrong response status returned: {:?}", status);
+        // todo!("TODO define expected behaviour");
+        // OPTIONS
+        // 1.) Return Updated only on EXACT existing data (refreshing actions)
+        // 2.) Return Updated even if only we ADD a NEW data FRAGMENT to an existing handle
+
+        let stored = use_case.config.hash_table.fetch(&data_handle());
+        assert!(stored.is_ok(), "Unable to retrieve updated data: {:?}", stored);
+        let stored = stored.unwrap();
+
+        assert!(stored.contains(&data()), "Does not contain data to add: {:?}", stored);
+        assert_eq!(stored.len(), 1, "Unexpected data length: {} != 1", stored.len());
+
+        let stored_raw = use_case.config.hash_table.map.get(&data_handle())
+            .expect("Unable to retrieve raw data");
+
+        let stored_timed = stored_raw.get(&TimedValue::new(data()))
+            .expect("Unable to retrieve raw data times");
+        assert!(stored_timed.time > insert_time, "Time of value wasn't updated: {:?}", stored_raw);
     }
 
     #[test]
@@ -454,5 +502,56 @@ mod tests {
         assert_eq!(stored_data, data(), "Data stored is wrong: {:?}", stored_data);
     }
 
-     // todo test collect, appending data to existing data, updating data without inserting new data
+    #[test]
+    fn append_data_to_existing_data() {
+        crate::tests::init();
+
+        let routing_table = SingleBucketRT::<20>::new(root());
+        let interface = NetworkInterface::with_name("test");
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
+        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+        let context = SyncContext::new(ContextConfig {
+            root_id: root(),
+            routing_table,
+            pn_table: PNTable::new(),
+            insertion_strategy,
+            message_sender: hub_sender,
+            runtime: ImmediateRuntime::new(broadcaster.clone()),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+        let mut use_case = DistributedHashTable::default();
+        let existing_data: Arc<[u8]> = Arc::new([1, 2, 3, 4]);
+        let insert_result = use_case.config.hash_table.store(data_handle(), existing_data.clone());
+        assert!(insert_result.is_ok(), "Failed to insert data: {:?}", insert_result);
+        assert!(use_case.start(&context).is_ok());
+
+        let receive_event = UseCaseEvent::Message(store_req(), interface.clone());
+
+        let handle_result = use_case.handle_event(&context, receive_event);
+        assert!(
+            handle_result.is_ok(),
+            "Handling a StoreReq returned error: {:?}",
+            handle_result
+        );
+
+        let message = use_cases::tests::wait_for_message(broadcast_receiver);
+        assert!(matches!(message, ProtocolMessage::StoreRsp(_)), "Wrong response type sent: {:?}", message);
+
+        let ProtocolMessage::StoreRsp(ReqRspMessage { data: StoreRspData { status, .. }, .. })
+            = message else { panic!("Wrong response type sent") };
+        assert!(matches!(status, Ok(StoreOK::Created)), "Wrong response status returned: {:?}", status);
+
+        let stored = use_case.config.hash_table.fetch(&data_handle());
+        assert!(stored.is_ok(), "Unable to retrieve updated data: {:?}", stored);
+        let stored = stored.unwrap();
+
+        assert_eq!(stored.len(), 2, "Unexpected data length: {} != 2", stored.len());
+        assert!(stored.contains(&data()), "Does not contain data to add: {:?}", stored);
+        assert!(stored.contains(&existing_data), "Does not contain existing data: {:?}", stored);
+    }
+
+    // todo test collect
 }

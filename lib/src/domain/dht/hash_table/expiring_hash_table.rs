@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt::{Debug, Formatter, write};
 
 use crate::domain::dht::expiring::Expiring;
 use crate::domain::dht::hash_table::LocalHashTable;
@@ -43,6 +44,7 @@ impl<H, I, O, D, IS, FS, TS, RS, FE> LocalHashTable<H, I, O> for ExpiringHashTab
 }
 
 // todo maybe we can even remove the concrete HashSet
+// todo can we put this into a separat strategy we can test?
 impl<H, D, IS, FS, TS> Expiring for ExpiringHashTable<H, HashSet<D>, IS, FS, TS> where
     TS: TimeoutStrategy<Context=H, Expirable=D>
 {
@@ -55,3 +57,42 @@ impl<H, D, IS, FS, TS> Expiring for ExpiringHashTable<H, HashSet<D>, IS, FS, TS>
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use crate::domain::dht::expiring::Expiring;
+    use crate::domain::dht::hash_table::expiring_hash_table::ExpiringHashTable;
+    use crate::domain::dht::strategies::timeout_strategy::{TaggedTimeoutStrategy, TaggedValue};
+
+    #[test]
+    fn expire_value_if_timed_out() {
+        let mut expiring = ExpiringHashTable::new((), (), TaggedTimeoutStrategy::default());
+        expiring.map.insert("test", HashSet::from([TaggedValue {
+            value: "test", tagged: true
+        }]));
+
+        Expiring::expire(&mut expiring, &());
+
+        todo!("Specify behaviour: Do we want to leave empty Sets behind?");
+        assert!(expiring.map.is_empty(), "Hash table is not empty: {:?}", expiring.map);
+    }
+
+    #[test]
+    fn dont_expire_fresh_values() {
+        let mut expiring = ExpiringHashTable::new((), (), TaggedTimeoutStrategy::default());
+        let data = HashSet::from([TaggedValue {
+            value: "test", tagged: false
+        }]);
+        expiring.map.insert("test", data.clone());
+
+        Expiring::expire(&mut expiring, &());
+
+        let expired_data = expiring.map.get("test");
+        assert!(expired_data.is_some(), "Hash table doesn't contain data for 'test': {:?}", expiring.map);
+
+        let expired_data = expired_data.unwrap();
+        assert_eq!(expired_data, &data, "Some data was expired: {:?}", expired_data);
+    }
+}
+
