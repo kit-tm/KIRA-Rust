@@ -210,8 +210,6 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize>: DiscoveryRangeProvider {
 
     /// Iterator over mutable references to all contacts in the [RoutingTable].
     fn iter_mut(&'a mut self) -> Self::IterMut;
-    fn is_in_last_two_buckets(&self, node_id: &NodeId) -> bool;
-
-    fn range_last_two_buckets(&self) -> (NodeId, NodeId);
+    fn should_send_neighbor_sums(&self, node_id: &NodeId) -> bool;
 
 }

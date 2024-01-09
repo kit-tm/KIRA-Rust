@@ -230,12 +230,8 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
     }
 
 
-    fn is_in_last_two_buckets(&self, node_id: &NodeId) -> bool {
-        self.inner.is_in_last_two_buckets(node_id)
-    }
-
-    fn range_last_two_buckets(&self) -> (NodeId, NodeId) {
-        self.inner.range_last_two_buckets()
+    fn should_send_neighbor_sums(&self, node_id: &NodeId) -> bool {
+        self.inner.should_send_neighbor_sums(node_id)
     }
 
 }

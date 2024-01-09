@@ -294,14 +294,18 @@ where
                 self.handle_update_routes(context, req.source_route.source(), req.contact_actions);
             }
             ProtocolMessage::Hello(_)
-            | ProtocolMessage::QueryRouteReq(_)
-            | ProtocolMessage::FindNodeReq(_)
             | ProtocolMessage::ProbeReq(_)
             | ProtocolMessage::ProbeRsp(_)
             | ProtocolMessage::PathSetupReq(_)
             | ProtocolMessage::PathTeardownReq(_) => {},
             ProtocolMessage::KellyReq(_) | ProtocolMessage::KellyRsp(_) => {
                 log::warn!("Forwarding Kelly message");
+            }
+            ProtocolMessage::FindNodeReq(data) => {
+                log::warn!("Received {:?}", data);
+            }
+            ProtocolMessage::QueryRouteReq(data) => {
+                log::warn!("Received {:?}", data);
             }
         }
 

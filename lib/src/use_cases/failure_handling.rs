@@ -304,10 +304,11 @@ where
             nonce
         };
 
-        let (origin_degree, origin_neighbor_id_sum) = match context.routing_table().is_in_last_two_buckets(node_id) {
+        let (origin_degree, origin_neighbor_id_sum) = match context.routing_table().should_send_neighbor_sums(node_id) {
             true => (context.pn_table().size(), context.pn_table().neighbor_sum()),
             false => (None, None)
         };
+
         let find_node_request = ReqRspMessage {
             nonce,
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
@@ -324,6 +325,8 @@ where
                 closest_contact.path().clone(),
             ),
         };
+
+        log::warn!("Sending xor sums via {:?}", find_node_request.source_route);
 
         if let Err(e) = context.message_sender_mut().send_message(find_node_request) {
             log::error!(target: "failure_handling", "Failed to send find node to {}: {}", closest_contact.id(), e);

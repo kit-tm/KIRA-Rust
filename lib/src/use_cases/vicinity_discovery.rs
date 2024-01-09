@@ -212,7 +212,7 @@ where
             return Err(VDError::NeighborInconsistency);
         }
 
-        let (origin_degree, origin_neighbor_id_sum) = match context.routing_table().is_in_last_two_buckets(contact.id()) {
+        let (origin_degree, origin_neighbor_id_sum) = match context.routing_table().should_send_neighbor_sums(contact.id()) {
             true =>  (context.pn_table().size(), context.pn_table().neighbor_sum()),
             false => (None, None)
         };
@@ -229,6 +229,8 @@ where
             not_via: context.not_via().clone(),
             source_route: route,
         };
+
+        log::warn!("Sending xor sums via {:?}", request.source_route);
 
         log::trace!(target: "vicinity_discovery", "Sending message {:?}", request);
 
@@ -1133,6 +1135,8 @@ mod tests {
             source_state_seq_nr: StateSeqNr::from(3),
             data: QueryRouteReqData {
                 query_type: QueryRouteType::PhysicalNeighbors,
+                origin_degree: None,
+                origin_neighbor_id_sum: None,
             },
             not_via: Default::default(),
             source_route: route,

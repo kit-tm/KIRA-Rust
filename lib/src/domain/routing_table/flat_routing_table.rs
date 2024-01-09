@@ -193,7 +193,7 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
     }
 
     // TODO Rename this
-    pub fn get_prefix_for_bucket_in_last_level(&self, last_level: usize, position_in_level: usize, fill_with_ones: bool) -> NodeId {
+    pub fn get_prefix_for_bucket_in_last_level(&self, last_level: usize, position_in_level: usize, fill_with_ones: bool, only_one_bucket: bool) -> NodeId {
         let mut bytes = self.root.clone().bytes_vec();
 
         let prefix_length = (last_level - 1) * ACC;
@@ -208,7 +208,13 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
             bitvec.set(prefix_length+i, bucket_offset_slice[offset+i]);
         }
 
-        for i in prefix_length+ACC..bitvec.len() {
+        let begin = if only_one_bucket {
+            prefix_length
+        } else {
+            prefix_length + ACC
+        };
+
+        for i in begin..bitvec.len() {
             bitvec.set(i, fill_with_ones);
         }
 
@@ -224,12 +230,17 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> DiscoveryRangeProvider for Flat
         let own_index = self.get_bucket_index(self.root());
 
         // level width returns width of incomplete levels, so last bucket ist on its own level if
-        let number_levels = self.num_buckets() / Self::level_width() - 1;
+        let number_levels = if self.num_buckets() == 1 {
+            1
+        } else {
+            self.num_buckets() / Self::level_width() - 1
+        };
 
         let mut own_found = false;
         let mut range_bucket_ids = Vec::new();
         // first_on_level does not work for
-        let first_on_level = Self::first_on_level(if own_index == self.num_buckets() - 1 { own_index - 1 } else { own_index });
+        let first_on_level = Self::first_on_level(if own_index == self.num_buckets() - 1 && own_index != 0 { own_index - 1 } else { own_index });
+
 
         log::warn!("own index: {}, number_levels: {}, first on level: {}, num_buckets: {}, level_width: {}",
             own_index, number_levels, first_on_level, self.num_buckets(), Self::level_width());
@@ -257,8 +268,8 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> DiscoveryRangeProvider for Flat
         log::warn!("first index: {}, last index: {}", range_bucket_ids.first().unwrap(), range_bucket_ids.last().unwrap());
 
         let discovery_range = DiscoveryRange {
-            start: self.get_prefix_for_bucket_in_last_level(number_levels, range_bucket_ids.first().unwrap() - first_on_level, false).into(),
-            end: self.get_prefix_for_bucket_in_last_level(number_levels, range_bucket_ids.last().unwrap() - first_on_level, true).into(),
+            start: self.get_prefix_for_bucket_in_last_level(number_levels, range_bucket_ids.first().unwrap() - first_on_level, false, self.num_buckets() == 1).into(),
+            end: self.get_prefix_for_bucket_in_last_level(number_levels, range_bucket_ids.last().unwrap() - first_on_level, true, self.num_buckets() == 1).into(),
         };
 
         log::warn!("Discovery Range: {:?}", discovery_range);
@@ -492,18 +503,22 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
             .into_iter()
     }
 
-    fn is_in_last_two_buckets(&self, node_id: &NodeId) -> bool {
-        if self.num_buckets() <= 2 {
-            return true;
-        }
-        let index = self.get_bucket_index(node_id);
-        index == self.num_buckets() - 1 || index == self.num_buckets() - 2
+    fn should_send_neighbor_sums(&self, node_id: &NodeId) -> bool {
+        //if self.num_buckets() <= ACC + 1 {
+        //    return true;
+        //}
+        //let index = self.get_bucket_index(node_id);
+        //let min = if self.num_buckets() >= ACC + 1 {
+        //    self.num_buckets() - ACC - 1
+        //} else {
+        //    0
+        //};
+//
+        //let result = index >= min;
+        //log::warn!("Sending xor sums: {}, node_id: {}", result, node_id);
+        //result
+        true
     }
-
-    fn range_last_two_buckets(&self) -> (NodeId, NodeId) {
-        todo!()
-    }
-
 
 }
 

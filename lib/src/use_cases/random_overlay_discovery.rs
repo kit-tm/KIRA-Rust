@@ -99,7 +99,7 @@ where
         let mut route = SourceRoute::from(closest_path);
         route.push_front(context.root_id().clone());
 
-        let (origin_degree, origin_neighbor_id_sum) = match context.routing_table().is_in_last_two_buckets(&random_id) {
+        let (origin_degree, origin_neighbor_id_sum) = match context.routing_table().should_send_neighbor_sums(&random_id) {
             true => (context.pn_table().size(), context.pn_table().neighbor_sum()),
             false => (None, None)
         };
@@ -117,6 +117,9 @@ where
             not_via: context.not_via().clone(),
             source_route: route,
         };
+
+        log::warn!("Sending xor sums via {:?}", message.source_route);
+
         log::trace!(target: "random_overlay_discovery", "Sending message {:?}", message);
 
         if let Err(e) = context.message_sender_mut().send_message(message) {

@@ -135,13 +135,11 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
         (&mut self.bucket).into_iter()
     }
 
-    fn is_in_last_two_buckets(&self, node_id: &NodeId) -> bool {
+    fn should_send_neighbor_sums(&self, node_id: &NodeId) -> bool {
+        log::warn!("Sending neighbor sum, because single bucket routing table");
         true
     }
 
-    fn range_last_two_buckets(&self) -> (NodeId, NodeId) {
-        (NodeId::zero(),NodeId::max_value())
-    }
 }
 
 impl<'a, const BUCKET_SIZE: usize> NonObservableRoutingTable<'a, BUCKET_SIZE>

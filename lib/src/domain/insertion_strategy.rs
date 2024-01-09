@@ -209,10 +209,10 @@ where
     ) -> InsertionStrategyResult {
         // Ignore paths to us
         if contact.id() == routing_table.root() {
-            log::trace!(
+            log::warn!(
                 target: "routing_table",
                 "Dropping contact info: is us {}",
-                contact.path()
+                contact
             );
             return InsertionStrategyResult::Dropped;
         }
