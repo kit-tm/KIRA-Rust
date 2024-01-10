@@ -296,16 +296,12 @@ where
             ProtocolMessage::Hello(_)
             | ProtocolMessage::ProbeReq(_)
             | ProtocolMessage::ProbeRsp(_)
+            | ProtocolMessage::FindNodeReq(_)
+            | ProtocolMessage::QueryRouteReq(_)
             | ProtocolMessage::PathSetupReq(_)
             | ProtocolMessage::PathTeardownReq(_) => {},
             ProtocolMessage::KellyReq(_) | ProtocolMessage::KellyRsp(_) => {
                 log::warn!("Forwarding Kelly message");
-            }
-            ProtocolMessage::FindNodeReq(data) => {
-                log::warn!("Received {:?}", data);
-            }
-            ProtocolMessage::QueryRouteReq(data) => {
-                log::warn!("Received {:?}", data);
             }
         }
 

@@ -194,7 +194,7 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
 
     // TODO Rename this
     pub fn get_prefix_for_bucket_in_last_level(&self, last_level: usize, position_in_level: usize, fill_with_ones: bool, only_one_bucket: bool) -> NodeId {
-        let mut bytes = self.root.clone().bytes_vec();
+        let bytes = self.root.clone().bytes_vec();
 
         let prefix_length = (last_level - 1) * ACC;
 

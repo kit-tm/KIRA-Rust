@@ -1,13 +1,12 @@
 use std::collections::HashSet;
 use std::ops::Deref;
 use std::sync::Arc;
-use pnet::packet::ipv6::Routing;
 
 use tokio::sync::RwLock;
 
 use crate::broadcaster::Broadcaster;
 use crate::context::{ContextConfig, ReadGuard, UseCaseContext, WriteGuard};
-use crate::domain::{DiscoveryRangeProvider, NodeId, NotVia, PNTable, RoutingTable};
+use crate::domain::{DiscoveryRangeProvider, NodeId, NotVia, PNTable};
 use crate::domain::api::{DiscoveryRange};
 use crate::runtime::TokioRuntime;
 use crate::utils::tokio_utils;
@@ -106,15 +105,10 @@ where
         tokio_utils::get_write_guard(self.not_via.deref()).into()
     }
     fn to_api_model(&self) -> (crate::domain::api::RoutingTable, DiscoveryRange) {
-        log::warn!("Starting to acquire read lock for routing table");
         let read_guard: ReadGuard<Self::RoutingTable> = tokio_utils::get_read_guard(self.routing_table.deref()).into();
-        log::warn!("read lock acquired, cloning routing table");
         let rt_old: Self::RoutingTable = (*read_guard.deref()).clone();
-        log::warn!("routing table cloned, calculating discovery range");
         let discovery_range = rt_old.get_discovery_range();
-        log::warn!("discovery range calculated, calculating result");
         let result = (rt_old.into(), discovery_range);
-        log::warn!("Routing table to api done");
         result
     }
 }

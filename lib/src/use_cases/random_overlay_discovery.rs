@@ -118,8 +118,6 @@ where
             source_route: route,
         };
 
-        log::warn!("Sending xor sums via {:?}", message.source_route);
-
         log::trace!(target: "random_overlay_discovery", "Sending message {:?}", message);
 
         if let Err(e) = context.message_sender_mut().send_message(message) {

@@ -230,8 +230,6 @@ where
             source_route: route,
         };
 
-        log::warn!("Sending xor sums via {:?}", request.source_route);
-
         log::trace!(target: "vicinity_discovery", "Sending message {:?}", request);
 
         if let Err(e) = context.message_sender_mut().send_message(request) {

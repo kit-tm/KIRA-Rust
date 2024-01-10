@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use rand::Rng;
 
 use crate::domain::{AddError, Bucket, BucketSplitError, Contact, ContactState, DiscoveryRangeProvider, FlatRoutingTable, GroupingError, NodeId, ReplacementError, RoutingTable, SharedPrefix};
-use crate::domain::api::DiscoveryRange;
+use crate::domain::api::{DiscoveryRange, RoutingTableLayer};
 
 /// A routing table which uses an additional data structure to store all
 /// physical neighbors.
@@ -35,7 +35,15 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> From<FlatRoutingTable<BUCKET_SI
 
 impl<const BUCKET_SIZE: usize, const ACC: usize> From<UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>> for crate::domain::api::RoutingTable {
     fn from(value: UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>) -> Self {
-        value.inner.into()
+        let new_layer = RoutingTableLayer {
+            buckets: vec![crate::domain::api::Bucket {
+                prefix: "".to_string(),
+                contacts: value.pn_contacts.values().map(|x| x.clone().into()).collect(),
+            }]
+        };
+        let mut inner: crate::domain::api::RoutingTable = value.inner.into();
+        inner.layers.push(new_layer);
+        inner
     }
 }
 

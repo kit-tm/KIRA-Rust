@@ -5,7 +5,7 @@ use std::fmt::Debug;
 use std::num::NonZeroU64;
 
 use crate::domain::{Contact, Link, NodeId, NotVia, StateSeqNr};
-use crate::domain::api::{KellyResponse, RoutingTable};
+use crate::domain::api::{KellyResponse};
 use crate::messaging::source_route::SourceRoute;
 
 /// Randomly generated number to uniquely identify a protocol message and its

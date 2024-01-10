@@ -326,8 +326,6 @@ where
             ),
         };
 
-        log::warn!("Sending xor sums via {:?}", find_node_request.source_route);
-
         if let Err(e) = context.message_sender_mut().send_message(find_node_request) {
             log::error!(target: "failure_handling", "Failed to send find node to {}: {}", closest_contact.id(), e);
         }
