@@ -7,4 +7,5 @@ pub trait LocalHashTable<H, I, O>
 
     fn store(&mut self, handle: H, data: I) -> Self::StoreRes;
     fn fetch(&mut self, handle: &H) -> Result<O, Self::FetchErr>;
+    fn fetch_all(&self) -> Result<Vec<(H, O)>, Self::FetchErr>;
 }

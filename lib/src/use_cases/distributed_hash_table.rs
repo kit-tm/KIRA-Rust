@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use crate::context::UseCaseContext;
-use crate::domain::{api, NodeId};
+use crate::domain::NodeId;
 use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchRspData, StoreResult, StoreRspData};
 
 use crate::domain::dht::TimedValue;
@@ -18,7 +18,7 @@ use crate::domain::dht::strategies::insert_strategy::PermissionlessInsertStrateg
 use crate::domain::dht::strategies::timeout_strategy::ConstTimeoutStrategy;
 
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
+use crate::messaging::{ProtocolMessage, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{ApiEvent, EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
@@ -114,7 +114,7 @@ impl<C, H, RS, D> EventHandler for DistributedHashTable<C, H>
         C: UseCaseContext,
         C::Runtime: UseCaseRuntime<SendError=D>,
         D: Debug,
-        H: LocalHashTable<NodeId, DefaultLHTInput, DefaultLHTOutput, StoreRes=StoreResult, FetchErr=FetchErr> + Expiring<Context=(), Result=RS> + Clone + Into<api::LocalHashTable>
+        H: LocalHashTable<NodeId, DefaultLHTInput, DefaultLHTOutput, StoreRes=StoreResult, FetchErr=FetchErr> + Expiring<Context=(), Result=RS> + Clone
 {
     type Context = C;
     type Error = DHTError;
@@ -183,7 +183,9 @@ impl<C, H, RS, D> EventHandler for DistributedHashTable<C, H>
             }
             // todo move hash table in context and add extra DHTApi UseCase for this event handler
             (UseCaseEvent::API(ApiEvent::LocalHashTable(callback)), _) => {
-                if let Err(e) = callback.send(self.config.hash_table.clone().into()) {
+                let table_dump = self.config.hash_table.fetch_all();
+
+                if let Err(e) = callback.send(table_dump) {
                     log::error!("Failed to send local hash table: {:?}", e);
                     return Err(DHTError::DHTSendError);
                 }
@@ -201,7 +203,7 @@ impl<C, H, RS, D> UseCase for DistributedHashTable<C, H>
         C: UseCaseContext,
         C::Runtime: UseCaseRuntime<SendError=D>,
         D: Debug,
-        H: LocalHashTable<NodeId, DefaultLHTInput, DefaultLHTOutput, StoreRes=StoreResult, FetchErr=FetchErr> + Expiring<Context=(), Result=RS> + Clone + Into<api::LocalHashTable>
+        H: LocalHashTable<NodeId, DefaultLHTInput, DefaultLHTOutput, StoreRes=StoreResult, FetchErr=FetchErr> + Expiring<Context=(), Result=RS> + Clone
 {
     type State = DHTState;
 

@@ -1,45 +1,23 @@
-use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::str::FromStr;
+use axum::response::{IntoResponse, Response};
+use hex::FromHexError;
+use r2kad_lib::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, StoreErr};
+use r2kad_lib::use_cases::{FetchInjectData, StoreInjectData};
+use serde_derive::Serialize;
 use std::time::Duration;
 use axum::http;
-use hex::FromHexError;
-use sha2::{Sha256, Digest};
-use serde::{Deserialize, Serialize};
-use crate::domain::dht::TimedValue;
-use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, StoreErr};
-use crate::use_cases::{FetchInjectData, StoreInjectData};
-use crate::use_cases::distributed_hash_table::{DefaultExpiringHashTable, HashTableSingle};
-use axum::response::{IntoResponse, Response};
-use crate::domain::SIZE;
+use r2kad_lib::domain::SIZE;
+use sha2::{Digest, Sha256};
+use crate::api::domain::NodeId;
 
-
-#[derive(Clone, Serialize, Deserialize, Debug, Hash, PartialEq, Eq)]
-pub struct NodeId {
-    #[serde(rename(serialize = "node-id", deserialize = "node-id"))]
-    pub node_id: String,
-}
-
-impl From<crate::domain::NodeId> for NodeId {
-    fn from(value: crate::domain::NodeId) -> Self {
-        NodeId { node_id: format!("{}", value) }
-    }
-}
-
-impl TryFrom<NodeId> for crate::domain::NodeId {
-    type Error = FromHexError;
-
-    fn try_from(value: NodeId) -> Result<Self, Self::Error> {
-        Self::from_str(value.node_id.as_str())
-    }
-}
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub enum Handle {
     Handle(NodeId),
     Reference(String),
 }
 
-impl TryFrom<Handle> for crate::domain::NodeId {
+impl TryFrom<Handle> for r2kad_lib::domain::NodeId {
     type Error = FromHexError;
 
     fn try_from(value: Handle) -> Result<Self, Self::Error> {
@@ -130,16 +108,16 @@ impl Display for StoreOK {
     }
 }
 
-impl From<crate::messaging::dht::StoreOK> for StoreOK {
-    fn from(value: crate::messaging::dht::StoreOK) -> Self {
+impl From<r2kad_lib::messaging::dht::StoreOK> for StoreOK {
+    fn from(value: r2kad_lib::messaging::dht::StoreOK) -> Self {
         match value {
-            crate::messaging::dht::StoreOK::Created => Self::Created,
-            crate::messaging::dht::StoreOK::Updated => Self::Updated
+            r2kad_lib::messaging::dht::StoreOK::Created => Self::Created,
+            r2kad_lib::messaging::dht::StoreOK::Updated => Self::Updated
         }
     }
 }
 
-impl From<StoreErr> for ApiErr {
+impl From<StoreErr> for DHTErr {
     fn from(value: StoreErr) -> Self {
         Self::Miscellaneous
     }
@@ -166,35 +144,10 @@ impl From<DefaultLHTOutput> for FetchRsp {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct LocalHashTable {
-    #[serde(flatten)]
-    ht: HashMap<String, Vec<TimedValue<String>>>,
-}
-
-impl From<HashTableSingle> for TimedValue<String> {
-    fn from(value: HashTableSingle) -> Self {
-        let time = value.time;
-        let value = hex::encode(value.value);
-
-        Self { value, time }
-    }
-}
-
-impl From<DefaultExpiringHashTable> for LocalHashTable {
-    fn from(value: DefaultExpiringHashTable) -> Self {
-        Self {
-            ht: value.map
-                .into_iter()
-                .map(|(k, v)| (NodeId::from(k).node_id, v.into_iter().map(Into::into).collect()))
-                .collect()
-        }
-    }
-}
-
-pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+pub struct LocalHashTable(pub Vec<(String, Vec<String>)>);
 
 #[derive(Serialize, Debug)]
-pub enum ApiErr {
+pub enum DHTErr {
     FormatError(ApiFormatErr),
     SendError,
     Isolated,
@@ -213,7 +166,7 @@ pub enum ApiFormatErr {
     AmbiguousParams,
 }
 
-impl Display for ApiErr {
+impl Display for DHTErr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::FormatError(e) => write!(f, "Format Error: {}", e),
@@ -228,7 +181,7 @@ impl Display for ApiErr {
     }
 }
 
-impl IntoResponse for ApiErr {
+impl IntoResponse for DHTErr {
     fn into_response(self) -> Response {
         let status = match self {
             // todo overthink status codes
@@ -263,13 +216,13 @@ impl Display for ApiFormatErr {
     }
 }
 
-impl From<ApiFormatErr> for ApiErr {
+impl From<ApiFormatErr> for DHTErr {
     fn from(value: ApiFormatErr) -> Self {
         Self::FormatError(value)
     }
 }
 
-impl From<FetchErr> for ApiErr {
+impl From<FetchErr> for DHTErr {
     fn from(value: FetchErr) -> Self {
         match value {
             FetchErr::NotFoundErr => Self::NotFound,

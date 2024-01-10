@@ -48,7 +48,7 @@ use r2kad_lib::use_cases::{
     UseCaseState,
 };
 use r2kad_lib::use_cases::distributed_hash_table::{DistributedHashTable, DistributedHashTableConfig};
-use r2kad_lib::use_cases::distributed_hash_table_injector::{DistributedHashTableInjector, DistributedHashTableInjectorConfig};
+use r2kad_lib::use_cases::distributed_hash_table_injector::DistributedHashTableInjector;
 use crate::api::ApiConfig;
 
 

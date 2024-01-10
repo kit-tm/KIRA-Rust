@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::fmt::{Debug, Formatter, write};
 
 use crate::domain::dht::expiring::Expiring;
 use crate::domain::dht::hash_table::LocalHashTable;
@@ -40,6 +39,10 @@ impl<H, I, O, D, IS, FS, TS, RS, FE> LocalHashTable<H, I, O> for ExpiringHashTab
     }
     fn fetch(&mut self, handle: &H) -> Result<O, Self::FetchErr> {
         self.fetch_strategy.fetch(handle, &mut self.map)
+    }
+
+    fn fetch_all(&self) -> Result<Vec<(H, O)>, Self::FetchErr> {
+        self.fetch_strategy.fetch_all(&self.map)
     }
 }
 

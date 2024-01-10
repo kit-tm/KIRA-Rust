@@ -9,4 +9,6 @@ pub trait FetchStrategy {
     type Error;
 
     fn fetch(&self, handle: &Self::Handle, from: &mut Self::Composite) -> Result<Self::OutputData, Self::Error>;
+    
+    fn fetch_all(&self, from: &Self::Composite) -> Result<Vec<(Self::Handle, Self::OutputData)>, Self::Error>;
 }

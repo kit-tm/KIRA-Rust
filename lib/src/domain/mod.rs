@@ -29,7 +29,6 @@ pub mod physical_neighbor_table;
 pub mod routing_table;
 pub mod state_seq_nr;
 pub mod dht;
-pub mod api;
 
 /// A physical connection between two nodes.
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]

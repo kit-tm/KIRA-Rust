@@ -22,7 +22,7 @@ impl FetchStrategy for PermissionlessFetchStrategy
                 Err(FetchErr::NotFoundErr)
             }
             Some(set) => {
-                let mut vec = Vec::with_capacity(set.capacity());
+                let mut vec = Vec::with_capacity(set.len());
 
                 for timed_value in set.iter() {
                     vec.push(timed_value.value.clone())
@@ -31,5 +31,21 @@ impl FetchStrategy for PermissionlessFetchStrategy
                 Ok(vec)
             }
         }
+    }
+
+    fn fetch_all(&self, from: &Self::Composite) -> Result<Vec<(Self::Handle, Self::OutputData)>, Self::Error> {
+        let mut dump = Vec::with_capacity(from.len());
+
+        for (handle, set) in from.iter() {
+            let mut vec = Vec::with_capacity(set.len());
+
+            for timed_value in set.iter() {
+                vec.push(timed_value.value.clone())
+            }
+            
+            dump.push((handle.clone(),vec));
+        }
+
+        Ok(dump)
     }
 }

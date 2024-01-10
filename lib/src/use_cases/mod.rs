@@ -1,17 +1,16 @@
 //! Implementations of the use cases.
 
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::UnboundedSender;
-use std::sync::mpsc::Receiver; // use tokio::sync::oneshot;
+use tokio::sync::mpsc; // use tokio::sync::oneshot;
 
 use crate::domain::{Contact, NetworkInterface, NodeId};
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::messages::ProtocolMessage;
 use crate::messaging::{FindNodeReqData, Nonce};
-use crate::messaging::dht::DefaultLHTInput;
+use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr};
 use crate::use_cases::inject_messages::InjectionResult;
 
 pub mod derive_fwd_table_entries;
@@ -77,7 +76,7 @@ impl PartialEq for InjectionMessageData {
 
 #[derive(Debug, Clone)]
 pub enum ApiEvent {
-    LocalHashTable(UnboundedSender<crate::domain::api::LocalHashTable>)
+    LocalHashTable(mpsc::UnboundedSender<Result<Vec<(NodeId, DefaultLHTOutput)>, FetchErr>>)
 }
 
 impl PartialEq for ApiEvent {
