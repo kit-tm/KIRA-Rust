@@ -22,10 +22,19 @@ use crate::messaging::{ProtocolMessage, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{ApiEvent, EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
+use crate::domain::dht::strategies::timeout_strategy::DEFAULT_TIMEOUT;
+
+/// Default number of seconds between each garbage collection process.
+///
+/// This may not be confused with the [DEFAULT_TIMEOUT] used
+/// by the [ConstTimeoutStrategy]
+/// to determine if a value actually **is** expired.
 pub const DEFAULT_COLLECT_INTERVAL: Duration = Duration::from_secs(60);
 
-pub type HashTableSingle = TimedValue<Arc<[u8]>>;
-pub type HashTableData = HashSet<HashTableSingle>;
+/// Single data entry in hash table.
+pub type HashTableSingle = Arc<[u8]>;
+type HashTableData = HashSet<TimedValue<HashTableSingle>>;  // Collection of data entries in hash table.
+
 pub type DefaultExpiringHashTable = ExpiringHashTable<
     NodeId,
     HashTableData,
@@ -34,16 +43,31 @@ pub type DefaultExpiringHashTable = ExpiringHashTable<
     ConstTimeoutStrategy<NodeId, Arc<[u8]>>,
 >;
 
-
+/// Configuration for [DistributedHashTable].
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct DistributedHashTableConfig<H>
 {
-    hash_table: H,
-    collect_interval: Duration,
+    /// [LocalHashTable] to store [HashTableSingle] data.
+    pub hash_table: H,
+    /// The [Duration] between each garbage collection process.
+    ///
+    /// The garbage collection calls [Expiring::expire] on the [LocalHashTable].
+    pub collect_interval: Duration,
 }
-
-impl Default for DistributedHashTableConfig<DefaultExpiringHashTable> {
-    fn default() -> Self {
+impl DistributedHashTableConfig<DefaultExpiringHashTable> {
+    /// Creates a new instance of [DistributedHashTableConfig] with the given `collect_interval`.
+    ///
+    /// The `collect_interval` specifies the duration between each garbage collection process
+    /// of the internal hash table.
+    ///
+    /// # Arguments
+    ///
+    /// - `collect_interval` - The duration between each garbage collection process.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `Self` with the specified `collect_interval`.
+    fn with_collect_interval(collect_interval: Duration) -> Self {
         let hash_table = ExpiringHashTable::new(
             PermissionlessInsertStrategy::default(),
             PermissionlessFetchStrategy::default(),
@@ -52,11 +76,28 @@ impl Default for DistributedHashTableConfig<DefaultExpiringHashTable> {
 
         Self {
             hash_table,
-            collect_interval: DEFAULT_COLLECT_INTERVAL,
+            collect_interval
         }
     }
 }
 
+impl Default for DistributedHashTableConfig<DefaultExpiringHashTable> {
+    /// Creates a new instance of [DistributedHashTableConfig] with default settings.
+    ///
+    /// The [DistributedHashTableConfig] returned
+    /// is initialized with the [DEFAULT_COLLECT_INTERVAL].
+    fn default() -> Self {
+        Self::with_collect_interval(DEFAULT_COLLECT_INTERVAL)
+    }
+}
+
+
+/// This module defines an enum `DHTError` that represents errors encountered while
+/// sending data with DHT protocol.
+///
+/// # Enum Variants
+///
+/// - `DHTSendError`: Sending of DHT data over the network failed.
 #[derive(Debug)]
 pub enum DHTError {
     DHTSendError
@@ -64,12 +105,20 @@ pub enum DHTError {
 
 impl Display for DHTError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        write!(f, "DHTSendError: Sending a response message over the network failed.")
     }
 }
 
 impl Error for DHTError {}
 
+/// Represents the state of the [DistributedHashTable] UseCase.
+///
+/// # Enum Variants
+///
+/// - `Initialized`: Initial state of the DHT protocol.
+/// - `Running(TimerId)`: State when the DHT protocol is running.
+///   - `TimerId`: id of the garbage-collection-timer to listen for.
+/// - `Error`: Error state in the DHT protocol.
 #[derive(Debug, Eq, PartialEq, Clone, Default)]
 pub enum DHTState {
     #[default]
@@ -78,6 +127,17 @@ pub enum DHTState {
     Error,
 }
 
+/// The [DistributedHashTable] UseCase.
+///
+/// The UseCase is responsible for handling incoming [StoreReq] and [FetchReq] over the network
+/// by sending the appropriate [StoreRsp] and [FetchRsp] respectively.
+///
+/// For injecting new requests into the network see [DistributedHashTableInjector]
+///
+/// # Generics
+///
+/// - `C`: [UseCaseContext] in which the UseCase is running in.
+/// - `H`: [LocalHashTable] type used.
 pub struct DistributedHashTable<C, H>
 {
     _c: PhantomData<C>,
@@ -85,27 +145,32 @@ pub struct DistributedHashTable<C, H>
     config: DistributedHashTableConfig<H>,
 }
 
-impl<C> Default for DistributedHashTable<C, DefaultExpiringHashTable> {
-    fn default() -> Self {
-        Self::new(DistributedHashTableConfig::default())
-    }
-}
-
-
-impl UseCaseState for DHTState {
-    fn is_error(&self) -> bool {
-        self == &Self::Error
-    }
-}
-
 impl<C, H> DistributedHashTable<C, H>
 {
+    /// Creates a new instance of the [DistributedHashTable].
+    ///
+    /// # Arguments
+    ///
+    /// - `config` - The configuration object for the [DistributedHashTable].
     pub fn new(config: DistributedHashTableConfig<H>) -> Self {
         Self {
             _c: PhantomData,
             state: DHTState::default(),
             config,
         }
+    }
+}
+
+impl<C> Default for DistributedHashTable<C, DefaultExpiringHashTable> {
+    /// Constructs a new [DistributedHashTable] instance with the default configuration.
+    fn default() -> Self {
+        Self::new(DistributedHashTableConfig::default())
+    }
+}
+
+impl UseCaseState for DHTState {
+    fn is_error(&self) -> bool {
+        self == &Self::Error
     }
 }
 
@@ -444,7 +509,7 @@ mod tests {
         assert!(matches!(status, Ok(StoreOK::Updated)), "Wrong response status returned: {:?}", status);
         // todo!("TODO define expected behaviour");
         // OPTIONS
-        // 1.) Return Updated only on EXACT existing data (refreshing actions)
+        // 1.) Return Updated only on EXACT existing data (refreshing actions) <-- THIS (CREATED, INSERTED, REFRESHED)
         // 2.) Return Updated even if only we ADD a NEW data FRAGMENT to an existing handle
 
         let stored = use_case.config.hash_table.fetch(&data_handle());

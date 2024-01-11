@@ -1,4 +1,5 @@
 pub use const_timeout_strategy::ConstTimeoutStrategy;
+pub use const_timeout_strategy::DEFAULT_TIMEOUT;
 #[cfg(test)]
 pub use immediate_timeout_strategy::{TaggedTimeoutStrategy, TaggedValue};
 
