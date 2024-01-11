@@ -1,5 +1,7 @@
 use std::fmt::{Display, Formatter};
 use axum::response::{IntoResponse, Response};
+use base64::prelude::BASE64_STANDARD;
+use base64::Engine;
 use hex::FromHexError;
 use r2kad_lib::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, StoreErr};
 use r2kad_lib::use_cases::{FetchInjectData, StoreInjectData};
@@ -139,7 +141,7 @@ pub struct FetchRsp(Vec<String>);
 
 impl From<DefaultLHTOutput> for FetchRsp {
     fn from(value: DefaultLHTOutput) -> Self {
-        Self(value.into_iter().map(hex::encode).collect())
+        Self(value.into_iter().map(|d| BASE64_STANDARD.encode(d)).collect())
     }
 }
 
