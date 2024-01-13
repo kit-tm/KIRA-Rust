@@ -180,7 +180,6 @@ impl<C, const BUCKET_SIZE: usize, D: Debug> EventHandler for DistributedHashTabl
         match (event, &self.state) {
             (UseCaseEvent::InjectMessage(nonce, InjectionMessageData::Store(StoreInjectData { handle, data, restore }, callback)), _) => {
                 let payload = StoreReqData {
-                    storer: context.root_id().clone(),
                     handle,
                     data,
                 };
@@ -196,7 +195,6 @@ impl<C, const BUCKET_SIZE: usize, D: Debug> EventHandler for DistributedHashTabl
             }
             (UseCaseEvent::InjectMessage(nonce, InjectionMessageData::Fetch(FetchInjectData { handle }, callback)), _) => {
                 let payload = FetchReqData {
-                    fetcher: context.root_id().clone(),
                     handle,
                 };
 
@@ -396,7 +394,6 @@ mod tests {
                 nonce,
                 source_state_seq_nr: StateSeqNr::from(0),
                 data: StoreRspData {
-                    storer: NodeId::with_msb(1),
                     status: Ok(StoreOK::Created),
                 },
                 not_via: Default::default(),
@@ -462,7 +459,6 @@ mod tests {
                 nonce,
                 source_state_seq_nr: StateSeqNr::from(0),
                 data: StoreReqData {
-                    storer: NodeId::with_msb(1),
                     handle: root_id.clone(),
                     data: Arc::new([]),
                 },
@@ -567,7 +563,6 @@ mod tests {
                 nonce,
                 source_state_seq_nr: StateSeqNr::from(0),
                 data: FetchRspData {
-                    fetcher: NodeId::with_msb(1),
                     data: Ok(vec![Arc::new([])]),
                 },
                 not_via: Default::default(),
@@ -633,7 +628,6 @@ mod tests {
                 nonce,
                 source_state_seq_nr: StateSeqNr::from(0),
                 data: FetchReqData {
-                    fetcher: NodeId::with_msb(1),
                     handle: root_id.clone(),
                 },
                 not_via: Default::default(),
@@ -683,7 +677,6 @@ mod tests {
 
         let nonce = Nonce::from(1);
         let restore_data: StoreReqData<DefaultLHTInput> = StoreReqData {
-            storer: root_id.clone(),
             handle: root_id.clone(),
             data: Arc::new([]),
         };

@@ -8,7 +8,6 @@ pub type DefaultLHTOutput = Vec<Arc<[u8]>>;
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct StoreReqData<D: Debug> {
-    pub storer: NodeId,
     pub handle: NodeId,
     pub data: D,
     //store_duration: Duration,
@@ -31,7 +30,6 @@ pub type StoreResult = Result<StoreOK, StoreErr>;
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct StoreRspData {
-    pub storer: NodeId,
     pub status: StoreResult,
 }
 
@@ -39,7 +37,6 @@ pub struct StoreRspData {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct FetchReqData {
-    pub fetcher: NodeId,
     pub handle: NodeId,
 }
 
@@ -54,6 +51,5 @@ pub enum FetchErr {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct FetchRspData<D: Debug> {
-    pub fetcher: NodeId,
     pub data: Result<D, FetchErr>,
 }

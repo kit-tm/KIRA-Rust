@@ -111,10 +111,10 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => Some(req.destination()),
             Self::PathTeardownReq(req) => Some(req.destination()),
             Self::UpdateRouteReq(req) => Some(req.source_route.destination()),
-            Self::StoreReq(ReqRspMessage {data, ..}) => Some(&data.handle),
-            Self::StoreRsp(ReqRspMessage {data, ..}) => Some(&data.storer),
-            Self::FetchReq(ReqRspMessage {data, ..}) => Some(&data.handle),
-            Self::FetchRsp(ReqRspMessage {data, ..}) => Some(&data.fetcher)
+            Self::StoreReq(req) => Some(req.destination()),
+            Self::StoreRsp(req) => Some(req.destination()),
+            Self::FetchReq(req) => Some(req.destination()),
+            Self::FetchRsp(req) => Some(req.destination())
         }
     }
 
@@ -214,10 +214,13 @@ impl ProtocolMessage {
         }
     }
 
-    pub fn is_overlay_message(&self) -> bool {
+    // todo write documentation how to use
+    // and why other "overlay" messages are not listed here
+    pub fn overlay_destination(&self) -> Option<&NodeId> {
         match self {
-            Self::StoreReq(_) | Self::StoreRsp(_) | Self::FetchReq(_) | Self::FetchRsp(_) => true,
-            _ => false
+            Self::StoreReq(req) => Some(&req.data.handle),
+            Self::FetchReq(req) => Some(&req.data.handle),
+            _ => None
         }
     }
 

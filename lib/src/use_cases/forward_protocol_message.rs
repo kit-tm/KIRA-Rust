@@ -353,7 +353,7 @@ where
         if source_route.is_none() {
             return Ok(HandlingResult::NotHandled);
         }
-        let mut source_route = source_route.unwrap();
+        let source_route = source_route.unwrap();
 
         // Current hop has to be us
         if source_route.current_hop() != context.root_id() {
@@ -368,43 +368,45 @@ where
 
         let mut next_hop = source_route.next_hop();
 
+        // source route finished
         if next_hop.is_none() {
+            let overlay_destination = message.overlay_destination();
             // is directed to us -> nothing to forward
-            if !message.is_overlay_message() {
+            if overlay_destination.is_none() {
                 return Ok(HandlingResult::NotHandled);
             }
 
-            // overlay routing
-            let dest = message
-                .destination()
-                .expect("Overlay messages are required to have a destination field");
+            // Overlay Routing
+            let overlay_destination = overlay_destination.unwrap();
 
-            // is directed to us -> nothing to forward
-            if dest == context.root_id() {
+            // intended overlay destination is us -> nothing to forward
+            if overlay_destination == context.root_id() {
                 return Ok(HandlingResult::NotHandled)
             }
 
             // todo support other shared_prefix_grouping via config
-            source_route = context.routing_table().next_source_route(dest, 20, 1);
+            let closest_node = context.routing_table()
+                .next_hop(overlay_destination, 20, 1)
+                .expect("Shared Prefix Grouping should be valid");
 
-            // we need to push the root id once more so current_hop == root_id
-            source_route.push_front(context.root_id().clone());
 
-            // we are the best destination -> nothing to forward,
-            if source_route.destination() == context.root_id() || source_route.next_hop().is_none() {
-                log::debug!(
+            // closest known overlay hop is us -> nothing to forward,
+            if closest_node.is_none() {
+                log::trace!(
                     target: "forward_protocol_message",
-                    "Not forwarding overlay message [{:?}] since directed to us",
+                    "Final destination of overlay message is us [{:?}]",
                     message
                 );
                 return Ok(HandlingResult::NotHandled);
             }
 
-            log::trace!(target: "forward_protocol_message", "Forwarding overlay message [{:?}]", message);
+            log::trace!(target: "forward_protocol_message", "Forwarding overlay message to next hop [{:?}]", message);
+            let next_contact = closest_node.unwrap();
 
-            // update message
-            next_hop = source_route.next_hop();
-            *message.source_route_mut().unwrap() = source_route.clone();
+            // extend source route to next hop
+            message.source_route_mut()
+                .map(|sr| sr.extend(next_contact.path().clone()));
+            next_hop = message.source_route().map(SourceRoute::next_hop).flatten();
         }
         let next_hop = next_hop.unwrap();
 

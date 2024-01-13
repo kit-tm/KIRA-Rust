@@ -272,25 +272,6 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         // todo test if edge case lowest bucket (only XOR based) is covered
     }
 
-    /// Returns the source route to the next overlay hop
-    /// including a loopback to ourselves if we are the "next"
-    ///
-    /// This method uses proximity routing unless **n=1**
-    fn next_source_route(&self, to: &NodeId, n: usize, shared_prefix_grouping: usize) -> SourceRoute {
-        let mut route = self.next_hop(&to, n, shared_prefix_grouping)
-            .unwrap()
-            .map(|next_hop| {SourceRoute::from(next_hop.path().clone()) })
-            .unwrap_or_else(|| { Into::into(self.root().clone()) });
-        route.push_front(self.root().clone());
-        log::trace!(
-            target: "routing_table",
-            "Source route to [{:?}] calculated: {:?}.",
-            to,
-            route
-        );
-        route
-    }
-
     /// Iterator over all [Contact]s in the [RoutingTable].
     fn iter(&'a self) -> Self::Iter;
 
