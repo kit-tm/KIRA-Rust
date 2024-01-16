@@ -49,3 +49,46 @@ impl FetchStrategy for PermissionlessFetchStrategy
         Ok(dump)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::sync::Arc;
+    use crate::domain::dht::TimedValue;
+    use crate::use_cases::distributed_hash_table::HashTableSingle;
+    use super::*;
+    use super::super::FetchStrategy;
+
+
+    #[test]
+    fn test_empty_fetch() {
+        let strategy = PermissionlessFetchStrategy::default();
+        let mut composite = HashMap::new();
+        let handle = NodeId::zero();
+
+        let result = strategy.fetch(&handle, &mut composite);
+
+        assert!(result.is_err(), "Fetching data from empty set returned an Ok result: {:?}", result);
+
+        let result = result.unwrap_err();
+        assert!(matches!(result, FetchErr::NotFoundErr), "Didn't return NotFoundErr as result: {:?}", result);
+    }
+
+    #[test]
+    fn test_single_fetch() {
+        let strategy = PermissionlessFetchStrategy::default();
+        let mut composite = HashMap::new();
+        let existing_data: HashTableSingle = Arc::new([1, 2, 3, 4]);
+        let handle = NodeId::zero();
+
+        composite.insert(handle.clone(), HashSet::from([TimedValue::new(existing_data.clone())]));
+
+        let result = strategy.fetch(&handle, &mut composite);
+
+        assert!(result.is_ok(), "Fetching data failed: {:?}", result);
+
+        let result = result.unwrap();
+        assert_eq!(result, vec![existing_data.clone()], "Didn't return right value : {:?}", result);
+    }
+
+}
