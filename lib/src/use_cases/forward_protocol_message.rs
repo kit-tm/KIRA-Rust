@@ -404,9 +404,10 @@ where
             let next_contact = closest_node.unwrap();
 
             // extend source route to next hop
-            message.source_route_mut()
-                .map(|sr| sr.extend(next_contact.path().clone()));
-            next_hop = message.source_route().map(SourceRoute::next_hop).flatten();
+            if let Some(sr) = message.source_route_mut() {
+                sr.extend(next_contact.path().clone())
+            }
+            next_hop = message.source_route().and_then(SourceRoute::next_hop);
         }
         let next_hop = next_hop.unwrap();
 
