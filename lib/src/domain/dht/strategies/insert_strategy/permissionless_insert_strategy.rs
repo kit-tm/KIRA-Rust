@@ -9,9 +9,7 @@ use crate::use_cases::distributed_hash_table::HashTableData;
 #[derive(Default, Debug, Clone)]
 pub struct PermissionlessInsertStrategy {}
 
-impl InsertionStrategy for PermissionlessInsertStrategy
-
-{
+impl InsertionStrategy for PermissionlessInsertStrategy {
     type Handle = NodeId;
     type Composite = HashMap<NodeId, HashTableData>;
     type InputData = DefaultLHTInput;
@@ -34,5 +32,65 @@ impl InsertionStrategy for PermissionlessInsertStrategy
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use super::*;
+
+    use super::super::InsertionStrategy;
+
+
+    #[test]
+    fn test_creation() {
+        let strategy = PermissionlessInsertStrategy::default();
+        let mut composite = HashMap::new();
+        let handle = NodeId::zero();
+        let data: DefaultLHTInput = Arc::new([1,2,3,4]);
+
+        let result = strategy.insert(handle, data, &mut composite);
+
+        assert!(result.is_ok(), "Insertion of new data failed: {:?}", result);
+
+        let result = result.unwrap();
+        assert!(matches!(result, StoreOK::Created), "Didn't return Created as result: {:?}", result);
+    }
+
+    #[test]
+    fn test_insertion() {
+        let strategy = PermissionlessInsertStrategy::default();
+        let handle = NodeId::zero();
+        let mut composite = HashMap::new();
+        let existing_data: DefaultLHTInput = Arc::new([4,3,2,1]);
+        let data: DefaultLHTInput = Arc::new([1,2,3,4]);
+
+        composite.insert(handle.clone(), HashSet::from([TimedValue::new(existing_data)]));
+
+        let result = strategy.insert(handle, data, &mut composite);
+
+        assert!(result.is_ok(), "Insertion of new data failed: {:?}", result);
+
+        let result = result.unwrap();
+        assert!(matches!(result, StoreOK::Inserted), "Didn't return Inserted as result: {:?}", result);
+    }
+
+    #[test]
+    fn test_update() {
+        let strategy = PermissionlessInsertStrategy::default();
+        let handle = NodeId::zero();
+        let mut composite = HashMap::new();
+        let existing_data: DefaultLHTInput = Arc::new([1,2,3,4]);
+        let data: DefaultLHTInput = Arc::new([1,2,3,4]);
+
+        composite.insert(handle.clone(), HashSet::from([TimedValue::new(existing_data)]));
+
+        let result = strategy.insert(handle, data, &mut composite);
+
+        assert!(result.is_ok(), "Insertion of new data failed: {:?}", result);
+
+        let result = result.unwrap();
+        assert!(matches!(result, StoreOK::Updated), "Didn't return Updated as result: {:?}", result);
     }
 }
