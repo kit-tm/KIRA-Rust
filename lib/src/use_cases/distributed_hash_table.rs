@@ -10,7 +10,7 @@ use crate::domain::NodeId;
 use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchRspData, StoreResult, StoreRspData};
 
 use crate::domain::dht::TimedValue;
-use crate::domain::dht::expiring::Expiring;
+use crate::domain::dht::Expiring;
 use crate::domain::dht::hash_table::expiring_hash_table::ExpiringHashTable;
 use crate::domain::dht::hash_table::LocalHashTable;
 use crate::domain::dht::strategies::fetch_strategy::PermissionlessFetchStrategy;
