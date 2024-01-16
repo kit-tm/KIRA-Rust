@@ -30,7 +30,7 @@ impl InsertionStrategy for PermissionlessInsertStrategy
                 if existing_data.replace(TimedValue::new(data.clone())).is_some() {
                     Ok(StoreOK::Updated)
                 } else {
-                    Ok(StoreOK::Created)
+                    Ok(StoreOK::Inserted)
                 }
             }
         }

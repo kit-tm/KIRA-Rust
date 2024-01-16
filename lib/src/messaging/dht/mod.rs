@@ -17,6 +17,7 @@ pub struct StoreReqData<D: Debug> {
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum StoreOK {
     Created,
+    Inserted,
     Updated,
 }
 

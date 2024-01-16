@@ -99,6 +99,7 @@ impl TryFrom<FetchArgs> for FetchInjectData {
 pub enum StoreOK {
     Created,
     Updated,
+    Inserted,
 }
 
 impl Display for StoreOK {
@@ -106,6 +107,7 @@ impl Display for StoreOK {
         match self {
             Self::Created => write!(f, "Created hashtable entry."),
             Self::Updated => write!(f, "Updated existing hashtable entry."),
+            Self::Inserted => write!(f, "Inserted data into an existing hashtable entry."),
         }
     }
 }
@@ -114,7 +116,8 @@ impl From<r2kad_lib::messaging::dht::StoreOK> for StoreOK {
     fn from(value: r2kad_lib::messaging::dht::StoreOK) -> Self {
         match value {
             r2kad_lib::messaging::dht::StoreOK::Created => Self::Created,
-            r2kad_lib::messaging::dht::StoreOK::Updated => Self::Updated
+            r2kad_lib::messaging::dht::StoreOK::Updated => Self::Updated,
+            r2kad_lib::messaging::dht::StoreOK::Inserted => Self::Inserted
         }
     }
 }
@@ -128,7 +131,8 @@ impl From<StoreErr> for DHTErr {
 impl IntoResponse for StoreOK {
     fn into_response(self) -> Response {
         let status = match self {
-            StoreOK::Created => http::StatusCode::CREATED,
+            StoreOK::Created |
+            StoreOK::Inserted => http::StatusCode::CREATED,
             StoreOK::Updated => http::StatusCode::OK,
         };
 

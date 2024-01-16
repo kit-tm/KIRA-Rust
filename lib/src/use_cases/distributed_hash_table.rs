@@ -527,10 +527,6 @@ mod tests {
         let ProtocolMessage::StoreRsp(ReqRspMessage { data: StoreRspData { status, .. }, .. })
             = message else { panic!("Wrong response type sent") };
         assert!(matches!(status, Ok(StoreOK::Updated)), "Wrong response status returned: {:?}", status);
-        // todo!("TODO define expected behaviour");
-        // OPTIONS
-        // 1.) Return Updated only on EXACT existing data (refreshing actions) <-- THIS (CREATED, INSERTED, REFRESHED)
-        // 2.) Return Updated even if only we ADD a NEW data FRAGMENT to an existing handle
 
         let stored = use_case.config.hash_table.fetch(&data_handle());
         assert!(stored.is_ok(), "Unable to retrieve updated data: {:?}", stored);
@@ -635,7 +631,7 @@ mod tests {
 
         let ProtocolMessage::StoreRsp(ReqRspMessage { data: StoreRspData { status, .. }, .. })
             = message else { panic!("Wrong response type sent") };
-        assert!(matches!(status, Ok(StoreOK::Created)), "Wrong response status returned: {:?}", status);
+        assert!(matches!(status, Ok(StoreOK::Inserted)), "Wrong response status returned: {:?}", status);
 
         let stored = use_case.config.hash_table.fetch(&data_handle());
         assert!(stored.is_ok(), "Unable to retrieve updated data: {:?}", stored);
