@@ -3,8 +3,16 @@ use std::time::{Duration, Instant};
 use crate::domain::dht::TimedValue;
 use super::TimeoutStrategy;
 
+/// Default [Duration] of time after which a value is decided to be timed out.
+///
+/// This value is used by [ConstTimeoutStrategy::default]
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60 * 60 * 24);
 
+
+/// Implementation of the [TimeoutStrategy] on which values run out after a given duration.
+///
+/// This strategy doesn't require any context
+/// but the values must be a [TimedValue] to provide the [Instant] on which they are created.
 #[derive(Debug, Clone)]
 pub struct ConstTimeoutStrategy<C, D> {
     _c: PhantomData<C>,
@@ -13,6 +21,15 @@ pub struct ConstTimeoutStrategy<C, D> {
 }
 
 impl<C, D> ConstTimeoutStrategy<C, D> {
+    /// Creates a new instance of [ConstTimeoutStrategy] with the specified expiration duration.
+    ///
+    /// # Parameters
+    ///
+    /// - `expire_after`: The duration after which the data will be considered expired.
+    ///
+    /// # Returns
+    ///
+    /// The new [ConstTimeoutStrategy] instance with the specified expiration duration.
     pub fn with_expire_duration(expire_after: Duration) -> Self {
         Self {
             _c: PhantomData,
@@ -23,6 +40,9 @@ impl<C, D> ConstTimeoutStrategy<C, D> {
 }
 
 impl<C, D> Default for ConstTimeoutStrategy<C, D> {
+    /// Returns a new instance of [ConstTimeoutStrategy] with the [DEFAULT_TIMEOUT].
+    ///
+    /// If you want to create a custom [ConstTimeoutStrategy] you can use [ConstTimeoutStrategy::with_expire_duration].
     fn default() -> Self {
         Self::with_expire_duration(DEFAULT_TIMEOUT)
     }

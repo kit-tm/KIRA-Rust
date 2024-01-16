@@ -6,11 +6,17 @@ use crate::domain::NodeId;
 use crate::messaging::dht::{DefaultLHTOutput, FetchErr};
 use crate::use_cases::distributed_hash_table::HashTableData;
 
+/// This is the default implementation of the [FetchStrategy].
+///
+/// This strategy always succeeds in retrieving the data if it is in the composite.
+/// In particular there is no need to proof one is authorized to access the data.
 #[derive(Default, Debug, Clone)]
 pub struct PermissionlessFetchStrategy {}
 
+
 impl FetchStrategy for PermissionlessFetchStrategy
 {
+    // todo use more abstract data types
     type Handle = NodeId;
     type Composite = HashMap<NodeId, HashTableData>;
     type OutputData = DefaultLHTOutput;
@@ -42,7 +48,7 @@ impl FetchStrategy for PermissionlessFetchStrategy
             for timed_value in set.iter() {
                 vec.push(timed_value.value.clone())
             }
-            
+
             dump.push((handle.clone(),vec));
         }
 
