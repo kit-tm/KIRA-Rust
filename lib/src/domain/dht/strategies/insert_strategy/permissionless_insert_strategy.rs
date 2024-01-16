@@ -37,14 +37,14 @@ impl InsertionStrategy for PermissionlessInsertStrategy {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use super::*;
-
     use super::super::InsertionStrategy;
+
+    use std::sync::Arc;
 
 
     #[test]
-    fn test_creation() {
+    fn creation() {
         let strategy = PermissionlessInsertStrategy::default();
         let mut composite = HashMap::new();
         let handle = NodeId::zero();
@@ -59,7 +59,7 @@ mod tests {
     }
 
     #[test]
-    fn test_insertion() {
+    fn insertion() {
         let strategy = PermissionlessInsertStrategy::default();
         let handle = NodeId::zero();
         let mut composite = HashMap::new();
@@ -77,7 +77,7 @@ mod tests {
     }
 
     #[test]
-    fn test_update() {
+    fn update() {
         let strategy = PermissionlessInsertStrategy::default();
         let handle = NodeId::zero();
         let mut composite = HashMap::new();

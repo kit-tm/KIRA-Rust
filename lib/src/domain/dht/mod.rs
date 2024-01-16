@@ -45,6 +45,12 @@ impl<V> TimedValue<V> {
     }
 }
 
+impl<V> From<V> for TimedValue<V> {
+    fn from(value: V) -> Self {
+        Self::new(value)
+    }
+}
+
 impl<V: Eq> PartialEq<Self> for TimedValue<V> {
     fn eq(&self, other: &Self) -> bool {
         self.value == other.value
