@@ -378,6 +378,9 @@ where
 
             // Overlay Routing
             // todo add unit tests
+            // fixme isolated error if only a single node is used
+            // fixme remove cycles in SourceRoute on the way back?
+            // fixme respect NotVia? [lib/src/use_cases/handle_overlay_discovery.rs:141]
             let overlay_destination = overlay_destination.unwrap();
 
             // intended overlay destination is us -> nothing to forward
