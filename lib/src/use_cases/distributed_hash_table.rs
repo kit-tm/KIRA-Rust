@@ -540,7 +540,7 @@ mod tests {
 
         let stored_timed = stored_raw.get(&TimedValue::new(data()))
             .expect("Unable to retrieve raw data times");
-        assert!(stored_timed.time > insert_time, "Time of value wasn't updated: {:?}", stored_raw);
+        assert!(stored_timed.timestamp > insert_time, "Time of value wasn't updated: {:?}", stored_raw);
     }
 
     #[test]

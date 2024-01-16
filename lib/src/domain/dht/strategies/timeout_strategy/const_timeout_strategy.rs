@@ -54,7 +54,7 @@ impl<C, D> TimeoutStrategy for ConstTimeoutStrategy<C, D> {
 
     fn has_timed_out(&self, context: &Self::Context, expirable: &Self::Expirable) -> bool {
         Instant::now()
-            .checked_duration_since(expirable.time)
+            .checked_duration_since(expirable.timestamp)
             .is_some_and(|d| d >= self.expire_after)
     }
 }
@@ -75,7 +75,7 @@ mod tests {
         let strategy = ConstTimeoutStrategy::default();
 
         let mut expired_value = TimedValue::new("tested");
-        expired_value.time = Instant::now().sub(DEFAULT_TIMEOUT).sub(Duration::from_secs(42));
+        expired_value.timestamp = Instant::now().sub(DEFAULT_TIMEOUT).sub(Duration::from_secs(42));
 
         assert!(strategy.has_timed_out(&(), &expired_value), "Value hasn't expired: {:?}", expired_value);
     }
@@ -85,7 +85,7 @@ mod tests {
         let strategy = ConstTimeoutStrategy::default();
 
         let mut expired_value = TimedValue::new("tested");
-        expired_value.time = Instant::now().sub(DEFAULT_TIMEOUT / 2);
+        expired_value.timestamp = Instant::now().sub(DEFAULT_TIMEOUT / 2);
 
         assert!(!strategy.has_timed_out(&(), &expired_value), "Value has expired: {:?}", expired_value);
     }

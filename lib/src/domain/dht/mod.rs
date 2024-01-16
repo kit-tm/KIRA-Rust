@@ -2,15 +2,29 @@ use std::hash::{Hash, Hasher};
 use std::time::Instant;
 use serde::Serialize;
 
+pub use expiring::Expiring;
+
 pub mod hash_table;
 pub mod strategies;
-pub mod expiring;
+mod expiring;
 
+/// A generic struct representing a value with an associated timestamp.
+///
+/// # Fields
+///
+/// - `value`: The value of type `V`.
+/// - `time`: The timestamp of type `Instant`.
+///
+/// The `value` field can hold any value of any type, while the `time` field holds the timestamp
+/// when the value was recorded.
+///
+/// ## [Eq] and [Hash]
+/// It is important to note that this struct only derives [Eq] and [Hash] from the `value`.
 #[derive(Debug, Clone, Serialize)]
 pub struct TimedValue<V> {
     pub value: V,
     #[serde(with = "approx_instant")]
-    pub time: Instant,
+    pub timestamp: Instant,
 }
 
 mod approx_instant {
@@ -31,17 +45,37 @@ mod approx_instant {
     }
 }
 
-// only derives hash and eq from value not time
 impl<V> TimedValue<V> {
+    /// Creates a new instance of `Self` with the specified `value`.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The initial value for the instance.
+    ///
+    /// # Returns
+    ///
+    /// The newly created instance of `Self` with the current time ([Instant::now()]).
     pub fn new(value: V) -> Self {
         Self {
             value,
-            time: Instant::now(),
+            timestamp: Instant::now(),
         }
     }
 
+    /// Updates the time for the current instance.
+    ///
+    /// This function updates the time for the current instance by assigning it a new value obtained from [Instant::now].
     pub fn update(&mut self) {
-        self.time = Instant::now();
+        self.timestamp = Instant::now();
+    }
+}
+
+impl<V: Default> Default for TimedValue<V> {
+    fn default() -> Self {
+        Self {
+            value: V::default(),
+            timestamp: Instant::now(),
+        }
     }
 }
 
