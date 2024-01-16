@@ -4,11 +4,25 @@ use crate::domain::dht::strategies::timeout_strategy::TimeoutStrategy;
 
 #[derive(Default, Debug, Clone)]
 pub struct TaggedValue<V> {
-    pub value: V,
-    pub tagged: bool,
+    value: V,
+    tagged: bool,
 }
 
-impl<V: Eq> PartialEq<Self> for TaggedValue<V> {
+impl<V> TaggedValue<V> {
+    pub fn new(value: V) -> Self {
+        Self {
+            value,
+            tagged: false
+        }
+    }
+
+    pub fn tag(mut self) -> Self {
+        self.tagged = true;
+        self
+    }
+}
+
+impl<V: PartialEq> PartialEq<Self> for TaggedValue<V> {
     fn eq(&self, other: &Self) -> bool {
         self.value == other.value
     }

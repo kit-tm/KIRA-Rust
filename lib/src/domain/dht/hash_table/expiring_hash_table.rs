@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 
 use crate::domain::dht::expiring::Expiring;
 use crate::domain::dht::hash_table::LocalHashTable;
@@ -47,9 +48,9 @@ impl<H, I, O, D, IS, FS, TS, RS, FE> LocalHashTable<H, I, O> for ExpiringHashTab
 }
 
 // todo maybe we can even remove the concrete HashSet
-// todo can we put this into a separat strategy we can test?
+// todo can we put this into a separate strategy we can test?
 impl<H, D, IS, FS, TS> Expiring for ExpiringHashTable<H, HashSet<D>, IS, FS, TS> where
-    TS: TimeoutStrategy<Context=H, Expirable=D>
+    TS: TimeoutStrategy<Context=H, Expirable=D>,
 {
     type Context = ();
     type Result = ();
@@ -58,6 +59,9 @@ impl<H, D, IS, FS, TS> Expiring for ExpiringHashTable<H, HashSet<D>, IS, FS, TS>
         for (handle, set) in self.map.iter_mut() {
             set.retain(|data| !self.timeout_strategy.has_timed_out(handle, data));
         }
+
+        // delete empty sets left behind
+        self.map.retain(|_, set| !set.is_empty());
     }
 }
 
@@ -69,24 +73,23 @@ mod tests {
     use crate::domain::dht::strategies::timeout_strategy::{TaggedTimeoutStrategy, TaggedValue};
 
     #[test]
-    fn expire_value_if_timed_out() {
+    fn expire_whole_data_set_if_timed_out() {
         let mut expiring = ExpiringHashTable::new((), (), TaggedTimeoutStrategy::default());
-        expiring.map.insert("test", HashSet::from([TaggedValue {
-            value: "test", tagged: true
-        }]));
+        let tagged_value = TaggedValue::new("test").tag();
+        expiring.map.insert("test", HashSet::from([
+            tagged_value
+        ]));
 
         Expiring::expire(&mut expiring, &());
 
-        todo!("Specify behaviour: Do we want to leave empty Sets behind?");
         assert!(expiring.map.is_empty(), "Hash table is not empty: {:?}", expiring.map);
     }
 
     #[test]
     fn dont_expire_fresh_values() {
         let mut expiring = ExpiringHashTable::new((), (), TaggedTimeoutStrategy::default());
-        let data = HashSet::from([TaggedValue {
-            value: "test", tagged: false
-        }]);
+        let fresh_value = TaggedValue::new("test");
+        let data = HashSet::from([fresh_value]);
         expiring.map.insert("test", data.clone());
 
         Expiring::expire(&mut expiring, &());
@@ -96,6 +99,21 @@ mod tests {
 
         let expired_data = expired_data.unwrap();
         assert_eq!(expired_data, &data, "Some data was expired: {:?}", expired_data);
+    }
+
+    #[test]
+    fn expire_only_expired_values() {
+        let mut expiring = ExpiringHashTable::new((), (), TaggedTimeoutStrategy::default());
+        let key = "test";
+        let fresh_value = TaggedValue::new("test");
+        let tagged_value = TaggedValue::new("tested").tag();
+        expiring.map.insert(key, HashSet::from([fresh_value, tagged_value]));
+
+        Expiring::expire(&mut expiring, &());
+
+        assert!(!expiring.map.is_empty(), "Hash table is empty: {:?}", expiring.map);
+        assert!(expiring.map.get("test").is_some(), "Hash table does not contain fresh value: {:?}", expiring.map);
+        assert!(expiring.map.get("tested").is_none(), "Hash table does contain expired value: {:?}", expiring.map);
     }
 }
 
