@@ -1,12 +1,10 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use core::time::Duration;
 use std::collections::{HashMap, LinkedList};
 use std::marker::PhantomData;
-use std::num::NonZeroUsize;
 use std::time::Instant;
 
 use crate::context::UseCaseContext;
-use crate::domain::{GroupingError, node_id, RoutingTable};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{EventHandler, FetchInjectData, InjectionMessageData, OneshotInjectMessageCallback, StoreInjectData, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
@@ -19,24 +17,39 @@ use crate::use_cases::inject_messages::errors::InjectMessageError;
 
 // todo what would be a sensible value here?
 // todo random offsets for periodic restore AND collection of the hash table?
+/// Default number of seconds between two attempts to restore an existing value.
 pub const DEFAULT_PERIODIC_RESTORE: Duration = Duration::from_secs(60 * 60);
 
+
+
+/// Configuration options for the [DistributedHashTableInjector].
+///
+/// This struct contains the following fields:
+/// - `periodic_restore`: The duration between periodic restore operations.
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct DistributedHashTableInjectorConfig
 {
-    periodic_restore: Duration,
-    shared_prefix_grouping: NonZeroUsize,
+    pub periodic_restore: Duration,
 }
 
 impl Default for DistributedHashTableInjectorConfig {
+    /// Returns a new instance of the [DistributedHashTableInjectorConfig] initialized with the
+    /// [DEFAULT_PERIODIC_RESTORE].
     fn default() -> Self {
         Self {
             periodic_restore: DEFAULT_PERIODIC_RESTORE,
-            shared_prefix_grouping: NonZeroUsize::new(1).unwrap(),
         }
     }
 }
 
+/// Represents the state of the [DistributedHashTableInjector] UseCase.
+///
+/// # Enum Variants
+///
+/// - `Initialized`: Initial state.
+/// - `Running(TimerId)`: State when the UseCase is running.
+///   - `TimerId`: id of the periodic restore time to listen for.
+/// - `Error`: Error state.
 #[derive(Debug, Eq, PartialEq, Clone, Default)]
 pub enum DHTInjectorState {
     #[default]
@@ -45,7 +58,23 @@ pub enum DHTInjectorState {
     Error,
 }
 
-pub struct DistributedHashTableInjector<C, const BUCKET_SIZE: usize>
+/// The [DistributedHashTableInjector] UseCase.
+///
+/// The UseCase is responsible for handling incoming [InjectMessage](UseCaseEvent::InjectMessage)
+/// events by **creating** new [StoreReq](ProtocolMessage::StoreReq) and [FetchReq](ProtocolMessage::FetchReq) respectively.
+/// It also listens for a response of the network and notifies the injector of the response using the provided
+/// [OneshotInjectMessageCallback](super::use_cases::OneshotInjectMessageCallback).
+///
+/// This UseCase also performs the periodic restore if requested. The duration can be configured
+/// in the [DistributedHashTableInjectorConfig].
+///
+/// For handling incoming [StoreReq](ProtocolMessage::StoreReq) and [FetchReq](ProtocolMessage::FetchReq)
+/// see the [DistributedHashTable](super::distributed_hash_table::DistributedHashTable) Use Case.
+///
+/// # Generics
+///
+/// - `C`: [UseCaseContext] in which the UseCase is running in.
+pub struct DistributedHashTableInjector<C>
 {
     _c: PhantomData<C>,
     state: DHTInjectorState,
@@ -60,37 +89,37 @@ impl UseCaseState for DHTInjectorState {
     }
 }
 
-impl<C, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCKET_SIZE>
+impl<C> DistributedHashTableInjector<C>
 {
-    pub fn new(config: DistributedHashTableInjectorConfig) -> Result<Self, GroupingError> {
-        if config.shared_prefix_grouping.get() > node_id::BIT_SIZE {
-            return Err(GroupingError::Invalid {
-                group_size: config.shared_prefix_grouping.get(),
-                id_size: node_id::BIT_SIZE,
-            });
-        }
-
-        Ok(Self {
+    /// Creates a new instance of [DistributedHashTableInjector].
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - The configuration for the [DistributedHashTableInjector].
+    ///
+    /// # Returns
+    ///
+    /// A new instance of [DistributedHashTableInjector].
+    pub fn new(config: DistributedHashTableInjectorConfig) -> Self {
+        Self {
             _c: PhantomData,
             state: DHTInjectorState::default(),
             config,
             nonces: HashMap::default(),
             restore_data: LinkedList::default(),
-        })
+        }
     }
 }
 
-impl<C, const BUCKET_SIZE: usize> Default for DistributedHashTableInjector<C, BUCKET_SIZE> {
+impl<C> Default for DistributedHashTableInjector<C> {
     fn default() -> Self {
         Self::new(DistributedHashTableInjectorConfig::default())
-            .expect("default grouping has to be valid")
     }
 }
 
-impl<C, const BUCKET_SIZE: usize, D: Debug> DistributedHashTableInjector<C, BUCKET_SIZE>
+impl<C, D: Debug> DistributedHashTableInjector<C>
     where
         C: UseCaseContext,
-        for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
         C::Runtime: UseCaseRuntime<SendError=D>,
 {
     fn construct_req_rsp_msg<T: Debug>(context: &C, nonce: Nonce, data: T) -> ReqRspMessage<T> {
@@ -137,7 +166,7 @@ impl<C, const BUCKET_SIZE: usize, D: Debug> DistributedHashTableInjector<C, BUCK
     }
 }
 
-impl<C, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCKET_SIZE> {
+impl<C> DistributedHashTableInjector<C> {
     fn send_inject_result(&self, result: InjectionResult, callback: OneshotInjectMessageCallback) -> Result<(), InjectMessageError> {
         callback.send(result).map_err(|e| {
             log::error!(target: "inject_dht_messages", "failed to send inject result: {:#?}", e);
@@ -165,10 +194,9 @@ impl<C, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCKET_SIZE> {
 }
 
 
-impl<C, const BUCKET_SIZE: usize, D: Debug> EventHandler for DistributedHashTableInjector<C, BUCKET_SIZE>
+impl<C, D: Debug> EventHandler for DistributedHashTableInjector<C>
     where
         C: UseCaseContext,
-        for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
         C::MessageSender: ProtocolMessageSender,
         C::Runtime: UseCaseRuntime<SendError=D>,
 {
@@ -237,10 +265,9 @@ impl<C, const BUCKET_SIZE: usize, D: Debug> EventHandler for DistributedHashTabl
 }
 
 
-impl<C, const BUCKET_SIZE: usize> UseCase for DistributedHashTableInjector<C, BUCKET_SIZE>
+impl<C> UseCase for DistributedHashTableInjector<C>
     where
         C: UseCaseContext,
-        for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
         C::MessageSender: ProtocolMessageSender,
         C::Runtime: UseCaseRuntime,
 {
@@ -269,12 +296,12 @@ mod tests {
     use crate::domain::{InsertionStrategyResult, NetworkInterface, NodeId, PNTable, StateSeqNr, TestInsertionStrategy};
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
-    use crate::messaging::{AsyncProtocolMessageReceiver, InMemoryMessageChannel, Nonce, ProtocolMessage, ReqRspMessage};
+    use crate::messaging::{InMemoryMessageChannel, Nonce, ProtocolMessage, ReqRspMessage};
     use crate::messaging::dht::{DefaultLHTInput, FetchReqData, FetchRspData, StoreOK, StoreReqData, StoreRspData};
     use crate::messaging::source_route::SourceRoute;
     use crate::runtime::ImmediateRuntime;
     use crate::use_cases;
-    use crate::use_cases::distributed_hash_table_injector::{DHTInjectorState, DistributedHashTableInjector};
+    use crate::use_cases::distributed_hash_table_injector::DistributedHashTableInjector;
     use crate::use_cases::{EventHandler, FetchInjectData, InjectionMessageData, StoreInjectData, UseCase, UseCaseEvent};
     use crate::use_cases::distributed_hash_table_injector::DHTInjectorState::Running;
     use crate::use_cases::inject_messages::InjectionResult;

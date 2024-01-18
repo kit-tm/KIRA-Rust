@@ -32,8 +32,15 @@ pub const DEFAULT_COLLECT_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Single data entry in hash table.
 pub type HashTableSingle = Arc<[u8]>;
-pub type HashTableData = HashSet<TimedValue<HashTableSingle>>;  // Collection of data entries in hash table.
 
+/// Data kept internally in the [ExpiringHashTable]
+/// 
+/// This is a collection of multiple [HashTableSingle]s tagged with a
+/// creation timestamp to determine if they have expired. (see [TimedValue])
+pub type HashTableData = HashSet<TimedValue<HashTableSingle>>;
+
+
+/// This is the [ExpiringHashTable] with all the default strategies.
 pub type DefaultExpiringHashTable = ExpiringHashTable<
     NodeId,
     HashTableData,
@@ -128,10 +135,11 @@ pub enum DHTState {
 
 /// The [DistributedHashTable] UseCase.
 ///
-/// The UseCase is responsible for handling incoming [StoreReq] and [FetchReq] over the network
+/// The UseCase is responsible for handling incoming [StoreReq](ProtocolMessage::StoreReq) and [FetchReq](ProtocolMessage::FetchReq) over the network
 /// by sending the respective response.
 ///
-/// For injecting new requests into the network see [DistributedHashTableInjector]
+/// For injecting new requests into the network see the
+/// [DistributedHashTableInjector](super::distributed_hash_table_injector::DistributedHashTableInjector) UseCase
 ///
 /// # Invariants
 ///
