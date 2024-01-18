@@ -232,7 +232,6 @@ impl From<FetchErr> for DHTErr {
     fn from(value: FetchErr) -> Self {
         match value {
             FetchErr::NotFoundErr => Self::NotFound,
-            FetchErr::TimeOutErr => Self::Timeout
         }
     }
 }
