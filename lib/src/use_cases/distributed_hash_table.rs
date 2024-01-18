@@ -21,13 +21,11 @@ use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{ApiEvent, EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState};
-use crate::use_cases::forward_protocol_message::ForwardProtocolMessage;
 
-use crate::domain::dht::strategies::timeout_strategy::DEFAULT_TIMEOUT;
 
 /// Default number of seconds between each garbage collection process.
 ///
-/// This may not be confused with the [DEFAULT_TIMEOUT] used
+/// This may not be confused with the [DEFAULT_TIMEOUT](crate::domain::dht::strategies::timeout_strategy::DEFAULT_TIMEOUT) used
 /// by the [ConstTimeoutStrategy]
 /// to determine if a value actually **is** expired.
 pub const DEFAULT_COLLECT_INTERVAL: Duration = Duration::from_secs(60);
@@ -140,7 +138,7 @@ pub enum DHTState {
 /// This UseCase assumes all DHT requests tasked to handle are addressed to his [LocalHashTable].
 /// You need to forward [ProtocolMessage]s over the network yourself if not meant for this Node
 ///
-/// You can use the [ForwardProtocolMessage] UseCase to aid you in this task.
+/// You can use the [ForwardProtocolMessage](crate::use_cases::forward_protocol_message::ForwardProtocolMessage) UseCase to aid you in this task.
 ///
 /// # Generics
 ///
