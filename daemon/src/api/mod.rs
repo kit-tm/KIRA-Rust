@@ -1,4 +1,6 @@
-pub mod domain;
+//! REST-Server implementation
+
+pub(crate) mod domain;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -21,8 +23,21 @@ use r2kad_lib::messaging::{Nonce, ProtocolMessage};
 use crate::api::domain::dht::{FetchRsp, LocalHashTable, StoreOK};
 use crate::api::domain::NodeId;
 
-
-pub(crate) async fn start_http_server(api_config: ApiConfig) {
+// todo document API further
+/// Starts a REST API-server based on the provided [ApiConfig].
+///
+/// The routes are defined as follows:
+///   - GET `/node-id`: Return the NodeID of the running Node.
+///   - POST `/dht`: Alias for `/dht/store`.
+///   - GET `/dht`: Alias for `/dht/fetch`.
+///   - POST `/dht/store`: Store DHT data to the network.
+///   - GET `/dht/fetch`: Fetch DTH data from the network.
+///   - GET `/dht/_dev/local-hashtable`: Dumps the complete hashtable
+///
+/// # Arguments
+///
+/// * `api_config` - The [ApiConfig] containing the server configuration.
+pub async fn start_http_server(api_config: ApiConfig) {
     log::info!("Starting api server on {}...", api_config.address);
 
     let api_state = ApiState {
@@ -50,6 +65,8 @@ struct ApiState {
     sender: mpsc::Sender<(UseCaseEvent, Option<Instant>)>,
 }
 
+
+/// The configuration for the API-Server used by [start_http_server].
 pub struct ApiConfig {
     address: SocketAddr,
     node_id: r2kad_lib::domain::NodeId,
@@ -57,6 +74,17 @@ pub struct ApiConfig {
 }
 
 impl ApiConfig {
+    /// Creates a new `ApiConfig` instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `address` - The [SocketAddr] to bind the server to.
+    /// * `node_id` - The [NodeId](r2kad_lib::domain::NodeId) of the Node running the API-Server.
+    /// * `sender` - The [mpsc::Sender] used to send created [UseCaseEvent]s by the server.
+    ///
+    /// # Returns
+    ///
+    /// A new [ApiConfig] instance.
     pub(crate) fn new(address: SocketAddr, node_id: r2kad_lib::domain::NodeId, sender: mpsc::Sender<(UseCaseEvent, Option<Instant>)>) -> ApiConfig {
         ApiConfig {
             address,
