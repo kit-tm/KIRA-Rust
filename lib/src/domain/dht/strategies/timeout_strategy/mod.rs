@@ -2,7 +2,6 @@ pub use const_timeout_strategy::ConstTimeoutStrategy;
 pub use const_timeout_strategy::DEFAULT_TIMEOUT;
 #[cfg(test)]
 pub use tagged_timeout_strategy::{TaggedTimeoutStrategy, TaggedValue};
-use super::super::expiring::Expiring;
 
 mod const_timeout_strategy;
 mod tagged_timeout_strategy;
@@ -11,8 +10,8 @@ mod tagged_timeout_strategy;
 ///
 /// The strategy can use an external [Self::Context] to decide if the value has expired.
 /// 
-/// To see the difference between this trait and the [Expiring] trait see the 
-/// according section in the [Expiring] trait.
+/// To see the difference between this trait and the [Expiring](crate::domain::dht::Expiring) trait see the
+/// according section in the [Expiring](crate::domain::dht::Expiring) trait.
 pub trait TimeoutStrategy {
     /// Context aiding the decision if a value has timed out.
     ///

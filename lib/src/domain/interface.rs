@@ -1,5 +1,4 @@
 use std::fmt::{Display, Formatter};
-use rand::random;
 
 #[cfg(feature = "pnet")]
 pub use pnet_conversion::*;
@@ -26,33 +25,6 @@ impl NetworkInterface {
         Self {
             index: interface.index,
             name: interface.name.clone(),
-        }
-    }
-}
-
-#[cfg(test)]
-impl NetworkInterface {
-    /// This method creates a dummy interface for test cases.
-    ///
-    /// This function does not check if the interface actually exists. Use with caution.<
-    pub fn with_name<S: Into<String>>(name: S) -> Self {
-        let interfaces = pnet::datalink::interfaces();
-        let name = name.into();
-        // try to find real index of interface if exists
-        let index = interfaces.iter().find(|i| i.name == name)
-            .map_or(u32::MAX, |i| i.index);
-
-        Self { index, name }
-    }
-
-    // todo use lazy initialization
-    pub fn loopback() -> Self {
-        let interfaces = pnet::datalink::interfaces();
-        let interface = interfaces.iter().find(|i| i.is_loopback()).expect("Unable to find loopback interface");
-
-        Self {
-            index: interface.index,
-            name: interface.name.clone()
         }
     }
 }

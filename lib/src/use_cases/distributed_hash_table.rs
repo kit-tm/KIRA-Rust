@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use crate::context::UseCaseContext;
-use crate::domain::NodeId;
+use crate::domain::{NodeId, PNTable};
 use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchRspData, StoreResult, StoreRspData};
 
 use crate::domain::dht::TimedValue;
@@ -21,9 +21,6 @@ use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{ApiEvent, EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState};
-use crate::use_cases::forward_protocol_message::ForwardProtocolMessage;
-
-use crate::domain::dht::strategies::timeout_strategy::DEFAULT_TIMEOUT;
 
 /// Default number of seconds between each garbage collection process.
 ///
@@ -186,6 +183,7 @@ impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
     where
         C: UseCaseContext,
         C::MessageSender: ProtocolMessageSender,
+        C::PhysicalNeighborTable: PNTable,
         H: LocalHashTable<NodeId, DefaultLHTInput, DefaultLHTOutput, StoreRes=StoreResult, FetchErr=FetchErr> + Expiring<Context=(), Result=RS> + Clone
 {
     type Context = C;
@@ -271,6 +269,7 @@ impl<C, H, RS> UseCase for DistributedHashTable<C, H>
         C: UseCaseContext,
         C::MessageSender: ProtocolMessageSender,
         C::Runtime: UseCaseRuntime,
+        C::PhysicalNeighborTable: PNTable,
         H: LocalHashTable<NodeId, DefaultLHTInput, DefaultLHTOutput, StoreRes=StoreResult, FetchErr=FetchErr> + Expiring<Context=(), Result=RS> + Clone
 {
     type State = DHTState;
@@ -297,7 +296,7 @@ mod tests {
     use std::time::Instant;
     use crate::broadcaster::MPSCBroadcaster;
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
-    use crate::domain::{InsertionStrategyResult, NetworkInterface, NodeId, Path, PNTable, StateSeqNr, TestInsertionStrategy};
+    use crate::domain::{InMemoryPNTable, InsertionStrategyResult, NetworkInterface, NodeId, Path, StateSeqNr, TestInsertionStrategy};
     use crate::domain::dht::hash_table::LocalHashTable;
     use crate::domain::dht::TimedValue;
     use crate::domain::single_bucket::SingleBucketRT;
@@ -306,7 +305,6 @@ mod tests {
     use crate::messaging::dht::{StoreOK, StoreReqData, StoreRspData};
     use crate::messaging::source_route::SourceRoute;
     use crate::runtime::ImmediateRuntime;
-    use crate::use_cases;
     use crate::use_cases::distributed_hash_table::DistributedHashTable;
     use crate::use_cases::{EventHandler, UseCase, UseCaseEvent};
 
@@ -342,7 +340,7 @@ mod tests {
         let context = SyncContext::new(ContextConfig {
             root_id: root(),
             routing_table,
-            pn_table: PNTable::new(),
+            pn_table: InMemoryPNTable::new(),
             insertion_strategy,
             message_sender: hub_sender,
             runtime: ImmediateRuntime::new(broadcaster.clone()),
@@ -370,7 +368,7 @@ mod tests {
         let context = SyncContext::new(ContextConfig {
             root_id: root(),
             routing_table,
-            pn_table: PNTable::new(),
+            pn_table: InMemoryPNTable::new(),
             insertion_strategy,
             message_sender: hub_sender,
             runtime: ImmediateRuntime::new(broadcaster.clone()),
@@ -403,7 +401,7 @@ mod tests {
         let context = SyncContext::new(ContextConfig {
             root_id: root(),
             routing_table,
-            pn_table: PNTable::new(),
+            pn_table: InMemoryPNTable::new(),
             insertion_strategy,
             message_sender: hub_sender,
             runtime: ImmediateRuntime::new(broadcaster.clone()),
@@ -444,12 +442,12 @@ mod tests {
         let routing_table = SingleBucketRT::<20>::new(root());
         let interface = NetworkInterface::with_name("test");
         let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
-        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
+        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let context = SyncContext::new(ContextConfig {
             root_id: root(),
             routing_table,
-            pn_table: PNTable::new(),
+            pn_table: InMemoryPNTable::new(),
             insertion_strategy,
             message_sender: hub_sender,
             runtime: ImmediateRuntime::new(broadcaster.clone()),
@@ -491,7 +489,7 @@ mod tests {
         let context = SyncContext::new(ContextConfig {
             root_id: root(),
             routing_table,
-            pn_table: PNTable::new(),
+            pn_table: InMemoryPNTable::new(),
             insertion_strategy,
             message_sender: hub_sender,
             runtime: ImmediateRuntime::new(broadcaster.clone()),
@@ -555,7 +553,7 @@ mod tests {
         let context = SyncContext::new(ContextConfig {
             root_id: root(),
             routing_table,
-            pn_table: PNTable::new(),
+            pn_table: InMemoryPNTable::new(),
             insertion_strategy,
             message_sender: hub_sender,
             runtime: ImmediateRuntime::new(broadcaster.clone()),
@@ -597,7 +595,7 @@ mod tests {
         let context = SyncContext::new(ContextConfig {
             root_id: root(),
             routing_table,
-            pn_table: PNTable::new(),
+            pn_table: InMemoryPNTable::new(),
             insertion_strategy,
             message_sender: hub_sender,
             runtime: ImmediateRuntime::new(broadcaster.clone()),

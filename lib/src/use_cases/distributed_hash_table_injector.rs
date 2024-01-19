@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use core::time::Duration;
 use std::collections::{HashMap, LinkedList};
 use std::marker::PhantomData;
@@ -6,7 +6,7 @@ use std::num::NonZeroUsize;
 use std::time::Instant;
 
 use crate::context::UseCaseContext;
-use crate::domain::{GroupingError, node_id, RoutingTable};
+use crate::domain::{GroupingError, node_id, PNTable, RoutingTable};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{EventHandler, FetchInjectData, InjectionMessageData, OneshotInjectMessageCallback, StoreInjectData, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
@@ -92,6 +92,7 @@ impl<C, const BUCKET_SIZE: usize, D: Debug> DistributedHashTableInjector<C, BUCK
         C: UseCaseContext,
         for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
         C::Runtime: UseCaseRuntime<SendError=D>,
+        C::PhysicalNeighborTable: PNTable
 {
     fn construct_req_rsp_msg<T: Debug>(context: &C, nonce: Nonce, data: T) -> ReqRspMessage<T> {
         let mut source_route = SourceRoute::from(context.root_id().clone());
@@ -171,6 +172,7 @@ impl<C, const BUCKET_SIZE: usize, D: Debug> EventHandler for DistributedHashTabl
         for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
         C::MessageSender: ProtocolMessageSender,
         C::Runtime: UseCaseRuntime<SendError=D>,
+        C::PhysicalNeighborTable: PNTable
 {
     type Context = C;
     type Error = InjectMessageError;
@@ -243,6 +245,7 @@ impl<C, const BUCKET_SIZE: usize> UseCase for DistributedHashTableInjector<C, BU
         for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
         C::MessageSender: ProtocolMessageSender,
         C::Runtime: UseCaseRuntime,
+        C::PhysicalNeighborTable: PNTable
 {
     type State = DHTInjectorState;
 
@@ -266,15 +269,15 @@ mod tests {
     use std::time::Instant;
     use crate::broadcaster::MPSCBroadcaster;
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
-    use crate::domain::{InsertionStrategyResult, NetworkInterface, NodeId, PNTable, StateSeqNr, TestInsertionStrategy};
+    use crate::domain::{InMemoryPNTable, InsertionStrategyResult, NetworkInterface, NodeId, StateSeqNr, TestInsertionStrategy};
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
-    use crate::messaging::{AsyncProtocolMessageReceiver, InMemoryMessageChannel, Nonce, ProtocolMessage, ReqRspMessage};
+    use crate::messaging::{InMemoryMessageChannel, Nonce, ProtocolMessage, ReqRspMessage};
     use crate::messaging::dht::{DefaultLHTInput, FetchReqData, FetchRspData, StoreOK, StoreReqData, StoreRspData};
     use crate::messaging::source_route::SourceRoute;
     use crate::runtime::ImmediateRuntime;
     use crate::use_cases;
-    use crate::use_cases::distributed_hash_table_injector::{DHTInjectorState, DistributedHashTableInjector};
+    use crate::use_cases::distributed_hash_table_injector::DistributedHashTableInjector;
     use crate::use_cases::{EventHandler, FetchInjectData, InjectionMessageData, StoreInjectData, UseCase, UseCaseEvent};
     use crate::use_cases::distributed_hash_table_injector::DHTInjectorState::Running;
     use crate::use_cases::inject_messages::InjectionResult;
@@ -285,16 +288,16 @@ mod tests {
 
         let routing_table = SingleBucketRT::<20>::new(root_id.clone());
 
-        let (hub_sender, hub_receiver) = InMemoryMessageChannel::with_interface(NetworkInterface::with_name("test")).into_parts();
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::with_interface(NetworkInterface::with_name("test")).into_parts();
 
-        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
+        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
 
         let context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
             routing_table,
-            pn_table: PNTable::new(),
+            pn_table: InMemoryPNTable::new(),
             insertion_strategy,
             message_sender: hub_sender,
             runtime: ImmediateRuntime::new(broadcaster.clone()),
@@ -315,16 +318,16 @@ mod tests {
 
         let routing_table = SingleBucketRT::<20>::new(root_id.clone());
 
-        let (hub_sender, hub_receiver) = InMemoryMessageChannel::with_interface(NetworkInterface::with_name("test")).into_parts();
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::with_interface(NetworkInterface::with_name("test")).into_parts();
 
-        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
+        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
 
         let context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
             routing_table,
-            pn_table: PNTable::new(),
+            pn_table: InMemoryPNTable::new(),
             insertion_strategy,
             message_sender: hub_sender,
             runtime: ImmediateRuntime::new(broadcaster.clone()),
@@ -362,17 +365,17 @@ mod tests {
 
         let routing_table = SingleBucketRT::<20>::new(root_id.clone());
 
-        let (hub_sender, hub_receiver) =
+        let (hub_sender, _hub_receiver) =
             InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
 
-        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
+        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
 
         let context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
             routing_table,
-            pn_table: PNTable::new(),
+            pn_table: InMemoryPNTable::new(),
             insertion_strategy,
             message_sender: hub_sender,
             runtime: ImmediateRuntime::new(broadcaster.clone()),
@@ -428,17 +431,17 @@ mod tests {
 
         let routing_table = SingleBucketRT::<20>::new(root_id.clone());
 
-        let (hub_sender, hub_receiver) =
+        let (hub_sender, _hub_receiver) =
             InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
 
-        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
+        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
 
         let context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
             routing_table,
-            pn_table: PNTable::new(),
+            pn_table: InMemoryPNTable::new(),
             insertion_strategy,
             message_sender: hub_sender,
             runtime: ImmediateRuntime::new(broadcaster.clone()),
@@ -486,16 +489,16 @@ mod tests {
 
         let routing_table = SingleBucketRT::<20>::new(root_id.clone());
 
-        let (hub_sender, hub_receiver) = InMemoryMessageChannel::with_interface(NetworkInterface::with_name("test")).into_parts();
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::with_interface(NetworkInterface::with_name("test")).into_parts();
 
-        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
+        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
 
         let context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
             routing_table,
-            pn_table: PNTable::new(),
+            pn_table: InMemoryPNTable::new(),
             insertion_strategy,
             message_sender: hub_sender,
             runtime: ImmediateRuntime::new(broadcaster.clone()),
@@ -531,17 +534,17 @@ mod tests {
 
         let routing_table = SingleBucketRT::<20>::new(root_id.clone());
 
-        let (hub_sender, hub_receiver) =
+        let (hub_sender, _hub_receiver) =
             InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
 
-        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
+        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
 
         let context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
             routing_table,
-            pn_table: PNTable::new(),
+            pn_table: InMemoryPNTable::new(),
             insertion_strategy,
             message_sender: hub_sender,
             runtime: ImmediateRuntime::new(broadcaster.clone()),
@@ -597,17 +600,17 @@ mod tests {
 
         let routing_table = SingleBucketRT::<20>::new(root_id.clone());
 
-        let (hub_sender, hub_receiver) =
+        let (hub_sender, _hub_receiver) =
             InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
 
-        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
+        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
 
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
 
         let context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
             routing_table,
-            pn_table: PNTable::new(),
+            pn_table: InMemoryPNTable::new(),
             insertion_strategy,
             message_sender: hub_sender,
             runtime: ImmediateRuntime::new(broadcaster.clone()),
@@ -655,7 +658,7 @@ mod tests {
 
         let routing_table = SingleBucketRT::<20>::new(root_id.clone());
 
-        let (hub_sender, mut hub_receiver) =
+        let (hub_sender, _hub_receiver) =
             InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
 
         let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
@@ -665,7 +668,7 @@ mod tests {
         let context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
             routing_table,
-            pn_table: PNTable::new(),
+            pn_table: InMemoryPNTable::new(),
             insertion_strategy,
             message_sender: hub_sender,
             runtime: ImmediateRuntime::new(broadcaster.clone()),
@@ -675,7 +678,6 @@ mod tests {
 
         let mut use_case = DistributedHashTableInjector::default();
 
-        let nonce = Nonce::from(1);
         let restore_data: StoreReqData<DefaultLHTInput> = StoreReqData {
             handle: root_id.clone(),
             data: Arc::new([]),

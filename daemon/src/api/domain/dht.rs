@@ -53,11 +53,6 @@ pub struct StoreArgs {
     pub data: DefaultLHTInput,
 }
 
-fn restore_default() -> bool {
-    false
-}
-
-
 impl From<StoreInjectData<DefaultLHTInput>> for StoreArgs {
     fn from(value: StoreInjectData<DefaultLHTInput>) -> Self {
         let handle = NodeId::from(value.handle);
@@ -123,7 +118,7 @@ impl From<r2kad_lib::messaging::dht::StoreOK> for StoreOK {
 }
 
 impl From<StoreErr> for DHTErr {
-    fn from(value: StoreErr) -> Self {
+    fn from(_value: StoreErr) -> Self {
         Self::Miscellaneous
     }
 }

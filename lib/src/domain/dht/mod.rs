@@ -1,6 +1,5 @@
 use std::hash::{Hash, Hasher};
 use std::time::Instant;
-use serde::Serialize;
 
 pub use expiring::Expiring;
 

@@ -91,7 +91,7 @@ impl<C, D> TimeoutStrategy for TaggedTimeoutStrategy<C, TaggedValue<D>> {
     type Context = C;
     type Expirable = TaggedValue<D>;
 
-    fn has_timed_out(&self, context: &Self::Context, expirable: &Self::Expirable) -> bool {
+    fn has_timed_out(&self, _context: &Self::Context, expirable: &Self::Expirable) -> bool {
         expirable.tagged()
     }
 }

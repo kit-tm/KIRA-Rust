@@ -113,7 +113,7 @@ mod tests {
     use tokio::sync::broadcast;
 
     use crate::context::{ContextConfig, ReadGuard, TokioContext, UseCaseContext, WriteGuard};
-    use crate::domain::{FlatRoutingTable, InMemoryPNTable, InsertionStrategyResult, NodeId, PNTable, TestInsertionStrategy};
+    use crate::domain::{FlatRoutingTable, InMemoryPNTable, InsertionStrategyResult, NodeId, TestInsertionStrategy};
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::InMemoryMessageChannel;
     use crate::runtime::TokioRuntime;

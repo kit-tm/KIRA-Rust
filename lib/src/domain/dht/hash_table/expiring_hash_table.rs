@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::hash::Hash;
 
 use crate::domain::dht::expiring::Expiring;
 use crate::domain::dht::hash_table::LocalHashTable;
@@ -55,7 +54,7 @@ impl<H, D, IS, FS, TS> Expiring for ExpiringHashTable<H, HashSet<D>, IS, FS, TS>
     type Context = ();
     type Result = ();
 
-    fn expire(&mut self, context: &Self::Context) -> Self::Result {
+    fn expire(&mut self, _context: &Self::Context) -> Self::Result {
         for (handle, set) in self.map.iter_mut() {
             set.retain(|data| !self.timeout_strategy.has_timed_out(handle, data));
         }

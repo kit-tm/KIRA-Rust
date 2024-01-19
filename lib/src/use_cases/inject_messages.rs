@@ -3,7 +3,6 @@ use std::error::Error;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::time::Instant;
-use serde::Serialize;
 
 pub use std_extension::*;
 #[cfg(feature = "tokio")]
@@ -265,7 +264,7 @@ mod tests {
 
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{Contact, InsertionStrategyResult, NetworkInterface, NodeId, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable};
+    use crate::domain::{Contact, InsertionStrategyResult, NetworkInterface, NodeId, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable, PNTable};
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::{

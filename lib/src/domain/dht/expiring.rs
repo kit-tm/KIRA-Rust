@@ -1,11 +1,9 @@
-use super::strategies::timeout_strategy::TimeoutStrategy;
-
 /// This trait provides the functionality to expire itself.
 /// 
-/// This trait can be used together with the [TimeoutStrategy]
+/// This trait can be used together with the [TimeoutStrategy](super::strategies::timeout_strategy::TimeoutStrategy)
 /// to determine dynamically if a value does expire.
 /// 
-/// ## Difference to [TimeoutStrategy]
+/// ## Difference to [TimeoutStrategy](super::strategies::timeout_strategy::TimeoutStrategy)
 /// 
 /// * [TimeoutStrategy]: Provides the decision-making if a value is actually expired.
 /// * [Expiring]: Provides the functionality to expire a value.

@@ -1,6 +1,5 @@
 //! Implementations of the use cases.
 
-use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;

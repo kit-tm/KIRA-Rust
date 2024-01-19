@@ -3,7 +3,6 @@ use std::fmt::{Display, Formatter};
 use std::ops::DerefMut;
 
 use crate::domain::{Bucket, Contact, GroupingError, NodeId, ReplacementError, SharedPrefix};
-use crate::messaging::source_route::SourceRoute;
 
 pub mod flat_routing_table;
 pub mod observable_routing_table;
@@ -214,7 +213,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         log::trace!(target: "routing_table", "Calculating next hop to {}", to);
 
         let closest = self.closest(to, n, shared_prefix_grouping)?;
-        let (nearest_prefix, mut next_hop) = match closest.first() {
+        let (nearest_prefix, next_hop) = match closest.first() {
             None => {
                 log::warn!(target: "routing_table","Node is isolated!");
                 return Ok(None);

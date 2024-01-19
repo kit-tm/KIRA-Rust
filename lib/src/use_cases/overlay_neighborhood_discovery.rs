@@ -401,7 +401,7 @@ mod tests {
 
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{Contact, InsertionStrategyResult, NetworkInterface, NodeId, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable};
+    use crate::domain::{Contact, InsertionStrategyResult, NetworkInterface, NodeId, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable, PNTable};
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::{
@@ -572,8 +572,8 @@ mod tests {
                 StateSeqNr::from(0),
             ))
             .is_ok());
-        let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id, NetworkInterface::new("test"));
+        let mut pn_table = InMemoryPNTable::new();
+        pn_table.insert(neighbor_id, NetworkInterface::with_name("test"));
 
         let sync_context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
@@ -674,8 +674,8 @@ mod tests {
                 StateSeqNr::from(0),
             ))
             .is_ok());
-        let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id, NetworkInterface::new("test"));
+        let mut pn_table = InMemoryPNTable::new();
+        pn_table.insert(neighbor_id, NetworkInterface::with_name("test"));
 
         let sync_context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
