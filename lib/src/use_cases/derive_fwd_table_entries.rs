@@ -1,8 +1,10 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::marker::PhantomData;
+use std::ops::Deref;
 
 use crate::context::UseCaseContext;
-use crate::domain::{Contact, ContactState, NodeId};
+use crate::domain::{Contact, ContactState, NetworkInterface, NodeId};
 use crate::forwarding::hasher::Hasher;
 use crate::forwarding::{ForwardingTables, NodeIdEntry, NodeIdTable, PathIdEntry, PathIdTable};
 use crate::use_cases::{ContactEvent, EventHandler, ReactiveUseCaseState, UseCase, UseCaseEvent};
@@ -42,6 +44,7 @@ where
     C: UseCaseContext,
     C::ForwardingTables: NodeIdTable,
     <C::ForwardingTables as NodeIdTable>::Error: 'static + Error,
+    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     fn remove_node_id_entry(
         &self,
@@ -212,6 +215,7 @@ where
     C::ForwardingTables: ForwardingTables,
     <C::ForwardingTables as NodeIdTable>::Error: 'static + Error,
     <C::ForwardingTables as PathIdTable>::Error: 'static + Error,
+    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     type Context = C;
     type Error = error::DeriveFwdEntriesError;
@@ -261,6 +265,7 @@ where
     C::ForwardingTables: ForwardingTables,
     <C::ForwardingTables as NodeIdTable>::Error: 'static + Error,
     <C::ForwardingTables as PathIdTable>::Error: 'static + Error,
+    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     type State = ReactiveUseCaseState;
 
@@ -305,10 +310,7 @@ pub mod error {
 mod tests {
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{
-        Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable,
-        StateSeqNr, TestInsertionStrategy,
-    };
+    use crate::domain::{Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable};
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::forwarding::{NodeIdEntry, NodeIdTable, PathIdEntry, PathIdTable};
     use crate::messaging::InMemoryMessageChannel;
@@ -344,7 +346,7 @@ mod tests {
         let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -422,7 +424,7 @@ mod tests {
         let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -500,7 +502,7 @@ mod tests {
         let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let mut fwd_table = InMemoryFwdTables::new();
@@ -631,7 +633,7 @@ mod tests {
         let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let mut fwd_table = InMemoryFwdTables::new();

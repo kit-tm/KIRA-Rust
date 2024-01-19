@@ -1,10 +1,11 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::marker::PhantomData;
+use std::ops::Deref;
 use std::time::Duration;
 
 use crate::context::UseCaseContext;
-use crate::domain::{ContactState, EmptyPathError, NodeId, Path};
+use crate::domain::{ContactState, EmptyPathError, NetworkInterface, NodeId, Path};
 use crate::forwarding::hasher::Hasher;
 use crate::forwarding::{ForwardingTables, PathIdEntry, PathIdTable};
 use crate::messaging::ProtocolMessage;
@@ -73,6 +74,7 @@ where
     C: UseCaseContext,
     C::ForwardingTables: PathIdTable,
     <<C as UseCaseContext>::ForwardingTables as PathIdTable>::Error: Display,
+    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     fn gen_entries_from_graph(&self, context: &C, graph: &VicinityGraph) -> HashSet<PathIdEntry> {
         let mut entries = HashSet::new();
@@ -139,6 +141,7 @@ where
     C: UseCaseContext,
     C::ForwardingTables: PathIdTable,
     <<C as UseCaseContext>::ForwardingTables as PathIdTable>::Error: Display,
+    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     type Context = C;
     type Error = ();
@@ -245,6 +248,7 @@ where
     C::ForwardingTables: ForwardingTables,
     C::Runtime: UseCaseRuntime,
     <<C as UseCaseContext>::ForwardingTables as PathIdTable>::Error: Display,
+    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     type State = PrecomputeState;
 
@@ -282,10 +286,7 @@ mod tests {
 
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{
-        Contact, ContactState, EmptyPathError, InsertionStrategyResult, NetworkInterface, NodeId,
-        PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy,
-    };
+    use crate::domain::{Contact, ContactState, EmptyPathError, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable};
     use crate::forwarding::hasher::Hasher;
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::forwarding::PathIdEntry;
@@ -341,7 +342,7 @@ mod tests {
         assert!(routing_table.insert(contacts[2].clone()).is_ok());
         assert!(routing_table.insert(contacts[5].clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(contacts[1].id().clone(), interface_two.clone());
         pn_table.insert(contacts[2].id().clone(), interface_three.clone());
         pn_table.insert(contacts[5].id().clone(), interface_six.clone());
@@ -870,7 +871,7 @@ mod tests {
         assert!(routing_table.insert(contacts[2].clone()).is_ok());
         assert!(routing_table.insert(contacts[5].clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(contacts[1].id().clone(), interface_two.clone());
         pn_table.insert(contacts[2].id().clone(), interface_three.clone());
         pn_table.insert(contacts[5].id().clone(), interface_six.clone());
@@ -1134,7 +1135,7 @@ mod tests {
         assert!(routing_table.insert(contacts[2].clone()).is_ok());
         assert!(routing_table.insert(contacts[5].clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(contacts[1].id().clone(), interface_two.clone());
         pn_table.insert(contacts[2].id().clone(), interface_three.clone());
         pn_table.insert(contacts[5].id().clone(), interface_six.clone());
@@ -1680,7 +1681,7 @@ mod tests {
         assert!(routing_table.insert(contacts[2].clone()).is_ok());
         assert!(routing_table.insert(contacts[5].clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(contacts[1].id().clone(), interface_two.clone());
         pn_table.insert(contacts[2].id().clone(), interface_three.clone());
         pn_table.insert(contacts[5].id().clone(), interface_six.clone());

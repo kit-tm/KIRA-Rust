@@ -3,9 +3,7 @@ use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 
 use crate::context::UseCaseContext;
-use crate::domain::{
-    node_id, Contact, GroupingError, NotVia, RoutingTable, StateSeqNr, DEFAULT_BUCKET_SIZE,
-};
+use crate::domain::{node_id, Contact, GroupingError, NotVia, RoutingTable, StateSeqNr, DEFAULT_BUCKET_SIZE, PNTable};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     ErrorData, FindNodeReqData, ProtocolMessage, ProtocolMessageSender, RTableData, ReqRspMessage,
@@ -106,6 +104,7 @@ where
     C: UseCaseContext,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::MessageSender: ProtocolMessageSender,
+    C::PhysicalNeighborTable: PNTable
 {
     type Context = C;
     type Error = MessageSentFailed;
@@ -251,10 +250,7 @@ mod tests {
 
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{
-        Contact, InsertionStrategyResult, Link, NetworkInterface, NodeId, NotVia, PNTable, Path,
-        RoutingTable, StateSeqNr, TestInsertionStrategy,
-    };
+    use crate::domain::{Contact, InsertionStrategyResult, Link, NetworkInterface, NodeId, NotVia, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable};
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::{
@@ -285,7 +281,7 @@ mod tests {
 
         let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), NetworkInterface::with_name("test"));
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -410,14 +406,14 @@ mod tests {
             insertion_result
         );
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
         pn_table.insert(target_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
             routing_table,
-            pn_table: PNTable::new(),
+            pn_table: InMemoryPNTable::new(),
             insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
             message_sender: hub_sender,
             runtime,
@@ -531,7 +527,7 @@ mod tests {
             insertion_result
         );
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -654,13 +650,13 @@ mod tests {
             insertion_result
         );
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
             routing_table,
-            pn_table: PNTable::new(),
+            pn_table: InMemoryPNTable::new(),
             insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
             message_sender: hub_sender,
             runtime,
@@ -772,7 +768,7 @@ mod tests {
             insertion_result
         );
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -916,7 +912,7 @@ mod tests {
             insertion_result
         );
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let mut not_via = HashSet::new();
@@ -1073,7 +1069,7 @@ mod tests {
             insertion_result
         );
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {

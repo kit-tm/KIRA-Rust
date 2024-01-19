@@ -1,12 +1,10 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
 use crate::context::UseCaseContext;
-use crate::domain::{
-    Contact, ContactState, InsertionStrategy, InsertionStrategyResult, Link, NetworkInterface,
-    NodeId, NotVia, Path, RoutingTable,
-};
+use crate::domain::{Contact, ContactState, InsertionStrategy, InsertionStrategyResult, Link, NetworkInterface, NodeId, NotVia, Path, PNTable, RoutingTable};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     ErrorData, ProtocolMessage, ProtocolMessageSender, RTableData, ReqRspMessage, RouteUpdate,
@@ -47,7 +45,8 @@ impl<C, const BUCKET_SIZE: usize> ForwardProtocolMessage<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, BUCKET_SIZE>,
+    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>,
     C::MessageSender: ProtocolMessageSender,
 {
     fn extract_path_to_source(&self, message: &ProtocolMessage) -> Path {
@@ -452,7 +451,8 @@ impl<C, const BUCKET_SIZE: usize> UseCase for ForwardProtocolMessage<C, BUCKET_S
 where
     C: UseCaseContext,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, BUCKET_SIZE>,
+    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>,
     C::MessageSender: ProtocolMessageSender,
 {
     type State = ReactiveUseCaseState;
@@ -470,7 +470,8 @@ impl<C, const BUCKET_SIZE: usize> EventHandler for ForwardProtocolMessage<C, BUC
 where
     C: UseCaseContext,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, BUCKET_SIZE>,
+    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>,
     C::MessageSender: ProtocolMessageSender,
 {
     type Context = C;
@@ -504,10 +505,7 @@ mod tests {
     use crate::broadcaster::BusBroadcaster;
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{
-        Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable,
-        Path, RoutingTable, StateSeqNr, TestInsertionStrategy,
-    };
+    use crate::domain::{Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable};
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::ProtocolMessage::{
@@ -527,7 +525,7 @@ mod tests {
 
         let root_id = NodeId::with_msb(1);
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let pn_table = PNTable::new();
+        let pn_table = InMemoryPNTable::new();
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let (message_hub, _receiver) = InMemoryMessageChannel::default().into_parts();
         let broadcaster = BusBroadcaster::new(10);
@@ -573,7 +571,7 @@ mod tests {
 
         let root_id = NodeId::with_msb(1);
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let pn_table = PNTable::new();
+        let pn_table = InMemoryPNTable::new();
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
         let broadcaster = BusBroadcaster::new(10);
@@ -632,7 +630,7 @@ mod tests {
         let neighbor_id = NodeId::with_msb(42);
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         // NOTE: First element in contacts path has to be a neighbor
         pn_table.insert(neighbor_id.clone(), interface.clone());
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
@@ -715,7 +713,7 @@ mod tests {
         let interface = NetworkInterface::with_name("test");
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let pn_table = PNTable::new();
+        let pn_table = InMemoryPNTable::new();
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
         let broadcaster = BusBroadcaster::new(10);
@@ -782,7 +780,7 @@ mod tests {
         let interface = NetworkInterface::with_name("test");
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
@@ -856,7 +854,7 @@ mod tests {
         let interface = NetworkInterface::with_name("test");
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
@@ -931,7 +929,7 @@ mod tests {
         let interface = NetworkInterface::with_name("test");
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
@@ -1013,7 +1011,7 @@ mod tests {
         let interface = NetworkInterface::with_name("test");
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
@@ -1125,7 +1123,7 @@ mod tests {
 
         let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), NetworkInterface::with_name("test"));
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -1193,7 +1191,7 @@ mod tests {
 
         let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), NetworkInterface::with_name("test"));
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -1311,7 +1309,7 @@ mod tests {
         }
         invalid_contacts.push(failed_contact);
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {

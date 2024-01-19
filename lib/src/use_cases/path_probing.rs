@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use crate::context::UseCaseContext;
-use crate::domain::{ContactState, NodeId, RoutingTable, DEFAULT_BUCKET_SIZE};
+use crate::domain::{ContactState, NodeId, RoutingTable, DEFAULT_BUCKET_SIZE, PNTable};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     Nonce, ProbeReqData, ProbeRspData, ProtocolMessage, ProtocolMessageSender, ReqRspMessage,
@@ -87,6 +87,7 @@ where
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable
 {
     // Searched for old contacts and sends ProbeReqs to all of them
     fn send_probe_reqs(&mut self, context: &C) -> Result<(), MessageSentFailed> {
@@ -273,6 +274,7 @@ where
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable
 {
     type State = PathProbingState;
 
@@ -301,6 +303,7 @@ where
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable
 {
     type Context = C;
     type Error = MessageSentFailed;
@@ -358,10 +361,7 @@ mod tests {
 
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{
-        Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable,
-        Path, RoutingTable, StateSeqNr, TestInsertionStrategy, Timestamp,
-    };
+    use crate::domain::{Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, Timestamp, InMemoryPNTable};
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::{
@@ -414,7 +414,7 @@ mod tests {
             assert!(routing_table.insert(contact).is_ok());
         }
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -498,7 +498,7 @@ mod tests {
         assert!(routing_table.insert(neighbor.clone()).is_ok());
         assert!(routing_table.insert(contact.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -590,7 +590,7 @@ mod tests {
             .insert(old_contact_not_responding.clone())
             .is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -669,7 +669,7 @@ mod tests {
             .insert(old_contact_not_responding.clone())
             .is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -766,7 +766,7 @@ mod tests {
             .insert(old_contact_not_responding.clone())
             .is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {

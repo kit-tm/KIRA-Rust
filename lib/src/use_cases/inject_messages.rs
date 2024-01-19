@@ -10,7 +10,7 @@ pub use std_extension::*;
 pub use tokio_extension::*;
 
 use crate::context::UseCaseContext;
-use crate::domain::{node_id, GroupingError, NetworkInterface, RoutingTable};
+use crate::domain::{node_id, GroupingError, NetworkInterface, RoutingTable, PNTable};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{Nonce, ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
 use crate::use_cases::inject_messages::errors::InjectMessageError;
@@ -137,6 +137,7 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::MessageSender: ProtocolMessageSender,
     TS: InjectionResultSender,
+    C::PhysicalNeighborTable: PNTable
 {
     type Context = C;
     type Error = InjectMessageError;
@@ -218,6 +219,7 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::MessageSender: ProtocolMessageSender,
     TS: InjectionResultSender,
+    C::PhysicalNeighborTable: PNTable
 {
     type State = ReactiveUseCaseState;
 
@@ -263,10 +265,7 @@ mod tests {
 
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{
-        Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable,
-        StateSeqNr, TestInsertionStrategy,
-    };
+    use crate::domain::{Contact, InsertionStrategyResult, NetworkInterface, NodeId, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable};
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::{
@@ -295,7 +294,7 @@ mod tests {
 
         let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), NetworkInterface::with_name("test"));
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -381,7 +380,7 @@ mod tests {
 
         let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {

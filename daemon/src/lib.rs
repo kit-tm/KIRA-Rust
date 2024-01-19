@@ -18,10 +18,7 @@ use r2kad_lib::context::{ContextConfig, SyncContext, UseCaseContext};
 use r2kad_lib::domain::bucket::DEFAULT_BUCKET_SIZE;
 use r2kad_lib::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
 use r2kad_lib::domain::unlimited_pn_routing_table::UnlimitedPNRoutingTable;
-use r2kad_lib::domain::{
-    FlatRoutingTable, InOrderCycleRemover, NetworkInterface, NodeId, PNSStrategy, PNTable,
-    ShortestFirstPathSimplifier,
-};
+use r2kad_lib::domain::{FlatRoutingTable, InOrderCycleRemover, NativePNTable, NetworkInterface, NodeId, PNSStrategy, ShortestFirstPathSimplifier};
 use r2kad_lib::forwarding::{ForwardingTables, NodeIdTable, PathIdTable};
 use r2kad_lib::hardware_events::HardwareEvent;
 use r2kad_lib::messaging::{
@@ -422,7 +419,7 @@ where
                 _,
                 BUCKET_SIZE,
             >::new(InOrderCycleRemover, ShortestFirstPathSimplifier),
-            pn_table: PNTable::new(),
+            pn_table: NativePNTable::new(),
             forwarding_tables: fwd_table,
             not_via: HashSet::default(),
         };
