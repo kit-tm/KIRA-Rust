@@ -3,12 +3,11 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
+use std::ops::Deref;
 use std::time::{Duration, Instant};
 
 use crate::context::UseCaseContext;
-use crate::domain::{
-    Contact, ContactState, EmptyPathError, NetworkInterface, Path, PathId, RoutingTable,
-};
+use crate::domain::{Contact, ContactState, EmptyPathError, NetworkInterface, NodeId, Path, PathId, PNTable, RoutingTable};
 use crate::forwarding::hasher::Hasher;
 use crate::forwarding::{PathIdEntry, PathIdTable};
 use crate::hardware_events::HardwareEvent;
@@ -85,6 +84,7 @@ where
     C::ForwardingTables: PathIdTable,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     fn send_setup_req(&self, context: &C, contact: &Contact) -> Result<(), EPMError> {
         let source_route = SourceRoute::new(context.root_id().clone(), contact.path().clone());
@@ -354,6 +354,7 @@ where
     C::MessageSender: ProtocolMessageSender,
     C::ForwardingTables: PathIdTable,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     type Context = C;
     type Error = EPMError;
@@ -454,6 +455,7 @@ where
     C::MessageSender: ProtocolMessageSender,
     C::ForwardingTables: PathIdTable,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     type State = EPMState;
 
@@ -537,10 +539,7 @@ mod tests {
 
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{
-        Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable,
-        StateSeqNr, TestInsertionStrategy,
-    };
+    use crate::domain::{Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable};
     use crate::forwarding::hasher::Hasher;
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::forwarding::{PathIdEntry, PathIdTable};
@@ -586,7 +585,7 @@ mod tests {
         let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -688,7 +687,7 @@ mod tests {
         let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -823,7 +822,7 @@ mod tests {
         assert!(routing_table.insert(neighbor.clone()).is_ok());
         assert!(routing_table.insert(other_neighbor.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
         pn_table.insert(other_neighbor_id.clone(), interface2.clone());
 
@@ -940,7 +939,7 @@ mod tests {
         assert!(routing_table.insert(neighbor.clone()).is_ok());
         assert!(routing_table.insert(other_neighbor.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
         pn_table.insert(other_neighbor_id.clone(), interface2.clone());
 
