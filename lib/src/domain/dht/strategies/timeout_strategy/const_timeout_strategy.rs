@@ -52,7 +52,7 @@ impl<C, D> TimeoutStrategy for ConstTimeoutStrategy<C, D> {
     type Context = C;
     type Expirable = TimedValue<D>;
 
-    fn has_timed_out(&self, context: &Self::Context, expirable: &Self::Expirable) -> bool {
+    fn has_timed_out(&self, _context: &Self::Context, expirable: &Self::Expirable) -> bool {
         Instant::now()
             .checked_duration_since(expirable.timestamp)
             .is_some_and(|d| d >= self.expire_after)

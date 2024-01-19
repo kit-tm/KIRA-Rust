@@ -53,7 +53,7 @@ use crate::benchmark_log::{BenchmarkEntry, BenchmarkLog};
 use crate::errors::InjectMessageError;
 
 mod benchmark_log;
-mod api;
+pub mod api;
 
 #[derive(Default, Debug)]
 pub struct NodeConfig {

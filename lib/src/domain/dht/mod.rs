@@ -18,7 +18,10 @@ mod expiring;
 /// when the value was recorded.
 ///
 /// ## [Eq] and [Hash]
-/// It is important to note that this struct only derives [Eq] and [Hash] from the `value`.
+///
+/// It is important to note that this struct only derives [Eq] and [Hash] from the `value`,
+/// thereby restricting the insertion of a `value` multiple times in a [HashSet](std::collections::HashSet)
+/// with only a differing `time`.
 #[derive(Debug, Clone)]
 pub struct TimedValue<V> {
     pub value: V,

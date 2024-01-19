@@ -22,17 +22,25 @@ use crate::messaging::{ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{ApiEvent, EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
+
 /// Default number of seconds between each garbage collection process.
 ///
-/// This may not be confused with the [DEFAULT_TIMEOUT] used
+/// This may not be confused with the [DEFAULT_TIMEOUT](crate::domain::dht::strategies::timeout_strategy::DEFAULT_TIMEOUT) used
 /// by the [ConstTimeoutStrategy]
 /// to determine if a value actually **is** expired.
 pub const DEFAULT_COLLECT_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Single data entry in hash table.
 pub type HashTableSingle = Arc<[u8]>;
-pub type HashTableData = HashSet<TimedValue<HashTableSingle>>;  // Collection of data entries in hash table.
 
+/// Data kept internally in the [ExpiringHashTable]
+///
+/// This is a collection of multiple [HashTableSingle]s tagged with a
+/// creation timestamp to determine if they have expired. (see [TimedValue])
+pub type HashTableData = HashSet<TimedValue<HashTableSingle>>;
+
+
+/// This is the [ExpiringHashTable] with all the default strategies.
 pub type DefaultExpiringHashTable = ExpiringHashTable<
     NodeId,
     HashTableData,
@@ -127,17 +135,18 @@ pub enum DHTState {
 
 /// The [DistributedHashTable] UseCase.
 ///
-/// The UseCase is responsible for handling incoming [StoreReq] and [FetchReq] over the network
+/// The UseCase is responsible for handling incoming [StoreReq](ProtocolMessage::StoreReq) and [FetchReq](ProtocolMessage::FetchReq) over the network
 /// by sending the respective response.
 ///
-/// For injecting new requests into the network see [DistributedHashTableInjector]
+/// For injecting new requests into the network see the
+/// [DistributedHashTableInjector](super::distributed_hash_table_injector::DistributedHashTableInjector) UseCase
 ///
 /// # Invariants
 ///
 /// This UseCase assumes all DHT requests tasked to handle are addressed to his [LocalHashTable].
 /// You need to forward [ProtocolMessage]s over the network yourself if not meant for this Node
 ///
-/// You can use the [ForwardProtocolMessage] UseCase to aid you in this task.
+/// You can use the [ForwardProtocolMessage](crate::use_cases::forward_protocol_message::ForwardProtocolMessage) UseCase to aid you in this task.
 ///
 /// # Generics
 ///

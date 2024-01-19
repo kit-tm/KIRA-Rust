@@ -27,6 +27,11 @@ pub mod vicinity_discovery;
 pub mod distributed_hash_table;
 pub mod distributed_hash_table_injector;
 
+
+/// Callback used to message back an [InjectionResult] to an injector.
+///
+/// This callback channel is usually used if a [ReqRspMessage](super::messaging::ReqRspMessage) is injected
+/// into the network return the respective response message.
 pub type OneshotInjectMessageCallback = mpsc::UnboundedSender<InjectionResult>; // todo change back to oneshot after we figured out how to eliminate the need of deriving clone
 
 /// Enumeration representing all events a [UseCase] can handle.
