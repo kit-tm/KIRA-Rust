@@ -376,7 +376,7 @@ mod tests {
     async fn path_probe_sent() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -479,7 +479,7 @@ mod tests {
     async fn path_probe_answered() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -564,7 +564,7 @@ mod tests {
     async fn contact_invalidated_after_timeout() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -643,7 +643,7 @@ mod tests {
     async fn contact_invalidated_after_segment_failure() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -740,7 +740,7 @@ mod tests {
     async fn contact_still_valid_after_successful_response_and_timeout_timer() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);

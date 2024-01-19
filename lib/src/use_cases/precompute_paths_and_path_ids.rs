@@ -314,9 +314,9 @@ mod tests {
 
         */
 
-        let interface_two = NetworkInterface::new("1--2");
-        let interface_three = NetworkInterface::new("1--3");
-        let interface_six = NetworkInterface::new("1--6");
+        let interface_two = NetworkInterface::with_name("1--2");
+        let interface_three = NetworkInterface::with_name("1--3");
+        let interface_six = NetworkInterface::with_name("1--6");
 
         let root_id = NodeId::with_msb(1);
 
@@ -810,10 +810,12 @@ mod tests {
                 Result::<Path, EmptyPathError>::from_iter(in_path.clone().into_iter().skip(1))
                     .expect("invalid expected path");
             let in_path_id = hasher.hash(&in_path);
+            // FIXME
             let entry = PathIdEntry {
                 in_path_id: in_path_id.clone(),
-                out_path_id: hasher.hash(&out_path),
-                out_interface: interface,
+                out_path_id: Some(hasher.hash(&out_path)),
+                //out_interface: interface,
+                next_hop: in_path.second().unwrap().clone(),
             };
             let created_entry = fwd_table.path_id_entry(&in_path_id);
             assert_eq!(
@@ -841,9 +843,9 @@ mod tests {
 
         */
 
-        let interface_two = NetworkInterface::new("1--2");
-        let interface_three = NetworkInterface::new("1--3");
-        let interface_six = NetworkInterface::new("1--6");
+        let interface_two = NetworkInterface::with_name("1--2");
+        let interface_three = NetworkInterface::with_name("1--3");
+        let interface_six = NetworkInterface::with_name("1--6");
 
         let root_id = NodeId::with_msb(1);
 
@@ -1072,10 +1074,12 @@ mod tests {
                 Result::<Path, EmptyPathError>::from_iter(in_path.clone().into_iter().skip(1))
                     .expect("invalid expected path");
             let in_path_id = hasher.hash(&in_path);
+            // FIXME
             let entry = PathIdEntry {
                 in_path_id: in_path_id.clone(),
-                out_path_id: hasher.hash(&out_path),
-                out_interface: interface,
+                out_path_id: Some(hasher.hash(&out_path)),
+                //out_interface: interface,
+                next_hop: in_path.second().unwrap().clone(),
             };
             let created_entry = fwd_table.path_id_entry(&in_path_id);
             assert_eq!(
@@ -1103,9 +1107,9 @@ mod tests {
 
         */
 
-        let interface_two = NetworkInterface::new("1--2");
-        let interface_three = NetworkInterface::new("1--3");
-        let interface_six = NetworkInterface::new("1--6");
+        let interface_two = NetworkInterface::with_name("1--2");
+        let interface_three = NetworkInterface::with_name("1--3");
+        let interface_six = NetworkInterface::with_name("1--6");
 
         let root_id = NodeId::with_msb(1);
 
@@ -1615,10 +1619,12 @@ mod tests {
                 Result::<Path, EmptyPathError>::from_iter(in_path.clone().into_iter().skip(1))
                     .expect("invalid expected path");
             let in_path_id = hasher.hash(&in_path);
+            // FIXME
             let entry = PathIdEntry {
                 in_path_id: in_path_id.clone(),
-                out_path_id: hasher.hash(&out_path),
-                out_interface: interface,
+                out_path_id: Some(hasher.hash(&out_path)),
+                //out_interface: interface,
+                next_hop: in_path.second().unwrap().clone(),
             };
             let created_entry = fwd_table.path_id_entry(&in_path_id);
             assert_eq!(
@@ -1647,9 +1653,9 @@ mod tests {
 
         */
 
-        let interface_two = NetworkInterface::new("1--2");
-        let interface_three = NetworkInterface::new("1--3");
-        let interface_six = NetworkInterface::new("1--6");
+        let interface_two = NetworkInterface::with_name("1--2");
+        let interface_three = NetworkInterface::with_name("1--3");
+        let interface_six = NetworkInterface::with_name("1--6");
 
         let root_id = NodeId::with_msb(1);
 

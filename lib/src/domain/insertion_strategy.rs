@@ -304,9 +304,9 @@ mod tests {
         let target_id = NodeId::with_msb(4);
         let proxy_invalidated_id = NodeId::with_msb(5);
 
-        let interface = NetworkInterface::new("test");
-        let other_interface = NetworkInterface::new("test 2");
-        let third_interface = NetworkInterface::new("test 3");
+        let interface = NetworkInterface::with_name("test");
+        let other_interface = NetworkInterface::with_name("test 2");
+        let third_interface = NetworkInterface::with_name("test 3");
 
         let mut proxy_invalidated_contact = Contact::new(
             Path::from([other_neighbor_id.clone(), proxy_invalidated_id.clone()]),

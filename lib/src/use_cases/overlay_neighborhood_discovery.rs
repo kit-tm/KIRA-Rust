@@ -484,7 +484,7 @@ mod tests {
             ))
             .is_ok());
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id, NetworkInterface::new("test"));
+        pn_table.insert(neighbor_id, NetworkInterface::with_name("test"));
 
         let sync_context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
@@ -572,7 +572,7 @@ mod tests {
             ))
             .is_ok());
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id, NetworkInterface::new("test"));
+        pn_table.insert(neighbor_id, NetworkInterface::with_name("test"));
 
         let sync_context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
@@ -674,7 +674,7 @@ mod tests {
             ))
             .is_ok());
         let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id, NetworkInterface::new("test"));
+        pn_table.insert(neighbor_id, NetworkInterface::with_name("test"));
 
         let sync_context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
