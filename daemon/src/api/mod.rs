@@ -98,7 +98,7 @@ async fn get_node_id(State(state): State<ApiState>) -> Json<NodeId> {
     Json(state.node_id.into())
 }
 
-fn _extract_dht_handle(params: &mut HashMap<String, String>) -> Result<dht::Handle, DHTErr> {
+fn extract_dht_handle(params: &mut HashMap<String, String>) -> Result<dht::Handle, DHTErr> {
     let handle = params.remove("handle");
     let reference = params.remove("reference");
 
@@ -117,7 +117,7 @@ fn _extract_dht_handle(params: &mut HashMap<String, String>) -> Result<dht::Hand
 async fn store_dht_data(State(state): State<ApiState>, Query(mut params): Query<HashMap<String, String>>, body: Bytes) -> Result<StoreOK, DHTErr> {
     // todo factor out essentials to reduce code duplication
     let args = dht::StoreArgs {
-        handle: _extract_dht_handle(&mut params)?,
+        handle: extract_dht_handle(&mut params)?,
         restore: params
             .remove("restore")
             .as_deref().map(str::to_lowercase).as_deref()
@@ -152,7 +152,7 @@ async fn store_dht_data(State(state): State<ApiState>, Query(mut params): Query<
 // todo dont use JSON for DHTOutput
 async fn fetch_dht_data(State(state): State<ApiState>, Query(mut params): Query<HashMap<String, String>>) -> Result<Json<FetchRsp>, DHTErr> {
     let args = dht::FetchArgs {
-        handle: _extract_dht_handle(&mut params)?,
+        handle: extract_dht_handle(&mut params)?,
     };
     let (tx, mut rx) = mpsc::unbounded_channel();
 
