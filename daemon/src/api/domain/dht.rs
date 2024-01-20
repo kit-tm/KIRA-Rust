@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Display, Formatter};
 use axum::response::{IntoResponse, Response};
 use base64::prelude::BASE64_STANDARD;
@@ -11,6 +12,12 @@ use axum::http;
 use r2kad_lib::domain::SIZE;
 use sha2::{Digest, Sha256};
 use crate::api::domain::NodeId;
+#[cfg(feature = "swagger_doc")]
+use utoipa::{ToResponse, ToSchema};
+#[cfg(feature = "swagger_doc")]
+use utoipa::openapi::{RefOr, ResponseBuilder, ResponsesBuilder};
+#[cfg(feature = "swagger_doc")]
+use itertools::Itertools;
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -91,6 +98,7 @@ impl TryFrom<FetchArgs> for FetchInjectData {
     }
 }
 
+#[derive(Debug)]
 pub enum StoreOK {
     Created,
     Updated,
@@ -136,6 +144,7 @@ impl IntoResponse for StoreOK {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "swagger_doc", derive(ToSchema, ToResponse))]
 pub struct FetchRsp(Vec<String>);
 
 impl From<DefaultLHTOutput> for FetchRsp {
@@ -145,9 +154,10 @@ impl From<DefaultLHTOutput> for FetchRsp {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct LocalHashTable(pub Vec<(String, Vec<String>)>);
+#[cfg_attr(feature = "swagger_doc", derive(ToSchema))]
+pub struct LocalHashTable(pub HashMap<String, Vec<String>>);
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub enum DHTErr {
     FormatError(ApiFormatErr),
     SendError,
@@ -159,7 +169,7 @@ pub enum DHTErr {
     Miscellaneous,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub enum ApiFormatErr {
     HexFormatError,
     BoolFormatError,
@@ -228,5 +238,76 @@ impl From<FetchErr> for DHTErr {
         match value {
             FetchErr::NotFoundErr => Self::NotFound,
         }
+    }
+}
+
+#[cfg(feature = "swagger_doc")]
+// creates responses based on a selected example list
+fn responses<R: IntoResponse + Display>(examples: Vec<R>) -> BTreeMap<String, RefOr<utoipa::openapi::Response>> {
+    let binding = examples
+        .into_iter()
+        .map(|e| (e.to_string(), e.into_response().status()))
+        // group status codes so we can display all alternatives that throw same status code
+        .group_by(|(_ , status)| status.clone());
+    let iter = binding
+        .into_iter()
+        .map(|(status_code, e)| (
+            status_code.to_string(),
+            ResponseBuilder::new()
+                .description(e
+                    // strip common part of FormatError
+                    .map(|(description, _)| description.find(':')
+                        .map_or(description.clone(), |pos| description[pos+1..].trim_start().to_string())
+                    )
+                    .join(" | ")
+                )
+        ));
+
+    ResponsesBuilder::new()
+        .responses_from_iter(iter)
+        .build().into()
+}
+
+#[cfg(feature = "swagger_doc")]
+impl utoipa::IntoResponses for DHTErr {
+    fn responses() -> BTreeMap<String, RefOr<utoipa::openapi::Response>> {
+        let examples = vec![
+            DHTErr::FormatError(ApiFormatErr::AmbiguousParams),
+            DHTErr::FormatError(ApiFormatErr::HexFormatError),
+            DHTErr::FormatError(ApiFormatErr::MissingParams(vec!["missing_parameter".to_string()])),
+            DHTErr::FormatError(ApiFormatErr::MissingParams(vec!["missing_parameter1".to_string(), "missing_parameter2".to_string()])),
+            DHTErr::FormatError(ApiFormatErr::BoolFormatError),
+            DHTErr::SendError,
+            DHTErr::Isolated,
+            DHTErr::ReceiveError,
+            DHTErr::Timeout,
+            DHTErr::MessageReceiveMismatch,
+            DHTErr::NotFound,
+            DHTErr::Miscellaneous,
+        ];
+
+        responses(examples)
+    }
+}
+
+#[cfg(feature = "swagger_doc")]
+impl utoipa::IntoResponses for StoreOK {
+    fn responses() -> BTreeMap<String, RefOr<utoipa::openapi::Response>> {
+        let examples = vec![
+            StoreOK::Inserted,
+            StoreOK::Created,
+            StoreOK::Updated
+        ];
+
+        responses(examples)
+    }
+}
+
+#[cfg(feature = "swagger_doc")]
+impl utoipa::IntoResponses for FetchRsp {
+    fn responses() -> BTreeMap<String, RefOr<utoipa::openapi::Response>> {
+        ResponsesBuilder::new()
+            .response("200", Self::response().1)
+            .build().into()
     }
 }

@@ -46,13 +46,13 @@ use r2kad_lib::use_cases::{
 };
 use r2kad_lib::use_cases::distributed_hash_table::{DistributedHashTable, DistributedHashTableConfig};
 use r2kad_lib::use_cases::distributed_hash_table_injector::DistributedHashTableInjector;
-use crate::api::ApiConfig;
-
 
 use crate::benchmark_log::{BenchmarkEntry, BenchmarkLog};
 use crate::errors::InjectMessageError;
 
 mod benchmark_log;
+
+#[cfg(feature = "api")]
 pub mod api;
 
 #[derive(Default, Debug)]
@@ -447,12 +447,14 @@ where
             }
         });
 
-        let api_config = ApiConfig::new(
+        #[cfg(feature = "api")]
+        let api_config = api::ApiConfig::new(
             "0.0.0.0:8082".parse().unwrap(),
             root_id.clone().into(),
-            new_sender
+            new_sender,
         );
 
+        #[cfg(feature = "api")]
         runtime.spawn(api::start_http_server(api_config));
 
 
