@@ -5,14 +5,19 @@ pub use in_memory_physical_neighbor_table::InMemoryPNTable;
 mod native_physical_neighbor_table;
 mod in_memory_physical_neighbor_table;
 
-// todo add doc and module doc
-/// DOC WIP
+/// A [PNTable] models the physical neighbor table.
+///
+/// ## Invariants
+///
+/// * The output of [`state_seq_nr`][Self::state_seq_nr] should change every time the [PNTable] is mutated.
+
 pub trait PNTable {
     /// Adds a Mapping to the table returning the [NetworkInterface] previously mapped to the [NodeId].
     fn insert(&mut self, id: NodeId, interface: NetworkInterface) -> Option<NetworkInterface>;
 
     /// Returns if a Mapping for the [NodeId] is present in the [PNTable].
     fn contains(&self, id: &NodeId) -> bool;
+
     /// Returns the state sequence number.
     ///
     /// The state sequence number represents the number of connectivity changes in the
