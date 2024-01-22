@@ -65,8 +65,13 @@ impl PNTable for InMemoryPNTable {
     }
 
     fn remove(&mut self, id: &NodeId) -> Option<NetworkInterface> {
-        // todo check if we need to update the stateseqnr here
-        self.map.remove(id)
+        let result = self.map.remove(id);
+        // test if we actually removed something => update ssn
+        if result.is_some() {
+            self.state_seq_nr += 1;
+        }
+
+        result
     }
 }
 
@@ -76,5 +81,55 @@ impl<'a> IntoIterator for &'a InMemoryPNTable {
 
     fn into_iter(self) -> Self::IntoIter {
         self.map.iter()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ssn_on_insert() {
+        let mut table = InMemoryPNTable::new();
+
+        let id = NodeId::zero();
+        let interface = NetworkInterface::with_name("test");
+
+        let before_ssn = table.state_seq_nr().clone();
+        table.insert(id, interface);
+        let after_ssn = table.state_seq_nr().clone();
+
+        assert_ne!(before_ssn, after_ssn, "State sequence number didn't change after insertion.")
+    }
+
+    #[test]
+    fn ssn_on_remove() {
+        let mut table = InMemoryPNTable::new();
+
+        let id = NodeId::zero();
+        let interface = NetworkInterface::with_name("test");
+
+        table.insert(id.clone(), interface);
+
+        let before_ssn = table.state_seq_nr().clone();
+        table.remove(&id);
+        let after_ssn = table.state_seq_nr().clone();
+
+        assert_ne!(before_ssn, after_ssn, "State sequence number didn't change after removing.")
+    }
+
+    #[test]
+    fn ssn_on_fake_remove() {
+        let mut table = InMemoryPNTable::new();
+
+        let id = NodeId::zero();
+        let interface = NetworkInterface::with_name("test");
+
+
+        let before_ssn = table.state_seq_nr().clone();
+        table.remove(&id);
+        let after_ssn = table.state_seq_nr().clone();
+
+        assert_eq!(before_ssn, after_ssn, "State sequence number did change but we didn't remove anything.")
     }
 }
