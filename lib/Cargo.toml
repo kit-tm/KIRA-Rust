@@ -53,7 +53,11 @@ sha3 = { version = "0.10.5", optional = true }
 # Used to support sync and async rwlock on context
 tokio = { version = "1.19.2", default-features = false, features = ["sync"] }
 # Used to get metadata for received packets
+<<<<<<< Updated upstream
 unix-udp-sock = { git = "https://git.scc.kit.edu/TM/kira/unix-udp-sock.git", rev = "87a7ffb1128d94df6ef6653cfba64277b12c1526" }
+=======
+unix-udp-sock = { git = "https://gitlab.kit.edu/kit/tm/telematics/kira/unix-udp-sock.git", rev = "87a7ffb1128d94df6ef6653cfba64277b12c1526" }
+>>>>>>> Stashed changes
 
 # Dependencies for examples, Benchmarks and Tests
 [dev-dependencies]
