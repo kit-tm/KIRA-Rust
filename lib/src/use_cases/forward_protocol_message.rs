@@ -239,6 +239,7 @@ where
                 RouteUpdate::Updated => {
                     // If the saved contact is via the node which updated -> Update Path of contact
                     // Other Paths are updated while operating
+                    // todo check if comment actually true
                     let mut old_contact = routing_table.contact_mut(updated_contact.id()).unwrap();
                     if old_contact.path().size() > new_path.size()
                         && old_contact.path().contains(source_id)
