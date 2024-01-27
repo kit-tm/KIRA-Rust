@@ -1,13 +1,18 @@
 use std::collections::HashMap;
+use std::env;
 use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::string::ToString;
 use std::sync::Arc;
 
 use clap::Parser;
+use opentelemetry_otlp::WithExportConfig;
 use r2kad_lib::forwarding::native_tables::NativeFwdTables;
 use tokio::sync::{mpsc, RwLock};
+use tracing::Level;
+use tracing_subscriber::prelude::*;
 
 use r2kad_daemon_lib::{Node, NodeConfig};
 use r2kad_lib::domain::NodeId;
@@ -27,11 +32,10 @@ struct Args {
     /// This also enables benchmarking mode which disables logging.
     #[clap(short, long, value_parser, env = "BENCH_PATH")]
     benchmark_path: Option<String>,
+    #[clap(short, long, value_parser, env = "OTEL_EXPORTER_OTLP_ENDPOINT")]
+    otlp_endpoint: Option<String>,
 }
-
 fn main() {
-    // Initialize the Logging Facade
-    env_logger::init();
 
     // Setup the single threaded async runtime
     let runtime = Arc::new(
@@ -41,10 +45,12 @@ fn main() {
             .expect("failed to build tokio runtime"),
     );
 
+
     let args = Args::parse();
 
+    runtime.block_on(tracing_setup(&args.otlp_endpoint));
+
     let root_id: NodeId = args.root_id.unwrap_or_else(NodeId::random);
-    println!("Using id {}", root_id);
 
     // Initialize benchmark file
     let benchmark_writer: Option<BufWriter<File>> = args
@@ -121,4 +127,35 @@ fn main() {
     );
 
     node.blocking_start();
+}
+
+async fn tracing_setup(otlp_endpoint: &Option<String>) {
+    let fmt_layer = tracing_subscriber::fmt::layer();
+
+    if let Some(endpoint) = otlp_endpoint {
+        let exporter = opentelemetry_otlp::new_exporter()
+            .tonic()
+            .with_endpoint(endpoint);
+
+        let tracer = opentelemetry_otlp::new_pipeline()
+            .tracing()
+            .with_exporter(exporter)
+            .install_batch(opentelemetry_sdk::runtime::Tokio)
+            .expect("Couldn't create tracer");
+
+        tracing_subscriber::registry()
+            .with(fmt_layer)
+            .with(tracing_subscriber::filter::EnvFilter::from_default_env())
+            .with(tracing_opentelemetry::layer().with_tracer(tracer))
+            .init();
+    } else {
+        tracing_subscriber::registry()
+            .with(fmt_layer)
+            .with(tracing_subscriber::filter::EnvFilter::from_default_env())
+            .init();
+    }
+
+
+
+    tracing::warn!("Started tracing");
 }

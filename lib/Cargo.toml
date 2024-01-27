@@ -56,6 +56,7 @@ tokio = { version = "1.19.2", default-features = false, features = ["sync"] }
 unix-udp-sock = { git = "https://git.scc.kit.edu/TM/kira/unix-udp-sock.git", rev = "87a7ffb1128d94df6ef6653cfba64277b12c1526" }
 reqwest = { version = "0.11.22", default-features = false, features = ["serde_json", "rustls-tls"] }
 bitvec = "1.0.1"
+tracing = {version = "0.1.40", features = ["attributes"]}
 
 # Dependencies for examples, Benchmarks and Tests
 [dev-dependencies]

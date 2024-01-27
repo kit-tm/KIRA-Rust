@@ -3,6 +3,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use tokio::sync::RwLock;
+use tracing::instrument;
 
 use crate::broadcaster::Broadcaster;
 use crate::context::{ContextConfig, ReadGuard, UseCaseContext, WriteGuard};
@@ -104,6 +105,7 @@ where
     fn not_via_mut(&self) -> WriteGuard<'_, HashSet<NotVia>> {
         tokio_utils::get_write_guard(self.not_via.deref()).into()
     }
+
     fn to_api_model(&self) -> (crate::domain::api::RoutingTable, DiscoveryRange) {
         let read_guard: ReadGuard<Self::RoutingTable> = tokio_utils::get_read_guard(self.routing_table.deref()).into();
         let rt_old: Self::RoutingTable = (*read_guard.deref()).clone();

@@ -3,7 +3,7 @@ use crate::messaging;
 
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
-pub struct Nonce(u128);
+pub struct Nonce(pub u128);
 
 impl Nonce {
     pub fn random() -> Self {

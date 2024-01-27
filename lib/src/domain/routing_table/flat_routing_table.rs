@@ -224,6 +224,8 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
 }
 
 impl<const BUCKET_SIZE: usize, const ACC: usize> DiscoveryRangeProvider for FlatRoutingTable<BUCKET_SIZE, ACC> {
+
+    #[tracing::instrument(level="warn", name = "calculating discovery range", skip(self))]
     fn get_discovery_range(&self) -> DiscoveryRange {
         // only look at last layer
 

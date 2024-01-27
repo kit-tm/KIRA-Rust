@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
+use tracing::instrument;
 
 use crate::context::{ContextConfig, ReadGuard, UseCaseContext, WriteGuard};
 use crate::domain::{DiscoveryRangeProvider, NodeId, NotVia, PNTable};
@@ -95,6 +96,7 @@ where for<'a> RT: Into<crate::domain::api::RoutingTable> + DiscoveryRangeProvide
         self.not_via.borrow_mut().into()
     }
 
+    #[tracing::instrument(level = "warn", name="copy routing table", skip(self))]
     fn to_api_model(&self) -> (crate::domain::api::RoutingTable, DiscoveryRange) {
         let rt: Self::RoutingTable = self.routing_table.borrow().clone();
         let discovery_range = rt.get_discovery_range();

@@ -1,13 +1,16 @@
 use std::fmt::Debug;
 use std::net::{Ipv6Addr, SocketAddr};
 use std::ops::DerefMut;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use unix_udp_sock::UdpSocket;
 use tokio::sync::RwLock;
+use tracing::Level;
+use crate::domain::api::NodeIdApi;
 
-use crate::domain::NetworkInterface;
+use crate::domain::{NetworkInterface, NodeId};
 use crate::messaging::format::ProtocolMessageFormat;
 use crate::messaging::{
     AsyncInterfaceMapper, AsyncIpCache, AsyncProtocolMessageReceiver, ProtocolMessage, RecvError,
@@ -31,6 +34,7 @@ pub struct UdpReceiver<C, P> {
     format: ProtocolMessageFormat,
     interface_mapper: P,
     ip_cache: C,
+    tracing_node_id: NodeId
 }
 
 impl<C: Clone, P: Clone> Clone for UdpReceiver<C, P> {
@@ -42,6 +46,7 @@ impl<C: Clone, P: Clone> Clone for UdpReceiver<C, P> {
             format: self.format.clone(),
             interface_mapper: self.interface_mapper.clone(),
             ip_cache: self.ip_cache.clone(),
+            tracing_node_id: UdpReceiver::<C,P>::get_node_id(),
         }
     }
 }
@@ -74,6 +79,7 @@ impl<C, P> UdpReceiver<C, P> {
             format,
             interface_mapper,
             ip_cache,
+            tracing_node_id: UdpReceiver::<C,P>::get_node_id(),
         })
     }
 
@@ -90,6 +96,7 @@ impl<C, P> UdpReceiver<C, P> {
             format,
             interface_mapper: port_mapper,
             ip_cache,
+            tracing_node_id: UdpReceiver::<C,P>::get_node_id(),
         }
     }
 
@@ -108,6 +115,24 @@ impl<C, P> UdpReceiver<C, P> {
     /// Returns the actually bound local address.
     pub fn local_addr(&self) -> tokio::io::Result<SocketAddr> {
         self.socket.local_addr()
+    }
+
+    #[tracing::instrument(level = "warn", name="recv-req", skip(self))]
+    fn log_req(&self, req_size: usize, node_id: String, nonce: &u128) {
+        //tracing::Span::current().record("size", len);
+        //tracing::Span::current().record("node_id", &self.tracing_node_id);
+    }
+
+    #[tracing::instrument(level = "warn", name="recv-rsp", skip(self))]
+    fn log_rsp(&self, rsp_size: usize, range_start: &NodeIdApi, range_end: &NodeIdApi, node_id: String, nonce: &u128) {
+        //tracing::Span::current().record("size", len);
+        //tracing::Span::current().record("node_id", &self.tracing_node_id);
+    }
+
+    fn get_node_id() -> NodeId {
+        return std::env::var(format!("{:?}_NODE_ID", std::thread::current().id()))
+            .map(|val| NodeId::from_str(&val).expect("invalid node id in env var"))
+            .unwrap_or_else(|_| NodeId::zero())
     }
 }
 
@@ -143,6 +168,17 @@ where
         let message = self.deserialize(&buffer[..received_bytes]);
         let interface = NetworkInterface::new(ifindex);
 
+        match message {
+            Some(ProtocolMessage::KellyReq(ref data)) => {
+                self.log_req(buffer[..received_bytes].len(), UdpReceiver::<C,P>::get_node_id().to_string(), &data.data.nonce.0);
+            },
+            Some(ProtocolMessage::KellyRsp(ref data)) => {
+                self.log_rsp(buffer[..received_bytes].len(), &data.data.response.discovery_range.start,
+                             &data.data.response.discovery_range.end, UdpReceiver::<C,P>::get_node_id().to_string(), &data.data.response.nonce.0);
+            },
+            _ => {}
+        }
+
         if let Some(message) = &message {
             log::trace!(target: "message_receiver", "Received {:?} from {}", &message, received_from);
 
@@ -171,6 +207,8 @@ where
 
         Ok(message.map(|message| (message, interface)))
     }
+
+
 
     async fn recv(&mut self) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError> {
         self.recv_timeout(None).await

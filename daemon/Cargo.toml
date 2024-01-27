@@ -32,6 +32,14 @@ axum = "0.6.20"
 serde = "1.0.190"
 reqwest = { version = "0.11.22", default-features = false, features = ["serde_json", "json", "rustls-tls"] }
 bitvec = "1.0.1"
+tracing = { version = "0.1.40", features = ["attributes"] }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+opentelemetry = "0.21.0"
+tracing-opentelemetry = "0.22.0"
+opentelemetry-otlp = { version = "0.14.0", features = ["tokio"] }
+opentelemetry_sdk = {  version = "0.21.2", features = ["rt-tokio"] }
+globalenv = "0.4.2" # only for evaluation, remove later
+
 
 [dev-dependencies]
 anyhow = "1.0.66"
