@@ -125,6 +125,7 @@ where
                 let mut updates = HashMap::new();
                 updates.insert(contact.clone(), RouteUpdate::Removed);
 
+                // fixme dont send update unless physical neighbor src/routing/r2kademlia/R2Kademlia.cc:223
                 self.send_update(context, updates)?;
                 context.not_via_mut().retain(|not_via| match not_via {
                     NotVia::Link(link) => {
@@ -142,6 +143,7 @@ where
                 let mut updates = HashMap::new();
                 updates.insert(new.clone(), RouteUpdate::Updated);
 
+                // fixme only send update on improvement src/routing/r2kademlia/R2KademliaPolicyHandlers.cc:303
                 self.send_update(context, updates)?;
                 if old.state() == &ContactState::Valid && new.state() != &ContactState::Valid {
                     // Add to not-via data if path gets invalid (maybe done already)

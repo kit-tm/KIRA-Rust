@@ -162,6 +162,12 @@ where
     }
 
     // Sends pathSetup for all valid contacts in own routing table
+    // FIXME this should not be necessary
+    // since we only setup paths to contacts in our routing table,
+    // which already get probed by ProbeReq/Rsp
+    // to fix this we must simply listen on ProbeReq to refresh our soft-state
+    // also it is important that ProbeReq get processed by intermediate nodes
+    // so this needs to be considered changing in the forwarding usecase
     fn perform_refresh(&mut self, context: &C) -> Result<(), EPMError> {
         let mut some_failed = false;
         for contact in context.routing_table().iter() {
@@ -425,6 +431,8 @@ where
                 }
             }
             // ========== Protocol Messages ==========
+            // FIXME This should be executed on __every__ intermediate node
+            // currently the forwarding use-case is suppressing processing on intermediate messages
             (
                 UseCaseEvent::Message(ProtocolMessage::PathSetupReq(req), _),
                 EPMState::Running { .. },

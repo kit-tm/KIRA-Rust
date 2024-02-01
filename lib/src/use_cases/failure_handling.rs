@@ -385,6 +385,7 @@ where
     ) -> Result<Self::Value, Self::Error> {
         match event {
             UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {
+                // contact was invalidated
                 if new.state() == &ContactState::Invalid && old.state() != &ContactState::Invalid {
                     self.invalidate_containing_contacts(context, new.id());
                     self.start_rediscovery(context, new)?;

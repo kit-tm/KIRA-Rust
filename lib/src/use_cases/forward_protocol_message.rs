@@ -50,7 +50,9 @@ where
     C::MessageSender: ProtocolMessageSender,
 {
     fn extract_path_to_source(&self, message: &ProtocolMessage) -> Path {
-        let route = message.source_route().map(SourceRoute::traveled_path);
+        let route = message.source_route()
+            // one can only trust the so far traversed path to work and exist
+            .map(SourceRoute::traveled_path);
         let mut path = match route {
             None => Path::from(message.source().clone()),
             Some(path) => path,
@@ -264,6 +266,7 @@ where
             return Ok(());
         }
 
+        // invalidate contacts based on not-via information
         if let Some(not_via) = message.not_via() {
             self.extract_not_via_data(context, message.source(), not_via);
         }

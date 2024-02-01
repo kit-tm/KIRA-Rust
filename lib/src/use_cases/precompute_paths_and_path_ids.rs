@@ -157,6 +157,7 @@ where
             | UseCaseEvent::Message(ProtocolMessage::PNDiscRsp(rtable_data), _)
             | UseCaseEvent::Message(ProtocolMessage::QueryRouteRsp(rtable_data), _) => {
                 // Skip everything not in configured vicinity radius
+                // Source has to be strictly in vicinity therefor
                 if rtable_data.source_route.size() - 1 > self.config.vicinity_radius {
                     return Ok(());
                 }
@@ -193,9 +194,14 @@ where
                 }
             }
             UseCaseEvent::Contact(ContactEvent::New(contact)) => {
+                // only add physical neighbors
                 if !contact.is_pn() {
                     return Ok(());
                 }
+
+                // other neighbors in the vicinity are added
+                // as they are discovered in `RTableData` of ProtocolMessages
+
                 self.vicinity_graph.add(
                     context.root_id().clone(),
                     HashSet::from([contact.id().clone()]),

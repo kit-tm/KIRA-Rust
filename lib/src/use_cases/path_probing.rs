@@ -105,6 +105,7 @@ where
                 continue;
             }
 
+            // generate new unused nonce for our message
             let mut nonce = Nonce::random();
             while requests_in_flight.contains_key(&nonce) {
                 nonce = Nonce::random();
