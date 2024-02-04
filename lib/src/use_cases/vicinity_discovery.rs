@@ -10,7 +10,7 @@ use std::time::Duration;
 use rand::Rng;
 
 use crate::context::UseCaseContext;
-use crate::domain::{node_id, Contact, ContactState, NodeId, Path, RoutingTable, DEFAULT_BUCKET_SIZE, PNTable, NetworkInterface};
+use crate::domain::{node_id, Contact, ContactState, NodeId, Path, RoutingTable, DEFAULT_BUCKET_SIZE, PNTable, NetworkInterface, StateSeqNr};
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -86,7 +86,7 @@ impl Error for VDError {}
 pub enum VDState {
     #[default]
     Initialized,
-    Running(Duration, TimerId),
+    Running(Duration, TimerId, StateSeqNr),
     Error,
 }
 
@@ -386,7 +386,7 @@ where
             .runtime()
             .register_timer(self.config.initial_timeout);
 
-        self.state = VDState::Running(self.config.initial_timeout, timer_id);
+        self.state = VDState::Running(self.config.initial_timeout, timer_id, context.pn_table().state_seq_nr().clone());
 
         Ok(())
     }
@@ -430,13 +430,19 @@ where
 
                 self.send_query_route_rsp(context, request)?;
             }
-            (UseCaseEvent::Timer(id), VDState::Running(last_timeout, timer_id)) => {
+            (UseCaseEvent::Timer(id), VDState::Running(last_timeout, timer_id, last_ssn)) => {
                 if timer_id == &id {
                     self.send_hello(context)?;
 
-                    let next_timeout = self.next_timeout_duration(*last_timeout);
+                    // reset to min if ssn changed
+                    let next_timeout = if last_ssn != context.pn_table().state_seq_nr() {
+                        self.config.initial_timeout
+                    } else {
+                        self.next_timeout_duration(*last_timeout)
+                    };
                     let timer_id = context.runtime().register_timer(next_timeout);
-                    self.state = VDState::Running(next_timeout, timer_id);
+                    let ssn = context.pn_table().state_seq_nr().clone();
+                    self.state = VDState::Running(next_timeout, timer_id, ssn);
                 }
             }
             (UseCaseEvent::Message(ProtocolMessage::Hello(HelloMessage { source, .. }), _), _) => {
@@ -528,7 +534,7 @@ mod tests {
         assert!(use_case.start(&context).is_ok());
 
         let timer_id = match &use_case.state {
-            VDState::Running(_, timer_id) => *timer_id,
+            VDState::Running(_, timer_id, _) => *timer_id,
             _ => panic!("Invalid state returned: {:?}", &use_case.state),
         };
 
@@ -571,7 +577,7 @@ mod tests {
         assert!(use_case.start(&context).is_ok());
 
         let (timer_duration, _timer_id) = match &use_case.state {
-            VDState::Running(timer_duration, timer_id) => (*timer_duration, *timer_id),
+            VDState::Running(timer_duration, timer_id, _) => (*timer_duration, *timer_id),
             _ => panic!("Invalid state returned: {:?}", &use_case.state),
         };
 
@@ -616,7 +622,7 @@ mod tests {
         assert!(use_case.start(&context).is_ok());
 
         let (timer_duration, timer_id) = match &use_case.state {
-            VDState::Running(timer_duration, timer_id) => (*timer_duration, *timer_id),
+            VDState::Running(timer_duration, timer_id, _) => (*timer_duration, *timer_id),
             _ => panic!("Invalid state returned: {:?}", &use_case.state),
         };
         assert_eq!(
@@ -633,7 +639,7 @@ mod tests {
             handle_result
         );
         let (next_timer_duration, timer_id) = match &use_case.state {
-            VDState::Running(timer_duration, timer_id) => (*timer_duration, *timer_id),
+            VDState::Running(timer_duration, timer_id, _) => (*timer_duration, *timer_id),
             _ => panic!("Invalid state returned: {:?}", &use_case.state),
         };
         assert_eq!(
@@ -650,7 +656,7 @@ mod tests {
             handle_result
         );
         let (next_timer_duration, _timer_id) = match &use_case.state {
-            VDState::Running(timer_duration, timer_id) => (*timer_duration, *timer_id),
+            VDState::Running(timer_duration, timer_id, _) => (*timer_duration, *timer_id),
             _ => panic!("Invalid state returned: {:?}", &use_case.state),
         };
         assert_eq!(
@@ -1313,11 +1319,110 @@ mod tests {
         let (sent_message, _) = sent_message.unwrap();
         assert!(
             matches!(
-                sent_message,
-                ProtocolMessage::Hello(_)
-            ),
+                    sent_message,
+                    ProtocolMessage::Hello(_)
+                ),
             "Expecting a hello message"
         )
+    }
 
+    #[test]
+    fn reset_timeout_on_ssn_change() {
+        let root_id = NodeId::one();
+
+        let routing_table = SingleBucketRT::<20>::new(root_id.clone());
+
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
+
+        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
+
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table,
+            pn_table: InMemoryPNTable::new(),
+            insertion_strategy,
+            message_sender: hub_sender,
+            runtime: ImmediateRuntime::new(broadcaster.clone()),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+        let mut use_case = VicinityDiscovery::new(VicinityDiscoveryConfig {
+            max_timeout: Duration::from_millis(30),
+            initial_timeout: Duration::from_millis(8),
+            max_scatter: Duration::from_millis(0),
+            ..Default::default()
+        });
+
+        assert!(use_case.start(&context).is_ok());
+
+        let (timer_duration, timer_id) = match &use_case.state {
+            VDState::Running(timer_duration, timer_id, _) => (*timer_duration, *timer_id),
+            _ => panic!("Invalid state returned: {:?}", &use_case.state),
+        };
+        assert_eq!(
+            timer_duration,
+            Duration::from_millis(8),
+            "Timeout should be configured initial timeout 8ms but was {:?}",
+            timer_duration
+        );
+
+
+        let handle_result = use_case.handle_event(&context, UseCaseEvent::Timer(timer_id));
+        assert!(
+            handle_result.is_ok(),
+            "Handling timer event returned error: {:?}",
+            handle_result
+        );
+        let (next_timer_duration, timer_id) = match &use_case.state {
+            VDState::Running(timer_duration, timer_id, _) => (*timer_duration, *timer_id),
+            _ => panic!("Invalid state returned: {:?}", &use_case.state),
+        };
+        assert_eq!(
+            next_timer_duration,
+            Duration::from_millis(16),
+            "Timeout should be exponentially increased to 16ms but was: {:?}",
+            next_timer_duration
+        );
+
+        // now we increase the ssn
+        *context.pn_table_mut().state_seq_nr_mut() += 1;
+
+        let handle_result = use_case.handle_event(&context, UseCaseEvent::Timer(timer_id));
+        assert!(
+            handle_result.is_ok(),
+            "Handling timer event returned error: {:?}",
+            handle_result
+        );
+        let (next_timer_duration, timer_id) = match &use_case.state {
+            VDState::Running(timer_duration, timer_id, _) => (*timer_duration, *timer_id),
+            _ => panic!("Invalid state returned: {:?}", &use_case.state),
+        };
+        assert_eq!(
+            next_timer_duration,
+            use_case.config.initial_timeout,
+            "Timeout should be reset to initial timeout since the ssn changed but was: {:?}",
+            next_timer_duration
+        );
+
+        // test of we exponentially increase again
+        let handle_result = use_case.handle_event(&context, UseCaseEvent::Timer(timer_id));
+        assert!(
+            handle_result.is_ok(),
+            "Handling timer event returned error: {:?}",
+            handle_result
+        );
+        let (next_timer_duration, _timer_id) = match &use_case.state {
+            VDState::Running(timer_duration, timer_id, _) => (*timer_duration, *timer_id),
+            _ => panic!("Invalid state returned: {:?}", &use_case.state),
+        };
+        assert_eq!(
+            next_timer_duration,
+            Duration::from_millis(16),
+            "Timeout should be exponentially increased to 16ms again but was: {:?}",
+            next_timer_duration
+        );
     }
 }
