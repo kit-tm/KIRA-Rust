@@ -445,7 +445,7 @@ where
                     self.state = VDState::Running(next_timeout, timer_id, ssn);
                 }
             }
-            (UseCaseEvent::Message(ProtocolMessage::Hello(HelloMessage { source, .. }), _), _) => {
+            (UseCaseEvent::Message(ProtocolMessage::Hello(HelloMessage { source, source_state_seq_nr }), _), _) => {
                 if self.config.heuristic_enabled
                     && !deterministic_heuristic(
                         context.root_id(),
@@ -455,6 +455,20 @@ where
                 {
                     log::trace!(target: "vicinity_discovery", "Not responding to Hello from {}", source);
                     return Ok(());
+                }
+
+                // we already know the neighbor
+                if context.pn_table().contains(&source) {
+                    let rt = context.routing_table();
+                    let Some(contact) = rt.contact(&source) else {
+                        return Err(VDError::NeighborInconsistency);
+                    };
+
+                    // nothing new about the neighbor
+                    if &source_state_seq_nr <= contact.state_seq_nr() {
+                        log::trace!(target: "vicinity_discovery", "Not responding to Hello from unchanged physical neighbor {}", source);
+                        return Ok(());
+                    }
                 }
 
                 self.send_pn_disc_req(context, source)?;
@@ -1322,7 +1336,8 @@ mod tests {
                     sent_message,
                     ProtocolMessage::Hello(_)
                 ),
-            "Expecting a hello message"
+            "Expecting a hello message but received: {:?}",
+            sent_message
         )
     }
 
@@ -1423,6 +1438,121 @@ mod tests {
             Duration::from_millis(16),
             "Timeout should be exponentially increased to 16ms again but was: {:?}",
             next_timer_duration
+        );
+    }
+
+    #[tokio::test]
+    async fn dont_send_pn_disc_req_on_unchanged_neighbor() {
+        crate::tests::init();
+
+        // Answer should be a PNDiscReq if
+        let root_id = NodeId::with_lsb(2);
+        let sender_id = NodeId::with_lsb(4);
+
+        let routing_table = SingleBucketRT::<20>::new(root_id.clone());
+
+        let pn_table = InMemoryPNTable::new();
+
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
+
+        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(1);
+
+        let runtime = ImmediateRuntime::new(broadcaster);
+
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table,
+            pn_table,
+            insertion_strategy,
+            message_sender: hub_sender,
+            runtime,
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+        let mut use_case = VicinityDiscovery::new(VicinityDiscoveryConfig {
+            heuristic_calculation_bits: NonZeroUsize::new(34).unwrap(),
+            ..Default::default()
+        });
+
+        assert!(use_case.start(&context).is_ok());
+
+        let hello_msg = ProtocolMessage::Hello(HelloMessage {
+            source: sender_id.clone(),
+            source_state_seq_nr: StateSeqNr::from(0),
+        });
+        let event = UseCaseEvent::Message(hello_msg, InMemoryMessageChannel::dummy_interface());
+        let handle_result = use_case.handle_event(
+            &context,
+            event,
+        );
+        assert!(
+           handle_result.is_ok(),
+            "Handling returned an error: {:?}",
+            handle_result
+        );
+
+        // initially we expect a PNDiscReq to be sent
+        let sent_message = hub_receiver.try_recv().await;
+        assert!(
+            sent_message.is_ok(),
+            "Trying to receive returned error: {:?}",
+            sent_message
+        );
+        let sent_message = sent_message.unwrap();
+        assert!(
+            sent_message.is_some(),
+            "We expect a PNDiscReq message, something should be sent."
+        );
+
+        let (sent_message, _) = sent_message.unwrap();
+        assert!(
+            matches!(
+                    sent_message,
+                    ProtocolMessage::PNDiscReq(_)
+                ),
+            "Expecting a PNDiscReq message but received: {:?}",
+            sent_message
+        );
+
+        // fake adding of PN
+        context.pn_table_mut().insert(sender_id.clone(), InMemoryMessageChannel::dummy_interface());
+        let contact = Contact::new(
+            Path::from([root_id.clone(), sender_id.clone()]),
+            sent_message.source_state_seq_nr().clone()
+        );
+        let insertion_result = context.routing_table_mut().insert(contact);
+        assert!(
+            insertion_result.is_ok(),
+            "Expecting no issue insertion contact: {:?}",
+            insertion_result
+        );
+
+        // now we shouldn't send out another message,
+        // since we already added the contact and nothing changed to the ssn
+
+        let hello_msg = ProtocolMessage::Hello(HelloMessage {
+            source: sender_id.clone(),
+            source_state_seq_nr: StateSeqNr::from(0),
+        });
+        let event = UseCaseEvent::Message(hello_msg, InMemoryMessageChannel::dummy_interface());
+        let handle_result = use_case.handle_event(
+            &context,
+            event,
+        );
+        assert!(
+            handle_result.is_ok(),
+            "Handling returned an error: {:?}",
+            handle_result
+        );
+
+        let sent_message = hub_receiver.try_recv().await.ok().flatten();
+        assert!(
+            sent_message.is_none(),
+            "Trying to receive returned a message: {:?}",
+            sent_message
         );
     }
 }
