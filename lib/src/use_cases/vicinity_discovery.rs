@@ -11,6 +11,7 @@ use rand::Rng;
 
 use crate::context::UseCaseContext;
 use crate::domain::{node_id, Contact, ContactState, NodeId, Path, RoutingTable, DEFAULT_BUCKET_SIZE, PNTable, NetworkInterface};
+use crate::hardware_events::HardwareEvent;
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     HelloMessage, Nonce, ProtocolMessage, ProtocolMessageSender, QueryRouteReqData, QueryRouteType,
@@ -458,6 +459,12 @@ where
                 }
                 self.send_pn_disc_rsp(context, req)?;
             }
+            (UseCaseEvent::Hardware(HardwareEvent::InterfacesUp(_)), _) => {
+                // send hello message immediately if interface comes up
+                // todo add small random delay
+                // todo reset hello timer if this fires too far away in the future
+                self.send_hello(context)?;
+            }
             _ => {}
         }
 
@@ -476,6 +483,7 @@ mod tests {
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable};
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
+    use crate::hardware_events::HardwareEvent::InterfacesUp;
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::{
         AsyncProtocolMessageReceiver, HelloMessage, InMemoryMessageChannel, Nonce, ProtocolMessage,
@@ -1245,5 +1253,71 @@ mod tests {
             sent_message.is_none(),
             "No message should be sent bei use case"
         );
+    }
+
+    #[tokio::test]
+    async fn send_hello_on_interface_up() {
+        crate::tests::init();
+
+        let root_id = NodeId::with_msb(1);
+        let source_id = NodeId::with_msb(2);
+
+        let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
+        let pn_table = InMemoryPNTable::new();
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
+        let (broadcaster, _) = MPSCBroadcaster::new(10);
+        let runtime = ImmediateRuntime::new(broadcaster.clone());
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table: single_bucket_rt,
+            pn_table,
+            insertion_strategy,
+            message_sender: hub_sender,
+            runtime,
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+        let mut use_case = VicinityDiscovery::default();
+        let start_result = use_case.start(&context);
+        assert!(
+            start_result.is_ok(),
+            "Start returned error: {:?}",
+            start_result
+        );
+
+        let mut interfaces = HashSet::with_capacity(1);
+        interfaces.insert(InMemoryMessageChannel::dummy_interface());
+        let event = UseCaseEvent::Hardware(InterfacesUp(interfaces));
+
+        let handle_result = use_case.handle_event(&context, event.clone());
+        assert!(
+            handle_result.is_ok(),
+            "Handling returned an error: {:?}",
+            handle_result
+        );
+
+        let sent_message = hub_receiver.try_recv().await;
+        assert!(
+            sent_message.is_ok(),
+            "Trying to receive returned error: {:?}",
+            sent_message
+        );
+        let sent_message = sent_message.unwrap();
+        assert!(
+            sent_message.is_some(),
+            "We expect a hello message, something should be sent."
+        );
+
+        let (sent_message, _) = sent_message.unwrap();
+        assert!(
+            matches!(
+                sent_message,
+                ProtocolMessage::Hello(_)
+            ),
+            "Expecting a hello message"
+        )
+
     }
 }
