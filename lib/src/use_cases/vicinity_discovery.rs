@@ -414,6 +414,7 @@ where
         event: UseCaseEvent,
     ) -> Result<(), Self::Error> {
         match (event, &self.state) {
+            // ========== Vicinity Discovery - Query Route ==========
             (UseCaseEvent::Contact(ContactEvent::New(contact)), _) => {
                 self.send_query_route_req(context, contact)?;
             }
@@ -430,11 +431,12 @@ where
 
                 self.send_query_route_rsp(context, request)?;
             }
+            // ========== Physical Neighbor Discovery ==========
             (UseCaseEvent::Timer(id), VDState::Running(last_timeout, timer_id, last_ssn)) => {
                 if timer_id == &id {
                     self.send_hello(context)?;
 
-                    // reset to min if ssn changed
+                    // reset to initial timeout if ssn changed
                     let next_timeout = if last_ssn != context.pn_table().state_seq_nr() {
                         self.config.initial_timeout
                     } else {
@@ -485,6 +487,7 @@ where
                 // todo reset hello timer if this fires too far away in the future
                 self.send_hello(context)?;
             }
+            // reacting on InterfaceDown is done in the FailureHandling use-case
             _ => {}
         }
 
