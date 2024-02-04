@@ -529,6 +529,16 @@ where
         while let Some((event, start_time)) = runtime.block_on(fan_in_receiver.recv()) {
             log::trace!("Processing event {:?}", event);
 
+            // Setup paths before we forward them to setup paths on intermediate nodes too
+            match explicit_path_management.handle_event(&context, event.clone()) {
+                Err(e) => log::error!(
+                    "Explicit path management returned error handling message: {}",
+                    e
+                ),
+                Ok(HandlingResult::Handled) => continue, /* Skip delegation to other use cases, since path-setup/-teardown is complete */
+                Ok(HandlingResult::NotHandled) => { /* Delegate event to use cases */ }
+            }
+
             // Some precomputation to perform actions and delegate which are common tasks
             match forward_message.handle_event(&context, event.clone()) {
                 Err(e) => log::error!(
@@ -572,12 +582,6 @@ where
                 .is_err()
             {
                 log::error!("Precomputation returned error handling message");
-            }
-            if let Err(e) = explicit_path_management.handle_event(&context, event.clone()) {
-                log::error!(
-                    "Explicit path management returned error handling message: {}",
-                    e
-                );
             }
             if let Some(Err(e)) = inject_messages
                 .as_mut()

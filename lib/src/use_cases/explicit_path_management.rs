@@ -17,7 +17,7 @@ use crate::messaging::{
     ReqRspMessage,
 };
 use crate::runtime::UseCaseRuntime;
-use crate::use_cases::{ContactEvent, EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState};
+use crate::use_cases::{ContactEvent, EventHandler, HandlingResult, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
 /// Configuration for [ExplicitPathManagement] use case.
 pub struct EPMConfig {
@@ -61,6 +61,12 @@ impl Default for EPMConfig {
 /// - Handling of incoming PathSetup and PathTeardowns.
 /// - Periodic cleanup and removal of old entries in the forwarding table.
 /// - Invalidation of entries affected by hardware event.
+///
+/// Given that even intermediate nodes are required to manage PathSetup and PathTeardown requests,
+/// **it is necessary for this [UseCase] to be executed before the [ForwardProtocolMessage](super::forward_protocol_message::ForwardProtocolMessage) [UseCase]**.
+///
+/// This [UseCase] will return [HandlingResult::Handled] if no further forwarding by the
+/// [ForwardProtocolMessage](super::forward_protocol_message::ForwardProtocolMessage) [UseCase] is necessary.
 pub struct ExplicitPathManagement<C, const BUCKET_SIZE: usize> {
     _pd: PhantomData<C>,
     state: EPMState,
@@ -364,7 +370,7 @@ where
 {
     type Context = C;
     type Error = EPMError;
-    type Value = ();
+    type Value = HandlingResult;
 
     fn handle_event(
         &mut self,
@@ -431,19 +437,43 @@ where
                 }
             }
             // ========== Protocol Messages ==========
-            // FIXME This should be executed on __every__ intermediate node
-            // currently the forwarding use-case is suppressing processing on intermediate messages
             (
                 UseCaseEvent::Message(ProtocolMessage::PathSetupReq(req), _),
                 EPMState::Running { .. },
             ) => {
-                self.register_path(context, req);
+                let remaining_hops = req.source_route.remaining_path().size();
+                // todo check if we can stop even earlier with the pathsetup
+                assert!(remaining_hops >= self.config.vicinity_radius.get());
+
+                self.register_path(context, req.clone());
+
+                // stop since we don't need to setup paths in the vicinity
+                if remaining_hops <= self.config.vicinity_radius.get() {
+                    log::trace!(
+                        target: "explicit_path_management",
+                        "Stop forwarding PathSetupReq inside our vicinity: {:?}",
+                        req
+                    );
+                    return Ok(HandlingResult::Handled);
+                }
             }
             (
                 UseCaseEvent::Message(ProtocolMessage::PathTeardownReq(req), _),
                 EPMState::Running { .. },
             ) => {
-                self.teardown_path(context, req);
+                let remaining_hops = req.source_route.remaining_path().size();
+                assert!(remaining_hops >= self.config.vicinity_radius.get());
+
+                self.teardown_path(context, req.clone());
+
+                if remaining_hops <= self.config.vicinity_radius.get() {
+                    log::trace!(
+                        target: "explicit_path_management",
+                        "Stop forwarding PathTeardownReq inside our vicinity: {:?}",
+                        req
+                    );
+                    return Ok(HandlingResult::Handled);
+                }
             }
             // ========== Hardware Events ==========
             (UseCaseEvent::Hardware(HardwareEvent::InterfacesDown(interfaces)), _) => {
@@ -452,7 +482,7 @@ where
             _ => {}
         }
 
-        Ok(())
+        Ok(HandlingResult::NotHandled)
     }
 }
 
@@ -544,6 +574,7 @@ mod tests {
     use std::collections::HashSet;
     use std::num::NonZeroUsize;
     use std::time::Duration;
+    use crate::broadcaster::MPSCBroadcaster;
 
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
@@ -558,7 +589,7 @@ mod tests {
     };
     use crate::runtime::ImmediateRuntime;
     use crate::use_cases::explicit_path_management::{EPMConfig, ExplicitPathManagement};
-    use crate::use_cases::{ContactEvent, EventHandler, UseCase, UseCaseEvent};
+    use crate::use_cases::{ContactEvent, EventHandler, HandlingResult, UseCase, UseCaseEvent};
 
     #[tokio::test]
     async fn path_setup_on_new_contact() {
@@ -998,4 +1029,190 @@ mod tests {
         let entry = fwd_tables.path_id_entry(&input_path_id);
         assert!(entry.is_none(), "Path id entry was not removed");
     }
+
+    #[test]
+    fn dont_forward_path_teardown_inside_vicinity() {
+        crate::tests::init();
+
+        let interface = NetworkInterface::with_name("test");
+        let interface2 = NetworkInterface::with_name("test 2");
+
+        let root_id = NodeId::with_lsb(1);
+        let neighbor_id = NodeId::with_lsb(2);
+        let sender_contact_id = NodeId::with_lsb(3);
+        let other_neighbor_id = NodeId::with_lsb(4);
+
+        let setup_path = Path::from([
+            sender_contact_id.clone(),
+            NodeId::with_lsb(5),
+            NodeId::with_lsb(6),
+            NodeId::with_lsb(7),
+            NodeId::with_lsb(8),
+            neighbor_id.clone(),
+            root_id.clone(),
+            other_neighbor_id.clone(),
+            NodeId::with_lsb(9),
+            NodeId::with_lsb(10),
+        ]);
+        let setup_route = SourceRoute::from(setup_path)
+            .advanced()
+            .advanced()
+            .advanced()
+            .advanced()
+            .advanced();
+
+        let routing_table = SingleBucketRT::<20>::new(root_id.clone());
+
+        let pn_table = InMemoryPNTable::new();
+
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
+
+        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(30);
+
+        let runtime = ImmediateRuntime::new(broadcaster);
+
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table,
+            pn_table,
+            insertion_strategy,
+            message_sender: hub_sender,
+            runtime,
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+        let config = EPMConfig {
+            max_age: Duration::from_secs(1),
+            cleanup_interval: Duration::from_secs(1),
+            refresh_interval: Duration::from_secs(1),
+            vicinity_radius: NonZeroUsize::new(4).unwrap(),
+            hasher: Hasher::Sha1,
+        };
+        let mut use_case = ExplicitPathManagement::new(config);
+        assert!(
+            use_case.start(&context).is_ok(),
+            "failed to start use case"
+        );
+
+        let req = ReqRspMessage {
+            nonce: Nonce::random(),
+            source_state_seq_nr: StateSeqNr::from(4),
+            data: PathTeardownReqData,
+            not_via: Default::default(),
+            source_route: setup_route.clone(),
+        };
+        let message = ProtocolMessage::PathTeardownReq(req.clone());
+        let event = UseCaseEvent::Message(message.clone(), interface);
+        let result = use_case.handle_event(&context, event);
+        assert!(
+            result.is_ok(),
+            "Failed to handle contact invalidation event"
+        );
+
+        let result = result.unwrap();
+        assert!(
+            matches!(
+                result,
+                HandlingResult::Handled
+            ),
+            "Failed to stop forwarding in the vicinity for message {:?}",
+            message
+        )
+    }
+    #[test]
+    fn dont_forward_path_setup_inside_vicinity() {
+        crate::tests::init();
+
+        let interface = NetworkInterface::with_name("test");
+        let interface2 = NetworkInterface::with_name("test 2");
+
+        let root_id = NodeId::with_lsb(1);
+        let neighbor_id = NodeId::with_lsb(2);
+        let sender_contact_id = NodeId::with_lsb(3);
+        let other_neighbor_id = NodeId::with_lsb(4);
+
+        let setup_path = Path::from([
+            sender_contact_id.clone(),
+            NodeId::with_lsb(5),
+            NodeId::with_lsb(6),
+            NodeId::with_lsb(7),
+            NodeId::with_lsb(8),
+            neighbor_id.clone(),
+            root_id.clone(),
+            other_neighbor_id.clone(),
+            NodeId::with_lsb(9),
+            NodeId::with_lsb(10),
+        ]);
+        let setup_route = SourceRoute::from(setup_path)
+            .advanced()
+            .advanced()
+            .advanced()
+            .advanced()
+            .advanced();
+
+        let routing_table = SingleBucketRT::<20>::new(root_id.clone());
+
+        let pn_table = InMemoryPNTable::new();
+
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
+
+        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(30);
+
+        let runtime = ImmediateRuntime::new(broadcaster);
+
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table,
+            pn_table,
+            insertion_strategy,
+            message_sender: hub_sender,
+            runtime,
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+        let config = EPMConfig {
+            max_age: Duration::from_secs(1),
+            cleanup_interval: Duration::from_secs(1),
+            refresh_interval: Duration::from_secs(1),
+            vicinity_radius: NonZeroUsize::new(4).unwrap(),
+            hasher: Hasher::Sha1,
+        };
+        let mut use_case = ExplicitPathManagement::new(config);
+        assert!(
+            use_case.start(&context).is_ok(),
+            "failed to start use case"
+        );
+
+        let req = ReqRspMessage {
+            nonce: Nonce::random(),
+            source_state_seq_nr: StateSeqNr::from(4),
+            data: PathSetupReqData,
+            not_via: Default::default(),
+            source_route: setup_route.clone(),
+        };
+        let message = ProtocolMessage::PathSetupReq(req.clone());
+        let event = UseCaseEvent::Message(message.clone(), interface);
+        let result = use_case.handle_event(&context, event);
+        assert!(
+            result.is_ok(),
+            "Failed to handle contact invalidation event"
+        );
+
+        let result = result.unwrap();
+        assert!(
+            matches!(
+                result,
+                HandlingResult::Handled
+            ),
+            "Failed to stop forwarding in the vicinity for message {:?}",
+            message
+        )
+    }
+
 }

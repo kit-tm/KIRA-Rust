@@ -23,7 +23,7 @@ use crate::use_cases::{
 /// - On SegmentFailure: Invalidates all affected contacts
 ///
 /// As some [UseCase]s rely on the information already being extracted this UseCase has to handle
-/// any [ProtocolMessage] before all other [UseCase]s.
+/// any [ProtocolMessage] before all other [UseCase]s **except** [ExplicitPathManagement](super::explicit_path_management::ExplicitPathManagement).
 ///
 /// The [UseCase] returns an result which shows if the message was already handled and forwarded.
 #[derive(Debug)]

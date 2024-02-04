@@ -41,6 +41,7 @@ pub enum ProtocolMessage {
     ProbeRsp(ReqRspMessage<ProbeRspData>),
     PathSetupReq(ReqRspMessage<PathSetupReqData>),
     PathTeardownReq(ReqRspMessage<PathTeardownReqData>),
+    // todo add Rsp for Setup and Teardown and handle them accordingly
     UpdateRouteReq(UpdateRouteReq),
     Error(ReqRspMessage<ErrorData>),
 }
