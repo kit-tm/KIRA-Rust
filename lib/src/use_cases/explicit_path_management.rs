@@ -12,10 +12,7 @@ use crate::forwarding::hasher::Hasher;
 use crate::forwarding::{PathIdEntry, PathIdTable};
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{
-    Nonce, PathSetupReqData, PathTeardownReqData, ProtocolMessage, ProtocolMessageSender,
-    ReqRspMessage,
-};
+use crate::messaging::{Nonce, PathSetupReqData, PathTeardownReqData, ProbeReqData, ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{ContactEvent, EventHandler, HandlingResult, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
@@ -26,7 +23,10 @@ pub struct EPMConfig {
     /// Interval to perform cleanup of teared down or old entries.
     pub cleanup_interval: Duration,
     /// Interval to perform path setup refreshes.
-    pub refresh_interval: Duration,
+    ///
+    /// If [None] is passed no active refresh is performed.
+    /// Still this use case uses ProbeReq sent out by to refresh its paths.
+    pub refresh_interval: Option<Duration>,
     /// Exclusive Vicinity radius from which to create PathSetupReq messages.
     ///
     /// # Example
@@ -43,7 +43,7 @@ impl Default for EPMConfig {
         Self {
             max_age: Duration::from_secs(60),
             cleanup_interval: Duration::from_secs(60),
-            refresh_interval: Duration::from_secs(20),
+            refresh_interval: Some(Duration::from_secs(20)),
             vicinity_radius: NonZeroUsize::new(3).unwrap(),
             hasher: Hasher::default(),
         }
@@ -109,6 +109,23 @@ where
         Ok(())
     }
 
+    fn send_probe_req(&self, context: &C, contact: &Contact) -> Result<(), EPMError> {
+        let source_route = SourceRoute::new(context.root_id().clone(), contact.path().clone());
+        let message = ReqRspMessage {
+            nonce: Nonce::random(),
+            source_state_seq_nr: *context.pn_table().state_seq_nr(),
+            data: ProbeReqData,
+            not_via: context.not_via().clone(),
+            source_route,
+        };
+        if let Err(e) = context.message_sender_mut().send_message(message) {
+            log::error!(target: "explicit_path_management", "failed to send ProbeReq to refresh path {} : {}", contact.path(), e);
+            return Err(EPMError::MessageSendFailed);
+        }
+
+        Ok(())
+    }
+
     fn send_teardown_req(&self, context: &C, contact: &Contact) -> Result<(), EPMError> {
         let source_route = SourceRoute::new(context.root_id().clone(), contact.path().clone());
         let message = ReqRspMessage {
@@ -167,21 +184,17 @@ where
         }
     }
 
-    // Sends pathSetup for all valid contacts in own routing table
-    // FIXME this should not be necessary
-    // since we only setup paths to contacts in our routing table,
-    // which already get probed by ProbeReq/Rsp
-    // to fix this we must simply listen on ProbeReq to refresh our soft-state
-    // also it is important that ProbeReq get processed by intermediate nodes
-    // so this needs to be considered changing in the forwarding usecase
     fn perform_refresh(&mut self, context: &C) -> Result<(), EPMError> {
         let mut some_failed = false;
         for contact in context.routing_table().iter() {
-            if contact.state() != &ContactState::Valid {
+            // dont probe invalid or vicinity contacts
+            if contact.state() != &ContactState::Valid ||
+                contact.path().size() <= self.config.vicinity_radius.get()
+            {
                 continue;
             }
 
-            if self.send_setup_req(context, contact).is_err() {
+            if self.send_probe_req(context, contact).is_err() {
                 some_failed = true;
             }
         }
@@ -193,7 +206,7 @@ where
         }
     }
 
-    fn register_path(&mut self, context: &C, req: ReqRspMessage<PathSetupReqData>) {
+    fn register_path(&mut self, context: &C, source_route: SourceRoute) {
         let entries;
         let local_entries;
         match &mut self.state {
@@ -211,7 +224,7 @@ where
             }
         };
 
-        let in_path = req.source_route.remaining_path();
+        let in_path = source_route.remaining_path();
         let out_path =
             Result::<Path, EmptyPathError>::from_iter(in_path.clone().into_iter().skip(1))
                 .map(Some)
@@ -323,9 +336,8 @@ where
 
     fn create_new_refresh_timer(&mut self, context: &C) {
         if let EPMState::Running { refresh_timer, .. } = &mut self.state {
-            *refresh_timer = context
-                .runtime()
-                .register_timer(self.config.refresh_interval);
+            *refresh_timer = self.config.refresh_interval
+                .map(|i| context.runtime().register_timer(i));
         }
     }
 
@@ -433,7 +445,7 @@ where
                 if &timer == cleanup_timer {
                     self.perform_cleanup(context);
                     self.create_new_cleanup_timer(context);
-                } else if &timer == refresh_timer {
+                } else if &Some(timer) == refresh_timer {
                     self.perform_refresh(context)?;
                     self.create_new_refresh_timer(context);
                 }
@@ -447,7 +459,7 @@ where
                 assert!(unprocessed_hops > self.config.vicinity_radius.get());
 
                 // process current hop
-                self.register_path(context, req.clone());
+                self.register_path(context, req.source_route.clone());
                 let processed_hops = unprocessed_hops - 1;
 
                 // vicinity already has paths precomputed => stop forwarding to vicinity
@@ -480,7 +492,21 @@ where
                     );
                     return Ok(HandlingResult::Handled);
                 }
-            }
+            },
+            (
+                UseCaseEvent::Message(ProtocolMessage::ProbeReq(req), _),
+                EPMState::Running { externally_added_paths, .. },
+            ) => {
+                let unprocessed_hops = req.source_route.remaining_path().size();
+                // not need to keep paths fresh inside our precomputed vicinity
+                if unprocessed_hops <= self.config.vicinity_radius.get() {
+                    // allow destination to respond
+                    return Ok(HandlingResult::NotHandled);
+                }
+
+                // warning: this also post installs PathIds
+                self.register_path(context, req.source_route)
+            },
             // ========== Hardware Events ==========
             (UseCaseEvent::Hardware(HardwareEvent::InterfacesDown(interfaces)), _) => {
                 self.invalidate_all_over_interfaces(context, interfaces);
@@ -512,9 +538,8 @@ where
         let cleanup_timer_id = context
             .runtime()
             .register_timer(self.config.cleanup_interval);
-        let refresh_timer_id = context
-            .runtime()
-            .register_timer(self.config.refresh_interval);
+        let refresh_timer_id = self.config.refresh_interval
+            .map(|i| context.runtime().register_timer(i));
         self.state = EPMState::Running {
             refresh_timer: refresh_timer_id,
             cleanup_timer: cleanup_timer_id,
@@ -543,7 +568,7 @@ pub enum EPMState {
     Initialized,
     /// The [UseCase] is running and has periodic garbage collection.
     Running {
-        refresh_timer: TimerId,
+        refresh_timer: Option<TimerId>,
         cleanup_timer: TimerId,
         externally_added_paths: HashMap<PathId, Entry>,
         local_paths: HashSet<PathId>,
@@ -647,7 +672,7 @@ mod tests {
         let config = EPMConfig {
             max_age: Duration::from_secs(1),
             cleanup_interval: Duration::from_secs(1),
-            refresh_interval: Duration::from_secs(1),
+            refresh_interval: None,
             vicinity_radius: NonZeroUsize::new(2).unwrap(),
             hasher: Hasher::Sha1,
         };
@@ -749,7 +774,7 @@ mod tests {
         let config = EPMConfig {
             max_age: Duration::from_secs(1),
             cleanup_interval: Duration::from_secs(1),
-            refresh_interval: Duration::from_secs(1),
+            refresh_interval: None,
             vicinity_radius: NonZeroUsize::new(2).unwrap(),
             hasher: Hasher::Sha1,
         };
@@ -885,7 +910,7 @@ mod tests {
         let config = EPMConfig {
             max_age: Duration::from_secs(1),
             cleanup_interval: Duration::from_secs(1),
-            refresh_interval: Duration::from_secs(1),
+            refresh_interval: None,
             vicinity_radius: NonZeroUsize::new(2).unwrap(),
             hasher: Hasher::Sha1,
         };
@@ -1005,7 +1030,7 @@ mod tests {
         let config = EPMConfig {
             max_age: Duration::from_secs(1),
             cleanup_interval: Duration::from_secs(1),
-            refresh_interval: Duration::from_secs(1),
+            refresh_interval: None,
             vicinity_radius: NonZeroUsize::new(2).unwrap(),
             hasher: Hasher::Sha1,
         };
@@ -1093,7 +1118,7 @@ mod tests {
         let config = EPMConfig {
             max_age: Duration::from_secs(1),
             cleanup_interval: Duration::from_secs(1),
-            refresh_interval: Duration::from_secs(1),
+            refresh_interval: None,
             vicinity_radius: NonZeroUsize::new(3).unwrap(),
             hasher: Hasher::Sha1,
         };
@@ -1186,7 +1211,7 @@ mod tests {
         let config = EPMConfig {
             max_age: Duration::from_secs(1),
             cleanup_interval: Duration::from_secs(1),
-            refresh_interval: Duration::from_secs(1),
+            refresh_interval: None,
             vicinity_radius: NonZeroUsize::new(3).unwrap(),
             hasher: Hasher::Sha1,
         };
