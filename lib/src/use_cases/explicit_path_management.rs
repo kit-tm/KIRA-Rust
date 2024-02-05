@@ -442,13 +442,12 @@ where
                 EPMState::Running { .. },
             ) => {
                 let remaining_hops = req.source_route.remaining_path().size();
-                // todo check if we can stop even earlier with the pathsetup
-                assert!(remaining_hops >= self.config.vicinity_radius.get());
+                assert!(remaining_hops > self.config.vicinity_radius.get());
 
                 self.register_path(context, req.clone());
 
-                // stop since we don't need to setup paths in the vicinity
-                if remaining_hops <= self.config.vicinity_radius.get() {
+                // stop forwarding to vicinity
+                if remaining_hops - 1 <= self.config.vicinity_radius.get() {
                     log::trace!(
                         target: "explicit_path_management",
                         "Stop forwarding PathSetupReq inside our vicinity: {:?}",
@@ -462,11 +461,12 @@ where
                 EPMState::Running { .. },
             ) => {
                 let remaining_hops = req.source_route.remaining_path().size();
-                assert!(remaining_hops >= self.config.vicinity_radius.get());
+                assert!(remaining_hops > self.config.vicinity_radius.get());
 
                 self.teardown_path(context, req.clone());
 
-                if remaining_hops <= self.config.vicinity_radius.get() {
+                // stop forwarding to vicinity
+                if remaining_hops - 1 <= self.config.vicinity_radius.get() {
                     log::trace!(
                         target: "explicit_path_management",
                         "Stop forwarding PathTeardownReq inside our vicinity: {:?}",
@@ -844,7 +844,7 @@ mod tests {
             in_path_id: input_path_id.clone(),
             out_path_id: Some(output_path_id),
             //out_interface: interface2.clone(),
-            next_hop: path_after.second().unwrap().clone()
+            next_hop: path_after.second().unwrap().clone(),
         };
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
@@ -961,7 +961,7 @@ mod tests {
             in_path_id: input_path_id.clone(),
             out_path_id: Some(output_path_id),
             //out_interface: interface2.clone(),
-            next_hop: path_after.second().unwrap().clone()
+            next_hop: path_after.second().unwrap().clone(),
         };
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
@@ -1031,7 +1031,7 @@ mod tests {
     }
 
     #[test]
-    fn dont_forward_path_teardown_inside_vicinity() {
+    fn dont_forward_path_teardown_to_vicinity() {
         crate::tests::init();
 
         let interface = NetworkInterface::with_name("test");
@@ -1088,7 +1088,7 @@ mod tests {
             max_age: Duration::from_secs(1),
             cleanup_interval: Duration::from_secs(1),
             refresh_interval: Duration::from_secs(1),
-            vicinity_radius: NonZeroUsize::new(4).unwrap(),
+            vicinity_radius: NonZeroUsize::new(3).unwrap(),
             hasher: Hasher::Sha1,
         };
         let mut use_case = ExplicitPathManagement::new(config);
@@ -1122,8 +1122,9 @@ mod tests {
             message
         )
     }
+
     #[test]
-    fn dont_forward_path_setup_inside_vicinity() {
+    fn dont_forward_path_setup_to_vicinity() {
         crate::tests::init();
 
         let interface = NetworkInterface::with_name("test");
@@ -1180,7 +1181,7 @@ mod tests {
             max_age: Duration::from_secs(1),
             cleanup_interval: Duration::from_secs(1),
             refresh_interval: Duration::from_secs(1),
-            vicinity_radius: NonZeroUsize::new(4).unwrap(),
+            vicinity_radius: NonZeroUsize::new(3).unwrap(),
             hasher: Hasher::Sha1,
         };
         let mut use_case = ExplicitPathManagement::new(config);
@@ -1214,5 +1215,4 @@ mod tests {
             message
         )
     }
-
 }
