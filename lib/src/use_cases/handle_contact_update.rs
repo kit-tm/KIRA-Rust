@@ -7,7 +7,6 @@ use crate::domain::{Contact, ContactState, NotVia, PNTable, RoutingTable};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{ProtocolMessageSender, RouteUpdate, UpdateRouteReq};
 use crate::use_cases::{ContactEvent, EventHandler, MessageSentFailed, UseCaseEvent};
-use crate::use_cases::UseCaseEvent::Contact;
 
 /// Configuration for contact update handling.
 #[derive(Debug)]
