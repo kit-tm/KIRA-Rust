@@ -409,7 +409,7 @@ where
                     }
                     (&ContactState::Valid, &ContactState::Valid, false, true) => {
                         // Contacts path changed from out of vicinity to inside vicinity
-                        self.send_setup_req(context, &old)?;
+                        self.send_teardown_req(context, &old)?;
                     }
                     _ => {}
                 }
