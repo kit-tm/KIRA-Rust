@@ -379,6 +379,8 @@ where
     ) -> Result<Self::Value, Self::Error> {
         match (event, &self.state) {
             // ========== Contact Updates ==========
+            // FIXME don't send teardown if we are uncertain if other nodes use the path
+            // possible fix: rely solely on soft-state cleanup
             (UseCaseEvent::Contact(ContactEvent::New(contact)), _) => {
                 if contact.path().size() > self.config.vicinity_radius.get() {
                     self.send_setup_req(context, &contact)?;
@@ -441,13 +443,15 @@ where
                 UseCaseEvent::Message(ProtocolMessage::PathSetupReq(req), _),
                 EPMState::Running { .. },
             ) => {
-                let remaining_hops = req.source_route.remaining_path().size();
-                assert!(remaining_hops > self.config.vicinity_radius.get());
+                let unprocessed_hops = req.source_route.remaining_path().size();
+                assert!(unprocessed_hops > self.config.vicinity_radius.get());
 
+                // process current hop
                 self.register_path(context, req.clone());
+                let processed_hops = unprocessed_hops - 1;
 
-                // stop forwarding to vicinity
-                if remaining_hops - 1 <= self.config.vicinity_radius.get() {
+                // vicinity already has paths precomputed => stop forwarding to vicinity
+                if processed_hops <= self.config.vicinity_radius.get() {
                     log::trace!(
                         target: "explicit_path_management",
                         "Stop forwarding PathSetupReq inside our vicinity: {:?}",
@@ -460,13 +464,15 @@ where
                 UseCaseEvent::Message(ProtocolMessage::PathTeardownReq(req), _),
                 EPMState::Running { .. },
             ) => {
-                let remaining_hops = req.source_route.remaining_path().size();
-                assert!(remaining_hops > self.config.vicinity_radius.get());
+                let unprocessed_hops = req.source_route.remaining_path().size();
+                assert!(unprocessed_hops > self.config.vicinity_radius.get());
 
+                // process current hop
                 self.teardown_path(context, req.clone());
+                let processed_hops = unprocessed_hops - 1;
 
                 // stop forwarding to vicinity
-                if remaining_hops - 1 <= self.config.vicinity_radius.get() {
+                if processed_hops <= self.config.vicinity_radius.get() {
                     log::trace!(
                         target: "explicit_path_management",
                         "Stop forwarding PathTeardownReq inside our vicinity: {:?}",

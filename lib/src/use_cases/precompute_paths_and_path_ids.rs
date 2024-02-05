@@ -158,7 +158,7 @@ where
             | UseCaseEvent::Message(ProtocolMessage::QueryRouteRsp(rtable_data), _) => {
                 // Skip everything not in configured vicinity radius
                 // Source has to be strictly in vicinity therefor
-                if rtable_data.source_route.size() - 1 > self.config.vicinity_radius {
+                if rtable_data.source_route.size() - 1 >= self.config.vicinity_radius {
                     return Ok(());
                 }
 
