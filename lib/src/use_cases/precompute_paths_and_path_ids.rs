@@ -224,13 +224,13 @@ where
                 // Contact changed to inside vicinity will be handled by vicinity discovery
 
                 if old.state() == &ContactState::Valid && new.state() != &ContactState::Valid {
-                    self.vicinity_graph.invalidate(new.id());
-                    self.vicinity_changed = true;
+                    let changed = self.vicinity_graph.invalidate(new.id());
+                    self.vicinity_changed = changed;
                     return Ok(());
                 }
                 if old.state() != &ContactState::Valid && new.state() == &ContactState::Valid {
-                    self.vicinity_graph.validate(new.id());
-                    self.vicinity_changed = true;
+                    let changed = self.vicinity_graph.validate(new.id());
+                    self.vicinity_changed = changed;
                     return Ok(());
                 }
             }
