@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use crate::context::UseCaseContext;
-use crate::domain::{ContactState, NodeId, RoutingTable, DEFAULT_BUCKET_SIZE, PNTable};
+use crate::domain::{ContactState, NodeId, RoutingTable, DEFAULT_BUCKET_SIZE, PNTable, Contact};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     Nonce, ProbeReqData, ProbeRspData, ProtocolMessage, ProtocolMessageSender, ReqRspMessage,
@@ -89,8 +89,31 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::PhysicalNeighborTable: PNTable
 {
-    // Searched for old contacts and sends ProbeReqs to all of them
+    // Send ProbeReqs to two oldest valid contacts per bucket
     fn send_probe_reqs(&mut self, context: &C) -> Result<(), MessageSentFailed> {
+        let rt = context.routing_table();
+        for bucket in rt.bucket_iter() {
+            let mut considered_contacts: Vec<_> = bucket.into_iter()
+                .filter(|contact| {
+                    contact.last_seen().to_age_duration() <= self.config.probe_age &&
+                        contact.state() != &ContactState::Valid &&
+                        // should never be the case
+                        !contact.is_pn()
+                }).collect();
+
+            considered_contacts.sort_unstable_by_key(|contact| contact.last_seen());
+            // put oldest to the front
+            considered_contacts.reverse();
+
+            // todo make configurable
+            considered_contacts.iter().take(2)
+                .try_for_each(|c| self.send_probe_req(context, c))?
+        };
+
+        Ok(())
+    }
+
+    fn send_probe_req(&mut self, context: &C, contact: &Contact) -> Result<(), MessageSentFailed> {
         let (probe_timers, requests_in_flight) = match &mut self.state {
             PathProbingState::Running {
                 probe_timers,
@@ -100,39 +123,33 @@ where
             _ => panic!("Called sending probe outside of running state"),
         };
 
-        for contact in context.routing_table().iter() {
-            if contact.last_seen().to_age_duration() <= self.config.probe_age {
-                continue;
-            }
-
-            // generate new unused nonce for our message
-            let mut nonce = Nonce::random();
-            while requests_in_flight.contains_key(&nonce) {
-                nonce = Nonce::random();
-            }
-
-            let mut route = SourceRoute::from(contact.path().clone());
-            route.push_front(context.root_id().clone());
-            let message = ReqRspMessage {
-                nonce: nonce.clone(),
-                source_state_seq_nr: *context.pn_table().state_seq_nr(),
-                data: ProbeReqData,
-                not_via: context.not_via().clone(),
-                source_route: route,
-            };
-            if let Err(e) = context.message_sender_mut().send_message(message) {
-                log::error!(target: "path_probing", "Failed to send ProbeReq: {}", e);
-                return Err(MessageSentFailed);
-            }
-
-            let timeout_timer = context
-                .runtime()
-                .register_timer(self.config.request_timeout);
-            probe_timers.insert(timeout_timer, nonce.clone());
-            requests_in_flight.insert(nonce, contact.id().clone());
-
-            log::trace!(target: "path_probing", "Sent probe to {}", contact.id());
+        // generate new unused nonce for our message
+        let mut nonce = Nonce::random();
+        while requests_in_flight.contains_key(&nonce) {
+            nonce = Nonce::random();
         }
+
+        let mut route = SourceRoute::from(contact.path().clone());
+        route.push_front(context.root_id().clone());
+        let message = ReqRspMessage {
+            nonce: nonce.clone(),
+            source_state_seq_nr: *context.pn_table().state_seq_nr(),
+            data: ProbeReqData,
+            not_via: context.not_via().clone(),
+            source_route: route,
+        };
+        if let Err(e) = context.message_sender_mut().send_message(message) {
+            log::error!(target: "path_probing", "Failed to send ProbeReq: {}", e);
+            return Err(MessageSentFailed);
+        }
+
+        let timeout_timer = context
+            .runtime()
+            .register_timer(self.config.request_timeout);
+        probe_timers.insert(timeout_timer, nonce.clone());
+        requests_in_flight.insert(nonce, contact.id().clone());
+
+        log::trace!(target: "path_probing", "Sent probe to {}", contact.id());
 
         Ok(())
     }
