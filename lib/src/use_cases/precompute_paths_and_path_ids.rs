@@ -79,6 +79,7 @@ where
     fn gen_entries_from_graph(&self, context: &C, graph: &VicinityGraph) -> HashSet<PathIdEntry> {
         let mut entries = HashSet::new();
         for in_path in graph {
+            // FIXME don't install longer paths than vicinity radius
             let out_path =
                 Result::<Path, EmptyPathError>::from_iter(in_path.clone().into_iter().skip(1));
             if out_path.is_err() {
@@ -157,8 +158,7 @@ where
             | UseCaseEvent::Message(ProtocolMessage::PNDiscRsp(rtable_data), _)
             | UseCaseEvent::Message(ProtocolMessage::QueryRouteRsp(rtable_data), _) => {
                 // Skip everything not in configured vicinity radius
-                // Source has to be strictly in vicinity therefor
-                if rtable_data.source_route.size() - 1 >= self.config.vicinity_radius {
+                if rtable_data.source_route.size() - 1 > self.config.vicinity_radius {
                     return Ok(());
                 }
 
