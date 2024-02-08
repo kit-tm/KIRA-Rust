@@ -8,7 +8,7 @@ pub use sync_context::*;
 #[cfg(feature = "tokio")]
 pub use tokio_context::*;
 
-use crate::domain::{NodeId, NotVia, PNTable};
+use crate::domain::{NodeId, NotVia};
 
 pub mod sync_context;
 #[cfg(feature = "tokio")]
@@ -86,13 +86,13 @@ impl<'a, T> DerefMut for WriteGuard<'a, T> {
 }
 
 /// Configuration Wrapper for all dependencies of a [UseCaseContext].
-pub struct ContextConfig<RT, MS, RU, IS, FT> {
+pub struct ContextConfig<RT, MS, RU, IS, PN, FT> {
     pub root_id: NodeId,
     pub routing_table: RT,
     pub message_sender: MS,
     pub runtime: RU,
     pub insertion_strategy: IS,
-    pub pn_table: PNTable,
+    pub pn_table: PN,
     pub forwarding_tables: FT,
     pub not_via: HashSet<NotVia>,
 }
@@ -117,6 +117,7 @@ pub trait UseCaseContext {
     type MessageSender: Sized;
     type Runtime: Sized;
     type InsertionStrategy: Sized;
+    type PhysicalNeighborTable: Sized;
     type ForwardingTables: Sized;
 
     fn new(
@@ -125,6 +126,7 @@ pub trait UseCaseContext {
             Self::MessageSender,
             Self::Runtime,
             Self::InsertionStrategy,
+            Self::PhysicalNeighborTable,
             Self::ForwardingTables,
         >,
     ) -> Self;
@@ -137,9 +139,9 @@ pub trait UseCaseContext {
 
     fn routing_table_insertion_strategy(&self) -> WriteGuard<'_, Self::InsertionStrategy>;
 
-    fn pn_table(&self) -> ReadGuard<'_, PNTable>;
+    fn pn_table(&self) -> ReadGuard<'_, Self::PhysicalNeighborTable>;
 
-    fn pn_table_mut(&self) -> WriteGuard<'_, PNTable>;
+    fn pn_table_mut(&self) -> WriteGuard<'_, Self::PhysicalNeighborTable>;
 
     fn message_sender(&self) -> ReadGuard<'_, Self::MessageSender>;
 

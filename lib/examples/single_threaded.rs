@@ -125,7 +125,7 @@ fn main() {
     let context = TokioContext::new(ContextConfig {
         root_id,
         routing_table,
-        pn_table: PNTable::new(),
+        pn_table: InMemoryPNTable::new(),
         insertion_strategy: PNSStrategy::<
             ObservableRoutingTable<
                 UnlimitedPNRoutingTable<DEFAULT_BUCKET_SIZE, 1>,

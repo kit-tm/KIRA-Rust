@@ -3,9 +3,10 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
+use std::ops::Deref;
 
 use crate::context::UseCaseContext;
-use crate::domain::{Contact, ContactState, Link, NetworkInterface, NodeId, NotVia, RoutingTable};
+use crate::domain::{Contact, ContactState, Link, NetworkInterface, NodeId, NotVia, PNTable, RoutingTable};
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -85,6 +86,7 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     /// Remove all NotVia Data which is related to the contact
     fn remove_notvia_mentioning(&self, context: &C, contact_id: &NodeId) {
@@ -370,6 +372,7 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     type Context = C;
     type Error = FailureHandlingError;
@@ -446,6 +449,7 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     type State = ReactiveUseCaseState;
 
@@ -483,10 +487,7 @@ mod tests {
 
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{
-        Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable,
-        Path, RoutingTable, StateSeqNr, TestInsertionStrategy,
-    };
+    use crate::domain::{Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable};
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::hardware_events::HardwareEvent;
     use crate::messaging::source_route::SourceRoute;
@@ -503,7 +504,7 @@ mod tests {
     async fn update_route_req_is_sent_for_invalidated_contact() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -530,7 +531,7 @@ mod tests {
         assert!(routing_table.insert(neighbor.clone()).is_ok());
         assert!(routing_table.insert(failed_contact_before.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -582,7 +583,7 @@ mod tests {
     async fn error_responses_yield_new_find_node_until_max_retries() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -611,7 +612,7 @@ mod tests {
         assert!(routing_table.insert(neighbor.clone()).is_ok());
         assert!(routing_table.insert(failed_contact_before.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -765,7 +766,7 @@ mod tests {
     async fn timeouts_yield_new_find_node_until_max_retries_with_exponential_backoff() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -792,7 +793,7 @@ mod tests {
         assert!(routing_table.insert(neighbor.clone()).is_ok());
         assert!(routing_table.insert(failed_contact_before.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -943,8 +944,8 @@ mod tests {
     fn hardware_event_invalidates_all_affected_contacts() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
-        let other_interface = NetworkInterface::new("test 2");
+        let interface = NetworkInterface::with_name("test");
+        let other_interface = NetworkInterface::with_name("test 2");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -969,7 +970,7 @@ mod tests {
         assert!(routing_table.insert(over_neighbor_contact.clone()).is_ok());
         assert!(routing_table.insert(other_contact.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
         pn_table.insert(other_id.clone(), other_interface.clone());
 

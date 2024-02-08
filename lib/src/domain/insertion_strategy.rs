@@ -28,7 +28,7 @@ pub enum InsertionStrategyResult {
 ///
 /// Also [NotVia](crate::domain::NotVia) Data is not handled by the [InsertionStrategy] as it
 /// represents logic of the routing-daemon itself and not the domain.
-pub trait InsertionStrategy<RT, const BUCKET_SIZE: usize>
+pub trait InsertionStrategy<RT, PN, const BUCKET_SIZE: usize>
 where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
 {
@@ -39,7 +39,7 @@ where
         &mut self,
         contact: Contact,
         routing_table: &mut RT,
-        pn_table: &PNTable,
+        pn_table: &PN,
     ) -> InsertionStrategyResult;
 }
 
@@ -170,10 +170,11 @@ where
     }
 }
 
-impl<RT, CR, PS, const BUCKET_SIZE: usize> InsertionStrategy<RT, BUCKET_SIZE>
+impl<RT, PN, CR, PS, const BUCKET_SIZE: usize> InsertionStrategy<RT, PN, BUCKET_SIZE>
     for PNSStrategy<RT, CR, PS, BUCKET_SIZE>
 where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
+    PN: PNTable,
     CR: PathCycleRemover,
     PS: PathSimplifier,
 {
@@ -181,7 +182,7 @@ where
         &mut self,
         mut contact: Contact,
         routing_table: &mut RT,
-        pn_table: &PNTable,
+        pn_table: &PN,
     ) -> InsertionStrategyResult {
         // Ignore paths to us
         if contact.id() == routing_table.root() {
@@ -256,7 +257,7 @@ impl From<InsertionStrategyResult> for TestInsertionStrategy {
     }
 }
 
-impl<RT, const BUCKET_SIZE: usize> InsertionStrategy<RT, BUCKET_SIZE> for TestInsertionStrategy
+impl<RT, PN, const BUCKET_SIZE: usize> InsertionStrategy<RT, PN, BUCKET_SIZE> for TestInsertionStrategy
 where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
 {
@@ -264,7 +265,7 @@ where
         &mut self,
         contact: Contact,
         routing_table: &mut RT,
-        _pn_table: &PNTable,
+        _pn_table: &PN,
     ) -> InsertionStrategyResult {
         let result = routing_table.insert(contact);
         if let Err(e) = result {
@@ -278,11 +279,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{
-        Contact, ContactState, InOrderCycleRemover, InsertionStrategy, InsertionStrategyResult,
-        NetworkInterface, NodeId, PNSStrategy, PNTable, Path, RoutingTable,
-        ShortestFirstPathSimplifier, StateSeqNr,
-    };
+    use crate::domain::{Contact, ContactState, InOrderCycleRemover, InsertionStrategy, InsertionStrategyResult, NetworkInterface, NodeId, PNSStrategy, PNTable, Path, RoutingTable, ShortestFirstPathSimplifier, StateSeqNr, InMemoryPNTable};
 
     #[test]
     fn extract_infos_from_find_node_not_for_us() {
@@ -304,9 +301,9 @@ mod tests {
         let target_id = NodeId::with_msb(4);
         let proxy_invalidated_id = NodeId::with_msb(5);
 
-        let interface = NetworkInterface::new("test");
-        let other_interface = NetworkInterface::new("test 2");
-        let third_interface = NetworkInterface::new("test 3");
+        let interface = NetworkInterface::with_name("test");
+        let other_interface = NetworkInterface::with_name("test 2");
+        let third_interface = NetworkInterface::with_name("test 3");
 
         let mut proxy_invalidated_contact = Contact::new(
             Path::from([other_neighbor_id.clone(), proxy_invalidated_id.clone()]),
@@ -337,7 +334,7 @@ mod tests {
             );
         }
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
         pn_table.insert(other_neighbor_id.clone(), other_interface.clone());
         pn_table.insert(target_id.clone(), third_interface.clone());

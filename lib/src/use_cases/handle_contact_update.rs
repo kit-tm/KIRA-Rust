@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 
 use crate::context::UseCaseContext;
-use crate::domain::{Contact, ContactState, NotVia, RoutingTable};
+use crate::domain::{Contact, ContactState, NotVia, PNTable, RoutingTable};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{ProtocolMessageSender, RouteUpdate, UpdateRouteReq};
 use crate::use_cases::{ContactEvent, EventHandler, MessageSentFailed, UseCaseEvent};
@@ -61,6 +61,7 @@ where
     C: UseCaseContext,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::MessageSender: ProtocolMessageSender,
+    C::PhysicalNeighborTable: PNTable
 {
     fn send_update(
         &self,
@@ -108,6 +109,7 @@ where
     C: UseCaseContext,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::MessageSender: ProtocolMessageSender,
+    C::PhysicalNeighborTable: PNTable
 {
     type Context = C;
     type Error = MessageSentFailed;
