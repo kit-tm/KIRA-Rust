@@ -471,14 +471,20 @@ mod tests {
             }
         }
 
+        assert_eq!(
+            contacts_probed.len(),
+            2,
+            "More than two contacts per bucket probed: {:#?}",
+            contacts_probed
+        );
+
+
         for old_contact in old_contacts {
             let probed_contact = contacts_probed.remove(old_contact.id());
-            assert!(
-                probed_contact.is_some(),
-                "No probe for old contact {} found",
-                old_contact.id()
-            );
-            let probed_route = probed_contact.unwrap();
+            let Some(probed_route) = probed_contact else {
+                // we dont expect all contacts to be probed
+                continue;
+            };
             assert_eq!(
                 &probed_route,
                 &SourceRoute::new(root_id.clone(), old_contact.path().clone()),
@@ -488,7 +494,7 @@ mod tests {
 
         assert!(
             contacts_probed.is_empty(),
-            "Some contacts were probed that didn't have to bee probed: {:?}",
+            "Some contacts were probed that didn't have to be probed: {:?}",
             contacts_probed
         );
     }
