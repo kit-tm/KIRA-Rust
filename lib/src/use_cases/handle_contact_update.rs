@@ -122,10 +122,16 @@ where
     ) -> Result<Self::Value, Self::Error> {
         match event {
             UseCaseEvent::Contact(ContactEvent::Removed(contact)) => {
-                let mut updates = HashMap::new();
-                updates.insert(contact.clone(), RouteUpdate::Removed);
+                // only send update if physical neighbor got removed
+                // this doesn't happen in reality since we use the UnlimitedPNRoutingTable
+                if contact.is_pn() {
+                    let mut updates = HashMap::new();
+                    updates.insert(contact.clone(), RouteUpdate::Removed);
 
-                self.send_update(context, updates)?;
+                    log::trace!(target: "handle_contact_update", "Sending update concerning removal of physical neighbor {}", contact.id());
+                    self.send_update(context, updates)?;
+                }
+
                 context.not_via_mut().retain(|not_via| match not_via {
                     NotVia::Link(link) => {
                         link.first() != contact.id() && link.second() != contact.id()
@@ -142,11 +148,20 @@ where
                 let mut updates = HashMap::new();
                 updates.insert(new.clone(), RouteUpdate::Updated);
 
+                // this should be fine, since we only update contacts if interesting anyways
                 self.send_update(context, updates)?;
                 if old.state() == &ContactState::Valid && new.state() != &ContactState::Valid {
                     // Add to not-via data if path gets invalid (maybe done already)
                     self.invalidate_all_affected_contacts(context, &new);
                 }
+            }
+            UseCaseEvent::Contact(ContactEvent::New(new)) => {
+                // always send an update if a new contact was found
+                let mut updates = HashMap::new();
+                updates.insert(new.clone(), RouteUpdate::Updated);
+
+                log::trace!(target: "handle_contact_update", "New contact {} found. Sending update.", new.id());
+                self.send_update(context, updates)?;
             }
             _ => {}
         }

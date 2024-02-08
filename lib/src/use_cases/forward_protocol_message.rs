@@ -23,7 +23,7 @@ use crate::use_cases::{
 /// - On SegmentFailure: Invalidates all affected contacts
 ///
 /// As some [UseCase]s rely on the information already being extracted this UseCase has to handle
-/// any [ProtocolMessage] before all other [UseCase]s.
+/// any [ProtocolMessage] before all other [UseCase]s **except** [ExplicitPathManagement](super::explicit_path_management::ExplicitPathManagement).
 ///
 /// The [UseCase] returns an result which shows if the message was already handled and forwarded.
 #[derive(Debug)]
@@ -50,7 +50,9 @@ where
     C::MessageSender: ProtocolMessageSender,
 {
     fn extract_path_to_source(&self, message: &ProtocolMessage) -> Path {
-        let route = message.source_route().map(SourceRoute::traveled_path);
+        let route = message.source_route()
+            // one can only trust the so far traversed path to work and exist
+            .map(SourceRoute::traveled_path);
         let mut path = match route {
             None => Path::from(message.source().clone()),
             Some(path) => path,
@@ -239,6 +241,7 @@ where
                 RouteUpdate::Updated => {
                     // If the saved contact is via the node which updated -> Update Path of contact
                     // Other Paths are updated while operating
+                    // todo check if comment actually true
                     let mut old_contact = routing_table.contact_mut(updated_contact.id()).unwrap();
                     if old_contact.path().size() > new_path.size()
                         && old_contact.path().contains(source_id)
@@ -263,6 +266,7 @@ where
             return Ok(());
         }
 
+        // invalidate contacts based on not-via information
         if let Some(not_via) = message.not_via() {
             self.extract_not_via_data(context, message.source(), not_via);
         }

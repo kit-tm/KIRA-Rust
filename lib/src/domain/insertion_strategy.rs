@@ -81,30 +81,45 @@ where
             log::trace!(target: "routing_table", "Dropped path: Invalid [{:?}]", contact);
             return InsertionStrategyResult::Dropped;
         }
-        if existing.state() == &ContactState::Invalid && contact.state() == &ContactState::Valid {
+
+        // drop if received data is older than stored data
+        if contact.is_older_than(&existing) {
+            log::trace!(
+                target: "routing_table",
+                "Dropping path: Older [info: {:?}, saved_age: {:?}, saved_ssn: {:?}]",
+                contact,
+                existing.age(),
+                existing.state_seq_nr(),
+            );
+            return InsertionStrategyResult::Dropped;
+        }
+
+        // contact is newer, better or fixes a contact
+
+
+        // replace invalid existing data
+        // FIXME check whether the supposed new path actually avoids all broken links
+        // -> `src/routing/r2kademlia/KadRoutingTable.cc:299`
+        if existing.state() == &ContactState::Invalid
+            && contact.state() == &ContactState::Valid {
             log::trace!(target: "routing_table", "Updated path: Invalid path was replaced [{:?}]", contact);
             *existing = contact;
             return InsertionStrategyResult::Updated;
         }
 
-        // drop if received data is older than stored data
-        match existing.cmp_actuality(&contact) {
-            Ordering::Greater => {
-                log::trace!(
-                    target: "routing_table",
-                    "Dropping path: Older [info: {:?}, saved_age: {:?}, saved_ssn: {:?}]",
-                    contact,
-                    existing.age(),
-                    existing.state_seq_nr(),
-                );
-                return InsertionStrategyResult::Dropped;
-            }
-            // If less or equal -> replace
-            Ordering::Less => {}
-            Ordering::Equal => {}
-        }
 
-        // contact is newer, better or fixes a contact
+        // dont replace path with longer path if ssn is same
+        if existing.state_seq_nr() == contact.state_seq_nr()
+            // todo support option to specify replace behaviour on equal length (called `enableSinglePathDiversity`)
+            // todo use hash to prevent path flapping
+            && contact.path().size() >= /* > */ existing.path().size() {
+            log::trace!(
+                target: "routing_table",
+                "Not updating contacts path because it is longer [{:?}]",
+                contact
+            );
+            return InsertionStrategyResult::Dropped;
+        }
 
         // But: If only age is updated, don't emit anything
         let return_result =
@@ -116,6 +131,12 @@ where
                 );
                 InsertionStrategyResult::Dropped
             } else {
+                // FIXME dont accept longer path to potential PN
+                // this potentially also requires to rework the PathSimplifier,
+                // since it just assumes working PN and replaces with existing short path
+                // todo schedule recheck PN if in vicinityDiscoveryRadius
+                // todo schedule pathcheck for shorter path if offered path is longer
+                // -> src/routing/r2kademlia/KadRoutingTable.cc:315
                 log::trace!(
                     target: "routing_table",
                     "Updated contact [{:?}]",

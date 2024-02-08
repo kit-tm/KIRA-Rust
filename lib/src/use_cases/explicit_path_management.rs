@@ -12,12 +12,9 @@ use crate::forwarding::hasher::Hasher;
 use crate::forwarding::{PathIdEntry, PathIdTable};
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{
-    Nonce, PathSetupReqData, PathTeardownReqData, ProtocolMessage, ProtocolMessageSender,
-    ReqRspMessage,
-};
+use crate::messaging::{Nonce, PathSetupReqData, PathTeardownReqData, ProbeReqData, ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
-use crate::use_cases::{ContactEvent, EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState};
+use crate::use_cases::{ContactEvent, EventHandler, HandlingResult, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
 /// Configuration for [ExplicitPathManagement] use case.
 pub struct EPMConfig {
@@ -26,7 +23,10 @@ pub struct EPMConfig {
     /// Interval to perform cleanup of teared down or old entries.
     pub cleanup_interval: Duration,
     /// Interval to perform path setup refreshes.
-    pub refresh_interval: Duration,
+    ///
+    /// If [None] is passed no active refresh is performed.
+    /// Still this use case uses ProbeReq sent out by to refresh its paths.
+    pub refresh_interval: Option<Duration>,
     /// Exclusive Vicinity radius from which to create PathSetupReq messages.
     ///
     /// # Example
@@ -43,7 +43,7 @@ impl Default for EPMConfig {
         Self {
             max_age: Duration::from_secs(60),
             cleanup_interval: Duration::from_secs(60),
-            refresh_interval: Duration::from_secs(20),
+            refresh_interval: Some(Duration::from_secs(20)),
             vicinity_radius: NonZeroUsize::new(3).unwrap(),
             hasher: Hasher::default(),
         }
@@ -61,6 +61,12 @@ impl Default for EPMConfig {
 /// - Handling of incoming PathSetup and PathTeardowns.
 /// - Periodic cleanup and removal of old entries in the forwarding table.
 /// - Invalidation of entries affected by hardware event.
+///
+/// Given that even intermediate nodes are required to manage PathSetup and PathTeardown requests,
+/// **it is necessary for this [UseCase] to be executed before the [ForwardProtocolMessage](super::forward_protocol_message::ForwardProtocolMessage) [UseCase]**.
+///
+/// This [UseCase] will return [HandlingResult::Handled] if no further forwarding by the
+/// [ForwardProtocolMessage](super::forward_protocol_message::ForwardProtocolMessage) [UseCase] is necessary.
 pub struct ExplicitPathManagement<C, const BUCKET_SIZE: usize> {
     _pd: PhantomData<C>,
     state: EPMState,
@@ -97,6 +103,23 @@ where
         };
         if let Err(e) = context.message_sender_mut().send_message(message) {
             log::error!(target: "explicit_path_management", "failed to send PathSetupReq for {}: {}", contact.path(), e);
+            return Err(EPMError::MessageSendFailed);
+        }
+
+        Ok(())
+    }
+
+    fn send_probe_req(&self, context: &C, contact: &Contact) -> Result<(), EPMError> {
+        let source_route = SourceRoute::new(context.root_id().clone(), contact.path().clone());
+        let message = ReqRspMessage {
+            nonce: Nonce::random(),
+            source_state_seq_nr: *context.pn_table().state_seq_nr(),
+            data: ProbeReqData,
+            not_via: context.not_via().clone(),
+            source_route,
+        };
+        if let Err(e) = context.message_sender_mut().send_message(message) {
+            log::error!(target: "explicit_path_management", "failed to send ProbeReq to refresh path {} : {}", contact.path(), e);
             return Err(EPMError::MessageSendFailed);
         }
 
@@ -161,15 +184,17 @@ where
         }
     }
 
-    // Sends pathSetup for all valid contacts in own routing table
     fn perform_refresh(&mut self, context: &C) -> Result<(), EPMError> {
         let mut some_failed = false;
         for contact in context.routing_table().iter() {
-            if contact.state() != &ContactState::Valid {
+            // dont probe invalid or vicinity contacts
+            if contact.state() != &ContactState::Valid ||
+                contact.path().size() <= self.config.vicinity_radius.get()
+            {
                 continue;
             }
 
-            if self.send_setup_req(context, contact).is_err() {
+            if self.send_probe_req(context, contact).is_err() {
                 some_failed = true;
             }
         }
@@ -181,7 +206,7 @@ where
         }
     }
 
-    fn register_path(&mut self, context: &C, req: ReqRspMessage<PathSetupReqData>) {
+    fn register_path(&mut self, context: &C, source_route: SourceRoute) {
         let entries;
         let local_entries;
         match &mut self.state {
@@ -199,7 +224,7 @@ where
             }
         };
 
-        let in_path = req.source_route.remaining_path();
+        let in_path = source_route.remaining_path();
         let out_path =
             Result::<Path, EmptyPathError>::from_iter(in_path.clone().into_iter().skip(1))
                 .map(Some)
@@ -311,9 +336,8 @@ where
 
     fn create_new_refresh_timer(&mut self, context: &C) {
         if let EPMState::Running { refresh_timer, .. } = &mut self.state {
-            *refresh_timer = context
-                .runtime()
-                .register_timer(self.config.refresh_interval);
+            *refresh_timer = self.config.refresh_interval
+                .map(|i| context.runtime().register_timer(i));
         }
     }
 
@@ -358,7 +382,7 @@ where
 {
     type Context = C;
     type Error = EPMError;
-    type Value = ();
+    type Value = HandlingResult;
 
     fn handle_event(
         &mut self,
@@ -367,6 +391,8 @@ where
     ) -> Result<Self::Value, Self::Error> {
         match (event, &self.state) {
             // ========== Contact Updates ==========
+            // FIXME don't send teardown if we are uncertain if other nodes use the path
+            // possible fix: rely solely on soft-state cleanup
             (UseCaseEvent::Contact(ContactEvent::New(contact)), _) => {
                 if contact.path().size() > self.config.vicinity_radius.get() {
                     self.send_setup_req(context, &contact)?;
@@ -397,7 +423,7 @@ where
                     }
                     (&ContactState::Valid, &ContactState::Valid, false, true) => {
                         // Contacts path changed from out of vicinity to inside vicinity
-                        self.send_setup_req(context, &old)?;
+                        self.send_teardown_req(context, &old)?;
                     }
                     _ => {}
                 }
@@ -419,7 +445,7 @@ where
                 if &timer == cleanup_timer {
                     self.perform_cleanup(context);
                     self.create_new_cleanup_timer(context);
-                } else if &timer == refresh_timer {
+                } else if &Some(timer) == refresh_timer {
                     self.perform_refresh(context)?;
                     self.create_new_refresh_timer(context);
                 }
@@ -429,14 +455,58 @@ where
                 UseCaseEvent::Message(ProtocolMessage::PathSetupReq(req), _),
                 EPMState::Running { .. },
             ) => {
-                self.register_path(context, req);
+                let unprocessed_hops = req.source_route.remaining_path().size();
+                assert!(unprocessed_hops > self.config.vicinity_radius.get());
+
+                // process current hop
+                self.register_path(context, req.source_route.clone());
+                let processed_hops = unprocessed_hops - 1;
+
+                // vicinity already has paths precomputed => stop forwarding to vicinity
+                if processed_hops <= self.config.vicinity_radius.get() {
+                    log::trace!(
+                        target: "explicit_path_management",
+                        "Stop forwarding PathSetupReq inside our vicinity: {:?}",
+                        req
+                    );
+                    return Ok(HandlingResult::Handled);
+                }
             }
             (
                 UseCaseEvent::Message(ProtocolMessage::PathTeardownReq(req), _),
                 EPMState::Running { .. },
             ) => {
-                self.teardown_path(context, req);
-            }
+                let unprocessed_hops = req.source_route.remaining_path().size();
+                assert!(unprocessed_hops > self.config.vicinity_radius.get());
+
+                // process current hop
+                self.teardown_path(context, req.clone());
+                let processed_hops = unprocessed_hops - 1;
+
+                // stop forwarding to vicinity
+                if processed_hops <= self.config.vicinity_radius.get() {
+                    log::trace!(
+                        target: "explicit_path_management",
+                        "Stop forwarding PathTeardownReq inside our vicinity: {:?}",
+                        req
+                    );
+                    return Ok(HandlingResult::Handled);
+                }
+            },
+            (
+                UseCaseEvent::Message(ProtocolMessage::ProbeReq(req), _),
+                EPMState::Running { externally_added_paths, .. },
+            ) => {
+                let unprocessed_hops = req.source_route.remaining_path().size();
+                // not need to keep paths fresh inside our precomputed vicinity
+                if unprocessed_hops <= self.config.vicinity_radius.get() {
+                    // allow destination to respond
+                    return Ok(HandlingResult::NotHandled);
+                }
+
+                // warning: this also post installs PathIds
+                self.register_path(context, req.source_route)
+            },
             // ========== Hardware Events ==========
             (UseCaseEvent::Hardware(HardwareEvent::InterfacesDown(interfaces)), _) => {
                 self.invalidate_all_over_interfaces(context, interfaces);
@@ -444,7 +514,7 @@ where
             _ => {}
         }
 
-        Ok(())
+        Ok(HandlingResult::NotHandled)
     }
 }
 
@@ -468,9 +538,8 @@ where
         let cleanup_timer_id = context
             .runtime()
             .register_timer(self.config.cleanup_interval);
-        let refresh_timer_id = context
-            .runtime()
-            .register_timer(self.config.refresh_interval);
+        let refresh_timer_id = self.config.refresh_interval
+            .map(|i| context.runtime().register_timer(i));
         self.state = EPMState::Running {
             refresh_timer: refresh_timer_id,
             cleanup_timer: cleanup_timer_id,
@@ -499,7 +568,7 @@ pub enum EPMState {
     Initialized,
     /// The [UseCase] is running and has periodic garbage collection.
     Running {
-        refresh_timer: TimerId,
+        refresh_timer: Option<TimerId>,
         cleanup_timer: TimerId,
         externally_added_paths: HashMap<PathId, Entry>,
         local_paths: HashSet<PathId>,
@@ -536,6 +605,7 @@ mod tests {
     use std::collections::HashSet;
     use std::num::NonZeroUsize;
     use std::time::Duration;
+    use crate::broadcaster::MPSCBroadcaster;
 
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
@@ -550,7 +620,7 @@ mod tests {
     };
     use crate::runtime::ImmediateRuntime;
     use crate::use_cases::explicit_path_management::{EPMConfig, ExplicitPathManagement};
-    use crate::use_cases::{ContactEvent, EventHandler, UseCase, UseCaseEvent};
+    use crate::use_cases::{ContactEvent, EventHandler, HandlingResult, UseCase, UseCaseEvent};
 
     #[tokio::test]
     async fn path_setup_on_new_contact() {
@@ -602,7 +672,7 @@ mod tests {
         let config = EPMConfig {
             max_age: Duration::from_secs(1),
             cleanup_interval: Duration::from_secs(1),
-            refresh_interval: Duration::from_secs(1),
+            refresh_interval: None,
             vicinity_radius: NonZeroUsize::new(2).unwrap(),
             hasher: Hasher::Sha1,
         };
@@ -704,7 +774,7 @@ mod tests {
         let config = EPMConfig {
             max_age: Duration::from_secs(1),
             cleanup_interval: Duration::from_secs(1),
-            refresh_interval: Duration::from_secs(1),
+            refresh_interval: None,
             vicinity_radius: NonZeroUsize::new(2).unwrap(),
             hasher: Hasher::Sha1,
         };
@@ -805,7 +875,7 @@ mod tests {
             in_path_id: input_path_id.clone(),
             out_path_id: Some(output_path_id),
             //out_interface: interface2.clone(),
-            next_hop: path_after.second().unwrap().clone()
+            next_hop: path_after.second().unwrap().clone(),
         };
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
@@ -840,7 +910,7 @@ mod tests {
         let config = EPMConfig {
             max_age: Duration::from_secs(1),
             cleanup_interval: Duration::from_secs(1),
-            refresh_interval: Duration::from_secs(1),
+            refresh_interval: None,
             vicinity_radius: NonZeroUsize::new(2).unwrap(),
             hasher: Hasher::Sha1,
         };
@@ -922,7 +992,7 @@ mod tests {
             in_path_id: input_path_id.clone(),
             out_path_id: Some(output_path_id),
             //out_interface: interface2.clone(),
-            next_hop: path_after.second().unwrap().clone()
+            next_hop: path_after.second().unwrap().clone(),
         };
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
@@ -960,7 +1030,7 @@ mod tests {
         let config = EPMConfig {
             max_age: Duration::from_secs(1),
             cleanup_interval: Duration::from_secs(1),
-            refresh_interval: Duration::from_secs(1),
+            refresh_interval: None,
             vicinity_radius: NonZeroUsize::new(2).unwrap(),
             hasher: Hasher::Sha1,
         };
@@ -989,5 +1059,191 @@ mod tests {
         let fwd_tables = sync_context.forwarding_tables();
         let entry = fwd_tables.path_id_entry(&input_path_id);
         assert!(entry.is_none(), "Path id entry was not removed");
+    }
+
+    #[test]
+    fn dont_forward_path_teardown_to_vicinity() {
+        crate::tests::init();
+
+        let interface = NetworkInterface::with_name("test");
+        let interface2 = NetworkInterface::with_name("test 2");
+
+        let root_id = NodeId::with_lsb(1);
+        let neighbor_id = NodeId::with_lsb(2);
+        let sender_contact_id = NodeId::with_lsb(3);
+        let other_neighbor_id = NodeId::with_lsb(4);
+
+        let setup_path = Path::from([
+            sender_contact_id.clone(),
+            NodeId::with_lsb(5),
+            NodeId::with_lsb(6),
+            NodeId::with_lsb(7),
+            NodeId::with_lsb(8),
+            neighbor_id.clone(),
+            root_id.clone(),
+            other_neighbor_id.clone(),
+            NodeId::with_lsb(9),
+            NodeId::with_lsb(10),
+        ]);
+        let setup_route = SourceRoute::from(setup_path)
+            .advanced()
+            .advanced()
+            .advanced()
+            .advanced()
+            .advanced();
+
+        let routing_table = SingleBucketRT::<20>::new(root_id.clone());
+
+        let pn_table = InMemoryPNTable::new();
+
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
+
+        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(30);
+
+        let runtime = ImmediateRuntime::new(broadcaster);
+
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table,
+            pn_table,
+            insertion_strategy,
+            message_sender: hub_sender,
+            runtime,
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+        let config = EPMConfig {
+            max_age: Duration::from_secs(1),
+            cleanup_interval: Duration::from_secs(1),
+            refresh_interval: None,
+            vicinity_radius: NonZeroUsize::new(3).unwrap(),
+            hasher: Hasher::Sha1,
+        };
+        let mut use_case = ExplicitPathManagement::new(config);
+        assert!(
+            use_case.start(&context).is_ok(),
+            "failed to start use case"
+        );
+
+        let req = ReqRspMessage {
+            nonce: Nonce::random(),
+            source_state_seq_nr: StateSeqNr::from(4),
+            data: PathTeardownReqData,
+            not_via: Default::default(),
+            source_route: setup_route.clone(),
+        };
+        let message = ProtocolMessage::PathTeardownReq(req.clone());
+        let event = UseCaseEvent::Message(message.clone(), interface);
+        let result = use_case.handle_event(&context, event);
+        assert!(
+            result.is_ok(),
+            "Failed to handle contact invalidation event"
+        );
+
+        let result = result.unwrap();
+        assert!(
+            matches!(
+                result,
+                HandlingResult::Handled
+            ),
+            "Failed to stop forwarding in the vicinity for message {:?}",
+            message
+        )
+    }
+
+    #[test]
+    fn dont_forward_path_setup_to_vicinity() {
+        crate::tests::init();
+
+        let interface = NetworkInterface::with_name("test");
+        let interface2 = NetworkInterface::with_name("test 2");
+
+        let root_id = NodeId::with_lsb(1);
+        let neighbor_id = NodeId::with_lsb(2);
+        let sender_contact_id = NodeId::with_lsb(3);
+        let other_neighbor_id = NodeId::with_lsb(4);
+
+        let setup_path = Path::from([
+            sender_contact_id.clone(),
+            NodeId::with_lsb(5),
+            NodeId::with_lsb(6),
+            NodeId::with_lsb(7),
+            NodeId::with_lsb(8),
+            neighbor_id.clone(),
+            root_id.clone(),
+            other_neighbor_id.clone(),
+            NodeId::with_lsb(9),
+            NodeId::with_lsb(10),
+        ]);
+        let setup_route = SourceRoute::from(setup_path)
+            .advanced()
+            .advanced()
+            .advanced()
+            .advanced()
+            .advanced();
+
+        let routing_table = SingleBucketRT::<20>::new(root_id.clone());
+
+        let pn_table = InMemoryPNTable::new();
+
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
+
+        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(30);
+
+        let runtime = ImmediateRuntime::new(broadcaster);
+
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table,
+            pn_table,
+            insertion_strategy,
+            message_sender: hub_sender,
+            runtime,
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+        let config = EPMConfig {
+            max_age: Duration::from_secs(1),
+            cleanup_interval: Duration::from_secs(1),
+            refresh_interval: None,
+            vicinity_radius: NonZeroUsize::new(3).unwrap(),
+            hasher: Hasher::Sha1,
+        };
+        let mut use_case = ExplicitPathManagement::new(config);
+        assert!(
+            use_case.start(&context).is_ok(),
+            "failed to start use case"
+        );
+
+        let req = ReqRspMessage {
+            nonce: Nonce::random(),
+            source_state_seq_nr: StateSeqNr::from(4),
+            data: PathSetupReqData,
+            not_via: Default::default(),
+            source_route: setup_route.clone(),
+        };
+        let message = ProtocolMessage::PathSetupReq(req.clone());
+        let event = UseCaseEvent::Message(message.clone(), interface);
+        let result = use_case.handle_event(&context, event);
+        assert!(
+            result.is_ok(),
+            "Failed to handle contact invalidation event"
+        );
+
+        let result = result.unwrap();
+        assert!(
+            matches!(
+                result,
+                HandlingResult::Handled
+            ),
+            "Failed to stop forwarding in the vicinity for message {:?}",
+            message
+        )
     }
 }

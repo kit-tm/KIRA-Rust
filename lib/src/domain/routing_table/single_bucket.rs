@@ -37,6 +37,7 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
     type BucketWriteGuard = &'a mut Bucket<BUCKET_SIZE>;
     type Iter = crate::domain::bucket::Iter<&'a Contact>;
     type IterMut = crate::domain::bucket::Iter<&'a mut Contact>;
+    type BucketIter = std::iter::Once<&'a Bucket<BUCKET_SIZE>>;
 
     fn root(&self) -> &NodeId {
         &self.root_id
@@ -133,6 +134,10 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
 
     fn iter_mut(&'a mut self) -> Self::IterMut {
         (&mut self.bucket).into_iter()
+    }
+
+    fn bucket_iter(&'a self) -> Self::BucketIter {
+        std::iter::once(&self.bucket)
     }
 }
 

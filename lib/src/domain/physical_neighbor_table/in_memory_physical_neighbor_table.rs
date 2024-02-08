@@ -38,6 +38,11 @@ impl InMemoryPNTable {
     pub fn into_inner(self) -> HashMap<NodeId, NetworkInterface> {
         self.map
     }
+
+    #[cfg(test)]
+    pub fn state_seq_nr_mut(&mut self) -> &mut StateSeqNr {
+        &mut self.state_seq_nr
+    }
 }
 
 impl PNTable for InMemoryPNTable {

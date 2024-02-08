@@ -10,7 +10,8 @@ use std::time::Duration;
 use rand::Rng;
 
 use crate::context::UseCaseContext;
-use crate::domain::{node_id, Contact, ContactState, NodeId, Path, RoutingTable, DEFAULT_BUCKET_SIZE, PNTable, NetworkInterface};
+use crate::domain::{node_id, Contact, ContactState, NodeId, Path, RoutingTable, DEFAULT_BUCKET_SIZE, PNTable, NetworkInterface, StateSeqNr};
+use crate::hardware_events::HardwareEvent;
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     HelloMessage, Nonce, ProtocolMessage, ProtocolMessageSender, QueryRouteReqData, QueryRouteType,
@@ -85,7 +86,7 @@ impl Error for VDError {}
 pub enum VDState {
     #[default]
     Initialized,
-    Running(Duration, TimerId),
+    Running(Duration, TimerId, StateSeqNr),
     Error,
 }
 
@@ -385,7 +386,7 @@ where
             .runtime()
             .register_timer(self.config.initial_timeout);
 
-        self.state = VDState::Running(self.config.initial_timeout, timer_id);
+        self.state = VDState::Running(self.config.initial_timeout, timer_id, context.pn_table().state_seq_nr().clone());
 
         Ok(())
     }
@@ -413,6 +414,7 @@ where
         event: UseCaseEvent,
     ) -> Result<(), Self::Error> {
         match (event, &self.state) {
+            // ========== Vicinity Discovery - Query Route ==========
             (UseCaseEvent::Contact(ContactEvent::New(contact)), _) => {
                 self.send_query_route_req(context, contact)?;
             }
@@ -429,16 +431,23 @@ where
 
                 self.send_query_route_rsp(context, request)?;
             }
-            (UseCaseEvent::Timer(id), VDState::Running(last_timeout, timer_id)) => {
+            // ========== Physical Neighbor Discovery ==========
+            (UseCaseEvent::Timer(id), VDState::Running(last_timeout, timer_id, last_ssn)) => {
                 if timer_id == &id {
                     self.send_hello(context)?;
 
-                    let next_timeout = self.next_timeout_duration(*last_timeout);
+                    // reset to initial timeout if ssn changed
+                    let next_timeout = if last_ssn != context.pn_table().state_seq_nr() {
+                        self.config.initial_timeout
+                    } else {
+                        self.next_timeout_duration(*last_timeout)
+                    };
                     let timer_id = context.runtime().register_timer(next_timeout);
-                    self.state = VDState::Running(next_timeout, timer_id);
+                    let ssn = context.pn_table().state_seq_nr().clone();
+                    self.state = VDState::Running(next_timeout, timer_id, ssn);
                 }
             }
-            (UseCaseEvent::Message(ProtocolMessage::Hello(HelloMessage { source, .. }), _), _) => {
+            (UseCaseEvent::Message(ProtocolMessage::Hello(HelloMessage { source, source_state_seq_nr }), _), _) => {
                 if self.config.heuristic_enabled
                     && !deterministic_heuristic(
                         context.root_id(),
@@ -450,6 +459,20 @@ where
                     return Ok(());
                 }
 
+                // we already know the neighbor
+                if context.pn_table().contains(&source) {
+                    let rt = context.routing_table();
+                    let Some(contact) = rt.contact(&source) else {
+                        return Err(VDError::NeighborInconsistency);
+                    };
+
+                    // nothing new about the neighbor
+                    if &source_state_seq_nr <= contact.state_seq_nr() {
+                        log::trace!(target: "vicinity_discovery", "Not responding to Hello from unchanged physical neighbor {}", source);
+                        return Ok(());
+                    }
+                }
+
                 self.send_pn_disc_req(context, source)?;
             }
             (UseCaseEvent::Message(ProtocolMessage::PNDiscReq(req), _), _) => {
@@ -458,6 +481,13 @@ where
                 }
                 self.send_pn_disc_rsp(context, req)?;
             }
+            (UseCaseEvent::Hardware(HardwareEvent::InterfacesUp(_)), _) => {
+                // send hello message immediately if interface comes up
+                // todo add small random delay
+                // todo reset hello timer if this fires too far away in the future
+                self.send_hello(context)?;
+            }
+            // reacting on InterfaceDown is done in the FailureHandling use-case
             _ => {}
         }
 
@@ -476,6 +506,7 @@ mod tests {
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable};
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
+    use crate::hardware_events::HardwareEvent::InterfacesUp;
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::{
         AsyncProtocolMessageReceiver, HelloMessage, InMemoryMessageChannel, Nonce, ProtocolMessage,
@@ -520,7 +551,7 @@ mod tests {
         assert!(use_case.start(&context).is_ok());
 
         let timer_id = match &use_case.state {
-            VDState::Running(_, timer_id) => *timer_id,
+            VDState::Running(_, timer_id, _) => *timer_id,
             _ => panic!("Invalid state returned: {:?}", &use_case.state),
         };
 
@@ -563,7 +594,7 @@ mod tests {
         assert!(use_case.start(&context).is_ok());
 
         let (timer_duration, _timer_id) = match &use_case.state {
-            VDState::Running(timer_duration, timer_id) => (*timer_duration, *timer_id),
+            VDState::Running(timer_duration, timer_id, _) => (*timer_duration, *timer_id),
             _ => panic!("Invalid state returned: {:?}", &use_case.state),
         };
 
@@ -608,7 +639,7 @@ mod tests {
         assert!(use_case.start(&context).is_ok());
 
         let (timer_duration, timer_id) = match &use_case.state {
-            VDState::Running(timer_duration, timer_id) => (*timer_duration, *timer_id),
+            VDState::Running(timer_duration, timer_id, _) => (*timer_duration, *timer_id),
             _ => panic!("Invalid state returned: {:?}", &use_case.state),
         };
         assert_eq!(
@@ -625,7 +656,7 @@ mod tests {
             handle_result
         );
         let (next_timer_duration, timer_id) = match &use_case.state {
-            VDState::Running(timer_duration, timer_id) => (*timer_duration, *timer_id),
+            VDState::Running(timer_duration, timer_id, _) => (*timer_duration, *timer_id),
             _ => panic!("Invalid state returned: {:?}", &use_case.state),
         };
         assert_eq!(
@@ -642,7 +673,7 @@ mod tests {
             handle_result
         );
         let (next_timer_duration, _timer_id) = match &use_case.state {
-            VDState::Running(timer_duration, timer_id) => (*timer_duration, *timer_id),
+            VDState::Running(timer_duration, timer_id, _) => (*timer_duration, *timer_id),
             _ => panic!("Invalid state returned: {:?}", &use_case.state),
         };
         assert_eq!(
@@ -1244,6 +1275,287 @@ mod tests {
         assert!(
             sent_message.is_none(),
             "No message should be sent bei use case"
+        );
+    }
+
+    #[tokio::test]
+    async fn send_hello_on_interface_up() {
+        crate::tests::init();
+
+        let root_id = NodeId::with_msb(1);
+        let source_id = NodeId::with_msb(2);
+
+        let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
+        let pn_table = InMemoryPNTable::new();
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
+        let (broadcaster, _) = MPSCBroadcaster::new(10);
+        let runtime = ImmediateRuntime::new(broadcaster.clone());
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table: single_bucket_rt,
+            pn_table,
+            insertion_strategy,
+            message_sender: hub_sender,
+            runtime,
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+        let mut use_case = VicinityDiscovery::default();
+        let start_result = use_case.start(&context);
+        assert!(
+            start_result.is_ok(),
+            "Start returned error: {:?}",
+            start_result
+        );
+
+        let mut interfaces = HashSet::with_capacity(1);
+        interfaces.insert(InMemoryMessageChannel::dummy_interface());
+        let event = UseCaseEvent::Hardware(InterfacesUp(interfaces));
+
+        let handle_result = use_case.handle_event(&context, event.clone());
+        assert!(
+            handle_result.is_ok(),
+            "Handling returned an error: {:?}",
+            handle_result
+        );
+
+        let sent_message = hub_receiver.try_recv().await;
+        assert!(
+            sent_message.is_ok(),
+            "Trying to receive returned error: {:?}",
+            sent_message
+        );
+        let sent_message = sent_message.unwrap();
+        assert!(
+            sent_message.is_some(),
+            "We expect a hello message, something should be sent."
+        );
+
+        let (sent_message, _) = sent_message.unwrap();
+        assert!(
+            matches!(
+                    sent_message,
+                    ProtocolMessage::Hello(_)
+                ),
+            "Expecting a hello message but received: {:?}",
+            sent_message
+        )
+    }
+
+    #[test]
+    fn reset_timeout_on_ssn_change() {
+        let root_id = NodeId::one();
+
+        let routing_table = SingleBucketRT::<20>::new(root_id.clone());
+
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
+
+        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
+
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table,
+            pn_table: InMemoryPNTable::new(),
+            insertion_strategy,
+            message_sender: hub_sender,
+            runtime: ImmediateRuntime::new(broadcaster.clone()),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+        let mut use_case = VicinityDiscovery::new(VicinityDiscoveryConfig {
+            max_timeout: Duration::from_millis(30),
+            initial_timeout: Duration::from_millis(8),
+            max_scatter: Duration::from_millis(0),
+            ..Default::default()
+        });
+
+        assert!(use_case.start(&context).is_ok());
+
+        let (timer_duration, timer_id) = match &use_case.state {
+            VDState::Running(timer_duration, timer_id, _) => (*timer_duration, *timer_id),
+            _ => panic!("Invalid state returned: {:?}", &use_case.state),
+        };
+        assert_eq!(
+            timer_duration,
+            Duration::from_millis(8),
+            "Timeout should be configured initial timeout 8ms but was {:?}",
+            timer_duration
+        );
+
+
+        let handle_result = use_case.handle_event(&context, UseCaseEvent::Timer(timer_id));
+        assert!(
+            handle_result.is_ok(),
+            "Handling timer event returned error: {:?}",
+            handle_result
+        );
+        let (next_timer_duration, timer_id) = match &use_case.state {
+            VDState::Running(timer_duration, timer_id, _) => (*timer_duration, *timer_id),
+            _ => panic!("Invalid state returned: {:?}", &use_case.state),
+        };
+        assert_eq!(
+            next_timer_duration,
+            Duration::from_millis(16),
+            "Timeout should be exponentially increased to 16ms but was: {:?}",
+            next_timer_duration
+        );
+
+        // now we increase the ssn
+        *context.pn_table_mut().state_seq_nr_mut() += 1;
+
+        let handle_result = use_case.handle_event(&context, UseCaseEvent::Timer(timer_id));
+        assert!(
+            handle_result.is_ok(),
+            "Handling timer event returned error: {:?}",
+            handle_result
+        );
+        let (next_timer_duration, timer_id) = match &use_case.state {
+            VDState::Running(timer_duration, timer_id, _) => (*timer_duration, *timer_id),
+            _ => panic!("Invalid state returned: {:?}", &use_case.state),
+        };
+        assert_eq!(
+            next_timer_duration,
+            use_case.config.initial_timeout,
+            "Timeout should be reset to initial timeout since the ssn changed but was: {:?}",
+            next_timer_duration
+        );
+
+        // test of we exponentially increase again
+        let handle_result = use_case.handle_event(&context, UseCaseEvent::Timer(timer_id));
+        assert!(
+            handle_result.is_ok(),
+            "Handling timer event returned error: {:?}",
+            handle_result
+        );
+        let (next_timer_duration, _timer_id) = match &use_case.state {
+            VDState::Running(timer_duration, timer_id, _) => (*timer_duration, *timer_id),
+            _ => panic!("Invalid state returned: {:?}", &use_case.state),
+        };
+        assert_eq!(
+            next_timer_duration,
+            Duration::from_millis(16),
+            "Timeout should be exponentially increased to 16ms again but was: {:?}",
+            next_timer_duration
+        );
+    }
+
+    #[tokio::test]
+    async fn dont_send_pn_disc_req_on_unchanged_neighbor() {
+        crate::tests::init();
+
+        // Answer should be a PNDiscReq if
+        let root_id = NodeId::with_lsb(2);
+        let sender_id = NodeId::with_lsb(4);
+
+        let routing_table = SingleBucketRT::<20>::new(root_id.clone());
+
+        let pn_table = InMemoryPNTable::new();
+
+        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
+
+        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
+
+        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(1);
+
+        let runtime = ImmediateRuntime::new(broadcaster);
+
+        let context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table,
+            pn_table,
+            insertion_strategy,
+            message_sender: hub_sender,
+            runtime,
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+        let mut use_case = VicinityDiscovery::new(VicinityDiscoveryConfig {
+            heuristic_calculation_bits: NonZeroUsize::new(34).unwrap(),
+            ..Default::default()
+        });
+
+        assert!(use_case.start(&context).is_ok());
+
+        let hello_msg = ProtocolMessage::Hello(HelloMessage {
+            source: sender_id.clone(),
+            source_state_seq_nr: StateSeqNr::from(0),
+        });
+        let event = UseCaseEvent::Message(hello_msg, InMemoryMessageChannel::dummy_interface());
+        let handle_result = use_case.handle_event(
+            &context,
+            event,
+        );
+        assert!(
+           handle_result.is_ok(),
+            "Handling returned an error: {:?}",
+            handle_result
+        );
+
+        // initially we expect a PNDiscReq to be sent
+        let sent_message = hub_receiver.try_recv().await;
+        assert!(
+            sent_message.is_ok(),
+            "Trying to receive returned error: {:?}",
+            sent_message
+        );
+        let sent_message = sent_message.unwrap();
+        assert!(
+            sent_message.is_some(),
+            "We expect a PNDiscReq message, something should be sent."
+        );
+
+        let (sent_message, _) = sent_message.unwrap();
+        assert!(
+            matches!(
+                    sent_message,
+                    ProtocolMessage::PNDiscReq(_)
+                ),
+            "Expecting a PNDiscReq message but received: {:?}",
+            sent_message
+        );
+
+        // fake adding of PN
+        context.pn_table_mut().insert(sender_id.clone(), InMemoryMessageChannel::dummy_interface());
+        let contact = Contact::new(
+            Path::from([root_id.clone(), sender_id.clone()]),
+            sent_message.source_state_seq_nr().clone()
+        );
+        let insertion_result = context.routing_table_mut().insert(contact);
+        assert!(
+            insertion_result.is_ok(),
+            "Expecting no issue insertion contact: {:?}",
+            insertion_result
+        );
+
+        // now we shouldn't send out another message,
+        // since we already added the contact and nothing changed to the ssn
+
+        let hello_msg = ProtocolMessage::Hello(HelloMessage {
+            source: sender_id.clone(),
+            source_state_seq_nr: StateSeqNr::from(0),
+        });
+        let event = UseCaseEvent::Message(hello_msg, InMemoryMessageChannel::dummy_interface());
+        let handle_result = use_case.handle_event(
+            &context,
+            event,
+        );
+        assert!(
+            handle_result.is_ok(),
+            "Handling returned an error: {:?}",
+            handle_result
+        );
+
+        let sent_message = hub_receiver.try_recv().await.ok().flatten();
+        assert!(
+            sent_message.is_none(),
+            "Trying to receive returned a message: {:?}",
+            sent_message
         );
     }
 }

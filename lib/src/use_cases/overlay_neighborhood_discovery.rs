@@ -355,7 +355,7 @@ where
                 UseCaseEvent::Message(ProtocolMessage::FindNodeRsp(ReqRspMessage { nonce, .. }), _),
             ) => {
                 if nonces.contains(&nonce) {
-                    // Handling the data in the response is up to another use-case TODO
+                    // data will be handled in the forwarding UseCase
                     log::debug!(
                         target: "overlay_neighborhood_discovery",
                         "Overlay Neighborhood Discovery was successful!"
@@ -386,6 +386,9 @@ where
                     self.send_next_request(context)?;
                 }
             }
+            // todo send FindNodeReq if new Contact inserted in last bucket of RoutingTable: src/routing/r2kademlia/R2KademliaPolicyHandlers.cc:204
+            // todo randomly probe for new nodes: src/routing/r2kademlia/R2KademliaPeriodicTasks.cc:349
+            // todo randomly probe for new path to contact with a FindeNodeVia src/routing/r2kademlia/R2KademliaPeriodicTasks.cc:321
             _ => {}
         }
 

@@ -102,6 +102,9 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// Iterator type over mutable references of all [Contact]s.
     type IterMut: Iterator<Item = Self::ContactWriteGuard>;
 
+    /// Iterator type over all [Bucket]s
+    type BucketIter: Iterator<Item = &'a Bucket<BUCKET_SIZE>>;
+
     /// Returns the root [NodeId] of the [RoutingTable].
     fn root(&self) -> &NodeId;
 
@@ -205,4 +208,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
 
     /// Iterator over mutable references to all contacts in the [RoutingTable].
     fn iter_mut(&'a mut self) -> Self::IterMut;
+
+    /// Iterator over all [Bucket]s in the [RoutingTable]
+    fn bucket_iter(&'a self) -> Self::BucketIter;
 }

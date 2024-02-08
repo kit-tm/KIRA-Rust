@@ -183,6 +183,8 @@ where
                             Contact::clone(contact),
                         )
                     } else {
+                        // best contact we know is further away from the target than we are
+                        // so we send back an error message, since we can't make progress
                         self.build_error(
                             context.not_via().clone(),
                             req.clone(),
@@ -215,6 +217,8 @@ where
                             Contact::clone(contact),
                         )
                     } else {
+                        // report what we know since we can't make any more progress
+
                         let closest = closest.into_iter().map(|(_, contact)| contact).collect();
 
                         self.build_find_node_rsp(

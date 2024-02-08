@@ -79,6 +79,7 @@ where
     fn gen_entries_from_graph(&self, context: &C, graph: &VicinityGraph) -> HashSet<PathIdEntry> {
         let mut entries = HashSet::new();
         for in_path in graph {
+            // FIXME don't install longer paths than vicinity radius
             let out_path =
                 Result::<Path, EmptyPathError>::from_iter(in_path.clone().into_iter().skip(1));
             if out_path.is_err() {
@@ -193,9 +194,14 @@ where
                 }
             }
             UseCaseEvent::Contact(ContactEvent::New(contact)) => {
+                // only add physical neighbors
                 if !contact.is_pn() {
                     return Ok(());
                 }
+
+                // other neighbors in the vicinity are added
+                // as they are discovered in `RTableData` of ProtocolMessages
+
                 self.vicinity_graph.add(
                     context.root_id().clone(),
                     HashSet::from([contact.id().clone()]),
@@ -218,13 +224,13 @@ where
                 // Contact changed to inside vicinity will be handled by vicinity discovery
 
                 if old.state() == &ContactState::Valid && new.state() != &ContactState::Valid {
-                    self.vicinity_graph.invalidate(new.id());
-                    self.vicinity_changed = true;
+                    let changed = self.vicinity_graph.invalidate(new.id());
+                    self.vicinity_changed = changed;
                     return Ok(());
                 }
                 if old.state() != &ContactState::Valid && new.state() == &ContactState::Valid {
-                    self.vicinity_graph.validate(new.id());
-                    self.vicinity_changed = true;
+                    let changed = self.vicinity_graph.validate(new.id());
+                    self.vicinity_changed = changed;
                     return Ok(());
                 }
             }

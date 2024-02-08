@@ -18,6 +18,11 @@ use crate::domain::{
 /// # Invariant
 ///
 /// No physical neighbors are in the inner routing table.
+///
+/// # Important
+///
+/// Calling [`bucket_iter`](UnlimitedPNRoutingTable::bucket_iter) will **not** yield
+/// any physical neighbors.
 #[derive(Debug)]
 pub struct UnlimitedPNRoutingTable<const BUCKET_SIZE: usize, const ACC: usize> {
     pn_contacts: HashMap<NodeId, Contact>,
@@ -90,6 +95,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
     type BucketWriteGuard = &'a mut Bucket<BUCKET_SIZE>;
     type Iter = Iter<'a, BUCKET_SIZE, ACC>;
     type IterMut = IterMut<'a, BUCKET_SIZE, ACC>;
+    type BucketIter = std::slice::Iter<'a, Bucket<BUCKET_SIZE>>;
 
     fn root(&self) -> &NodeId {
         self.inner.root()
@@ -217,6 +223,10 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
 
     fn iter_mut(&'a mut self) -> Self::IterMut {
         IterMut::from(self)
+    }
+
+    fn bucket_iter(&'a self) -> Self::BucketIter {
+        self.inner.bucket_iter()
     }
 }
 
