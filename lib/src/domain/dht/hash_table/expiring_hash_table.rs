@@ -27,6 +27,13 @@ impl<H, D, IS, FS, TS> ExpiringHashTable<H, D, IS, FS, TS> {
     }
 }
 
+impl<H, D, IS: Default, FS: Default, TS: Default> Default for ExpiringHashTable<H, D, IS, FS, TS> {
+    fn default() -> Self {
+        Self::new(Default::default(), Default::default(), Default::default())
+    }
+}
+
+
 impl<H, I, O, D, IS, FS, TS, RS, FE> LocalHashTable<H, I, O> for ExpiringHashTable<H, D, IS, FS, TS>
     where IS: InsertionStrategy<Handle=H, Composite=HashMap<H, D>, InputData=I, Status=RS>,
           FS: FetchStrategy<Handle=H, Composite=HashMap<H, D>, OutputData=O, Error=FE>

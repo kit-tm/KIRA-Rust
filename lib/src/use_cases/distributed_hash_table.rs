@@ -51,16 +51,14 @@ pub type DefaultExpiringHashTable = ExpiringHashTable<
 
 /// Configuration for [DistributedHashTable].
 #[derive(Debug, Eq, PartialEq, Clone)]
-pub struct DistributedHashTableConfig<H>
+pub struct DistributedHashTableConfig
 {
-    /// [LocalHashTable] to store [HashTableSingle] data.
-    pub hash_table: H,
     /// The [Duration] between each garbage collection process.
     ///
     /// The garbage collection calls [Expiring::expire] on the [LocalHashTable].
     pub collect_interval: Duration,
 }
-impl DistributedHashTableConfig<DefaultExpiringHashTable> {
+impl DistributedHashTableConfig {
     /// Creates a new instance of [DistributedHashTableConfig] with the given `collect_interval`.
     ///
     /// The `collect_interval` specifies the duration between each garbage collection process
@@ -74,20 +72,13 @@ impl DistributedHashTableConfig<DefaultExpiringHashTable> {
     ///
     /// A new instance of `Self` with the specified `collect_interval`.
     fn with_collect_interval(collect_interval: Duration) -> Self {
-        let hash_table = ExpiringHashTable::new(
-            PermissionlessInsertStrategy::default(),
-            PermissionlessFetchStrategy::default(),
-            ConstTimeoutStrategy::default(),
-        );
-
-        Self {
-            hash_table,
+          Self {
             collect_interval
         }
     }
 }
 
-impl Default for DistributedHashTableConfig<DefaultExpiringHashTable> {
+impl Default for DistributedHashTableConfig {
     /// Creates a new instance of [DistributedHashTableConfig] with default settings.
     ///
     /// The [DistributedHashTableConfig] returned
@@ -156,26 +147,28 @@ pub struct DistributedHashTable<C, H>
 {
     _c: PhantomData<C>,
     state: DHTState,
-    config: DistributedHashTableConfig<H>,
+    config: DistributedHashTableConfig,
+    hash_table: H,
 }
 
-impl<C, H> DistributedHashTable<C, H>
+impl<C, H: Default> DistributedHashTable<C, H>
 {
     /// Creates a new instance of the [DistributedHashTable].
     ///
     /// # Arguments
     ///
     /// - `config` - The configuration object for the [DistributedHashTable].
-    pub fn new(config: DistributedHashTableConfig<H>) -> Self {
+    pub fn new(config: DistributedHashTableConfig) -> Self {
         Self {
             _c: PhantomData,
             state: DHTState::default(),
             config,
+            hash_table: H::default(),
         }
     }
 }
 
-impl<C> Default for DistributedHashTable<C, DefaultExpiringHashTable> {
+impl<C, H: Default> Default for DistributedHashTable<C, H> {
     /// Constructs a new [DistributedHashTable] instance with the default configuration.
     fn default() -> Self {
         Self::new(DistributedHashTableConfig::default())
@@ -202,7 +195,7 @@ impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
     fn handle_event(&mut self, context: &Self::Context, event: UseCaseEvent) -> Result<Self::Value, Self::Error> {
         match (event, &self.state) {
             (UseCaseEvent::Message(ProtocolMessage::StoreReq(req), _), _) => {
-                let res = self.config.hash_table.store(req.data.handle, req.data.data);
+                let res = self.hash_table.store(req.data.handle, req.data.data);
                 let source_route = SourceRoute::from_reversed(req.source_route);
 
                 let rsp = ReqRspMessage {
@@ -227,7 +220,7 @@ impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
                 }
             }
             (UseCaseEvent::Message(ProtocolMessage::FetchReq(req), _), _) => {
-                let fetch_res = self.config.hash_table.fetch(&req.data.handle);
+                let fetch_res = self.hash_table.fetch(&req.data.handle);
                 let source_route = SourceRoute::from_reversed(req.source_route);
 
                 let rsp = ReqRspMessage {
@@ -253,12 +246,12 @@ impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
             }
             (UseCaseEvent::Timer(id), DHTState::Running(our_timer_id)) => {
                 if &id == our_timer_id {
-                    self.config.hash_table.expire(&());
+                    self.hash_table.expire(&());
                 }
             }
             // todo move hash table in context and add extra DHTApi UseCase for this event handler
             (UseCaseEvent::API(ApiEvent::LocalHashTable(callback)), _) => {
-                let table_dump = self.config.hash_table.fetch_all();
+                let table_dump = self.hash_table.fetch_all();
 
                 if let Err(e) = callback.send(table_dump) {
                     log::error!("Failed to send local hash table: {:?}", e);
@@ -314,7 +307,7 @@ mod tests {
     use crate::messaging::dht::{StoreOK, StoreReqData, StoreRspData};
     use crate::messaging::source_route::SourceRoute;
     use crate::runtime::ImmediateRuntime;
-    use crate::use_cases::distributed_hash_table::DistributedHashTable;
+    use crate::use_cases::distributed_hash_table::{DefaultExpiringHashTable, DistributedHashTable};
     use crate::use_cases::{EventHandler, UseCase, UseCaseEvent};
 
     fn root() -> NodeId { NodeId::with_msb(0) }
@@ -357,7 +350,7 @@ mod tests {
             not_via: HashSet::default(),
         });
 
-        let mut use_case = DistributedHashTable::default();
+        let mut use_case: DistributedHashTable<_, DefaultExpiringHashTable> = DistributedHashTable::default();
         assert!(use_case.start(&context).is_ok());
     }
 
@@ -385,7 +378,7 @@ mod tests {
             not_via: HashSet::default(),
         });
 
-        let mut use_case = DistributedHashTable::default();
+        let mut use_case: DistributedHashTable<_, DefaultExpiringHashTable> = DistributedHashTable::default();
         assert!(use_case.start(&context).is_ok());
 
         let receive_event = UseCaseEvent::Message(store_req(), interface.clone());
@@ -418,7 +411,7 @@ mod tests {
             not_via: HashSet::default(),
         });
 
-        let mut use_case = DistributedHashTable::default();
+        let mut use_case: DistributedHashTable<_, DefaultExpiringHashTable> = DistributedHashTable::default();
         assert!(use_case.start(&context).is_ok());
 
         let receive_event = UseCaseEvent::Message(store_req(), interface.clone());
@@ -464,7 +457,7 @@ mod tests {
             not_via: HashSet::default(),
         });
 
-        let mut use_case = DistributedHashTable::default();
+        let mut use_case: DistributedHashTable<_, DefaultExpiringHashTable> = DistributedHashTable::default();
         assert!(use_case.start(&context).is_ok());
 
         let receive_event = UseCaseEvent::Message(store_req(), interface.clone());
@@ -506,9 +499,9 @@ mod tests {
             not_via: HashSet::default(),
         });
 
-        let mut use_case = DistributedHashTable::default();
+        let mut use_case: DistributedHashTable<_, DefaultExpiringHashTable> = DistributedHashTable::default();
         let existing_data = data();
-        let insert_result = use_case.config.hash_table.store(data_handle(), existing_data);
+        let insert_result = use_case.hash_table.store(data_handle(), existing_data);
         assert!(insert_result.is_ok(), "Failed to insert data: {:?}", insert_result);
         assert!(use_case.start(&context).is_ok());
         let insert_time = Instant::now();
@@ -535,14 +528,14 @@ mod tests {
             = message else { panic!("Wrong response type sent") };
         assert!(matches!(status, Ok(StoreOK::Updated)), "Wrong response status returned: {:?}", status);
 
-        let stored = use_case.config.hash_table.fetch(&data_handle());
+        let stored = use_case.hash_table.fetch(&data_handle());
         assert!(stored.is_ok(), "Unable to retrieve updated data: {:?}", stored);
         let stored = stored.unwrap();
 
         assert!(stored.contains(&data()), "Does not contain data to add: {:?}", stored);
         assert_eq!(stored.len(), 1, "Unexpected data length: {} != 1", stored.len());
 
-        let stored_raw = use_case.config.hash_table.map.get(&data_handle())
+        let stored_raw = use_case.hash_table.map.get(&data_handle())
             .expect("Unable to retrieve raw data");
 
         let stored_timed = stored_raw.get(&TimedValue::new(data()))
@@ -570,7 +563,7 @@ mod tests {
             not_via: HashSet::default(),
         });
 
-        let mut use_case = DistributedHashTable::default();
+        let mut use_case: DistributedHashTable<_, DefaultExpiringHashTable> = DistributedHashTable::default();
         assert!(use_case.start(&context).is_ok());
 
         let receive_event = UseCaseEvent::Message(store_req(), interface.clone());
@@ -582,7 +575,7 @@ mod tests {
             handle_result
         );
 
-        let fetch_result = use_case.config.hash_table.fetch(&data_handle());
+        let fetch_result = use_case.hash_table.fetch(&data_handle());
         assert!(fetch_result.is_ok(), "Failed to insert data: {:?}", fetch_result);
 
         let stored_data = fetch_result.unwrap();
@@ -612,9 +605,9 @@ mod tests {
             not_via: HashSet::default(),
         });
 
-        let mut use_case = DistributedHashTable::default();
+        let mut use_case: DistributedHashTable<_, DefaultExpiringHashTable> = DistributedHashTable::default();
         let existing_data: Arc<[u8]> = Arc::new([1, 2, 3, 4]);
-        let insert_result = use_case.config.hash_table.store(data_handle(), existing_data.clone());
+        let insert_result = use_case.hash_table.store(data_handle(), existing_data.clone());
         assert!(insert_result.is_ok(), "Failed to insert data: {:?}", insert_result);
         assert!(use_case.start(&context).is_ok());
 
@@ -640,7 +633,7 @@ mod tests {
             = message else { panic!("Wrong response type sent") };
         assert!(matches!(status, Ok(StoreOK::Inserted)), "Wrong response status returned: {:?}", status);
 
-        let stored = use_case.config.hash_table.fetch(&data_handle());
+        let stored = use_case.hash_table.fetch(&data_handle());
         assert!(stored.is_ok(), "Unable to retrieve updated data: {:?}", stored);
         let stored = stored.unwrap();
 

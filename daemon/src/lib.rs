@@ -44,7 +44,7 @@ use r2kad_lib::use_cases::{
     ContactEvent, EventHandler, HandlingResult, InjectionMessageData, UseCase, UseCaseEvent,
     UseCaseState,
 };
-use r2kad_lib::use_cases::distributed_hash_table::{DistributedHashTable, DistributedHashTableConfig};
+use r2kad_lib::use_cases::distributed_hash_table::{DefaultExpiringHashTable, DistributedHashTable, DistributedHashTableConfig};
 use r2kad_lib::use_cases::distributed_hash_table_injector::DistributedHashTableInjector;
 
 use crate::benchmark_log::{BenchmarkEntry, BenchmarkLog};
@@ -520,7 +520,7 @@ where
             log::error!("Failed to start explicit path management: {}", e);
         }
 
-        let mut distributed_hash_table = DistributedHashTable::new(DistributedHashTableConfig::default());
+        let mut distributed_hash_table: DistributedHashTable<_, DefaultExpiringHashTable> = DistributedHashTable::new(DistributedHashTableConfig::default());
         if let Err(e) = distributed_hash_table.start(&context) {
             log::error!("Failed to start distributed hash table UseCase: {}", e);
             return;
