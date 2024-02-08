@@ -287,10 +287,18 @@ where
                     self.create_path_id_entry(context, new)?;
                 } else if new.state() == &ContactState::Valid && old.state() == &ContactState::Valid
                 {
+                    if new.path() != old.path() {
                     // If both are valid => Just update existing entry
                     self.update_node_id_entry(context, new.clone())?;
                     self.update_path_id_entry(context, old, new)?;
                 }
+                }
+            }
+            UseCaseEvent::Contact(ContactEvent::BucketUpdated(bucket)) => {
+                self.update_bucket(context, bucket)?;
+            }
+            UseCaseEvent::Contact(ContactEvent::NewBucket(bucket)) => {
+                self.update_bucket(context, bucket)?;
             }
             _ => {}
         }

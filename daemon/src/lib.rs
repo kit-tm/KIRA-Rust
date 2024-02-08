@@ -313,6 +313,8 @@ where
                 RoutingTableEvent::UpdatedContact { new, old } => {
                     ContactEvent::Updated { new, old }
                 }
+                RoutingTableEvent::UpdatedBucket(bucket) => ContactEvent::BucketUpdated(bucket),
+                RoutingTableEvent::NewBucket(bucket) => ContactEvent::NewBucket(bucket),
                 _ => return,
             };
             if let Err(e) = observer_broadcaster.send(UseCaseEvent::Contact(contact_event)) {
@@ -407,10 +409,7 @@ where
             message_sender: sender,
             runtime: TokioRuntime::new(broadcaster.clone(), Arc::clone(&runtime)),
             insertion_strategy: PNSStrategy::<
-                ObservableRoutingTable<
-                    UnlimitedPNRoutingTable<BUCKET_SIZE, 1>,
-                    BUCKET_SIZE,
-                >,
+                ObservableRoutingTable<UnlimitedPNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
                 _,
                 _,
                 BUCKET_SIZE,
@@ -458,9 +457,8 @@ where
             return;
         }
 
-        let mut on_disc =
-            OverlayNeighborhoodDiscovery::<_, BUCKET_SIZE>::new(Default::default())
-                .expect("default grouping should be valid");
+        let mut on_disc = OverlayNeighborhoodDiscovery::<_, BUCKET_SIZE>::new(Default::default())
+            .expect("default grouping should be valid");
         if let Err(e) = on_disc.start(&context) {
             log::error!("Failed to start overlay neighbor discovery UseCase: {}", e);
             return;
