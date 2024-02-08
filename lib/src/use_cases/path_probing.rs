@@ -95,8 +95,8 @@ where
         for bucket in rt.bucket_iter() {
             let mut considered_contacts: Vec<_> = bucket.into_iter()
                 .filter(|contact| {
-                    contact.last_seen().to_age_duration() <= self.config.probe_age &&
-                        contact.state() != &ContactState::Valid &&
+                    contact.last_seen().to_age_duration() >= self.config.probe_age &&
+                        contact.state() == &ContactState::Valid &&
                         // should never be the case
                         !contact.is_pn()
                 }).collect();
