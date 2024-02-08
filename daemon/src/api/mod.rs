@@ -188,7 +188,7 @@ async fn store_dht_data(State(state): State<ApiState>, Query(mut params): Query<
 
     let payload = args.try_into().map_err(|_| crate::api::domain::dht::ApiFormatErr::HexFormatError)?;
     let event = UseCaseEvent::InjectMessage(
-        Nonce::random(),
+        None,
         InjectionMessageData::Store(payload, tx),
     );
 
@@ -236,7 +236,7 @@ async fn fetch_dht_data(State(state): State<crate::api::ApiState>, Query(mut par
     let (tx, mut rx) = mpsc::unbounded_channel();
 
     let event = UseCaseEvent::InjectMessage(
-        Nonce::random(),
+        None,
         InjectionMessageData::Fetch(args.try_into().map_err(|_| domain::dht::ApiFormatErr::HexFormatError)?, tx),
     );
 

@@ -176,6 +176,16 @@ where
 
                 log::trace!(target: "inject_messages", "Sending FindNodeReq from {} with target {}", source_route.source(), &data.target);
 
+                let nonce = nonce.unwrap_or_else(|| {
+                    // generate distinct nonce
+                    loop {
+                        let nonce = Nonce::random();
+                        if !self.nonces.contains_key(&nonce) {
+                            break nonce;
+                        }
+                    }
+                });
+
                 let message = ProtocolMessage::FindNodeReq(ReqRspMessage {
                     nonce: nonce.clone(),
                     source_state_seq_nr: *context.pn_table().state_seq_nr(),
@@ -328,7 +338,7 @@ mod tests {
             target: neighbor_id.clone(),
         };
         let event = UseCaseEvent::InjectMessage(
-            event_nonce.clone(),
+            Some(event_nonce.clone()),
             InjectionMessageData::FindNode(event_data.clone()),
         );
         let handle_result = use_case.handle_event(&sync_context, event);
@@ -415,7 +425,7 @@ mod tests {
             target: neighbor_id.clone(),
         };
         let event = UseCaseEvent::InjectMessage(
-            event_nonce.clone(),
+            Some(event_nonce.clone()),
             InjectionMessageData::FindNode(event_data.clone()),
         );
         let handle_result = use_case.handle_event(&sync_context, event);

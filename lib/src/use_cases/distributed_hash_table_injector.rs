@@ -193,6 +193,15 @@ impl<C> DistributedHashTableInjector<C> {
 
         Ok(())
     }
+
+    fn generate_distinct_nonce(&self) -> Nonce {
+        loop {
+            let nonce = Nonce::random();
+            if !self.nonces.contains_key(&nonce) {
+                break nonce
+            }
+        }
+    }
 }
 
 
@@ -215,6 +224,8 @@ impl<C, D: Debug> EventHandler for DistributedHashTableInjector<C>
                     data,
                 };
 
+                let nonce = nonce.unwrap_or_else(|| self.generate_distinct_nonce());
+
                 if let Err(inject_err) = self.send_store_req(context, nonce.clone(), payload.clone()) {
                     self.inform_injector_about_send_error(inject_err, &nonce, callback)?;
                 } else {
@@ -228,6 +239,8 @@ impl<C, D: Debug> EventHandler for DistributedHashTableInjector<C>
                 let payload = FetchReqData {
                     handle,
                 };
+
+                let nonce = nonce.unwrap_or_else(|| self.generate_distinct_nonce());
 
                 if let Err(inject_err) = self.send_fetch_req(context, nonce.clone(), payload) {
                     self.inform_injector_about_send_error(inject_err, &nonce, callback)?;
@@ -366,7 +379,7 @@ mod tests {
         let mut use_case = DistributedHashTableInjector::default();
 
         let inject_event = UseCaseEvent::InjectMessage(
-            Nonce::from(1),
+            Some(Nonce::from(1)),
             InjectionMessageData::Store(
                 StoreInjectData {
                     handle: NodeId::with_msb(1),
@@ -537,7 +550,7 @@ mod tests {
         let mut use_case = DistributedHashTableInjector::default();
 
         let inject_event = UseCaseEvent::InjectMessage(
-            Nonce::from(1),
+            Some(Nonce::from(1)),
             InjectionMessageData::Fetch(
                 FetchInjectData {
                     handle: root_id.clone(),

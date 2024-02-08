@@ -40,7 +40,7 @@ pub enum UseCaseEvent {
     Message(ProtocolMessage, NetworkInterface),
     Timer(TimerId),
     Contact(ContactEvent),
-    InjectMessage(Nonce, InjectionMessageData),
+    InjectMessage(Option<Nonce>, InjectionMessageData),
     Hardware(HardwareEvent),
     API(ApiEvent),
     Shutdown,

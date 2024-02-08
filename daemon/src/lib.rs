@@ -129,7 +129,7 @@ impl NodeHandle {
 
         self.broadcaster
             .send_event(UseCaseEvent::InjectMessage(
-                nonce.clone(),
+                Some(&nonce).cloned(),
                 InjectionMessageData::FindNode(req_data),
             ))
             .map_err(|e| InjectMessageError::BroadcastFailed(Box::new(e)))?;
