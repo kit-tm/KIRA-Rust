@@ -31,17 +31,13 @@ impl NetworkInterface {
 
 #[cfg(test)]
 impl NetworkInterface {
-    /// This method creates a dummy interface for test cases.
-    ///
-    /// This function does not check if the interface actually exists. Use with caution.<
+    // method only for tests
+    // todo find a better way to make this work for tests
     pub fn with_name<S: Into<String>>(name: S) -> Self {
-        let interfaces = pnet::datalink::interfaces();
-        let name = name.into();
-        // try to find real index of interface if exists
-        let index = interfaces.iter().find(|i| i.name == name)
-            .map_or(u32::MAX, |i| i.index);
-
-        Self { index, name }
+        Self {
+            index: u32::MAX,
+            name: name.into(),
+        }
     }
 }
 

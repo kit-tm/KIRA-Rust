@@ -6,6 +6,8 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::broadcaster::Broadcaster;
+use crate::domain::NetworkInterface;
+use crate::messaging::ProtocolMessage;
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{TimerId, UseCaseEvent};
 
@@ -77,6 +79,8 @@ where
     B: 'static + Broadcaster + Send + Sync,
     B::SendError: Debug,
 {
+    type SendError = B::SendError;
+
     fn register_timer(&self, duration: Duration) -> TimerId {
         let timer_id = TimerId::from(self.id_counter.fetch_add(1, Ordering::Relaxed));
 
@@ -109,6 +113,19 @@ where
 
         timer_id
     }
+
+    fn send_message(&self, message: ProtocolMessage) -> Result<(), Self::SendError> {
+        let use_case_broadcaster = self.broadcaster.clone();
+        let event = UseCaseEvent::Message(message, NetworkInterface::loopback());
+
+        if let Err(e) = use_case_broadcaster.send_event(event) {
+            log::error!("Failed to send Event to use cases: {:?}", e);
+            return Err(e)
+        }
+
+        Ok(())
+    }
+
 }
 
 #[cfg(test)]

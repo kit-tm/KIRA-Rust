@@ -70,13 +70,18 @@ where
         context: &C,
         message: &ProtocolMessage,
         interface: NetworkInterface,
-    ) -> Contact {
+    ) -> Option<Contact> {
         let path = self.extract_path_to_source(message);
         let contact = Contact::new(path.clone(), *message.source_state_seq_nr());
 
         {
             let mut lock = context.pn_table_mut();
             let neighbor_id = path.first();
+            // loopback: the sender was us
+            if neighbor_id == context.root_id() {
+                return None
+            }
+
             if !lock.contains(neighbor_id) {
                 if let Some(replaced) = lock.insert(neighbor_id.clone(), interface.clone()) {
                     // Not allowed to happen as lock is held
@@ -95,7 +100,7 @@ where
 
         self.update_contact(context, contact.clone());
 
-        contact
+        Some(contact)
     }
 
     /// Attempts to insert the contact into the routing table which may create a new entry,
@@ -278,7 +283,9 @@ where
             | ProtocolMessage::PNDiscRsp(msg)
             | ProtocolMessage::QueryRouteRsp(msg)
             | ProtocolMessage::FindNodeRsp(msg) => {
-                self.extract_rtable_reqrsp(context, msg, source_contact.path().clone())
+                if let Some(source_contact) = source_contact {
+                    self.extract_rtable_reqrsp(context, msg, source_contact.path().clone())
+                }
             }
             ProtocolMessage::Error(error_rsp) => self.extract_failed_contact(context, error_rsp),
             // These are already covered by source info extraction
@@ -293,6 +300,10 @@ where
             | ProtocolMessage::ProbeRsp(_)
             | ProtocolMessage::PathSetupReq(_)
             | ProtocolMessage::PathTeardownReq(_) => {}
+            ProtocolMessage::StoreReq(_)
+            | ProtocolMessage::StoreRsp(_)
+            |ProtocolMessage::FetchReq(_)
+            | ProtocolMessage::FetchRsp(_) => {} // todo maybe we need to extract stuff here
         }
 
         Ok(())
@@ -358,11 +369,52 @@ where
             return Ok(HandlingResult::Handled);
         }
 
-        let next_hop = source_route.next_hop();
+        let mut next_hop = source_route.next_hop();
 
-        // Is directed to us -> nothing to forward
+        // source route finished
         if next_hop.is_none() {
-            return Ok(HandlingResult::NotHandled);
+            let overlay_destination = message.overlay_destination();
+            // is directed to us -> nothing to forward
+            if overlay_destination.is_none() {
+                return Ok(HandlingResult::NotHandled);
+            }
+
+            // Overlay Routing
+            // todo add unit tests
+            // fixme isolated error if only a single node is used
+            // fixme remove cycles in SourceRoute on the way back?
+            // fixme respect NotVia? [lib/src/use_cases/handle_overlay_discovery.rs:141]
+            let overlay_destination = overlay_destination.unwrap();
+
+            // intended overlay destination is us -> nothing to forward
+            if overlay_destination == context.root_id() {
+                return Ok(HandlingResult::NotHandled)
+            }
+
+            // todo support other shared_prefix_grouping via config
+            let closest_node = context.routing_table()
+                .next_hop(overlay_destination, 20, 1)
+                .expect("Shared Prefix Grouping should be valid");
+
+
+            // closest known overlay hop is us -> nothing to forward,
+            if closest_node.is_none() {
+                log::trace!(
+                    target: "forward_protocol_message",
+                    "Final destination of overlay message is us [{:?}]",
+                    message
+                );
+                return Ok(HandlingResult::NotHandled);
+            }
+
+            log::trace!(target: "forward_protocol_message", "Forwarding overlay message to next hop [{:?}]", message);
+            let next_contact = closest_node.unwrap();
+
+            // extend source route to next hop
+            if let Some(sr) = message.source_route_mut() {
+                sr.extend(next_contact.path().clone())
+            }
+            next_hop = message.source_route().and_then(SourceRoute::next_hop);
         }
         let next_hop = next_hop.unwrap();
 
@@ -436,7 +488,10 @@ where
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
         if let UseCaseEvent::Message(message, interface) = event {
-            self.extract_message_info(context, message.clone(), interface)?;
+            // todo make more efficient pls
+            if interface != NetworkInterface::loopback() {
+                self.extract_message_info(context, message.clone(), interface)?;
+            }
 
             self.handle_forwarding(context, message)
         } else {

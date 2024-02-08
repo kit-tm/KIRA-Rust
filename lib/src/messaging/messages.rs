@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use std::num::NonZeroU64;
 
 use crate::domain::{Contact, Link, NodeId, NotVia, StateSeqNr};
+use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreReqData, StoreRspData};
 use crate::messaging::source_route::SourceRoute;
 
 /// Randomly generated number to uniquely identify a protocol message and its
@@ -44,6 +45,10 @@ pub enum ProtocolMessage {
     // todo add Rsp for Setup and Teardown and handle them accordingly
     UpdateRouteReq(UpdateRouteReq),
     Error(ReqRspMessage<ErrorData>),
+    StoreReq(ReqRspMessage<StoreReqData<DefaultLHTInput>>),
+    StoreRsp(ReqRspMessage<StoreRspData>),
+    FetchReq(ReqRspMessage<FetchReqData>),
+    FetchRsp(ReqRspMessage<FetchRspData<DefaultLHTOutput>>),
 }
 
 impl ProtocolMessage {
@@ -62,6 +67,10 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => Some(&mut req.source_route),
             Self::PathTeardownReq(req) => Some(&mut req.source_route),
             Self::UpdateRouteReq(req) => Some(&mut req.source_route),
+            Self::StoreReq(req) => Some(&mut req.source_route),
+            Self::StoreRsp(req) => Some(&mut req.source_route),
+            Self::FetchReq(req) => Some(&mut req.source_route),
+            Self::FetchRsp(req) => Some(&mut req.source_route)
         }
     }
 
@@ -80,6 +89,10 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => Some(&req.source_route),
             Self::PathTeardownReq(req) => Some(&req.source_route),
             Self::UpdateRouteReq(req) => Some(&req.source_route),
+            Self::StoreReq(req) => Some(&req.source_route),
+            Self::StoreRsp(req) => Some(&req.source_route),
+            Self::FetchReq(req) => Some(&req.source_route),
+            Self::FetchRsp(req) => Some(&req.source_route)
         }
     }
 
@@ -99,6 +112,10 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => Some(req.destination()),
             Self::PathTeardownReq(req) => Some(req.destination()),
             Self::UpdateRouteReq(req) => Some(req.source_route.destination()),
+            Self::StoreReq(req) => Some(req.destination()),
+            Self::StoreRsp(req) => Some(req.destination()),
+            Self::FetchReq(req) => Some(req.destination()),
+            Self::FetchRsp(req) => Some(req.destination())
         }
     }
 
@@ -117,6 +134,10 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => Some(&req.nonce),
             Self::PathTeardownReq(req) => Some(&req.nonce),
             Self::UpdateRouteReq(_) => None,
+            Self::StoreReq(req) => Some(&req.nonce),
+            Self::StoreRsp(req) => Some(&req.nonce),
+            Self::FetchReq(req) => Some(&req.nonce),
+            Self::FetchRsp(req) => Some(&req.nonce)
         }
     }
 
@@ -130,19 +151,23 @@ impl ProtocolMessage {
             Self::FindNodeReq(req) => req.source(),
             Self::FindNodeRsp(req) => req.source(),
             Self::Error(ReqRspMessage {
-                data: ErrorData::DeadEnd,
-                source_route,
-                ..
-            }) => source_route.source(),
+                            data: ErrorData::DeadEnd,
+                            source_route,
+                            ..
+                        }) => source_route.source(),
             Self::Error(ReqRspMessage {
-                data: ErrorData::SegmentFailure { source, .. },
-                ..
-            }) => source,
+                            data: ErrorData::SegmentFailure { source, .. },
+                            ..
+                        }) => source,
             Self::ProbeReq(req) => req.source(),
             Self::ProbeRsp(req) => req.source(),
             Self::PathSetupReq(req) => req.source(),
             Self::PathTeardownReq(req) => req.source(),
             Self::UpdateRouteReq(req) => req.source_route.source(),
+            ProtocolMessage::StoreReq(req) => req.source(),
+            ProtocolMessage::StoreRsp(req) => req.source(),
+            ProtocolMessage::FetchReq(req) => req.source(),
+            ProtocolMessage::FetchRsp(req) => req.source()
         }
     }
 
@@ -161,6 +186,10 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => &req.source_state_seq_nr,
             Self::PathTeardownReq(req) => &req.source_state_seq_nr,
             Self::UpdateRouteReq(req) => &req.source_state_seq_nr,
+            ProtocolMessage::StoreReq(req) => &req.source_state_seq_nr,
+            ProtocolMessage::StoreRsp(req) => &req.source_state_seq_nr,
+            ProtocolMessage::FetchReq(req) => &req.source_state_seq_nr,
+            ProtocolMessage::FetchRsp(req) => &req.source_state_seq_nr
         }
     }
 
@@ -179,6 +208,20 @@ impl ProtocolMessage {
             Self::PathSetupReq(req) => Some(&req.not_via),
             Self::PathTeardownReq(req) => Some(&req.not_via),
             Self::UpdateRouteReq(req) => Some(&req.not_via),
+            Self::StoreReq(req) => Some(&req.not_via),
+            Self::StoreRsp(req) => Some(&req.not_via),
+            Self::FetchReq(req) => Some(&req.not_via),
+            Self::FetchRsp(req) => Some(&req.not_via)
+        }
+    }
+
+    // todo write documentation how to use
+    // and why other "overlay" messages are not listed here
+    pub fn overlay_destination(&self) -> Option<&NodeId> {
+        match self {
+            Self::StoreReq(req) => Some(&req.data.handle),
+            Self::FetchReq(req) => Some(&req.data.handle),
+            _ => None
         }
     }
 

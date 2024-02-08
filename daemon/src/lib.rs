@@ -44,11 +44,16 @@ use r2kad_lib::use_cases::{
     ContactEvent, EventHandler, HandlingResult, InjectionMessageData, UseCase, UseCaseEvent,
     UseCaseState,
 };
+use r2kad_lib::use_cases::distributed_hash_table::{DefaultExpiringHashTable, DistributedHashTable, DistributedHashTableConfig};
+use r2kad_lib::use_cases::distributed_hash_table_injector::DistributedHashTableInjector;
 
 use crate::benchmark_log::{BenchmarkEntry, BenchmarkLog};
 use crate::errors::InjectMessageError;
 
 mod benchmark_log;
+
+#[cfg(feature = "api")]
+pub mod api;
 
 #[derive(Default, Debug)]
 pub struct NodeConfig {
@@ -124,7 +129,7 @@ impl NodeHandle {
 
         self.broadcaster
             .send_event(UseCaseEvent::InjectMessage(
-                nonce.clone(),
+                Some(&nonce).cloned(),
                 InjectionMessageData::FindNode(req_data),
             ))
             .map_err(|e| InjectMessageError::BroadcastFailed(Box::new(e)))?;
@@ -134,8 +139,8 @@ impl NodeHandle {
         loop {
             let result = self.injection_result_receiver.try_recv();
             match result {
-                Ok(InjectionResult::SendFailed(message)) => {
-                    log::error!("Failed to send message: {:#?}", message);
+                Ok(InjectionResult::SendFailed(nonce)) => {
+                    log::error!("Failed to send message with nonce {:?}", nonce);
                     return Err(InjectMessageError::SendFailed);
                 }
                 Ok(InjectionResult::Isolated) => return Err(InjectMessageError::Isolated),
@@ -282,6 +287,8 @@ where
 
         let (fan_in_sender, mut fan_in_receiver) =
             mpsc::channel::<(UseCaseEvent, Option<Instant>)>(100);
+
+        let new_sender = fan_in_sender.clone();
 
         // Create a task to fan in own created events
         let broadcast_fan_in_sender = fan_in_sender.clone();
@@ -440,6 +447,17 @@ where
             }
         });
 
+        #[cfg(feature = "api")]
+        let api_config = api::ApiConfig::new(
+            "0.0.0.0:8082".parse().unwrap(),
+            root_id.clone().into(),
+            new_sender,
+        );
+
+        #[cfg(feature = "api")]
+        runtime.spawn(api::start_http_server(api_config));
+
+
         // Initialize the Use Cases
 
         let mut forward_message = ForwardProtocolMessage::default();
@@ -502,9 +520,15 @@ where
             log::error!("Failed to start explicit path management: {}", e);
         }
 
-        let mut inject_messages = if let Some(injection_sender) = injection_sender {
+        let mut distributed_hash_table: DistributedHashTable<_, DefaultExpiringHashTable> = DistributedHashTable::new(DistributedHashTableConfig::default());
+        if let Err(e) = distributed_hash_table.start(&context) {
+            log::error!("Failed to start distributed hash table UseCase: {}", e);
+            return;
+        }
+
+        let mut inject_messages = if let Some(injection_sender) = injection_sender.as_ref() {
             let mut inject_messages =
-                InjectMessages::new(InjectMessagesConfig::default(), injection_sender)
+                InjectMessages::new(InjectMessagesConfig::default(), injection_sender.clone())
                     .expect("default grouping should be valid");
             if let Err(e) = inject_messages.start(&context) {
                 log::error!("Failed to start inject messages UseCase: {}", e);
@@ -514,6 +538,12 @@ where
         } else {
             None
         };
+
+        let mut distributed_hash_table_injector = DistributedHashTableInjector::default();
+        if let Err(e) = distributed_hash_table_injector.start(&context) {
+                log::error!("Failed to start distributed hash table injector UseCase: {}", e);
+                return;
+        }
 
         // Initialize common tasks
 
@@ -583,11 +613,21 @@ where
             {
                 log::error!("Precomputation returned error handling message");
             }
+            if let Err(e) = distributed_hash_table.handle_event(&context, event.clone()) {
+                log::error!(
+                    "Distributed Hash Table returned error handling message: {}",
+                    e
+                );
+            }
             if let Some(Err(e)) = inject_messages
                 .as_mut()
                 .map(|use_case| use_case.handle_event(&context, event.clone()))
             {
                 log::error!("Injecting Messages returned error handling message: {}", e);
+            }
+            if let Err(e) = distributed_hash_table_injector.handle_event(&context, event.clone())
+            {
+                log::error!("Injecting DHT Messages returned error handling message: {}", e);
             }
 
             // Check States as returning an error doesn't show an unrecoverable error

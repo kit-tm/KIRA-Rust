@@ -92,15 +92,15 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// Possible Write Guard for a mutable contact reference.
     ///
     /// Allows implementations to support RAII types to watch mutability of a contact.
-    type ContactWriteGuard: DerefMut<Target = Contact>;
+    type ContactWriteGuard: DerefMut<Target=Contact>;
     /// Possible Write Guard for a mutable bucket reference.
     ///
     /// Allows implementations to support RAII types to watch mutability of a bucket.
-    type BucketWriteGuard: DerefMut<Target = Bucket<BUCKET_SIZE>>;
+    type BucketWriteGuard: DerefMut<Target=Bucket<BUCKET_SIZE>>;
     /// Iterator type over all [Contact]s.
-    type Iter: Iterator<Item = &'a Contact>;
+    type Iter: Iterator<Item=&'a Contact>;
     /// Iterator type over mutable references of all [Contact]s.
-    type IterMut: Iterator<Item = Self::ContactWriteGuard>;
+    type IterMut: Iterator<Item=Self::ContactWriteGuard>;
 
     /// Iterator type over all [Bucket]s
     type BucketIter: Iterator<Item = &'a Bucket<BUCKET_SIZE>>;
@@ -171,7 +171,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// Extends the [RoutingTable] with [Contact]s with an option to ignore errors.
     ///
     /// Will not return an [Error] if *drop_on_error* is *true*.
-    fn extend<I: IntoIterator<Item = Contact>>(
+    fn extend<I: IntoIterator<Item=Contact>>(
         &mut self,
         drop_on_error: bool,
         iter: I,
@@ -202,6 +202,77 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         n: usize,
         shared_prefix_grouping: usize,
     ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError>;
+
+    /// Returns the next overlay hop to the given [NodeId]
+    /// This method returns [None] if we are the closest overlay hop.
+    ///
+    /// This method checks the **n** closest neighbors as next hop candidates.
+    ///
+    /// The method is using **proximity routing** to determine the next overlay neighbor
+    /// if there are multiple that would result in the same prefix progress.
+    ///
+    /// Using **n=1** disables proximity routing.
+    fn next_hop(&self, to: &NodeId, n: usize, shared_prefix_grouping: usize) -> Result<Option<Contact>, GroupingError> {
+        log::trace!(target: "routing_table", "Calculating next hop to {}", to);
+
+        let closest = self.closest(to, n, shared_prefix_grouping)?;
+        let (nearest_prefix, next_hop) = match closest.first() {
+            None => {
+                log::warn!(target: "routing_table","Node is isolated!");
+                return Ok(None);
+            }, // table empty => we are the next hop
+            Some((nearest_prefix, contact)) => (nearest_prefix, contact)
+        };
+        let root_prefix = self.root().shared_prefix_len(to, shared_prefix_grouping)?;
+
+        // check if we are nearest
+        if root_prefix.length > nearest_prefix.length {
+            log::debug!(
+                target: "routing_table",
+                "Next hop is us since prefix of us is longer: {} > {}",
+                root_prefix.length,
+                nearest_prefix.length
+            );
+            return Ok(None);
+        }
+
+        // we can't make prefix progress or no proximity routing
+        // uniquely select closest neighbor by XOR metric
+        if nearest_prefix.length == root_prefix.length || n == 1 {
+            log::debug!(
+                target: "routing_table",
+                "Unable to do prefix progress, selecting by XOR between us [{}] and nearest contact [{}]",
+                root_prefix.xor,
+                nearest_prefix.xor
+            );
+            return if root_prefix.xor < nearest_prefix.xor {
+                Ok(None)
+            } else {
+                // assuming sorted list first is closest by XOR metric
+                Ok(Some(next_hop.clone()))
+            }
+        }
+
+        // check if lowest bucket
+        // todo do this more efficiently
+        let lowest = self.closest(self.root(), 1, shared_prefix_grouping)?;
+        if lowest.first().is_some_and(|(prefix, _)| prefix == nearest_prefix) {
+            log::trace!(target: "routing_table", "Lowest bucket, select by XOR");
+            // select closest by XOR
+            return Ok(Some(next_hop.clone()));
+        }
+
+        // all contacts with the greatest prefix progress
+        let next_hop = closest.iter()
+            .take_while(|(prefix, _)| prefix.length == nearest_prefix.length)
+            .map(|(_, contact)| contact)
+            .min_by(|ca, cb| ca.path().size().cmp(&cb.path().size()));
+        // todo select by xor if all path lengths (size) are the same
+
+        Ok(next_hop.cloned())
+        // todo test send to self if 1) isolated or 2) root closer than closest routing table entry
+        // todo test if edge case lowest bucket (only XOR based) is covered
+    }
 
     /// Iterator over all [Contact]s in the [RoutingTable].
     fn iter(&'a self) -> Self::Iter;

@@ -273,11 +273,8 @@ impl PartialOrd for SharedPrefix {
 impl Ord for SharedPrefix {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self.length.cmp(&other.length), self.xor.cmp(&other.xor)) {
-            (Ordering::Greater, _) => Ordering::Less,
-            (Ordering::Less, _) => Ordering::Greater,
-            (Ordering::Equal, Ordering::Less) => Ordering::Less,
-            (Ordering::Equal, Ordering::Greater) => Ordering::Greater,
-            (Ordering::Equal, Ordering::Equal) => Ordering::Equal,
+            (Ordering::Equal, xor_ordering) => xor_ordering,
+            (ordering, _) => ordering.reverse(),
         }
     }
 }
