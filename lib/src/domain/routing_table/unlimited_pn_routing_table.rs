@@ -153,7 +153,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         self.pn_contacts.contains_key(id) || self.inner.contains(id)
     }
 
-    fn split_bucket(&mut self, id: &NodeId) -> Result<(), BucketSplitError> {
+    fn split_bucket(&mut self, id: &NodeId) -> Result<usize, BucketSplitError> {
         self.inner.split_bucket(id)
     }
 
@@ -219,9 +219,22 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         IterMut::from(self)
     }
 
-    fn get_prefix(&self, of: &NodeId) -> Option<(NodeId, usize)> {
-        self.inner.get_prefix(of)
+    fn bucket_by_index(&self, index: usize) -> &Bucket<BUCKET_SIZE> {
+        self.inner.bucket_by_index(index)
     }
+
+    fn bucket_by_index_mut(&'a mut self, index: usize) -> Self::BucketWriteGuard {
+        self.inner.bucket_by_index_mut(index)
+    }
+
+    fn get_bucket_index(&self, of: &NodeId) -> usize {
+        self.inner.get_bucket_index(of)
+    }
+
+    fn get_bucket_prefix_length(&self, bucket_index: usize) -> usize {
+        self.inner.get_bucket_prefix_length(bucket_index)
+    }
+
 }
 
 #[cfg(test)]

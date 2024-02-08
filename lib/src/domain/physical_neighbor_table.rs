@@ -1,8 +1,8 @@
-use std::process::Command;
-use std::{collections::HashMap, net::Ipv6Addr};
 use std::ops::Deref;
+use std::{collections::HashMap, net::Ipv6Addr};
 
 use crate::domain::{NetworkInterface, NodeId, StateSeqNr};
+use crate::forwarding::platform;
 
 /// A physical neighbor table backed by a [HashMap].
 ///
@@ -46,17 +46,12 @@ impl PNTable {
         if let Some(true) = self
             .map
             .get(&id)
-            .map(|existing_port| existing_port == &interface)
+            .map(|old_interface| old_interface == &interface)
         {
             return None;
         }
 
-        if let Some(interface_old) = self.map.get(&id) {
-            if interface_old != &interface {
-                self.remove_from_routing_table(&id, &interface);
-            }
-        }
-        self.insert_into_routing_table(&id, &interface);
+        platform::replace_neighbor_route(&Ipv6Addr::from(&id).to_string(), &interface.name).unwrap();
 
         let result = self.map.insert(id, interface);
         self.state_seq_nr += 1;
@@ -76,86 +71,10 @@ impl PNTable {
     /// Removed a Mapping from the table returning that NetworkInterface the [NodeId] was mapped to.
     pub fn remove(&mut self, id: &NodeId) -> Option<NetworkInterface> {
         if let Some(interface) = self.map.get(id) {
-            self.remove_from_routing_table(id, interface);
+            platform::delete_neighbor_route(&Ipv6Addr::from(id).to_string(), &interface.name).unwrap();
         }
 
         self.map.remove(id)
-    }
-
-    fn remove_from_routing_table(&self, id: &NodeId, interface: &NetworkInterface) {
-        let node_ip = Ipv6Addr::from(id).to_string();
-
-        log::trace!(target: "physical_neighbor_table", "Trying to delete route to {:?} dev {:?}", node_ip, &interface.name);
-
-        let output = Command::new("ip")
-            .args([
-                "route", "del", &node_ip, "dev", &interface.name,
-            ])
-            .output()
-            .expect("failed to execute ip command");
-
-        match output
-            .status
-            .code()
-            .expect("ip command externally terminated")
-        {
-            0 => {
-                log::trace!(target: "physical_neighbor_table", "Deleted route to {:?}", node_ip);
-            }
-            1 => panic!(
-                "ip: syntax error: Err:\n{}\nOut:\n{}",
-                String::from_utf8_lossy(&output.stderr),
-                String::from_utf8_lossy(&output.stdout)
-            ),
-            2 => panic!(
-                "ip: kernel error: Err:\n{}\nOut:\n{}",
-                String::from_utf8_lossy(&output.stderr),
-                String::from_utf8_lossy(&output.stdout)
-            ),
-            _ => panic!(
-                "ip: unknown error: Err:\n{}\nOut:\n{}",
-                String::from_utf8_lossy(&output.stderr),
-                String::from_utf8_lossy(&output.stdout)
-            ),
-        }
-    }
-
-    fn insert_into_routing_table(&self, id: &NodeId, interface: &NetworkInterface) {
-        let node_ip = Ipv6Addr::from(id).to_string();
-
-        log::trace!(target: "physical_neighbor_table", "Trying to add route to {:?} dev {:?}", node_ip, &interface.name);
-
-        let output = Command::new("ip")
-            .args([
-                "route", "add", &node_ip, "dev", &interface.name,
-            ])
-            .output()
-            .expect("failed to execute ip command");
-
-        match output
-            .status
-            .code()
-            .expect("ip command externally terminated")
-        {
-            0 => {
-                log::trace!(target: "physical_neighbor_table", "Added route to {:?}", node_ip);
-            }
-            1 => panic!(
-                "ip: syntax error: Err:\n{}\nOut:\n{}",
-                String::from_utf8_lossy(&output.stderr),
-                String::from_utf8_lossy(&output.stdout)
-            ),
-            2 => panic!(
-                "ip: kernel error: Err:\n{}\nOut:\n{}",
-                String::from_utf8_lossy(&output.stderr),
-                String::from_utf8_lossy(&output.stdout)
-            ),
-            _ => panic!(
-                "ip: unknown error: Err:\n{}\nOut:\n{}",
-                String::from_utf8_lossy(&output.stderr),
-                String::from_utf8_lossy(&output.stdout)
-            ),
-        }
     }
 }
 

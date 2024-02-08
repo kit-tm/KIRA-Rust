@@ -1,4 +1,5 @@
-use std::net::{Ipv6Addr, SocketAddr};
+use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
+use std::process::Command;
 use std::sync::Arc;
 
 use tokio::io;
@@ -59,6 +60,27 @@ impl<C> UdpSender<C> {
 
     fn broadcast_addr(&self) -> SocketAddr {
         SocketAddr::from((Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), self.port))
+    } 
+
+    async fn broadcast_message(&self, buffer: &[u8]) -> Result<(), SenderError> {
+
+        let output = Command::new("ip").arg("-o").arg("l").output().unwrap();
+        let output = String::from_utf8(output.stdout).unwrap();
+
+        for line in output.lines() {
+            if let Some((interface_index, suffix)) = line.split_once(':') {
+                if !suffix.contains("-eth") {
+                    continue;
+                }
+                let interface_index: u32 = interface_index.parse().unwrap();
+                let dest = SocketAddrV6::new(Ipv6Addr::new(0xff02, 0,0,0,0,0,0,1),self.port,0,interface_index);
+                dbg!(dest);
+                self.socket
+                    .send_to(&buffer, dest.into())
+                    .await.unwrap();
+            }
+        }
+        Ok(())
     }
 
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
@@ -67,17 +89,17 @@ impl<C> UdpSender<C> {
 }
 
 impl<C: AsyncIpCache> UdpSender<C> {
-    async fn get_receiver_addr(&self, message: &ProtocolMessage) -> SocketAddr {
+    async fn get_receiver_addr(&self, message: &ProtocolMessage) -> Option<SocketAddr> {
         // Due to the invariant of SourceRoutes before sending the previous hop has to be the neighbor
         let neighbor = message.current_hop();
         if let Some(neighbor) = neighbor {
             let ip = self.ip_cache.get(neighbor).await;
 
             if let Some(addr) = ip {
-                return SocketAddr::from(addr);
+                return Some(SocketAddr::from(addr));
             }
         }
-        self.broadcast_addr()
+        None
     }
 }
 
@@ -92,18 +114,21 @@ impl<C: AsyncIpCache + Send + Sync> AsyncProtocolMessageSender for UdpSender<C> 
         let mut buffer = Vec::new();
         self.format.serialize(&mut buffer, &message)?;
 
-        let receiver_addr = self.get_receiver_addr(&message).await;
+        if let Some(receiver_addr) = self.get_receiver_addr(&message).await {
 
-        log::trace!(
-            target: "message_sender",
-            "Sending ProtocolMessage {:?} to {}",
-            &message,
-            receiver_addr
-        );
+            log::trace!(
+                target: "message_sender",
+                "Sending ProtocolMessage {:?} to {}",
+                &message,
+                receiver_addr
+            );
 
-        self.socket
-            .send_to(&buffer[..buffer.len()], receiver_addr)
-            .await?;
+            self.socket
+                .send_to(&buffer[..buffer.len()], receiver_addr)
+                .await?;
+        } else {
+            self.broadcast_message(&buffer).await?;
+        }
 
         Ok(())
     }

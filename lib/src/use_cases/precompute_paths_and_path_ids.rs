@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::context::UseCaseContext;
 use crate::domain::{ContactState, EmptyPathError, NodeId, Path};
 use crate::forwarding::hasher::Hasher;
-use crate::forwarding::{ForwardingTables, PathIdEntry, PathIdTable};
+use crate::forwarding::{ForwardingTables, PathIdEntry, PathIdForwardingEntry, PathIdTable};
 use crate::messaging::ProtocolMessage;
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{ContactEvent, EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState};
@@ -75,6 +75,7 @@ where
     <<C as UseCaseContext>::ForwardingTables as PathIdTable>::Error: Display,
 {
     fn gen_entries_from_graph(&self, context: &C, graph: &VicinityGraph) -> HashSet<PathIdEntry> {
+        log::debug!(target: "precompute_paths_and_path_ids", "{:?}", graph);
         let mut entries = HashSet::new();
         for in_path in graph {
             let out_path =
@@ -89,13 +90,14 @@ where
                 log::warn!(target: "precompute_paths_and_path_ids", "VicinityGraph generated path over invalid neighbor");
                 continue;
             }
-            let entry = PathIdEntry {
+            let entry = PathIdEntry::Forward(PathIdForwardingEntry{
                 in_path_id: self.config.hasher.hash(&in_path),
-                out_path_id: Some(self.config.hasher.hash(&out_path)),
+                out_path_id: self.config.hasher.hash(&out_path),
                 next_hop: out_path.first().clone(),
-            };
+            });
             entries.insert(entry);
         }
+        log::debug!(target: "precompute_paths_and_path_ids", "{:?}", entries);
         entries
     }
 
@@ -116,8 +118,12 @@ where
         // and in new_entries only the newly added paths are present
         let mut fwd_tables = context.forwarding_tables_mut();
         for old_entry in old_entries {
-            if let Err(e) = fwd_tables.remove(&old_entry.in_path_id) {
-                log::error!(target: "precompute_paths_and_pathids", "Failed to remove entry for PathID {}: {}", old_entry.in_path_id, e);
+            let old_in_path_id = match old_entry {
+                PathIdEntry::Forward(entry) => entry.in_path_id,
+                PathIdEntry::Decapsulate(entry) => entry.in_path_id,
+            };
+            if let Err(e) = fwd_tables.remove(&old_in_path_id) {
+                log::error!(target: "precompute_paths_and_pathids", "Failed to remove entry for PathID {}: {}", old_in_path_id, e);
             }
         }
         for new_entry in new_entries {
@@ -125,7 +131,7 @@ where
                 .create(new_entry.clone())
                 .or_else(|_| fwd_tables.create(new_entry.clone()));
             if let Err(e) = insertion_result {
-                log::error!(target: "precompute_paths_and_pathids", "Failed to create entry for PathID {}: {}", new_entry.in_path_id, e);
+                log::error!(target: "precompute_paths_and_pathids", "Failed to create entry {}: {}", new_entry, e);
             }
         }
 

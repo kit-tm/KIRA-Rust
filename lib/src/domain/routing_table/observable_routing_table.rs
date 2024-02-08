@@ -248,8 +248,21 @@ where
         self.inner.contains(id)
     }
 
-    fn split_bucket(&mut self, id: &NodeId) -> Result<(), BucketSplitError> {
-        self.inner.split_bucket(id)
+    fn split_bucket(&mut self, id: &NodeId) -> Result<usize, BucketSplitError> {
+        let bucket_old = self.inner.bucket(id).clone();
+        let index = self.inner.split_bucket(id)?;
+
+        if bucket_old
+            .iter()
+            .zip(self.inner.bucket_by_index(index))
+            .find(|(a, b)| a.path() != b.path())
+            .is_some()
+        {
+            self.notify_all(RoutingTableEvent::UpdatedBucket(index));
+        }
+
+        self.notify_all(RoutingTableEvent::NewBucket(index + 1));
+        Ok(index)
     }
 
     fn bucket(&self, of: &NodeId) -> &Bucket<BUCKET_SIZE> {
@@ -284,8 +297,26 @@ where
         Iter::new(&self.observers, self.inner.iter_mut())
     }
 
-    fn get_prefix(&self, of: &NodeId) -> Option<(NodeId, usize)> {
-        self.inner.get_prefix(of)
+    fn bucket_by_index(&self, index: usize) -> &Bucket<BUCKET_SIZE> {
+        self.inner.bucket_by_index(index)
+    }
+
+    fn bucket_by_index_mut(&'a mut self, index: usize) -> Self::BucketWriteGuard {
+        let bucket = self.inner.bucket_by_index_mut(index);
+        BucketWriteGuard {
+            observers: &self.observers,
+            original: Bucket::<BUCKET_SIZE>::clone(bucket.deref()),
+            index,
+            bucket,
+        }
+    }
+
+    fn get_bucket_index(&self, of: &NodeId) -> usize {
+        self.inner.get_bucket_index(of)
+    }
+
+    fn get_bucket_prefix_length(&self, bucket_index: usize) -> usize {
+        self.inner.get_bucket_prefix_length(bucket_index)
     }
 }
 
@@ -372,7 +403,7 @@ where
                     new: self.contact.deref().clone(),
                     old: self.original.clone(),
                 },
-            )
+            );
         }
     }
 }

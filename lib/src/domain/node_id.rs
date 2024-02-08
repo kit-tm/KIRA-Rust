@@ -246,6 +246,19 @@ impl Display for BitIndexOutOfBounds {
 
 impl Error for BitIndexOutOfBounds {}
 
+/// A [NodeId] subnet with a given prefix length.
+#[derive(Debug, Eq, PartialEq, Clone, Hash)]
+pub struct NodeIdSubnet {
+    pub(crate) node_id: NodeId,
+    pub(crate) prefix_length: usize,
+}
+
+impl Display for NodeIdSubnet {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.node_id, self.prefix_length)
+    }
+}
+
 /// Shared prefix of two [NodeId]s.
 ///
 /// Contains the shared prefix length in number of bits and the computed
