@@ -208,14 +208,10 @@ impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
                     source_route,
                 };
 
-                log::trace!(
-                    target: "dht",
-                    "Sending message: {:?}",
-                    rsp
-                );
+                log::trace!(target: "dht", "Sending message: {:?}", rsp);
 
                 if let Err(e) = context.message_sender_mut().send_message(ProtocolMessage::StoreRsp(rsp)) {
-                    log::error!("Failed to send message: {:?}", e);
+                    log::error!(target: "dht", "Failed to send message: {:?}", e);
                     return Err(DHTError::DHTSendError);
                 }
             }
@@ -233,14 +229,10 @@ impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
                     source_route
                 };
 
-                log::trace!(
-                    target: "dht",
-                    "Sending message: {:?}",
-                    rsp
-                );
+                log::trace!(target: "dht", "Sending message: {:?}", rsp);
 
                 if let Err(e) = context.message_sender_mut().send_message(ProtocolMessage::FetchRsp(rsp)) {
-                    log::error!("Failed to send message: {:?}", e);
+                    log::error!(target: "dht", "Failed to send message: {:?}", e);
                     return Err(DHTError::DHTSendError);
                 }
             }
@@ -254,7 +246,7 @@ impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
                 let table_dump = self.config.hash_table.fetch_all();
 
                 if let Err(e) = callback.send(table_dump) {
-                    log::error!("Failed to send local hash table: {:?}", e);
+                    log::error!(target: "dht", "Failed to send local hash table: {:?}", e);
                     return Err(DHTError::DHTSendError);
                 }
             }
