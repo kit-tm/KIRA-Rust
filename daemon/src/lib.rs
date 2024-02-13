@@ -371,6 +371,7 @@ where
 
                         if message.source() == &root_node_id {
                             // ignoring messages from us
+                            log::warn!("Ignoring message from us [{:?}]", message);
                             continue;
                         }
 
