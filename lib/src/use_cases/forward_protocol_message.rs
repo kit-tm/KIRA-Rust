@@ -376,6 +376,12 @@ where
                 return Ok(HandlingResult::NotHandled);
             }
 
+            log::debug!(
+                target: "forward_protocol_message",
+                "Searching next overlay hop for message [{:?}]",
+                message
+            );
+
             // Overlay Routing
             let overlay_destination = overlay_destination.unwrap();
 
@@ -392,7 +398,7 @@ where
 
             // closest known overlay hop is us -> nothing to forward,
             if closest_node.is_none() {
-                log::trace!(
+                log::debug!(
                     target: "forward_protocol_message",
                     "Final destination of overlay message is us [{:?}]",
                     message
@@ -400,13 +406,14 @@ where
                 return Ok(HandlingResult::NotHandled);
             }
 
-            log::trace!(target: "forward_protocol_message", "Forwarding overlay message to next hop [{:?}]", message);
             let next_contact = closest_node.unwrap();
 
             // extend source route to next hop
             message.source_route_mut()
                 .map(|sr| sr.extend(next_contact.path().clone()));
             next_hop = message.source_route().map(SourceRoute::next_hop).flatten();
+
+            log::trace!(target: "forward_protocol_message", "Forwarding overlay message to next hop [{:?}]", message);
         }
         let next_hop = next_hop.unwrap();
 

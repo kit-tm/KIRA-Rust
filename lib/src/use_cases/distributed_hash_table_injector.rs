@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use core::time::Duration;
 use std::collections::{HashMap, LinkedList};
 use std::marker::PhantomData;
@@ -6,7 +6,7 @@ use std::num::NonZeroUsize;
 use std::time::Instant;
 
 use crate::context::UseCaseContext;
-use crate::domain::{GroupingError, node_id, RoutingTable};
+use crate::domain::{GroupingError, node_id, NodeId, Path, RoutingTable};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{EventHandler, FetchInjectData, InjectionMessageData, OneshotInjectMessageCallback, StoreInjectData, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
@@ -91,11 +91,27 @@ impl<C, const BUCKET_SIZE: usize, D: Debug> DistributedHashTableInjector<C, BUCK
     where
         C: UseCaseContext,
         for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-        C::Runtime: UseCaseRuntime<SendError=D>,
+        C::MessageSender: ProtocolMessageSender,
+        C::Runtime: UseCaseRuntime<SendError=D>
 {
-    fn construct_req_rsp_msg<T: Debug>(context: &C, nonce: Nonce, data: T) -> ReqRspMessage<T> {
-        let mut source_route = SourceRoute::from(context.root_id().clone());
-        source_route.push_front(context.root_id().clone());
+    fn construct_req_rsp_msg<T: Debug>(context: &C, nonce: Nonce, overlay_destination: &NodeId, data: T) -> ReqRspMessage<T> {
+        // todo support other shared_prefix_grouping via config
+        let closest_node = context.routing_table()
+            .next_hop(overlay_destination, 20, 1)
+            .expect("Shared Prefix Grouping should be valid");
+
+
+        // we are the closest => loopback
+        let path = if closest_node.is_none() {
+            log::warn!(target: "distributed_hash_table_injector", "Node is isolated!");
+
+
+            Path::from(context.root_id().clone())
+        } else {
+            closest_node.unwrap().path().clone()
+        };
+
+        let source_route = SourceRoute::new(context.root_id().clone(), path);
 
         ReqRspMessage {
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
@@ -107,7 +123,7 @@ impl<C, const BUCKET_SIZE: usize, D: Debug> DistributedHashTableInjector<C, BUCK
     }
 
     fn send_store_req(&self, context: &C, nonce: Nonce, data: StoreReqData<DefaultLHTInput>) -> Result<(), InjectMessageError> {
-        let message = Self::construct_req_rsp_msg(context, nonce, data);
+        let message = Self::construct_req_rsp_msg(context, nonce, &data.handle.clone(), data);
 
         log::trace!(target: "distributed_hash_table_injector", "Sending StoreReq from {} with destination {}",
             message.source_route.source(),
@@ -115,14 +131,21 @@ impl<C, const BUCKET_SIZE: usize, D: Debug> DistributedHashTableInjector<C, BUCK
         );
 
         let message = ProtocolMessage::StoreReq(message);
-        context.runtime().send_message(message).map_err(|e| {
+        if message.destination().unwrap() == context.root_id() {
+            return context.runtime().send_message(message).map_err(|e| {
+                log::error!(target: "distributed_hash_table_injector", "Failed to send triggered message: {:?}", e);
+                InjectMessageError::SendFailed
+            });
+        }
+
+        context.message_sender_mut().send_message(message).map_err(|e| {
             log::error!(target: "distributed_hash_table_injector", "Failed to send triggered message: {:?}", e);
             InjectMessageError::SendFailed
         })
     }
 
     fn send_fetch_req(&self, context: &C, nonce: Nonce, data: FetchReqData) -> Result<(), InjectMessageError> {
-        let message = Self::construct_req_rsp_msg(context, nonce, data);
+        let message = Self::construct_req_rsp_msg(context, nonce, &data.handle.clone(), data);
 
         log::trace!(target: "distributed_hash_table_injector", "Sending FetchReq from {} with destination {}",
             message.source_route.source(),
@@ -130,7 +153,15 @@ impl<C, const BUCKET_SIZE: usize, D: Debug> DistributedHashTableInjector<C, BUCK
         );
 
         let message = ProtocolMessage::FetchReq(message);
-        context.runtime().send_message(message).map_err(|e| {
+        // todo remove duplicated code
+        if message.destination().unwrap() == context.root_id() {
+            return context.runtime().send_message(message).map_err(|e| {
+                log::error!(target: "distributed_hash_table_injector", "Failed to send triggered message: {:?}", e);
+                InjectMessageError::SendFailed
+            });
+        }
+
+        context.message_sender_mut().send_message(message).map_err(|e| {
             log::error!(target: "distributed_hash_table_injector", "Failed to send triggered message: {:?}", e);
             InjectMessageError::SendFailed
         })
@@ -165,12 +196,12 @@ impl<C, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCKET_SIZE> {
 }
 
 
-impl<C, const BUCKET_SIZE: usize, D: Debug> EventHandler for DistributedHashTableInjector<C, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize> EventHandler for DistributedHashTableInjector<C, BUCKET_SIZE>
     where
         C: UseCaseContext,
         for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
         C::MessageSender: ProtocolMessageSender,
-        C::Runtime: UseCaseRuntime<SendError=D>,
+        C::Runtime: UseCaseRuntime,
 {
     type Context = C;
     type Error = InjectMessageError;

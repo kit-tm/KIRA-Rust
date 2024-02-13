@@ -21,9 +21,6 @@ use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{ApiEvent, EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState};
-use crate::use_cases::forward_protocol_message::ForwardProtocolMessage;
-
-use crate::domain::dht::strategies::timeout_strategy::DEFAULT_TIMEOUT;
 
 /// Default number of seconds between each garbage collection process.
 ///
@@ -182,10 +179,11 @@ impl UseCaseState for DHTState {
     }
 }
 
-impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
+impl<C, H, RS, D: Debug> EventHandler for DistributedHashTable<C, H>
     where
         C: UseCaseContext,
         C::MessageSender: ProtocolMessageSender,
+        C::Runtime: UseCaseRuntime<SendError=D>,
         H: LocalHashTable<NodeId, DefaultLHTInput, DefaultLHTOutput, StoreRes=StoreResult, FetchErr=FetchErr> + Expiring<Context=(), Result=RS> + Clone
 {
     type Context = C;
@@ -210,7 +208,14 @@ impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
 
                 log::trace!(target: "distributed_hash_table", "Sending message: {:?}", rsp);
 
-                if let Err(e) = context.message_sender_mut().send_message(ProtocolMessage::StoreRsp(rsp)) {
+                let message = ProtocolMessage::StoreRsp(rsp);
+                if message.destination().unwrap() == context.root_id() {
+                    return context.runtime().send_message(message).map_err(|e| {
+                        log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
+                        DHTError::DHTSendError
+                    });
+                }
+                if let Err(e) = context.message_sender_mut().send_message(message) {
                     log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
                     return Err(DHTError::DHTSendError);
                 }
@@ -231,7 +236,15 @@ impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
 
                 log::trace!(target: "distributed_hash_table", "Sending message: {:?}", rsp);
 
-                if let Err(e) = context.message_sender_mut().send_message(ProtocolMessage::FetchRsp(rsp)) {
+                let message = ProtocolMessage::FetchRsp(rsp);
+                if message.destination().unwrap() == context.root_id() {
+                    return context.runtime().send_message(message).map_err(|e| {
+                        log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
+                        DHTError::DHTSendError
+                    });
+                }
+
+                if let Err(e) = context.message_sender_mut().send_message(message) {
                     log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
                     return Err(DHTError::DHTSendError);
                 }
@@ -298,7 +311,6 @@ mod tests {
     use crate::messaging::dht::{StoreOK, StoreReqData, StoreRspData};
     use crate::messaging::source_route::SourceRoute;
     use crate::runtime::ImmediateRuntime;
-    use crate::use_cases;
     use crate::use_cases::distributed_hash_table::DistributedHashTable;
     use crate::use_cases::{EventHandler, UseCase, UseCaseEvent};
 
@@ -436,7 +448,7 @@ mod tests {
         let routing_table = SingleBucketRT::<20>::new(root());
         let interface = NetworkInterface::with_name("test");
         let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
-        let (broadcaster, broadcast_receiver) = MPSCBroadcaster::new(10);
+        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let context = SyncContext::new(ContextConfig {
             root_id: root(),
