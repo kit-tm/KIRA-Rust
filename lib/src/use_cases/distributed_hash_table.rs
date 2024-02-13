@@ -22,7 +22,6 @@ use crate::messaging::{ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{ApiEvent, EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
-
 /// Default number of seconds between each garbage collection process.
 ///
 /// This may not be confused with the [DEFAULT_TIMEOUT](crate::domain::dht::strategies::timeout_strategy::DEFAULT_TIMEOUT) used
@@ -181,10 +180,11 @@ impl UseCaseState for DHTState {
     }
 }
 
-impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
+impl<C, H, RS, D: Debug> EventHandler for DistributedHashTable<C, H>
     where
         C: UseCaseContext,
         C::MessageSender: ProtocolMessageSender,
+        C::Runtime: UseCaseRuntime<SendError=D>,
         C::PhysicalNeighborTable: PNTable,
         H: LocalHashTable<NodeId, DefaultLHTInput, DefaultLHTOutput, StoreRes=StoreResult, FetchErr=FetchErr> + Expiring<Context=(), Result=RS> + Clone
 {
@@ -208,14 +208,17 @@ impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
                     source_route,
                 };
 
-                log::trace!(
-                    target: "dht",
-                    "Sending message: {:?}",
-                    rsp
-                );
+                log::trace!(target: "distributed_hash_table", "Sending message: {:?}", rsp);
 
-                if let Err(e) = context.message_sender_mut().send_message(ProtocolMessage::StoreRsp(rsp)) {
-                    log::error!("Failed to send message: {:?}", e);
+                let message = ProtocolMessage::StoreRsp(rsp);
+                if message.destination().unwrap() == context.root_id() {
+                    return context.runtime().send_message(message).map_err(|e| {
+                        log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
+                        DHTError::DHTSendError
+                    });
+                }
+                if let Err(e) = context.message_sender_mut().send_message(message) {
+                    log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
                     return Err(DHTError::DHTSendError);
                 }
             }
@@ -233,14 +236,18 @@ impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
                     source_route
                 };
 
-                log::trace!(
-                    target: "dht",
-                    "Sending message: {:?}",
-                    rsp
-                );
+                log::trace!(target: "distributed_hash_table", "Sending message: {:?}", rsp);
 
-                if let Err(e) = context.message_sender_mut().send_message(ProtocolMessage::FetchRsp(rsp)) {
-                    log::error!("Failed to send message: {:?}", e);
+                let message = ProtocolMessage::FetchRsp(rsp);
+                if message.destination().unwrap() == context.root_id() {
+                    return context.runtime().send_message(message).map_err(|e| {
+                        log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
+                        DHTError::DHTSendError
+                    });
+                }
+
+                if let Err(e) = context.message_sender_mut().send_message(message) {
+                    log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
                     return Err(DHTError::DHTSendError);
                 }
             }
@@ -254,7 +261,7 @@ impl<C, H, RS> EventHandler for DistributedHashTable<C, H>
                 let table_dump = self.hash_table.fetch_all();
 
                 if let Err(e) = callback.send(table_dump) {
-                    log::error!("Failed to send local hash table: {:?}", e);
+                    log::error!(target: "distributed_hash_table", "Failed to send local hash table: {:?}", e);
                     return Err(DHTError::DHTSendError);
                 }
             }
