@@ -4,7 +4,7 @@ After=network.target
 Before=network-online.target
 
 [Service]
-ExecStart=/usr/bin/r2kad
+ExecStart=/usr/local/lib/r2kad/r2kad-daemon
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 ProtectSystem=full
