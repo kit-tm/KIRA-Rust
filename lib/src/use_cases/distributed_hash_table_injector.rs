@@ -109,14 +109,14 @@ impl<C, const BUCKET_SIZE: usize, D: Debug> DistributedHashTableInjector<C, BUCK
     fn send_store_req(&self, context: &C, nonce: Nonce, data: StoreReqData<DefaultLHTInput>) -> Result<(), InjectMessageError> {
         let message = Self::construct_req_rsp_msg(context, nonce, data);
 
-        log::trace!(target: "inject_dht_messages", "Sending StoreReq from {} with destination {}",
+        log::trace!(target: "distributed_hash_table_injector", "Sending StoreReq from {} with destination {}",
             message.source_route.source(),
             message.data.handle
         );
 
         let message = ProtocolMessage::StoreReq(message);
         context.runtime().send_message(message).map_err(|e| {
-            log::error!(target: "inject_dht_messages", "Failed to send triggered message: {:?}", e);
+            log::error!(target: "distributed_hash_table_injector", "Failed to send triggered message: {:?}", e);
             InjectMessageError::SendFailed
         })
     }
@@ -124,14 +124,14 @@ impl<C, const BUCKET_SIZE: usize, D: Debug> DistributedHashTableInjector<C, BUCK
     fn send_fetch_req(&self, context: &C, nonce: Nonce, data: FetchReqData) -> Result<(), InjectMessageError> {
         let message = Self::construct_req_rsp_msg(context, nonce, data);
 
-        log::trace!(target: "inject_dht_messages", "Sending FetchReq from {} with destination {}",
+        log::trace!(target: "distributed_hash_table_injector", "Sending FetchReq from {} with destination {}",
             message.source_route.source(),
             message.data.handle
         );
 
         let message = ProtocolMessage::FetchReq(message);
         context.runtime().send_message(message).map_err(|e| {
-            log::error!(target: "inject_dht_messages", "Failed to send triggered message: {:?}", e);
+            log::error!(target: "distributed_hash_table_injector", "Failed to send triggered message: {:?}", e);
             InjectMessageError::SendFailed
         })
     }
@@ -140,7 +140,7 @@ impl<C, const BUCKET_SIZE: usize, D: Debug> DistributedHashTableInjector<C, BUCK
 impl<C, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCKET_SIZE> {
     fn send_inject_result(&self, result: InjectionResult, callback: OneshotInjectMessageCallback) -> Result<(), InjectMessageError> {
         callback.send(result).map_err(|e| {
-            log::error!(target: "inject_dht_messages", "failed to send inject result: {:#?}", e);
+            log::error!(target: "distributed_hash_table_injector", "failed to send inject result: {:#?}", e);
 
             InjectMessageError::SendResultFailed
         })
@@ -216,7 +216,7 @@ impl<C, const BUCKET_SIZE: usize, D: Debug> EventHandler for DistributedHashTabl
                     let elapsed = instant.elapsed();
                     self.send_inject_result(InjectionResult::Answered((message.clone(), interface)), callback)?;
 
-                    log::trace!(target: "inject_dht_messages", "Received response for nonce {:?} after {:?}", message.nonce(), elapsed);
+                    log::trace!(target: "distributed_hash_table_injector", "Received response for nonce {:?} after {:?}", message.nonce(), elapsed);
                 }
             }
             (UseCaseEvent::Timer(id), Running(our_id)) => {
