@@ -1,7 +1,7 @@
 PKGNAME = r2kad
 PREFIX ?= /usr/local
 
-.PHONY: setup docs build build-release install
+.PHONY: setup docs build build-release install uninstall
 
 default: build
 
@@ -14,13 +14,25 @@ build:
 build-release:
 	cargo build --release
 
-install: build-release unit-install target/release/r2kad-daemon
+install: install-bin install-unit
+
+install-bin: build-release
 	mkdir -p $(PREFIX)/lib/$(PKGNAME)
 	install target/release/r2kad-daemon $(PREFIX)/lib/$(PKGNAME)
 
-unit-install: data/r2kad.service
+install-unit: data/r2kad.service
 	mkdir -p $(PREFIX)/lib/systemd/system
 	install data/r2kad.service $(PREFIX)/lib/systemd/system
+	systemctl daemon-reload
+
+uninstall: uninstall-bin uninstall-unit
+
+uninstall-bin:
+	rm -r $(PREFIX)/lib/$(PKGNAME)
+
+uninstall-unit:
+	rm $(PREFIX)/lib/systemd/system/r2kad.service
+	systemctl daemon-reload
 
 lib-docs:
 	cargo doc --package=r2kad-lib --all-features --open
