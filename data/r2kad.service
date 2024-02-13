@@ -1,0 +1,13 @@
+[Unit]
+Description=r2kad - A KIRA routing daemon written in Rust
+After=network.target
+Before=network-online.target
+
+[Service]
+ExecStart=/usr/bin/r2kad
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
