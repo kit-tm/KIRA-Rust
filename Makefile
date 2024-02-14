@@ -22,7 +22,7 @@ install-bin: build-release
 
 install-unit: data/r2kad.service
 	mkdir -p $(PREFIX)/lib/systemd/system
-	install data/r2kad.service $(PREFIX)/lib/systemd/system
+	install daemon/data/r2kad.service $(PREFIX)/lib/systemd/system
 	systemctl daemon-reload
 
 uninstall: uninstall-bin uninstall-unit
