@@ -11,7 +11,6 @@ use tokio::sync::{mpsc, RwLock};
 
 use r2kad_daemon_lib::{Node, NodeConfig};
 use r2kad_lib::domain::NodeId;
-use r2kad_lib::forwarding::in_memory_tables::InMemoryFwdTables;
 use r2kad_lib::messaging::format::ProtocolMessageFormat;
 use r2kad_lib::messaging::sync_wrapper::SyncWrapper;
 use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetInterfaceMonitor};
@@ -28,6 +27,8 @@ struct Args {
     /// This also enables benchmarking mode which disables logging.
     #[clap(short, long, value_parser, env = "BENCH_PATH")]
     benchmark_path: Option<String>,
+    #[clap(short, long, value_parser, env = "NFTABLES_CONF", default_value = "nftables.conf")]
+    nftables_conf: String,
 }
 
 fn main() {
@@ -78,7 +79,7 @@ fn main() {
     let mapper = PNetInterfaceMonitor::new();
     mapper.blocking_refresh();
 
-    let fwd_table = InMemoryFwdTables::new();
+    let fwd_table = NativeFwdTables::new(args.nftables_conf);
 
     let ip_cache = Arc::new(RwLock::new(HashMap::new()));
     let channel = r2kad_lib::messaging::udp::async_channel(
