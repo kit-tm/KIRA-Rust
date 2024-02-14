@@ -28,7 +28,7 @@ pub enum InsertionStrategyResult {
 ///
 /// Also [NotVia](crate::domain::NotVia) Data is not handled by the [InsertionStrategy] as it
 /// represents logic of the routing-daemon itself and not the domain.
-pub trait InsertionStrategy<RT, const BUCKET_SIZE: usize>
+pub trait InsertionStrategy<RT, PN, const BUCKET_SIZE: usize>
 where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
 {
@@ -39,7 +39,7 @@ where
         &mut self,
         contact: Contact,
         routing_table: &mut RT,
-        pn_table: &PNTable,
+        pn_table: &PN,
     ) -> InsertionStrategyResult;
 }
 
@@ -81,30 +81,45 @@ where
             log::trace!(target: "routing_table", "Dropped path: Invalid [{:?}]", contact);
             return InsertionStrategyResult::Dropped;
         }
-        if existing.state() == &ContactState::Invalid && contact.state() == &ContactState::Valid {
+
+        // drop if received data is older than stored data
+        if contact.is_older_than(&existing) {
+            log::trace!(
+                target: "routing_table",
+                "Dropping path: Older [info: {:?}, saved_age: {:?}, saved_ssn: {:?}]",
+                contact,
+                existing.age(),
+                existing.state_seq_nr(),
+            );
+            return InsertionStrategyResult::Dropped;
+        }
+
+        // contact is newer, better or fixes a contact
+
+
+        // replace invalid existing data
+        // FIXME check whether the supposed new path actually avoids all broken links
+        // -> `src/routing/r2kademlia/KadRoutingTable.cc:299`
+        if existing.state() == &ContactState::Invalid
+            && contact.state() == &ContactState::Valid {
             log::trace!(target: "routing_table", "Updated path: Invalid path was replaced [{:?}]", contact);
             *existing = contact;
             return InsertionStrategyResult::Updated;
         }
 
-        // drop if received data is older than stored data
-        match existing.cmp_actuality(&contact) {
-            Ordering::Greater => {
-                log::trace!(
-                    target: "routing_table",
-                    "Dropping path: Older [info: {:?}, saved_age: {:?}, saved_ssn: {:?}]",
-                    contact,
-                    existing.age(),
-                    existing.state_seq_nr(),
-                );
-                return InsertionStrategyResult::Dropped;
-            }
-            // If less or equal -> replace
-            Ordering::Less => {}
-            Ordering::Equal => {}
-        }
 
-        // contact is newer, better or fixes a contact
+        // dont replace path with longer path if ssn is same
+        if existing.state_seq_nr() == contact.state_seq_nr()
+            // todo support option to specify replace behaviour on equal length (called `enableSinglePathDiversity`)
+            // todo use hash to prevent path flapping
+            && contact.path().size() >= /* > */ existing.path().size() {
+            log::trace!(
+                target: "routing_table",
+                "Not updating contacts path because it is longer [{:?}]",
+                contact
+            );
+            return InsertionStrategyResult::Dropped;
+        }
 
         // But: If only age is updated, don't emit anything
         let return_result =
@@ -116,6 +131,12 @@ where
                 );
                 InsertionStrategyResult::Dropped
             } else {
+                // FIXME dont accept longer path to potential PN
+                // this potentially also requires to rework the PathSimplifier,
+                // since it just assumes working PN and replaces with existing short path
+                // todo schedule recheck PN if in vicinityDiscoveryRadius
+                // todo schedule pathcheck for shorter path if offered path is longer
+                // -> src/routing/r2kademlia/KadRoutingTable.cc:315
                 log::trace!(
                     target: "routing_table",
                     "Updated contact [{:?}]",
@@ -170,10 +191,11 @@ where
     }
 }
 
-impl<RT, CR, PS, const BUCKET_SIZE: usize> InsertionStrategy<RT, BUCKET_SIZE>
+impl<RT, PN, CR, PS, const BUCKET_SIZE: usize> InsertionStrategy<RT, PN, BUCKET_SIZE>
     for PNSStrategy<RT, CR, PS, BUCKET_SIZE>
 where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
+    PN: PNTable,
     CR: PathCycleRemover,
     PS: PathSimplifier,
 {
@@ -181,7 +203,7 @@ where
         &mut self,
         mut contact: Contact,
         routing_table: &mut RT,
-        pn_table: &PNTable,
+        pn_table: &PN,
     ) -> InsertionStrategyResult {
         // Ignore paths to us
         if contact.id() == routing_table.root() {
@@ -256,7 +278,7 @@ impl From<InsertionStrategyResult> for TestInsertionStrategy {
     }
 }
 
-impl<RT, const BUCKET_SIZE: usize> InsertionStrategy<RT, BUCKET_SIZE> for TestInsertionStrategy
+impl<RT, PN, const BUCKET_SIZE: usize> InsertionStrategy<RT, PN, BUCKET_SIZE> for TestInsertionStrategy
 where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
 {
@@ -264,7 +286,7 @@ where
         &mut self,
         contact: Contact,
         routing_table: &mut RT,
-        _pn_table: &PNTable,
+        _pn_table: &PN,
     ) -> InsertionStrategyResult {
         let result = routing_table.insert(contact);
         if let Err(e) = result {
@@ -278,11 +300,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{
-        Contact, ContactState, InOrderCycleRemover, InsertionStrategy, InsertionStrategyResult,
-        NetworkInterface, NodeId, PNSStrategy, PNTable, Path, RoutingTable,
-        ShortestFirstPathSimplifier, StateSeqNr,
-    };
+    use crate::domain::{Contact, ContactState, InOrderCycleRemover, InsertionStrategy, InsertionStrategyResult, NetworkInterface, NodeId, PNSStrategy, PNTable, Path, RoutingTable, ShortestFirstPathSimplifier, StateSeqNr, InMemoryPNTable};
 
     #[test]
     fn extract_infos_from_find_node_not_for_us() {
@@ -304,9 +322,9 @@ mod tests {
         let target_id = NodeId::with_msb(4);
         let proxy_invalidated_id = NodeId::with_msb(5);
 
-        let interface = NetworkInterface::new("test");
-        let other_interface = NetworkInterface::new("test 2");
-        let third_interface = NetworkInterface::new("test 3");
+        let interface = NetworkInterface::with_name("test");
+        let other_interface = NetworkInterface::with_name("test 2");
+        let third_interface = NetworkInterface::with_name("test 3");
 
         let mut proxy_invalidated_contact = Contact::new(
             Path::from([other_neighbor_id.clone(), proxy_invalidated_id.clone()]),
@@ -337,7 +355,7 @@ mod tests {
             );
         }
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
         pn_table.insert(other_neighbor_id.clone(), other_interface.clone());
         pn_table.insert(target_id.clone(), third_interface.clone());

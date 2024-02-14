@@ -9,7 +9,7 @@ pub use std_extension::*;
 pub use tokio_extension::*;
 
 use crate::context::UseCaseContext;
-use crate::domain::{node_id, GroupingError, NetworkInterface, RoutingTable};
+use crate::domain::{node_id, GroupingError, NetworkInterface, RoutingTable, PNTable};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{Nonce, ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
 use crate::use_cases::inject_messages::errors::InjectMessageError;
@@ -20,7 +20,7 @@ use crate::use_cases::{
 /// Sender for [InjectionResult]s.
 ///
 /// Used to send results for injected messages back to the outside (main component).
-pub trait InjectionResultSender {
+pub trait InjectionResultSender: Clone {
     type Error: Error;
 
     fn send_result(&self, result: InjectionResult) -> Result<(), Self::Error>;
@@ -28,7 +28,7 @@ pub trait InjectionResultSender {
 
 #[cfg(feature = "tokio")]
 mod tokio_extension {
-    use tokio::sync::{broadcast, mpsc};
+    use tokio::sync::{broadcast, mpsc, oneshot};
 
     use crate::use_cases::inject_messages::{InjectionResult, InjectionResultSender};
 
@@ -73,7 +73,7 @@ pub enum InjectionResult {
     /// The node is isolated and the message couldn't be injected.
     Isolated,
     /// Injecting the [ProtocolMessage] failed.
-    SendFailed(ProtocolMessage),
+    SendFailed(Nonce),
 }
 
 /// Configuration for message injection in general.
@@ -136,6 +136,7 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::MessageSender: ProtocolMessageSender,
     TS: InjectionResultSender,
+    C::PhysicalNeighborTable: PNTable
 {
     type Context = C;
     type Error = InjectMessageError;
@@ -174,6 +175,16 @@ where
                 let source_route = closest_route.unwrap();
 
                 log::trace!(target: "inject_messages", "Sending FindNodeReq from {} with target {}", source_route.source(), &data.target);
+
+                let nonce = nonce.unwrap_or_else(|| {
+                    // generate distinct nonce
+                    loop {
+                        let nonce = Nonce::random();
+                        if !self.nonces.contains_key(&nonce) {
+                            break nonce;
+                        }
+                    }
+                });
 
                 let message = ProtocolMessage::FindNodeReq(ReqRspMessage {
                     nonce: nonce.clone(),
@@ -217,6 +228,7 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::MessageSender: ProtocolMessageSender,
     TS: InjectionResultSender,
+    C::PhysicalNeighborTable: PNTable
 {
     type State = ReactiveUseCaseState;
 
@@ -262,10 +274,7 @@ mod tests {
 
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{
-        Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable,
-        StateSeqNr, TestInsertionStrategy,
-    };
+    use crate::domain::{Contact, InsertionStrategyResult, NetworkInterface, NodeId, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable, PNTable};
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::{
@@ -294,8 +303,8 @@ mod tests {
 
         let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
-        let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id.clone(), NetworkInterface::new("test"));
+        let mut pn_table = InMemoryPNTable::new();
+        pn_table.insert(neighbor_id.clone(), NetworkInterface::with_name("test"));
 
         let sync_context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
@@ -329,7 +338,7 @@ mod tests {
             target: neighbor_id.clone(),
         };
         let event = UseCaseEvent::InjectMessage(
-            event_nonce.clone(),
+            Some(event_nonce.clone()),
             InjectionMessageData::FindNode(event_data.clone()),
         );
         let handle_result = use_case.handle_event(&sync_context, event);
@@ -366,7 +375,7 @@ mod tests {
     fn received_answer_gets_returned() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_msb(1);
         let neighbor_id = NodeId::with_msb(3);
@@ -380,7 +389,7 @@ mod tests {
 
         let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -416,7 +425,7 @@ mod tests {
             target: neighbor_id.clone(),
         };
         let event = UseCaseEvent::InjectMessage(
-            event_nonce.clone(),
+            Some(event_nonce.clone()),
             InjectionMessageData::FindNode(event_data.clone()),
         );
         let handle_result = use_case.handle_event(&sync_context, event);

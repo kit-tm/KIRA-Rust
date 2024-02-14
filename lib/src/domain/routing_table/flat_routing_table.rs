@@ -159,6 +159,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
     type BucketWriteGuard = &'a mut Bucket<BUCKET_SIZE>;
     type Iter = std::vec::IntoIter<&'a Contact>;
     type IterMut = std::vec::IntoIter<&'a mut Contact>;
+    type BucketIter = std::slice::Iter<'a, Bucket<BUCKET_SIZE>>;
 
     fn root(&self) -> &NodeId {
         &self.root
@@ -258,6 +259,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         let index = self.get_bucket_index(to);
 
         // Longer prefix has to be in front
+        // todo this shouldn't be necessary since the default order on tuples is already lexicographical
         let sorter = |first: &(SharedPrefix, Contact), second: &(SharedPrefix, Contact)| {
             if first.0 < second.0 {
                 return Ordering::Less;
@@ -376,6 +378,10 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
             // FIXME: Remove allocation
             .collect::<Vec<_>>()
             .into_iter()
+    }
+
+    fn bucket_iter(&'a self) -> Self::BucketIter {
+        self.buckets.iter()
     }
 }
 

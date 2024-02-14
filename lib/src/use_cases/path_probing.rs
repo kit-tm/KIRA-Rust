@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use crate::context::UseCaseContext;
-use crate::domain::{ContactState, NodeId, RoutingTable, DEFAULT_BUCKET_SIZE};
+use crate::domain::{ContactState, NodeId, RoutingTable, DEFAULT_BUCKET_SIZE, PNTable, Contact};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     Nonce, ProbeReqData, ProbeRspData, ProtocolMessage, ProtocolMessageSender, ReqRspMessage,
@@ -87,9 +87,33 @@ where
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable
 {
-    // Searched for old contacts and sends ProbeReqs to all of them
+    // Send ProbeReqs to two oldest valid contacts per bucket
     fn send_probe_reqs(&mut self, context: &C) -> Result<(), MessageSentFailed> {
+        let rt = context.routing_table();
+        for bucket in rt.bucket_iter() {
+            let mut considered_contacts: Vec<_> = bucket.into_iter()
+                .filter(|contact| {
+                    contact.last_seen().to_age_duration() >= self.config.probe_age &&
+                        contact.state() == &ContactState::Valid &&
+                        // should never be the case
+                        !contact.is_pn()
+                }).collect();
+
+            considered_contacts.sort_unstable_by_key(|contact| contact.last_seen());
+            // put oldest to the front
+            considered_contacts.reverse();
+
+            // todo make configurable
+            considered_contacts.iter().take(2)
+                .try_for_each(|c| self.send_probe_req(context, c))?
+        };
+
+        Ok(())
+    }
+
+    fn send_probe_req(&mut self, context: &C, contact: &Contact) -> Result<(), MessageSentFailed> {
         let (probe_timers, requests_in_flight) = match &mut self.state {
             PathProbingState::Running {
                 probe_timers,
@@ -99,38 +123,33 @@ where
             _ => panic!("Called sending probe outside of running state"),
         };
 
-        for contact in context.routing_table().iter() {
-            if contact.last_seen().to_age_duration() <= self.config.probe_age {
-                continue;
-            }
-
-            let mut nonce = Nonce::random();
-            while requests_in_flight.contains_key(&nonce) {
-                nonce = Nonce::random();
-            }
-
-            let mut route = SourceRoute::from(contact.path().clone());
-            route.push_front(context.root_id().clone());
-            let message = ReqRspMessage {
-                nonce: nonce.clone(),
-                source_state_seq_nr: *context.pn_table().state_seq_nr(),
-                data: ProbeReqData,
-                not_via: context.not_via().clone(),
-                source_route: route,
-            };
-            if let Err(e) = context.message_sender_mut().send_message(message) {
-                log::error!(target: "path_probing", "Failed to send ProbeReq: {}", e);
-                return Err(MessageSentFailed);
-            }
-
-            let timeout_timer = context
-                .runtime()
-                .register_timer(self.config.request_timeout);
-            probe_timers.insert(timeout_timer, nonce.clone());
-            requests_in_flight.insert(nonce, contact.id().clone());
-
-            log::trace!(target: "path_probing", "Sent probe to {}", contact.id());
+        // generate new unused nonce for our message
+        let mut nonce = Nonce::random();
+        while requests_in_flight.contains_key(&nonce) {
+            nonce = Nonce::random();
         }
+
+        let mut route = SourceRoute::from(contact.path().clone());
+        route.push_front(context.root_id().clone());
+        let message = ReqRspMessage {
+            nonce: nonce.clone(),
+            source_state_seq_nr: *context.pn_table().state_seq_nr(),
+            data: ProbeReqData,
+            not_via: context.not_via().clone(),
+            source_route: route,
+        };
+        if let Err(e) = context.message_sender_mut().send_message(message) {
+            log::error!(target: "path_probing", "Failed to send ProbeReq: {}", e);
+            return Err(MessageSentFailed);
+        }
+
+        let timeout_timer = context
+            .runtime()
+            .register_timer(self.config.request_timeout);
+        probe_timers.insert(timeout_timer, nonce.clone());
+        requests_in_flight.insert(nonce, contact.id().clone());
+
+        log::trace!(target: "path_probing", "Sent probe to {}", contact.id());
 
         Ok(())
     }
@@ -273,6 +292,7 @@ where
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable
 {
     type State = PathProbingState;
 
@@ -301,6 +321,7 @@ where
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable
 {
     type Context = C;
     type Error = MessageSentFailed;
@@ -358,10 +379,7 @@ mod tests {
 
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{
-        Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable,
-        Path, RoutingTable, StateSeqNr, TestInsertionStrategy, Timestamp,
-    };
+    use crate::domain::{Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, Timestamp, InMemoryPNTable};
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::{
@@ -376,7 +394,7 @@ mod tests {
     async fn path_probe_sent() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -414,7 +432,7 @@ mod tests {
             assert!(routing_table.insert(contact).is_ok());
         }
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -453,14 +471,20 @@ mod tests {
             }
         }
 
+        assert_eq!(
+            contacts_probed.len(),
+            2,
+            "More than two contacts per bucket probed: {:#?}",
+            contacts_probed
+        );
+
+
         for old_contact in old_contacts {
             let probed_contact = contacts_probed.remove(old_contact.id());
-            assert!(
-                probed_contact.is_some(),
-                "No probe for old contact {} found",
-                old_contact.id()
-            );
-            let probed_route = probed_contact.unwrap();
+            let Some(probed_route) = probed_contact else {
+                // we dont expect all contacts to be probed
+                continue;
+            };
             assert_eq!(
                 &probed_route,
                 &SourceRoute::new(root_id.clone(), old_contact.path().clone()),
@@ -470,7 +494,7 @@ mod tests {
 
         assert!(
             contacts_probed.is_empty(),
-            "Some contacts were probed that didn't have to bee probed: {:?}",
+            "Some contacts were probed that didn't have to be probed: {:?}",
             contacts_probed
         );
     }
@@ -479,7 +503,7 @@ mod tests {
     async fn path_probe_answered() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -498,7 +522,7 @@ mod tests {
         assert!(routing_table.insert(neighbor.clone()).is_ok());
         assert!(routing_table.insert(contact.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -564,7 +588,7 @@ mod tests {
     async fn contact_invalidated_after_timeout() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -590,7 +614,7 @@ mod tests {
             .insert(old_contact_not_responding.clone())
             .is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -643,7 +667,7 @@ mod tests {
     async fn contact_invalidated_after_segment_failure() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -669,7 +693,7 @@ mod tests {
             .insert(old_contact_not_responding.clone())
             .is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -740,7 +764,7 @@ mod tests {
     async fn contact_still_valid_after_successful_response_and_timeout_timer() {
         crate::tests::init();
 
-        let interface = NetworkInterface::new("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -766,7 +790,7 @@ mod tests {
             .insert(old_contact_not_responding.clone())
             .is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {

@@ -6,7 +6,7 @@ use tokio::sync::RwLock;
 
 use crate::broadcaster::Broadcaster;
 use crate::context::{ContextConfig, ReadGuard, UseCaseContext, WriteGuard};
-use crate::domain::{NodeId, NotVia, PNTable};
+use crate::domain::{NodeId, NotVia};
 use crate::runtime::TokioRuntime;
 use crate::utils::tokio_utils;
 
@@ -17,10 +17,10 @@ use crate::utils::tokio_utils;
 /// Calling the [UseCaseContext] methods is currently only supported outside of an async runtime
 /// or the rt-multi-thread Tokio runtime.
 #[derive(Debug, Clone)]
-pub struct TokioContext<RT, MS, RU, IS, FT> {
+pub struct TokioContext<RT, MS, RU, IS, PN, FT> {
     root_id: NodeId,
     routing_table: Arc<RwLock<RT>>,
-    pn_table: Arc<RwLock<PNTable>>,
+    pn_table: Arc<RwLock<PN>>,
     insertion_strategy: Arc<RwLock<IS>>,
     message_sender: Arc<RwLock<MS>>,
     forwarding_tables: Arc<RwLock<FT>>,
@@ -28,16 +28,17 @@ pub struct TokioContext<RT, MS, RU, IS, FT> {
     not_via: Arc<RwLock<HashSet<NotVia>>>,
 }
 
-impl<RT, MS, B: Broadcaster, IS, FT> UseCaseContext
-    for TokioContext<RT, MS, TokioRuntime<B>, IS, FT>
+impl<RT, MS, B: Broadcaster, IS, PN, FT> UseCaseContext
+    for TokioContext<RT, MS, TokioRuntime<B>, IS, PN, FT>
 {
     type RoutingTable = RT;
     type MessageSender = MS;
     type Runtime = TokioRuntime<B>;
     type InsertionStrategy = IS;
+    type PhysicalNeighborTable = PN;
     type ForwardingTables = FT;
 
-    fn new(config: ContextConfig<RT, MS, TokioRuntime<B>, IS, FT>) -> Self {
+    fn new(config: ContextConfig<RT, MS, TokioRuntime<B>, IS, PN, FT>) -> Self {
         Self {
             root_id: config.root_id,
             routing_table: Arc::new(RwLock::new(config.routing_table)),
@@ -66,11 +67,11 @@ impl<RT, MS, B: Broadcaster, IS, FT> UseCaseContext
         tokio_utils::get_write_guard(self.insertion_strategy.deref()).into()
     }
 
-    fn pn_table(&self) -> ReadGuard<PNTable> {
+    fn pn_table(&self) -> ReadGuard<Self::PhysicalNeighborTable> {
         tokio_utils::get_read_guard(self.pn_table.deref()).into()
     }
 
-    fn pn_table_mut(&self) -> WriteGuard<PNTable> {
+    fn pn_table_mut(&self) -> WriteGuard<Self::PhysicalNeighborTable> {
         tokio_utils::get_write_guard(self.pn_table.deref()).into()
     }
 
@@ -112,9 +113,7 @@ mod tests {
     use tokio::sync::broadcast;
 
     use crate::context::{ContextConfig, ReadGuard, TokioContext, UseCaseContext, WriteGuard};
-    use crate::domain::{
-        FlatRoutingTable, InsertionStrategyResult, NodeId, PNTable, TestInsertionStrategy,
-    };
+    use crate::domain::{FlatRoutingTable, InMemoryPNTable, InsertionStrategyResult, NodeId, TestInsertionStrategy};
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::InMemoryMessageChannel;
     use crate::runtime::TokioRuntime;
@@ -141,7 +140,7 @@ mod tests {
         let context = TokioContext::new(ContextConfig {
             root_id: root_id.clone(),
             routing_table: FlatRoutingTable::<20, 1>::new(root_id),
-            pn_table: PNTable::new(),
+            pn_table: InMemoryPNTable::new(),
             insertion_strategy,
             message_sender: message_hub,
             runtime,

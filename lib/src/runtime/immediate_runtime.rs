@@ -4,6 +4,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::broadcaster::Broadcaster;
+use crate::domain::NetworkInterface;
+use crate::messaging::ProtocolMessage;
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{TimerId, UseCaseEvent};
 
@@ -51,6 +53,8 @@ impl<B: Broadcaster> UseCaseRuntime for ImmediateRuntime<B>
 where
     B: 'static + Broadcaster + Send + Sync,
 {
+    type SendError = B::SendError;
+
     /// Instantly emits the event returning its id.
     fn register_timer(&self, duration: Duration) -> TimerId {
         let id = TimerId::from(self.counter.fetch_add(1, Ordering::Relaxed));
@@ -78,5 +82,17 @@ where
             }
         });
         id
+    }
+
+    fn send_message(&self, message: ProtocolMessage) -> Result<(), Self::SendError> {
+        let use_case_broadcaster = self.broadcaster.clone();
+        let event = UseCaseEvent::Message(message, NetworkInterface::loopback());
+
+        if let Err(e) = use_case_broadcaster.send_event(event) {
+            log::error!("Failed to send Event to use cases: {:?}", e);
+            return Err(e)
+        }
+
+        Ok(())
     }
 }

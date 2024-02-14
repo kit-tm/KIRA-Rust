@@ -193,6 +193,7 @@ where
     type BucketWriteGuard = BucketWriteGuard<'a, RT::BucketWriteGuard, BUCKET_SIZE>;
     type Iter = RT::Iter;
     type IterMut = Iter<'a, RT::IterMut, RT::ContactWriteGuard, BUCKET_SIZE>;
+    type BucketIter = RT::BucketIter;
 
     fn root(&self) -> &NodeId {
         self.inner.root()
@@ -289,6 +290,10 @@ where
 
     fn iter_mut(&'a mut self) -> Self::IterMut {
         Iter::new(&self.observers, self.inner.iter_mut())
+    }
+
+    fn bucket_iter(&'a self) -> Self::BucketIter {
+        self.inner.bucket_iter()
     }
 }
 

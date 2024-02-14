@@ -18,10 +18,7 @@ use r2kad_lib::context::{ContextConfig, SyncContext, UseCaseContext};
 use r2kad_lib::domain::bucket::DEFAULT_BUCKET_SIZE;
 use r2kad_lib::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
 use r2kad_lib::domain::unlimited_pn_routing_table::UnlimitedPNRoutingTable;
-use r2kad_lib::domain::{
-    FlatRoutingTable, InOrderCycleRemover, NetworkInterface, NodeId, PNSStrategy, PNTable,
-    ShortestFirstPathSimplifier,
-};
+use r2kad_lib::domain::{FlatRoutingTable, InOrderCycleRemover, NativePNTable, NetworkInterface, NodeId, PNSStrategy, ShortestFirstPathSimplifier};
 use r2kad_lib::forwarding::{ForwardingTables, NodeIdTable, PathIdTable};
 use r2kad_lib::hardware_events::HardwareEvent;
 use r2kad_lib::messaging::{
@@ -47,11 +44,16 @@ use r2kad_lib::use_cases::{
     ContactEvent, EventHandler, HandlingResult, InjectionMessageData, UseCase, UseCaseEvent,
     UseCaseState,
 };
+use r2kad_lib::use_cases::distributed_hash_table::{DefaultExpiringHashTable, DistributedHashTable, DistributedHashTableConfig};
+use r2kad_lib::use_cases::distributed_hash_table_injector::DistributedHashTableInjector;
 
 use crate::benchmark_log::{BenchmarkEntry, BenchmarkLog};
 use crate::errors::InjectMessageError;
 
 mod benchmark_log;
+
+#[cfg(feature = "api")]
+pub mod api;
 
 #[derive(Default, Debug)]
 pub struct NodeConfig {
@@ -127,7 +129,7 @@ impl NodeHandle {
 
         self.broadcaster
             .send_event(UseCaseEvent::InjectMessage(
-                nonce.clone(),
+                Some(&nonce).cloned(),
                 InjectionMessageData::FindNode(req_data),
             ))
             .map_err(|e| InjectMessageError::BroadcastFailed(Box::new(e)))?;
@@ -137,8 +139,8 @@ impl NodeHandle {
         loop {
             let result = self.injection_result_receiver.try_recv();
             match result {
-                Ok(InjectionResult::SendFailed(message)) => {
-                    log::error!("Failed to send message: {:#?}", message);
+                Ok(InjectionResult::SendFailed(nonce)) => {
+                    log::error!("Failed to send message with nonce {:?}", nonce);
                     return Err(InjectMessageError::SendFailed);
                 }
                 Ok(InjectionResult::Isolated) => return Err(InjectMessageError::Isolated),
@@ -286,6 +288,8 @@ where
         let (fan_in_sender, mut fan_in_receiver) =
             mpsc::channel::<(UseCaseEvent, Option<Instant>)>(100);
 
+        let new_sender = fan_in_sender.clone();
+
         // Create a task to fan in own created events
         let broadcast_fan_in_sender = fan_in_sender.clone();
         runtime.spawn(async move {
@@ -364,6 +368,7 @@ where
 
                         if message.source() == &root_node_id {
                             // ignoring messages from us
+                            log::warn!("Ignoring message from us [{:?}]", message);
                             continue;
                         }
 
@@ -415,7 +420,7 @@ where
                 _,
                 BUCKET_SIZE,
             >::new(InOrderCycleRemover, ShortestFirstPathSimplifier),
-            pn_table: PNTable::new(),
+            pn_table: NativePNTable::new(),
             forwarding_tables: fwd_table,
             not_via: HashSet::default(),
         };
@@ -442,6 +447,17 @@ where
                 log::error!("Failed to broadcast signal triggered shutdown: {}", e);
             }
         });
+
+        #[cfg(feature = "api")]
+        let api_config = api::ApiConfig::new(
+            "0.0.0.0:8082".parse().unwrap(),
+            root_id.clone().into(),
+            new_sender,
+        );
+
+        #[cfg(feature = "api")]
+        runtime.spawn(api::start_http_server(api_config));
+
 
         // Initialize the Use Cases
 
@@ -505,9 +521,15 @@ where
             log::error!("Failed to start explicit path management: {}", e);
         }
 
-        let mut inject_messages = if let Some(injection_sender) = injection_sender {
+        let mut distributed_hash_table: DistributedHashTable<_, DefaultExpiringHashTable> = DistributedHashTable::new(DistributedHashTableConfig::default());
+        if let Err(e) = distributed_hash_table.start(&context) {
+            log::error!("Failed to start distributed hash table UseCase: {}", e);
+            return;
+        }
+
+        let mut inject_messages = if let Some(injection_sender) = injection_sender.as_ref() {
             let mut inject_messages =
-                InjectMessages::new(InjectMessagesConfig::default(), injection_sender)
+                InjectMessages::new(InjectMessagesConfig::default(), injection_sender.clone())
                     .expect("default grouping should be valid");
             if let Err(e) = inject_messages.start(&context) {
                 log::error!("Failed to start inject messages UseCase: {}", e);
@@ -517,6 +539,12 @@ where
         } else {
             None
         };
+
+        let mut distributed_hash_table_injector = DistributedHashTableInjector::default();
+        if let Err(e) = distributed_hash_table_injector.start(&context) {
+                log::error!("Failed to start distributed hash table injector UseCase: {}", e);
+                return;
+        }
 
         // Initialize common tasks
 
@@ -531,6 +559,16 @@ where
         //              Without that the tasks spawned in the runtime won't make any progress.
         while let Some((event, start_time)) = runtime.block_on(fan_in_receiver.recv()) {
             log::trace!("Processing event {:?}", event);
+
+            // Setup paths before we forward them to setup paths on intermediate nodes too
+            match explicit_path_management.handle_event(&context, event.clone()) {
+                Err(e) => log::error!(
+                    "Explicit path management returned error handling message: {}",
+                    e
+                ),
+                Ok(HandlingResult::Handled) => continue, /* Skip delegation to other use cases, since path-setup/-teardown is complete */
+                Ok(HandlingResult::NotHandled) => { /* Delegate event to use cases */ }
+            }
 
             // Some precomputation to perform actions and delegate which are common tasks
             match forward_message.handle_event(&context, event.clone()) {
@@ -576,9 +614,9 @@ where
             {
                 log::error!("Precomputation returned error handling message");
             }
-            if let Err(e) = explicit_path_management.handle_event(&context, event.clone()) {
+            if let Err(e) = distributed_hash_table.handle_event(&context, event.clone()) {
                 log::error!(
-                    "Explicit path management returned error handling message: {}",
+                    "Distributed Hash Table returned error handling message: {}",
                     e
                 );
             }
@@ -587,6 +625,10 @@ where
                 .map(|use_case| use_case.handle_event(&context, event.clone()))
             {
                 log::error!("Injecting Messages returned error handling message: {}", e);
+            }
+            if let Err(e) = distributed_hash_table_injector.handle_event(&context, event.clone())
+            {
+                log::error!("Injecting DHT Messages returned error handling message: {}", e);
             }
 
             // Check States as returning an error doesn't show an unrecoverable error

@@ -6,13 +6,14 @@ pub struct ShortestFirstPathSimplifier;
 impl PathSimplifier for ShortestFirstPathSimplifier {
     /// Simplifies the [Path] by replacing parts of it with known
     /// shorter [Path]s.
-    fn simplify<RT, const BUCKET_SIZE: usize>(
+    fn simplify<RT, PN, const BUCKET_SIZE: usize>(
         &mut self,
         routing_table: &RT,
-        pn_table: &PNTable,
+        pn_table: &PN,
         path: &mut Path,
     ) where
         for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
+        PN: PNTable
     {
         // Already a physical neighbor, can't be shortened
         if path.size() <= 1 {
@@ -63,16 +64,13 @@ impl PathSimplifier for ShortestFirstPathSimplifier {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::{
-        Contact, FlatRoutingTable, NetworkInterface, NodeId, PNTable, Path, PathSimplifier,
-        RoutingTable, StateSeqNr,
-    };
+    use crate::domain::{Contact, FlatRoutingTable, NetworkInterface, NodeId, PNTable, Path, PathSimplifier, RoutingTable, StateSeqNr, InMemoryPNTable};
 
     use super::ShortestFirstPathSimplifier;
 
     #[test]
     fn simplify_pn_part() -> Result<(), Box<dyn std::error::Error>> {
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(NodeId::zero(), NetworkInterface::new(0));
 
         let routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;
@@ -98,7 +96,7 @@ mod tests {
 
     #[test]
     fn simplify_pn_end() -> Result<(), Box<dyn std::error::Error>> {
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(NodeId::zero(), NetworkInterface::new(0));
 
         let routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;
@@ -120,7 +118,7 @@ mod tests {
 
     #[test]
     fn simplify_known_contact() -> Result<(), Box<dyn std::error::Error>> {
-        let pn_table = PNTable::new();
+        let pn_table = InMemoryPNTable::new();
 
         let mut routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;
         routing_table.add(Contact::new(
@@ -156,7 +154,7 @@ mod tests {
 
     #[test]
     fn simplify_multiple() -> Result<(), Box<dyn std::error::Error>> {
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(NodeId::zero(), NetworkInterface::new(0));
 
         let mut routing_table = FlatRoutingTable::<20, 1>::new(NodeId::zero())?;

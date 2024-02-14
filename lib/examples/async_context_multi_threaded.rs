@@ -110,7 +110,7 @@ fn main() {
     let context = Arc::new(TokioContext::new(ContextConfig {
         root_id: root_id.clone(),
         routing_table,
-        pn_table: PNTable::new(),
+        pn_table: InMemoryPNTable::new(),
         insertion_strategy,
         message_sender: SyncWrapper::new(message_sender, Arc::clone(&runtime)),
         runtime: TokioRuntime::new(broadcaster.clone(), Arc::clone(&runtime)),

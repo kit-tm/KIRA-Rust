@@ -57,7 +57,7 @@ impl InMemoryMessageChannel {
     }
 
     pub fn dummy_interface() -> NetworkInterface {
-        NetworkInterface::new(0)
+        NetworkInterface::loopback()
     }
 
     pub fn into_parts(self) -> (InMemorySender, InMemoryReceiver) {

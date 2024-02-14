@@ -1,12 +1,13 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
 use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
+use std::ops::Deref;
 use std::time::Duration;
 
 use crate::context::UseCaseContext;
-use crate::domain::{node_id, GroupingError, RoutingTable};
+use crate::domain::{node_id, GroupingError, RoutingTable, PNTable, NodeId, NetworkInterface};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageSender, ReqRspMessage,
@@ -150,6 +151,7 @@ where
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
+    C::PhysicalNeighborTable: PNTable + Debug + Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     /// Sets a new timer accordingly and sends a new FindNodeReq
     /// if exponential backoff allows it.
@@ -295,6 +297,7 @@ where
     C::MessageSender: ProtocolMessageSender,
     // Isn't used yet, but provides information for the compiler to derive the BUCKET_SIZE from RT
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
+    C::PhysicalNeighborTable: PNTable + Debug + Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     type State = ONDState;
 
@@ -322,6 +325,7 @@ where
     C::MessageSender: ProtocolMessageSender,
     // Isn't used yet, but provides information for the compiler to derive the BUCKET_SIZE from RT
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
+    C::PhysicalNeighborTable: PNTable + Debug + Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     type Context = C;
     type Error = ONDError;
@@ -351,7 +355,7 @@ where
                 UseCaseEvent::Message(ProtocolMessage::FindNodeRsp(ReqRspMessage { nonce, .. }), _),
             ) => {
                 if nonces.contains(&nonce) {
-                    // Handling the data in the response is up to another use-case TODO
+                    // data will be handled in the forwarding UseCase
                     log::debug!(
                         target: "overlay_neighborhood_discovery",
                         "Overlay Neighborhood Discovery was successful!"
@@ -382,6 +386,9 @@ where
                     self.send_next_request(context)?;
                 }
             }
+            // todo send FindNodeReq if new Contact inserted in last bucket of RoutingTable: src/routing/r2kademlia/R2KademliaPolicyHandlers.cc:204
+            // todo randomly probe for new nodes: src/routing/r2kademlia/R2KademliaPeriodicTasks.cc:349
+            // todo randomly probe for new path to contact with a FindeNodeVia src/routing/r2kademlia/R2KademliaPeriodicTasks.cc:321
             _ => {}
         }
 
@@ -397,10 +404,7 @@ mod tests {
 
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{
-        Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable,
-        StateSeqNr, TestInsertionStrategy,
-    };
+    use crate::domain::{Contact, InsertionStrategyResult, NetworkInterface, NodeId, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable, PNTable};
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::{
@@ -434,7 +438,7 @@ mod tests {
         let sync_context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
             routing_table: SingleBucketRT::<1>::new(root_id),
-            pn_table: PNTable::new(),
+            pn_table: InMemoryPNTable::new(),
             insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
             message_sender: hub_sender,
             runtime: runtime.clone(),
@@ -483,8 +487,8 @@ mod tests {
                 StateSeqNr::from(0),
             ))
             .is_ok());
-        let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id, NetworkInterface::new("test"));
+        let mut pn_table = InMemoryPNTable::new();
+        pn_table.insert(neighbor_id, NetworkInterface::with_name("test"));
 
         let sync_context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
@@ -571,8 +575,8 @@ mod tests {
                 StateSeqNr::from(0),
             ))
             .is_ok());
-        let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id, NetworkInterface::new("test"));
+        let mut pn_table = InMemoryPNTable::new();
+        pn_table.insert(neighbor_id, NetworkInterface::with_name("test"));
 
         let sync_context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
@@ -673,8 +677,8 @@ mod tests {
                 StateSeqNr::from(0),
             ))
             .is_ok());
-        let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id, NetworkInterface::new("test"));
+        let mut pn_table = InMemoryPNTable::new();
+        pn_table.insert(neighbor_id, NetworkInterface::with_name("test"));
 
         let sync_context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),

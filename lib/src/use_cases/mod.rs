@@ -1,13 +1,16 @@
 //! Implementations of the use cases.
 
 use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
+use tokio::sync::mpsc; // use tokio::sync::oneshot;
 
-use crate::domain::{Contact, NetworkInterface};
+use crate::domain::{Contact, NetworkInterface, NodeId};
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::messages::ProtocolMessage;
 use crate::messaging::{FindNodeReqData, Nonce};
+use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr};
+use crate::use_cases::inject_messages::InjectionResult;
 
 pub mod derive_fwd_table_entries;
 pub mod explicit_path_management;
@@ -21,22 +24,89 @@ pub mod path_probing;
 pub mod precompute_paths_and_path_ids;
 pub mod random_overlay_discovery;
 pub mod vicinity_discovery;
+pub mod distributed_hash_table;
+pub mod distributed_hash_table_injector;
+
+
+/// Callback used to message back an [InjectionResult] to an injector.
+///
+/// This callback channel is usually used if a [ReqRspMessage](super::messaging::ReqRspMessage) is injected
+/// into the network return the respective response message.
+pub type OneshotInjectMessageCallback = mpsc::UnboundedSender<InjectionResult>; // todo change back to oneshot after we figured out how to eliminate the need of deriving clone
 
 /// Enumeration representing all events a [UseCase] can handle.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum UseCaseEvent {
     Message(ProtocolMessage, NetworkInterface),
     Timer(TimerId),
     Contact(ContactEvent),
-    InjectMessage(Nonce, InjectionMessageData),
+    InjectMessage(Option<Nonce>, InjectionMessageData),
     Hardware(HardwareEvent),
+    API(ApiEvent),
     Shutdown,
 }
 
 /// Protocol message data to inject into the network.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum InjectionMessageData {
     FindNode(FindNodeReqData),
+    Store(StoreInjectData<DefaultLHTInput>, OneshotInjectMessageCallback),
+    Fetch(FetchInjectData, OneshotInjectMessageCallback),
+}
+
+impl PartialEq for InjectionMessageData {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            Self::FindNode(data) => {
+                if let Self::FindNode(other_data) = other {
+                    return data == other_data
+                }
+            }
+            Self::Store(data, sender) => {
+                if let Self::Store(other_data, other_sender) = other {
+                    return data == other_data && sender.same_channel(other_sender)
+                }
+            }
+            Self::Fetch(data, sender) => {
+                if let Self::Fetch(other_data, other_sender) = other {
+                    return data == other_data && sender.same_channel(other_sender)
+                }
+            }
+        }
+
+        false
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ApiEvent {
+    LocalHashTable(mpsc::UnboundedSender<Result<Vec<(NodeId, DefaultLHTOutput)>, FetchErr>>)
+}
+
+impl PartialEq for ApiEvent {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            ApiEvent::LocalHashTable(sender) => {
+                if let ApiEvent::LocalHashTable(other_sender) = other {
+                    return sender.same_channel(other_sender)
+                }
+            }
+        }
+
+        false
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct StoreInjectData<D: Debug> {
+    pub handle: NodeId,
+    pub data: D,
+    pub restore: bool
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct FetchInjectData {
+    pub handle: NodeId
 }
 
 /// Contact Events which can be handled by UseCases.
@@ -151,4 +221,23 @@ pub trait UseCase: EventHandler {
 
     fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error>;
     fn state(&self) -> &Self::State;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc::Receiver;
+    use crate::messaging::ProtocolMessage;
+    use crate::use_cases::UseCaseEvent;
+
+    pub fn wait_for_message(recv: Receiver<UseCaseEvent>) -> ProtocolMessage {
+        loop {
+            let response = recv.recv();
+            assert!(response.is_ok(), "Error receiving result: {:?}", response);
+
+            if let UseCaseEvent::Message(message, ..) = response.unwrap() {
+                break message
+            }
+        }
+    }
+
 }
