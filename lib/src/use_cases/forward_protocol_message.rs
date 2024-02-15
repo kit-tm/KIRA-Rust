@@ -197,7 +197,7 @@ where
             }
             *contact.state_mut() = ContactState::Invalid;
 
-            log::trace!(target: "forward_protocol_message", "Invalidated contact {} based on not-via data of {}", contact.id(), source);
+            log::debug!(target: "forward_protocol_message", "Invalidated contact {} based on not-via data of {}", contact.id(), source);
         }
     }
 
