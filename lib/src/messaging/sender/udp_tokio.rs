@@ -1,6 +1,6 @@
 use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
-use std::process::Command;
 use std::sync::Arc;
+use pnet::datalink;
 
 use tokio::io;
 use unix_udp_sock::UdpSocket;
@@ -60,25 +60,22 @@ impl<C> UdpSender<C> {
 
     fn broadcast_addr(&self) -> SocketAddr {
         SocketAddr::from((Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), self.port))
-    } 
+    }
 
     async fn broadcast_message(&self, buffer: &[u8]) -> Result<(), SenderError> {
+        let interfaces = datalink::interfaces();
+        let indices = interfaces.iter()
+            .map(|i| i.index);
 
-        let output = Command::new("ip").arg("-o").arg("l").output().unwrap();
-        let output = String::from_utf8(output.stdout).unwrap();
-
-        for line in output.lines() {
-            if let Some((interface_index, suffix)) = line.split_once(':') {
-                if !suffix.contains("-eth") {
-                    continue;
-                }
-                let interface_index: u32 = interface_index.parse().unwrap();
-                let dest = SocketAddrV6::new(Ipv6Addr::new(0xff02, 0,0,0,0,0,0,1),self.port,0,interface_index);
-                dbg!(dest);
-                self.socket
-                    .send_to(&buffer, dest.into())
-                    .await.unwrap();
-            }
+        for interface_index in indices {
+            let dest = SocketAddrV6::new(
+                Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1),
+                self.port, 0, interface_index
+            );
+            dbg!(dest);
+            self.socket
+                .send_to(&buffer, dest.into())
+                .await.unwrap();
         }
         Ok(())
     }
