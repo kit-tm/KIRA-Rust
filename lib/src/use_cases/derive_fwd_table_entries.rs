@@ -138,16 +138,16 @@ where
             })?;
 
         if contact.is_pn() {
-            return Ok(NodeIdEntry::Forward(NodeIdForwardingEntry {
+            Ok(NodeIdEntry::Forward(NodeIdForwardingEntry {
                 destination: NodeIdSubnet {
                     node_id: contact.id().clone(),
                     prefix_length: 0,
                 },
                 next_hop,
                 out_interface,
-            }));
+            }))
         } else {
-            return Ok(NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry {
+            Ok(NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry {
                 destination: NodeIdSubnet {
                     node_id: contact.id().clone(),
                     prefix_length: 0,
@@ -155,7 +155,7 @@ where
                 next_hop,
                 out_interface,
                 out_path_id: self.config.hasher.hash(contact.path().into_iter()),
-            }));
+            }))
         }
     }
 
@@ -286,14 +286,20 @@ where
         in_path.extend(contact.path().clone());
         let in_path_id = self.config.hasher.hash(&in_path);
 
-        if contact.is_pn() || contact.id() == context.root_id() {
+        // Note: currently we follow the complete path and don't decapsulate early:
+        // This is because the inner destination could be not a physical neighbor, 
+        // which would cause the packet to be rerouted according to the 
+        // locally installed routes instead of being forwarded to the next hop of the path.
+
+        // if contact.is_pn() || contact.id() == context.root_id() {
+        if contact.id() == context.root_id() {
             let result = Ok(Some(PathIdEntry::Decapsulate(PathIdDecapsulationEntry {
                 in_path_id,
                 local_id: context.root_id().clone(),
             })));
 
             log::debug!(target: "derive_fwd_table_entries", "Derived PathIdEntry {:?}", result);
-            return result;
+            result
         } else {
             let next_hop = contact.path().first().clone();
             let out_path_id = self.config.hasher.hash(contact.path().into_iter());
@@ -305,7 +311,7 @@ where
             })));
 
             log::debug!(target: "derive_fwd_table_entries", "Derived PathIdEntry {:?}", result);
-            return result;
+            result
         }
     }
 }
