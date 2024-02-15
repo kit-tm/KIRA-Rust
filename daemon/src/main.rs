@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
 use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
@@ -28,7 +29,9 @@ struct Args {
     #[clap(short, long, value_parser, env = "BENCH_PATH")]
     benchmark_path: Option<String>,
     #[clap(short, long, value_parser, env = "NFTABLES_CONF", default_value = "nftables.conf")]
-    nftables_conf: String,
+    nftables_conf: OsString,
+    #[clap(short, long, value_parser, value_delimiter=',')]
+    excluded_interfaces: Option<Vec<u32>>,
 }
 
 fn main() {
@@ -81,12 +84,19 @@ fn main() {
 
     let fwd_table = NativeFwdTables::new(args.nftables_conf);
 
+    let excluded_interfaces = args.excluded_interfaces
+        .map_or_else(
+            || HashSet::default(),
+            |vec| HashSet::from_iter(vec.into_iter())
+        );
+
     let ip_cache = Arc::new(RwLock::new(HashMap::new()));
     let channel = r2kad_lib::messaging::udp::async_channel(
         args.socket_port,
         ip_cache,
         mapper,
         ProtocolMessageFormat::MessagePack,
+        excluded_interfaces
     );
     let (message_sender, message_receiver) = runtime
         .block_on(channel)

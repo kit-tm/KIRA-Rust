@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
 use std::sync::Arc;
 use pnet::datalink;
@@ -19,6 +20,7 @@ pub struct UdpSender<C> {
     socket: Arc<UdpSocket>,
     ip_cache: C,
     port: u16,
+    excluded_interfaces: HashSet<u32>,
 }
 
 impl<C> UdpSender<C> {
@@ -27,6 +29,7 @@ impl<C> UdpSender<C> {
         broadcast_port: u16,
         ip_cache: C,
         format: ProtocolMessageFormat,
+        excluded_interfaces: HashSet<u32>,
     ) -> io::Result<Self> {
         let socket =
             UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?;
@@ -39,6 +42,7 @@ impl<C> UdpSender<C> {
             format,
             port: broadcast_port,
             ip_cache,
+            excluded_interfaces,
         })
     }
 
@@ -46,6 +50,7 @@ impl<C> UdpSender<C> {
         socket: Arc<UdpSocket>,
         ip_cache: C,
         format: ProtocolMessageFormat,
+        excluded_interfaces: HashSet<u32>,
     ) -> io::Result<Self> {
         let addr = socket.local_addr()?;
         let port = addr.port();
@@ -55,6 +60,7 @@ impl<C> UdpSender<C> {
             format,
             port,
             ip_cache,
+            excluded_interfaces,
         })
     }
 
@@ -65,7 +71,8 @@ impl<C> UdpSender<C> {
     async fn broadcast_message(&self, buffer: &[u8]) -> Result<(), SenderError> {
         let interfaces = datalink::interfaces();
         let indices = interfaces.iter()
-            .map(|i| i.index);
+            .map(|i| i.index)
+            .filter(|idx| !self.excluded_interfaces.contains(idx));
 
         for interface_index in indices {
             let dest = SocketAddrV6::new(
@@ -133,7 +140,7 @@ impl<C: AsyncIpCache + Send + Sync> AsyncProtocolMessageSender for UdpSender<C> 
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::error::Error;
     use std::net::{SocketAddr, UdpSocket};
     use std::sync::Arc;
@@ -163,7 +170,7 @@ mod tests {
         ip_cache.insert(NodeId::one(), addr);
         let ip_cache = Arc::new(RwLock::new(ip_cache));
 
-        let mut sender = UdpSender::new(0, addr.port(), ip_cache, ProtocolMessageFormat::Json)
+        let mut sender = UdpSender::new(0, addr.port(), ip_cache, ProtocolMessageFormat::Json, HashSet::default())
             .await
             .expect("failed to create sender");
 
@@ -203,4 +210,7 @@ mod tests {
 
         Ok(())
     }
+
+    // todo add tests for broadcasts
+    // respecting excluded_interfaces & sending to all interfaces
 }
