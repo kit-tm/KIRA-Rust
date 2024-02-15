@@ -64,7 +64,7 @@ where
 
             if let Some(prefix_entry) = self.derive_prefix_entry(context, node_id)? {
                 fw_tables
-                    .update(prefix_entry)
+                    .create_or_update(prefix_entry)
                     .map_err(|e| error::DeriveFwdEntriesError::NodeIdTable(Box::new(e)))?;
             }
         }
@@ -81,7 +81,7 @@ where
 
         let mut fw_tables = context.forwarding_tables_mut();
         fw_tables
-            .create(entry)
+            .create_or_update(entry)
             .map_err(|e| error::DeriveFwdEntriesError::NodeIdTable(Box::new(e)))?;
 
         if let Some(prefix_entry) = self.derive_prefix_entry(context, contact.id())? {
@@ -101,12 +101,12 @@ where
 
         let mut fw_tables = context.forwarding_tables_mut();
         fw_tables
-            .update(entry)
+            .create_or_update(entry)
             .map_err(|e| error::DeriveFwdEntriesError::NodeIdTable(Box::new(e)))?;
 
         if let Some(prefix_entry) = self.derive_prefix_entry(context, new_entry.id())? {
             fw_tables
-                .update(prefix_entry)
+                .create_or_update(prefix_entry)
                 .map_err(|e| error::DeriveFwdEntriesError::NodeIdTable(Box::new(e)))?;
         }
         Ok(())
