@@ -36,9 +36,8 @@ impl NodeIdTable for NativeFwdTables {
         };
 
         if self.node_id_table.contains_key(&destination) {
-            return Err(error::FwdTableError::EntryAlreadyExists(
-                destination.to_string(),
-            ));
+            //return Err(error::FwdTableError::EntryAlreadyExists(destination.to_string()));
+            log::error!(target: "native_fwd_table", "entry already exists {:?}", entry);
         }
 
         self.create_or_update(entry)
@@ -53,7 +52,8 @@ impl NodeIdTable for NativeFwdTables {
         };
 
         if !self.node_id_table.contains_key(&destination) {
-            return Err(error::FwdTableError::EntryMissing(destination.to_string()));
+            //return Err(error::FwdTableError::EntryMissing(destination.to_string()));
+            log::error!(target: "native_fwd_table", "entry missing {:?}", entry);
         }
 
         self.create_or_update(entry)
