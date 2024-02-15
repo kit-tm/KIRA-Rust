@@ -48,7 +48,7 @@ use r2kad_lib::use_cases::{
     UseCaseState,
 };
 
-use crate::benchmark_log::{BenchmarkEntry, BenchmarkLog};
+use crate::benchmark_log::BenchmarkLog;
 use crate::errors::InjectMessageError;
 
 mod benchmark_log;
@@ -566,7 +566,7 @@ where
                 log::error!("Path Probing returned error handling message: {}", e);
             }
             if let Err(e) = derive_forwarding_tables.handle_event(&context, event.clone()) {
-                log::error!("Path Probing returned error handling message: {}", e);
+                log::error!("DeriveFwdEntries returned error handling message: {}", e);
             }
             if precomputation
                 .handle_event(&context, event.clone())
