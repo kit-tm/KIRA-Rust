@@ -1,9 +1,10 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::marker::PhantomData;
-use std::usize;
+use std::ops::Deref;
 
 use crate::context::UseCaseContext;
-use crate::domain::{Contact, ContactState, NodeId, NodeIdSubnet, Path, RoutingTable};
+use crate::domain::{Contact, ContactState, NetworkInterface, NodeId, NodeIdSubnet, Path, RoutingTable};
 use crate::forwarding::hasher::Hasher;
 use crate::forwarding::{
     ForwardingTables, NodeIdEncapsulationEntry, NodeIdEntry, NodeIdForwardingEntry, NodeIdTable, PathIdDecapsulationEntry, PathIdEntry, PathIdForwardingEntry, PathIdTable
@@ -45,6 +46,7 @@ where
     C: UseCaseContext,
     C::ForwardingTables: NodeIdTable,
     <C::ForwardingTables as NodeIdTable>::Error: 'static + Error,
+    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     fn remove_node_id_entry(
@@ -322,6 +324,7 @@ where
     C::ForwardingTables: ForwardingTables,
     <C::ForwardingTables as NodeIdTable>::Error: 'static + Error,
     <C::ForwardingTables as PathIdTable>::Error: 'static + Error,
+    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     type Context = C;
@@ -380,6 +383,7 @@ where
     C::ForwardingTables: ForwardingTables,
     <C::ForwardingTables as NodeIdTable>::Error: 'static + Error,
     <C::ForwardingTables as PathIdTable>::Error: 'static + Error,
+    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     type State = ReactiveUseCaseState;
@@ -425,10 +429,7 @@ pub mod error {
 mod tests {
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{
-        Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable,
-        StateSeqNr, TestInsertionStrategy,
-    };
+    use crate::domain::{Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable};
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::forwarding::{NodeIdEntry, NodeIdTable, PathIdEntry, PathIdTable};
     use crate::messaging::InMemoryMessageChannel;
@@ -464,7 +465,7 @@ mod tests {
         let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -516,16 +517,17 @@ mod tests {
         let path_id_entry = path_id_entry.unwrap();
         assert_eq!(&path_id_entry.in_path_id, &path_id_in);
         assert_eq!(
-            &path_id_entry.out_path_id,
-            &Some(Hasher::Sha1.hash(vicinity_contact.path().into_iter().skip(1)))
+            path_id_entry.out_path_id.as_ref().unwrap(),
+            &Hasher::Sha1.hash(vicinity_contact.path().into_iter().skip(1))
         );
+        //assert_eq!(&path_id_entry.out_interface, &interface);
     }
 
     #[test]
     fn neighbor_entries_added() {
         crate::tests::init();
 
-        let interface = NetworkInterface::dummy("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -541,7 +543,7 @@ mod tests {
         let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -596,7 +598,7 @@ mod tests {
     fn contact_entries_removed() {
         crate::tests::init();
 
-        let interface = NetworkInterface::dummy("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -619,7 +621,7 @@ mod tests {
         let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let mut fwd_table = InMemoryFwdTables::new();
@@ -729,7 +731,7 @@ mod tests {
     fn contact_updated() {
         crate::tests::init();
 
-        let interface = NetworkInterface::dummy("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -752,7 +754,7 @@ mod tests {
         let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let mut fwd_table = InMemoryFwdTables::new();
@@ -863,6 +865,7 @@ mod tests {
         );
         let path_id_entry = path_id_entry.unwrap();
         assert_eq!(&path_id_entry.in_path_id, &new_in_path_id);
-        assert_eq!(&path_id_entry.out_path_id, &Some(new_out_path_id));
+        assert_eq!(path_id_entry.out_path_id.as_ref().unwrap(), &new_out_path_id);
+        //assert_eq!(&path_id_entry.out_interface, &interface);
     }
 }

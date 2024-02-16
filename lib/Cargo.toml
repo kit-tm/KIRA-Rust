@@ -40,7 +40,7 @@ pnet = { version = "0.31.0", optional = true, features = ["pnet_datalink", "std"
 rand = "0.8.5"
 rmp-serde = { version = "1.1.0", optional = true }
 # Abstract Serialization library for Rust (kind of standard)
-serde = { version = "1.0.137", optional = true, features = ["derive"] }
+serde = { version = "1.0.137", optional = true, features = ["derive", "rc"] }
 # Required until serde supports const generics (https://crates.io/crates/serde-big-array)
 serde-big-array = { version = "0.4.1", optional = true }
 serde_json = { version = "1.0.81", optional = true }
@@ -53,7 +53,7 @@ sha3 = { version = "0.10.5", optional = true }
 # Used to support sync and async rwlock on context
 tokio = { version = "1.19.2", default-features = false, features = ["sync"] }
 # Used to get metadata for received packets
-unix-udp-sock = { git = "https://git.scc.kit.edu/TM/kira/unix-udp-sock.git", rev = "87a7ffb1128d94df6ef6653cfba64277b12c1526" }
+unix-udp-sock = { git = "https://gitlab.kit.edu/kit/tm/telematics/kira/unix-udp-sock.git", rev = "87a7ffb1128d94df6ef6653cfba64277b12c1526" }
 
 # Dependencies for examples, Benchmarks and Tests
 [dev-dependencies]

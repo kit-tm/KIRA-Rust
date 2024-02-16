@@ -1,11 +1,13 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::num::{NonZeroU64, NonZeroUsize};
+use std::ops::Deref;
 use std::time::Duration;
 
 use crate::context::UseCaseContext;
-use crate::domain::{node_id, GroupingError, NodeId, RoutingTable};
+use crate::domain::{node_id, GroupingError, NodeId, RoutingTable, PNTable, NetworkInterface};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{FindNodeReqData, Nonce, ProtocolMessageSender, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
@@ -60,6 +62,7 @@ where
     C::Runtime: UseCaseRuntime,
     C::MessageSender: ProtocolMessageSender,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     fn send_find_node_req(&mut self, context: &C) -> Result<(), RODError> {
         let random_id = NodeId::random();
@@ -127,6 +130,7 @@ where
     C::Runtime: UseCaseRuntime,
     C::MessageSender: ProtocolMessageSender,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     type State = RODState;
 
@@ -151,6 +155,7 @@ where
     C::Runtime: UseCaseRuntime,
     C::MessageSender: ProtocolMessageSender,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     type Context = C;
     type Error = RODError;
@@ -213,10 +218,7 @@ mod tests {
 
     use crate::broadcaster::MPSCBroadcaster;
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
-    use crate::domain::{
-        Contact, FlatRoutingTable, InsertionStrategyResult, NetworkInterface, NodeId, PNTable,
-        Path, RoutingTable, StateSeqNr, TestInsertionStrategy,
-    };
+    use crate::domain::{Contact, FlatRoutingTable, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable};
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::{
         AsyncProtocolMessageReceiver, InMemoryMessageChannel, ProtocolMessage,
@@ -236,6 +238,7 @@ mod tests {
             impl ProtocolMessageSender,
             ImmediateRuntime<MPSCBroadcaster>,
             TestInsertionStrategy,
+            InMemoryPNTable,
             InMemoryFwdTables,
         >,
     ) {
@@ -257,7 +260,7 @@ mod tests {
         let context = SyncContext::new(ContextConfig {
             root_id: root.clone(),
             routing_table,
-            pn_table: PNTable::new(),
+            pn_table: InMemoryPNTable::new(),
             insertion_strategy,
             message_sender: hub_sender,
             runtime: runtime.clone(),
@@ -282,7 +285,7 @@ mod tests {
             .expect("failed to add into empty RT");
         context
             .pn_table_mut()
-            .insert(neighbor.id().clone(), NetworkInterface::dummy("test"));
+            .insert(neighbor.id().clone(), NetworkInterface::with_name("test"));
 
         let mut use_case = RandomOverlayDiscovery::new(RODConfig {
             timeout: Duration::from_secs(0),

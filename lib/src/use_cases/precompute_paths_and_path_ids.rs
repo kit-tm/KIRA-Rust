@@ -1,10 +1,11 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::marker::PhantomData;
+use std::ops::Deref;
 use std::time::Duration;
 
 use crate::context::UseCaseContext;
-use crate::domain::{ContactState, EmptyPathError, NodeId, Path};
+use crate::domain::{ContactState, EmptyPathError, NetworkInterface, NodeId, Path};
 use crate::forwarding::hasher::Hasher;
 use crate::forwarding::{ForwardingTables, PathIdEntry, PathIdForwardingEntry, PathIdTable};
 use crate::messaging::ProtocolMessage;
@@ -73,11 +74,13 @@ where
     C: UseCaseContext,
     C::ForwardingTables: PathIdTable,
     <<C as UseCaseContext>::ForwardingTables as PathIdTable>::Error: Display,
+    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     fn gen_entries_from_graph(&self, context: &C, graph: &VicinityGraph) -> HashSet<PathIdEntry> {
         log::debug!(target: "precompute_paths_and_path_ids", "{:?}", graph);
         let mut entries = HashSet::new();
         for in_path in graph {
+            // FIXME don't install longer paths than vicinity radius
             let out_path =
                 Result::<Path, EmptyPathError>::from_iter(in_path.clone().into_iter().skip(1));
             if out_path.is_err() {
@@ -145,6 +148,7 @@ where
     C: UseCaseContext,
     C::ForwardingTables: PathIdTable,
     <<C as UseCaseContext>::ForwardingTables as PathIdTable>::Error: Display,
+    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     type Context = C;
     type Error = ();
@@ -196,9 +200,14 @@ where
                 }
             }
             UseCaseEvent::Contact(ContactEvent::New(contact)) => {
+                // only add physical neighbors
                 if !contact.is_pn() {
                     return Ok(());
                 }
+
+                // other neighbors in the vicinity are added
+                // as they are discovered in `RTableData` of ProtocolMessages
+
                 self.vicinity_graph.add(
                     context.root_id().clone(),
                     HashSet::from([contact.id().clone()]),
@@ -221,13 +230,13 @@ where
                 // Contact changed to inside vicinity will be handled by vicinity discovery
 
                 if old.state() == &ContactState::Valid && new.state() != &ContactState::Valid {
-                    self.vicinity_graph.invalidate(new.id());
-                    self.vicinity_changed = true;
+                    let changed = self.vicinity_graph.invalidate(new.id());
+                    self.vicinity_changed = changed;
                     return Ok(());
                 }
                 if old.state() != &ContactState::Valid && new.state() == &ContactState::Valid {
-                    self.vicinity_graph.validate(new.id());
-                    self.vicinity_changed = true;
+                    let changed = self.vicinity_graph.validate(new.id());
+                    self.vicinity_changed = changed;
                     return Ok(());
                 }
             }
@@ -251,6 +260,7 @@ where
     C::ForwardingTables: ForwardingTables,
     C::Runtime: UseCaseRuntime,
     <<C as UseCaseContext>::ForwardingTables as PathIdTable>::Error: Display,
+    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     type State = PrecomputeState;
 
@@ -288,10 +298,7 @@ mod tests {
 
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{
-        Contact, ContactState, EmptyPathError, InsertionStrategyResult, NetworkInterface, NodeId,
-        PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy,
-    };
+    use crate::domain::{Contact, ContactState, EmptyPathError, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable};
     use crate::forwarding::hasher::Hasher;
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::forwarding::PathIdEntry;
@@ -320,9 +327,9 @@ mod tests {
 
         */
 
-        let interface_two = NetworkInterface::dummy("1--2");
-        let interface_three = NetworkInterface::dummy("1--3");
-        let interface_six = NetworkInterface::dummy("1--6");
+        let interface_two = NetworkInterface::with_name("1--2");
+        let interface_three = NetworkInterface::with_name("1--3");
+        let interface_six = NetworkInterface::with_name("1--6");
 
         let root_id = NodeId::with_msb(1);
 
@@ -347,7 +354,7 @@ mod tests {
         assert!(routing_table.insert(contacts[2].clone()).is_ok());
         assert!(routing_table.insert(contacts[5].clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(contacts[1].id().clone(), interface_two.clone());
         pn_table.insert(contacts[2].id().clone(), interface_three.clone());
         pn_table.insert(contacts[5].id().clone(), interface_six.clone());
@@ -816,6 +823,7 @@ mod tests {
                 Result::<Path, EmptyPathError>::from_iter(in_path.clone().into_iter().skip(1))
                     .expect("invalid expected path");
             let in_path_id = hasher.hash(&in_path);
+            // FIXME
             let entry = PathIdEntry {
                 in_path_id: in_path_id.clone(),
                 out_path_id: Some(hasher.hash(&out_path)),
@@ -847,9 +855,9 @@ mod tests {
 
         */
 
-        let interface_two = NetworkInterface::dummy("1--2");
-        let interface_three = NetworkInterface::dummy("1--3");
-        let interface_six = NetworkInterface::dummy("1--6");
+        let interface_two = NetworkInterface::with_name("1--2");
+        let interface_three = NetworkInterface::with_name("1--3");
+        let interface_six = NetworkInterface::with_name("1--6");
 
         let root_id = NodeId::with_msb(1);
 
@@ -874,7 +882,7 @@ mod tests {
         assert!(routing_table.insert(contacts[2].clone()).is_ok());
         assert!(routing_table.insert(contacts[5].clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(contacts[1].id().clone(), interface_two.clone());
         pn_table.insert(contacts[2].id().clone(), interface_three.clone());
         pn_table.insert(contacts[5].id().clone(), interface_six.clone());
@@ -1078,6 +1086,7 @@ mod tests {
                 Result::<Path, EmptyPathError>::from_iter(in_path.clone().into_iter().skip(1))
                     .expect("invalid expected path");
             let in_path_id = hasher.hash(&in_path);
+            // FIXME
             let entry = PathIdEntry {
                 in_path_id: in_path_id.clone(),
                 out_path_id: Some(hasher.hash(&out_path)),
@@ -1109,9 +1118,9 @@ mod tests {
 
         */
 
-        let interface_two = NetworkInterface::dummy("1--2");
-        let interface_three = NetworkInterface::dummy("1--3");
-        let interface_six = NetworkInterface::dummy("1--6");
+        let interface_two = NetworkInterface::with_name("1--2");
+        let interface_three = NetworkInterface::with_name("1--3");
+        let interface_six = NetworkInterface::with_name("1--6");
 
         let root_id = NodeId::with_msb(1);
 
@@ -1136,7 +1145,7 @@ mod tests {
         assert!(routing_table.insert(contacts[2].clone()).is_ok());
         assert!(routing_table.insert(contacts[5].clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(contacts[1].id().clone(), interface_two.clone());
         pn_table.insert(contacts[2].id().clone(), interface_three.clone());
         pn_table.insert(contacts[5].id().clone(), interface_six.clone());
@@ -1621,6 +1630,7 @@ mod tests {
                 Result::<Path, EmptyPathError>::from_iter(in_path.clone().into_iter().skip(1))
                     .expect("invalid expected path");
             let in_path_id = hasher.hash(&in_path);
+            // FIXME
             let entry = PathIdEntry {
                 in_path_id: in_path_id.clone(),
                 out_path_id: Some(hasher.hash(&out_path)),
@@ -1653,9 +1663,9 @@ mod tests {
 
         */
 
-        let interface_two = NetworkInterface::dummy("1--2");
-        let interface_three = NetworkInterface::dummy("1--3");
-        let interface_six = NetworkInterface::dummy("1--6");
+        let interface_two = NetworkInterface::with_name("1--2");
+        let interface_three = NetworkInterface::with_name("1--3");
+        let interface_six = NetworkInterface::with_name("1--6");
 
         let root_id = NodeId::with_msb(1);
 
@@ -1680,7 +1690,7 @@ mod tests {
         assert!(routing_table.insert(contacts[2].clone()).is_ok());
         assert!(routing_table.insert(contacts[5].clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(contacts[1].id().clone(), interface_two.clone());
         pn_table.insert(contacts[2].id().clone(), interface_three.clone());
         pn_table.insert(contacts[5].id().clone(), interface_six.clone());

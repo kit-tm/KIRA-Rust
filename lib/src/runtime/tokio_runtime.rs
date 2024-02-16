@@ -3,10 +3,13 @@ use std::ops::Deref;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use log::log;
 
 use tokio::sync::Mutex;
 
 use crate::broadcaster::Broadcaster;
+use crate::domain::NetworkInterface;
+use crate::messaging::ProtocolMessage;
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{TimerId, UseCaseEvent};
 use crate::utils::tokio_utils;
@@ -68,6 +71,8 @@ impl<B: Broadcaster> TokioRuntime<B> {
 }
 
 impl<B: 'static + Broadcaster + Send + Sync> UseCaseRuntime for TokioRuntime<B> {
+    type SendError = B::SendError;
+
     fn register_timer(&self, duration: Duration) -> TimerId {
         let timer_id = self.create_new_id();
 
@@ -103,6 +108,18 @@ impl<B: 'static + Broadcaster + Send + Sync> UseCaseRuntime for TokioRuntime<B> 
         });
 
         timer_id
+    }
+
+    fn send_message(&self, message: ProtocolMessage) -> Result<(), Self::SendError>{
+        let use_case_broadcaster = self.broadcaster.clone();
+        let event = UseCaseEvent::Message(message, NetworkInterface::loopback());
+
+        if let Err(e) = use_case_broadcaster.send_event(event) {
+            log::error!("Failed to send Event to use cases: {:?}", e);
+            return Err(e);
+        }
+
+        Ok(())
     }
 }
 

@@ -1,5 +1,6 @@
 //! Interface definition and implementation for use case interaction with a runtime.
 
+use std::fmt::Debug;
 use std::time::Duration;
 
 #[cfg(test)]
@@ -7,6 +8,7 @@ pub use immediate_runtime::*;
 pub use sync_runtime::*;
 #[cfg(feature = "tokio")]
 pub use tokio_runtime::*;
+use crate::messaging::ProtocolMessage;
 
 use crate::use_cases::TimerId;
 
@@ -18,6 +20,8 @@ pub mod tokio_runtime;
 
 /// Interface for the [UseCases](crate::use_cases::UseCase) to the runtime environment.
 pub trait UseCaseRuntime {
+    type SendError: Debug;
+
     /// Creates a timer which will later yield a TimerEvent.
     ///
     /// The returned TimerId has to be unique.
@@ -29,4 +33,7 @@ pub trait UseCaseRuntime {
     /// The returned TimerId has to be unique.
     /// It's an error for runtimes to return duplicate [TimerId]s.
     fn register_periodic_timer(&self, duration: Duration) -> TimerId;
+
+    /// Send a protocol message to local Node (loopback)
+    fn send_message(&self, message: ProtocolMessage) -> Result<(), Self::SendError>;
 }

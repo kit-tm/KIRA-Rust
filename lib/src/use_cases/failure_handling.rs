@@ -3,9 +3,10 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
+use std::ops::Deref;
 
 use crate::context::UseCaseContext;
-use crate::domain::{Contact, ContactState, Link, NetworkInterface, NodeId, NotVia, RoutingTable};
+use crate::domain::{Contact, ContactState, Link, NetworkInterface, NodeId, NotVia, PNTable, RoutingTable};
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -85,6 +86,7 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     /// Remove all NotVia Data which is related to the contact
     fn remove_notvia_mentioning(&self, context: &C, contact_id: &NodeId) {
@@ -361,6 +363,10 @@ where
                 log::trace!(target: "failure_handling", "Invalidated contact {} as it starts with an invalid neighbor {}", contact.id(), contact.path().first());
             }
         }
+
+        for neighbor in affected_neighbors.iter() {
+            context.pn_table_mut().remove(neighbor);
+        }
     }
 }
 
@@ -370,6 +376,7 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     type Context = C;
     type Error = FailureHandlingError;
@@ -382,6 +389,7 @@ where
     ) -> Result<Self::Value, Self::Error> {
         match event {
             UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {
+                // contact was invalidated
                 if new.state() == &ContactState::Invalid && old.state() != &ContactState::Invalid {
                     self.invalidate_containing_contacts(context, new.id());
                     self.start_rediscovery(context, new)?;
@@ -446,6 +454,7 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>
 {
     type State = ReactiveUseCaseState;
 
@@ -483,10 +492,7 @@ mod tests {
 
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{
-        Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable,
-        Path, RoutingTable, StateSeqNr, TestInsertionStrategy,
-    };
+    use crate::domain::{Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable};
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::hardware_events::HardwareEvent;
     use crate::messaging::source_route::SourceRoute;
@@ -503,7 +509,7 @@ mod tests {
     async fn update_route_req_is_sent_for_invalidated_contact() {
         crate::tests::init();
 
-        let interface = NetworkInterface::dummy("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -530,7 +536,7 @@ mod tests {
         assert!(routing_table.insert(neighbor.clone()).is_ok());
         assert!(routing_table.insert(failed_contact_before.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -582,7 +588,7 @@ mod tests {
     async fn error_responses_yield_new_find_node_until_max_retries() {
         crate::tests::init();
 
-        let interface = NetworkInterface::dummy("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -611,7 +617,7 @@ mod tests {
         assert!(routing_table.insert(neighbor.clone()).is_ok());
         assert!(routing_table.insert(failed_contact_before.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -765,7 +771,7 @@ mod tests {
     async fn timeouts_yield_new_find_node_until_max_retries_with_exponential_backoff() {
         crate::tests::init();
 
-        let interface = NetworkInterface::dummy("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -792,7 +798,7 @@ mod tests {
         assert!(routing_table.insert(neighbor.clone()).is_ok());
         assert!(routing_table.insert(failed_contact_before.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
@@ -943,8 +949,8 @@ mod tests {
     fn hardware_event_invalidates_all_affected_contacts() {
         crate::tests::init();
 
-        let interface = NetworkInterface::dummy("test");
-        let other_interface = NetworkInterface::dummy("test 2");
+        let interface = NetworkInterface::with_name("test");
+        let other_interface = NetworkInterface::with_name("test 2");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -969,7 +975,7 @@ mod tests {
         assert!(routing_table.insert(over_neighbor_contact.clone()).is_ok());
         assert!(routing_table.insert(other_contact.clone()).is_ok());
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
         pn_table.insert(other_id.clone(), other_interface.clone());
 
@@ -1022,4 +1028,88 @@ mod tests {
             "non-affected contact should still be valid"
         );
     }
+
+    #[test]
+    fn hardware_event_remove_affected_physical_neighbors() {
+        crate::tests::init();
+
+        let interface = NetworkInterface::with_name("test");
+        let other_interface = NetworkInterface::with_name("test 2");
+
+        let root_id = NodeId::with_lsb(1);
+        let neighbor_id1 = NodeId::with_lsb(2);
+        let neighbor_id2 = NodeId::with_lsb(3);
+        let neighbor_id3 = NodeId::with_lsb(4);
+
+        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
+
+        let runtime = ImmediateRuntime::new(broadcaster);
+
+        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
+
+        let neighbor1 = Contact::new(Path::from(neighbor_id1.clone()), StateSeqNr::from(2));
+        let neighbor2 = Contact::new(Path::from(neighbor_id2.clone()), StateSeqNr::from(3));
+        let neighbor3 = Contact::new(Path::from(neighbor_id3.clone()), StateSeqNr::from(4));
+
+
+        let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
+        assert!(routing_table.insert(neighbor1.clone()).is_ok());
+        assert!(routing_table.insert(neighbor2.clone()).is_ok());
+        assert!(routing_table.insert(neighbor3.clone()).is_ok());
+
+        let mut pn_table = InMemoryPNTable::new();
+        pn_table.insert(neighbor_id1.clone(), interface.clone());
+        pn_table.insert(neighbor_id2.clone(), other_interface.clone());
+        pn_table.insert(neighbor_id3.clone(), interface.clone());
+
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id: root_id.clone(),
+            routing_table,
+            pn_table,
+            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
+            message_sender: hub_sender,
+            runtime: runtime.clone(),
+            forwarding_tables: InMemoryFwdTables::new(),
+            not_via: HashSet::default(),
+        });
+
+        let config = FailureHandlingConfig {
+            failure_notification_radius: NonZeroUsize::new(1).unwrap(),
+            grouping_bits: NonZeroUsize::new(1).unwrap(),
+            backoff_timeout_interval: Default::default(),
+            backoff_max_retries: NonZeroU32::new(3).unwrap(),
+        };
+        let mut use_case = FailureHandling::new(config);
+        assert!(
+            use_case.start(&sync_context).is_ok(),
+            "failed to start use case"
+        );
+
+        let mut interfaces = HashSet::new();
+        interfaces.insert(interface.clone());
+        let event = UseCaseEvent::Hardware(HardwareEvent::InterfacesDown(interfaces));
+        let result = use_case.handle_event(&sync_context, event);
+        assert!(
+            result.is_ok(),
+            "Failed to handle contact invalidation event"
+        );
+
+        let pn = sync_context.pn_table();
+        assert_eq!(
+            pn.get(&neighbor_id1),
+            None,
+            "affected neighbor should be removed"
+        );
+        assert_eq!(
+            pn.get(&neighbor_id2),
+            Some(&other_interface),
+            "not affected neighbor should still be present"
+        );
+        assert_eq!(
+            pn.get(&neighbor_id3),
+            None,
+            "affected neighbor should be removed"
+        );
+    }
+
 }

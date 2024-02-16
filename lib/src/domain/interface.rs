@@ -7,25 +7,58 @@ pub use pnet_conversion::*;
 #[derive(Debug, Clone, Hash)]
 pub struct NetworkInterface {
     pub index: u32,
-    pub name: String,
+    pub name: String
 }
 
 impl NetworkInterface {
     pub fn new(index: u32) -> Self {
         let interfaces = pnet::datalink::interfaces();
-        let interface = interfaces
-            .iter()
-            .find(|i| i.index == index)
-            .expect("Unable to find interface");
+        let interface = interfaces.iter().find(|i| i.index == index).expect("Unable to find interface");
+        Self { index, name: interface.name.clone() }
+    }
+
+    // todo use lazy initialization
+    pub fn loopback() -> Self {
+        let interfaces = pnet::datalink::interfaces();
+        let interface = interfaces.iter().find(|i| i.is_loopback()).expect("Unable to find loopback interface");
+
         Self {
-            index,
+            index: interface.index,
             name: interface.name.clone(),
         }
     }
+}
 
-    pub fn dummy<S: Into<String>>(name: S) -> Self {
+#[cfg(test)]
+impl NetworkInterface {
+    // method only for tests
+    // todo find a better way to make this work for tests
+    pub fn with_name<S: Into<String>>(name: S) -> Self {
         Self {
-            index: 0,
+            index: u32::MAX,
+            name: name.into(),
+        }
+    }
+
+    // todo use lazy initialization
+    pub fn loopback() -> Self {
+        let interfaces = pnet::datalink::interfaces();
+        let interface = interfaces.iter().find(|i| i.is_loopback()).expect("Unable to find loopback interface");
+
+        Self {
+            index: interface.index,
+            name: interface.name.clone(),
+        }
+    }
+}
+
+#[cfg(test)]
+impl NetworkInterface {
+    // method only for tests
+    // todo find a better way to make this work for tests
+    pub fn with_name<S: Into<String>>(name: S) -> Self {
+        Self {
+            index: u32::MAX,
             name: name.into(),
         }
     }

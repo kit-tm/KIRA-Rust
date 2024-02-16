@@ -12,12 +12,8 @@ use tokio::sync::{broadcast, RwLock};
 
 use r2kad_lib::context::{ContextConfig, TokioContext, UseCaseContext};
 use r2kad_lib::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
-use r2kad_lib::domain::physical_neighbor_table::PNTable;
 use r2kad_lib::domain::unlimited_pn_routing_table::UnlimitedPNRoutingTable;
-use r2kad_lib::domain::{
-    FlatRoutingTable, InOrderCycleRemover, NodeId, PNSStrategy, ShortestFirstPathSimplifier,
-    DEFAULT_BUCKET_SIZE,
-};
+use r2kad_lib::domain::{FlatRoutingTable, InOrderCycleRemover, NodeId, PNSStrategy, ShortestFirstPathSimplifier, DEFAULT_BUCKET_SIZE, InMemoryPNTable};
 use r2kad_lib::forwarding::in_memory_tables::InMemoryFwdTables;
 use r2kad_lib::messaging::format::ProtocolMessageFormat;
 use r2kad_lib::messaging::sync_wrapper::SyncWrapper;
@@ -125,7 +121,7 @@ fn main() {
     let context = TokioContext::new(ContextConfig {
         root_id,
         routing_table,
-        pn_table: PNTable::new(),
+        pn_table: InMemoryPNTable::new(),
         insertion_strategy: PNSStrategy::<
             ObservableRoutingTable<
                 UnlimitedPNRoutingTable<DEFAULT_BUCKET_SIZE, 1>,

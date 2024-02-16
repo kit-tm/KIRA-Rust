@@ -29,6 +29,8 @@
 //! - `precompute_paths_and_path_ids`: Use case [PathProbing](use_cases::precompute_paths_and_path_ids::PrecomputePathIds)
 //! - `random_overlay_discovery`: Use case [RandomOverlayDiscovery](use_cases::random_overlay_discovery::RandomOverlayDiscovery)
 //! - `vicinity_discovery`: Use case [VicinityDiscovery](use_cases::vicinity_discovery::VicinityDiscovery)
+//! - `distributed_hash_table`: Use case [DistributedHashTable](use_cases::distributed_hash_table::DistributedHashTable)
+//! - `distributed_hash_table_injector`: Use case [DistributedHashTableInjector](use_cases::distributed_hash_table_injector::DistributedHashTableInjector)
 //!
 //! # Authors
 //!

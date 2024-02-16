@@ -1,12 +1,10 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
 use crate::context::UseCaseContext;
-use crate::domain::{
-    Contact, ContactState, InsertionStrategy, InsertionStrategyResult, Link, NetworkInterface,
-    NodeId, NotVia, Path, RoutingTable,
-};
+use crate::domain::{Contact, ContactState, InsertionStrategy, InsertionStrategyResult, Link, NetworkInterface, NodeId, NotVia, Path, PNTable, RoutingTable};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     ErrorData, ProtocolMessage, ProtocolMessageSender, RTableData, ReqRspMessage, RouteUpdate,
@@ -25,7 +23,7 @@ use crate::use_cases::{
 /// - On SegmentFailure: Invalidates all affected contacts
 ///
 /// As some [UseCase]s rely on the information already being extracted this UseCase has to handle
-/// any [ProtocolMessage] before all other [UseCase]s.
+/// any [ProtocolMessage] before all other [UseCase]s **except** [ExplicitPathManagement](super::explicit_path_management::ExplicitPathManagement).
 ///
 /// The [UseCase] returns an result which shows if the message was already handled and forwarded.
 #[derive(Debug)]
@@ -47,11 +45,14 @@ impl<C, const BUCKET_SIZE: usize> ForwardProtocolMessage<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, BUCKET_SIZE>,
+    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>,
     C::MessageSender: ProtocolMessageSender,
 {
     fn extract_path_to_source(&self, message: &ProtocolMessage) -> Path {
-        let route = message.source_route().map(SourceRoute::traveled_path);
+        let route = message.source_route()
+            // one can only trust the so far traversed path to work and exist
+            .map(SourceRoute::traveled_path);
         let mut path = match route {
             None => Path::from(message.source().clone()),
             Some(path) => path,
@@ -69,13 +70,18 @@ where
         context: &C,
         message: &ProtocolMessage,
         interface: NetworkInterface,
-    ) -> Contact {
+    ) -> Option<Contact> {
         let path = self.extract_path_to_source(message);
         let contact = Contact::new(path.clone(), *message.source_state_seq_nr());
 
         {
             let mut lock = context.pn_table_mut();
             let neighbor_id = path.first();
+            // loopback: the sender was us
+            if neighbor_id == context.root_id() {
+                return None
+            }
+
             if !lock.contains(neighbor_id) {
                 if let Some(replaced) = lock.insert(neighbor_id.clone(), interface.clone()) {
                     // Not allowed to happen as lock is held
@@ -94,7 +100,7 @@ where
 
         self.update_contact(context, contact.clone());
 
-        contact
+        Some(contact)
     }
 
     /// Attempts to insert the contact into the routing table which may create a new entry,
@@ -240,6 +246,7 @@ where
                 RouteUpdate::Updated => {
                     // If the saved contact is via the node which updated -> Update Path of contact
                     // Other Paths are updated while operating
+                    // todo check if comment actually true
                     let mut old_contact = routing_table.contact_mut(updated_contact.id()).unwrap();
                     if old_contact.path().size() > new_path.size()
                         && old_contact.path().contains(source_id)
@@ -264,6 +271,7 @@ where
             return Ok(());
         }
 
+        // invalidate contacts based on not-via information
         if let Some(not_via) = message.not_via() {
             self.extract_not_via_data(context, message.source(), not_via);
         }
@@ -275,7 +283,9 @@ where
             | ProtocolMessage::PNDiscRsp(msg)
             | ProtocolMessage::QueryRouteRsp(msg)
             | ProtocolMessage::FindNodeRsp(msg) => {
-                self.extract_rtable_reqrsp(context, msg, source_contact.path().clone())
+                if let Some(source_contact) = source_contact {
+                    self.extract_rtable_reqrsp(context, msg, source_contact.path().clone())
+                }
             }
             ProtocolMessage::Error(error_rsp) => self.extract_failed_contact(context, error_rsp),
             // These are already covered by source info extraction
@@ -290,6 +300,10 @@ where
             | ProtocolMessage::ProbeRsp(_)
             | ProtocolMessage::PathSetupReq(_)
             | ProtocolMessage::PathTeardownReq(_) => {}
+            ProtocolMessage::StoreReq(_)
+            | ProtocolMessage::StoreRsp(_)
+            |ProtocolMessage::FetchReq(_)
+            | ProtocolMessage::FetchRsp(_) => {} // todo maybe we need to extract stuff here
         }
 
         Ok(())
@@ -355,11 +369,59 @@ where
             return Ok(HandlingResult::Handled);
         }
 
-        let next_hop = source_route.next_hop();
+        let mut next_hop = source_route.next_hop();
 
-        // Is directed to us -> nothing to forward
+        // source route finished
         if next_hop.is_none() {
-            return Ok(HandlingResult::NotHandled);
+            let overlay_destination = message.overlay_destination();
+            // is directed to us -> nothing to forward
+            if overlay_destination.is_none() {
+                return Ok(HandlingResult::NotHandled);
+            }
+
+            log::debug!(
+                target: "forward_protocol_message",
+                "Searching next overlay hop for message [{:?}]",
+                message
+            );
+
+            // Overlay Routing
+            // todo add unit tests
+            // fixme isolated error if only a single node is used
+            // fixme remove cycles in SourceRoute on the way back?
+            // fixme respect NotVia? [lib/src/use_cases/handle_overlay_discovery.rs:141]
+            let overlay_destination = overlay_destination.unwrap();
+
+            // intended overlay destination is us -> nothing to forward
+            if overlay_destination == context.root_id() {
+                return Ok(HandlingResult::NotHandled)
+            }
+
+            // todo support other shared_prefix_grouping via config
+            let closest_node = context.routing_table()
+                .next_hop(overlay_destination, 20, 1)
+                .expect("Shared Prefix Grouping should be valid");
+
+
+            // closest known overlay hop is us -> nothing to forward,
+            if closest_node.is_none() {
+                log::debug!(
+                    target: "forward_protocol_message",
+                    "Final destination of overlay message is us [{:?}]",
+                    message
+                );
+                return Ok(HandlingResult::NotHandled);
+            }
+
+            let next_contact = closest_node.unwrap();
+
+            // extend source route to next hop
+            if let Some(sr) = message.source_route_mut() {
+                sr.extend(next_contact.path().clone())
+            }
+            next_hop = message.source_route().and_then(SourceRoute::next_hop);
+
+            log::trace!(target: "forward_protocol_message", "Forwarding overlay message to next hop [{:?}]", message);
         }
         let next_hop = next_hop.unwrap();
 
@@ -400,7 +462,8 @@ impl<C, const BUCKET_SIZE: usize> UseCase for ForwardProtocolMessage<C, BUCKET_S
 where
     C: UseCaseContext,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, BUCKET_SIZE>,
+    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>,
     C::MessageSender: ProtocolMessageSender,
 {
     type State = ReactiveUseCaseState;
@@ -418,7 +481,8 @@ impl<C, const BUCKET_SIZE: usize> EventHandler for ForwardProtocolMessage<C, BUC
 where
     C: UseCaseContext,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, BUCKET_SIZE>,
+    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>,
     C::MessageSender: ProtocolMessageSender,
 {
     type Context = C;
@@ -431,7 +495,10 @@ where
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
         if let UseCaseEvent::Message(message, interface) = event {
-            self.extract_message_info(context, message.clone(), interface)?;
+            // todo make more efficient pls
+            if interface != NetworkInterface::loopback() {
+                self.extract_message_info(context, message.clone(), interface)?;
+            }
 
             self.handle_forwarding(context, message)
         } else {
@@ -449,10 +516,7 @@ mod tests {
     use crate::broadcaster::BusBroadcaster;
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{
-        Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable,
-        Path, RoutingTable, StateSeqNr, TestInsertionStrategy,
-    };
+    use crate::domain::{Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable};
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::messaging::source_route::SourceRoute;
     use crate::messaging::ProtocolMessage::{
@@ -472,7 +536,7 @@ mod tests {
 
         let root_id = NodeId::with_msb(1);
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let pn_table = PNTable::new();
+        let pn_table = InMemoryPNTable::new();
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let (message_hub, _receiver) = InMemoryMessageChannel::default().into_parts();
         let broadcaster = BusBroadcaster::new(10);
@@ -491,7 +555,7 @@ mod tests {
         let mut use_case = ForwardProtocolMessage::default();
 
         let contact_id = NodeId::with_msb(2);
-        let interface = NetworkInterface::dummy("test");
+        let interface = NetworkInterface::with_name("test");
         let event = UseCaseEvent::Message(
             PNDiscReq(ReqRspMessage {
                 nonce: Nonce::random(),
@@ -518,7 +582,7 @@ mod tests {
 
         let root_id = NodeId::with_msb(1);
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let pn_table = PNTable::new();
+        let pn_table = InMemoryPNTable::new();
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
         let broadcaster = BusBroadcaster::new(10);
@@ -537,7 +601,7 @@ mod tests {
         let mut use_case = ForwardProtocolMessage::default();
 
         let neighbor_id = NodeId::with_msb(2);
-        let interface = NetworkInterface::dummy("test");
+        let interface = NetworkInterface::with_name("test");
         let event = UseCaseEvent::Message(
             PNDiscReq(ReqRspMessage {
                 nonce: Nonce::random(),
@@ -570,14 +634,14 @@ mod tests {
     fn add_source_to_routing_table() {
         crate::tests::init();
 
-        let interface = NetworkInterface::dummy("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_msb(1);
         let source_id = NodeId::with_msb(2);
         let neighbor_id = NodeId::with_msb(42);
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         // NOTE: First element in contacts path has to be a neighbor
         pn_table.insert(neighbor_id.clone(), interface.clone());
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
@@ -657,10 +721,10 @@ mod tests {
         let source_id = NodeId::with_msb(2);
         let neighbor_id = NodeId::with_msb(3);
 
-        let interface = NetworkInterface::dummy("test");
+        let interface = NetworkInterface::with_name("test");
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let pn_table = PNTable::new();
+        let pn_table = InMemoryPNTable::new();
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
         let broadcaster = BusBroadcaster::new(10);
@@ -724,10 +788,10 @@ mod tests {
         let root_id = NodeId::with_msb(1);
         let neighbor_id = NodeId::with_msb(2);
 
-        let interface = NetworkInterface::dummy("test");
+        let interface = NetworkInterface::with_name("test");
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
@@ -798,10 +862,10 @@ mod tests {
         let root_id = NodeId::with_msb(1);
         let neighbor_id = NodeId::with_msb(2);
 
-        let interface = NetworkInterface::dummy("test");
+        let interface = NetworkInterface::with_name("test");
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
@@ -873,10 +937,10 @@ mod tests {
         let source_id = NodeId::with_msb(2);
         let neighbor_id = NodeId::with_msb(15);
 
-        let interface = NetworkInterface::dummy("test");
+        let interface = NetworkInterface::with_name("test");
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
@@ -955,10 +1019,10 @@ mod tests {
         let source_id = NodeId::with_msb(2);
         let neighbor_id = NodeId::with_msb(15);
 
-        let interface = NetworkInterface::dummy("test");
+        let interface = NetworkInterface::with_name("test");
 
         let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
         let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
         let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
@@ -1070,8 +1134,8 @@ mod tests {
 
         let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
-        let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id.clone(), NetworkInterface::dummy("test"));
+        let mut pn_table = InMemoryPNTable::new();
+        pn_table.insert(neighbor_id.clone(), NetworkInterface::with_name("test"));
 
         let sync_context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
@@ -1101,7 +1165,7 @@ mod tests {
 
         let result = use_case.handle_event(
             &sync_context,
-            UseCaseEvent::Message(message.into(), NetworkInterface::dummy("test")),
+            UseCaseEvent::Message(message.into(), NetworkInterface::with_name("test")),
         );
         assert!(
             result.is_ok(),
@@ -1138,8 +1202,8 @@ mod tests {
 
         let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
         assert!(routing_table.insert(neighbor.clone()).is_ok());
-        let mut pn_table = PNTable::new();
-        pn_table.insert(neighbor_id.clone(), NetworkInterface::dummy("test"));
+        let mut pn_table = InMemoryPNTable::new();
+        pn_table.insert(neighbor_id.clone(), NetworkInterface::with_name("test"));
 
         let sync_context = SyncContext::new(ContextConfig {
             root_id: root_id.clone(),
@@ -1173,7 +1237,7 @@ mod tests {
 
         let result = use_case.handle_event(
             &sync_context,
-            UseCaseEvent::Message(sent_request.clone().into(), NetworkInterface::dummy("test")),
+            UseCaseEvent::Message(sent_request.clone().into(), NetworkInterface::with_name("test")),
         );
         assert!(
             result.is_ok(),
@@ -1201,7 +1265,7 @@ mod tests {
     fn error_invalidates_failed_contact() {
         crate::tests::init();
 
-        let interface = NetworkInterface::dummy("test");
+        let interface = NetworkInterface::with_name("test");
 
         let root_id = NodeId::with_lsb(1);
         let neighbor_id = NodeId::with_lsb(2);
@@ -1256,7 +1320,7 @@ mod tests {
         }
         invalid_contacts.push(failed_contact);
 
-        let mut pn_table = PNTable::new();
+        let mut pn_table = InMemoryPNTable::new();
         pn_table.insert(neighbor_id.clone(), interface.clone());
 
         let sync_context = SyncContext::new(ContextConfig {
