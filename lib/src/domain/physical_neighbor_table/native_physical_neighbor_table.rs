@@ -4,6 +4,8 @@ use std::{collections::HashMap, net::Ipv6Addr};
 use crate::domain::{NetworkInterface, NodeId, StateSeqNr};
 use crate::forwarding::platform;
 
+use super::{InMemoryPNTable, PNTable};
+
 /// A physical neighbor table backed by a [HashMap].
 ///
 /// This wrapper limits the write access on the inner [HashMap] as the [StateSeqNr] has
@@ -40,23 +42,23 @@ impl NativePNTable {
 }
 
 impl PNTable for NativePNTable {
-    insert(&mut self, id: NodeId, interface: NetworkInterface) -> Option<NetworkInterface> {
+    fn insert(&mut self, id: NodeId, interface: NetworkInterface) -> Option<NetworkInterface> {
         platform::replace_neighbor_route(&Ipv6Addr::from(&id).to_string(), &interface.name).unwrap();
         self.map.insert(id, interface)
     }
 
-    contains(&self, id: &NodeId) -> bool {
+    fn contains(&self, id: &NodeId) -> bool {
         self.map.contains_key(id)
     }
 
-    state_seq_nr(&self) -> &StateSeqNr {
+    fn state_seq_nr(&self) -> &StateSeqNr {
         self.map.state_seq_nr()
     }
 
-    remove(&mut self, id: &NodeId) -> Option<NetworkInterface> {
+    fn remove(&mut self, id: &NodeId) -> Option<NetworkInterface> {
         let result = self.map.remove(id);
         if let Some(ref interface) = result {
-            platform::delete_neighbor_route(&Ipv6Addr::from(id).to_string(), interface.name).unwrap();
+            platform::delete_neighbor_route(&Ipv6Addr::from(id).to_string(), &interface.name).unwrap();
         }
         result
     }
