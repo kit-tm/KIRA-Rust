@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
 use std::sync::Arc;
 use pnet::datalink;
+use pnet::ipnetwork::{IpNetwork, Ipv6Network};
 
 use tokio::io;
 use unix_udp_sock::UdpSocket;
@@ -10,10 +11,6 @@ use crate::messaging::error::SenderError;
 use crate::messaging::format::ProtocolMessageFormat;
 use crate::messaging::{AsyncIpCache, AsyncProtocolMessageSender, ProtocolMessage};
 
-
-// interface is only considered for broadcast if its name includes this
-// FIXME THIS IS BAD AND SHOULD BE DOCUMENTED SOMEWHERE IF NOT CONFIGURABLE
-const INTERFACE_NAMING: &'static str = "-eth";
 
 /// Defaults to sending the request to multicast if neighbor is not present (which should not
 /// happen for physical neighbors).
@@ -74,12 +71,21 @@ impl<C> UdpSender<C> {
     }
 
     async fn broadcast_message(&self, buffer: &[u8]) -> Result<(), SenderError> {
+        fn is_link_local(ip: &&IpNetwork) -> bool {
+            let IpNetwork::V6(ip) = ip else {
+                return false;
+            };
+
+            let ll_network: Ipv6Network = "fe80::/64".parse().unwrap();
+            ll_network.contains(ip.ip())
+        }
+
         let interfaces = datalink::interfaces();
-        let indices = interfaces.iter()
+        // todo buffer
+        // FIXME exclude `KIRA@NONE` interface
+        let indices = interfaces.into_iter()
             // filter out non-working interfaces
-            .filter(|i| i.is_up() && !i.is_loopback() && !i.ips.is_empty())
-            // always ignore interfaces not conforming to this naming scheme
-            .filter(|i| i.name.contains(INTERFACE_NAMING))
+            .filter(|i| i.is_up() && !i.is_loopback() && i.ips.iter().find(is_link_local).is_some())
             .map(|i| i.index)
             // filter out interfaces we want to ignore
             .filter(|idx| !self.excluded_interfaces.contains(idx));
