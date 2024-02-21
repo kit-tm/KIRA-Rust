@@ -4,14 +4,12 @@ use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::string::ToString;
 use std::sync::Arc;
 
 use clap::Parser;
 use opentelemetry_otlp::WithExportConfig;
 use r2kad_lib::forwarding::native_tables::NativeFwdTables;
 use tokio::sync::{mpsc, RwLock};
-use tracing::Level;
 use tracing_subscriber::prelude::*;
 
 use r2kad_daemon_lib::{Node, NodeConfig};
@@ -50,7 +48,7 @@ fn main() {
 
     runtime.block_on(tracing_setup(&args.otlp_endpoint));
 
-    let root_id: NodeId = args.root_id.unwrap_or_else(NodeId::random);
+    let root_id: NodeId = NodeId::random();
 
     // Initialize benchmark file
     let benchmark_writer: Option<BufWriter<File>> = args

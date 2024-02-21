@@ -43,8 +43,8 @@ impl Default for EPMConfig {
     fn default() -> Self {
         Self {
             max_age: Duration::from_secs(60),
-            cleanup_interval: Duration::from_secs(60),
-            refresh_interval: Duration::from_secs(20),
+            cleanup_interval: Duration::from_secs(600),
+            refresh_interval: Duration::from_secs(200),
             vicinity_radius: NonZeroUsize::new(3).unwrap(),
             hasher: Hasher::default(),
         }

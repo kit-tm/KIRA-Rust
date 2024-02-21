@@ -1,4 +1,4 @@
-use std::cmp::{min, Ordering};
+use std::cmp::{max, min, Ordering};
 use std::io::Read;
 use std::num::NonZeroUsize;
 use std::ops::IndexMut;
@@ -6,7 +6,6 @@ use std::ops::IndexMut;
 use bitvec::prelude::*;
 
 use rand::Rng;
-use serde_json::from_slice;
 
 use crate::domain::{node_id, AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, ContactState, GroupingError, NodeId, ReplacementError, RoutingTable, SharedPrefix, DEFAULT_BUCKET_SIZE, DiscoveryRangeProvider};
 use crate::domain::api::{DiscoveryRange, RoutingTableLayer};
@@ -165,34 +164,92 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
     }
 
     pub fn get_layers(&self) -> Vec<RoutingTableLayer> {
-        // we have one bucket less than level width
-        let level_width = 2 ^ ACC - 1;
-        let number_of_levels = self.num_buckets() / level_width;
-        let mut result = Vec::new();
-        log::warn!("Num Buckets: {}, ACC: {}, level width: {}, num levels: {}", self.num_buckets(), ACC, level_width, number_of_levels);
 
-        let mut last_index = 0;
-        for level in 0..min(number_of_levels-1, number_of_levels) { // TODO remove this hack when number of levels < 0
-            let mut layer_vec = Vec::new();
-            for level_index in 0..level_width {
-                log::warn!("level: {}, level_index: {}", level, level_index);
-                last_index = level * level_width + level_index;
-                layer_vec.push(self.buckets[last_index].clone().into())
-            }
-            result.push(RoutingTableLayer { buckets: layer_vec } )
-        }
-
+        let start= if 2^ACC > self.num_buckets() {
+            0
+        } else {
+            self.num_buckets() - (2^ACC)
+        };
         let mut last_layer = Vec::new();
-        for i in last_index..self.num_buckets() {
-            last_layer.push(self.buckets[i].clone().into())
+        for i in start..self.num_buckets() {
+            last_layer.push(self.buckets[i].clone().into());
         }
 
-        result.push(RoutingTableLayer { buckets: last_layer });
-
-        result
+        vec![RoutingTableLayer {buckets: last_layer}]
     }
 
-    // TODO Rename this
+    fn hack_get_discovery_range_acc_one(&self) -> DiscoveryRange {
+        if ACC != 1 {
+            panic!("This hack does only work for ACC = 1")
+        }
+        log::warn!("num buckets: {}", self.num_buckets());
+        if self.num_buckets() == 1 {
+            return DiscoveryRange {
+                start: NodeId::zero().into(),
+                end: NodeId::max_value().into(),
+            }
+        }
+
+        let own_index = self.get_bucket_index(self.root());
+        if own_index != self.num_buckets() - 1 {
+            panic!("own_bucket = {}, Index assumption broken, this hack does not work at all", own_index)
+        }
+        // second to last bucket is other bucket
+        let other_bucket_full = self.buckets[self.num_buckets()-2].len() == BUCKET_SIZE;
+        // remove last level, acc = 1, so depth == num_buckets
+        let depth = self.num_buckets() - 2;
+
+        let own_bucket = BitVec::<u8, Msb0>::from_vec(self.root.clone().bytes_vec());
+
+        if other_bucket_full {
+            let mut start = own_bucket.clone();
+            let mut end = own_bucket.clone();
+            for i in (depth+1)..start.len() {
+                start.set(i, false);
+                end.set(i, true)
+            }
+            let range = DiscoveryRange {
+                start: NodeId::from(<[u8; 14]>::try_from(start.into_vec()).unwrap()).into(),
+                end: NodeId::from(<[u8; 14]>::try_from(end.into_vec()).unwrap()).into(),
+            };
+            log::warn!("Discovery Range: Only main bucket, range: {:?}", range);
+            return range
+        }
+
+        log::warn!("own_bucket: {:?}, index: {:?}", own_bucket, depth+1);
+
+        let mut start = if own_bucket[depth] == false /* == 0 */ {
+            own_bucket.clone()
+        } else {
+            let mut test = own_bucket.clone();
+            test.set(depth, false);
+            test
+        };
+
+        let mut end = if own_bucket[depth] == true /* == 1 */ {
+            own_bucket.clone()
+        } else {
+            let mut other = own_bucket.clone();
+            other.set(depth, true);
+            other
+        };
+
+        for i in (depth+1)..start.len() {
+            start.set(i, false);
+            end.set(i, true)
+        }
+
+        log::warn!("Discovery range start: {:?}, end: {:?}", start, end);
+
+        let dc = DiscoveryRange {
+            start: NodeId::from(<[u8; 14]>::try_from(start.into_vec()).unwrap()).into(),
+            end: NodeId::from(<[u8; 14]>::try_from(end.into_vec()).unwrap()).into(),
+        };
+        log::warn!("Discovery range: {:?}", dc);
+        return dc
+    }
+
+    // TODO does not work
     pub fn get_prefix_for_bucket_in_last_level(&self, last_level: usize, position_in_level: usize, fill_with_ones: bool, only_one_bucket: bool) -> NodeId {
         let bytes = self.root.clone().bytes_vec();
 
@@ -227,8 +284,11 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> DiscoveryRangeProvider for Flat
 
     #[tracing::instrument(level="warn", name = "calculating discovery range", skip(self))]
     fn get_discovery_range(&self) -> DiscoveryRange {
+        return self.hack_get_discovery_range_acc_one();
+        /*
         // only look at last layer
 
+        // should always be last bucket?
         let own_index = self.get_bucket_index(self.root());
 
         // level width returns width of incomplete levels, so last bucket ist on its own level if
@@ -276,6 +336,7 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> DiscoveryRangeProvider for Flat
 
         log::warn!("Discovery Range: {:?}", discovery_range);
         discovery_range
+        */
     }
 }
 

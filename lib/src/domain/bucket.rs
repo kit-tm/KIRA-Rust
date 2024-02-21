@@ -7,7 +7,7 @@ use crate::domain::{Contact, NodeId};
 ///
 /// The bucket size is also referred to as the system parameter **k**.
 /// So the default bucket size is **20**.
-pub const DEFAULT_BUCKET_SIZE: usize = 20;
+pub const DEFAULT_BUCKET_SIZE: usize = 5;
 
 #[derive(Debug)]
 pub enum BucketInsertionError {

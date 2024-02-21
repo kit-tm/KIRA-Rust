@@ -30,6 +30,7 @@ pub(crate) async fn start_http_server(api_config: ApiConfig) {
         .route("/kelly/response", post(send_kelly_response))
         .with_state(api_state);
 
+    log::warn!("Starting API Server");
     axum::Server::bind(&api_config.address)
         .serve(app.into_make_service())
         .await
@@ -45,7 +46,7 @@ struct ApiState {
 pub struct ApiConfig {
     address: SocketAddr,
     node_id: NodeId,
-    sender: Sender<(UseCaseEvent, Option<Instant>)>
+    sender: Sender<(UseCaseEvent, Option<Instant>)>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -78,14 +79,17 @@ async fn get_node_id_for_test_env(State(state): State<ApiState>) -> String {
     result
 }
 
+#[tracing::instrument(name = "rt-to-api-http",level = "warn", skip_all, fields(node_id))]
 async fn get_routing_table(State(state): State<ApiState>) -> Json<RoutingTableResponse> {
-    log::debug!("Returning routing table via api");
+    let node_id_api: NodeIdApi = state.node_id.into();
+    tracing::Span::current().record("node_id", node_id_api.node_id);
+    let start = Instant::now();
     let (tx, mut rx) = mpsc::unbounded_channel::<RoutingTableResponse>();
 
     let res = state.sender.send((UseCaseEvent::API(ApiEvent::RoutingTable(tx)), None)).await;
 
     let result = rx.recv().await.unwrap();
-    log::trace!("Got routing table, sending: {:?}", result);
+    log::warn!("rt-to-api-http time {:?}", Instant::now() - start);
     Json(result)
 
 }

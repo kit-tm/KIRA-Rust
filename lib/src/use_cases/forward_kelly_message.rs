@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 use hex::FromHex;
+use rand::thread_rng;
 use crate::context::UseCaseContext;
 use crate::domain::{Contact, node_id, NodeId, Path, RoutingTable, SharedPrefix};
 use crate::domain::api::{KellyResponse, NodeIdApi};
@@ -85,6 +86,11 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
 
     fn send_initial_kelly_response(&self, source_route: Vec<crate::domain::api::NodeIdApi>, response: KellyResponse, context: &C) {
 
+        //if rand::random::<f64>() >= 0.95_f64.powi(source_route.len() as i32) {
+        //    log::error!("Dropping KeLLy Response");
+        //    return;
+        //}
+
         log::warn!("Sending Kelly response via route {:?}", source_route);
 
         let source_route = SourceRoute::from(source_route.into_iter().map(|x| NodeId::from(TryInto::<[u8; node_id::SIZE]>::try_into(Vec::from_hex(x.node_id).unwrap()).unwrap())).collect::<Vec<NodeId>>());
@@ -106,6 +112,11 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
     }
 
     fn forward_or_consume_kelly_request(&self, mut data: ReqRspMessage<KellyReqData>, context: &C) {
+
+        //if rand::random::<f64>() < 0.05 {
+        //    log::error!("Dropping KeLLy Request");
+        //    return;
+        //}
 
         let closer_contacts = self.get_closer_contacts(&data.data.node_id, context);
 
@@ -144,7 +155,8 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
     fn consume_kelly_response(&self, data: ReqRspMessage<KellyRspData>, context: &C) {
         // we have the complete route to send the response, so we dont need to check if we need to forward it
 
-        log::warn!("Forwarding Response to Kelly");
+        //log::warn!("Forwarding Response to Kelly");
+        log::warn!("Hops: {}", data.source_route.ids().len() - 1);
 
         self.kelly_connector.forward_response(data.data.response);
 
@@ -176,7 +188,7 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
 
         let shared_prefix_with_root = context.root_id().shared_prefix_len(node_id, 1).unwrap().length;
 
-        log::info!("Received message for Id {:?}", node_id);
+        //log::info!("Received message for Id {:?}", node_id);
 
         let mut close: Vec<(SharedPrefix, Contact)> = context
             .routing_table()

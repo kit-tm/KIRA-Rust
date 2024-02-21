@@ -42,6 +42,7 @@ impl KellyConnectorImpl {
 
 impl KellyConnector for KellyConnectorImpl {
 
+    #[tracing::instrument(name = "consumeKellyReq", skip(self), level = "warn")]
     fn forward_request(&self, node_id: NodeId, source_route: SourceRoute, nonce: crate::domain::api::Nonce) {
 
         let id :NodeIdApi = node_id.into();
@@ -62,7 +63,9 @@ impl KellyConnector for KellyConnectorImpl {
         });
     }
 
+    #[tracing::instrument(name = "consumeKellyRsp", skip(self, response), fields(nonce))]
     fn forward_response(&self, response: KellyResponse) {
+        tracing::Span::current().record("nonce", response.nonce.0);
         let cloned_client = self.client.clone();
         let cloned_address = self.address.clone();
 

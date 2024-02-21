@@ -4,7 +4,7 @@ use tracing::instrument;
 
 use crate::context::{ContextConfig, ReadGuard, UseCaseContext, WriteGuard};
 use crate::domain::{DiscoveryRangeProvider, NodeId, NotVia, PNTable};
-use crate::domain::api::{DiscoveryRange};
+use crate::domain::api::{DiscoveryRange, NodeIdApi};
 
 /// Implements a [UseCaseContext] which can only be used in a single threaded synchronous environment.
 ///
@@ -96,8 +96,10 @@ where for<'a> RT: Into<crate::domain::api::RoutingTable> + DiscoveryRangeProvide
         self.not_via.borrow_mut().into()
     }
 
-    #[tracing::instrument(level = "warn", name="copy routing table", skip(self))]
+    #[tracing::instrument(level = "warn", name="copy routing table", skip(self), fields(node_id))]
     fn to_api_model(&self) -> (crate::domain::api::RoutingTable, DiscoveryRange) {
+        let node_id: NodeIdApi = self.root_id.clone().into();
+        tracing::Span::current().record("node_id", node_id.node_id);
         let rt: Self::RoutingTable = self.routing_table.borrow().clone();
         let discovery_range = rt.get_discovery_range();
         (rt.into(), discovery_range)

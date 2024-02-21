@@ -32,7 +32,7 @@ impl Default for PathProbingConfig {
         Self {
             check_interval: Duration::from_secs(1),
             // increase this for now until the bug is fixed
-            probe_age: chrono::Duration::seconds(4000),
+            probe_age: chrono::Duration::seconds(20000),
             request_timeout: Duration::from_secs(10),
         }
     }

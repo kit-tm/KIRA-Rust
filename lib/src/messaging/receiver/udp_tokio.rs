@@ -118,13 +118,13 @@ impl<C, P> UdpReceiver<C, P> {
     }
 
     #[tracing::instrument(level = "warn", name="recv-req", skip(self))]
-    fn log_req(&self, req_size: usize, node_id: String, nonce: &u128) {
+    fn log_req(&self, req_size: usize, node_id: String, nonce: &u128, interface_index: u32, interface_name: String) {
         //tracing::Span::current().record("size", len);
         //tracing::Span::current().record("node_id", &self.tracing_node_id);
     }
 
     #[tracing::instrument(level = "warn", name="recv-rsp", skip(self))]
-    fn log_rsp(&self, rsp_size: usize, range_start: &NodeIdApi, range_end: &NodeIdApi, node_id: String, nonce: &u128) {
+    fn log_rsp(&self, rsp_size: usize, range_start: &NodeIdApi, range_end: &NodeIdApi, node_id: String, nonce: &u128, interface_index: u32, interface_name: String) {
         //tracing::Span::current().record("size", len);
         //tracing::Span::current().record("node_id", &self.tracing_node_id);
     }
@@ -170,11 +170,13 @@ where
 
         match message {
             Some(ProtocolMessage::KellyReq(ref data)) => {
-                self.log_req(buffer[..received_bytes].len(), UdpReceiver::<C,P>::get_node_id().to_string(), &data.data.nonce.0);
+                self.log_req(buffer[..received_bytes].len(), UdpReceiver::<C,P>::get_node_id().to_string(),
+                             &data.data.nonce.0, ifindex, interface.name.clone());
             },
             Some(ProtocolMessage::KellyRsp(ref data)) => {
                 self.log_rsp(buffer[..received_bytes].len(), &data.data.response.discovery_range.start,
-                             &data.data.response.discovery_range.end, UdpReceiver::<C,P>::get_node_id().to_string(), &data.data.response.nonce.0);
+                             &data.data.response.discovery_range.end, UdpReceiver::<C,P>::get_node_id().to_string(),
+                             &data.data.response.nonce.0, ifindex, interface.name.clone());
             },
             _ => {}
         }
