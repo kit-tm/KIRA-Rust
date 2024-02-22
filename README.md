@@ -28,7 +28,7 @@ git clone git@gitlab.kit.edu:kit/tm/telematics/kira/kira-rust.git
 | Build (docker)             | `make build-images`                           | Compiles and builds scratch and benchmark docker images (no rust install required)                                |
 | Build (docker scratch)     | `make build-image-scratch`                    | Compiles and builds scratch docker image (no rust install required)                                               |
 | Build (docker bench)       | `make build-image-bench`                      | Compiles and builds benchmark docker image (no rust install required)                                             |
-| Install Daemon             | `make install`, `cargo install --path=daemon` | Compiles the daemon with release profile and installs it in the system                                            |
+| Install Daemon             | `make install`                                | Compiles the daemon with release profile and installs it in the system                                            |
 | Create RustDocs            | `make docs`                                   | Creates rustdoc websites for library and daemon from code documentation and opens it in browser (opens two pages) |
 | Create Library RustDocs    | `make lib-docs`                               | Creates rustdoc website for the r2kad-lib crate from code documentation and opens it in browser                   |
 | Create Daemon RustDocs     | `make daemon-docs`                            | Creates rustdoc website for the r2kad-daemon crate from code documentation and opens it in browser                |
@@ -51,3 +51,26 @@ Here are the instructions to install them.
 - [docker compose plugin](https://docs.docker.com/compose/install/compose-plugin/): To run the benchmarks.
 - [Rust](https://www.rust-lang.org/tools/install): Can be easily installed through `make setup`, which uses curl to
   fetch the installation script as described on the linked website.
+
+## Running on physical hosts
+
+To Run the task on a physical host we recommend using the provided
+[systemd-service](https://www.man7.org/linux/man-pages/man5/systemd.service.5.html) file.
+
+### Installation
+
+1. `make install`: install the daemon and its files to the system
+2. `systemctl daemon-reload`: make systemd pickup newly installed unit files
+
+#### Manage all interfaces
+
+  ```systemctl enable --now r2kad.service```
+
+#### Manage some interfaces
+
+Currently, you can only blacklist interfaces using the `r2kad@.service` by using the **numbers** of the interfaces:
+
+  ```systemctl enable --now r2kad@$(systemd-escape 4,2).service```
+
+This will exclude the interface `4` and `2` interface from being managed by the routing daemon.
+You can obtain a list of all your interfaces by running `ip link`.

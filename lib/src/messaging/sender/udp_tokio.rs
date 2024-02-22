@@ -1,6 +1,8 @@
+use std::collections::HashSet;
 use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
-use std::process::Command;
 use std::sync::Arc;
+use pnet::datalink;
+use pnet::ipnetwork::{IpNetwork, Ipv6Network};
 
 use tokio::io;
 use unix_udp_sock::UdpSocket;
@@ -8,6 +10,7 @@ use unix_udp_sock::UdpSocket;
 use crate::messaging::error::SenderError;
 use crate::messaging::format::ProtocolMessageFormat;
 use crate::messaging::{AsyncIpCache, AsyncProtocolMessageSender, ProtocolMessage};
+
 
 /// Defaults to sending the request to multicast if neighbor is not present (which should not
 /// happen for physical neighbors).
@@ -19,6 +22,7 @@ pub struct UdpSender<C> {
     socket: Arc<UdpSocket>,
     ip_cache: C,
     port: u16,
+    excluded_interfaces: HashSet<u32>,
 }
 
 impl<C> UdpSender<C> {
@@ -27,6 +31,7 @@ impl<C> UdpSender<C> {
         broadcast_port: u16,
         ip_cache: C,
         format: ProtocolMessageFormat,
+        excluded_interfaces: HashSet<u32>,
     ) -> io::Result<Self> {
         let socket =
             UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?;
@@ -39,6 +44,7 @@ impl<C> UdpSender<C> {
             format,
             port: broadcast_port,
             ip_cache,
+            excluded_interfaces,
         })
     }
 
@@ -46,6 +52,7 @@ impl<C> UdpSender<C> {
         socket: Arc<UdpSocket>,
         ip_cache: C,
         format: ProtocolMessageFormat,
+        excluded_interfaces: HashSet<u32>,
     ) -> io::Result<Self> {
         let addr = socket.local_addr()?;
         let port = addr.port();
@@ -55,30 +62,43 @@ impl<C> UdpSender<C> {
             format,
             port,
             ip_cache,
+            excluded_interfaces,
         })
     }
 
     fn broadcast_addr(&self) -> SocketAddr {
         SocketAddr::from((Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), self.port))
-    } 
+    }
 
     async fn broadcast_message(&self, buffer: &[u8]) -> Result<(), SenderError> {
+        fn is_link_local(ip: &&IpNetwork) -> bool {
+            let IpNetwork::V6(ip) = ip else {
+                return false;
+            };
 
-        let output = Command::new("ip").arg("-o").arg("l").output().unwrap();
-        let output = String::from_utf8(output.stdout).unwrap();
+            let ll_network: Ipv6Network = "fe80::/64".parse().unwrap();
+            ll_network.contains(ip.ip())
+        }
 
-        for line in output.lines() {
-            if let Some((interface_index, suffix)) = line.split_once(':') {
-                if !suffix.contains("-eth") {
-                    continue;
-                }
-                let interface_index: u32 = interface_index.parse().unwrap();
-                let dest = SocketAddrV6::new(Ipv6Addr::new(0xff02, 0,0,0,0,0,0,1),self.port,0,interface_index);
-                dbg!(dest);
-                self.socket
-                    .send_to(&buffer, dest.into())
-                    .await.unwrap();
-            }
+        let interfaces = datalink::interfaces();
+        // todo buffer
+        // FIXME exclude `KIRA@NONE` interface
+        let indices = interfaces.into_iter()
+            // filter out non-working interfaces
+            .filter(|i| i.is_up() && !i.is_loopback() && i.ips.iter().find(is_link_local).is_some())
+            .map(|i| i.index)
+            // filter out interfaces we want to ignore
+            .filter(|idx| !self.excluded_interfaces.contains(idx));
+
+        for interface_index in indices {
+            let dest = SocketAddrV6::new(
+                Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1),
+                self.port, 0, interface_index
+            );
+            dbg!(dest);
+            self.socket
+                .send_to(&buffer, dest.into())
+                .await.map_err(|e| SenderError::SendError(e))?;
         }
         Ok(())
     }
@@ -136,7 +156,7 @@ impl<C: AsyncIpCache + Send + Sync> AsyncProtocolMessageSender for UdpSender<C> 
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::error::Error;
     use std::net::{SocketAddr, UdpSocket};
     use std::sync::Arc;
@@ -166,7 +186,7 @@ mod tests {
         ip_cache.insert(NodeId::one(), addr);
         let ip_cache = Arc::new(RwLock::new(ip_cache));
 
-        let mut sender = UdpSender::new(0, addr.port(), ip_cache, ProtocolMessageFormat::Json)
+        let mut sender = UdpSender::new(0, addr.port(), ip_cache, ProtocolMessageFormat::Json, HashSet::default())
             .await
             .expect("failed to create sender");
 
@@ -206,4 +226,7 @@ mod tests {
 
         Ok(())
     }
+
+    // todo add tests for broadcasts
+    // respecting excluded_interfaces & sending to all interfaces
 }

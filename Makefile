@@ -1,4 +1,8 @@
-.PHONY: setup docs build build-release install
+PKGNAME = r2kad
+DATA_PREFIX = daemon/data
+PREFIX ?= /usr/local
+
+.PHONY: setup docs build build-release install uninstall
 
 default: build
 
@@ -11,8 +15,30 @@ build:
 build-release:
 	cargo build --release
 
-install:
-	cargo install --path=daemon
+install: install-bin install-data
+
+install-bin: target/release/r2kad-daemon
+	mkdir -p $(PREFIX)/lib/$(PKGNAME)
+	install target/release/r2kad-daemon $(PREFIX)/lib/$(PKGNAME)
+
+install-data: $(DATA_PREFIX)/r2kad.service $(DATA_PREFIX)/nftables.conf
+	# todo make vars propagate to service file
+	mkdir -p $(PREFIX)/lib/systemd/system
+	install $(DATA_PREFIX)/r2kad.service $(PREFIX)/lib/systemd/system
+	install $(DATA_PREFIX)/r2kad@.service $(PREFIX)/lib/systemd/system
+
+	mkdir -p $(PREFIX)/share/$(PKGNAME)
+	install $(DATA_PREFIX)/nftables.conf $(PREFIX)/share/$(PKGNAME)/nftables.conf
+
+uninstall: uninstall-bin uninstall-data
+
+uninstall-bin:
+	rm -r $(PREFIX)/lib/$(PKGNAME)
+
+uninstall-data:
+	rm $(PREFIX)/lib/systemd/system/r2kad.service
+
+	rm -r $(PREFIX)/share/$(PKGNAME)
 
 lib-docs:
 	cargo doc --package=r2kad-lib --all-features --open

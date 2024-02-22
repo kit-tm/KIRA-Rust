@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::net::{Ipv6Addr, SocketAddr};
 use std::ops::DerefMut;
@@ -31,6 +32,7 @@ pub struct UdpReceiver<C, P> {
     format: ProtocolMessageFormat,
     interface_mapper: P,
     ip_cache: C,
+    excluded_interfaces: HashSet<u32>,
 }
 
 impl<C: Clone, P: Clone> Clone for UdpReceiver<C, P> {
@@ -42,6 +44,7 @@ impl<C: Clone, P: Clone> Clone for UdpReceiver<C, P> {
             format: self.format.clone(),
             interface_mapper: self.interface_mapper.clone(),
             ip_cache: self.ip_cache.clone(),
+            excluded_interfaces: self.excluded_interfaces.clone(),
         }
     }
 }
@@ -57,6 +60,7 @@ impl<C, P> UdpReceiver<C, P> {
         format: ProtocolMessageFormat,
         ip_cache: C,
         interface_mapper: P,
+        excluded_interfaces: HashSet<u32>,
     ) -> tokio::io::Result<Self> {
         let udp_socket =
             UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?;
@@ -74,6 +78,7 @@ impl<C, P> UdpReceiver<C, P> {
             format,
             interface_mapper,
             ip_cache,
+            excluded_interfaces,
         })
     }
 
@@ -83,6 +88,7 @@ impl<C, P> UdpReceiver<C, P> {
         format: ProtocolMessageFormat,
         ip_cache: C,
         port_mapper: P,
+        excluded_interfaces: HashSet<u32>,
     ) -> Self {
         Self {
             buffer: RwLock::new([0u8; MTU_BYTES]),
@@ -90,6 +96,7 @@ impl<C, P> UdpReceiver<C, P> {
             format,
             interface_mapper: port_mapper,
             ip_cache,
+            excluded_interfaces,
         }
     }
 
@@ -188,6 +195,11 @@ where
             Err(e) => return Err(TryRecvError::IoError(Box::new(e))),
         };
 
+        // ignore incoming messages from excluded interfaces
+        if self.excluded_interfaces.contains(&ifindex) {
+            return Ok(None);
+        }
+
         let message = self.deserialize(&buffer[..received_bytes]);
         let interface = NetworkInterface::new(ifindex);
 
@@ -197,7 +209,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::error::Error;
     use std::sync::Arc;
     use std::time::Duration;
@@ -223,6 +235,7 @@ mod tests {
             ProtocolMessageFormat::Json,
             cache,
             PNetInterfaceMonitor::new(),
+            HashSet::default(),
         )
         .await
         .expect("failed to start udp receiver");
@@ -278,6 +291,7 @@ mod tests {
             ProtocolMessageFormat::Json,
             cache,
             PNetInterfaceMonitor::new(),
+            HashSet::default(),
         )
         .await
         .expect("failed to create udp receiver");
