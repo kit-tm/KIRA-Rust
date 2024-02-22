@@ -25,8 +25,7 @@ install-data: $(DATA_PREFIX)/r2kad.service $(DATA_PREFIX)/nftables.conf
 	# todo make vars propagate to service file
 	mkdir -p $(PREFIX)/lib/systemd/system
 	install $(DATA_PREFIX)/r2kad.service $(PREFIX)/lib/systemd/system
-	systemctl daemon-reload
-	
+
 	mkdir -p $(PREFIX)/share/$(PKGNAME)
 	install $(DATA_PREFIX)/nftables.conf $(PREFIX)/share/$(PKGNAME)/nftables.conf
 
@@ -37,7 +36,6 @@ uninstall-bin:
 
 uninstall-data:
 	rm $(PREFIX)/lib/systemd/system/r2kad.service
-	systemctl daemon-reload
 
 	rm -r $(PREFIX)/share/$(PKGNAME)
 
