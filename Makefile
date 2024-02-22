@@ -43,7 +43,11 @@ build-image-scratch:
 build-image-full:
 	sudo docker build -t r2kad-daemon:full -f daemon/docker/Dockerfile.full .
 
-build-images: build-image-scratch build-image-bench build-image-full
+build-image-supervisord:
+	sudo docker build -t r2kad-daemon:supervisord -f daemon/docker/Dockerfile.supervisord .
+
+
+build-images: build-image-scratch build-image-bench build-image-full build-image-supervisord build
 
 setup-bench-daemon:
 	-sudo docker volume create r2kad-bench-volume
