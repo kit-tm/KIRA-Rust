@@ -68,8 +68,9 @@ To Run the task on a physical host we recommend using the provided
 
 #### Manage some interfaces
 
-Currently, you can only blacklist interfaces using the `r2kad@.service`:
+Currently, you can only blacklist interfaces using the `r2kad@.service` by using the **numbers** of the interfaces:
 
-  ```systemctl enable --now r2kad@$(systemd-escape docker0,wlan0).service```
+  ```systemctl enable --now r2kad@$(systemd-escape 4,2).service```
 
-This will exclude the `docker0` and `wlan0` interface from being managed by the routing daemon.
+This will exclude the interface `4` and `2` interface from being managed by the routing daemon.
+You can obtain a list of all your interfaces by running `ip link`.
