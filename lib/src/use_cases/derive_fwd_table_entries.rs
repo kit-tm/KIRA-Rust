@@ -1,13 +1,16 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::marker::PhantomData;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 use crate::context::UseCaseContext;
-use crate::domain::{Contact, ContactState, NetworkInterface, NodeId, NodeIdSubnet, Path, RoutingTable};
+use crate::domain::{
+    Contact, ContactState, NetworkInterface, NodeId, NodeIdSubnet, Path, RoutingTable,
+};
 use crate::forwarding::hasher::Hasher;
 use crate::forwarding::{
-    ForwardingTables, NodeIdEncapsulationEntry, NodeIdEntry, NodeIdForwardingEntry, NodeIdTable, PathIdDecapsulationEntry, PathIdEntry, PathIdForwardingEntry, PathIdTable
+    ForwardingTables, NodeIdEncapsulationEntry, NodeIdEntry, NodeIdForwardingEntry, NodeIdTable,
+    PathIdDecapsulationEntry, PathIdEntry, PathIdForwardingEntry, PathIdTable,
 };
 use crate::use_cases::{ContactEvent, EventHandler, ReactiveUseCaseState, UseCase, UseCaseEvent};
 
@@ -228,11 +231,7 @@ where
         context: &C,
         contact: Contact,
     ) -> Result<(), error::DeriveFwdEntriesError> {
-        let entry = self.derive_path_id_entry(context, contact)?;
-        if entry.is_none() {
-            return Ok(());
-        }
-        let entry = entry.unwrap();
+        let entry = self.derive_path_id_entry(context, contact);
         context
             .forwarding_tables_mut()
             .create(entry)
@@ -241,7 +240,7 @@ where
         Ok(())
     }
 
-    /// Removes the old path id entry and creates a new one with new information.
+    // Updates the path id entry for a contact.
     fn update_path_id_entry(
         &self,
         context: &C,
@@ -251,39 +250,16 @@ where
         let mut forwarding_table = context.forwarding_tables_mut();
 
         if old_entry.path() != new_entry.path() {
-            // if path was updated -> Remove old, create new entry
-            let old_id = self.config.hasher.hash(old_entry.path());
+            let entry = self.derive_path_id_entry(context, new_entry);
             forwarding_table
-                .remove(&old_id)
-                .map_err(|e| error::DeriveFwdEntriesError::PathIdTable(Box::new(e)))?;
-
-            let new_entry = self.derive_path_id_entry(context, new_entry)?;
-            if new_entry.is_none() {
-                log::warn!(target: "derive_fwd_table_entries", "Tried to update path {:?} but new path is None", &old_id);
-                return Ok(());
-            }
-            let new_entry = new_entry.unwrap();
-            forwarding_table
-                .create(new_entry)
+                .create_or_update(entry)
                 .map_err(|e| error::DeriveFwdEntriesError::PathIdTable(Box::new(e)))
         } else {
-            // If path was not updated -> Only update entry
-            let entry = self.derive_path_id_entry(context, new_entry)?;
-            if entry.is_none() {
-                return Ok(());
-            }
-            let entry = entry.unwrap();
-            forwarding_table
-                .update(entry)
-                .map_err(|e| error::DeriveFwdEntriesError::PathIdTable(Box::new(e)))
+            Ok(())
         }
     }
 
-    fn derive_path_id_entry(
-        &self,
-        context: &C,
-        contact: Contact,
-    ) -> Result<Option<PathIdEntry>, error::DeriveFwdEntriesError> {
+    fn derive_path_id_entry(&self, context: &C, contact: Contact) -> PathIdEntry {
         let mut in_path = Path::from(context.root_id().clone());
         in_path.extend(contact.path().clone());
         let in_path_id = self.config.hasher.hash(&in_path);
@@ -293,12 +269,17 @@ where
         // which would cause the packet to be rerouted according to the 
         // locally installed routes instead of being forwarded to the next hop of the path.
 
-        // if contact.is_pn() || contact.id() == context.root_id() {
+        // As soon as a solution is found for forwarding early decapsulated packets
+        // to the next hop as determined by the path instead of treating them like
+        // locally generated packets, the following line can be uncommented to allow
+        // enabling early decapsulation.
+
+        // if contact.id() == context.root_id() || contact.is_pn() {
         if contact.id() == context.root_id() {
-            let result = Ok(Some(PathIdEntry::Decapsulate(PathIdDecapsulationEntry {
+            let result = PathIdEntry::Decapsulate(PathIdDecapsulationEntry {
                 in_path_id,
-                local_id: context.root_id().clone(),
-            })));
+                local_id: contact.id().clone(),
+            });
 
             log::debug!(target: "derive_fwd_table_entries", "Derived PathIdEntry {:?}", result);
             result
@@ -306,11 +287,11 @@ where
             let next_hop = contact.path().first().clone();
             let out_path_id = self.config.hasher.hash(contact.path().into_iter());
 
-            let result = Ok(Some(PathIdEntry::Forward(PathIdForwardingEntry {
+            let result = PathIdEntry::Forward(PathIdForwardingEntry {
                 in_path_id,
                 out_path_id,
                 next_hop,
-            })));
+            });
 
             log::debug!(target: "derive_fwd_table_entries", "Derived PathIdEntry {:?}", result);
             result
@@ -388,8 +369,16 @@ where
 {
     type State = ReactiveUseCaseState;
 
-    fn start(&mut self, _context: &Self::Context) -> Result<(), Self::Error> {
-        Ok(())
+    fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error> {
+        let in_path = Path::from(context.root_id().clone());
+        let in_path_id = self.config.hasher.hash(&in_path);
+        let entry = PathIdDecapsulationEntry {
+            in_path_id,
+            local_id: context.root_id().clone(),
+        };
+        let mut fw_tables = context.forwarding_tables_mut();
+        PathIdTable::create(fw_tables.deref_mut(), PathIdEntry::Decapsulate(entry))
+            .map_err(|e| error::DeriveFwdEntriesError::PathIdTable(Box::new(e)))
     }
 
     fn state(&self) -> &Self::State {
