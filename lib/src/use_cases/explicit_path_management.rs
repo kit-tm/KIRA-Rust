@@ -256,7 +256,7 @@ where
                     let entry = entries.get_mut(&in_path_id).unwrap();
                     entry.last_seen = Instant::now();
                 } else {
-                    if let Err(e) = context.forwarding_tables_mut().create(entry.clone()) {
+                    if let Err(e) = context.forwarding_tables_mut().create_or_update(entry.clone()) {
                         log::error!(target: "explicit_path_management", "Failed to create new entry: {:?}", e);
                         return;
                     }
@@ -273,7 +273,7 @@ where
                         in_path_id: in_path_id.clone(),
                         local_id: context.root_id().clone(),
                     });
-                    if let Err(e) = context.forwarding_tables_mut().create(entry) {
+                    if let Err(e) = context.forwarding_tables_mut().create_or_update(entry) {
                         log::error!(target: "explicit_path_management", "Failed to create new entry: {:?}", e);
                         return;
                     }

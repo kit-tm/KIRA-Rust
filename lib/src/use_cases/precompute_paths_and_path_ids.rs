@@ -131,7 +131,7 @@ where
         }
         for new_entry in new_entries {
             let insertion_result = fwd_tables
-                .create(new_entry.clone())
+                .create_or_update(new_entry.clone())
                 .or_else(|_| fwd_tables.create(new_entry.clone()));
             if let Err(e) = insertion_result {
                 log::error!(target: "precompute_paths_and_pathids", "Failed to create entry {}: {}", new_entry, e);
