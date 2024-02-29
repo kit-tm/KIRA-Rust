@@ -129,6 +129,19 @@ impl PathIdTable for InMemoryFwdTables {
             Ok(None)
         }
     }
+    
+    fn create_or_update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
+        let in_path_id = match entry {
+            PathIdEntry::Decapsulate(ref entry) => entry.in_path_id.clone(),
+            PathIdEntry::Forward(ref entry) => entry.in_path_id.clone(),
+        };
+
+        if self.path_id_table.contains_key(&in_path_id) {
+            PathIdTable::update(self, entry)
+        } else {
+            PathIdTable::create(self, entry)
+        }
+    }
 }
 
 impl ForwardingTables for InMemoryFwdTables {}

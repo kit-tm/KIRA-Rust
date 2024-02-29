@@ -40,7 +40,7 @@ impl NodeIdTable for NativeFwdTables {
             log::error!(target: "native_fwd_table", "entry already exists {:?}", entry);
         }
 
-        self.create_or_update(entry)
+        NodeIdTable::create_or_update(self, entry)
     }
 
     fn update(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
@@ -56,7 +56,7 @@ impl NodeIdTable for NativeFwdTables {
             log::error!(target: "native_fwd_table", "entry missing {:?}", entry);
         }
 
-        self.create_or_update(entry)
+        NodeIdTable::create_or_update(self, entry)
     }
 
     fn remove(&mut self, node_id: &NodeIdSubnet) -> Result<Option<NodeIdEntry>, Self::Error> {
@@ -101,18 +101,31 @@ impl NodeIdTable for NativeFwdTables {
     }
 
     fn create_or_update(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
-        log::debug!(target: "native_fwd_table", "CREATE_OR_UPDATE {:?}", entry);
-
         let destination = match entry {
             NodeIdEntry::Forward(ref entry) => entry.destination.clone(),
             NodeIdEntry::Encapsulate(ref entry) => entry.destination.clone(),
         };
+
+        if self.node_id_table.get(&destination) == Some(&entry) {
+            return Ok(());
+        }
 
         let prefix_len = if destination.prefix_length == 0 || destination.prefix_length > 128 {
             128
         } else {
             16 + destination.prefix_length
         };
+
+        // TODO fix this
+        // Because of how the routing table works, there can only be one entry per prefix_len != 128 (not completely correct but works for now)
+        // these subnet entries may change their destination when the routing table grows, so remove the old ones first
+        if prefix_len != 128 {
+            log::debug!(target: "native_fwd_table", "Checking for prefix entry change {:?}", entry);
+            if let Some(old_entry) = self.node_id_table.keys().find(|e| e.prefix_length == destination.prefix_length && e.node_id != destination.node_id).cloned() {
+                log::debug!(target: "native_fwd_table", "Prefix entry changed from {} to {}", old_entry, entry);
+                NodeIdTable::remove(self, &old_entry)?;
+            }
+        }
 
         match entry {
             NodeIdEntry::Forward(ref entry) => {
@@ -139,9 +152,10 @@ impl NodeIdTable for NativeFwdTables {
                 log::trace!(target: "native_fwd_table", "Trying to replace encap route {:?} dst {:?}", &node_ip, &path_ip);
                 platform::replace_encap_route(&node_ip, &path_ip).unwrap();
 
-                // If the prefix length is != 128, a subnet is configured.
+                // If the prefix length is != 128, a subnet route is configured.
                 // This means that an already existing and configured path to a contact is used.
-                // To avoid unnecessary configuration we don't configure the via route again.
+                // The via route to this contact is already configured.
+                // To avoid unnecessary reconfiguration we don't configure the via route again.
                 if prefix_len == 128 {
                     log::trace!(target: "native_fwd_table", "Trying to replace route to {:?} via {:?}", &path_ip, &next_hop_ip);
                     platform::replace_via_route(&path_ip, &next_hop_ip).unwrap();
@@ -174,24 +188,7 @@ impl PathIdTable for NativeFwdTables {
             return Err(error::FwdTableError::EntryAlreadyExists(entry.to_string()));
         }
 
-        let out_ip = match entry {
-            PathIdEntry::Decapsulate(ref entry) => Ipv6Addr::from(&entry.local_id),
-            PathIdEntry::Forward(ref entry) => Ipv6Addr::from(&entry.out_path_id),
-        };
-
-        log::trace!(target: "native_fwd_table", "Trying to insert entry into forwardmap: {:?}", entry);
-        platform::add_forwarding_rule(Ipv6Addr::from(&in_path_id), out_ip).unwrap();
-
-        // If an outgoing Path exists also create a via route for it
-        if let PathIdEntry::Forward(ref entry) = entry {
-            let via = Ipv6Addr::from(&entry.next_hop);
-
-            log::trace!(target: "native_fwd_table", "Trying to create via route: {:?} via {:?}", out_ip, via);
-            platform::replace_via_route(&out_ip.to_string(), &via.to_string()).unwrap();
-        }
-
-        self.path_id_table.insert(in_path_id, entry);
-        Ok(())
+        PathIdTable::create_or_update(self, entry)
     }
 
     fn update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
@@ -202,14 +199,46 @@ impl PathIdTable for NativeFwdTables {
             PathIdEntry::Forward(ref entry) => entry.in_path_id.clone(),
         };
 
-        if let Some(_) = self.path_id_table.get_mut(&in_path_id) {
-            // nft does not support updating elements
-            PathIdTable::remove(self, &in_path_id)?;
-            PathIdTable::create(self, entry)?;
-            Ok(())
+        if self.path_id_table.contains_key(&in_path_id) {
+           PathIdTable::create_or_update(self, entry)
         } else {
             Err(error::FwdTableError::EntryMissing(entry.to_string()))
         }
+    }
+
+    fn create_or_update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
+        let in_path_id = match entry {
+            PathIdEntry::Decapsulate(ref entry) => entry.in_path_id.clone(),
+            PathIdEntry::Forward(ref entry) => entry.in_path_id.clone(),
+        };
+        let out_ip = match entry {
+            PathIdEntry::Decapsulate(ref entry) => Ipv6Addr::from(&entry.local_id),
+            PathIdEntry::Forward(ref entry) => Ipv6Addr::from(&entry.out_path_id),
+        };
+        let next_hop = match entry {
+            PathIdEntry::Forward(ref entry) => Some(Ipv6Addr::from(&entry.next_hop)),
+            _ => None,
+        };
+
+        if let Some(old_entry) = self.path_id_table.get_mut(&in_path_id) {
+            if old_entry == &entry {
+                return Ok(());
+            }
+            log::trace!(target: "native_fwd_table", "Trying to update entry in forwardmap from {:?} to {:?}", old_entry, entry);
+            *old_entry = entry;
+            platform::update_forwarding_rule(Ipv6Addr::from(&in_path_id), out_ip).unwrap();
+        } else {
+            log::trace!(target: "native_fwd_table", "Trying to insert entry into forwardmap: {:?}", entry);
+
+            platform::add_forwarding_rule(Ipv6Addr::from(&in_path_id), out_ip).unwrap();
+            self.path_id_table.insert(in_path_id, entry);
+        }
+
+        if let Some(next_hop) = next_hop {
+            log::trace!(target: "native_fwd_table", "Trying to create via route: {:?} via {:?}", out_ip, next_hop);
+            platform::replace_via_route(&out_ip.to_string(), &next_hop.to_string()).unwrap();
+        }
+        Ok(())
     }
 
     fn remove(&mut self, path_id: &PathId) -> Result<Option<PathIdEntry>, Self::Error> {

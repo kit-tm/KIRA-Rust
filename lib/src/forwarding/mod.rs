@@ -159,6 +159,8 @@ pub trait PathIdTable {
     ///
     /// Emits an error if the entries `in_path_id` doesn't yet exist.
     fn update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error>;
+    /// Creates the given [PathIdEntry] if it doesn't exist yet, otherwise updates it.
+    fn create_or_update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error>;
     /// Removes a [PathIdEntry].
     ///
     /// **Doesn't** emit an error if the entries `in_path_id` doesn't exist.
