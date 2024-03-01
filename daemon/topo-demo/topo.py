@@ -239,9 +239,11 @@ if __name__ == '__main__':
                 logger.info("Pruning done.")
             case "store":
                 result = network.store(args.node, args.reference, args.data)
+                result = result.decode("utf-8")
                 print(result)
             case "fetch":
                 result = network.fetch(args.node, args.reference)
+                result = result.decode("utf-8")
                 print(result)
             case "logs":
                 result = network.logs(args.node)
