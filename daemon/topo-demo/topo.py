@@ -45,7 +45,7 @@ class R2KadNetwork:
         self._logger.debug(f"Trying to find existing network for edge {u}--{v}")
         # test if we already created the network in a previous run
         for nw in self._networks:
-            if nw.name == f"r2-{u}-{v}":
+            if nw.name == f"r2edge-{u}-{v}":
                 self._logger.debug(f"Adopting previous created network {nw.name} for edge {u}--{v}")
                 self.graph.edges[u, v]["network"] = nw
                 break
@@ -82,8 +82,11 @@ class R2KadNetwork:
 
     def create_edge_network(self, origin: int, destination: int) -> Network:
         network = self.client.networks.create(
-                name=f"r2-{origin}-{destination}",
+                name=f"r2edge-{origin}-{destination}",
                 driver="bridge",
+                options={
+                    "com.docker.network.bridge.name": f"r2edge-{origin}-{destination}",
+                    "com.docker.network.container_iface_prefix": "r2edge"},
                 enable_ipv6=True)
         self.graph.edges[origin, destination]["network"] = network
         return network
