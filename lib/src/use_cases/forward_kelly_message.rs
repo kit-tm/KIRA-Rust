@@ -86,11 +86,6 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
 
     fn send_initial_kelly_response(&self, source_route: Vec<crate::domain::api::NodeIdApi>, response: KellyResponse, context: &C) {
 
-        //if rand::random::<f64>() >= 0.95_f64.powi(source_route.len() as i32) {
-        //    log::error!("Dropping KeLLy Response");
-        //    return;
-        //}
-
         log::warn!("Sending Kelly response via route {:?}", source_route);
 
         let source_route = SourceRoute::from(source_route.into_iter().map(|x| NodeId::from(TryInto::<[u8; node_id::SIZE]>::try_into(Vec::from_hex(x.node_id).unwrap()).unwrap())).collect::<Vec<NodeId>>());
@@ -112,11 +107,6 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
     }
 
     fn forward_or_consume_kelly_request(&self, mut data: ReqRspMessage<KellyReqData>, context: &C) {
-
-        //if rand::random::<f64>() < 0.05 {
-        //    log::error!("Dropping KeLLy Request");
-        //    return;
-        //}
 
         let closer_contacts = self.get_closer_contacts(&data.data.node_id, context);
 

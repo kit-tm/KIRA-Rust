@@ -164,18 +164,31 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
     }
 
     pub fn get_layers(&self) -> Vec<RoutingTableLayer> {
+        // we have one bucket less than level width
+        let level_width = (2 ^ ACC) - 1;
+        let number_of_levels = self.num_buckets() / level_width;
+        let mut result = Vec::new();
+        log::warn!("Num Buckets: {}, ACC: {}, level width: {}, num levels: {}", self.num_buckets(), ACC, level_width, number_of_levels);
 
-        let start= if 2^ACC > self.num_buckets() {
-            0
-        } else {
-            self.num_buckets() - (2^ACC)
-        };
-        let mut last_layer = Vec::new();
-        for i in start..self.num_buckets() {
-            last_layer.push(self.buckets[i].clone().into());
+        let mut last_index = 0;
+        for level in 0..min(number_of_levels-1, number_of_levels) { // TODO remove this hack when number of levels < 0
+            let mut layer_vec = Vec::new();
+            for level_index in 0..level_width {
+                log::warn!("level: {}, level_index: {}", level, level_index);
+                last_index = level * level_width + level_index;
+                layer_vec.push(self.buckets[last_index].clone().into())
+            }
+            result.push(RoutingTableLayer { buckets: layer_vec } )
         }
 
-        vec![RoutingTableLayer {buckets: last_layer}]
+        let mut last_layer = Vec::new();
+        for i in last_index..self.num_buckets() {
+            last_layer.push(self.buckets[i].clone().into())
+        }
+
+        result.push(RoutingTableLayer { buckets: last_layer });
+
+        result
     }
 
     fn hack_get_discovery_range_acc_one(&self) -> DiscoveryRange {
