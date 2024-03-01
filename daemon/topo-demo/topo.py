@@ -69,6 +69,10 @@ class R2KadNetwork:
                 image=img, name=container_name,
                 detach=True,
                 cap_add=["NET_ADMIN"],
+                sysctls={
+                   'net.ipv6.conf.default.disable_ipv6': 0,
+                   'net.ipv6.conf.all.forwarding': 1
+                   },
                 environment=[f"NODE_ID={int(node):028x}","RUST_LOG=debug"])
         if info:
             self._logger.info(f"Created new container for node: {node}")
