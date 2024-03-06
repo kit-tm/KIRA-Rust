@@ -300,9 +300,7 @@ where
             | ProtocolMessage::QueryRouteReq(_)
             | ProtocolMessage::PathSetupReq(_)
             | ProtocolMessage::PathTeardownReq(_) => {},
-            ProtocolMessage::KellyReq(_) | ProtocolMessage::KellyRsp(_) => {
-                log::warn!("Forwarding Kelly message");
-            }
+            ProtocolMessage::KellyReq(_) | ProtocolMessage::KellyRsp(_) => {}
         }
 
         Ok(())

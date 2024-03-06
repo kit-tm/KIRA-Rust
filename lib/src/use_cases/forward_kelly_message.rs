@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 use hex::FromHex;
-use rand::thread_rng;
 use crate::context::UseCaseContext;
 use crate::domain::{Contact, node_id, NodeId, Path, RoutingTable, SharedPrefix};
 use crate::domain::api::{KellyResponse, NodeIdApi};
@@ -60,6 +59,9 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
 
         let closest_path = self.get_closest_path(&node_id, &context);
         if closest_path.is_none() {
+            log::warn!("Consuming own message, because this node is the closest node to the target, no path found");
+            let path: Path = context.root_id().clone().into();
+            self.kelly_connector.forward_request(node_id, path.into(), nonce.into());
             return
         }
         let closest_path = closest_path.unwrap();
@@ -67,6 +69,19 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
 
         let mut route = SourceRoute::from(closest_path);
         route.push_front(context.root_id().clone());
+
+        let shared_size_with_this = node_id.shared_prefix_len(&context.root_id(), 1).unwrap().length;
+
+        let shared_size_with_dest = node_id.shared_prefix_len(&route.destination(), 1).unwrap().to_owned().length;
+
+        if shared_size_with_this > shared_size_with_dest {
+            log::warn!("Consuming own message, because this node is the closest node to the target.");
+            let path: Path = context.root_id().clone().into();
+            self.kelly_connector.forward_request(node_id, path.into(), nonce.into());
+            return
+        }
+
+        log::warn!("this: {}, dest: {}", shared_size_with_this, shared_size_with_dest);
 
         log::warn!("Sending message via route {:?}", route);
 
@@ -87,6 +102,12 @@ impl<C, const BUCKET_SIZE: usize, Conn: KellyConnector> ForwardKellyMessageHandl
     fn send_initial_kelly_response(&self, source_route: Vec<crate::domain::api::NodeIdApi>, response: KellyResponse, context: &C) {
 
         log::warn!("Sending Kelly response via route {:?}", source_route);
+
+        if source_route.len() == 1 {
+            log::warn!("source_route length is 1, Consuming response");
+            self.kelly_connector.forward_response(response);
+            return
+        }
 
         let source_route = SourceRoute::from(source_route.into_iter().map(|x| NodeId::from(TryInto::<[u8; node_id::SIZE]>::try_into(Vec::from_hex(x.node_id).unwrap()).unwrap())).collect::<Vec<NodeId>>());
 

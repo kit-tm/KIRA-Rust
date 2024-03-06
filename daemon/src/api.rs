@@ -30,7 +30,7 @@ pub(crate) async fn start_http_server(api_config: ApiConfig) {
         .route("/kelly/response", post(send_kelly_response))
         .with_state(api_state);
 
-    log::warn!("Starting API Server");
+    log::info!("Starting API Server");
     axum::Server::bind(&api_config.address)
         .serve(app.into_make_service())
         .await
@@ -79,31 +79,29 @@ async fn get_node_id_for_test_env(State(state): State<ApiState>) -> String {
     result
 }
 
-#[tracing::instrument(name = "rt-to-api-http",level = "warn", skip_all, fields(node_id))]
+#[tracing::instrument(name = "rt-to-api-http",level = "debug", skip_all, fields(node_id))]
 async fn get_routing_table(State(state): State<ApiState>) -> Json<RoutingTableResponse> {
     let node_id_api: NodeIdApi = state.node_id.into();
     tracing::Span::current().record("node_id", node_id_api.node_id);
-    let start = Instant::now();
     let (tx, mut rx) = mpsc::unbounded_channel::<RoutingTableResponse>();
 
     let res = state.sender.send((UseCaseEvent::API(ApiEvent::RoutingTable(tx)), None)).await;
 
     let result = rx.recv().await.unwrap();
-    log::warn!("rt-to-api-http time {:?}", Instant::now() - start);
     Json(result)
 
 }
 
 async fn send_kelly_request(State(state): State<ApiState>, Json(request): Json<OutgoingKellyRequest>) {
 
-    log::warn!("Received api send kelly.py request for Node {:?}", request);
+    log::debug!("Received api send kelly.py request for Node {:?}", request);
 
     let result = state.sender.send((UseCaseEvent::API(SendKellyReq(request)), None)).await;
 
     if let Err(e) = result {
         log::error!("Failed to send Kelly Request: {}", e)
     } else {
-        log::info!("Sending successful");
+        log::debug!("Sending successful");
     }
     
 }
