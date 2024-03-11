@@ -41,6 +41,6 @@ COPY daemon/docker/nftables.conf ./
 
 #USER r2kad-daemon:r2kad-daemon
 
-EXPOSE 8080/udp
+EXPOSE 19219/udp
 
 CMD "/r2kad-daemon/start.sh"

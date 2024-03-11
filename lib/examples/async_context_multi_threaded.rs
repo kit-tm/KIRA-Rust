@@ -69,7 +69,7 @@ fn main() {
     // Initialize IO Channel
     let ip_cache = Arc::new(RwLock::new(HashMap::new()));
     let channel = r2kad_lib::messaging::udp::async_channel(
-        8080,
+        19219,
         ip_cache,
         PNetInterfaceMonitor::new(),
         ProtocolMessageFormat::MessagePack,

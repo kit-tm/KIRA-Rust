@@ -53,7 +53,7 @@ USER r2kad-daemon:r2kad-daemon
 
 ENV BENCH_PATH="/r2kad-daemon/bench/"
 
-EXPOSE 8080/udp
+EXPOSE 19219/udp
 
 VOLUME ["/r2kad-daemon/bench"]
 
