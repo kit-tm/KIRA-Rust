@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::net::Ipv6Addr;
 use std::process::Command;
 
@@ -16,14 +17,15 @@ pub struct NativeFwdTables {
 }
 
 impl NativeFwdTables {
-    pub fn new() -> Self {
+    pub fn new<S: AsRef<OsStr>>(nftables_conf: S) -> Self {
         let output = Command::new("nft")
-            .args(["-f", "/r2kad-daemon/nftables.conf"])
+            .arg("-f").arg(nftables_conf)
             .output()
             .unwrap();
         match output.status.code().expect("failed to execute nft command") {
             0 => log::debug!(target: "native_fwd_table", "Loaded nftables successfully"),
             _status => {
+                //FIXME this should probably fail if _status = 1 (nftables_conf not found)
                 log::debug!(target: "native_fwd_table", "Loaded nftables config with status code {:?} and error message {:?}", _status, String::from_utf8_lossy(&output.stderr))
             }
         }
