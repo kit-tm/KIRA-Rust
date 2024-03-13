@@ -234,7 +234,7 @@ where
         let entry = self.derive_path_id_entry(context, contact);
         context
             .forwarding_tables_mut()
-            .create(entry)
+            .create_or_update(entry)
             .map_err(|e| error::DeriveFwdEntriesError::PathIdTable(Box::new(e)))?;
 
         Ok(())
