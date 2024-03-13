@@ -3,7 +3,7 @@ use std::process::Command;
 use std::sync::Arc;
 
 use tokio::io;
-use unix_udp_sock::UdpSocket;
+use tokio::net::UdpSocket;
 
 use crate::messaging::error::SenderError;
 use crate::messaging::format::ProtocolMessageFormat;
@@ -30,7 +30,7 @@ impl<C> UdpSender<C> {
     ) -> io::Result<Self> {
         let socket =
             UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?;
-        if let Err(err) = socket.join_multicast_v6(&Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), 0).await {
+        if let Err(err) = socket.join_multicast_v6(&Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), 0) {
             log::trace!("Error joining multicast group: {:?}", err);
         }
 
