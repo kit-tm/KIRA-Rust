@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
 use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
@@ -11,7 +12,6 @@ use tokio::sync::{mpsc, RwLock};
 
 use r2kad_daemon_lib::{Node, NodeConfig};
 use r2kad_lib::domain::NodeId;
-use r2kad_lib::forwarding::in_memory_tables::InMemoryFwdTables;
 use r2kad_lib::messaging::format::ProtocolMessageFormat;
 use r2kad_lib::messaging::sync_wrapper::SyncWrapper;
 use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetInterfaceMonitor};
@@ -28,6 +28,10 @@ struct Args {
     /// This also enables benchmarking mode which disables logging.
     #[clap(short, long, value_parser, env = "BENCH_PATH")]
     benchmark_path: Option<String>,
+    #[clap(short, long, value_parser, env = "NFTABLES_CONF", default_value = "nftables.conf")]
+    nftables_conf: OsString,
+    #[clap(short, long, value_parser, value_delimiter=',')]
+    excluded_interfaces: Option<Vec<u32>>,
 }
 
 fn main() {
@@ -78,7 +82,13 @@ fn main() {
     let mapper = PNetInterfaceMonitor::new();
     mapper.blocking_refresh();
 
-    let fwd_table = InMemoryFwdTables::new();
+    let fwd_table = NativeFwdTables::new(args.nftables_conf);
+
+    let excluded_interfaces = args.excluded_interfaces
+        .map_or_else(
+            || HashSet::default(),
+            |vec| HashSet::from_iter(vec.into_iter())
+        );
 
     let ip_cache = Arc::new(RwLock::new(HashMap::new()));
     let channel = r2kad_lib::messaging::udp::async_channel(
@@ -86,6 +96,7 @@ fn main() {
         ip_cache,
         mapper,
         ProtocolMessageFormat::MessagePack,
+        excluded_interfaces
     );
     let (message_sender, message_receiver) = runtime
         .block_on(channel)

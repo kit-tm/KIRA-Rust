@@ -89,6 +89,7 @@ pub trait AsyncInterfaceMapper {
 
 #[cfg(feature = "udp-tokio")]
 pub mod udp {
+    use std::collections::HashSet;
     use std::net::{Ipv6Addr, SocketAddr};
     use std::sync::Arc;
 
@@ -111,6 +112,7 @@ pub mod udp {
         cache: C,
         interface_mapper: P,
         format: ProtocolMessageFormat,
+        excluded_interfaces: HashSet<u32>
     ) -> tokio::io::Result<(
         sender::udp_tokio::UdpSender<C>,
         receiver::udp_tokio::UdpReceiver<C, P>,
@@ -134,11 +136,12 @@ pub mod udp {
             socket.clone(),
             cache.clone(),
             format.clone(),
+            excluded_interfaces.clone(),
         )
         .await?;
 
         let receiver =
-            receiver::udp_tokio::UdpReceiver::from_socket(socket, format, cache, interface_mapper);
+            receiver::udp_tokio::UdpReceiver::from_socket(socket, format, cache, interface_mapper, excluded_interfaces);
 
         Ok((sender, receiver))
     }

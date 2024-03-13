@@ -1,7 +1,7 @@
-use std::{net::Ipv6Addr, process::Command};
+use std::{ffi::OsStr, net::Ipv6Addr, process::Command};
 
-pub fn load_nft_config(path: &str) -> Result<(), String> {
-    let output = Command::new("nft").args(["-f", path]).output().unwrap();
+pub fn load_nft_config<S: AsRef<OsStr>>(path: S) -> Result<(), String> {
+    let output = Command::new("nft").arg("-f").arg(path).output().unwrap();
     match output.status.code().expect("failed to execute nft command") {
         0 => {
             log::debug!(target: "linux", "Loaded nftables successfully");

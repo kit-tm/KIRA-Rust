@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::net::Ipv6Addr;
 
 use crate::domain::path_id::PathId;
@@ -17,9 +18,9 @@ pub struct NativeFwdTables {
 }
 
 impl NativeFwdTables {
-    pub fn new() -> Self {
-        platform::load_nft_config("/r2kad-daemon/nftables.conf").unwrap();
-
+    pub fn new<S: AsRef<OsStr>>(nftables_conf: S) -> Self {
+        platform::load_nft_config(nftables_conf).unwrap();
+        log::debug!(target: "native_fwd_table", "Loaded nftables successfully");
         Self::default()
     }
 }
