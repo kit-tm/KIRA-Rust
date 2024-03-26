@@ -1,7 +1,5 @@
 use std::fmt::{Display, Formatter};
 
-#[cfg(feature = "pnet")]
-pub use pnet_conversion::*;
 
 /// Represents network interface (as in 'hardware device') by interface index.
 #[derive(Debug, Clone, Hash)]
@@ -15,29 +13,6 @@ impl NetworkInterface {
         let interfaces = pnet::datalink::interfaces();
         let interface = interfaces.iter().find(|i| i.index == index).expect("Unable to find interface");
         Self { index, name: interface.name.clone() }
-    }
-
-    // todo use lazy initialization
-    pub fn loopback() -> Self {
-        let interfaces = pnet::datalink::interfaces();
-        let interface = interfaces.iter().find(|i| i.is_loopback()).expect("Unable to find loopback interface");
-
-        Self {
-            index: interface.index,
-            name: interface.name.clone(),
-        }
-    }
-}
-
-#[cfg(test)]
-impl NetworkInterface {
-    // method only for tests
-    // todo find a better way to make this work for tests
-    pub fn with_name<S: Into<String>>(name: S) -> Self {
-        Self {
-            index: u32::MAX,
-            name: name.into(),
-        }
     }
 
     // todo use lazy initialization
