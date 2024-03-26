@@ -217,3 +217,74 @@ pub fn delete_neighbor_route(ip: &str, interface_name: &str) -> Result<(), Strin
         }
     }
 }
+
+pub fn create_kira_interface() -> Result<(), String> {
+    let output = Command::new("ip")
+        .args(["link", "add", "name", "kira", "type", "ip6gre", "external"])
+        .output()
+        .expect("failed to create kira interface");
+
+    match output
+        .status
+        .code()
+        .expect("ip command externally terminated")
+    {
+        0 => {
+            log::trace!(target: "linux", "command \"ip link add name kira type ip6gre external\" succeeded");
+        }
+        status => {
+            let error_message = String::from_utf8_lossy(&output.stderr);
+            log::error!(target: "linux", "command \"ip link add name kira type ip6gre external\" failed with status code {} and error message {}",
+                        status, error_message);
+            return Err(error_message.to_string());
+        }
+    }
+
+    let output = Command::new("ip")
+        .args(["link", "set", "kira", "up"])
+        .output()
+        .expect("failed to enable kira interface");
+
+    match output
+        .status
+        .code()
+        .expect("ip command externally terminated")
+    {
+        0 => {
+            log::trace!(target: "linux", "command \"ip link set kira up\" succeeded");
+        }
+        status => {
+            let error_message = String::from_utf8_lossy(&output.stderr);
+            log::error!(target: "linux", "command \"ip link set kira up\" failed with status code {} and error message {}",
+                        status, error_message);
+            return Err(error_message.to_string());
+        }
+    }
+
+    return Ok(());
+}
+
+pub fn delete_kira_interface() -> Result<(), String> {
+    let output = Command::new("ip")
+        .args(["link", "delete", "kira"])
+        .output()
+        .expect("failed to delete kira interface");
+
+    match output
+        .status
+        .code()
+        .expect("ip command externally terminated")
+    {
+        0 => {
+            log::trace!(target: "linux", "command \"ip link delete kira\" succeeded");
+        }
+        status => {
+            let error_message = String::from_utf8_lossy(&output.stderr);
+            log::error!(target: "linux", "command \"ip link delete kira\" failed with status code {} and error message {}",
+                        status, error_message);
+            return Err(error_message.to_string());
+        }
+    }
+
+    return Ok(());
+}

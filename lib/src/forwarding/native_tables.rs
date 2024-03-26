@@ -19,9 +19,17 @@ pub struct NativeFwdTables {
 
 impl NativeFwdTables {
     pub fn new<S: AsRef<OsStr>>(nftables_conf: S) -> Self {
+        platform::create_kira_interface().expect("KIRA interface doesn't exist prior");
         platform::load_nft_config(nftables_conf).unwrap();
         log::debug!(target: "native_fwd_table", "Loaded nftables successfully");
         Self::default()
+    }
+}
+
+impl Drop for NativeFwdTables {
+    fn drop(&mut self) {
+        platform::delete_kira_interface()
+            .expect("KIRA interface should have been created at creation");
     }
 }
 
@@ -122,7 +130,14 @@ impl NodeIdTable for NativeFwdTables {
         // these subnet entries may change their destination when the routing table grows, so remove the old ones first
         if prefix_len != 128 {
             log::debug!(target: "native_fwd_table", "Checking for prefix entry change {:?}", entry);
-            if let Some(old_entry) = self.node_id_table.keys().find(|e| e.prefix_length == destination.prefix_length && e.node_id != destination.node_id).cloned() {
+            if let Some(old_entry) = self
+                .node_id_table
+                .keys()
+                .find(|e| {
+                    e.prefix_length == destination.prefix_length && e.node_id != destination.node_id
+                })
+                .cloned()
+            {
                 log::debug!(target: "native_fwd_table", "Prefix entry changed from {} to {}", old_entry, entry);
                 NodeIdTable::remove(self, &old_entry)?;
             }
@@ -201,7 +216,7 @@ impl PathIdTable for NativeFwdTables {
         };
 
         if self.path_id_table.contains_key(&in_path_id) {
-           PathIdTable::create_or_update(self, entry)
+            PathIdTable::create_or_update(self, entry)
         } else {
             Err(error::FwdTableError::EntryMissing(entry.to_string()))
         }
