@@ -146,12 +146,23 @@ where
                 return Err(RecvError::IoError(Box::new(e)));
             }
         };
-
-        let message = self.deserialize(&buffer[..received_bytes]);
         let received_from = match received_from {
             SocketAddr::V6(addr) => addr,
             addr => panic!("Received Non-IPv6 Packet from {}", addr),
         };
+
+        // ignore incoming messages from excluded interfaces
+        if self.excluded_interfaces.contains(&received_from.scope_id()) {
+            return Ok(None);
+        }
+
+        // FIXME ignore scope_id 0 (probably caused by ipv6 attached to lo)
+        if received_from.scope_id() == 0 {
+            log::warn!("Ignoring message with scope_id 0");
+            return Ok(None);
+        }
+
+        let message = self.deserialize(&buffer[..received_bytes]);
         let interface = NetworkInterface::new(received_from.scope_id());
 
         if let Some(message) = &message {
@@ -199,6 +210,12 @@ where
 
         // ignore incoming messages from excluded interfaces
         if self.excluded_interfaces.contains(&address.scope_id()) {
+            log::warn!("Ignoring message with scope_id 0");
+            return Ok(None);
+        }
+
+        // FIXME ignore scope_id 0 (probably caused by ipv6 attached to lo)
+        if address.scope_id() == 0 {
             return Ok(None);
         }
 
