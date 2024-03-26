@@ -66,10 +66,6 @@ impl<C> UdpSender<C> {
         })
     }
 
-    fn broadcast_addr(&self) -> SocketAddr {
-        SocketAddr::from((Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), self.port))
-    }
-
     async fn broadcast_message(&self, buffer: &[u8]) -> Result<(), SenderError> {
         fn is_link_local(ip: &&IpNetwork) -> bool {
             let IpNetwork::V6(ip) = ip else {
@@ -83,21 +79,22 @@ impl<C> UdpSender<C> {
         let interfaces = datalink::interfaces();
         // todo buffer
         // FIXME exclude `KIRA@NONE` interface
+        
+        // observation: all relevant interfaces have a MAC != 00:00:00:00:00:00, so maybe we can filter out those
         let indices = interfaces.into_iter()
             // filter out non-working interfaces
-            .filter(|i| i.is_up() && !i.is_loopback() && i.ips.iter().find(is_link_local).is_some())
+            .filter(|i| i.is_up() && !i.is_loopback() && i.ips.iter().find(is_link_local).is_some() && !i.name.contains("kira"))
             .map(|i| i.index)
             // filter out interfaces we want to ignore
             .filter(|idx| !self.excluded_interfaces.contains(idx));
 
         for interface_index in indices {
-            let dest = SocketAddrV6::new(
+            let dest = SocketAddr::V6(SocketAddrV6::new(
                 Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1),
                 self.port, 0, interface_index
-            );
-            dbg!(dest);
+            ));
             self.socket
-                .send_to(&buffer, dest.into())
+                .send_to(&buffer, dest)
                 .await.map_err(|e| SenderError::SendError(e))?;
         }
         Ok(())
