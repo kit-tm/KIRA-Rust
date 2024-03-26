@@ -73,7 +73,7 @@ class R2KadNetwork:
                    'net.ipv6.conf.default.disable_ipv6': 0,
                    'net.ipv6.conf.all.forwarding': 1
                    },
-                environment=[f"NODE_ID={int(node):028x}","RUST_LOG=debug"])
+                environment=[f"NODE_ID={int(node):028x}", f"RUST_LOG={os.environ.get('RUST_LOG', 'debug')}"])
         if info:
             self._logger.info(f"Created new container for node: {node}")
 
