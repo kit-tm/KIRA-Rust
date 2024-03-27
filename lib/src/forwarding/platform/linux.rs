@@ -1,5 +1,7 @@
 use std::{ffi::OsStr, net::Ipv6Addr, process::Command};
 
+use crate::domain::NodeId;
+
 pub fn load_nft_config<S: AsRef<OsStr>>(path: S) -> Result<(), String> {
     let output = Command::new("nft").arg("-f").arg(path).output().unwrap();
     match output.status.code().expect("failed to execute nft command") {
@@ -283,6 +285,38 @@ pub fn delete_kira_interface() -> Result<(), String> {
             log::error!(target: "linux", "command \"ip link delete kira\" failed with status code {} and error message {}",
                         status, error_message);
             return Err(error_message.to_string());
+        }
+    }
+
+    return Ok(());
+}
+
+pub fn attach_node_id_ip(interface: String, node_id: &NodeId) -> Result<(), String> {
+    let mut node_ip_bytes: [u8; 16] = [0; 16];
+    node_ip_bytes[0] = 0xfc;
+    node_ip_bytes[2..].copy_from_slice(&node_id.as_ref()[..]);
+    let node_ip = Ipv6Addr::from(node_ip_bytes);
+    let node_ip = format!("{}", node_ip);
+
+    let output = Command::new("ip")
+        .args(["address", "add", &node_ip, "dev", &interface])
+        .output()
+        .expect("failed to add ip of node to interface");
+
+    match output
+        .status
+        .code()
+        .expect("ip command externally terminated")
+    {
+        0 => {
+            log::trace!(target: "linux", "command \"ip address add {node_ip} dev {interface}\" succeeded");
+        }
+        status => {
+            let error_message = String::from_utf8_lossy(&output.stderr);
+            // FIXME remove IPs on daemon shutdown so we don't have to ignore this
+            log::warn!(target: "linux", "command \"ip address add {node_ip} dev {interface}\" failed with status code {} and error message {}",
+                        status, error_message);
+            //return Err(error_message.to_string());
         }
     }
 

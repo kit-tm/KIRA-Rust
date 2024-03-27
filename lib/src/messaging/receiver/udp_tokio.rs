@@ -32,7 +32,6 @@ pub struct UdpReceiver<C, P> {
     format: ProtocolMessageFormat,
     interface_mapper: P,
     ip_cache: C,
-    excluded_interfaces: HashSet<u32>,
 }
 
 impl<C: Clone, P: Clone> Clone for UdpReceiver<C, P> {
@@ -44,7 +43,6 @@ impl<C: Clone, P: Clone> Clone for UdpReceiver<C, P> {
             format: self.format.clone(),
             interface_mapper: self.interface_mapper.clone(),
             ip_cache: self.ip_cache.clone(),
-            excluded_interfaces: self.excluded_interfaces.clone(),
         }
     }
 }
@@ -60,7 +58,6 @@ impl<C, P> UdpReceiver<C, P> {
         format: ProtocolMessageFormat,
         ip_cache: C,
         interface_mapper: P,
-        excluded_interfaces: HashSet<u32>,
     ) -> tokio::io::Result<Self> {
         let udp_socket =
             UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?;
@@ -78,7 +75,6 @@ impl<C, P> UdpReceiver<C, P> {
             format,
             interface_mapper,
             ip_cache,
-            excluded_interfaces,
         })
     }
 
@@ -88,7 +84,6 @@ impl<C, P> UdpReceiver<C, P> {
         format: ProtocolMessageFormat,
         ip_cache: C,
         port_mapper: P,
-        excluded_interfaces: HashSet<u32>,
     ) -> Self {
         Self {
             buffer: RwLock::new([0u8; MTU_BYTES]),
@@ -96,7 +91,6 @@ impl<C, P> UdpReceiver<C, P> {
             format,
             interface_mapper: port_mapper,
             ip_cache,
-            excluded_interfaces,
         }
     }
 
@@ -108,7 +102,7 @@ impl<C, P> UdpReceiver<C, P> {
                 return None;
             }
         };
-        
+
         Some(deserialized)
     }
 
@@ -152,7 +146,12 @@ where
         };
 
         // ignore incoming messages from excluded interfaces
-        if self.excluded_interfaces.contains(&received_from.scope_id()) {
+        if self
+            .interface_mapper
+            .get_available()
+            .await
+            .contains(&received_from.scope_id())
+        {
             return Ok(None);
         }
 
@@ -209,8 +208,12 @@ where
         };
 
         // ignore incoming messages from excluded interfaces
-        if self.excluded_interfaces.contains(&address.scope_id()) {
-            log::warn!("Ignoring message with scope_id 0");
+        if self
+            .interface_mapper
+            .get_available()
+            .await
+            .contains(&address.scope_id())
+        {
             return Ok(None);
         }
 

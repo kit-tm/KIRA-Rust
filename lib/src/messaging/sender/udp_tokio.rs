@@ -1,37 +1,47 @@
-use std::collections::HashSet;
+use std::fmt::Debug;
 use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
 use std::sync::Arc;
-use pnet::datalink;
-use pnet::ipnetwork::{IpNetwork, Ipv6Network};
 
 use tokio::io;
 use tokio::net::UdpSocket;
 
 use crate::messaging::error::SenderError;
 use crate::messaging::format::ProtocolMessageFormat;
-use crate::messaging::{AsyncIpCache, AsyncProtocolMessageSender, ProtocolMessage};
-
+use crate::messaging::{
+    AsyncInterfaceMapper, AsyncIpCache, AsyncProtocolMessageSender, ProtocolMessage,
+};
 
 /// Defaults to sending the request to multicast if neighbor is not present (which should not
 /// happen for physical neighbors).
 ///
 /// Delegates the sending of messages to lower layers based on the stored IP addresses in the [AsyncIpCache].
-#[derive(Debug, Clone)]
-pub struct UdpSender<C> {
+#[derive(Clone)]
+pub struct UdpSender<C, P> {
     format: ProtocolMessageFormat,
+    interface_mapper: P,
     socket: Arc<UdpSocket>,
     ip_cache: C,
     port: u16,
-    excluded_interfaces: HashSet<u32>,
 }
 
-impl<C> UdpSender<C> {
+impl<C: Debug, P> Debug for UdpSender<C, P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UdpSender")
+            .field("format", &self.format)
+            .field("socket", &self.socket)
+            .field("ip_cache", &self.ip_cache)
+            .field("port", &self.port)
+            .finish()
+    }
+}
+
+impl<C, P> UdpSender<C, P> {
     pub async fn new(
         socket_port: u16,
         broadcast_port: u16,
+        interface_mapper: P,
         ip_cache: C,
         format: ProtocolMessageFormat,
-        excluded_interfaces: HashSet<u32>,
     ) -> io::Result<Self> {
         let socket =
             UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?;
@@ -43,16 +53,16 @@ impl<C> UdpSender<C> {
             socket: Arc::new(socket),
             format,
             port: broadcast_port,
+            interface_mapper,
             ip_cache,
-            excluded_interfaces,
         })
     }
 
     pub(crate) async fn from_socket(
         socket: Arc<UdpSocket>,
+        interface_mapper: P,
         ip_cache: C,
         format: ProtocolMessageFormat,
-        excluded_interfaces: HashSet<u32>,
     ) -> io::Result<Self> {
         let addr = socket.local_addr()?;
         let port = addr.port();
@@ -61,51 +71,34 @@ impl<C> UdpSender<C> {
             socket,
             format,
             port,
+            interface_mapper,
             ip_cache,
-            excluded_interfaces,
         })
-    }
-
-    async fn broadcast_message(&self, buffer: &[u8]) -> Result<(), SenderError> {
-        fn is_link_local(ip: &&IpNetwork) -> bool {
-            let IpNetwork::V6(ip) = ip else {
-                return false;
-            };
-
-            let ll_network: Ipv6Network = "fe80::/64".parse().unwrap();
-            ll_network.contains(ip.ip())
-        }
-
-        let interfaces = datalink::interfaces();
-        // todo buffer
-        // FIXME exclude `KIRA@NONE` interface
-        
-        // observation: all relevant interfaces have a MAC != 00:00:00:00:00:00, so maybe we can filter out those
-        let indices = interfaces.into_iter()
-            // filter out non-working interfaces
-            .filter(|i| i.is_up() && !i.is_loopback() && i.ips.iter().find(is_link_local).is_some() && !i.name.contains("kira"))
-            .map(|i| i.index)
-            // filter out interfaces we want to ignore
-            .filter(|idx| !self.excluded_interfaces.contains(idx));
-
-        for interface_index in indices {
-            let dest = SocketAddr::V6(SocketAddrV6::new(
-                Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1),
-                self.port, 0, interface_index
-            ));
-            self.socket
-                .send_to(&buffer, dest)
-                .await.map_err(|e| SenderError::SendError(e))?;
-        }
-        Ok(())
     }
 
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         self.socket.local_addr()
     }
 }
-
-impl<C: AsyncIpCache> UdpSender<C> {
+impl<C, P: AsyncInterfaceMapper> UdpSender<C, P> {
+    async fn broadcast_message(&self, buffer: &[u8]) -> Result<(), SenderError> {
+        let indices = self.interface_mapper.get_available().await;
+        for interface_index in indices {
+            let dest = SocketAddr::V6(SocketAddrV6::new(
+                Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1),
+                self.port,
+                0,
+                interface_index,
+            ));
+            self.socket
+                .send_to(&buffer, dest)
+                .await
+                .map_err(|e| SenderError::SendError(e))?;
+        }
+        Ok(())
+    }
+}
+impl<C: AsyncIpCache, P> UdpSender<C, P> {
     async fn get_receiver_addr(&self, message: &ProtocolMessage) -> Option<SocketAddr> {
         // Due to the invariant of SourceRoutes before sending the previous hop has to be the neighbor
         let neighbor = message.current_hop();
@@ -121,7 +114,9 @@ impl<C: AsyncIpCache> UdpSender<C> {
 }
 
 #[async_trait::async_trait]
-impl<C: AsyncIpCache + Send + Sync> AsyncProtocolMessageSender for UdpSender<C> {
+impl<C: AsyncIpCache + Send + Sync, P: AsyncInterfaceMapper + Send + Sync>
+    AsyncProtocolMessageSender for UdpSender<C, P>
+{
     async fn send_message<M>(&mut self, message: M) -> Result<(), SenderError>
     where
         M: Into<ProtocolMessage> + Send + Sync,
@@ -132,7 +127,6 @@ impl<C: AsyncIpCache + Send + Sync> AsyncProtocolMessageSender for UdpSender<C> 
         self.format.serialize(&mut buffer, &message)?;
 
         if let Some(receiver_addr) = self.get_receiver_addr(&message).await {
-
             log::trace!(
                 target: "message_sender",
                 "Sending ProtocolMessage {:?} to {}",
@@ -183,9 +177,15 @@ mod tests {
         ip_cache.insert(NodeId::one(), addr);
         let ip_cache = Arc::new(RwLock::new(ip_cache));
 
-        let mut sender = UdpSender::new(0, addr.port(), ip_cache, ProtocolMessageFormat::Json, HashSet::default())
-            .await
-            .expect("failed to create sender");
+        let mut sender = UdpSender::new(
+            0,
+            addr.port(),
+            ip_cache,
+            ProtocolMessageFormat::Json,
+            HashSet::default(),
+        )
+        .await
+        .expect("failed to create sender");
 
         let handle = std::thread::spawn(move || {
             let mut buffer = [0u8; 65536];

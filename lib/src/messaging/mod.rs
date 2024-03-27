@@ -18,6 +18,7 @@ use crate::domain::{NetworkInterface, NodeId};
 #[cfg(feature = "pnet")]
 pub use crate::pnet_interface_monitor::*;
 
+pub mod dht;
 #[cfg(feature = "serde")]
 pub mod format;
 #[cfg(feature = "in-memory-message-channel")]
@@ -28,7 +29,6 @@ pub mod sender;
 pub mod source_route;
 #[cfg(any(feature = "sync-wrapper", test))]
 pub mod sync_wrapper;
-pub mod dht;
 
 /// Maps a node id to an IPv6 Address.
 pub trait IpCache {
@@ -85,6 +85,9 @@ pub trait InterfaceMapper {
 pub trait AsyncInterfaceMapper {
     /// Get the interface for a given address.
     async fn get_interface(&self, input_addr: &SocketAddr) -> Option<NetworkInterface>;
+
+    /// Gets all interfaces currently available
+    async fn get_available(&self) -> Vec<u32>;
 }
 
 #[cfg(feature = "udp-tokio")]
@@ -112,9 +115,8 @@ pub mod udp {
         cache: C,
         interface_mapper: P,
         format: ProtocolMessageFormat,
-        excluded_interfaces: HashSet<u32>
     ) -> tokio::io::Result<(
-        sender::udp_tokio::UdpSender<C>,
+        sender::udp_tokio::UdpSender<C, P>,
         receiver::udp_tokio::UdpReceiver<C, P>,
     )>
     where
@@ -134,14 +136,14 @@ pub mod udp {
 
         let sender = sender::udp_tokio::UdpSender::from_socket(
             socket.clone(),
+            interface_mapper.clone(),
             cache.clone(),
             format.clone(),
-            excluded_interfaces.clone(),
         )
         .await?;
 
         let receiver =
-            receiver::udp_tokio::UdpReceiver::from_socket(socket, format, cache, interface_mapper, excluded_interfaces);
+            receiver::udp_tokio::UdpReceiver::from_socket(socket, format, cache, interface_mapper);
 
         Ok((sender, receiver))
     }
