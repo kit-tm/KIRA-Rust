@@ -94,7 +94,7 @@ fn main() {
         |vec| HashSet::from_iter(vec.into_iter()),
     );
 
-    let mapper = PNetInterfaceMonitor::with_excluded_interfaces(excluded_interfaces);
+    let mapper = PNetInterfaceMonitor::with_excluded_interfaces(excluded_interfaces.clone());
     // attach root-id ip to all interfaces for forwarding
     let id_to_attach = root_id.clone();
     mapper.register_handler(move |e| {
@@ -117,6 +117,7 @@ fn main() {
         ip_cache,
         mapper,
         ProtocolMessageFormat::MessagePack,
+        excluded_interfaces,
     );
     let (message_sender, message_receiver) = runtime
         .block_on(channel)

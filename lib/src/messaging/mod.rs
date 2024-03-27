@@ -115,6 +115,7 @@ pub mod udp {
         cache: C,
         interface_mapper: P,
         format: ProtocolMessageFormat,
+        excluded_interfaces: HashSet<u32>,
     ) -> tokio::io::Result<(
         sender::udp_tokio::UdpSender<C, P>,
         receiver::udp_tokio::UdpReceiver<C, P>,
@@ -142,8 +143,13 @@ pub mod udp {
         )
         .await?;
 
-        let receiver =
-            receiver::udp_tokio::UdpReceiver::from_socket(socket, format, cache, interface_mapper);
+        let receiver = receiver::udp_tokio::UdpReceiver::from_socket(
+            socket,
+            format,
+            cache,
+            interface_mapper,
+            excluded_interfaces,
+        );
 
         Ok((sender, receiver))
     }
