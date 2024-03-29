@@ -2,6 +2,7 @@ use std::fmt::Debug;
 use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
 use std::sync::Arc;
 
+use log::trace;
 use tokio::io;
 use tokio::net::UdpSocket;
 
@@ -90,10 +91,18 @@ impl<C, P: AsyncInterfaceMapper> UdpSender<C, P> {
                 0,
                 interface_index,
             ));
-            self.socket
+
+            // FIXME investigate if we can mitigate sending to unready interfaces
+            // currently only experienced in Containernet on startup
+            // probably caused by interface going down in between refreshing and sending
+            if let Err(e) = self
+                .socket
                 .send_to(&buffer, dest)
                 .await
-                .map_err(|e| SenderError::SendError(e))?;
+                .map_err(|e| SenderError::SendError(e))
+            {
+                log::error!(target: "message_sender", "Broadcasting to interface failed unexpectedly: {}", e);
+            }
         }
         Ok(())
     }
