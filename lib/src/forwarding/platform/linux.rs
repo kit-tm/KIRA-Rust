@@ -292,10 +292,7 @@ pub fn delete_kira_interface() -> Result<(), String> {
 }
 
 pub fn attach_node_id_ip(interface: String, node_id: &NodeId) -> Result<(), String> {
-    let mut node_ip_bytes: [u8; 16] = [0; 16];
-    node_ip_bytes[0] = 0xfc;
-    node_ip_bytes[2..].copy_from_slice(&node_id.as_ref()[..]);
-    let node_ip = Ipv6Addr::from(node_ip_bytes);
+    let node_ip = Ipv6Addr::from(node_id);
     let node_ip = format!("{}", node_ip);
 
     let output = Command::new("ip")
