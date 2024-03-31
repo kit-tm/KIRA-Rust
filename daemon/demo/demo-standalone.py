@@ -26,7 +26,7 @@ class R2KadNetwork:
             self._init_node(node)
 
         for (u, v) in self.graph.edges:
-            self._init_existing_network(u, v,)
+            self._init_existing_network(u, v)
 
     def _init_node(self, node: int):
         self._logger.debug(f"Trying to find existing container for {node}")
@@ -159,12 +159,11 @@ class R2KadNetwork:
             self._logger.info(f"Deleted network interface {nw.name}.")
 
     def store(self, node: int, reference: str, data: str) -> str:
-        try:
-            container = self.graph.nodes[str(node)]["container"]
-        except:
+        if "container" not in self.graph.nodes[str(node)]:
             self._logger.error(f"Can't store at {
                                node} without a container present!")
             return None
+        container = self.graph.nodes[str(node)]["container"]
 
         cmd = f"curl localhost:8080/dht/store?reference={
             reference} -d \"{data}\""
@@ -173,12 +172,11 @@ class R2KadNetwork:
         return out
 
     def fetch(self, node: int, reference: str) -> str:
-        try:
-            container = self.graph.nodes[str(node)]["container"]
-        except:
+        if "container" not in self.graph.nodes[str(node)]:
             self._logger.error(f"Can't fetch at {
                                node} without a container present!")
             return None
+        container = self.graph.nodes[str(node)]["container"]
 
         cmd = f"curl localhost:8080/dht/fetch?reference={reference}"
 
@@ -186,12 +184,11 @@ class R2KadNetwork:
         return out
 
     def logs(self, node: int, follow=False) -> str:
-        try:
-            container = self.graph.nodes[str(node)]["container"]
-        except:
+        if "container" not in self.graph.nodes[str(node)]:
             self._logger.error(f"Can't fetch logs at {
                                node} without a container present!")
             return None
+        container = self.graph.nodes[str(node)]["container"]
 
         return container.logs()
 
