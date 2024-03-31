@@ -48,4 +48,4 @@ COPY daemon/docker/nftables.conf ./
 EXPOSE 8080/udp
 
 # start supervisord
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
+ENTRYPOINT ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
