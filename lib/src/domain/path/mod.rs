@@ -182,13 +182,19 @@ impl Path {
     where
         I: IntoIterator<Item = &'a NodeId>,
     {
-        for (own_id, other_id) in self.ids.iter().zip(iter) {
-            if own_id != other_id {
-                return false;
+        let mut iter = iter.into_iter();
+        for own_id in self.ids.iter() {
+            match iter.next() {
+                Some(other_id) => {
+                    if own_id != other_id {
+                        return false;
+                    }
+                }
+                None => return true,
             }
         }
 
-        true
+        iter.next().is_none()
     }
 }
 

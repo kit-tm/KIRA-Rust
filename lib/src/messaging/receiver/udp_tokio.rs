@@ -5,7 +5,7 @@ use std::ops::DerefMut;
 use std::sync::Arc;
 use std::time::Duration;
 
-use unix_udp_sock::UdpSocket;
+use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
 
 use crate::domain::NetworkInterface;
@@ -65,7 +65,7 @@ impl<C, P> UdpReceiver<C, P> {
         let udp_socket =
             UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?;
         if let Err(err) =
-            udp_socket.join_multicast_v6(&Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), 0).await
+            udp_socket.join_multicast_v6(&Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), 0)
         {
             log::trace!("Error joining multicast group: {:?}", err);
         }
@@ -132,33 +132,43 @@ where
         let mut buffer = self.buffer.write().await;
 
         let receive_with_optional_timeout = if let Some(duration) = timeout {
-            tokio::time::timeout(duration, socket.recv_msg(buffer.deref_mut()))
+            tokio::time::timeout(duration, socket.recv_from(buffer.deref_mut()))
                 .await
                 .map_err(|_| RecvError::Timeout)?
         } else {
-            socket.recv_msg(buffer.deref_mut()).await
+            socket.recv_from(buffer.deref_mut()).await
         };
 
-        let (received_bytes, ifindex, received_from) = match receive_with_optional_timeout {
-            Ok(meta) => (meta.len, meta.ifindex, meta.addr),
+        let (received_bytes, received_from) = match receive_with_optional_timeout {
+            Ok(received) => received,
             Err(e) => {
                 log::error!("Failed to receive data from socket: {}", e);
                 return Err(RecvError::IoError(Box::new(e)));
             }
         };
+        let received_from = match received_from {
+            SocketAddr::V6(addr) => addr,
+            addr => panic!("Received Non-IPv6 Packet from {}", addr),
+        };
+
+        // ignore incoming messages from excluded interfaces
+        if self.excluded_interfaces.contains(&received_from.scope_id()) {
+            return Ok(None);
+        }
+
+        // FIXME ignore scope_id 0 (probably caused by ipv6 attached to lo)
+        if received_from.scope_id() == 0 {
+            log::warn!("Ignoring message with scope_id 0");
+            return Ok(None);
+        }
 
         let message = self.deserialize(&buffer[..received_bytes]);
-        let interface = NetworkInterface::new(ifindex);
+        let interface = NetworkInterface::new(received_from.scope_id());
 
         if let Some(message) = &message {
             log::trace!(target: "message_receiver", "Received {:?} from {}", &message, received_from);
 
             let previous_node = message.previous_hop();
-
-            let received_from = match received_from {
-                SocketAddr::V6(addr) => addr,
-                addr => panic!("Received Non-IPv6 Packet from {}", addr),
-            };
 
             if let Some(ip) = self
                 .ip_cache
@@ -188,20 +198,29 @@ where
     ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, TryRecvError> {
         let mut buffer = self.buffer.write().await;
 
-        let (received_bytes, ifindex) = match self.socket.recv_msg(buffer.deref_mut()).await {
-            Ok(meta) => {
-                (meta.len, meta.ifindex)
-            },
+        let (received_bytes, address) = match self.socket.try_recv_from(buffer.deref_mut()) {
+            Ok(received) => received,
             Err(e) => return Err(TryRecvError::IoError(Box::new(e))),
         };
 
+        let address = match address {
+            SocketAddr::V6(addr) => addr,
+            addr => panic!("Received Non-IPv6 Packet from {}", addr),
+        };
+
         // ignore incoming messages from excluded interfaces
-        if self.excluded_interfaces.contains(&ifindex) {
+        if self.excluded_interfaces.contains(&address.scope_id()) {
+            log::warn!("Ignoring message with scope_id 0");
+            return Ok(None);
+        }
+
+        // FIXME ignore scope_id 0 (probably caused by ipv6 attached to lo)
+        if address.scope_id() == 0 {
             return Ok(None);
         }
 
         let message = self.deserialize(&buffer[..received_bytes]);
-        let interface = NetworkInterface::new(ifindex);
+        let interface = NetworkInterface::new(address.scope_id());
 
         Ok(message.map(|message| (message, interface)))
     }

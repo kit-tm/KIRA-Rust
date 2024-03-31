@@ -77,7 +77,7 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
         (1 << ACC) - 1
     }
 
-    const fn first_on_level(index: usize) -> usize {
+    const fn first_bucket_on_level(index: usize) -> usize {
         index - (index % Self::level_width())
     }
 
@@ -101,10 +101,6 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
     /// Returns the number of [Contact]s in this [RoutingTable].
     pub fn num_contacts(&self) -> usize {
         self.buckets.iter().flat_map(|bucket| bucket.iter()).count()
-    }
-
-    fn get_bucket_index(&self, of: &NodeId) -> usize {
-        Self::get_bucket_index_for(of, &self.root, self.num_buckets())
     }
 
     /// Returns the index of the [Bucket] the id should be in related
@@ -215,12 +211,14 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         bucket.contains(id)
     }
 
-    fn split_bucket(&mut self, id: &NodeId) -> Result<(), BucketSplitError> {
+    fn split_bucket(&mut self, id: &NodeId) -> Result<usize, BucketSplitError> {
         if self.buckets.len() >= Self::max_buckets() {
             return Err(BucketSplitError::MaxBucketsReached);
         }
 
         let bucket_index = self.get_bucket_index(id);
+        log::trace!(target: "flat_routing_table", "splitting bucket with index {}", bucket_index);
+        log::trace!(target: "flat_routing_table", "before: {:?}", self.buckets);
         if bucket_index != self.buckets.len() - 1 {
             return Err(BucketSplitError::Unsplittable);
         }
@@ -234,8 +232,8 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
                 panic!("Error inserting after splitting last bucket: {}", e);
             }
         }
-
-        Ok(())
+        log::trace!(target: "flat_routing_table", "after: {:?}", self.buckets);
+        Ok(bucket_index)
     }
 
     fn bucket(&self, of: &NodeId) -> &Bucket<BUCKET_SIZE> {
@@ -289,7 +287,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
             return Ok(result);
         }
 
-        let first_bucket_on_level = Self::first_on_level(index);
+        let first_bucket_on_level = Self::first_bucket_on_level(index);
         let level_width = Self::level_width();
 
         for (iteration_count, bucket) in self
@@ -383,6 +381,23 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
     fn bucket_iter(&'a self) -> Self::BucketIter {
         self.buckets.iter()
     }
+
+    fn bucket_by_index(&self, index: usize) -> &Bucket<BUCKET_SIZE> {
+        &self.buckets[index]
+    }
+
+    fn bucket_by_index_mut(&'a mut self, index: usize) -> Self::BucketWriteGuard {
+        self.buckets.index_mut(index)
+    }
+
+    fn get_bucket_index(&self, of: &NodeId) -> usize {
+        Self::get_bucket_index_for(of, &self.root, self.num_buckets())
+    }
+
+    fn get_bucket_prefix_length(&self, bucket_index: usize) -> usize {
+        ACC + ACC * (bucket_index / Self::level_width())
+    }
+    
 }
 
 #[cfg(test)]
@@ -432,7 +447,7 @@ mod routing_tests {
 
         table.add(Contact::new(Path::from(NodeId::one()), StateSeqNr::from(0)))?;
 
-        assert_eq!(table.split_bucket(&NodeId::one()), Ok(()));
+        assert_eq!(table.split_bucket(&NodeId::one()), Ok(0));
 
         assert_eq!(table.get_bucket_index(&NodeId::one()), 1);
 

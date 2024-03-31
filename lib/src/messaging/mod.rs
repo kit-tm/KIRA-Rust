@@ -18,6 +18,7 @@ use crate::domain::{NetworkInterface, NodeId};
 #[cfg(feature = "pnet")]
 pub use crate::pnet_interface_monitor::*;
 
+pub mod dht;
 #[cfg(feature = "serde")]
 pub mod format;
 #[cfg(feature = "in-memory-message-channel")]
@@ -28,7 +29,6 @@ pub mod sender;
 pub mod source_route;
 #[cfg(any(feature = "sync-wrapper", test))]
 pub mod sync_wrapper;
-pub mod dht;
 
 /// Maps a node id to an IPv6 Address.
 pub trait IpCache {
@@ -85,6 +85,9 @@ pub trait InterfaceMapper {
 pub trait AsyncInterfaceMapper {
     /// Get the interface for a given address.
     async fn get_interface(&self, input_addr: &SocketAddr) -> Option<NetworkInterface>;
+
+    /// Gets all interfaces currently available
+    async fn get_available(&self) -> Vec<u32>;
 }
 
 #[cfg(feature = "udp-tokio")]
@@ -93,7 +96,7 @@ pub mod udp {
     use std::net::{Ipv6Addr, SocketAddr};
     use std::sync::Arc;
 
-    use unix_udp_sock::UdpSocket;
+    use tokio::net::UdpSocket;
 
     use crate::messaging::format::ProtocolMessageFormat;
     use crate::messaging::{receiver, sender, AsyncInterfaceMapper, AsyncIpCache};
@@ -112,9 +115,9 @@ pub mod udp {
         cache: C,
         interface_mapper: P,
         format: ProtocolMessageFormat,
-        excluded_interfaces: HashSet<u32>
+        excluded_interfaces: HashSet<u32>,
     ) -> tokio::io::Result<(
-        sender::udp_tokio::UdpSender<C>,
+        sender::udp_tokio::UdpSender<C, P>,
         receiver::udp_tokio::UdpReceiver<C, P>,
     )>
     where
@@ -125,7 +128,7 @@ pub mod udp {
             UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port))).await?;
 
         if let Err(err) =
-            udp_socket.join_multicast_v6(&Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), 0).await
+            udp_socket.join_multicast_v6(&Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), 0)
         {
             log::trace!("Error joining multicast group: {:?}", err);
         }
@@ -134,14 +137,19 @@ pub mod udp {
 
         let sender = sender::udp_tokio::UdpSender::from_socket(
             socket.clone(),
+            interface_mapper.clone(),
             cache.clone(),
             format.clone(),
-            excluded_interfaces.clone(),
         )
         .await?;
 
-        let receiver =
-            receiver::udp_tokio::UdpReceiver::from_socket(socket, format, cache, interface_mapper, excluded_interfaces);
+        let receiver = receiver::udp_tokio::UdpReceiver::from_socket(
+            socket,
+            format,
+            cache,
+            interface_mapper,
+            excluded_interfaces,
+        );
 
         Ok((sender, receiver))
     }

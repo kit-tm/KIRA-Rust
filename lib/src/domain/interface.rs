@@ -1,13 +1,11 @@
 use std::fmt::{Display, Formatter};
 
-#[cfg(feature = "pnet")]
-pub use pnet_conversion::*;
 
 /// Represents network interface (as in 'hardware device') by interface index.
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, Clone, Hash)]
 pub struct NetworkInterface {
     pub index: u32,
-    pub name: String,
+    pub name: String
 }
 
 impl NetworkInterface {
@@ -40,6 +38,14 @@ impl NetworkInterface {
         }
     }
 }
+
+impl PartialEq for NetworkInterface {
+    fn eq(&self, other: &Self) -> bool {
+        self.index == other.index
+    }
+}
+
+impl Eq for NetworkInterface {}
 
 impl Display for NetworkInterface {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

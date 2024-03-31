@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use crate::context::UseCaseContext;
 use crate::domain::{Contact, ContactState, EmptyPathError, NetworkInterface, NodeId, Path, PathId, PNTable, RoutingTable};
 use crate::forwarding::hasher::Hasher;
-use crate::forwarding::{PathIdEntry, PathIdTable};
+use crate::forwarding::{PathIdDecapsulationEntry, PathIdEntry, PathIdForwardingEntry, PathIdTable};
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{Nonce, PathSetupReqData, PathTeardownReqData, ProbeReqData, ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
@@ -232,77 +232,56 @@ where
 
         let in_path_id = self.config.hasher.hash(&in_path);
 
-        let out_path_id;
-        let next_hop;
-        let out_interface;
-
         match out_path {
             Some(out_path) => {
-                out_path_id = Some(self.config.hasher.hash(&out_path));
-                next_hop = out_path.first().clone();
-                out_interface = match context.pn_table().get(out_path.first()).cloned() {
-                    Some(interface) => Some(interface),
+                let out_interface = match context.pn_table().get(out_path.first()).cloned() {
+                    Some(interface) => interface,
                     None => {
-                        log::warn!(target: "explicit_path_management", "Received PathSetupRequest for invalid physical neighbor {}; Ignoring", out_path.first());
+                        log::error!(target: "explicit_path_management", "Received PathSetupRequest for invalid physical neighbor {}; Ignoring", out_path.first());
                         return;
                     }
                 };
-            }
-            // In case the local path ends here, packets must be decapsulated
-            None => {
-                out_path_id = None;
-                next_hop = context.root_id().clone();
-                out_interface = None;
-            }
-        }
+                let out_path_id = self.config.hasher.hash(&out_path);
+                let entry = PathIdEntry::Forward(PathIdForwardingEntry{
+                    in_path_id: in_path_id.clone(),
+                    out_path_id,
+                    next_hop: out_path.first().clone(),
+                });
 
-        let is_local = out_path_id.is_none();
-        let is_new_local = !local_entries.contains(&in_path_id);
-        let is_new_entry = !entries.contains_key(&in_path_id);
-
-        let path_id_entry = PathIdEntry {
-            in_path_id: in_path_id.clone(),
-            out_path_id,
-            next_hop,
-        };
-
-        if is_local && is_new_local {
-            if let Err(e) = context.forwarding_tables_mut().create(path_id_entry) {
-                log::error!(target: "explicit_path_management", "Failed to create new entry: {:?}", e);
-                return;
-            }
-            local_entries.insert(in_path_id);
-        } else if is_local {
-            // This case is ignored for now to avoid useless updates to the underlying nftables map 
-
-            //if let Err(e) = context.forwarding_tables_mut().update(path_id_entry) {
-            //    log::error!(target: "explicit_path_management", "Failed to update existing entry: {:?}", e);
-            //    return;
-            //}
-            //local_entries.insert(in_path_id);
-        } else if !is_local && !is_new_entry {
-            if let Err(e) = context.forwarding_tables_mut().update(path_id_entry) {
-                log::error!(target: "explicit_path_management", "Failed to update existing entry: {:?}", e);
-                return;
-            }
-            let entry = entries.get_mut(&in_path_id).unwrap();
-            entry.last_seen = Instant::now();
-        } else {
-            if let Err(e) = context.forwarding_tables_mut().create(path_id_entry) {
-                log::error!(target: "explicit_path_management", "Failed to create new entry: {:?}", e);
-                return;
-            }
-            if let Some(interface) = out_interface {
-                entries.insert(
-                    in_path_id,
-                    Entry {
-                        interface,
+                if entries.contains_key(&in_path_id) {
+                    if let Err(e) = context.forwarding_tables_mut().update(entry) {
+                        log::error!(target: "explicit_path_management", "Failed to update existing entry: {:?}", e);
+                        return;
+                    }
+                    let entry = entries.get_mut(&in_path_id).unwrap();
+                    entry.last_seen = Instant::now();
+                } else {
+                    if let Err(e) = context.forwarding_tables_mut().create_or_update(entry.clone()) {
+                        log::error!(target: "explicit_path_management", "Failed to create new entry: {:?}", e);
+                        return;
+                    }
+                    entries.insert(in_path_id, Entry {
+                        path_id_entry: entry,
+                        interface: out_interface,
                         last_seen: Instant::now(),
-                    },
-                );
-            } else {
-                log::error!(target: "explicit_path_management", "No interface incoming PathID {:?}", in_path_id);
-            }
+                    });
+                }
+            },
+            None => {
+                if !local_entries.contains(&in_path_id) {
+                    let entry = PathIdEntry::Decapsulate(PathIdDecapsulationEntry {
+                        in_path_id: in_path_id.clone(),
+                        local_id: context.root_id().clone(),
+                    });
+                    if let Err(e) = context.forwarding_tables_mut().create_or_update(entry) {
+                        log::error!(target: "explicit_path_management", "Failed to create new entry: {:?}", e);
+                        return;
+                    }
+                    local_entries.insert(in_path_id);
+                } else {
+                    // NOTE: local entries are never updated to avoid useless updates to the underlying nftables map
+                }
+            },
         }
     }
 
@@ -389,6 +368,7 @@ where
         context: &Self::Context,
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
+        log::trace!(target: "explicit_path_management", "Event {:?}", event);
         match (event, &self.state) {
             // ========== Contact Updates ==========
             // FIXME don't send teardown if we are uncertain if other nodes use the path
@@ -557,6 +537,7 @@ where
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Entry {
+    pub path_id_entry: PathIdEntry,
     pub interface: NetworkInterface,
     pub last_seen: Instant,
 }
@@ -874,8 +855,7 @@ mod tests {
         let path_id_entry = PathIdEntry {
             in_path_id: input_path_id.clone(),
             out_path_id: Some(output_path_id),
-            //out_interface: interface2.clone(),
-            next_hop: path_after.second().unwrap().clone(),
+            next_hop: other_neighbor_id.clone(),
         };
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
@@ -991,8 +971,7 @@ mod tests {
         let path_id_entry = PathIdEntry {
             in_path_id: input_path_id.clone(),
             out_path_id: Some(output_path_id),
-            //out_interface: interface2.clone(),
-            next_hop: path_after.second().unwrap().clone(),
+            next_hop: other_neighbor_id.clone(),
         };
 
         let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);

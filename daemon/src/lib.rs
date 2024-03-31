@@ -47,7 +47,7 @@ use r2kad_lib::use_cases::{
 use r2kad_lib::use_cases::distributed_hash_table::{DefaultExpiringHashTable, DistributedHashTable, DistributedHashTableConfig};
 use r2kad_lib::use_cases::distributed_hash_table_injector::DistributedHashTableInjector;
 
-use crate::benchmark_log::{BenchmarkEntry, BenchmarkLog};
+use crate::benchmark_log::BenchmarkLog;
 use crate::errors::InjectMessageError;
 
 mod benchmark_log;
@@ -317,6 +317,8 @@ where
                 RoutingTableEvent::UpdatedContact { new, old } => {
                     ContactEvent::Updated { new, old }
                 }
+                RoutingTableEvent::UpdatedBucket(bucket) => ContactEvent::BucketUpdated(bucket),
+                RoutingTableEvent::NewBucket(bucket) => ContactEvent::NewBucket(bucket),
                 _ => return,
             };
             if let Err(e) = observer_broadcaster.send(UseCaseEvent::Contact(contact_event)) {
@@ -412,10 +414,7 @@ where
             message_sender: sender,
             runtime: TokioRuntime::new(broadcaster.clone(), Arc::clone(&runtime)),
             insertion_strategy: PNSStrategy::<
-                ObservableRoutingTable<
-                    UnlimitedPNRoutingTable<BUCKET_SIZE, 1>,
-                    BUCKET_SIZE,
-                >,
+                ObservableRoutingTable<UnlimitedPNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
                 _,
                 _,
                 BUCKET_SIZE,
@@ -474,9 +473,8 @@ where
             return;
         }
 
-        let mut on_disc =
-            OverlayNeighborhoodDiscovery::<_, BUCKET_SIZE>::new(Default::default())
-                .expect("default grouping should be valid");
+        let mut on_disc = OverlayNeighborhoodDiscovery::<_, BUCKET_SIZE>::new(Default::default())
+            .expect("default grouping should be valid");
         if let Err(e) = on_disc.start(&context) {
             log::error!("Failed to start overlay neighbor discovery UseCase: {}", e);
             return;
@@ -606,7 +604,7 @@ where
                 log::error!("Path Probing returned error handling message: {}", e);
             }
             if let Err(e) = derive_forwarding_tables.handle_event(&context, event.clone()) {
-                log::error!("Path Probing returned error handling message: {}", e);
+                log::error!("DeriveFwdEntries returned error handling message: {}", e);
             }
             if precomputation
                 .handle_event(&context, event.clone())

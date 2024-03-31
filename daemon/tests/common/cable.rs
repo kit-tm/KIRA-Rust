@@ -23,7 +23,7 @@ pub struct Cable {
 
 impl Cable {
     pub fn new(one: NodeId, two: NodeId) -> Self {
-        let interface_one = NetworkInterface::new(format!("{}--{}", one, two));
+        let interface_one = NetworkInterface::dummy(format!("{}--{}", one, two));
         let (cable_one_sender, cable_one_receiver) =
             InMemoryMessageChannel::with_interface(interface_one.clone()).into_parts();
         let (cable_two_sender, cable_two_receiver) =
@@ -51,7 +51,7 @@ impl Cable {
     }
 
     fn interface(&self) -> NetworkInterface {
-        NetworkInterface::new(format!("{}--{}", self.one, self.two))
+        NetworkInterface::dummy(format!("{}--{}", self.one, self.two))
     }
 
     pub fn blocking_close(&self) {

@@ -1,12 +1,17 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::marker::PhantomData;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 use crate::context::UseCaseContext;
-use crate::domain::{Contact, ContactState, NetworkInterface, NodeId};
+use crate::domain::{
+    Contact, ContactState, NetworkInterface, NodeId, NodeIdSubnet, Path, RoutingTable,
+};
 use crate::forwarding::hasher::Hasher;
-use crate::forwarding::{ForwardingTables, NodeIdEntry, NodeIdTable, PathIdEntry, PathIdTable};
+use crate::forwarding::{
+    ForwardingTables, NodeIdEncapsulationEntry, NodeIdEntry, NodeIdForwardingEntry, NodeIdTable,
+    PathIdDecapsulationEntry, PathIdEntry, PathIdForwardingEntry, PathIdTable,
+};
 use crate::use_cases::{ContactEvent, EventHandler, ReactiveUseCaseState, UseCase, UseCaseEvent};
 
 /// Configuration for [DeriveFwdTableEntries] use case.
@@ -23,13 +28,13 @@ pub struct DeriveFwdTableEntriesConfig {
 /// - For every [Contact] in the [RoutingTable](crate::domain::routing_table::RoutingTable) a [NodeIdEntry] exists.
 /// - For every [Contact] which is not a physical neighbor a [PathIdEntry] exists.
 #[derive(Debug)]
-pub struct DeriveFwdTableEntries<C> {
+pub struct DeriveFwdTableEntries<C, const BUCKET_SIZE: usize> {
     state: ReactiveUseCaseState,
     _pd: PhantomData<C>,
     config: DeriveFwdTableEntriesConfig,
 }
 
-impl<C> DeriveFwdTableEntries<C> {
+impl<C, const BUCKET_SIZE: usize> DeriveFwdTableEntries<C, BUCKET_SIZE> {
     pub fn new(config: DeriveFwdTableEntriesConfig) -> Self {
         Self {
             state: ReactiveUseCaseState::Idle,
@@ -39,24 +44,34 @@ impl<C> DeriveFwdTableEntries<C> {
     }
 }
 
-impl<C> DeriveFwdTableEntries<C>
+impl<C, const BUCKET_SIZE: usize> DeriveFwdTableEntries<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::ForwardingTables: NodeIdTable,
     <C::ForwardingTables as NodeIdTable>::Error: 'static + Error,
-    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>
+    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     fn remove_node_id_entry(
         &self,
         context: &C,
         node_id: &NodeId,
     ) -> Result<(), error::DeriveFwdEntriesError> {
-        let entry = context
-            .forwarding_tables_mut()
-            .remove(node_id)
+        let mut fw_tables = context.forwarding_tables_mut();
+        let entry = fw_tables
+            .remove(&NodeIdSubnet {
+                node_id: node_id.clone(),
+                prefix_length: 0,
+            })
             .map_err(|e| error::DeriveFwdEntriesError::NodeIdTable(Box::new(e)))?;
         if let Some(entry) = entry {
             log::trace!(target: "derive_fwd_table_entries", "Removed entry {:?}", entry);
+
+            if let Some(prefix_entry) = self.derive_prefix_entry(context, node_id)? {
+                fw_tables
+                    .create_or_update(prefix_entry)
+                    .map_err(|e| error::DeriveFwdEntriesError::NodeIdTable(Box::new(e)))?;
+            }
         }
 
         Ok(())
@@ -67,11 +82,19 @@ where
         context: &C,
         contact: Contact,
     ) -> Result<(), error::DeriveFwdEntriesError> {
-        let entry = self.derive_node_id_entry(context, contact)?;
-        context
-            .forwarding_tables_mut()
-            .create(entry)
-            .map_err(|e| error::DeriveFwdEntriesError::NodeIdTable(Box::new(e)))
+        let entry = self.derive_node_id_entry(context, &contact)?;
+
+        let mut fw_tables = context.forwarding_tables_mut();
+        fw_tables
+            .create_or_update(entry)
+            .map_err(|e| error::DeriveFwdEntriesError::NodeIdTable(Box::new(e)))?;
+
+        if let Some(prefix_entry) = self.derive_prefix_entry(context, contact.id())? {
+            fw_tables
+                .create_or_update(prefix_entry)
+                .map_err(|e| error::DeriveFwdEntriesError::NodeIdTable(Box::new(e)))?;
+        }
+        Ok(())
     }
 
     fn update_node_id_entry(
@@ -79,39 +102,110 @@ where
         context: &C,
         new_entry: Contact,
     ) -> Result<(), error::DeriveFwdEntriesError> {
-        let entry = self.derive_node_id_entry(context, new_entry)?;
-        context
-            .forwarding_tables_mut()
-            .update(entry)
-            .map_err(|e| error::DeriveFwdEntriesError::NodeIdTable(Box::new(e)))
+        let entry = self.derive_node_id_entry(context, &new_entry)?;
+
+        let mut fw_tables = context.forwarding_tables_mut();
+        fw_tables
+            .create_or_update(entry)
+            .map_err(|e| error::DeriveFwdEntriesError::NodeIdTable(Box::new(e)))?;
+
+        if let Some(prefix_entry) = self.derive_prefix_entry(context, new_entry.id())? {
+            fw_tables
+                .create_or_update(prefix_entry)
+                .map_err(|e| error::DeriveFwdEntriesError::NodeIdTable(Box::new(e)))?;
+        }
+        Ok(())
+    }
+
+    fn update_bucket(
+        &self,
+        context: &C,
+        bucket_index: usize,
+    ) -> Result<(), error::DeriveFwdEntriesError> {
+        let rt = context.routing_table();
+        let iter = rt.bucket_by_index(bucket_index).iter();
+        for contact in iter {
+            self.update_node_id_entry(context, contact.clone())?;
+        }
+
+        Ok(())
     }
 
     fn derive_node_id_entry(
         &self,
         context: &C,
-        contact: Contact,
+        contact: &Contact,
     ) -> Result<NodeIdEntry, error::DeriveFwdEntriesError> {
         let next_hop = contact.path().first().clone();
         let out_interface =
             context.pn_table().get(&next_hop).cloned().ok_or_else(|| {
                 error::DeriveFwdEntriesError::NeighborNotInPNTable(next_hop.clone())
             })?;
-        let out_path_id = if contact.is_pn() {
-            None
-        } else {
-            Some(self.config.hasher.hash(contact.path().into_iter().skip(1)))
-        };
 
-        Ok(NodeIdEntry {
-            destination: contact.id().clone(),
-            next_hop,
-            out_path_id,
-            out_interface,
-        })
+        if contact.is_pn() {
+            Ok(NodeIdEntry::Forward(NodeIdForwardingEntry {
+                destination: NodeIdSubnet {
+                    node_id: contact.id().clone(),
+                    prefix_length: 0,
+                },
+                next_hop,
+                out_interface,
+            }))
+        } else {
+            Ok(NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry {
+                destination: NodeIdSubnet {
+                    node_id: contact.id().clone(),
+                    prefix_length: 0,
+                },
+                next_hop,
+                out_interface,
+                out_path_id: self.config.hasher.hash(contact.path().into_iter()),
+            }))
+        }
+    }
+
+    fn derive_prefix_entry(
+        &self,
+        context: &C,
+        node_id: &NodeId,
+    ) -> Result<Option<NodeIdEntry>, error::DeriveFwdEntriesError> {
+        let rt = context.routing_table();
+        let bucket_index = rt.get_bucket_index(node_id);
+        let iter = rt.bucket_by_index(bucket_index).iter();
+        let prefix_len = rt.get_bucket_prefix_length(bucket_index);
+
+        if let Some(closest) = iter.min_by_key(|c| c.path().size()) {
+            let subnet = NodeIdSubnet {
+                node_id: closest.id().prefix(prefix_len),
+                prefix_length: prefix_len,
+            };
+            log::trace!(target: "derive_fwd_table_entries", "derived prefix entry {:?} for contact {:?}", subnet, closest.path());
+
+            let next_hop = closest.path().first().clone();
+            let out_interface = context.pn_table().get(&next_hop).cloned().ok_or_else(|| {
+                error::DeriveFwdEntriesError::NeighborNotInPNTable(next_hop.clone())
+            })?;
+
+            if closest.is_pn() {
+                return Ok(Some(NodeIdEntry::Forward(NodeIdForwardingEntry {
+                    destination: subnet,
+                    next_hop,
+                    out_interface,
+                })));
+            } else {
+                return Ok(Some(NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry {
+                    destination: subnet,
+                    next_hop,
+                    out_path_id: self.config.hasher.hash(closest.path().into_iter()),
+                    out_interface,
+                })));
+            }
+        }
+        Ok(None)
     }
 }
 
-impl<C> DeriveFwdTableEntries<C>
+impl<C, const BUCKET_SIZE: usize> DeriveFwdTableEntries<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::ForwardingTables: PathIdTable,
@@ -137,20 +231,16 @@ where
         context: &C,
         contact: Contact,
     ) -> Result<(), error::DeriveFwdEntriesError> {
-        let entry = self.derive_path_id_entry(context, contact)?;
-        if entry.is_none() {
-            return Ok(());
-        }
-        let entry = entry.unwrap();
+        let entry = self.derive_path_id_entry(context, contact);
         context
             .forwarding_tables_mut()
-            .create(entry)
+            .create_or_update(entry)
             .map_err(|e| error::DeriveFwdEntriesError::PathIdTable(Box::new(e)))?;
 
         Ok(())
     }
 
-    /// Removes the old path id entry and creates a new one with new information.
+    // Updates the path id entry for a contact.
     fn update_path_id_entry(
         &self,
         context: &C,
@@ -160,62 +250,63 @@ where
         let mut forwarding_table = context.forwarding_tables_mut();
 
         if old_entry.path() != new_entry.path() {
-            // if path was updated -> Remove old, create new entry
-            let old_id = self.config.hasher.hash(old_entry.path());
+            let entry = self.derive_path_id_entry(context, new_entry);
             forwarding_table
-                .remove(&old_id)
-                .map_err(|e| error::DeriveFwdEntriesError::PathIdTable(Box::new(e)))?;
-
-            let new_entry = self.derive_path_id_entry(context, new_entry)?;
-            if new_entry.is_none() {
-                return Ok(());
-            }
-            let new_entry = new_entry.unwrap();
-            forwarding_table
-                .create(new_entry)
+                .create_or_update(entry)
                 .map_err(|e| error::DeriveFwdEntriesError::PathIdTable(Box::new(e)))
         } else {
-            // If path was not updated -> Only update entry
-            let entry = self.derive_path_id_entry(context, new_entry)?;
-            if entry.is_none() {
-                return Ok(());
-            }
-            let entry = entry.unwrap();
-            forwarding_table
-                .update(entry)
-                .map_err(|e| error::DeriveFwdEntriesError::PathIdTable(Box::new(e)))
+            Ok(())
         }
     }
 
-    fn derive_path_id_entry(
-        &self,
-        context: &C,
-        contact: Contact,
-    ) -> Result<Option<PathIdEntry>, error::DeriveFwdEntriesError> {
-        if contact.is_pn() {
-            return Ok(None);
+    fn derive_path_id_entry(&self, context: &C, contact: Contact) -> PathIdEntry {
+        let mut in_path = Path::from(context.root_id().clone());
+        in_path.extend(contact.path().clone());
+        let in_path_id = self.config.hasher.hash(&in_path);
+
+        // Note: currently we follow the complete path and don't decapsulate early:
+        // This is because the inner destination could be not a physical neighbor, 
+        // which would cause the packet to be rerouted according to the 
+        // locally installed routes instead of being forwarded to the next hop of the path.
+
+        // As soon as a solution is found for forwarding early decapsulated packets
+        // to the next hop as determined by the path instead of treating them like
+        // locally generated packets, the following line can be uncommented to allow
+        // enabling early decapsulation.
+
+        // if contact.id() == context.root_id() || contact.is_pn() {
+        if contact.id() == context.root_id() {
+            let result = PathIdEntry::Decapsulate(PathIdDecapsulationEntry {
+                in_path_id,
+                local_id: contact.id().clone(),
+            });
+
+            log::debug!(target: "derive_fwd_table_entries", "Derived PathIdEntry {:?}", result);
+            result
+        } else {
+            let next_hop = contact.path().first().clone();
+            let out_path_id = self.config.hasher.hash(contact.path().into_iter());
+
+            let result = PathIdEntry::Forward(PathIdForwardingEntry {
+                in_path_id,
+                out_path_id,
+                next_hop,
+            });
+
+            log::debug!(target: "derive_fwd_table_entries", "Derived PathIdEntry {:?}", result);
+            result
         }
-
-        let neighbor = contact.path().first().clone();
-
-        let in_path_id = self.config.hasher.hash(contact.path());
-        let out_path_id = self.config.hasher.hash(contact.path().into_iter().skip(1));
-
-        Ok(Some(PathIdEntry {
-            in_path_id,
-            out_path_id: Some(out_path_id),
-            next_hop: neighbor,
-        }))
     }
 }
 
-impl<C> EventHandler for DeriveFwdTableEntries<C>
+impl<C, const BUCKET_SIZE: usize> EventHandler for DeriveFwdTableEntries<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::ForwardingTables: ForwardingTables,
     <C::ForwardingTables as NodeIdTable>::Error: 'static + Error,
     <C::ForwardingTables as PathIdTable>::Error: 'static + Error,
-    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>
+    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     type Context = C;
     type Error = error::DeriveFwdEntriesError;
@@ -247,10 +338,18 @@ where
                     self.create_path_id_entry(context, new)?;
                 } else if new.state() == &ContactState::Valid && old.state() == &ContactState::Valid
                 {
-                    // If both are valid => Just update existing entry
-                    self.update_node_id_entry(context, new.clone())?;
-                    self.update_path_id_entry(context, old, new)?;
+                    if new.path() != old.path() {
+                        // If both are valid => Just update existing entry
+                        self.update_node_id_entry(context, new.clone())?;
+                        self.update_path_id_entry(context, old, new)?;
+                    }
                 }
+            }
+            UseCaseEvent::Contact(ContactEvent::BucketUpdated(bucket)) => {
+                self.update_bucket(context, bucket)?;
+            }
+            UseCaseEvent::Contact(ContactEvent::NewBucket(bucket)) => {
+                self.update_bucket(context, bucket)?;
             }
             _ => {}
         }
@@ -259,18 +358,27 @@ where
     }
 }
 
-impl<C> UseCase for DeriveFwdTableEntries<C>
+impl<C, const BUCKET_SIZE: usize> UseCase for DeriveFwdTableEntries<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::ForwardingTables: ForwardingTables,
     <C::ForwardingTables as NodeIdTable>::Error: 'static + Error,
     <C::ForwardingTables as PathIdTable>::Error: 'static + Error,
-    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>
+    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     type State = ReactiveUseCaseState;
 
-    fn start(&mut self, _context: &Self::Context) -> Result<(), Self::Error> {
-        Ok(())
+    fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error> {
+        let in_path = Path::from(context.root_id().clone());
+        let in_path_id = self.config.hasher.hash(&in_path);
+        let entry = PathIdDecapsulationEntry {
+            in_path_id,
+            local_id: context.root_id().clone(),
+        };
+        let mut fw_tables = context.forwarding_tables_mut();
+        PathIdTable::create(fw_tables.deref_mut(), PathIdEntry::Decapsulate(entry))
+            .map_err(|e| error::DeriveFwdEntriesError::PathIdTable(Box::new(e)))
     }
 
     fn state(&self) -> &Self::State {
@@ -511,6 +619,7 @@ mod tests {
                 &mut fwd_table,
                 NodeIdEntry {
                     destination: neighbor.id().clone(),
+                    prefix_len: 0,
                     next_hop: neighbor.path().first().clone(),
                     out_path_id: None,
                     out_interface: interface.clone(),
@@ -524,6 +633,7 @@ mod tests {
                 &mut fwd_table,
                 NodeIdEntry {
                     destination: vicinity_contact_id.clone(),
+                    prefix_len: 0,
                     next_hop: vicinity_contact.path().first().clone(),
                     out_path_id: Some(out_path_id.clone()),
                     out_interface: interface.clone(),
@@ -538,7 +648,7 @@ mod tests {
                 PathIdEntry {
                     in_path_id: in_path_id.clone(),
                     out_path_id: Some(out_path_id),
-                    next_hop: root_id.clone() // FIXME
+                    next_hop: vicinity_contact.path().first().clone(),
                 },
             )
             .is_ok(),
@@ -642,6 +752,7 @@ mod tests {
                 &mut fwd_table,
                 NodeIdEntry {
                     destination: neighbor.id().clone(),
+                    prefix_len: 0,
                     next_hop: neighbor.path().first().clone(),
                     out_path_id: None,
                     out_interface: interface.clone(),
@@ -655,6 +766,7 @@ mod tests {
                 &mut fwd_table,
                 NodeIdEntry {
                     destination: vicinity_contact_id.clone(),
+                    prefix_len: 0,
                     next_hop: vicinity_contact.path().first().clone(),
                     out_path_id: Some(out_path_id.clone()),
                     out_interface: interface.clone(),
@@ -669,7 +781,7 @@ mod tests {
                 PathIdEntry {
                     in_path_id: in_path_id.clone(),
                     out_path_id: Some(out_path_id),
-                    next_hop: root_id.clone() // FIXME
+                    next_hop: vicinity_contact.path().first().clone()
                 },
             )
             .is_ok(),

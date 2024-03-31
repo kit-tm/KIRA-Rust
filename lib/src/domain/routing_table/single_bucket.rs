@@ -87,7 +87,7 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
     }
 
     /// Emits an [BucketSplitError::MaxBucketsReached] every time.
-    fn split_bucket(&mut self, _id: &NodeId) -> Result<(), BucketSplitError> {
+    fn split_bucket(&mut self, _id: &NodeId) -> Result<usize, BucketSplitError> {
         Err(BucketSplitError::MaxBucketsReached)
     }
 
@@ -139,6 +139,23 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
     fn bucket_iter(&'a self) -> Self::BucketIter {
         std::iter::once(&self.bucket)
     }
+
+    fn bucket_by_index(&self, index: usize) -> &Bucket<BUCKET_SIZE> {
+        &self.bucket
+    }
+
+    fn bucket_by_index_mut(&'a mut self, index: usize) -> Self::BucketWriteGuard {
+        &mut self.bucket
+    }
+
+    fn get_bucket_index(&self, of: &NodeId) -> usize {
+        0
+    }
+
+    fn get_bucket_prefix_length(&self, bucket_index: usize) -> usize {
+        0
+    }
+
 }
 
 impl<'a, const BUCKET_SIZE: usize> NonObservableRoutingTable<'a, BUCKET_SIZE>

@@ -118,6 +118,8 @@ pub enum ContactEvent {
     New(Contact),
     Updated { new: Contact, old: Contact },
     Removed(Contact),
+    BucketUpdated(usize),
+    NewBucket(usize),
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]

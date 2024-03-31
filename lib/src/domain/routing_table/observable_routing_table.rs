@@ -41,10 +41,11 @@ pub enum RoutingTableEvent<const BUCKET_SIZE: usize> {
     UpdatedContact { new: Contact, old: Contact },
     /// A [Contact] was removed from the [RoutingTable].
     RemovedContact(Contact),
-    /// A [Bucket] was updated to the given value.
-    UpdatedBucket(Bucket<BUCKET_SIZE>),
-    /// The given new [Bucket] was added to the [RoutingTable].
-    NewBucket(Bucket<BUCKET_SIZE>),
+    /// The [Bucket] at the given index was updated. 
+    /// This event is only fire when a path of a [Contact] in the [Bucket] changed.
+    UpdatedBucket(usize),
+    /// A new [Bucket] was added at the given index.
+    NewBucket(usize),
 }
 
 impl<const BUCKET_SIZE: usize> Display for RoutingTableEvent<BUCKET_SIZE> {
@@ -208,34 +209,24 @@ where
     }
 
     fn add(&mut self, contact: Contact) -> Result<(), AddError> {
-        let result = self.inner.add(contact.clone());
-        if result.is_ok() {
-            self.notify_all(RoutingTableEvent::NewContact(contact.clone()));
-
-            let bucket_after = self.bucket(contact.id()).clone();
-            self.notify_all(RoutingTableEvent::UpdatedBucket(bucket_after));
-        }
-
-        result
+        self.inner.add(contact.clone())?;
+        self.notify_all(RoutingTableEvent::NewContact(contact));
+        Ok(())
     }
 
     fn remove(&mut self, id: &NodeId) -> Option<Contact> {
-        let id = id.clone();
-
-        let result = self.inner.remove(&id);
-        if let Some(contact) = result.as_ref().cloned() {
-            self.notify_all(RoutingTableEvent::RemovedContact(contact));
-        }
-        result
+        let contact = self.inner.remove(id)?;
+        self.notify_all(RoutingTableEvent::RemovedContact(contact.clone()));
+        Some(contact)
     }
 
     fn replace(&mut self, id: &NodeId, with: Contact) -> Result<Contact, ReplacementError> {
-        let replaced = self.inner.replace(id, with.clone());
-        if let Ok(contact) = replaced.as_ref().cloned() {
-            self.notify_all(RoutingTableEvent::RemovedContact(contact));
-            self.notify_all(RoutingTableEvent::NewContact(with));
-        }
-        replaced
+        let replaced = self.inner.replace(id, with.clone())?;
+        self.notify_all(RoutingTableEvent::UpdatedContact {
+            new: with,
+            old: replaced.clone(),
+        });
+        Ok(replaced)
     }
 
     fn contact(&self, id: &NodeId) -> Option<&Contact> {
@@ -258,8 +249,21 @@ where
         self.inner.contains(id)
     }
 
-    fn split_bucket(&mut self, id: &NodeId) -> Result<(), BucketSplitError> {
-        self.inner.split_bucket(id)
+    fn split_bucket(&mut self, id: &NodeId) -> Result<usize, BucketSplitError> {
+        let bucket_old = self.inner.bucket(id).clone();
+        let index = self.inner.split_bucket(id)?;
+
+        if bucket_old
+            .iter()
+            .zip(self.inner.bucket_by_index(index))
+            .find(|(a, b)| a.path() != b.path())
+            .is_some()
+        {
+            self.notify_all(RoutingTableEvent::UpdatedBucket(index));
+        }
+
+        self.notify_all(RoutingTableEvent::NewBucket(index + 1));
+        Ok(index)
     }
 
     fn bucket(&self, of: &NodeId) -> &Bucket<BUCKET_SIZE> {
@@ -267,10 +271,12 @@ where
     }
 
     fn bucket_mut(&'a mut self, of: &NodeId) -> Self::BucketWriteGuard {
-        let bucket = self.inner.bucket_mut(of);
+        let index = self.inner.get_bucket_index(of);
+        let bucket = self.inner.bucket_by_index_mut(index);
         BucketWriteGuard {
             observers: &self.observers,
             original: Bucket::<BUCKET_SIZE>::clone(bucket.deref()),
+            index,
             bucket,
         }
     }
@@ -294,6 +300,28 @@ where
 
     fn bucket_iter(&'a self) -> Self::BucketIter {
         self.inner.bucket_iter()
+    }
+
+    fn bucket_by_index(&self, index: usize) -> &Bucket<BUCKET_SIZE> {
+        self.inner.bucket_by_index(index)
+    }
+
+    fn bucket_by_index_mut(&'a mut self, index: usize) -> Self::BucketWriteGuard {
+        let bucket = self.inner.bucket_by_index_mut(index);
+        BucketWriteGuard {
+            observers: &self.observers,
+            original: Bucket::<BUCKET_SIZE>::clone(bucket.deref()),
+            index,
+            bucket,
+        }
+    }
+
+    fn get_bucket_index(&self, of: &NodeId) -> usize {
+        self.inner.get_bucket_index(of)
+    }
+
+    fn get_bucket_prefix_length(&self, bucket_index: usize) -> usize {
+        self.inner.get_bucket_prefix_length(bucket_index)
     }
 }
 
@@ -380,7 +408,7 @@ where
                     new: self.contact.deref().clone(),
                     old: self.original.clone(),
                 },
-            )
+            );
         }
     }
 }
@@ -396,6 +424,7 @@ where
 {
     observers: &'a [Box<dyn RoutingTableObserver<BUCKET_SIZE>>],
     original: Bucket<BUCKET_SIZE>,
+    index: usize,
     bucket: B,
 }
 
@@ -424,11 +453,14 @@ where
     B: DerefMut<Target = Bucket<BUCKET_SIZE>>,
 {
     fn drop(&mut self) {
-        if self.bucket.deref() != &self.original {
-            notify_all(
-                self.observers,
-                RoutingTableEvent::UpdatedBucket(self.bucket.deref().clone()),
-            )
+        if let Some(_) = self
+            .bucket
+            .deref()
+            .iter()
+            .zip(self.original.iter())
+            .find(|(a, b)| a.path() != b.path())
+        {
+            notify_all(self.observers, RoutingTableEvent::UpdatedBucket(self.index))
         }
     }
 }

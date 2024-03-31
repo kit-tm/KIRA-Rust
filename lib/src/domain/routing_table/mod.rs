@@ -146,7 +146,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// The [Contact]s in the [Bucket] will be inserted in the appropriate [Bucket]s.
     ///
     /// This doesn't require a [Contact] inside the [Bucket] with the id.
-    fn split_bucket(&mut self, id: &NodeId) -> Result<(), BucketSplitError>;
+    fn split_bucket(&mut self, id: &NodeId) -> Result<usize, BucketSplitError>;
 
     /// Returns the Bucket the [NodeId] should be located in based on the
     /// current state of the [RoutingTable].
@@ -154,6 +154,19 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
 
     /// Returns a mutable reference to the [Bucket] for the given [NodeId].
     fn bucket_mut(&'a mut self, of: &NodeId) -> Self::BucketWriteGuard;
+
+    /// Returns the [Bucket] at the given index.
+    fn bucket_by_index(&self, index: usize) -> &Bucket<BUCKET_SIZE>;
+
+    /// Returns a mutable reference to the [Bucket] at the given index.
+    fn bucket_by_index_mut(&'a mut self, index: usize) -> Self::BucketWriteGuard;
+
+    /// Returns the index of the [Bucket] the given [NodeId] should be located in
+    /// based on the current state of the [RoutingTable].
+    fn get_bucket_index(&self, of: &NodeId) -> usize;
+
+    /// Returns the fixed prefix length of the[Bucket] at the given index.
+    fn get_bucket_prefix_length(&self, bucket_index: usize) -> usize;
 
     /// Inserts a [Contact] into the table by splitting the [Bucket] until
     /// Insertion succeeds or splitting failed.
@@ -195,7 +208,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// ## Improvements
     ///
     /// As this only returns a limited number of nodes an implementation based on iterators
-    /// would be ideal int he future.
+    /// would be ideal in the future.
     fn closest(
         &self,
         to: &NodeId,

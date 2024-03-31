@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use pnet::datalink;
-use pnet::ipnetwork::IpNetwork;
+use pnet::ipnetwork::{IpNetwork, Ipv6Network};
 use tokio::sync::{Mutex, RwLock};
 
 use crate::domain::NetworkInterface;
@@ -24,22 +24,58 @@ use crate::messaging::{AsyncInterfaceMapper, InterfaceMapper};
 pub struct PNetInterfaceMonitor {
     interfaces: Arc<RwLock<HashSet<datalink::NetworkInterface>>>,
     handlers: Arc<Mutex<Vec<Box<dyn HardwareEventHandler>>>>,
+    excluded_interfaces: Arc<HashSet<u32>>,
 }
 
 impl PNetInterfaceMonitor {
     /// Creates a new [PNetInterfaceMonitor] with empty cache.
     pub fn new() -> Self {
+        Self::with_excluded_interfaces(Default::default())
+    }
+
+    /// Creates a new [PNetInterfaceMonitor] which ignores some interfaces.
+    pub fn with_excluded_interfaces(excluded_interfaces: HashSet<u32>) -> Self {
         Self {
             interfaces: Arc::new(RwLock::new(HashSet::new())),
             handlers: Arc::new(Mutex::new(Vec::new())),
+            excluded_interfaces: Arc::new(excluded_interfaces),
         }
+    }
+
+    /// Returns filtered list of relevant interfaces present at the moment.
+    fn new_interfaces(&self) -> HashSet<datalink::NetworkInterface> {
+        fn is_link_local(ip: &&IpNetwork) -> bool {
+            let IpNetwork::V6(ip) = ip else {
+                return false;
+            };
+
+            let ll_network: Ipv6Network = "fe80::/64".parse().unwrap();
+            ll_network.contains(ip.ip())
+        }
+
+        let interfaces = datalink::interfaces();
+
+        // observation: all relevant interfaces have a MAC != 00:00:00:00:00:00, so maybe we can filter out those
+        let interfaces = interfaces
+            .into_iter()
+            // filter out non-working interfaces
+            .filter(|i| {
+                i.is_up()
+                    && !i.is_loopback()
+                    && i.ips.iter().find(is_link_local).is_some()
+                    && !i.name.contains("kira")
+            })
+            // filter out interfaces we want to ignore
+            .filter(|i| !self.excluded_interfaces.contains(&i.index));
+
+        HashSet::from_iter(interfaces)
     }
 
     /// Refreshes the interface information cache by blocking the inner lock.
     pub fn blocking_refresh(&self) {
         let mut interfaces = self.interfaces.blocking_write();
 
-        let new_interfaces = HashSet::from_iter(datalink::interfaces());
+        let new_interfaces = self.new_interfaces();
 
         let (added, removed) = self.convert_to_events(interfaces.clone(), new_interfaces.clone());
         if let Some(added) = added {
@@ -61,7 +97,7 @@ impl PNetInterfaceMonitor {
     pub async fn refresh(&self) {
         let mut interfaces = self.interfaces.write().await;
 
-        let new_interfaces = HashSet::from_iter(datalink::interfaces());
+        let new_interfaces = self.new_interfaces();
 
         let (added, removed) = self.convert_to_events(interfaces.clone(), new_interfaces.clone());
         if let Some(added) = added {
@@ -177,6 +213,16 @@ impl AsyncInterfaceMapper for PNetInterfaceMonitor {
         }
 
         find
+    }
+
+    async fn get_available(&self) -> Vec<u32> {
+        self.refresh().await;
+        self.interfaces
+            .read()
+            .await
+            .iter()
+            .map(|i| i.index)
+            .collect()
     }
 }
 
