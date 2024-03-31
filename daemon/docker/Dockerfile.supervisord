@@ -47,7 +47,7 @@ COPY daemon/docker/nftables.conf ./
 
 #USER r2kad-daemon:r2kad-daemon
 
-EXPOSE 8080/udp
+EXPOSE 8080/tcp
 
 # start supervisord
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]

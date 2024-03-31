@@ -19,7 +19,7 @@ use r2kad_lib::messaging::{AsyncProtocolMessageReceiver, PNetInterfaceMonitor};
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    #[clap(short, long, value_parser, env = "SOCKET_PORT", default_value = "8080")]
+    #[clap(short, long, value_parser, env = "SOCKET_PORT", default_value = "19219")]
     socket_port: u16,
     #[clap(short, long, value_parser, env = "NODE_ID")]
     root_id: Option<NodeId>,

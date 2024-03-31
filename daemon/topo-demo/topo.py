@@ -73,7 +73,7 @@ class R2KadNetwork:
                    'net.ipv6.conf.default.disable_ipv6': 0,
                    'net.ipv6.conf.all.forwarding': 1
                    },
-                environment=[f"NODE_ID={int(node):028x}","RUST_LOG=debug"])
+                environment=[f"NODE_ID={int(node):028x}", f"RUST_LOG={os.environ.get('RUST_LOG', 'debug')}"])
         if info:
             self._logger.info(f"Created new container for node: {node}")
 
@@ -164,7 +164,7 @@ class R2KadNetwork:
             self._logger.error(f"Can't store at {node} without a container present!")
             return None
 
-        cmd = f"curl localhost:8082/dht/store?reference={reference} -d \"{data}\""
+        cmd = f"curl localhost:8080/dht/store?reference={reference} -d \"{data}\""
 
         (_, out) = container.exec_run(cmd)
         return out
@@ -176,7 +176,7 @@ class R2KadNetwork:
             self._logger.error(f"Can't fetch at {node} without a container present!")
             return None
 
-        cmd = f"curl localhost:8082/dht/fetch?reference={reference}"
+        cmd = f"curl localhost:8080/dht/fetch?reference={reference}"
 
         (_, out) = container.exec_run(cmd)
         return out
