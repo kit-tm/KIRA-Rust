@@ -7,15 +7,18 @@ use tokio::sync::mpsc; // use tokio::sync::oneshot;
 
 use crate::domain::{Contact, NetworkInterface, NodeId};
 use crate::hardware_events::HardwareEvent;
+use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr};
 use crate::messaging::messages::ProtocolMessage;
 use crate::messaging::{FindNodeReqData, Nonce};
-use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr};
 use crate::use_cases::inject_messages::InjectionResult;
 
 pub mod derive_fwd_table_entries;
+pub mod distributed_hash_table;
+pub mod distributed_hash_table_injector;
 pub mod explicit_path_management;
 pub mod failure_handling;
 pub mod forward_protocol_message;
+pub mod handle_api;
 pub mod handle_contact_update;
 pub mod handle_overlay_discovery;
 pub mod inject_messages;
@@ -24,9 +27,6 @@ pub mod path_probing;
 pub mod precompute_paths_and_path_ids;
 pub mod random_overlay_discovery;
 pub mod vicinity_discovery;
-pub mod distributed_hash_table;
-pub mod distributed_hash_table_injector;
-
 
 /// Callback used to message back an [InjectionResult] to an injector.
 ///
@@ -80,7 +80,9 @@ impl PartialEq for InjectionMessageData {
 
 #[derive(Debug, Clone)]
 pub enum ApiEvent {
-    LocalHashTable(mpsc::UnboundedSender<Result<Vec<(NodeId, DefaultLHTOutput)>, FetchErr>>)
+    LocalHashTable(mpsc::UnboundedSender<Result<Vec<(NodeId, DefaultLHTOutput)>, FetchErr>>),
+    PNTable(mpsc::UnboundedSender<String>),
+    RoutingTable(mpsc::UnboundedSender<String>),
 }
 
 impl PartialEq for ApiEvent {
@@ -88,7 +90,17 @@ impl PartialEq for ApiEvent {
         match self {
             ApiEvent::LocalHashTable(sender) => {
                 if let ApiEvent::LocalHashTable(other_sender) = other {
-                    return sender.same_channel(other_sender)
+                    return sender.same_channel(other_sender);
+                }
+            }
+            ApiEvent::PNTable(sender) => {
+                if let ApiEvent::PNTable(other_sender) = other {
+                    return sender.same_channel(other_sender);
+                }
+            }
+            ApiEvent::RoutingTable(sender) => {
+                if let ApiEvent::RoutingTable(other_sender) = other {
+                    return sender.same_channel(other_sender);
                 }
             }
         }

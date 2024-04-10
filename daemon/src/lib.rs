@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::StreamExt;
+use r2kad_lib::use_cases::handle_api::HandleApi;
 use signal_hook::consts::{SIGHUP, SIGINT, SIGKILL, SIGPIPE, SIGQUIT, SIGTERM};
 use signal_hook_tokio::Signals;
 use tokio::sync::mpsc;
@@ -552,6 +553,8 @@ where
         let mut handle_update_contact =
             HandleContactUpdate::new(HandleContactUpdateConfig::default());
 
+        let mut handle_api = HandleApi::default();
+
         // Wait for MessageReceivers or runtime to emit events and delegate to Use Cases
         // IMPORTANT: The Runtime::block_on method drives progress in the CurrentThreadRuntime.
         //              Without that the tasks spawned in the runtime won't make any progress.
@@ -627,6 +630,10 @@ where
             if let Err(e) = distributed_hash_table_injector.handle_event(&context, event.clone())
             {
                 log::error!("Injecting DHT Messages returned error handling message: {}", e);
+            }
+
+            if let Err(e) = handle_api.handle_event(&context, event.clone()) {
+                log::error!("Handling API request returned error: {}", e);
             }
 
             // Check States as returning an error doesn't show an unrecoverable error

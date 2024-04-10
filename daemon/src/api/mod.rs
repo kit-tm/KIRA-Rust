@@ -7,23 +7,23 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use axum::extract::{Query, State};
 use axum::body::Bytes;
-use axum::{Json, Router};
+use axum::extract::{Query, State};
 use axum::routing::{get, post};
+use axum::{Json, Router};
 
 #[cfg(feature = "swagger_doc")]
 use utoipa::OpenApi;
 #[cfg(feature = "swagger_doc")]
 use utoipa_swagger_ui::SwaggerUi;
 
-use tokio::time::{Instant, timeout};
-use tokio::sync::mpsc;
 use domain::dht::DHTErr;
+use tokio::sync::mpsc;
+use tokio::time::{timeout, Instant};
 
+use r2kad_lib::messaging::{Nonce, ProtocolMessage};
 use r2kad_lib::use_cases::inject_messages::InjectionResult;
 use r2kad_lib::use_cases::{ApiEvent, InjectionMessageData, UseCaseEvent};
-use r2kad_lib::messaging::{Nonce, ProtocolMessage};
 
 /// Starts a REST API-server based on the provided [ApiConfig].
 ///
@@ -50,22 +50,26 @@ pub async fn start_http_server(api_config: ApiConfig) {
     };
 
     #[cfg(feature = "swagger_doc")]
-    let swagger = SwaggerUi::new("/swagger-ui")
-        .url("/api-docs/openapi.json", ApiDoc::openapi());
+    let swagger = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
 
     let app: Router<ApiState> = Router::new();
 
     #[cfg(feature = "swagger_doc")]
     let app = app.merge(swagger);
 
-    let app = app.route("/node-id", get(get_node_id))
+    let app = app
+        .route("/node-id", get(get_node_id))
         .route("/dht", post(store_dht_data).get(fetch_dht_data))
         .route("/dht/store", post(store_dht_data))
         .route("/dht/fetch", get(fetch_dht_data))
         .route("/dht/_dev/local-hashtable", get(dump_local_hashtable))
+        .route("/_dev/pn-table", get(dump_pn_table))
+        .route("/_dev/routing-table", get(dump_routing_table))
         .with_state(api_state);
 
-    let listener = tokio::net::TcpListener::bind(&api_config.address).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(&api_config.address)
+        .await
+        .unwrap();
     axum::serve(listener, app.into_make_service())
         .await
         .unwrap()
@@ -92,7 +96,6 @@ struct ApiState {
     sender: mpsc::Sender<(UseCaseEvent, Option<Instant>)>,
 }
 
-
 /// The configuration for the API-Server used by [start_http_server].
 pub struct ApiConfig {
     address: SocketAddr,
@@ -112,7 +115,11 @@ impl ApiConfig {
     /// # Returns
     ///
     /// A new [ApiConfig] instance.
-    pub(crate) fn new(address: SocketAddr, node_id: r2kad_lib::domain::NodeId, sender: mpsc::Sender<(UseCaseEvent, Option<Instant>)>) -> ApiConfig {
+    pub(crate) fn new(
+        address: SocketAddr,
+        node_id: r2kad_lib::domain::NodeId,
+        sender: mpsc::Sender<(UseCaseEvent, Option<Instant>)>,
+    ) -> ApiConfig {
         ApiConfig {
             address,
             node_id,
@@ -142,12 +149,15 @@ fn extract_dht_handle(params: &mut HashMap<String, String>) -> Result<domain::dh
 
     match (handle, reference) {
         (Some(_), Some(_)) => Err(crate::api::domain::dht::ApiFormatErr::AmbiguousParams.into()),
-        (Some(handle), _) => Ok(crate::api::domain::dht::Handle::Handle(crate::api::domain::NodeId { node_id: handle })),
+        (Some(handle), _) => Ok(crate::api::domain::dht::Handle::Handle(
+            crate::api::domain::NodeId { node_id: handle },
+        )),
         (_, Some(reference)) => Ok(crate::api::domain::dht::Handle::Reference(reference)),
         (None, None) => Err(crate::api::domain::dht::ApiFormatErr::MissingParams(vec![
             "handle".to_string(),
             "reference".to_string(),
-        ]).into())
+        ])
+        .into()),
     }
 }
 
@@ -172,13 +182,19 @@ fn extract_dht_handle(params: &mut HashMap<String, String>) -> Result<domain::dh
         )
     )
 ))]
-async fn store_dht_data(State(state): State<ApiState>, Query(mut params): Query<HashMap<String, String>>, body: Bytes) -> Result<domain::dht::StoreOK, DHTErr> {
+async fn store_dht_data(
+    State(state): State<ApiState>,
+    Query(mut params): Query<HashMap<String, String>>,
+    body: Bytes,
+) -> Result<domain::dht::StoreOK, DHTErr> {
     // todo factor out essentials to reduce code duplication
     let args = crate::api::domain::dht::StoreArgs {
         handle: extract_dht_handle(&mut params)?,
         restore: params
             .remove("restore")
-            .as_deref().map(str::to_lowercase).as_deref()
+            .as_deref()
+            .map(str::to_lowercase)
+            .as_deref()
             .map(bool::from_str)
             .unwrap_or(Ok(false))
             .map_err(|_| crate::api::domain::dht::ApiFormatErr::BoolFormatError)?,
@@ -186,13 +202,16 @@ async fn store_dht_data(State(state): State<ApiState>, Query(mut params): Query<
     };
     let (tx, mut rx) = mpsc::unbounded_channel();
 
-    let payload = args.try_into().map_err(|_| crate::api::domain::dht::ApiFormatErr::HexFormatError)?;
-    let event = UseCaseEvent::InjectMessage(
-        None,
-        InjectionMessageData::Store(payload, tx),
-    );
+    let payload = args
+        .try_into()
+        .map_err(|_| crate::api::domain::dht::ApiFormatErr::HexFormatError)?;
+    let event = UseCaseEvent::InjectMessage(None, InjectionMessageData::Store(payload, tx));
 
-    state.sender.send((event, None)).await.map_err(|_| DHTErr::SendError)?;
+    state
+        .sender
+        .send((event, None))
+        .await
+        .map_err(|_| DHTErr::SendError)?;
     let injection_result = timeout(domain::dht::DEFAULT_TIMEOUT, rx.recv())
         .await
         .map(|received| received.ok_or(DHTErr::ReceiveError))
@@ -200,10 +219,12 @@ async fn store_dht_data(State(state): State<ApiState>, Query(mut params): Query<
     log::trace!(target: "api_backend", "Received injection result [{:?}]", injection_result);
 
     match injection_result {
-        InjectionResult::Answered((ProtocolMessage::StoreRsp(payload), _)) => Ok(payload.data.status?.into()),
+        InjectionResult::Answered((ProtocolMessage::StoreRsp(payload), _)) => {
+            Ok(payload.data.status?.into())
+        }
         InjectionResult::Isolated => Err(DHTErr::Isolated),
         InjectionResult::SendFailed(_) => Err(DHTErr::SendError),
-        InjectionResult::Answered(_) => Err(DHTErr::MessageReceiveMismatch)
+        InjectionResult::Answered(_) => Err(DHTErr::MessageReceiveMismatch),
     }
 }
 
@@ -229,7 +250,10 @@ async fn store_dht_data(State(state): State<ApiState>, Query(mut params): Query<
         )
     )
 ))]
-async fn fetch_dht_data(State(state): State<crate::api::ApiState>, Query(mut params): Query<HashMap<String, String>>) -> Result<Json<domain::dht::FetchRsp>, DHTErr> {
+async fn fetch_dht_data(
+    State(state): State<crate::api::ApiState>,
+    Query(mut params): Query<HashMap<String, String>>,
+) -> Result<Json<domain::dht::FetchRsp>, DHTErr> {
     let args = crate::api::domain::dht::FetchArgs {
         handle: extract_dht_handle(&mut params)?,
     };
@@ -237,10 +261,18 @@ async fn fetch_dht_data(State(state): State<crate::api::ApiState>, Query(mut par
 
     let event = UseCaseEvent::InjectMessage(
         None,
-        InjectionMessageData::Fetch(args.try_into().map_err(|_| domain::dht::ApiFormatErr::HexFormatError)?, tx),
+        InjectionMessageData::Fetch(
+            args.try_into()
+                .map_err(|_| domain::dht::ApiFormatErr::HexFormatError)?,
+            tx,
+        ),
     );
 
-    state.sender.send((event, None)).await.map_err(|_| DHTErr::SendError)?;
+    state
+        .sender
+        .send((event, None))
+        .await
+        .map_err(|_| DHTErr::SendError)?;
     let injection_result = timeout(domain::dht::DEFAULT_TIMEOUT, rx.recv())
         .await
         .map(|received| received.ok_or(DHTErr::ReceiveError))
@@ -248,10 +280,12 @@ async fn fetch_dht_data(State(state): State<crate::api::ApiState>, Query(mut par
     log::trace!(target: "api_backend", "Received injection result [{:?}]", injection_result);
 
     match injection_result {
-        InjectionResult::Answered((ProtocolMessage::FetchRsp(payload), _)) => Ok(Json(payload.data.data?.into())),
+        InjectionResult::Answered((ProtocolMessage::FetchRsp(payload), _)) => {
+            Ok(Json(payload.data.data?.into()))
+        }
         InjectionResult::Isolated => Err(DHTErr::Isolated),
         InjectionResult::SendFailed(_) => Err(DHTErr::SendError),
-        InjectionResult::Answered(_) => Err(DHTErr::MessageReceiveMismatch)
+        InjectionResult::Answered(_) => Err(DHTErr::MessageReceiveMismatch),
     }
 }
 
@@ -267,26 +301,76 @@ async fn fetch_dht_data(State(state): State<crate::api::ApiState>, Query(mut par
         )
     )
 ))]
-async fn dump_local_hashtable(State(state): State<crate::api::ApiState>) -> Result<Json<domain::dht::LocalHashTable>, DHTErr> {
+async fn dump_local_hashtable(
+    State(state): State<crate::api::ApiState>,
+) -> Result<Json<domain::dht::LocalHashTable>, DHTErr> {
     let (tx, mut rx) = mpsc::unbounded_channel();
 
     let event = UseCaseEvent::API(ApiEvent::LocalHashTable(tx));
 
-    state.sender.send((event, None)).await.map_err(|_| DHTErr::SendError)?;
+    state
+        .sender
+        .send((event, None))
+        .await
+        .map_err(|_| DHTErr::SendError)?;
 
     let local_ht = timeout(domain::dht::DEFAULT_TIMEOUT, rx.recv())
         .await
         .map(|received| received.ok_or(DHTErr::ReceiveError))
         .map_err(|_| DHTErr::Timeout)???;
 
-    let local_ht = local_ht.into_iter()
+    let local_ht = local_ht
+        .into_iter()
         .map(|(handle, data)| {
             let handle = crate::api::domain::NodeId::from(handle).node_id;
             let data: Vec<String> = data.into_iter().map(hex::encode).collect();
 
             (handle, data)
-        }).collect();
+        })
+        .collect();
 
     Ok(Json(domain::dht::LocalHashTable(local_ht)))
 }
 
+// todo Swagger doc
+// todo create generic ApiErr
+
+async fn dump_pn_table(State(state): State<crate::api::ApiState>) -> Result<String, Json<DHTErr>> {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+
+    let event = UseCaseEvent::API(ApiEvent::PNTable(tx));
+
+    state
+        .sender
+        .send((event, None))
+        .await
+        .map_err(|_| DHTErr::SendError)?;
+
+    let pn_table_debug_string = timeout(domain::dht::DEFAULT_TIMEOUT, rx.recv())
+        .await
+        .map(|received| received.ok_or(DHTErr::ReceiveError))
+        .map_err(|_| DHTErr::Timeout)??;
+
+    Ok(pn_table_debug_string)
+}
+
+async fn dump_routing_table(
+    State(state): State<crate::api::ApiState>,
+) -> Result<String, Json<DHTErr>> {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+
+    let event = UseCaseEvent::API(ApiEvent::RoutingTable(tx));
+
+    state
+        .sender
+        .send((event, None))
+        .await
+        .map_err(|_| DHTErr::SendError)?;
+
+    let routing_table_debug_string = timeout(domain::dht::DEFAULT_TIMEOUT, rx.recv())
+        .await
+        .map(|received| received.ok_or(DHTErr::ReceiveError))
+        .map_err(|_| DHTErr::Timeout)??;
+
+    Ok(routing_table_debug_string)
+}
