@@ -1,0 +1,42 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+
+ENV['VAGRANT_DEFAULT_PROVIDER'] = 'virtualbox'
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "generic/ubuntu2004"
+  config.vm.network "private_network", ip: "192.168.57.2"
+  #config.vm.network "forwarded_port", guest: 8080, host: 8080, host_ip: "127.0.0.1"
+
+  # Share an additional folder to the guest VM. The first argument is
+  # the path on the host to the actual folder. The second argument is
+  # the path on the guest to mount the folder. And the optional third
+  # argument is a set of non-required options.
+  config.vm.synced_folder "../../", "/home/vagrant/vagrant"
+
+  config.vm.provider "virtualbox" do |vb|
+    vb.memory = 4096
+    vb.cpus = 2
+  end
+
+  # alternative libvirt provider. This can be selected by calling:
+  # 'vagrant up --provider libvirt'
+  config.vm.provider "libvirt" do |lv, override|
+    lv.qemu_use_session = false
+    lv.graphics_type = "none"
+
+    lv.memory = 4096
+    lv.cpus = 2
+  end
+
+
+  config.vm.define "r2kademlia"
+  config.vm.provision "shell", path: "install-vagrant.sh", args: "/home/vagrant/r2kad"
+end
+
+# Load 'user' Vagrantfile. This allows overriding e.g. VirtualBox settings like
+# core count and memory individually on each developers machine w/o changing
+# this file.
+custom_user_vagrantfile = 'Vagrantfile.user'
+load custom_user_vagrantfile if File.exists?(custom_user_vagrantfile)

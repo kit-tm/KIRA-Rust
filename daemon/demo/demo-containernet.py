@@ -30,7 +30,6 @@ class R2KadNetwork:
 
         sysctls = {
             'net.ipv6.conf.default.disable_ipv6': 0,
-            'net.ipv6.conf.eth0.disable_ipv6': 1,
             'net.ipv6.conf.all.forwarding': 1,
         }
         environment = [
