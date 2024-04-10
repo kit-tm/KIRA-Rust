@@ -68,6 +68,7 @@ class R2KadNetwork:
             cap_add=["NET_ADMIN"],
             sysctls={
                 'net.ipv6.conf.default.disable_ipv6': 0,
+                'net.ipv6.conf.eth0.disable_ipv6': 1,
                 'net.ipv6.conf.all.forwarding': 1
             },
             environment=[f"NODE_ID={int(node):028x}", f"RUST_LOG={os.environ.get('RUST_LOG', 'debug')}"])
