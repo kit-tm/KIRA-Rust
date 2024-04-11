@@ -36,12 +36,12 @@ where
         match event {
             UseCaseEvent::API(super::ApiEvent::RoutingTable(sender)) => {
                 sender
-                    .send(format!("{:?}", *context.routing_table()))
+                    .send(format!("{:#?}", *context.routing_table()))
                     .map_err(|_| MessageSentFailed)?;
             }
             UseCaseEvent::API(super::ApiEvent::PNTable(sender)) => {
                 sender
-                    .send(format!("{:?}", *context.pn_table()))
+                    .send(format!("{:#?}", *context.pn_table()))
                     .map_err(|_| MessageSentFailed)?;
             }
             _ => {}

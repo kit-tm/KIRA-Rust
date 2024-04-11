@@ -41,7 +41,7 @@ pub enum RoutingTableEvent<const BUCKET_SIZE: usize> {
     UpdatedContact { new: Contact, old: Contact },
     /// A [Contact] was removed from the [RoutingTable].
     RemovedContact(Contact),
-    /// The [Bucket] at the given index was updated. 
+    /// The [Bucket] at the given index was updated.
     /// This event is only fire when a path of a [Contact] in the [Bucket] changed.
     UpdatedBucket(usize),
     /// A new [Bucket] was added at the given index.
@@ -141,12 +141,10 @@ pub struct ObservableRoutingTable<RT, const BUCKET_SIZE: usize> {
 
 impl<RT: Debug, const BUCKET_SIZE: usize> Debug for ObservableRoutingTable<RT, BUCKET_SIZE> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "ObservableRoutingTable [observables: {}, inner: {:?}]",
-            self.observers.len(),
-            self.inner
-        )
+        f.debug_struct("ObservableRoutingTable")
+            .field("observables", &self.observers.len())
+            .field("inner", &self.inner)
+            .finish()
     }
 }
 
