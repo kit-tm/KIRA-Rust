@@ -5,7 +5,9 @@ import docker
 import networkx as nx
 import os
 import sys
+import random
 import re
+from typing import Optional
 
 import argparse
 import logging
@@ -14,9 +16,14 @@ logger = logging.getLogger(__name__)
 
 
 class R2KadNetwork:
-    def __init__(self, graph: nx.Graph, client=docker.from_env()):
+    def __init__(self, graph: nx.Graph, client=docker.from_env(), seed=None):
         self._networks = client.networks.list()
         self._logger = logging.getLogger(self.__class__.__name__)
+
+        if seed is None:
+            seed = random.SystemRandom().randint(0, 1024)
+            self._logger.info(f"Using Seed {seed} to generate ids of nodes")
+        self._rng = random.Random(seed)
 
         self.graph = graph
         self.client = client
@@ -38,6 +45,11 @@ class R2KadNetwork:
             self._logger.debug(f"Adopting previous created container {
                                container.name} for node {node}")
             self.graph.nodes[node]["container"] = container
+
+            # get node id
+            nid = self.get_node_id(node)
+            if nid is not None:
+                self.graph.nodes[node]["node-id"] = nid
         except docker.errors.NotFound:
             pass
 
@@ -55,11 +67,15 @@ class R2KadNetwork:
     def create_node_container(self, node: int, default_img: str, info=True) -> Container:
         container_name = f"r2kad-n{node}"
 
-        img = self.graph.nodes[node].get("img", default_img)
+        ndata = self.graph.nodes[node]
+        img = ndata.get("img", default_img)
         if img is None:
             logger.error(
                 "Couldn't determine the image to use for the node container!")
             return None
+
+        nid = ndata.get("node-id", self._rng.getrandbits(112))
+        self._logger.info(f"Using node-id {int(nid):028x} for node {node}")
 
         # create new container
         container = self.client.containers.create(
@@ -71,7 +87,7 @@ class R2KadNetwork:
                 'net.ipv6.conf.eth0.disable_ipv6': 1,
                 'net.ipv6.conf.all.forwarding': 1
             },
-            environment=[f"NODE_ID={int(node):028x}", f"RUST_LOG={os.environ.get('RUST_LOG', 'debug')}"])
+            environment=[f"NODE_ID={int(nid):028x}", f"RUST_LOG={os.environ.get('RUST_LOG', 'debug')}"])
         if info:
             self._logger.info(f"Created new container for node: {node}")
 
@@ -94,50 +110,43 @@ class R2KadNetwork:
             if container is None:
                 container = self.create_node_container(node, default_img)
 
-    def start(self, img: str = None) -> None:
+    def start(self, default_img: str = None) -> None:
         for (node, container) in self.graph.nodes(data="container"):
             if container is None:
-                if img is None:
+                if default_img is None:
                     self._logger.warning(
                         f"Couldn't start nor create container for node: {node}")
                     return
-                container = self.create_node_container(node, img)
+                container = self.create_node_container(node, default_img)
             container.start()
             self._logger.info(f"Started node {node}.")
 
     def stop(self) -> None:
         for (node, container) in self.graph.nodes(data="container"):
             if container is None:
-                self._logger.warning(
-                    f"Consider node without container stopped: {node}!")
                 continue
-
             container.stop()
             self._logger.info(f"Stopped node {node}.")
 
-    def connect(self, fallback_img: str = None) -> None:
+    def connect(self) -> None:
         for (o, d, nw) in graph.edges.data(data="network"):
-            self.connect_edge(o, d, network=nw, fallback_img=fallback_img)
+            self.connect_edge(o, d, network=nw)
 
-    def connect_edge(self, origin: int, destination: int, network: Network = None, fallback_img: str = None) -> Network:
-        if network is None:
-            network = self.create_edge_network(origin, destination)
-            self._logger.info(
-                f"Created new network for the connection: {network.name}")
-
-        # get containers of origin and destination or try to create them
+    def connect_edge(self, origin: int, destination: int, network: Network = None) -> Optional[Network]:
+        # get containers of origin and destination
         containers = {}
         for node in [origin, destination]:
             if "container" in self.graph.nodes[node]:
                 containers[node] = self.graph.nodes[node]["container"]
             else:
-                if fallback_img is None:
-                    self._logger.error(f"Couldn't create edge {
-                                       origin}--{destination}, since {node} has no container")
-                containers[node] = self.create_node_container(
-                    node, fallback_img, info=False)
-                self._logger.info(f"Created node {node} to be able to connect {
-                                  origin}--{destination}")
+                self._logger.error(f"Couldn't connect edge {
+                                   origin}--{destination}: Node {node} has no container")
+                return None
+
+        if network is None:
+            network = self.create_edge_network(origin, destination)
+            self._logger.info(
+                f"Created new network for the connection: {network.name}")
 
         # connect containers to network
         network.connect(container=containers[origin])
@@ -146,8 +155,7 @@ class R2KadNetwork:
         return network
 
     def prune(self) -> None:
-        # self.stop()
-        for (_, container) in self.graph.nodes(data="container"):
+        for (node, container) in self.graph.nodes(data="container"):
             if container is None:
                 continue
             container.remove(v=True, force=True)
@@ -184,6 +192,58 @@ class R2KadNetwork:
         (_, out) = container.exec_run(cmd)
         return out
 
+    def get_node_id(self, node: int) -> Optional[bytes]:
+        if "container" not in self.graph.nodes[str(node)]:
+            return None
+        container = self.graph.nodes[str(node)]["container"]
+
+        cmd = "curl localhost:8080/node-id"
+
+        try:
+            (_, out) = container.exec_run(cmd)
+        except docker.errors.APIError:
+            self._logger.debug(f"Can't exec in container of node {node}")
+            return None
+
+        out = out.decode("utf-8")
+        match = re.search(r'\{"node-id"*+:*+"(.+)"\}', out)
+        if match is None:
+            self._logger.warning(f"Can't find node id in output: {out}")
+            return None
+
+        out = match.group(1)
+        return bytes.fromhex(out)
+
+    def ping(self, origin: int, destination: int) -> Optional[bool]:
+        if "container" not in self.graph.nodes[str(origin)]:
+            self._logger.error(f"Can't ping from node {
+                               origin} without a container")
+            return None
+        container = self.graph.nodes[str(origin)]["container"]
+
+        nid = self.graph.nodes[str(destination)].get(
+            "node-id", self.get_node_id(destination))
+        if nid is None:
+            self._logger.error(
+                f"Can't determine node-id of node {destination}")
+            return None
+
+        nid = nid.hex(":", 2)
+
+        cmd = f"ping -c 3 -i 0.25 -W 1 -q fc00:{nid}"
+
+        (res, _) = container.exec_run(cmd)
+        return res == 0
+
+    def test_connectivity(self):
+        for o in self.graph:
+            for d in self.graph:
+                connectivity = self.ping(o, d)
+                if connectivity:
+                    print(f"{o}->{d} ✓", flush=True, end='\r')
+                else:
+                    print(f"{o}->{d} ✗", flush=True)
+
     def logs(self, node: int, follow=False) -> str:
         if "container" not in self.graph.nodes[str(node)]:
             self._logger.error(f"Can't fetch logs at {
@@ -199,7 +259,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='r2kad topology generator')
 
     parser.add_argument('operation', type=str, choices=[
-                        "create", "connect", "start", "stop", "prune", "store", "fetch", "logs"])
+                        "create", "connect", "start", "stop", "prune", "store", "fetch", "logs", "node-id", "test_connectivity"])
     parser.add_argument('-n', '--node-id', type=int, required=False, dest="node",
                         help="ID of the node to which to send store/fetch requests")
     parser.add_argument('-ref', '--reference', type=str, required=False, dest="reference",
@@ -210,6 +270,8 @@ if __name__ == '__main__':
                         help="Path pointing to an edgelist")
     parser.add_argument('--img', type=str,
                         help="Docker image used by the node containers")
+    parser.add_argument('--seed', type=str, required=False,
+                        help="Seed used to generate Node-IDs")
     args = parser.parse_args()
 
     edgefile = args.edges
@@ -220,7 +282,7 @@ if __name__ == '__main__':
         sys.exit(202)
 
     try:
-        network = R2KadNetwork(graph)
+        network = R2KadNetwork(graph, seed=args.seed)
 
         operation = args.operation.lower()
         # this requires python>=3.10
@@ -238,7 +300,7 @@ if __name__ == '__main__':
                 network.stop()
                 logger.info("All nodes are stopped.")
             case "connect":
-                network.connect(args.img)
+                network.connect()
                 logger.info("All edges are connected.")
             case "prune":
                 answer = input(
@@ -256,6 +318,12 @@ if __name__ == '__main__':
                 result = network.fetch(args.node, args.reference)
                 result = result.decode("utf-8")
                 print(result)
+            case "node-id":
+                result = network.get_node_id(args.node)
+                result = result.hex()
+                print(result)
+            case "test_connectivity":
+                network.test_connectivity()
             case "logs":
                 result = network.logs(args.node)
                 result = result.decode("utf-8")
