@@ -13,6 +13,8 @@ use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{ContactEvent, EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState};
 use crate::utils::vicinity_graph::VicinityGraph;
 
+use super::ApiEvent;
+
 /// Configuration for [UseCase] [PrecomputePathIds].
 #[derive(Debug)]
 pub struct PrecomputePathIdsConfig {
@@ -74,7 +76,7 @@ where
     C: UseCaseContext,
     C::ForwardingTables: PathIdTable,
     <<C as UseCaseContext>::ForwardingTables as PathIdTable>::Error: Display,
-    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>
+    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>,
 {
     fn gen_entries_from_graph(&self, context: &C, graph: &VicinityGraph) -> HashSet<PathIdEntry> {
         log::debug!(target: "precompute_paths_and_path_ids", "{:?}", graph);
@@ -93,7 +95,7 @@ where
                 log::warn!(target: "precompute_paths_and_path_ids", "VicinityGraph generated path over invalid neighbor");
                 continue;
             }
-            let entry = PathIdEntry::Forward(PathIdForwardingEntry{
+            let entry = PathIdEntry::Forward(PathIdForwardingEntry {
                 in_path_id: self.config.hasher.hash(&in_path),
                 out_path_id: self.config.hasher.hash(&out_path),
                 next_hop: out_path.first().clone(),
@@ -148,7 +150,7 @@ where
     C: UseCaseContext,
     C::ForwardingTables: PathIdTable,
     <<C as UseCaseContext>::ForwardingTables as PathIdTable>::Error: Display,
-    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>
+    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>,
 {
     type Context = C;
     type Error = ();
@@ -247,6 +249,11 @@ where
                     }
                 }
             }
+            UseCaseEvent::API(ApiEvent::VicinityGraph(sender)) => {
+                sender
+                    .send(format!("{:#?}", self.vicinity_graph))
+                    .map_err(|_| ())?;
+            }
             _ => {}
         }
 
@@ -260,7 +267,7 @@ where
     C::ForwardingTables: ForwardingTables,
     C::Runtime: UseCaseRuntime,
     <<C as UseCaseContext>::ForwardingTables as PathIdTable>::Error: Display,
-    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>
+    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>,
 {
     type State = PrecomputeState;
 
@@ -298,7 +305,10 @@ mod tests {
 
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{Contact, ContactState, EmptyPathError, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable};
+    use crate::domain::{
+        Contact, ContactState, EmptyPathError, InMemoryPNTable, InsertionStrategyResult,
+        NetworkInterface, NodeId, PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy,
+    };
     use crate::forwarding::hasher::Hasher;
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::forwarding::PathIdEntry;

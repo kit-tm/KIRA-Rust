@@ -50,7 +50,10 @@ pub enum UseCaseEvent {
 #[derive(Debug, Clone)]
 pub enum InjectionMessageData {
     FindNode(FindNodeReqData),
-    Store(StoreInjectData<DefaultLHTInput>, OneshotInjectMessageCallback),
+    Store(
+        StoreInjectData<DefaultLHTInput>,
+        OneshotInjectMessageCallback,
+    ),
     Fetch(FetchInjectData, OneshotInjectMessageCallback),
 }
 
@@ -59,17 +62,17 @@ impl PartialEq for InjectionMessageData {
         match self {
             Self::FindNode(data) => {
                 if let Self::FindNode(other_data) = other {
-                    return data == other_data
+                    return data == other_data;
                 }
             }
             Self::Store(data, sender) => {
                 if let Self::Store(other_data, other_sender) = other {
-                    return data == other_data && sender.same_channel(other_sender)
+                    return data == other_data && sender.same_channel(other_sender);
                 }
             }
             Self::Fetch(data, sender) => {
                 if let Self::Fetch(other_data, other_sender) = other {
-                    return data == other_data && sender.same_channel(other_sender)
+                    return data == other_data && sender.same_channel(other_sender);
                 }
             }
         }
@@ -83,6 +86,7 @@ pub enum ApiEvent {
     LocalHashTable(mpsc::UnboundedSender<Result<Vec<(NodeId, DefaultLHTOutput)>, FetchErr>>),
     PNTable(mpsc::UnboundedSender<String>),
     RoutingTable(mpsc::UnboundedSender<String>),
+    VicinityGraph(mpsc::UnboundedSender<String>),
 }
 
 impl PartialEq for ApiEvent {
@@ -103,6 +107,11 @@ impl PartialEq for ApiEvent {
                     return sender.same_channel(other_sender);
                 }
             }
+            ApiEvent::VicinityGraph(sender) => {
+                if let ApiEvent::VicinityGraph(other_sender) = other {
+                    return sender.same_channel(other_sender);
+                }
+            }
         }
 
         false
@@ -113,12 +122,12 @@ impl PartialEq for ApiEvent {
 pub struct StoreInjectData<D: Debug> {
     pub handle: NodeId,
     pub data: D,
-    pub restore: bool
+    pub restore: bool,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FetchInjectData {
-    pub handle: NodeId
+    pub handle: NodeId,
 }
 
 /// Contact Events which can be handled by UseCases.
@@ -239,9 +248,9 @@ pub trait UseCase: EventHandler {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::mpsc::Receiver;
     use crate::messaging::ProtocolMessage;
     use crate::use_cases::UseCaseEvent;
+    use std::sync::mpsc::Receiver;
 
     pub fn wait_for_message(recv: Receiver<UseCaseEvent>) -> ProtocolMessage {
         loop {
@@ -249,9 +258,9 @@ mod tests {
             assert!(response.is_ok(), "Error receiving result: {:?}", response);
 
             if let UseCaseEvent::Message(message, ..) = response.unwrap() {
-                break message
+                break message;
             }
         }
     }
-
 }
+

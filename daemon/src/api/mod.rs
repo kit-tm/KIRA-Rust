@@ -65,6 +65,7 @@ pub async fn start_http_server(api_config: ApiConfig) {
         .route("/dht/_dev/local-hashtable", get(dump_local_hashtable))
         .route("/_dev/pn-table", get(dump_pn_table))
         .route("/_dev/routing-table", get(dump_routing_table))
+        .route("/_dev/vicinity-graph", get(dump_vicinity_graph))
         .with_state(api_state);
 
     let listener = tokio::net::TcpListener::bind(&api_config.address)
@@ -373,4 +374,25 @@ async fn dump_routing_table(
         .map_err(|_| DHTErr::Timeout)??;
 
     Ok(routing_table_debug_string)
+}
+
+async fn dump_vicinity_graph(
+    State(state): State<crate::api::ApiState>,
+) -> Result<String, Json<DHTErr>> {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+
+    let event = UseCaseEvent::API(ApiEvent::VicinityGraph(tx));
+
+    state
+        .sender
+        .send((event, None))
+        .await
+        .map_err(|_| DHTErr::SendError)?;
+
+    let vicinity_graph_debug_string = timeout(domain::dht::DEFAULT_TIMEOUT, rx.recv())
+        .await
+        .map(|received| received.ok_or(DHTErr::ReceiveError))
+        .map_err(|_| DHTErr::Timeout)??;
+
+    Ok(vicinity_graph_debug_string)
 }
