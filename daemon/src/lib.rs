@@ -450,7 +450,7 @@ where
 
         #[cfg(feature = "api")]
         let api_config = api::ApiConfig::new(
-            "0.0.0.0:8082".parse().unwrap(),
+            "0.0.0.0:8080".parse().unwrap(),
             root_id.clone().into(),
             new_sender,
         );

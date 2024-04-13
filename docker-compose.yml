@@ -6,7 +6,7 @@ services:
       NODE_ID: "0100000000000000000000000000"
       RUST_LOG: "debug"
     expose:
-      - "8080"
+      - "19219"
     networks:
       mynetv6-1:
         ipv6_address: "2001:db8:1::10"
@@ -19,7 +19,7 @@ services:
       NODE_ID: "0200000000000000000000000000"
       RUST_LOG: "debug"
     expose:
-      - "8080"
+      - "19219"
     networks:
       mynetv6-1:
         ipv6_address: "2001:db8:1::11"
@@ -34,7 +34,7 @@ services:
       NODE_ID: "0300000000000000000000000000"
       RUST_LOG: "debug"
     expose:
-      - "8080"
+      - "19219"
     networks:
       mynetv6-2:
         ipv6_address: "2001:db8:2::13"

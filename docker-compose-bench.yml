@@ -7,7 +7,7 @@ services:
     stop_signal: SIGINT
     stop_grace_period: 30s
     expose:
-      - "8080"
+      - "19219"
     networks:
       mynetv6-1:
         ipv6_address: 2001:db8:1::10
@@ -18,7 +18,7 @@ services:
     stop_signal: SIGINT
     stop_grace_period: 30s
     expose:
-      - "8080"
+      - "19219"
     networks:
       mynetv6-1:
         ipv6_address: 2001:db8:1::11
@@ -31,7 +31,7 @@ services:
     stop_signal: SIGINT
     stop_grace_period: 30s
     expose:
-      - "8080"
+      - "19219"
     networks:
       mynetv6-2:
         ipv6_address: 2001:db8:2::13
@@ -44,7 +44,7 @@ services:
     stop_signal: SIGINT
     stop_grace_period: 30s
     expose:
-      - "8080"
+      - "19219"
     networks:
       mynetv6-3:
         ipv6_address: 2001:db8:3::15
@@ -57,7 +57,7 @@ services:
     stop_signal: SIGINT
     stop_grace_period: 30s
     expose:
-      - "8080"
+      - "19219"
     networks:
       mynetv6-4:
         ipv6_address: 2001:db8:4::17
@@ -72,7 +72,7 @@ services:
     stop_signal: SIGINT
     stop_grace_period: 30s
     expose:
-      - "8080"
+      - "19219"
     networks:
       mynetv6-5:
         ipv6_address: 2001:db8:5::19
@@ -85,7 +85,7 @@ services:
     stop_signal: SIGINT
     stop_grace_period: 30s
     expose:
-      - "8080"
+      - "19219"
     networks:
       mynetv6-6:
         ipv6_address: 2001:db8:6::21
@@ -98,7 +98,7 @@ services:
     stop_signal: SIGINT
     stop_grace_period: 30s
     expose:
-      - "8080"
+      - "19219"
     networks:
       mynetv6-7:
         ipv6_address: 2001:db8:7::23
@@ -111,7 +111,7 @@ services:
     stop_signal: SIGINT
     stop_grace_period: 30s
     expose:
-      - "8080"
+      - "19219"
     networks:
       mynetv6-8:
         ipv6_address: 2001:db8:8::25
@@ -124,7 +124,7 @@ services:
     stop_signal: SIGINT
     stop_grace_period: 30s
     expose:
-      - "8080"
+      - "19219"
     networks:
       mynetv6-9:
         ipv6_address: 2001:db8:9::27
