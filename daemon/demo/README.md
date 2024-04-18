@@ -5,22 +5,7 @@ In this folder are tools to automatically construct and manage topologies.
 All tools can use the provided docker images of the routing daemon
 which can be found in [`../docker`](../docker).
 
-## Containernet
-
-This tool uses [Containernet](https://containernet.github.io) to build the topology.
-
-### Dependencies
-
-- installed [Containernet](https://containernet.github.io/#installation)
-- pip module networkx for reading the topology file
-
-## Standalone 
-
-This tool does not need any dependencies apart from docker to run.
-In contrast to the Containernet based demo this tool uses vanilla docker
-bridge interfaces to bridge the nodes.
-
-To get to know the tool and options just run `demo-standalone.py --help`
+To get an overview of the arguments required and optional simply run `demo.py --help` 
 
 The main operations are:
 
@@ -29,14 +14,38 @@ The main operations are:
 3. `start`: Start all containers
 4. `stop`: Stop all containers
 
-### Dependencies
+## Backends 
 
-- Python >= 3.10 (if running as cli)
+There are two backends supported to create the networks.
+
+### Containernet
+
+This backend uses [Containernet](https://containernet.github.io) to build the topology.
+To use this backend you need to specify `--containernet` as command-line-argument.
+
+This backend creates, connects and starts the network all in the `start` step.
+It is not possible to only "create" the network without connecting it.
+Use the docker backend if you want to do so.
+
+#### Dependencies
+
+- installed [Containernet](https://containernet.github.io/#installation)
 - pip modules: `pip install docker networkx`
-- [docker](https://www.docker.com/)
 - routing daemon docker image (use `make build-images`)
 
-### Docker Setup requirements
+## Standalone 
+
+This backend does not need any external dependencies apart from docker to run.
+In contrast to the Containernet backend, this backend uses vanilla docker
+bridge interfaces to bridge the nodes.
+
+#### Dependencies
+
+- [docker](https://www.docker.com/)
+- pip modules: `pip install docker networkx`
+- routing daemon docker image (use `make build-images`)
+
+#### Docker Setup requirements
 
 Since the r2kad-daemon requires IPv6 support you must [enable support for IPv6 in docker](https://docs.docker.com/config/daemon/ipv6/) first:
 
@@ -58,6 +67,7 @@ This is sadly required since it wasn't possible to automatically obtain
 link-local IPv6-addresses without also obtaining a global unicast address.
 
 Keep in mind that `2001:db8/32` addresses are only intended to be used in 
-internal examples and documentations by the IANA.
+internal examples and documentations by the IANA, which is OK here,
+since we don't use them anyway.
 
 Afterwards restart docker with `systemctl restart docker.service`.
