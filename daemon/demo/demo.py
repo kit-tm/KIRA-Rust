@@ -35,7 +35,8 @@ if __name__ == '__main__':
                         help="Docker image used by the node containers")
     parser.add_argument('--seed', type=str, required=False,
                         help="Seed used to generate Node-IDs")
-    parser.add_argument('--plain', type=bool, required=False, dest="plain",
+    parser.add_argument('--plain', required=False, dest="plain",
+                        action='store_true',
                         help="Don't replace NIDs with topology IDs in outputs")
     parser.add_argument('--containernet', required=False, dest="backend",
                         action='store_const', const="containernet",
@@ -120,6 +121,7 @@ if __name__ == '__main__':
 
     if args.plain:
         print(result)
+        sys.exit(0)
 
     # process output
     for n in graph:
