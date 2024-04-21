@@ -30,15 +30,14 @@ class R2KadContainernetNode(R2KadNode):
             nid = nid[:14]
             environment.append(f"NODE_ID={nid.hex()}")
 
+        # FIXME why is this needed?
         cmd = "/usr/bin/supervisord -c /etc/supervisord.conf"
 
         self._container = self._net.addDocker(self._cannonical_name,
                                               ip=None, dimage=img,
-                                              cap_add=["NET_ADMIN"],
                                               sysctls=sysctls,
                                               environment=environment,
-                                              dcmd=cmd,
-                                              dns=["127.0.0.1"])
+                                              dcmd=cmd)
 
     def connect_with(self, other: Self, id: str, nw: Optional[Network] = None) -> Network:
         return self._net.addLink(self._cannonical_name, other._cannonical_name)
@@ -51,6 +50,7 @@ class R2KadContainernetNode(R2KadNode):
 
 class R2KadContainernetNetwork(R2KadNetwork):
     _node_prefix = "mn.r2kad-n"  # used to find existing containers
+    _node_prefix = "mn.n"  # used to find existing containers
     # TODO get network name
     _nw_prefix = "TODO"
 
