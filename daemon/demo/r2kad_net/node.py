@@ -154,11 +154,17 @@ class R2KadNode(object):
         return res == 0
 
     def stop(self):
+        if self._container is None:
+            return
         self._container.stop()
         self._nid = None
 
-    def prune(self):
-        self.stop()
+    def prune(self, graceful: bool = False):
+        if self._container is None:
+            return
+
+        if graceful:
+            self.stop()
         self._container.remove(v=True, force=True)
 
     def logs(self):
