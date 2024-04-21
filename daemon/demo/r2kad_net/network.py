@@ -89,4 +89,7 @@ class R2KadNetwork:
                 if connectivity:
                     print(f"{o}->{d} ✓", flush=True, end='\r')
                 else:
-                    print(f"{o}->{d} ✗", flush=True)
+                    if o == d:
+                        print(f"{o}->{d} (✗)", flush=True)
+                    else:
+                        print(f"{o}->{d} ✗", flush=True)
