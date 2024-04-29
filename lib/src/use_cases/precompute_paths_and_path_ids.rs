@@ -5,7 +5,9 @@ use std::ops::Deref;
 use std::time::Duration;
 
 use crate::context::UseCaseContext;
-use crate::domain::{ContactState, EmptyPathError, NetworkInterface, NodeId, Path};
+use crate::domain::{
+    ContactState, EmptyPathError, NetworkInterface, NodeId, Path, RoutingTable, StateSeqNr,
+};
 use crate::forwarding::hasher::Hasher;
 use crate::forwarding::{ForwardingTables, PathIdEntry, PathIdForwardingEntry, PathIdTable};
 use crate::messaging::ProtocolMessage;
@@ -49,7 +51,7 @@ impl Default for PrecomputePathIdsConfig {
 ///
 /// Based on its [PrecomputePathIdsConfig] the precomputation happens on every change or in a
 /// periodic interval.
-pub struct PrecomputePathIds<C> {
+pub struct PrecomputePathIds<C, const BUCKET_SIZE: usize> {
     _pd: PhantomData<C>,
     state: PrecomputeState,
     config: PrecomputePathIdsConfig,
@@ -58,7 +60,7 @@ pub struct PrecomputePathIds<C> {
     vicinity_changed: bool,
 }
 
-impl<C> PrecomputePathIds<C> {
+impl<C, const BUCKET_SIZE: usize> PrecomputePathIds<C, BUCKET_SIZE> {
     pub fn new(root_id: NodeId, config: PrecomputePathIdsConfig) -> Self {
         Self {
             _pd: PhantomData::default(),
@@ -71,7 +73,7 @@ impl<C> PrecomputePathIds<C> {
     }
 }
 
-impl<C> PrecomputePathIds<C>
+impl<C, const BUCKET_SIZE: usize> PrecomputePathIds<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::ForwardingTables: PathIdTable,
@@ -128,7 +130,7 @@ where
                 PathIdEntry::Decapsulate(entry) => entry.in_path_id,
             };
             if let Err(e) = fwd_tables.remove(&old_in_path_id) {
-                log::error!(target: "precompute_paths_and_pathids", "Failed to remove entry for PathID {}: {}", old_in_path_id, e);
+                log::error!(target: "precompute_paths_and_path_ids", "Failed to remove entry for PathID {}: {}", old_in_path_id, e);
             }
         }
         for new_entry in new_entries {
@@ -136,7 +138,7 @@ where
                 .create_or_update(new_entry.clone())
                 .or_else(|_| fwd_tables.create(new_entry.clone()));
             if let Err(e) = insertion_result {
-                log::error!(target: "precompute_paths_and_pathids", "Failed to create entry {}: {}", new_entry, e);
+                log::error!(target: "precompute_paths_and_path_ids", "Failed to create entry {}: {}", new_entry, e);
             }
         }
 
@@ -145,12 +147,13 @@ where
     }
 }
 
-impl<C> EventHandler for PrecomputePathIds<C>
+impl<C, const BUCKET_SIZE: usize> EventHandler for PrecomputePathIds<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::ForwardingTables: PathIdTable,
     <<C as UseCaseContext>::ForwardingTables as PathIdTable>::Error: Display,
     C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     type Context = C;
     type Error = ();
@@ -171,6 +174,60 @@ where
                 }
 
                 let source = rtable_data.source().clone();
+                let source_ssn = rtable_data.source_state_seq_nr;
+
+                if self.vicinity_graph.contains(&source) {
+                    // check if we received more recent data by sent ssn
+                    // first check by expected ssn
+                    let sync_requested = if let Some(resync_queue) = self.state.resync_queue_mut() {
+                        if let std::collections::hash_map::Entry::Occupied(entry) =
+                            resync_queue.entry(source.clone())
+                        {
+                            let expected_ssn = entry.get();
+                            // nothing new about the neighbor
+                            if &source_ssn < expected_ssn {
+                                log::trace!(target: "precompute_paths_and_path_ids", "Ignoring physical neighbor update of {} as we expected newer data: {:?}", source, rtable_data);
+                                return Ok(());
+                            }
+
+                            // delete entry since we resynchronised successfully
+                            entry.remove();
+
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    // if no expected ssn, check the routing table
+                    // this usually results in denial
+                    if !sync_requested {
+                        // look at the routing table to determine if more recent data
+                        if let Some(rt_contact) = context.routing_table().contact(&source) {
+                            // nothing new about the neighbor
+                            if &source_ssn <= rt_contact.state_seq_nr() {
+                                log::trace!(target: "precompute_paths_and_path_ids", "Ignoring physical neighbor update of {} without any new data: {:?}", source, rtable_data);
+                                return Ok(());
+                            }
+                        }
+                    }
+                } else {
+                    // look at the routing table to determine if more recent data
+                    if let Some(rt_contact) = context.routing_table().contact(&source) {
+                        // `<` ok, since we add the node only once for the first time
+                        if &source_ssn < rt_contact.state_seq_nr() {
+                            log::trace!(target: "precompute_paths_and_path_ids", "Not adding new node {} to vicinity graph, because its physical neighbor data is outdated: {:?}", source, rtable_data);
+                            // not adding node itself to allow checking this bootstrapping condition again
+                            return Ok(());
+                        }
+                    }
+                    // TODO if we don't have a contact this should probably error out
+                    log::trace!(target: "precompute_paths_and_path_ids", "Adding new node to vicinity graph: {} ", source);
+                }
+
+                // update physical neighbors of source
                 let physical_neighbors_of_source = rtable_data
                     .data
                     .contacts
@@ -182,7 +239,7 @@ where
                     .vicinity_graph
                     .insert(source.clone(), physical_neighbors_of_source.clone());
                 if previous.is_none() || previous.as_ref() != Some(&physical_neighbors_of_source) {
-                    log::trace!(target: "precompute_paths_and_pathids", "Updated physical neighbors of {} to {:?}", source, physical_neighbors_of_source);
+                    log::trace!(target: "precompute_paths_and_path_ids", "Updated physical neighbors of {} to {:?}", source, physical_neighbors_of_source);
 
                     self.vicinity_changed = true;
 
@@ -243,7 +300,10 @@ where
                 }
             }
             UseCaseEvent::Timer(timer_id) => {
-                if let PrecomputeState::Waiting(own_id) = self.state {
+                if let PrecomputeState::Waiting {
+                    timer_id: own_id, ..
+                } = self.state
+                {
                     if timer_id == own_id {
                         self.precompute_paths_and_ids(context);
                     }
@@ -254,6 +314,23 @@ where
                     .send(format!("{:#?}", self.vicinity_graph))
                     .map_err(|_| ())?;
             }
+            UseCaseEvent::ResyncNode(node_id, expected_ssn) => {
+                // TODO deduplicate state "shared" with Vicinity Discovery
+                if let Some(resync_queue) = self.state.resync_queue_mut() {
+                    // only update expected_ssn, if greater
+                    if let Some(previous_expected_ssn) = resync_queue.get_mut(&node_id) {
+                        if *previous_expected_ssn < expected_ssn {
+                            log::trace!(target: "precompute_paths_and_path_ids", "Update expected state sequence number of node {}: {}", node_id, expected_ssn);
+                            *previous_expected_ssn = expected_ssn;
+                        }
+                    } else {
+                        log::trace!(target: "precompute_paths_and_path_ids", "Add node to resynchronisation queue: {}", node_id);
+                        resync_queue.insert(node_id, expected_ssn);
+                    }
+                } else {
+                    log::warn!(target: "precompute_paths_and_path_ids", "Not responding to ResyncNode event in this state: {:?}", self.state);
+                }
+            }
             _ => {}
         }
 
@@ -261,20 +338,24 @@ where
     }
 }
 
-impl<C> UseCase for PrecomputePathIds<C>
+impl<C, const BUCKET_SIZE: usize> UseCase for PrecomputePathIds<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::ForwardingTables: ForwardingTables,
     C::Runtime: UseCaseRuntime,
     <<C as UseCaseContext>::ForwardingTables as PathIdTable>::Error: Display,
     C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, NetworkInterface>>,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     type State = PrecomputeState;
 
     fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error> {
         if let Some(duration) = self.config.update_interval {
             let timer_id = context.runtime().register_periodic_timer(duration);
-            self.state = PrecomputeState::Waiting(timer_id);
+            self.state = PrecomputeState::Waiting {
+                timer_id,
+                resync_queue: HashMap::default(),
+            };
         }
 
         Ok(())
@@ -285,12 +366,42 @@ where
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, Default)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum PrecomputeState {
-    #[default]
-    Idle,
-    Waiting(TimerId),
+    Idle {
+        resync_queue: HashMap<NodeId, StateSeqNr>,
+    },
+    Waiting {
+        timer_id: TimerId,
+        resync_queue: HashMap<NodeId, StateSeqNr>,
+    },
     Error,
+}
+
+impl PrecomputeState {
+    fn resync_queue(&self) -> Option<&HashMap<NodeId, StateSeqNr>> {
+        match self {
+            Self::Idle { resync_queue, .. } => Some(resync_queue),
+            Self::Waiting { resync_queue, .. } => Some(resync_queue),
+            _ => None,
+        }
+    }
+
+    fn resync_queue_mut(&mut self) -> Option<&mut HashMap<NodeId, StateSeqNr>> {
+        match self {
+            Self::Idle { resync_queue, .. } => Some(resync_queue),
+            Self::Waiting { resync_queue, .. } => Some(resync_queue),
+            _ => None,
+        }
+    }
+}
+
+impl Default for PrecomputeState {
+    fn default() -> Self {
+        Self::Idle {
+            resync_queue: HashMap::default(),
+        }
+    }
 }
 
 impl UseCaseState for PrecomputeState {

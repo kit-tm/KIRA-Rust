@@ -5,7 +5,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 use tokio::sync::mpsc; // use tokio::sync::oneshot;
 
-use crate::domain::{Contact, NetworkInterface, NodeId};
+use crate::domain::{Contact, NetworkInterface, NodeId, StateSeqNr};
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr};
 use crate::messaging::messages::ProtocolMessage;
@@ -40,6 +40,7 @@ pub enum UseCaseEvent {
     Message(ProtocolMessage, NetworkInterface),
     Timer(TimerId),
     Contact(ContactEvent),
+    ResyncNode(NodeId, StateSeqNr),
     InjectMessage(Option<Nonce>, InjectionMessageData),
     Hardware(HardwareEvent),
     API(ApiEvent),

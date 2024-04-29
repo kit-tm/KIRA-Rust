@@ -8,9 +8,8 @@ pub use immediate_runtime::*;
 pub use sync_runtime::*;
 #[cfg(feature = "tokio")]
 pub use tokio_runtime::*;
-use crate::messaging::ProtocolMessage;
 
-use crate::use_cases::TimerId;
+use crate::use_cases::{TimerId, UseCaseEvent};
 
 #[cfg(test)]
 pub mod immediate_runtime;
@@ -34,6 +33,6 @@ pub trait UseCaseRuntime {
     /// It's an error for runtimes to return duplicate [TimerId]s.
     fn register_periodic_timer(&self, duration: Duration) -> TimerId;
 
-    /// Send a protocol message to local Node (loopback)
-    fn send_message(&self, message: ProtocolMessage) -> Result<(), Self::SendError>;
+    /// Broadcast a [UseCaseEvent] to all UseCases on the event-bus
+    fn broadcast_local_event(&self, event: UseCaseEvent) -> Result<(), Self::SendError>;
 }

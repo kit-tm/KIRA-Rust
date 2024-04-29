@@ -9,8 +9,9 @@ use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     ErrorData, ProtocolMessage, ProtocolMessageSender, RTableData, ReqRspMessage, RouteUpdate,
 };
+use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{
-    EventHandler, HandlingResult, MessageSentFailed, ReactiveUseCaseState, UseCase, UseCaseEvent,
+    ContactEvent, EventHandler, HandlingResult, MessageSentFailed, ReactiveUseCaseState, UseCase, UseCaseEvent
 };
 
 /// Extracts different kinds of information out of incoming [ProtocolMessage]s before
@@ -48,6 +49,7 @@ where
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
     C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>,
     C::MessageSender: ProtocolMessageSender,
+    C::Runtime: UseCaseRuntime,
 {
     fn extract_path_to_source(&self, message: &ProtocolMessage) -> Path {
         let route = message.source_route()
@@ -114,6 +116,21 @@ where
         }) {
             log::trace!(target: "forward_protocol_message", "Skipping contact as contains invalid not-via data {}; {}", not_via, contact);
             return;
+        }
+
+        // Inform other UseCases about newer SSN
+        // TODO make more efficient by using the insertion strategy to return existing contact
+        if let Some(contact_in_rt) = context.routing_table_mut().contact(contact.id()) {
+            if contact_in_rt.state_seq_nr() < contact.state_seq_nr() {
+                let expected_ssn = contact.state_seq_nr().clone();
+                let event = UseCaseEvent::ResyncNode(
+                    contact.id().clone(),
+                    expected_ssn,
+                );
+
+                log::trace!(target: "forward_protocol_message", "Inform other UseCases about updated SSN of {}: {:?}", contact.id(), event);
+                let _ = context.runtime().broadcast_local_event(event);
+            }
         }
 
         log::trace!(target: "forward_protocol_message", "Attempting to insert {}", contact);
@@ -465,6 +482,7 @@ where
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
     C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>,
     C::MessageSender: ProtocolMessageSender,
+    C::Runtime: UseCaseRuntime,
 {
     type State = ReactiveUseCaseState;
 
@@ -484,6 +502,7 @@ where
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
     C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>,
     C::MessageSender: ProtocolMessageSender,
+    C::Runtime: UseCaseRuntime,
 {
     type Context = C;
     type Error = MessageSentFailed;

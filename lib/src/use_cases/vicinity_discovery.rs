@@ -45,6 +45,14 @@ pub struct VicinityDiscoveryConfig {
     pub heuristic_calculation_bits: NonZeroUsize,
     /// Turns of the heuristic and nodes in vicinity will always respond to PNHello messages.
     pub heuristic_enabled: bool,
+    /// Timeout duration to use for processing the queue of nodes that need to be resynchronised.
+    pub resync_timeout: Duration,
+    /// Maximum number of nodes that are queried that need to be resynchronized during one
+    /// resynchronisation phase.
+    pub resynch_count: usize,
+    /// Maximum number of resynchronisation attempts after which the node is deleteted from the
+    /// resynchronisation queue. 
+    pub max_resync_tries: usize,
 }
 
 impl Default for VicinityDiscoveryConfig {
@@ -55,6 +63,9 @@ impl Default for VicinityDiscoveryConfig {
             max_scatter: Duration::from_millis(225),
             heuristic_calculation_bits: NonZeroUsize::new(32).unwrap(),
             heuristic_enabled: true,
+            resync_timeout: Duration::from_millis(100),
+            resynch_count: 5,
+            max_resync_tries: 5,
         }
     }
 }
@@ -86,7 +97,13 @@ impl Error for VDError {}
 pub enum VDState {
     #[default]
     Initialized,
-    Running(Duration, TimerId, StateSeqNr),
+    Running{
+        last_timeout: Duration,
+        hello_timer_id: TimerId,
+        last_ssn: StateSeqNr,
+        resync_timer_id: TimerId,
+        resync_queue: HashMap<NodeId, (StateSeqNr, usize)>
+    },
     Error,
 }
 
@@ -151,30 +168,26 @@ impl<C, const BUCKET_SIZE: usize> VicinityDiscovery<C, BUCKET_SIZE> {
             config,
         }
     }
+}
 
-    /// Calculates the duration to wait before sending the next `PNHello`.
-    ///
-    /// Exponentially increases the last duration until the configured [PeriodicPNAdvertisingConfig::probing_timeout]
-    /// is reached and then that duration will be used.
-    ///
-    /// Also introduces a randomized scatter to the duration given through
-    /// [PeriodicPNAdvertisingConfig::max_scatter].
-    fn next_timeout_duration(&self, last_duration: Duration) -> Duration {
-        let next_timeout_increased = 2 * last_duration;
-        let new_duration = if next_timeout_increased < self.config.max_timeout {
-            next_timeout_increased
-        } else {
-            self.config.max_timeout
-        };
+impl<C, const BUCKET_SIZE: usize> VicinityDiscovery<C, BUCKET_SIZE>
+where
+    C: UseCaseContext,
+    C::Runtime: UseCaseRuntime,
+{
+    fn set_next_resync_timeout(&mut self, context: &C) {
+        // only update if we are running already
+        if let VDState::Running { resync_timer_id, .. } = &mut self.state {
+            let mut thread_rng = rand::thread_rng();
 
-        // Randomize in a given scatter interval
-        let mut thread_rng = rand::thread_rng();
-        let random_scatter = if self.config.max_scatter.is_zero() {
-            Duration::ZERO
-        } else {
-            thread_rng.gen_range(Duration::from_millis(0)..self.config.max_scatter)
-        };
-        new_duration - self.config.max_scatter / 2 + random_scatter
+            let min_timeout = self.config.resync_timeout.mul_f32(0.5);
+            let max_timout = self.config.resync_timeout.mul_f32(1.5);
+
+            let random_timeout = thread_rng.gen_range(min_timeout..=max_timout);
+            *resync_timer_id = context
+                .runtime()
+                .register_timer(random_timeout);
+        }
     }
 }
 
@@ -186,6 +199,10 @@ where
     C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>,
 {
     fn send_query_route_req(&mut self, context: &C, contact: Contact) -> Result<(), VDError> {
+        Self::restricted_send_query_route_req(context, contact)
+    }
+
+    fn restricted_send_query_route_req(context: &C, contact: Contact) -> Result<(), VDError> {
         // Physical Neighbors and Nodes outside of the Vicinity are not included
         if contact.is_pn() || contact.path().size() > VICINITY_RADIUS {
             log::trace!(target: "vicinity_discovery", "Ignoring contact update: physical neighbor or not in vicinity radius");
@@ -210,7 +227,6 @@ where
                 "Temporary inconsistency: Valid contacts path starts with invalid physical neighbor {}",
                 contact.path().first()
             );
-            self.state = VDState::Error;
             return Err(VDError::NeighborInconsistency);
         }
 
@@ -302,6 +318,9 @@ where
     }
 
     fn send_pn_disc_req(&self, context: &C, source: NodeId) -> Result<(), VDError> {
+        Self::restricted_send_pn_disc_req(context, source)
+    }
+    fn restricted_send_pn_disc_req(context: &C, source: NodeId) -> Result<(), VDError> {
         // Answer with a PNDiscReq to ensure bidirectional connectivity
         let pn_contacts = context
             .pn_table()
@@ -382,11 +401,25 @@ where
     type State = VDState;
 
     fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error> {
-        let timer_id = context
+        let hello_timer_id = context
             .runtime()
             .register_timer(self.config.initial_timeout);
 
-        self.state = VDState::Running(self.config.initial_timeout, timer_id, context.pn_table().state_seq_nr().clone());
+        let mut thread_rng = rand::thread_rng();
+        let min_timeout = self.config.resync_timeout.mul_f32(0.5);
+        let max_timout = self.config.resync_timeout.mul_f32(1.5);
+        let random_timeout = thread_rng.gen_range(min_timeout..=max_timout);
+        let resync_timer_id = context
+            .runtime()
+            .register_timer(random_timeout);
+
+        self.state = VDState::Running{
+            last_timeout: self.config.initial_timeout,
+            hello_timer_id, 
+            last_ssn: context.pn_table().state_seq_nr().clone(),
+            resync_queue: HashMap::default(),
+            resync_timer_id,
+        };
 
         Ok(())
     }
@@ -413,14 +446,18 @@ where
         context: &Self::Context,
         event: UseCaseEvent,
     ) -> Result<(), Self::Error> {
-        match (event, &self.state) {
+        match (event.clone(), &mut self.state) {
             // ========== Vicinity Discovery - Query Route ==========
-            (UseCaseEvent::Contact(ContactEvent::New(contact)), _) => {
+            (UseCaseEvent::Contact(ContactEvent::New(contact)), VDState::Running { resync_queue, .. }) => {
+                //if contact.path().size() <= VICINITY_RADIUS {
+                //    resync_queue.insert(contact.id().clone(), (contact.state_seq_nr().clone(), 0));
+                //}
+
                 self.send_query_route_req(context, contact)?;
             }
             (UseCaseEvent::Contact(ContactEvent::Updated { new, old }), _) => {
                 // Only if path changed. Path length checks and everything else is done in discover
-                if new.path() != old.path() {
+                if new.state_seq_nr() > old.state_seq_nr() || new.path() != old.path() {
                     self.send_query_route_req(context, new)?;
                 }
             }
@@ -432,20 +469,36 @@ where
                 self.send_query_route_rsp(context, request)?;
             }
             // ========== Physical Neighbor Discovery ==========
-            (UseCaseEvent::Timer(id), VDState::Running(last_timeout, timer_id, last_ssn)) => {
-                if timer_id == &id {
-                    self.send_hello(context)?;
+            (UseCaseEvent::Timer(id), VDState::Running{last_timeout, hello_timer_id, last_ssn, ..}) if &id == hello_timer_id => {
+                let current_ssn = context.pn_table().state_seq_nr().clone();
 
-                    // reset to initial timeout if ssn changed
-                    let next_timeout = if last_ssn != context.pn_table().state_seq_nr() {
-                        self.config.initial_timeout
+                // reset to initial timeout if ssn changed
+                let next_timeout = if *last_ssn != current_ssn {
+                    self.config.initial_timeout
+                } else {
+                    let next_timeout_increased = 2 * last_timeout.clone();
+                    let new_duration = if next_timeout_increased < self.config.max_timeout {
+                        next_timeout_increased
                     } else {
-                        self.next_timeout_duration(*last_timeout)
+                        self.config.max_timeout
                     };
-                    let timer_id = context.runtime().register_timer(next_timeout);
-                    let ssn = context.pn_table().state_seq_nr().clone();
-                    self.state = VDState::Running(next_timeout, timer_id, ssn);
-                }
+
+                    // Randomize in a given scatter interval
+                    let mut thread_rng = rand::thread_rng();
+                    let random_scatter = if self.config.max_scatter.is_zero() {
+                        Duration::ZERO
+                    } else {
+                        thread_rng.gen_range(Duration::from_millis(0)..self.config.max_scatter)
+                    };
+                    new_duration - self.config.max_scatter / 2 + random_scatter
+                };
+                let next_hello_timer_id = context.runtime().register_timer(next_timeout);
+
+                *last_timeout = next_timeout;
+                *hello_timer_id = next_hello_timer_id;
+                *last_ssn = current_ssn;
+
+                self.send_hello(context)?;
             }
             (UseCaseEvent::Message(ProtocolMessage::Hello(HelloMessage { source, source_state_seq_nr }), _), _) => {
                 if self.config.heuristic_enabled
@@ -460,16 +513,27 @@ where
                 }
 
                 // we already know the neighbor
+                // only resynchronise if we see a newer ssn in the hello message
                 if context.pn_table().contains(&source) {
-                    let rt = context.routing_table();
-                    let Some(contact) = rt.contact(&source) else {
-                        return Err(VDError::NeighborInconsistency);
-                    };
+                    if let VDState::Running { resync_queue, .. } = &self.state {
+                        if let Some((expected_ssn, _)) = resync_queue.get(&source) {
+                            // nothing new about the neighbor
+                            if &source_state_seq_nr < expected_ssn {
+                                log::trace!(target: "vicinity_discovery", "Not responding to Hello from unchanged physical neighbor {} as we received an unexpected state sequence number", source);
+                                return Ok(());
+                            }
+                        }
+                    } else {
+                        // check rt contact for expected ssn
+                        let rt = context.routing_table();
+                        let Some(contact) = rt.contact(&source) else {
+                            return Err(VDError::NeighborInconsistency);
+                        };
 
-                    // nothing new about the neighbor
-                    if &source_state_seq_nr <= contact.state_seq_nr() {
-                        log::trace!(target: "vicinity_discovery", "Not responding to Hello from unchanged physical neighbor {}", source);
-                        return Ok(());
+                        if &source_state_seq_nr <= contact.state_seq_nr() {
+                            log::trace!(target: "vicinity_discovery", "Not responding to Hello from unchanged physical neighbor {}", source);
+                            return Ok(());
+                        }
                     }
                 }
 
@@ -488,9 +552,72 @@ where
                 self.send_hello(context)?;
             }
             // reacting on InterfaceDown is done in the FailureHandling use-case
+            // ========== Resynchronisation management ==========
+            (UseCaseEvent::ResyncNode(node_id, expected_ssn), VDState::Running{resync_queue, ..}) => {
+                // only update expected_ssn, if greater
+                if let Some((previous_expected_ssn, _)) = resync_queue.get_mut(&node_id) {
+                    if *previous_expected_ssn < expected_ssn {
+                        log::trace!(target: "vicinity_discovery", "Update expected state sequence number of node {}: {}", node_id, expected_ssn);
+                       *previous_expected_ssn = expected_ssn;
+                    }
+                } else {
+                    log::trace!(target: "vicinity_discovery", "Add node to resynchronisation queue: {}", node_id);
+                    resync_queue.insert(node_id, (expected_ssn, 0));
+                }
+            }
+            (UseCaseEvent::Timer(timer_id), VDState::Running {resync_timer_id, resync_queue, ..}) if &timer_id == resync_timer_id => {
+                let mut max_retries_reached = Vec::with_capacity(std::cmp::max(self.config.resynch_count, 10));
+
+               // TODO refresh nodes in the lowest bucket first 
+               for (nid, (_, current_tries)) in resync_queue.iter_mut().take(self.config.resynch_count) {
+                   if context.pn_table().contains(nid) {
+                       Self::restricted_send_pn_disc_req(&context, nid.clone())?;
+                   } else {
+                       if let Some(contact) = context.routing_table().contact(&nid) {
+                            Self::restricted_send_query_route_req(&context, contact.clone())?;
+                       }
+                   }
+
+                   *current_tries += 1;
+                   if *current_tries >= self.config.max_resync_tries {
+                       max_retries_reached.push(nid.clone());
+                   }
+               }
+
+               // FIXME this needs to be synced somehow to precompute_paths_and_path_ids
+               for nid_max_retries_reached in max_retries_reached {
+                   resync_queue.remove(&nid_max_retries_reached);
+               }
+
+                self.set_next_resync_timeout(&context);
+            }
+
             _ => {}
         }
 
+        // stopping resynchronisation process on receiving expected ssn
+        match (event, &mut self.state) {
+            (UseCaseEvent::Message(ProtocolMessage::PNDiscReq(payload), _), VDState::Running{resync_queue, ..})
+                | (UseCaseEvent::Message(ProtocolMessage::PNDiscRsp(payload), _) , VDState::Running{resync_queue, ..})
+                | (UseCaseEvent::Message(ProtocolMessage::QueryRouteRsp(payload), _), VDState::Running{resync_queue, ..}) => {
+                    let source_ssn = &payload.source_state_seq_nr;
+                    let source_id = payload.source().clone();
+                    
+                    // TODO figure out if this actually works with a cloned source_id
+                    if let std::collections::hash_map::Entry::Occupied(entry) = resync_queue.entry(source_id.clone()) {
+                        let (expected_ssn, _) = entry.get();
+                        if source_ssn >= &expected_ssn {
+                            entry.remove();
+                            log::debug!(target: "vicinity_discovery", "No longer trying to resynchronise with node {}", source_id);
+                        } else {
+                            log::trace!(target: "vicinity_discovery", "Not received expected state sequence number ({}) of node {}: {}", expected_ssn, source_id, source_ssn);
+                        }
+                    } else {
+                        log::trace!(target: "vicinity_discovery", "Not expecting any state sequence number from {}", source_id);
+                    }
+            }
+            _ => {}
+        }
         Ok(())
     }
 }

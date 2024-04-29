@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use crate::context::UseCaseContext;
-use crate::domain::{NodeId, PNTable};
+use crate::domain::{NetworkInterface, NodeId, PNTable};
 use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchRspData, StoreResult, StoreRspData};
 
 use crate::domain::dht::TimedValue;
@@ -212,7 +212,7 @@ impl<C, H, RS, D: Debug> EventHandler for DistributedHashTable<C, H>
 
                 let message = ProtocolMessage::StoreRsp(rsp);
                 if message.destination().unwrap() == context.root_id() {
-                    return context.runtime().send_message(message).map_err(|e| {
+                    return context.runtime().broadcast_local_event(UseCaseEvent::Message(message, NetworkInterface::loopback())).map_err(|e| {
                         log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
                         DHTError::DHTSendError
                     });
@@ -240,7 +240,7 @@ impl<C, H, RS, D: Debug> EventHandler for DistributedHashTable<C, H>
 
                 let message = ProtocolMessage::FetchRsp(rsp);
                 if message.destination().unwrap() == context.root_id() {
-                    return context.runtime().send_message(message).map_err(|e| {
+                    return context.runtime().broadcast_local_event(UseCaseEvent::Message(message, NetworkInterface::loopback())).map_err(|e| {
                         log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
                         DHTError::DHTSendError
                     });

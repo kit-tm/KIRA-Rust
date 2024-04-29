@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use std::time::Instant;
 
 use crate::context::UseCaseContext;
-use crate::domain::{GroupingError, node_id, NodeId, Path, RoutingTable, PNTable};
+use crate::domain::{node_id, GroupingError, NetworkInterface, NodeId, PNTable, Path, RoutingTable};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{EventHandler, FetchInjectData, InjectionMessageData, OneshotInjectMessageCallback, StoreInjectData, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
@@ -164,7 +164,7 @@ impl<C, D: Debug, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCK
 
         let message = ProtocolMessage::StoreReq(message);
         if message.destination().unwrap() == context.root_id() {
-            return context.runtime().send_message(message).map_err(|e| {
+            return context.runtime().broadcast_local_event(UseCaseEvent::Message(message, NetworkInterface::loopback())).map_err(|e| {
                 log::error!(target: "distributed_hash_table_injector", "Failed to send triggered message: {:?}", e);
                 InjectMessageError::SendFailed
             });
@@ -187,7 +187,7 @@ impl<C, D: Debug, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCK
         let message = ProtocolMessage::FetchReq(message);
         // todo remove duplicated code
         if message.destination().unwrap() == context.root_id() {
-            return context.runtime().send_message(message).map_err(|e| {
+            return context.runtime().broadcast_local_event(UseCaseEvent::Message(message, NetworkInterface::loopback())).map_err(|e| {
                 log::error!(target: "distributed_hash_table_injector", "Failed to send triggered message: {:?}", e);
                 InjectMessageError::SendFailed
             });

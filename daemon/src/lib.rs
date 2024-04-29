@@ -326,7 +326,7 @@ where
                 log::error!("Failed to broadcast ContactEvent: {}", e);
             }
         });
-        routing_table.add_observer(|event| log::trace!("{}", event));
+        routing_table.add_observer(|event| log::trace!(target: "routing_table", "{}", event));
 
         // Initialize A Task for every receiver
         let rt = runtime.clone();

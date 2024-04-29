@@ -145,6 +145,11 @@ where
                 InsertionStrategyResult::Updated
             };
 
+        // WARNING this will update the SSN even if the InsertionStrategyResult is Dropped
+        // be sure to notify other UseCases with UseCaseEvent::Resync
+        // TODO figure out if skipping the update of the SSN causes trouble
+        // this would keep the routing-table in a more sensible state
+        // this would maybe cause delayed UpdateRouteReq,
         contact.set_last_seen_now();
         *existing = contact;
 

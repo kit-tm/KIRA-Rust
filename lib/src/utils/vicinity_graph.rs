@@ -93,6 +93,13 @@ impl VicinityGraph {
         false
     }
 
+    /// Checks if and entry for the given [NodeId] exists.
+    ///
+    /// Returns if an entry was found with the given [NodeId].
+    pub fn contains(&self, node: &NodeId) -> bool {
+        self.neighbors.contains_key(node)
+    }
+
     /// Calculates all paths (not only shortest) from one node to the other.
     ///
     /// Implements the breadth-first search algorithm.

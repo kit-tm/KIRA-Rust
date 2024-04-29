@@ -110,9 +110,8 @@ impl<B: 'static + Broadcaster + Send + Sync> UseCaseRuntime for TokioRuntime<B> 
         timer_id
     }
 
-    fn send_message(&self, message: ProtocolMessage) -> Result<(), Self::SendError>{
+    fn broadcast_local_event(&self, event: UseCaseEvent) -> Result<(), Self::SendError> {
         let use_case_broadcaster = self.broadcaster.clone();
-        let event = UseCaseEvent::Message(message, NetworkInterface::loopback());
 
         if let Err(e) = use_case_broadcaster.send_event(event) {
             log::error!("Failed to send Event to use cases: {:?}", e);
