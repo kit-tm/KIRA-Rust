@@ -44,6 +44,9 @@ if __name__ == '__main__':
     parser.add_argument('--docker', required=False, dest="backend",
                         action='store_const', const="docker",
                         help="Use Docker as backend")
+    parser.add_argument('--yes', required=False, dest="yes",
+                        action='store_true',
+                        help="Answer all questions with yes")
     args = parser.parse_args()
 
     edgefile = args.edges
@@ -81,11 +84,12 @@ if __name__ == '__main__':
             network.connect()
             logger.info("All edges are connected.")
         elif operation == "prune":
-            answer = input(
-                "Pruning might delete other containers not managed by this script. Do you really want to continue? y/N:  ")
-            if not answer.strip().lower() == "y":
-                logger.info("Stopped pruning.")
-                sys.exit()
+            if not args.yes:
+                answer = input(
+                    "Pruning might delete other containers not managed by this script. Do you really want to continue? y/N:  ")
+                if not answer.strip().lower() == "y":
+                    logger.info("Stopped pruning.")
+                    sys.exit()
             network.prune()
             logger.info("Pruning done.")
         elif operation == "store":
