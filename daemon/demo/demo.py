@@ -18,7 +18,7 @@ if __name__ == '__main__':
         "create", "connect", "start", "stop", "prune",
         "store", "fetch",
         "logs", "node-id", "pn-table", "routing-table", "vicinity-graph",
-        "test_connectivity"
+        "test-connectivity"
     ]
 
     parser = argparse.ArgumentParser(description='r2kad topology generator')
@@ -101,8 +101,14 @@ if __name__ == '__main__':
             print(res.hex())
             grouped = res.hex(':', 2)
             print(grouped)
-        elif operation == "test_connectivity":
-            network.test_connectivity()
+        elif operation == "test-connectivity":
+            node = args.node
+            if node is None:
+                all_connected = network.test_connectivity()
+            else:
+                all_connected = network.test_connectivity(origin=node)
+            if not all_connected:
+                sys.exit(4)
         elif operation == "logs":
             result = network.get_node(args.node).logs()
         elif operation == "pn-table":

@@ -80,8 +80,14 @@ class R2KadNetwork:
             id = f"{self._nw_prefix}{u}-{v}"
             nw = nu.connect_with(nv, id, nw=nw)
 
-    def test_connectivity(self):
-        for o in self.graph:
+    def test_connectivity(self, origin: int = None):
+        all_connected = True
+        if origin is None:
+            origins = self.graph
+        else:
+            origins = [origin]
+
+        for o in origins:
             origin = self.get_node(o)
             for d in self.graph:
                 destination = self.get_node(d)
@@ -89,7 +95,10 @@ class R2KadNetwork:
                 if connectivity:
                     print(f"{o}->{d} ✓", flush=True, end='\r')
                 else:
+                    all_connected = False
                     if o == d:
                         print(f"{o}->{d} (✗)", flush=True)
                     else:
                         print(f"{o}->{d} ✗", flush=True)
+
+        return all_connected
