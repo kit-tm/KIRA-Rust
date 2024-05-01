@@ -93,7 +93,7 @@ class R2KadNetwork:
                 destination = self.get_node(d)
                 connectivity = origin.ping(destination)
                 if connectivity:
-                    print(f"{o}->{d} ✓", flush=True, end='\r')
+                    print(f"{o}->{d} ✓     ", flush=True, end='\r')
                 else:
                     all_connected = False
                     if o == d:

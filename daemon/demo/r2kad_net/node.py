@@ -52,15 +52,24 @@ class R2KadNode(object):
 
         out = self.api_call("node-id")
         if out is None:
-            return None
+            # somehow the API call didn't work
+            logger.warn(f"Unable to call node-id from {self._name}")
 
         match = re.search(r'\{"node-id"*:*"(.+)"\}', out)
         if match is None:
-            logger.warn("Unable to retrieve node-id from output: {out}")
-            return None
+            logger.warn(f"Unable to retrieve node-id from {self._name}")
 
-        out = match.group(1)
-        return bytes.fromhex(out)
+        # try to retrieve nid from logs
+        if match is None:
+            logs = self.logs()
+            match = re.search(r'Using id (.+)', logs)
+            if match is None:
+                logger.error(
+                    f"Unable to retrieve node-id from {self._name} using the existing logs")
+                return None
+
+        nid = match.group(1)
+        return bytes.fromhex(nid)
 
     def create(self, img: str, nid: bytes = None, force: bool = False):
         if self._container is not None:
