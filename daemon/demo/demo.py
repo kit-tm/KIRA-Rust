@@ -3,9 +3,6 @@ from r2kad_net import R2KadNetwork, R2KadContainernetNetwork
 import docker
 import networkx as nx
 
-from mininet.net import Containernet
-from mininet.node import Controller
-
 import sys
 import argparse
 
@@ -18,6 +15,7 @@ if __name__ == '__main__':
         "create", "connect", "start", "stop", "prune",
         "store", "fetch",
         "logs", "node-id", "pn-table", "routing-table", "vicinity-graph",
+        "draw",
         "test-connectivity"
     ]
 
@@ -59,6 +57,9 @@ if __name__ == '__main__':
     result = None
     try:
         if args.backend == "containernet":
+            from mininet.net import Containernet
+            from mininet.node import Controller
+
             net = Containernet(controller=Controller)
             network = R2KadContainernetNetwork(graph, net, seed=args.seed)
         else:
@@ -117,7 +118,12 @@ if __name__ == '__main__':
             result = network.get_node(args.node).routing_table()
         elif operation == "vicinity-graph":
             result = network.get_node(args.node).vicinity_graph()
+        elif operation == "draw":
+            import matplotlib.pyplot as plt
 
+            pos = nx.kamada_kawai_layout(graph)
+            nx.draw_networkx(graph, pos)
+            plt.savefig(sys.stdout.buffer, transparent=True, dpi=200)
         else:
             logger.warn(f"Unknown operation: {operation}")
             sys.exit(2)
