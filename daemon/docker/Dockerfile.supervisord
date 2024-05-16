@@ -24,6 +24,9 @@ RUN strip -s /r2kad-daemon/target/x86_64-unknown-linux-musl/release/r2kad-daemon
 
 FROM ubuntu:latest
 
+COPY --from=builder /etc/passwd /etc/passwd
+COPY --from=builder /etc/group /etc/group
+
 RUN apt update && \
     apt upgrade -y && \
     apt install -y curl net-tools iproute2 nftables iputils-ping nano tcpdump bash strace iperf
@@ -32,9 +35,6 @@ RUN apt update && \
 RUN apt install -y supervisor
 RUN mkdir -p /var/log/supervisor
 COPY daemon/docker/supervisord.conf /etc/supervisord.conf
-
-COPY --from=builder /etc/passwd /etc/passwd
-COPY --from=builder /etc/group /etc/group
 
 WORKDIR /r2kad-daemon
 

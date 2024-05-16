@@ -63,7 +63,8 @@ impl PNetInterfaceMonitor {
                 i.is_up()
                     && !i.is_loopback()
                     && i.ips.iter().find(is_link_local).is_some()
-                    && !i.name.contains("kira")
+                    && !i.name.starts_with("kira")
+                    && !i.name.starts_with("tunnel")
             })
             // filter out interfaces we want to ignore
             .filter(|i| !self.excluded_interfaces.contains(&i.index));

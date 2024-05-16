@@ -50,7 +50,6 @@ class R2KadContainernetNode(R2KadNode):
 
 class R2KadContainernetNetwork(R2KadNetwork):
     _node_prefix = "mn.r2kad-n"  # used to find existing containers
-    _node_prefix = "mn.n"  # used to find existing containers
     # TODO get network name
     _nw_prefix = "TODO"
 
