@@ -132,12 +132,12 @@ class R2KadNode(object):
 
         return nw
 
-    def store(self, reference: str, data: str) -> str:
-        path = f"dht/store?reference={reference}"
+    def store(self, key: str, data: str) -> str:
+        path = f"dht/store?key={key}"
         return self.api_call(path, data)
 
-    def fetch(self, reference: str) -> str:
-        path = f"dht/fetch?reference={reference}"
+    def fetch(self, key: str) -> str:
+        path = f"dht/fetch?key={key}"
         return self.api_call(path)
 
     def routing_table(self) -> str:

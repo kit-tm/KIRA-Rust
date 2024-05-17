@@ -23,7 +23,7 @@ if __name__ == '__main__':
     parser.add_argument('operation', type=str, choices=operations)
     parser.add_argument('-n', '--node-id', type=int, required=False, dest="node",
                         help="ID of the node to which to send store/fetch requests")
-    parser.add_argument('-ref', '--reference', type=str, required=False, dest="ref",
+    parser.add_argument('--key', type=str, required=False, dest="key",
                         help="Reference used by the store/fetch operation")
     parser.add_argument('-d', '--data', type=str, required=False, dest="data",
                         help="Data to store at given node")
@@ -94,9 +94,9 @@ if __name__ == '__main__':
             network.prune()
             logger.info("Pruning done.")
         elif operation == "store":
-            result = network.get_node(args.node).store(args.ref, args.data)
+            result = network.get_node(args.node).store(args.key, args.data)
         elif operation == "fetch":
-            result = network.get_node(args.node).fetch(args.ref)
+            result = network.get_node(args.node).fetch(args.key)
         elif operation == "node-id":
             res = network.get_node(args.node).nid
             print(res.hex())

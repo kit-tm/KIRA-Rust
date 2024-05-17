@@ -146,42 +146,35 @@ async fn get_node_id(State(state): State<ApiState>) -> Json<domain::NodeId> {
 
 fn extract_dht_handle(params: &mut HashMap<String, String>) -> Result<domain::dht::Handle, DHTErr> {
     let handle = params.remove("handle");
-    let reference = params.remove("reference");
+    let key = params.remove("key");
 
-    match (handle, reference) {
+    match (handle, key) {
         (Some(_), Some(_)) => Err(crate::api::domain::dht::ApiFormatErr::AmbiguousParams.into()),
         (Some(handle), _) => Ok(crate::api::domain::dht::Handle::Handle(
             crate::api::domain::NodeId { node_id: handle },
         )),
-        (_, Some(reference)) => Ok(crate::api::domain::dht::Handle::Reference(reference)),
+        (_, Some(key)) => Ok(crate::api::domain::dht::Handle::Key(key)),
         (None, None) => Err(crate::api::domain::dht::ApiFormatErr::MissingParams(vec![
             "handle".to_string(),
-            "reference".to_string(),
+            "key".to_string(),
         ])
         .into()),
     }
 }
 
+/// Store a value in the DHT under some key.
 #[cfg_attr(feature = "swagger_doc", utoipa::path(
     post,
     path = "/dht",
     responses(domain::dht::StoreOK, DHTErr),
+    request_body(content = [u8], description = "The value to store in the DHT"),
     params(
         (
-            "handle" = Option<String>,
+            "key" = Option < String >,
             Query,
-            deprecated,
-            pattern = "^[A-Fa-f0-9]{28}$",
-            description = "A NodeID encoded as a HexString used as Handle directly.",
-            example = json ! ("35986033727C2B8E1A10AA488216")
-        ),
-        (
-            "reference" = Option<String>,
-            Query,
-            description = "An arbitrary String hashed and then used as a handle.",
+            description = "The key under which to store the value in the DHT",
             example = json ! ("Foo123")
-        )
-    )
+        ))
 ))]
 async fn store_dht_data(
     State(state): State<ApiState>,
@@ -230,26 +223,20 @@ async fn store_dht_data(
 }
 
 // todo dont use JSON for DHTOutput
+/// Fetch a value stored in the DHT under some key.
 #[cfg_attr(feature = "swagger_doc", utoipa::path(
     get,
     path = "/dht",
-    responses(domain::dht::FetchRsp, DHTErr),
+    responses(
+        (status = 200, description = "The list of values stored in the DHT under that key. Encoded as base64.", example = json!(["QmFyMTIzCg=="]), body = domain::dht::FetchRsp), 
+        (status = "4XX", description = "An error during DHT fetch", body = DHTErr)),
     params(
         (
-            "handle" = Option < String >,
+            "key" = Option < String >,
             Query,
-            deprecated,
-            pattern = "^[A-Fa-f0-9]{28}$",
-            description = "A NodeID encoded as a HexString used as Handle directly.",
-            example = json ! ("35986033727C2B8E1A10AA488216")
-        ),
-        (
-            "reference" = Option < String >,
-            Query,
-            description = "An arbitrary String hashed and then used as a handle.",
+            description = "Fetches the value(s) stored in the DHT under key <key>!",
             example = json ! ("Foo123")
-        )
-    )
+        ))
 ))]
 async fn fetch_dht_data(
     State(state): State<crate::api::ApiState>,

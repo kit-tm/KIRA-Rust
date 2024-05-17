@@ -23,7 +23,7 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub enum Handle {
     Handle(NodeId),
-    Reference(String),
+    Key(String),
 }
 
 impl TryFrom<Handle> for r2kad_lib::domain::NodeId {
@@ -32,9 +32,9 @@ impl TryFrom<Handle> for r2kad_lib::domain::NodeId {
     fn try_from(value: Handle) -> Result<Self, Self::Error> {
         match value {
             Handle::Handle(handle) => handle.try_into(),
-            Handle::Reference(reference) => {
+            Handle::Key(key) => {
                 // calculating SHA256 hash
-                let hash = Sha256::digest(reference.as_bytes());
+                let hash = Sha256::digest(key.as_bytes());
                 let handle: [u8; SIZE] = hash.into_iter()
                     .take(SIZE)
                     .collect::<Vec<u8>>()
