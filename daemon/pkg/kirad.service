@@ -1,0 +1,14 @@
+[Unit]
+Description=kirad - A KIRA routing daemon written in Rust
+After=network.target
+Before=network-online.target
+
+[Service]
+Environment=RUST_LOG="debug"
+ExecStart=/usr/bin/kirad -n /etc/kirad/nftables.conf
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
