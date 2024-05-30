@@ -1,7 +1,7 @@
 [workspace]
 members = [
-    "lib",
-    "daemon"
+    "kira-lib",
+    "kirad"
 ]
 
 # Profile which optimizes the compiled binary for performance

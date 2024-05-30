@@ -1,0 +1,51 @@
+FROM rust:latest AS chef
+RUN cargo install cargo-chef
+WORKDIR /kirad
+
+ENV WORKDIR=kirad
+
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder
+
+RUN rustup target add x86_64-unknown-linux-musl
+RUN apt update && apt install -y musl-tools musl-dev
+RUN update-ca-certificates
+
+COPY --from=planner "/$WORKDIR/recipe.json" recipe.json
+RUN cargo chef cook --release --target x86_64-unknown-linux-musl --recipe-path recipe.json
+
+COPY ./ .
+
+RUN cargo build --target x86_64-unknown-linux-musl --release
+RUN strip -s /kirad/target/x86_64-unknown-linux-musl/release/kirad
+
+FROM ubuntu:latest
+
+COPY --from=builder /etc/passwd /etc/passwd
+COPY --from=builder /etc/group /etc/group
+
+RUN apt update && \
+    apt upgrade -y && \
+    apt install -y curl net-tools iproute2 nftables iputils-ping nano tcpdump bash strace iperf
+
+# setup supervisord
+RUN apt install -y supervisor
+RUN mkdir -p /var/log/supervisor
+COPY docker/supervisord.conf /etc/supervisord.conf
+
+WORKDIR /kirad
+
+# Copy our build
+COPY --from=builder /kirad/target/x86_64-unknown-linux-musl/release/kirad ./
+COPY docker/kirad.conf /etc/supervisord.d/kirad.conf
+COPY docker/nftables.conf ./
+
+#USER kirad:kirad
+
+EXPOSE 8080/tcp
+
+# start supervisord
+ENTRYPOINT ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]

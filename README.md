@@ -27,8 +27,8 @@ git clone git@gitlab.kit.edu:kit/tm/telematics/kira/kira-rust.git
 | Build (docker)             | `make build-images`                           | Compiles and builds scratch and benchmark docker images (no rust install required)                                |
 | Install Daemon             | `make install`                                | Compiles the daemon with release profile and installs it in the system                                            |
 | Create RustDocs            | `make docs`                                   | Creates rustdoc websites for library and daemon from code documentation and opens it in browser (opens two pages) |
-| Create Library RustDocs    | `make lib-docs`                               | Creates rustdoc website for the r2kad-lib crate from code documentation and opens it in browser                   |
-| Create Daemon RustDocs     | `make daemon-docs`                            | Creates rustdoc website for the r2kad-daemon crate from code documentation and opens it in browser                |
+| Create Library RustDocs    | `make lib-docs`                               | Creates rustdoc website for the kirad-lib crate from code documentation and opens it in browser                   |
+| Create Daemon RustDocs     | `make daemon-docs`                            | Creates rustdoc website for the kirad-daemon crate from code documentation and opens it in browser                |
 | Run All Tests              | `make test`, `cargo test`                     | Run all tests (unit and integration tests)                                                                        |
 | Run Only Unit Tests        | `make unit-tests`, `cargo test --lib`         | Run only unit tests                                                                                               |
 | Run Only Integration Tests | `make integration-test`, `cargo test --bins`  | Run only integration tests                                                                                        |
@@ -59,13 +59,13 @@ To Run the task on a physical host we recommend using the provided
 
 #### Manage all interfaces
 
-  ```systemctl enable --now r2kad.service```
+  ```systemctl enable --now kirad.service```
 
 #### Manage some interfaces
 
-Currently, you can only blacklist interfaces using the `r2kad@.service` by using the **numbers** of the interfaces:
+Currently, you can only blacklist interfaces using the `kirad@.service` by using the **numbers** of the interfaces:
 
-  ```systemctl enable --now r2kad@$(systemd-escape 4,2).service```
+  ```systemctl enable --now kirad@$(systemd-escape 4,2).service```
 
 This will exclude the interface `4` and `2` interface from being managed by the routing daemon.
 You can obtain a list of all your interfaces by running `ip link`.

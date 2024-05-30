@@ -1,0 +1,84 @@
+[package]
+name = "kira-lib"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = ["tokio", "sync-wrapper", "in-memory-message-channel"]
+tokio-rt-multi-thread = ["tokio/rt-multi-thread"]
+tokio = ["tokio/net", "tokio/rt", "tokio/time", "tokio/net", "tokio/macros"]
+serde = ["dep:serde", "serde-big-array", "chrono/serde"]
+udp-tokio = ["tokio", "pnet", "sync-wrapper", "serde", "serde_json"]
+sync-wrapper = []
+in-memory-message-channel = ["tokio"]
+
+# All dependencies are well picked and although just a few have versions 1.x
+# they are considered stable enough to use in production by the Rust Community.
+# Nevertheless any new dependency should be weighted for its value over
+# a custom implementation.
+
+[dependencies]
+# Used to declare async traits
+async-trait = "0.1.57"
+# Used as a central broadcaster for UseCase Events
+bus = { version = "2.2.4", optional = true }
+# For Time Computations in general
+chrono = "0.4.19"
+# Support for Timeouts and Channel communication between different Threads
+crossbeam-channel = "0.5.5"
+# For generic hash function choice
+digest = "0.10.5"
+# Hexadecimal Output formatting of NodeIDs. Non-Optional as basic functionality for a NodeID.
+hex = "0.4.3"
+# Logging facade supporting many concrete implementations in binaries
+log = "0.4.17"
+# For fetching the network interface for a given IP
+pnet = { version = "0.31.0", optional = true, features = ["pnet_datalink", "std"] }
+# Random NodeId generation
+rand = "0.8.5"
+rmp-serde = { version = "1.1.0", optional = true }
+# Abstract Serialization library for Rust (kind of standard)
+serde = { version = "1.0.137", optional = true, features = ["derive", "rc"] }
+# Required until serde supports const generics (https://crates.io/crates/serde-big-array)
+serde-big-array = { version = "0.4.1", optional = true }
+serde_json = { version = "1.0.81", optional = true }
+# PathID generation
+sha1 = "0.10.5"
+# PathID generation
+sha2 = { version = "0.10.6", optional = true }
+# PathID generation
+sha3 = { version = "0.10.5", optional = true }
+# Used to support sync and async rwlock on context
+tokio = { version = "1.19.2", default-features = false, features = ["sync"] }
+
+# Dependencies for examples, Benchmarks and Tests
+[dev-dependencies]
+bus = "2.2.4"
+criterion = "0.4.0"
+env_logger = "0.9.0"
+futures = "0.3.21"
+pnet = { version = "0.31.0", features = ["std", "pnet_datalink"] }
+rmp-serde = "1.1.0"
+tokio = { version = "1.19.2", features = ["rt", "time", "macros", "rt-multi-thread"] }
+
+# Examples
+
+[[example]]
+name = "single_threaded"
+required-features = ["tokio", "tokio/macros", "serde", "rmp-serde", "udp-tokio", "pnet"]
+
+[[example]]
+name = "async_context_multi_threaded"
+required-features = ["tokio", "tokio/macros", "serde", "rmp-serde", "tokio-rt-multi-thread", "udp-tokio", "pnet"]
+
+# Benchmarks
+
+[[bench]]
+name = "node_id_xor_bench"
+harness = false
+
+[[bench]]
+name = "node_id_shared_prefix_bits"
+harness = false
