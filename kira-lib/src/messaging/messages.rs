@@ -27,7 +27,7 @@ impl Nonce {
     }
 }
 
-/// Enumeration containing all supported R²/Kad protocol messages.
+/// Enumeration containing all supported KIRA protocol messages.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum ProtocolMessage {

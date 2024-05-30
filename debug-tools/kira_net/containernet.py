@@ -1,6 +1,6 @@
 import os
-from .node import R2KadNode
-from .network import R2KadNetwork
+from .node import KIRANode
+from .network import KIRANetwork
 
 import docker
 from docker.models.networks import Network
@@ -8,10 +8,10 @@ from mininet.net import Containernet
 import networkx as nx
 
 from typing import Optional, TypeVar
-Self = TypeVar("Self", bound="R2KadContainernetNode")
+Self = TypeVar("Self", bound="KIRAContainernetNode")
 
 
-class R2KadContainernetNode(R2KadNode):
+class KIRAContainernetNode(KIRANode):
     def __init__(self, net: Containernet, client=docker.from_env(), name: str = None, api_port: int = 8080):
         self._net = net
         self._cannonical_name = name.replace("mn.", "")
@@ -48,20 +48,20 @@ class R2KadContainernetNode(R2KadNode):
         pass
 
 
-class R2KadContainernetNetwork(R2KadNetwork):
-    _node_prefix = "mn.r2kad-n"  # used to find existing containers
+class KIRAContainernetNetwork(KIRANetwork):
+    _node_prefix = "mn.kira-n"  # used to find existing containers
     # TODO get network name
     _nw_prefix = "TODO"
 
     def __init__(self, graph: nx.Graph, net: Containernet, client=docker.from_env(), seed=None):
         self._net = net
 
-        super().__init__(graph, client, seed, R2KadContainernetNode)
+        super().__init__(graph, client, seed, KIRAContainernetNode)
 
     def _init_node(self, n):
         name = f"{self._node_prefix}{n}"
 
-        node = R2KadContainernetNode(self._net, client=self._client, name=name)
+        node = KIRAContainernetNode(self._net, client=self._client, name=name)
         self.graph.nodes[n][self._node_nx] = node
 
     def start(self):

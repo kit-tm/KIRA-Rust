@@ -47,7 +47,7 @@ bridge interfaces to bridge the nodes.
 
 #### Docker Setup requirements
 
-Since the r2kad-daemon requires IPv6 support you must [enable support for IPv6 in docker](https://docs.docker.com/config/daemon/ipv6/) first:
+Since the kirad requires IPv6 support you must [enable support for IPv6 in docker](https://docs.docker.com/config/daemon/ipv6/) first:
 
 Edit `/etc/docker/daemon.json` to at least include `default-address-pools` for IPv6 and `ipv6tables`:
 

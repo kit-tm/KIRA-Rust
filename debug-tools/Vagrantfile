@@ -31,8 +31,8 @@ Vagrant.configure("2") do |config|
   end
 
 
-  config.vm.define "r2kademlia"
-  config.vm.provision "shell", path: "install-vagrant.sh", args: "/home/vagrant/r2kad"
+  config.vm.define "kira"
+  config.vm.provision "shell", path: "install-vagrant.sh", args: "/home/vagrant/kira"
 end
 
 # Load 'user' Vagrantfile. This allows overriding e.g. VirtualBox settings like

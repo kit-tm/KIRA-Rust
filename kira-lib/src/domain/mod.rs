@@ -1,4 +1,4 @@
-//! Domain Layer of the R²/Kad software design.
+//! Domain Layer of the KIRA software design.
 
 use std::fmt::{Display, Formatter};
 

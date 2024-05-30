@@ -1,4 +1,4 @@
-from r2kad_net import R2KadNetwork, R2KadContainernetNetwork
+from kira_net import KIRANetwork, KIRAContainernetNetwork
 
 import docker
 import networkx as nx
@@ -19,7 +19,7 @@ if __name__ == '__main__':
         "test-connectivity"
     ]
 
-    parser = argparse.ArgumentParser(description='r2kad topology generator')
+    parser = argparse.ArgumentParser(description='kira topology generator')
     parser.add_argument('operation', type=str, choices=operations)
     parser.add_argument('-n', '--node-id', type=int, required=False, dest="node",
                         help="ID of the node to which to send store/fetch requests")
@@ -61,9 +61,9 @@ if __name__ == '__main__':
             from mininet.node import Controller
 
             net = Containernet(controller=Controller)
-            network = R2KadContainernetNetwork(graph, net, seed=args.seed)
+            network = KIRAContainernetNetwork(graph, net, seed=args.seed)
         else:
-            network = R2KadNetwork(graph, seed=args.seed)
+            network = KIRANetwork(graph, seed=args.seed)
 
         operation = args.operation.lower()
         if operation == "create":

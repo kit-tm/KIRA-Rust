@@ -1,4 +1,4 @@
-//! Source code documentation for the library crate of the R²/Kad implementation created at the
+//! Source code documentation for the library crate of the KIRA implementation created at the
 //! [institute for telematics](https://telematics.tm.kit.edu/index.php) at the
 //! [Karlsruher Institute of Technology (KIT)](https://www.kit.edu).
 //!

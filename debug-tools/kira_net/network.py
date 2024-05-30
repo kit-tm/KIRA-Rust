@@ -4,22 +4,22 @@ import networkx as nx
 import random
 from typing import Callable, Any
 
-from .node import R2KadNode
+from .node import KIRANode
 
 import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class R2KadNetwork:
+class KIRANetwork:
     # ids used for storage in the graph
     _node_nx = "node"
     _network_nx = "network"
 
-    _node_prefix = "r2kad-n"
-    _nw_prefix = "r2edge-"
+    _node_prefix = "kira-n"
+    _nw_prefix = "kiraedge-"
 
-    def __init__(self, graph: nx.Graph, client=docker.from_env(), seed=None, node_type=R2KadNode):
+    def __init__(self, graph: nx.Graph, client=docker.from_env(), seed=None, node_type=KIRANode):
         self.graph = graph
         self._client = client
         self._node_type = node_type
@@ -48,11 +48,11 @@ class R2KadNetwork:
                 self.graph.edges[u, v][self._network_nx] = nw
                 break
 
-    def _for_all_nodes(self, fn: Callable[[R2KadNode], Any]):
+    def _for_all_nodes(self, fn: Callable[[KIRANode], Any]):
         for (_, node) in self.graph.nodes(data=self._node_nx):
             fn(node)
 
-    def get_node(self, node: int) -> R2KadNode:
+    def get_node(self, node: int) -> KIRANode:
         return self.graph.nodes[str(node)][self._node_nx]
 
     def create(self, img: str):

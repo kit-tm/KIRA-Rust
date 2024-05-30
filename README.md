@@ -1,12 +1,12 @@
-# R²/Kad Implementation
+# KIRA Implementation
 
-This repository collects the different repositories used for the implementation of R²/Kad in Rust started by Moritz
+This repository collects the different repositories used for the implementation of KIRA in Rust started by Moritz
 Hepp (2022) at the institute for telematics at KIT.
 
 ## Structure
 
-- [R²/Kad Routing Daemon](daemon): Contains the crate representing the routing daemon executable.
-- [R²/Kad Library](lib): Contains the different abstract modules, classes, traits to implement the routing
+- [KIRA Routing Daemon](daemon): Contains the crate representing the routing daemon executable.
+- [KIRA Library](lib): Contains the different abstract modules, classes, traits to implement the routing
   daemon.
 
 More specific information can be found in the respective folders and in the following chapters.

@@ -5,14 +5,14 @@ import docker
 from docker.models.networks import Network
 
 from typing import Optional, TypeVar
-Self = TypeVar("Self", bound="R2KadNode")
+Self = TypeVar("Self", bound="KIRANode")
 
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class R2KadNode(object):
+class KIRANode(object):
     def __init__(self, client=docker.from_env(), name: str = None, api_port: int = 8080):
         self._client = client
 

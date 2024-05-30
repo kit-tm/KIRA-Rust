@@ -11,8 +11,8 @@ export LC_CTYPE="en_US.UTF-8"
 echo 'export LC_ALL="en_US.UTF-8"' >> /home/vagrant/.bashrc
 echo 'export LC_CTYPE="en_US.UTF-8"' >> /home/vagrant/.bashrc
 
-# rename host to r2kademlia
-hostnamectl set-hostname "r2kademlia"
+# rename host to kira
+hostnamectl set-hostname "kira"
 
 # install rsync for pushing changes from local computer to vm
 apt-get -y update && apt-get -y install rsync
