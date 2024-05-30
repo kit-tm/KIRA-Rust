@@ -64,7 +64,7 @@ build-image-full:
 	docker build -t kira:full -f docker/Dockerfile.full .
 
 build-image-supervisord:
-	docker build -t kira:supervisord -f docker/Dockerfile.supervisord .
+	docker build -t kira -f docker/Dockerfile.supervisord .
 
 
 build-images: build-image-scratch build-image-bench build-image-full build-image-supervisord build
