@@ -41,7 +41,7 @@ WORKDIR /kirad
 # Copy our build
 COPY --from=builder /kirad/target/x86_64-unknown-linux-musl/release/kirad ./
 COPY docker/kirad.conf /etc/supervisord.d/kirad.conf
-COPY docker/nftables.conf ./
+COPY kirad/conf/nftables.conf ./
 
 #USER kirad:kirad
 

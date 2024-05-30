@@ -5,7 +5,7 @@ Before=network-online.target
 
 [Service]
 Environment=RUST_LOG="debug"
-ExecStart=/usr/local/lib/r2kad/r2kad-daemon -n /usr/local/share/r2kad/nftables.conf -e "%i"
+ExecStart=/usr/local/lib/kira/kirad -n /usr/local/share/kira/nftables.conf -e "%i"
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 ProtectSystem=full
