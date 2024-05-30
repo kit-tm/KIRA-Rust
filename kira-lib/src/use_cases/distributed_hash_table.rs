@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::context::UseCaseContext;
 use crate::domain::{NetworkInterface, NodeId, PNTable};
-use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchRspData, StoreResult, StoreRspData};
+use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchReqData, FetchRspData, StoreReqData, StoreResult, StoreRspData};
 
 use crate::domain::dht::TimedValue;
 use crate::domain::dht::Expiring;
@@ -20,7 +20,7 @@ use crate::domain::dht::strategies::timeout_strategy::ConstTimeoutStrategy;
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
-use crate::use_cases::{ApiEvent, EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState};
+use crate::use_cases::{ApiEvent, ContactEvent, EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState};
 
 /// Default number of seconds between each garbage collection process.
 ///
@@ -180,6 +180,78 @@ impl UseCaseState for DHTState {
     }
 }
 
+impl<C, H, RS, D: Debug> DistributedHashTable<C, H>
+    where
+        C: UseCaseContext,
+        C::MessageSender: ProtocolMessageSender,
+        C::Runtime: UseCaseRuntime<SendError=D>,
+        C::PhysicalNeighborTable: PNTable,
+        H: LocalHashTable<NodeId, DefaultLHTInput, DefaultLHTOutput, StoreRes=StoreResult, FetchErr=FetchErr> + Expiring<Context=(), Result=RS> + Clone
+{
+    fn send_store_rsp(&mut self, context: &C, req: ReqRspMessage<StoreReqData<DefaultLHTInput>>) -> Result<(), DHTError> {
+        let res = self.hash_table.store(req.data.handle, req.data.data);
+        let source_route = SourceRoute::from_reversed(req.source_route);
+
+        let rsp = ReqRspMessage {
+            nonce: req.nonce,
+            source_state_seq_nr: *context.pn_table().state_seq_nr(),
+            data: StoreRspData {
+                status: res
+            },
+            not_via: context.not_via().clone(),
+            source_route,
+        };
+
+        log::trace!(target: "distributed_hash_table", "Sending message: {:?}", rsp);
+
+        let message = ProtocolMessage::StoreRsp(rsp);
+        if message.destination().unwrap() == context.root_id() {
+            return context.runtime().broadcast_local_event(UseCaseEvent::Message(message, NetworkInterface::loopback())).map_err(|e| {
+                log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
+                DHTError::DHTSendError
+            });
+        }
+        if let Err(e) = context.message_sender_mut().send_message(message) {
+            log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
+            return Err(DHTError::DHTSendError);
+        }
+
+        Ok(())
+    }
+
+    fn send_fetch_rsp(&mut self, context: &C, req: ReqRspMessage<FetchReqData>) -> Result<(), DHTError> {
+        let fetch_res = self.hash_table.fetch(&req.data.handle);
+        let source_route = SourceRoute::from_reversed(req.source_route);
+
+        let rsp = ReqRspMessage {
+            nonce: req.nonce,
+            source_state_seq_nr: *context.pn_table().state_seq_nr(),
+            data: FetchRspData {
+                data: fetch_res,
+            },
+            not_via: context.not_via().clone(),
+            source_route
+        };
+
+        log::trace!(target: "distributed_hash_table", "Sending message: {:?}", rsp);
+
+        let message = ProtocolMessage::FetchRsp(rsp);
+        if message.destination().unwrap() == context.root_id() {
+            return context.runtime().broadcast_local_event(UseCaseEvent::Message(message, NetworkInterface::loopback())).map_err(|e| {
+                log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
+                DHTError::DHTSendError
+            });
+        }
+
+        if let Err(e) = context.message_sender_mut().send_message(message) {
+            log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
+            return Err(DHTError::DHTSendError);
+        }
+        
+        Ok(())
+    }
+
+}
 impl<C, H, RS, D: Debug> EventHandler for DistributedHashTable<C, H>
     where
         C: UseCaseContext,
@@ -194,63 +266,14 @@ impl<C, H, RS, D: Debug> EventHandler for DistributedHashTable<C, H>
 
     fn handle_event(&mut self, context: &Self::Context, event: UseCaseEvent) -> Result<Self::Value, Self::Error> {
         match (event, &self.state) {
+            // ========== Respond to Requests ==========
             (UseCaseEvent::Message(ProtocolMessage::StoreReq(req), _), _) => {
-                let res = self.hash_table.store(req.data.handle, req.data.data);
-                let source_route = SourceRoute::from_reversed(req.source_route);
-
-                let rsp = ReqRspMessage {
-                    nonce: req.nonce,
-                    source_state_seq_nr: *context.pn_table().state_seq_nr(),
-                    data: StoreRspData {
-                        status: res
-                    },
-                    not_via: context.not_via().clone(),
-                    source_route,
-                };
-
-                log::trace!(target: "distributed_hash_table", "Sending message: {:?}", rsp);
-
-                let message = ProtocolMessage::StoreRsp(rsp);
-                if message.destination().unwrap() == context.root_id() {
-                    return context.runtime().broadcast_local_event(UseCaseEvent::Message(message, NetworkInterface::loopback())).map_err(|e| {
-                        log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
-                        DHTError::DHTSendError
-                    });
-                }
-                if let Err(e) = context.message_sender_mut().send_message(message) {
-                    log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
-                    return Err(DHTError::DHTSendError);
-                }
+                self.send_store_rsp(context, req)?
             }
             (UseCaseEvent::Message(ProtocolMessage::FetchReq(req), _), _) => {
-                let fetch_res = self.hash_table.fetch(&req.data.handle);
-                let source_route = SourceRoute::from_reversed(req.source_route);
-
-                let rsp = ReqRspMessage {
-                    nonce: req.nonce,
-                    source_state_seq_nr: *context.pn_table().state_seq_nr(),
-                    data: FetchRspData {
-                        data: fetch_res,
-                    },
-                    not_via: context.not_via().clone(),
-                    source_route
-                };
-
-                log::trace!(target: "distributed_hash_table", "Sending message: {:?}", rsp);
-
-                let message = ProtocolMessage::FetchRsp(rsp);
-                if message.destination().unwrap() == context.root_id() {
-                    return context.runtime().broadcast_local_event(UseCaseEvent::Message(message, NetworkInterface::loopback())).map_err(|e| {
-                        log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
-                        DHTError::DHTSendError
-                    });
-                }
-
-                if let Err(e) = context.message_sender_mut().send_message(message) {
-                    log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
-                    return Err(DHTError::DHTSendError);
-                }
+                self.send_fetch_rsp(context, req)?
             }
+            // ========== Expire Timer event ==========
             (UseCaseEvent::Timer(id), DHTState::Running(our_timer_id)) => {
                 if &id == our_timer_id {
                     self.hash_table.expire(&());
