@@ -1,3 +1,4 @@
+use std::collections::hash_map::Keys;
 use std::collections::{HashMap, HashSet};
 
 use crate::domain::dht::expiring::Expiring;
@@ -40,16 +41,26 @@ impl<H, I, O, D, IS, FS, TS, RS, FE> LocalHashTable<H, I, O> for ExpiringHashTab
 {
     type StoreRes = RS;
     type FetchErr = FE;
+    type InternalData = D;
 
     fn store(&mut self, handle: H, data: I) -> Self::StoreRes {
         self.insertion_strategy.insert(handle, data, &mut self.map)
     }
+    
+    fn peek(&self, handle: &H) -> Result<O, Self::FetchErr> {
+        self.fetch_strategy.peek(handle, &self.map)
+    }
+
     fn fetch(&mut self, handle: &H) -> Result<O, Self::FetchErr> {
         self.fetch_strategy.fetch(handle, &mut self.map)
     }
 
     fn fetch_all(&self) -> Result<Vec<(H, O)>, Self::FetchErr> {
         self.fetch_strategy.fetch_all(&self.map)
+    }
+
+    fn into_handles(&self) -> Keys<'_, H, Self::InternalData> {
+        self.map.keys()
     }
 }
 

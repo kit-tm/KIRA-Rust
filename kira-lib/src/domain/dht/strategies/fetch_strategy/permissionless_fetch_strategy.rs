@@ -23,10 +23,12 @@ impl FetchStrategy for PermissionlessFetchStrategy
     type Error = FetchErr;
 
     fn fetch(&self, handle: &Self::Handle, from: &mut Self::Composite) -> Result<Self::OutputData, Self::Error> {
-        match from.get_mut(handle) {
-            None => {
-                Err(FetchErr::NotFoundErr)
-            }
+        self.peek(handle, from)
+    }
+
+    fn peek(&self, handle: &Self::Handle, from: &Self::Composite) -> Result<Self::OutputData, Self::Error> {
+        match from.get(handle) {
+            None => Err(FetchErr::NotFoundErr),
             Some(set) => {
                 let mut vec = Vec::with_capacity(set.len());
 
@@ -37,6 +39,7 @@ impl FetchStrategy for PermissionlessFetchStrategy
                 Ok(vec)
             }
         }
+
     }
 
     fn fetch_all(&self, from: &Self::Composite) -> Result<Vec<(Self::Handle, Self::OutputData)>, Self::Error> {
