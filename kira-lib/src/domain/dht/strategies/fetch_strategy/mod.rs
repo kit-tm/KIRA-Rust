@@ -36,6 +36,21 @@ pub trait FetchStrategy {
     fn fetch(&self, handle: &Self::Handle, from: &mut Self::Composite) -> Result<Self::OutputData, Self::Error>;
 
 
+    /// Extracts data from the [Self::Composite].
+    ///
+    /// In contrast to [fetch](Self::fetch) this method **does not alter** the composite data.
+    ///
+    /// # Arguments
+    ///
+    /// * `handle` - A reference to the handle used to find the data in the composite.
+    /// * `from` - A mutable reference to the composite where the data should be fetched from.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` that contains the fetched data if successful, or an error if the data couldn't be found in the [Self:Composite].
+    fn peek(&self, handle: &Self::Handle, from: &Self::Composite) -> Result<Self::OutputData, Self::Error>;
+
+
     /// Extracts **all** data from the composite object.
     ///
     /// This method should perform the same conversion to the [Self::OutputData] as [Self::fetch] if necessary.
