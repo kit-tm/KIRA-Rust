@@ -152,6 +152,10 @@ class KIRANode(object):
         path = "_dev/vicinity-graph"
         return self.api_call(path)
 
+    def local_hashtable(self) -> str:
+        path = "dht/_dev/local-hashtable"
+        return self.api_call(path)
+
     def ping(self, other: Self, args: str = None) -> bool:
         if args is None:
             args = "-c 3 -i 0.25 -W 1 -q"

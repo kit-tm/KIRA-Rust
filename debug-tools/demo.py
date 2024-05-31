@@ -14,7 +14,8 @@ if __name__ == '__main__':
     operations = [
         "create", "connect", "start", "stop", "prune",
         "store", "fetch",
-        "logs", "node-id", "pn-table", "routing-table", "vicinity-graph",
+        "logs", "node-id",
+        "pn-table", "routing-table", "vicinity-graph", "local-hashtable",
         "draw",
         "test-connectivity"
     ]
@@ -118,6 +119,8 @@ if __name__ == '__main__':
             result = network.get_node(args.node).routing_table()
         elif operation == "vicinity-graph":
             result = network.get_node(args.node).vicinity_graph()
+        elif operation == "local-hashtable":
+            result = network.get_node(args.node).local_hashtable()
         elif operation == "draw":
             import matplotlib.pyplot as plt
 
