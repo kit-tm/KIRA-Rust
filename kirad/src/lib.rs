@@ -520,7 +520,7 @@ where
             log::error!("Failed to start explicit path management: {}", e);
         }
 
-        let mut distributed_hash_table: DistributedHashTable<_, DefaultExpiringHashTable> = DistributedHashTable::new(DistributedHashTableConfig::default());
+        let mut distributed_hash_table: DistributedHashTable<_, DefaultExpiringHashTable, BUCKET_SIZE> = DistributedHashTable::new(DistributedHashTableConfig::default());
         if let Err(e) = distributed_hash_table.start(&context) {
             log::error!("Failed to start distributed hash table UseCase: {}", e);
             return;
