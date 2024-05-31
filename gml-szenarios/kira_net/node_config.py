@@ -3,6 +3,7 @@ from typing import Optional, Dict, List
 from random import Random
 
 from ipaddress import IPv4Address
+from networkx import Graph
 
 
 @dataclass
@@ -31,14 +32,14 @@ class DefaultNodeConfig(object):
         self.enviroments.setdefault("RUST_LOG", debug_level)
         self.rng = Random(seed)
 
-    def save_in_graph(self, G):
+    def save_in_graph(self, G: Graph):
         if "defaults" not in G.graph:
             G.graph["defaults"] = dict()
 
         G.graph["defaults"][self.name] = dict(self._non_default_values)
 
     @classmethod
-    def from_graph(cls, G, name: str):
+    def from_graph(cls, G: Graph, name: str):
         return cls(**G.graph["defaults"][name])
 
 
@@ -96,13 +97,13 @@ class NodeConfig(object):
         if debug_level is not None:
             self.enviroments["RUST_LOG"] = debug_level
 
-    def save_in_graph(self, node):
+    def save_in_graph(self, G: Graph, label):
         # TODO ensure defaults are saved prior
         for (k, v) in self._non_default_values:
-            node[k] = v
+            G.nodes[label][k] = v
 
     @classmethod
-    def from_graph(cls, G, label):
+    def from_graph(cls, G: Graph, label):
         default_name = G.nodes[label]["default"]
         default_config = DefaultNodeConfig.from_graph(G, default_name)
 

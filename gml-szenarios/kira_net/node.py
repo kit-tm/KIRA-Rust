@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 
 from .node_config import NodeConfig
 from mininet.net import Containernet
+from networkx import Graph
 
 
 @dataclass
@@ -15,11 +16,11 @@ class Node:
                                              dimage=self.node_config.docker_image, dcmd=self.node_config.dcmd,
                                              sysctls=self.node_config.sysctls, environment=self.node_config.enviroments)
 
-    def save_in_graph(self, node):
-        self.node_config.save_in_graph(node)
+    def save_in_graph(self, G: Graph, label):
+        self.node_config.save_in_graph(G, label)
 
     @classmethod
-    def from_graph(cls, G, label, net):
+    def from_graph(cls, G: Graph, label, net):
         node_config = NodeConfig.from_graph(G, label)
         return cls(node_config, net)
 

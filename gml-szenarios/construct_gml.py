@@ -73,10 +73,10 @@ G.add_edge("d7", "d6")
 default.save_in_graph(G)
 agent_default.save_in_graph(G)
 
-sim1_conf.save_in_graph(G.nodes["sim1"])
-agent1_conf.save_in_graph(G.nodes["agent1"])
-agent2_conf.save_in_graph(G.nodes["agent2"])
+sim1_conf.save_in_graph(G, "sim1")
+agent1_conf.save_in_graph(G, "agent1")
+agent2_conf.save_in_graph(G, "agent2")
 for i in range(4, 8):
-    eval(f"d{i}_conf.save_in_graph(G.nodes[\"d{i}\"])")
+    eval(f"d{i}_conf.save_in_graph(G, \"d{i}\")")
 
 nx.write_gml(G, "test.gml")
