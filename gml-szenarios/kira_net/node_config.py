@@ -5,7 +5,7 @@ from random import Random
 from ipaddress import IPv4Address
 
 
-@dataclass(kw_only=True)
+@dataclass
 class DefaultNodeConfig(object):
     name: str = "default"
     docker_image: str = "kira"
@@ -42,7 +42,7 @@ class DefaultNodeConfig(object):
         return cls(**G.graph["defaults"][name])
 
 
-@dataclass(kw_only=True)
+@dataclass
 class NodeConfig(object):
     name: str = None
     node_id: Optional[bytes] = None
@@ -55,8 +55,8 @@ class NodeConfig(object):
     enviroments:  Optional[Dict[str, str]] = None
 
     ip_v4: InitVar[IPv4Address] = None
-    debug_level: InitVar[str | None] = None
-    default: InitVar[DefaultNodeConfig | None] = None
+    debug_level: InitVar[Optional[str]] = None
+    default: InitVar[Optional[DefaultNodeConfig]] = None
 
     def __post_init__(self, ip_v4, debug_level, default):
         self._non_default_values = ((k, v) for (k, v) in {
