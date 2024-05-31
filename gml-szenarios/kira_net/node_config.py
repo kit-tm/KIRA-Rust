@@ -1,0 +1,109 @@
+from dataclasses import dataclass, field, InitVar, asdict
+from typing import Optional, Dict, List
+from random import Random
+
+from ipaddress import IPv4Address
+
+
+@dataclass(kw_only=True)
+class DefaultNodeConfig(object):
+    name: str = "default"
+    docker_image: str = "kira"
+    api_port: int = 8080
+    dcmd: str = "/usr/bin/supervisord -c /etc/supervisord.conf"
+    dns: Optional[List[str]] = None
+
+    sysctls: Dict[str, int] = field(default_factory=lambda: dict())
+    enviroments:  Dict[str, str] = field(default_factory=lambda: dict())
+
+    seed: InitVar[int] = "1234"
+    debug_level: InitVar[str] = "debug"
+
+    def __post_init__(self, seed, debug_level):
+        self._non_default_values = ((k, v) for (
+            k, v) in {**asdict(self), "debug_level": debug_level}.items() if v is not None)
+
+        self.sysctls.setdefault('net.ipv6.conf.default.disable_ipv6', 0)
+        # disable host-interface
+        self.sysctls.setdefault('net.ipv6.conf.eth0.disable_ipv6', 1)
+        self.sysctls.setdefault('net.ipv6.conf.all.forwarding', 1)
+
+        self.enviroments.setdefault("RUST_LOG", debug_level)
+        self.rng = Random(seed)
+
+    def save_in_graph(self, G):
+        if "defaults" not in G.graph:
+            G.graph["defaults"] = dict()
+
+        G.graph["defaults"][self.name] = dict(self._non_default_values)
+
+    @classmethod
+    def from_graph(cls, G, name: str):
+        return cls(**G.graph["defaults"][name])
+
+
+@dataclass(kw_only=True)
+class NodeConfig(object):
+    name: str = None
+    node_id: Optional[bytes] = None
+    docker_image: Optional[str] = None
+    api_port: Optional[int] = None
+    dcmd: Optional[str] = None
+    dns: Optional[List[str]] = None
+
+    sysctls: Optional[Dict[str, int]] = None
+    enviroments:  Optional[Dict[str, str]] = None
+
+    ip_v4: InitVar[IPv4Address] = None
+    debug_level: InitVar[str | None] = None
+    default: InitVar[DefaultNodeConfig | None] = None
+
+    def __post_init__(self, ip_v4, debug_level, default):
+        self._non_default_values = ((k, v) for (k, v) in {
+                                    **asdict(self), "ip_v4": ip_v4, "debug_level": debug_level, "default": default.name}.items() if v is not None)
+
+        if default is None:
+            default = DefaultNodeConfig()
+
+        if self.node_id is None:
+            self.node_id = default.rng.getrandbits(14*8).to_bytes(14, "big")
+
+        if self.docker_image is None:
+            self.docker_image = default.docker_image
+
+        if self.api_port is None:
+            self.api_port = default.api_port
+
+        if self.dcmd is None:
+            self.dcmd = default.dcmd
+
+        if self.dns is None:
+            self.dns = default.dns
+
+        if self.sysctls is None:
+            self.sysctls = default.sysctls
+        else:
+            self.sysctls = {**default.sysctls, **self.sysctls}
+
+        if self.enviroments is None:
+            self.enviroments = default.enviroments
+        else:
+            self.enviroments = {**default.enviroments, **self.enviroments}
+
+        if ip_v4 is not None:
+            self.enviroments["KIRA_IPV4"] = ip_v4
+
+        if debug_level is not None:
+            self.enviroments["RUST_LOG"] = debug_level
+
+    def save_in_graph(self, node):
+        # TODO ensure defaults are saved prior
+        for (k, v) in self._non_default_values:
+            node[k] = v
+
+    @classmethod
+    def from_graph(cls, G, label):
+        default_name = G.nodes[label]["default"]
+        default_config = DefaultNodeConfig.from_graph(G, default_name)
+
+        return cls(**{**G.nodes[label], "default": default_config})
