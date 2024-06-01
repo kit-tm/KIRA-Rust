@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from mininet.net import Containernet
 from mininet.cli import CLI
 from mininet.log import info, warn, setLogLevel
+setLogLevel("info")
 
 from common import NodeConfig
 
@@ -28,17 +29,18 @@ class ConnectivityTest(TestBase):
             n1 = config.nodes[n1]
             for n2 in config.nodes:
                 n2 = config.nodes[n2]
+                print('\r\033[K' + f'ConnectivityTest: Pinging {n1["config"].name} -> {n2["config"].name} ...', end='')
                 connected = ConnectivityTest.ping(n1, n2)
                 if not connected:
                     passed = False
-                    print(f"ConnectivityTest: Ping {n1['config'].name} -> {n2['config'].name} failed!")
+                    print("failed!")
 
+        print("")
         return passed
 
     def ping(n1, n2):
         p = n1["container"].popen(f"ping -c 1 -W 1 {n2['config'].ipv6}".split())
-        if p.wait() != 0:
-            print(p.stdout.read(-1))
+        p.wait()
         return p.returncode == 0
         
 
@@ -54,8 +56,37 @@ class TestRunner:
 
            # run test pipline
            time.sleep(10)
-           ConnectivityTest.run(self.topology, net)
-           CLI(net)
+           if ConnectivityTest.run(self.topology, net):
+               info("ConnectivityTest passed!")
+           else:
+               warn("ConnectivityTest failed!")
+               #CLI(net)
+           
+           failing_links = list((x,y) for x, y, data in self.topology.edges.data() if "fail" in data)
+           if len(failing_links) != 0:
+               for x, y in failing_links:
+                  info(f"Setting link {x}<->{y} down!")
+                  net.configLinkStatus(f"k{x}",f"k{y}", "down")
+
+               time.sleep(10)
+
+               if ConnectivityTest.run(self.topology, net):
+                   info("ConnectivityTest passed!")
+               else:
+                   warn("ConnectivityTest failed!")
+                   #CLI(net)
+               for x, y in failing_links:
+                  info(f"Setting link {x}<->{y} up!")
+                  net.configLinkStatus(f"k{x}",f"k{y}", "up")
+
+               time.sleep(10)
+
+               if ConnectivityTest.run(self.topology, net):
+                   info("ConnectivityTest passed!")
+               else:
+                   warn("ConnectivityTest failed!")
+                   CLI(net)
+
 
         finally:
            net.stop()
