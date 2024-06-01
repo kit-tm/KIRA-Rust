@@ -26,8 +26,17 @@ class Node:
 
     # delegate all future calls to container so it can be used
     # as if it's a real container in Containernet
-    def __getattr__(self, attr):
-        return getattr(self._container, attr)
+    def __getattr__(self, name):
+        return getattr(self._container, name)
 
-    def __setattr__(self, attr, value):
-        setattr(self._container, attr)
+    def __setattr__(self, name, value):
+        if name in ['_container', 'node_config', 'net']:
+            super().__setattr__(name, value)
+        else:
+            setattr(self._container, name, value)
+
+    def __delattr__(self, name):
+        if name in ['_container', 'node_config', 'net']:
+            super().__delattr__(name)
+        else:
+            delattr(self._container, name)
