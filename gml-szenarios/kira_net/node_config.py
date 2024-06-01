@@ -26,7 +26,7 @@ class DefaultNodeConfig(object):
 
         self.sysctls.setdefault('net.ipv6.conf.default.disable_ipv6', 0)
         # disable host-interface
-        self.sysctls.setdefault('net.ipv6.conf.eth0.disable_ipv6', 1)
+        #self.sysctls.setdefault('net.ipv6.conf.eth0.disable_ipv6', 1)
         self.sysctls.setdefault('net.ipv6.conf.all.forwarding', 1)
 
         self.enviroments.setdefault("RUST_LOG", debug_level)

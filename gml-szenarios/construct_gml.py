@@ -7,7 +7,8 @@ SEED = 1234
 
 default = DefaultNodeConfig(
     name="default",
-    docker_image="6gdemo-base:latest",
+    #docker_image="6gdemo-base:latest",
+    docker_image="kira",
     dns=["127.0.0.1"],
     # sysctls={'net.ipv6.conf.eth0.disable_ipv6': 0},
     debug_level="info",
@@ -15,7 +16,8 @@ default = DefaultNodeConfig(
 )
 agent_default = DefaultNodeConfig(
     name="agent_default",
-    docker_image="kira:agent",
+    #docker_image="kira:agent",
+    docker_image="kira",
     dns=["127.0.0.1"],
     # sysctls={'net.ipv6.conf.eth0.disable_ipv6': 0},
     debug_level="debug",
@@ -26,7 +28,8 @@ agent_default = DefaultNodeConfig(
 # node specific configs
 sim1_conf = NodeConfig(
     name="sim1",
-    docker_image="kira:sim",
+    #docker_image="kira:sim",
+    docker_image="kira",
     ip_v4="10.0.0.1",
     enviroments={
         "V4_TUNNEL_HOSTS": "agent1.kira.internal:agent2.kira.internal"
