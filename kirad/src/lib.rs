@@ -3,6 +3,7 @@ use std::error::Error;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::BufWriter;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -62,6 +63,9 @@ pub struct NodeConfig {
     pub benchmark_path: Option<BufWriter<File>>,
 }
 
+#[cfg(feature = "small_buckets")]
+const BUCKET_SIZE: usize = 3;
+#[cfg(not(feature = "small_buckets"))]
 const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE;
 
 /// The main structure.
@@ -282,6 +286,7 @@ where
         } = config;
 
         log::info!("Using NodeId {}", root_id);
+        log::info!("Using bucket size k={}", BUCKET_SIZE);
 
         let mut benchmark_log = BenchmarkLog::new();
         let mut bench_file_writer = config.benchmark_path.map(BufWriter::new);

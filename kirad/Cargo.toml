@@ -10,6 +10,7 @@ default = ["api", "swagger_doc"]
 bench = ["log/release_max_level_off"]
 api = ["axum", "hex", "sha2", "base64", "serde", "serde_derive", "serde_json"]
 swagger_doc = ["utoipa", "utoipa-swagger-ui", "api", "itertools"]
+small_buckets = []
 
 [lib]
 name = "kirad_lib"
