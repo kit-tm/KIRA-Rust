@@ -121,6 +121,7 @@ class DHTResolver(BaseResolver):
         return reply
 
     def resolve_upstream(self, request: DNSRecord) -> Optional[DNSRecord]:
+        qname = str(request.q.qname)
         if self.upstream_resolver is None:
             logging.debug(
                 "No upstream set. Can't ask upstream resolver for not internal address: %s", qname)

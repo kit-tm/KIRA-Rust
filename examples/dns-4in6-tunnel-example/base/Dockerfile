@@ -1,7 +1,7 @@
 FROM kira:latest
 
 # install service dependencies
-RUN apt install -y python3 python3-requests jq python3-dnslib dnsutils
+RUN apt install -y python3 python3-requests jq python3-dnslib dnsutils python3-pip
 
 # copy dns-server service
 COPY dns-dht-resolver.conf /etc/supervisord.d/dns-dht-resolver.conf
