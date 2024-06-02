@@ -45,11 +45,11 @@ c1 curl -4 roll.kira.internal # s1.kira.internal also works
 ```
 
 ## Base Image (in [./base])
-This uses multiple services using supervisord:
+This runs multiple services using supervisord:
 - the kira routing daemon (kirad)
-- a local DNS server using the DHT to register and resolve [./base/dns-dht-resolver.py]
-- a registration script registering each node under <hostname>.kira.internal [./base/dns-registration.sh]
-- a IPv4 tunneling script that sets up 4in6 tunnels between nodes [./base/dns-v4-tunnel-setup.sh]
+- a local DNS server using the DHT to register and resolve [./base/dns-dht-resolver.py](./base/dns-dht-resolver.py)
+- a registration script registering each node under `<hostname>.kira.internal` [./base/dns-registration.sh](./base/dns-registration.sh)
+- a IPv4 tunneling script that sets up 4in6 tunnels between nodes [./base/dns-v4-tunnel-setup.sh](./base/dns-v4-tunnel-setup.sh)
 
 ## Extending the base image
-If you want to run additional software inside the containers refer to the server-Dockerfile: [./server/Dockerfile]
+If you want to run additional software inside the containers refer to the server-Dockerfile: [./server/Dockerfile](./server/Dockerfile)
