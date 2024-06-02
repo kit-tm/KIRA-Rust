@@ -12,6 +12,7 @@ This examples features 3 types of nodes:
 ## Building and running 
 ### Dependencies
 - Installed [Containernet](https://containernet.github.io/#installation)
+  Additionaly one has to configure the docker daemon to enable ipv6: [like instructed here](https://docs.docker.com/config/daemon/ipv6/).
 - Built base kira image: `kira` (`make build-image-supervisord` in repo root)
 
 ### Building

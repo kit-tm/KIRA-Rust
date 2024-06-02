@@ -3,6 +3,11 @@
 This repository collects the different repositories used for the implementation of the routing architecture KIRA in Rust started by Moritz
 Hepp (2022) at the institute for telematics at KIT.
 
+## Status
+** This implementation is in version 0.0.0 (pre-MVP) and therefore is still work-in-progress in many parts. **
+
+For a working example see [DNS-DHT-Example](./examples/dns-4in6-tunnel-example/).
+
 ## Structure
 
 - [KIRA Routing Daemon](kirad): Contains the crate representing the routing daemon executable.
@@ -34,8 +39,7 @@ Some of the above tasks require some dependencies to be installed to run them.
 Here are the instructions to install them.
 
 - [docker](https://docs.docker.com/get-docker/): To run benchmarks and build docker images. 
-Additionaly one has to
-  configure the docker daemon to enable ipv6: [like instructed here](https://docs.docker.com/config/daemon/ipv6/).
+  Additionaly one has to configure the docker daemon to enable ipv6: [like instructed here](https://docs.docker.com/config/daemon/ipv6/).
 - [Rust](https://www.rust-lang.org/) 
 
 ## Running on physical hosts
