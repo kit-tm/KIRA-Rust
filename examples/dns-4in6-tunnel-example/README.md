@@ -3,10 +3,10 @@
 Setup with inline explanations is in [example.py](./example.py)
 
 This examples features 3 types of nodes: 
-- base (image: kira-example-base)
-- server (image: kira-example-base)
+- base (image: `kira-example-base`)
+- server (image: `kira-example-client`)
     - additionally runs a REST-API with a dice-roll endpoint
-- client (image: kira-example-base)
+- client (image: `kira-example-server`)
     - additionally runs repeated queries to the REST-API
 
 ## Building and running 
@@ -25,7 +25,8 @@ make build-images
 ```
 
 ### Testing
-You should now have a containernet CLI. Wait some time (20s) for everything to converge:
+You should now have a containernet CLI. Wait some time (20s) for everything to converge.
+You can now test stuff:
 
 curl the REST-API on server (`roll.kira.internal`):
 ```
