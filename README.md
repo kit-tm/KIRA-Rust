@@ -4,7 +4,7 @@ This repository collects the different repositories used for the implementation 
 Hepp (2022) at the institute for telematics at KIT.
 
 ## Status
-** This implementation is in version 0.0.0 (pre-MVP) and therefore is still work-in-progress in many parts. **
+**This implementation is in version 0.0.0 (pre-MVP) and therefore is still work-in-progress in many parts.**
 
 For a working example see [DNS-DHT-Example](./examples/dns-4in6-tunnel-example/).
 
