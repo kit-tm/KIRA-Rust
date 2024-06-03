@@ -1,5 +1,6 @@
 PKGNAME = kira
 DATA_PREFIX = kirad/conf
+PKG_PREFIX = pkg
 PREFIX ?= /usr/local
 
 .PHONY: setup docs build build-release install uninstall
@@ -14,15 +15,14 @@ build-release:
 
 install: install-bin install-data
 
-install-bin: target/release/kirad
-	mkdir -p $(PREFIX)/lib/$(PKGNAME)
-	install target/release/kirad $(PREFIX)/lib/$(PKGNAME)
+install-bin: build-release
+	install target/release/kirad $(PREFIX)/bin/
 
-install-data: $(DATA_PREFIX)/kira.service $(DATA_PREFIX)/nftables.conf
+install-data: $(PKG_PREFIX)/kirad.service $(DATA_PREFIX)/nftables.conf
 	# todo make vars propagate to service file
 	mkdir -p $(PREFIX)/lib/systemd/system
-	install $(DATA_PREFIX)/kira.service $(PREFIX)/lib/systemd/system
-	install $(DATA_PREFIX)/kira@.service $(PREFIX)/lib/systemd/system
+	install $(PKG_PREFIX)/kirad.service $(PREFIX)/lib/systemd/system
+	install $(PKG_PREFIX)/kirad@.service $(PREFIX)/lib/systemd/system
 
 	mkdir -p $(PREFIX)/share/$(PKGNAME)
 	install $(DATA_PREFIX)/nftables.conf $(PREFIX)/share/$(PKGNAME)/nftables.conf
@@ -30,10 +30,11 @@ install-data: $(DATA_PREFIX)/kira.service $(DATA_PREFIX)/nftables.conf
 uninstall: uninstall-bin uninstall-data
 
 uninstall-bin:
-	rm -r $(PREFIX)/lib/$(PKGNAME)
+	rm $(PREFIX)/bin/kirad
 
 uninstall-data:
-	rm $(PREFIX)/lib/systemd/system/kira.service
+	rm $(PREFIX)/lib/systemd/system/kirad.service
+	rm $(PREFIX)/lib/systemd/system/kirad@.service
 
 	rm -r $(PREFIX)/share/$(PKGNAME)
 
