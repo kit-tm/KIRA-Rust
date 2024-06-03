@@ -55,22 +55,13 @@ integration-test:
 test:
 	cargo test
 
-build-image-bench:
-	docker build -t kira:bench -f docker/Dockerfile.bench .
-
-build-image-scratch:
-	docker build -t kira:scratch -f docker/Dockerfile.scratch .
-
-build-image-full:
-	docker build -t kira:full -f docker/Dockerfile.full .
-
 build-image-supervisord:
 	docker build -t kira -f docker/Dockerfile.supervisord .
 
 build-image-small-k:
 	docker build -t kira-small-k -f docker/Dockerfile.small-k .
 
-build-images: build-image-scratch build-image-bench build-image-full build-image-supervisord build
+build-images: build-image-supervisord build-image-small-k
 
 build-debian-x86:
 	cross build --target x86_64-unknown-linux-musl --release
