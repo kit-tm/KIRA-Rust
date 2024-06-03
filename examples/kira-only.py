@@ -1,4 +1,4 @@
-#! /bin/env python3
+#!/usr/bin/env python3
 from mininet.net import Containernet
 from mininet.cli import CLI
 from mininet.log import info, warn, setLogLevel
