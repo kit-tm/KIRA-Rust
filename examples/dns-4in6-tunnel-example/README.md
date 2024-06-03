@@ -11,6 +11,8 @@ This examples features 3 types of nodes:
 
 ## Building and running 
 ### Dependencies
+- Ubuntu 20.04
+- Installed docker 
 - Installed [Containernet](https://containernet.github.io/#installation)
   Additionaly one has to configure the docker daemon to enable ipv6: [like instructed here](https://docs.docker.com/config/daemon/ipv6/).
 - Built base kira image: `kira` (`make build-image-supervisord` in repo root)
@@ -31,12 +33,12 @@ You can now test stuff:
 
 curl the REST-API on server (`roll.kira.internal`):
 ```
-d1 curl -6 -v http://roll.kira.internal/ # s1.kira.internal also works
+d4 curl -6 -v http://roll.kira.internal/ # s1.kira.internal also works
 ```
 
 This should fail as `d1` has no v4 tunnel setup:
 ```
-d1 curl -4 -v http://roll.kira.internal/ 
+d4 curl -4 -v http://roll.kira.internal/ 
 ```
 
 Client `c1` has though:
