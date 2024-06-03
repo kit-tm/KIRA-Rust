@@ -1,13 +1,19 @@
-# R²/Kad Implementation
+# KIRA Implementation
 
-This repository collects the different repositories used for the implementation of R²/Kad in Rust started by Moritz
+This repository collects the different repositories used for the implementation of the routing architecture KIRA in Rust started by Moritz
 Hepp (2022) at the institute for telematics at KIT.
+
+## Status
+**This implementation is in version 0.0.0 (pre-MVP) and therefore is still work-in-progress in many parts.**
+
+For a working example see [DNS-DHT-Example](./examples/dns-4in6-tunnel-example/).
 
 ## Structure
 
-- [R²/Kad Routing Daemon](daemon): Contains the crate representing the routing daemon executable.
-- [R²/Kad Library](lib): Contains the different abstract modules, classes, traits to implement the routing
+- [KIRA Routing Daemon](kirad): Contains the crate representing the routing daemon executable.
+- [KIRA Library](kira-lib): Contains the different abstract modules, classes, traits to implement the routing
   daemon.
+- [Examples](examples): Contains minimal examples of running KIRA in an emulated network using [Containernet](https://containernet.github.io)
 
 More specific information can be found in the respective folders and in the following chapters.
 
@@ -23,34 +29,18 @@ git clone git@gitlab.kit.edu:kit/tm/telematics/kira/kira-rust.git
 
 | Task                       | Command                                       | Description                                                                                                       |
 |:---------------------------|:----------------------------------------------|:------------------------------------------------------------------------------------------------------------------|
-| Build (debug)              | `make`, `cargo build`                         | Compiles the daemon with debug profile and creates an executable                                                  |
 | Build (release)            | `make build-release`, `cargo build --release` | Compiles the daemon with release profile and creates an executable                                                |
 | Build (docker)             | `make build-images`                           | Compiles and builds scratch and benchmark docker images (no rust install required)                                |
-| Build (docker scratch)     | `make build-image-scratch`                    | Compiles and builds scratch docker image (no rust install required)                                               |
-| Build (docker bench)       | `make build-image-bench`                      | Compiles and builds benchmark docker image (no rust install required)                                             |
 | Install Daemon             | `make install`                                | Compiles the daemon with release profile and installs it in the system                                            |
-| Create RustDocs            | `make docs`                                   | Creates rustdoc websites for library and daemon from code documentation and opens it in browser (opens two pages) |
-| Create Library RustDocs    | `make lib-docs`                               | Creates rustdoc website for the r2kad-lib crate from code documentation and opens it in browser                   |
-| Create Daemon RustDocs     | `make daemon-docs`                            | Creates rustdoc website for the r2kad-daemon crate from code documentation and opens it in browser                |
-| Run All Tests              | `make test`, `cargo test`                     | Run all tests (unit and integration tests)                                                                        |
-| Run Only Unit Tests        | `make unit-tests`, `cargo test --lib`         | Run only unit tests                                                                                               |
-| Run Only Integration Tests | `make integration-test`, `cargo test --bins`  | Run only integration tests                                                                                        |
-| Run Rust Benchmarks        | `make bench`, `cargo bench`                   | Runs small benchmarks implemented in rust                                                                         |
-| Setup Daemon Benchmark     | `make setup-bench-daemon`                     | Creates networks and volumes for docker based benchmarks                                                          |
-| Run Daemon Benchmark       | `make bench-daemon`                           | Runs the daemon benchmark (requires Task *Setup Daemon Benchmark* to be run before)                               |
 
 ### Dependencies
 
 Some of the above tasks require some dependencies to be installed to run them.
 Here are the instructions to install them.
 
-- [GNU/Make](https://www.gnu.org/software/make/#download): Already installed in many Linux distributions. For others see
-  the website.
-- [docker](https://docs.docker.com/get-docker/): To run benchmarks and build docker images. Additionaly one has to
-  configure the docker daemon to enable ipv6: [like instructed here](https://docs.docker.com/config/daemon/ipv6/).
-- [docker compose plugin](https://docs.docker.com/compose/install/compose-plugin/): To run the benchmarks.
-- [Rust](https://www.rust-lang.org/tools/install): Can be easily installed through `make setup`, which uses curl to
-  fetch the installation script as described on the linked website.
+- [docker](https://docs.docker.com/get-docker/): To run benchmarks and build docker images. 
+  Additionaly one has to configure the docker daemon to enable ipv6: [like instructed here](https://docs.docker.com/config/daemon/ipv6/).
+- [Rust](https://www.rust-lang.org/) 
 
 ## Running on physical hosts
 
@@ -64,13 +54,13 @@ To Run the task on a physical host we recommend using the provided
 
 #### Manage all interfaces
 
-  ```systemctl enable --now r2kad.service```
+  ```systemctl enable --now kirad.service```
 
 #### Manage some interfaces
 
-Currently, you can only blacklist interfaces using the `r2kad@.service` by using the **numbers** of the interfaces:
+Currently, you can only blacklist interfaces using the `kirad@.service` by using the **numbers** of the interfaces:
 
-  ```systemctl enable --now r2kad@$(systemd-escape 4,2).service```
+  ```systemctl enable --now kirad@$(systemd-escape 4,2).service```
 
 This will exclude the interface `4` and `2` interface from being managed by the routing daemon.
 You can obtain a list of all your interfaces by running `ip link`.

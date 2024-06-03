@@ -1,0 +1,46 @@
+FROM rust:latest AS chef
+RUN cargo install cargo-chef
+WORKDIR /kirad
+
+ENV WORKDIR=kirad
+
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder
+
+RUN rustup target add x86_64-unknown-linux-musl
+RUN apt update && apt install -y musl-tools musl-dev
+RUN update-ca-certificates
+
+COPY --from=planner "/$WORKDIR/recipe.json" recipe.json
+RUN cargo chef cook --release --target x86_64-unknown-linux-musl --recipe-path recipe.json
+
+COPY ./ .
+
+RUN cargo build --target x86_64-unknown-linux-musl --release
+RUN strip -s /kirad/target/x86_64-unknown-linux-musl/release/kirad
+
+FROM ubuntu:latest
+
+RUN apt update && \
+    apt upgrade -y && \
+    apt install -y curl net-tools iproute2 nftables iputils-ping nano tcpdump bash strace iperf
+
+COPY --from=builder /etc/passwd /etc/passwd
+COPY --from=builder /etc/group /etc/group
+
+WORKDIR /kirad
+
+# Copy our build
+COPY --from=builder /kirad/target/x86_64-unknown-linux-musl/release/kirad ./
+COPY docker/start.sh ./
+RUN chmod +x start.sh
+COPY kirad/conf/nftables.conf ./
+
+#USER kirad:kirad
+
+EXPOSE 8080/tcp
+
+CMD "/kirad/start.sh"
