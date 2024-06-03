@@ -1,9 +1,17 @@
 # KIRA Implementation
 
-This repository collects the different repositories used for the implementation of the routing architecture KIRA in Rust started by Moritz
-Hepp (2022) at the institute for telematics at KIT.
+This repository collects the different repositories used for the implementation
+of the scalable zero-touch routing architecture [KIRA](https://s.kit.edu/KIRA) 
+in Rust started by Moritz Hepp (2022) at the [Institute of Telematics](https://telematics.tm.kit.edu) 
+at [KIT](https://www.kit.edu/). This implementation supplies a routing daemon 
+that provides IPv6 connectivity without configuration as well as a distributed
+hash table that can be used to provide a simple key-value store to map names 
+to IPv6 addresses. The IPv6 addresses are currently randomly generated from 
+the [ULA](https://datatracker.ietf.org/doc/html/rfc4193) address realm and 
+are as such not routable on the Internet. As KIRA is designed to be a routing 
+solution for control planes it deliberately uses ULAs for now. 
 
-## Status
+## Implementation Status
 **This implementation is in version 0.0.0 (pre-MVP) and therefore is still work-in-progress in many parts.**
 
 For a working example see [DNS-DHT-Example](./examples/dns-4in6-tunnel-example/).
