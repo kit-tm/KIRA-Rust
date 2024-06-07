@@ -7,13 +7,15 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::StreamExt;
+use futures::{StreamExt, TryFutureExt, TryStreamExt};
 use kira_lib::use_cases::handle_api::HandleApi;
+use rtnetlink::{new_connection, Error as NlError};
 use signal_hook::consts::{SIGHUP, SIGINT, SIGKILL, SIGPIPE, SIGQUIT, SIGTERM};
 use signal_hook_tokio::Signals;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver, UnboundedSender};
 use tokio::time::Instant;
+use std::net::Ipv6Addr;
 
 use kira_lib::broadcaster::Broadcaster;
 use kira_lib::context::{ContextConfig, SyncContext, UseCaseContext};
@@ -514,7 +516,7 @@ where
             return;
         }
 
-        let mut precomputation = PrecomputePathIds::new(root_id, Default::default());
+        let mut precomputation = PrecomputePathIds::new(root_id.clone(), Default::default());
         if precomputation.start(&context).is_err() {
             log::error!("Failed to start precomputation");
             return;
@@ -683,6 +685,23 @@ where
                 break;
             }
         }
+
+        // remove IP addresses from interfaces 
+        runtime.block_on(async {
+            let (connection, handle, _) = new_connection().unwrap();
+            runtime.spawn(connection);
+            let mut addresses = handle
+                .address()
+                .get()
+                .set_address_filter(Ipv6Addr::from(&root_id).into())
+                .execute();
+            while let Some(addr) = addresses.try_next().await? {
+                handle.address().del(addr).execute().await?;
+            }
+            Ok::<(), NlError>(())
+        }).expect("removing Ips works");
+
+
         log::debug!("Shutting down");
         log::logger().flush();
         #[cfg(feature = "bench")]
