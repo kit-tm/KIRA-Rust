@@ -109,7 +109,6 @@ where
             });
             entries.insert(entry);
         }
-        log::debug!(target: "precompute_paths_and_path_ids", "{:?}", entries);
         entries
     }
 
