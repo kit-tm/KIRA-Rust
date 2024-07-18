@@ -142,6 +142,15 @@ where
                 error::DeriveFwdEntriesError::NeighborNotInPNTable(next_hop.clone())
             })?;
 
+        if context.pn_table().contains_key(contact.id()) && !contact.is_pn() {
+            log::warn!(target: "derive_fwd_table_entries", 
+                "Contact {:?} is not a physical neighbor but listed in PNTable -> may overwrite previous route unintentionally!", 
+                contact);
+            return Err(error::DeriveFwdEntriesError::NodeIdTable(
+                "Contact is not a physical neighbor but listed in PNTable".into(),
+            ));
+        }
+
         if contact.is_pn() {
             Ok(NodeIdEntry::Forward(NodeIdForwardingEntry {
                 destination: NodeIdSubnet {
