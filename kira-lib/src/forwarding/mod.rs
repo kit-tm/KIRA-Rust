@@ -13,7 +13,7 @@ pub mod native_tables;
 pub mod platform;
 
 /// An entry in the [NodeIdTable] identified by the destination/contacts [NodeIdSubnet].
- #[derive(Debug, Eq, PartialEq, Clone, Hash)]
+#[derive(Debug, Eq, PartialEq, Clone, Hash)]
 pub enum NodeIdEntry {
     Forward(NodeIdForwardingEntry),
     Encapsulate(NodeIdEncapsulationEntry),
