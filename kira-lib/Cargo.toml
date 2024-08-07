@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["tokio", "sync-wrapper", "in-memory-message-channel"]
+default = ["tokio", "sync-wrapper", "in-memory-message-channel", "pnet"]
 tokio-rt-multi-thread = ["tokio/rt-multi-thread"]
 tokio = ["tokio/net", "tokio/rt", "tokio/time", "tokio/net", "tokio/macros"]
 serde = ["dep:serde", "serde-big-array", "chrono/serde"]
