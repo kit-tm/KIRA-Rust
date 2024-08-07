@@ -8,7 +8,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
+#[cfg(not(feature = "ebpf"))]
 use kira_lib::forwarding::native_tables::NativeFwdTables;
+#[cfg(feature = "ebpf")]
+pub use kira_forwarding::forwarding::EbpfFwdTables;
 use kira_lib::forwarding::platform;
 use kira_lib::hardware_events::{HardwareEvent, HardwareEventRegistry};
 use tokio::sync::{mpsc, RwLock};
@@ -109,7 +112,10 @@ fn main() {
     });
     mapper.blocking_refresh();
 
+    #[cfg(not(feature = "ebpf-forwarding"))]
     let fwd_table = NativeFwdTables::new(args.nftables_conf);
+    #[cfg(feature = "ebpf-forwarding")]
+    let fwd_table = EbpfFwdTables::new();
 
     let ip_cache = Arc::new(RwLock::new(HashMap::new()));
     let channel = kira_lib::messaging::udp::async_channel(
