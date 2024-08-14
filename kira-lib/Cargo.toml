@@ -13,6 +13,7 @@ serde = ["dep:serde", "serde-big-array", "chrono/serde"]
 udp-tokio = ["tokio", "pnet", "sync-wrapper", "serde", "serde_json"]
 sync-wrapper = []
 in-memory-message-channel = ["tokio"]
+ebpf = ["kira-bpf-common/usr", "derive_more/from", "aya-log"]
 
 # All dependencies are well picked and although just a few have versions 1.x
 # they are considered stable enough to use in production by the Rust Community.
@@ -35,7 +36,10 @@ hex = "0.4.3"
 # Logging facade supporting many concrete implementations in binaries
 log = "0.4.17"
 # For fetching the network interface for a given IP
-pnet = { version = "0.31.0", optional = true, features = ["pnet_datalink", "std"] }
+pnet = { version = "0.31.0", optional = true, features = [
+  "pnet_datalink",
+  "std",
+] }
 # Random NodeId generation
 rand = "0.8.5"
 rmp-serde = { version = "1.1.0", optional = true }
@@ -51,7 +55,15 @@ sha2 = { version = "0.10.6", optional = true }
 # PathID generation
 sha3 = { version = "0.10.5", optional = true }
 # Used to support sync and async rwlock on context
-tokio = { version = "1.19.2", default-features = false, features = ["sync"] }
+tokio = { version = "1.24.0", default-features = false, features = ["sync"] }
+thiserror = "1.0.63"
+derive_more = { version = "1.0.0", optional = true }
+aya-log = { version = "0.2.0", optional = true }
+
+[dependencies.kira-bpf-common]
+git = "ssh://git@gitlab.kit.edu/kit/tm/telematics/theses/2024-ba-julius-rueberg/kira-forwarding.git"
+branch = "main"
+default-features = false
 
 # Dependencies for examples, Benchmarks and Tests
 [dev-dependencies]
@@ -61,17 +73,37 @@ env_logger = "0.9.0"
 futures = "0.3.21"
 pnet = { version = "0.31.0", features = ["std", "pnet_datalink"] }
 rmp-serde = "1.1.0"
-tokio = { version = "1.19.2", features = ["rt", "time", "macros", "rt-multi-thread"] }
+tokio = { version = "1.19.2", features = [
+  "rt",
+  "time",
+  "macros",
+  "rt-multi-thread",
+] }
 
 # Examples
 
 [[example]]
 name = "single_threaded"
-required-features = ["tokio", "tokio/macros", "serde", "rmp-serde", "udp-tokio", "pnet"]
+required-features = [
+  "tokio",
+  "tokio/macros",
+  "serde",
+  "rmp-serde",
+  "udp-tokio",
+  "pnet",
+]
 
 [[example]]
 name = "async_context_multi_threaded"
-required-features = ["tokio", "tokio/macros", "serde", "rmp-serde", "tokio-rt-multi-thread", "udp-tokio", "pnet"]
+required-features = [
+  "tokio",
+  "tokio/macros",
+  "serde",
+  "rmp-serde",
+  "tokio-rt-multi-thread",
+  "udp-tokio",
+  "pnet",
+]
 
 # Benchmarks
 

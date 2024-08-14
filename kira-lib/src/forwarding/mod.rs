@@ -7,6 +7,8 @@ use crate::domain::{NetworkInterface, NodeId, NodeIdSubnet};
 
 pub use platform::*;
 
+#[cfg(feature = "ebpf")]
+pub mod ebpf_tables;
 pub mod hasher;
 pub mod in_memory_tables;
 pub mod native_tables;

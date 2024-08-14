@@ -31,7 +31,7 @@ const SHORT_OUTPUT_LENGTH: usize = 8;
 pub struct NodeId {
     // Sorted from MSB to LSB (Big Endian representation)
     #[cfg_attr(feature = "serde", serde(with = "serde_big_array::BigArray"))]
-    bytes: [u8; SIZE],
+    pub(crate) bytes: [u8; SIZE],
 }
 
 // ============ Initializers ============
@@ -480,7 +480,7 @@ mod tests {
 
     #[test]
     fn prefix_one() {
-        assert_eq!(NodeId::max_value().prefix(1), NodeId::with_msb(0x80)) 
+        assert_eq!(NodeId::max_value().prefix(1), NodeId::with_msb(0x80))
     }
 
     #[test]

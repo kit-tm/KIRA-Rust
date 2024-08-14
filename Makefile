@@ -74,3 +74,10 @@ build-debian-aarch64:
 
 pkg-debian-aarch64: build-debian-aarch64
 	cargo deb --target aarch64-unknown-linux-musl -p kirad --no-build --no-strip
+
+.PHONY: build-ebpf, run-ebpf-sudo
+build-ebpf:
+	cargo build --features=default,ebpf
+
+run-ebpf-sudo: build-ebpf
+	sudo env RUST_LOG=error ./target/debug/kirad -x ../kira-forwarding/kira-forwarding/kira-ebpf

@@ -8,25 +8,33 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
+use kira_lib::forwarding::ebpf_tables::domain::context::PnetNextHopContext;
+use kira_lib::forwarding::ebpf_tables::domain::entry_strategy::TablesHandle;
+#[cfg(feature = "ebpf")]
+pub use kira_lib::forwarding::ebpf_tables::EbpfFwdTables;
 #[cfg(not(feature = "ebpf"))]
 use kira_lib::forwarding::native_tables::NativeFwdTables;
-#[cfg(feature = "ebpf")]
-pub use kira_forwarding::forwarding::EbpfFwdTables;
 use kira_lib::forwarding::platform;
 use kira_lib::hardware_events::{HardwareEvent, HardwareEventRegistry};
 use tokio::sync::{mpsc, RwLock};
 
-use kirad_lib::{Node, NodeConfig};
 use kira_lib::domain::NodeId;
 use kira_lib::messaging::format::ProtocolMessageFormat;
 use kira_lib::messaging::sync_wrapper::SyncWrapper;
 use kira_lib::messaging::{AsyncProtocolMessageReceiver, PNetInterfaceMonitor};
+use kirad_lib::{Node, NodeConfig};
 use tokio::time::sleep;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    #[clap(short, long, value_parser, env = "SOCKET_PORT", default_value = "19219")]
+    #[clap(
+        short,
+        long,
+        value_parser,
+        env = "SOCKET_PORT",
+        default_value = "19219"
+    )]
     socket_port: u16,
     #[clap(short, long, value_parser, env = "NODE_ID")]
     root_id: Option<NodeId>,
@@ -35,14 +43,30 @@ struct Args {
     /// This also enables benchmarking mode which disables logging.
     #[clap(short, long, value_parser, env = "BENCH_PATH")]
     benchmark_path: Option<String>,
-    #[clap(
-        short,
-        long,
-        value_parser,
-        env = "NFTABLES_CONF",
-        default_value = "nftables.conf"
+    #[cfg_attr(
+        not(feature = "ebpf"),
+        clap(
+            short,
+            long,
+            value_parser,
+            env = "NFTABLES_CONF",
+            default_value = "nftables.conf"
+        )
     )]
+    #[cfg(not(feature = "ebpf"))]
     nftables_conf: OsString,
+    #[cfg_attr(
+        feature = "ebpf",
+        clap(
+            short = 'x',
+            long,
+            value_parser,
+            env = "EBPF_BIN",
+            default_value = "kira-forwarding.ebpf"
+        )
+    )]
+    #[cfg(feature = "ebpf")]
+    bpf_binary: OsString,
     #[clap(short, long, value_parser, value_delimiter = ',')]
     excluded_interfaces: Option<Vec<u32>>,
 }
@@ -112,10 +136,22 @@ fn main() {
     });
     mapper.blocking_refresh();
 
-    #[cfg(not(feature = "ebpf-forwarding"))]
+    #[cfg(not(feature = "ebpf"))]
     let fwd_table = NativeFwdTables::new(args.nftables_conf);
-    #[cfg(feature = "ebpf-forwarding")]
-    let fwd_table = EbpfFwdTables::new();
+    #[cfg(feature = "ebpf")]
+    let fwd_table: EbpfFwdTables<_, TablesHandle<_>>;
+    #[cfg(feature = "ebpf")]
+    {
+        let root_id = root_id.clone();
+        // required since using the async aya-logger requires tokio runtime
+        let join_handle = runtime.spawn(async {
+            EbpfFwdTables::load_from_file(args.bpf_binary, root_id, PnetNextHopContext::default())
+        });
+        fwd_table = runtime
+            .block_on(join_handle)
+            .expect("creating EbpfFwdTables should not panic")
+            .expect("should work");
+    }
 
     let ip_cache = Arc::new(RwLock::new(HashMap::new()));
     let channel = kira_lib::messaging::udp::async_channel(
