@@ -73,7 +73,8 @@ struct Args {
 
 fn main() {
     // Initialize the Logging Facade
-    env_logger::init();
+    let env = env_logger::Env::new().default_filter_or("error");
+    env_logger::init_from_env(env);
 
     // Setup the single threaded async runtime
     let runtime = Arc::new(

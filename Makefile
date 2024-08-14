@@ -80,4 +80,4 @@ build-ebpf:
 	cargo build --features=default,ebpf
 
 run-ebpf-sudo: build-ebpf
-	sudo env RUST_LOG=error ./target/debug/kirad -x ../kira-forwarding/kira-forwarding/kira-ebpf
+	sudo ./target/debug/kirad -x ../kira-forwarding/kira-forwarding/kira-ebpf
