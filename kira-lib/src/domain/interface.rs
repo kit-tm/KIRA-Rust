@@ -1,11 +1,11 @@
 use std::fmt::{Display, Formatter};
-
+use std::hash::{Hash, Hasher};
 
 /// Represents network interface (as in 'hardware device') by interface index.
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone)]
 pub struct NetworkInterface {
     pub index: u32,
-    pub name: String
+    pub name: String,
 }
 
 impl NetworkInterface {
@@ -42,6 +42,12 @@ impl NetworkInterface {
 impl PartialEq for NetworkInterface {
     fn eq(&self, other: &Self) -> bool {
         self.index == other.index
+    }
+}
+
+impl Hash for NetworkInterface {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.index.hash(state);
     }
 }
 
