@@ -8,10 +8,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
-use kira_lib::forwarding::ebpf_tables::domain::context::PnetNextHopContext;
-use kira_lib::forwarding::ebpf_tables::domain::entry_strategy::TablesHandle;
 #[cfg(feature = "ebpf")]
-pub use kira_lib::forwarding::ebpf_tables::EbpfFwdTables;
+pub use kira_lib::forwarding::ebpf_tables::{
+    domain::{context::PnetNextHopContext, entry_strategy::TablesHandle},
+    EbpfFwdTables,
+};
 #[cfg(not(feature = "ebpf"))]
 use kira_lib::forwarding::native_tables::NativeFwdTables;
 use kira_lib::forwarding::platform;
