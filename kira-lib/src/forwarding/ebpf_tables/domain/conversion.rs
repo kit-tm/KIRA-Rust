@@ -21,7 +21,7 @@ impl TryFrom<kira_lib::PathId> for PathId {
     type Error = TryFromSliceError;
 
     fn try_from(value: kira_lib::PathId) -> Result<Self, Self::Error> {
-        value.as_ref()[..SIZE].try_into()
+        value.as_ref().try_into()
     }
 }
 
