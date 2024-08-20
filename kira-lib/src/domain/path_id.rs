@@ -9,7 +9,7 @@ pub use sha2_extension::*;
 #[cfg(feature = "sha3")]
 pub use sha3_extension::*;
 
-use crate::domain::NodeId;
+use crate::domain::{NodeId, SIZE};
 
 pub const SHORT_OUTPUT_LENGTH: usize = 8;
 
@@ -95,7 +95,7 @@ impl AsRef<[u8]> for PathId {
 
 impl From<&PathId> for Ipv6Addr {
     fn from(value: &PathId) -> Self {
-        let mut bytes = [0;16];
+        let mut bytes = [0; 16];
         bytes[0] = 0xfc;
         bytes[1] = 0xaa;
         bytes[2..16].copy_from_slice(&value.bytes[0..14]);
@@ -107,7 +107,18 @@ impl FromStr for PathId {
     type Err = hex::FromHexError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let bytes = hex::decode(s)?;
+        // fill in zeros if '::' at the end
+        let bytes_string = s.as_bytes();
+        let len = bytes_string.len();
+        let bytes = if bytes_string[len - 1] as char == ':' && bytes_string[len - 2] as char == ':'
+        {
+            let mut bytes = hex::decode(&bytes_string[..len - 2])?;
+            bytes.resize(SIZE, 0u8);
+            bytes
+        } else {
+            hex::decode(bytes_string)?
+        };
+
         Ok(Self { bytes })
     }
 }
