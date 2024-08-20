@@ -434,8 +434,11 @@ impl FromStr for NodeId {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut inner = [0u8; SIZE];
-        hex::decode_to_slice(s, &mut inner)?;
-        Ok(Self { bytes: inner })
+
+        // only touch most significant bits if s to short
+        let s_len = s.len() / 2;
+        hex::decode_to_slice(s, &mut inner[..s_len])?;
+        Ok(Self::from(inner))
     }
 }
 
