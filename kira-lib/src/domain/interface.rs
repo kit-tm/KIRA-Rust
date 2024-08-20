@@ -11,14 +11,23 @@ pub struct NetworkInterface {
 impl NetworkInterface {
     pub fn new(index: u32) -> Self {
         let interfaces = pnet::datalink::interfaces();
-        let interface = interfaces.iter().find(|i| i.index == index).expect("Unable to find interface");
-        Self { index, name: interface.name.clone() }
+        let interface = interfaces
+            .iter()
+            .find(|i| i.index == index)
+            .expect("Unable to find interface");
+        Self {
+            index,
+            name: interface.name.clone(),
+        }
     }
 
     // todo use lazy initialization
     pub fn loopback() -> Self {
         let interfaces = pnet::datalink::interfaces();
-        let interface = interfaces.iter().find(|i| i.is_loopback()).expect("Unable to find loopback interface");
+        let interface = interfaces
+            .iter()
+            .find(|i| i.is_loopback())
+            .expect("Unable to find loopback interface");
 
         Self {
             index: interface.index,
@@ -61,13 +70,38 @@ impl Display for NetworkInterface {
 
 #[cfg(feature = "pnet")]
 mod pnet_conversion {
+    use super::NetworkInterface;
     use pnet::datalink;
-
-    use crate::domain::NetworkInterface;
+    use std::str::FromStr;
 
     impl<'a> From<&'a datalink::NetworkInterface> for NetworkInterface {
         fn from(iface: &'a datalink::NetworkInterface) -> Self {
             NetworkInterface::new(iface.index)
+        }
+    }
+
+    impl FromStr for NetworkInterface {
+        type Err = String;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            let iface_idx = s.parse::<u32>().ok();
+
+            let interfaces = datalink::interfaces();
+
+            let interface = interfaces
+                .into_iter()
+                .find(|iface| {
+                    if let Some(idx) = iface_idx {
+                        iface.index == idx
+                    } else {
+                        iface.name == s
+                    }
+                })
+                .ok_or_else(|| {
+                    format!("No interface found matching {s} by either name or index")
+                })?;
+
+            Ok(Self::from(&interface))
         }
     }
 }

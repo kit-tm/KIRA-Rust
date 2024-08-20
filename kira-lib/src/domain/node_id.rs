@@ -253,9 +253,44 @@ pub struct NodeIdSubnet {
     pub(crate) prefix_length: usize,
 }
 
+impl From<NodeId> for NodeIdSubnet {
+    fn from(value: NodeId) -> Self {
+        Self {
+            node_id: value,
+            prefix_length: SIZE,
+        }
+    }
+}
+
 impl Display for NodeIdSubnet {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}/{}", self.node_id, self.prefix_length)
+    }
+}
+
+impl FromStr for NodeIdSubnet {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split("/").collect();
+        if parts.len() > 2 || parts.is_empty() {
+            return Err("Unexpected subnet specification. Use nid[/prefix]".to_owned());
+        }
+
+        let nid = NodeId::from_str(parts[0]).map_err(|e| format!("{e:?}"))?;
+
+        if parts.len() == 1 {
+            let subnet = Self::from(nid);
+            return Ok(subnet);
+        }
+
+        let prefix = usize::from_str(parts[1]).map_err(|e| format!("{e:?}"))?;
+
+        let subnet = Self {
+            node_id: nid,
+            prefix_length: prefix,
+        };
+        Ok(subnet)
     }
 }
 
