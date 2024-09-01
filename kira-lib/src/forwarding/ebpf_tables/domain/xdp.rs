@@ -6,6 +6,30 @@ use kira_bpf_common::aya::BpfError;
 
 use crate::domain::NodeId;
 
+pub enum XdpAttachType {
+    Default,
+    DrvMode,
+    HrdMode,
+    SkbMode,
+}
+
+impl Default for XdpAttachType {
+    fn default() -> Self {
+        Self::Default
+    }
+}
+
+impl From<XdpAttachType> for XdpFlags {
+    fn from(value: XdpAttachType) -> Self {
+        match value {
+            XdpAttachType::Default => XdpFlags::default(),
+            XdpAttachType::DrvMode => XdpFlags::DRV_MODE,
+            XdpAttachType::HrdMode => XdpFlags::HW_MODE,
+            XdpAttachType::SkbMode => XdpFlags::SKB_MODE,
+        }
+    }
+}
+
 pub struct XdpHandle {
     xdp: Xdp,
     attached_links: HashMap<String, Weak<XdpLink>>,
@@ -21,7 +45,12 @@ impl XdpHandle {
         }
     }
 
-    pub fn attach(&mut self, physical_neighbor: NodeId, iface: String) -> Result<(), BpfError> {
+    pub fn attach(
+        &mut self,
+        physical_neighbor: NodeId,
+        iface: String,
+        attach_type: XdpAttachType,
+    ) -> Result<(), BpfError> {
         // if we already are attached to the interface
         // we don't need to attach again
         let attached_link = if let Some(attached_link) = self
@@ -32,8 +61,7 @@ impl XdpHandle {
         {
             attached_link
         } else {
-            // TODO support and try other flags and impact
-            let link_id = self.xdp.attach(&iface, XdpFlags::default())?;
+            let link_id = self.xdp.attach(&iface, XdpFlags::from(attach_type))?;
             log::debug!("Attached to interface: {iface}");
 
             let attached_link = self.xdp.take_link(link_id)?;

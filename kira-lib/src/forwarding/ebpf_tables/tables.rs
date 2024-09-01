@@ -16,6 +16,7 @@ use crate::{
         ebpf_tables::domain::{
             context::{NextHopContext, NextHopContextError, PathIdEntryContext},
             entry_strategy::{EbpfEntryStrategy, NodeIdEntryStrategy, PathIdEntryStrategy},
+            xdp::XdpAttachType,
             xdp::XdpHandle,
         },
         ForwardingTables, NodeIdEncapsulationEntry, NodeIdEntry, NodeIdForwardingEntry,
@@ -50,7 +51,8 @@ impl<H, E> EbpfFwdTables<H, E> {
         physical_neighbor: NodeId,
         iface: String,
     ) -> Result<(), EbpfFwdTablesError> {
-        self.xdp.attach(physical_neighbor, iface)?;
+        self.xdp
+            .attach(physical_neighbor, iface, XdpAttachType::SkbMode)?;
         Ok(())
     }
 
