@@ -6,6 +6,7 @@ use kira_bpf_common::aya::BpfError;
 
 use crate::domain::NodeId;
 
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub enum XdpAttachType {
     Default,
     DrvMode,

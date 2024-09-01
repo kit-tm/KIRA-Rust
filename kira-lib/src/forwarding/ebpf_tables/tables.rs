@@ -10,6 +10,7 @@ use kira_bpf_common::{
     ebpf_utils::EbpfUtilError,
 };
 
+use crate::forwarding::ebpf;
 use crate::{
     domain::{NodeId, NodeIdSubnet, PathId, SIZE},
     forwarding::{
@@ -43,6 +44,7 @@ pub struct EbpfFwdTables<H, E> {
     pub next_hop_context: H,
     entry_strategy: E,
     xdp: XdpHandle,
+    attach_type: XdpAttachType,
 }
 
 impl<H, E> EbpfFwdTables<H, E> {
@@ -52,7 +54,7 @@ impl<H, E> EbpfFwdTables<H, E> {
         iface: String,
     ) -> Result<(), EbpfFwdTablesError> {
         self.xdp
-            .attach(physical_neighbor, iface, XdpAttachType::SkbMode)?;
+            .attach(physical_neighbor, iface, self.attach_type)?;
         Ok(())
     }
 
@@ -67,10 +69,11 @@ where
     E: EbpfEntryStrategy,
     EbpfFwdTablesError: From<<E as EbpfEntryStrategy>::Error>,
 {
-    pub fn load_from_file<P>(
+    pub fn with_attach_type<P>(
         path: P,
         root_id: NodeId,
         next_hop_context: H,
+        attach_type: XdpAttachType,
     ) -> Result<Self, EbpfFwdTablesError>
     where
         P: AsRef<Path>,
@@ -88,16 +91,32 @@ where
         // HACK obtain actual Xdp program
         let xdp = ebpf_utils::load_xdp(&mut bpf)?;
         ebpf_utils::pin_xdp(xdp, "kira-forwarding", "xdp_forwarding")?;
-        let xdp = ebpf_utils::load_pinned_xdp("kira-forwarding", "xdp_forwarding")?;
-        let xdp = XdpHandle::new(xdp);
+        let mut xdp = ebpf_utils::load_pinned_xdp("kira-forwarding", "xdp_forwarding")?;
 
+        // setup route and forwarding for local packets
+        ebpf::create_nid_default_route().unwrap();
+        xdp.attach("lo", XdpAttachType::SkbMode.into())?;
+
+        let xdp = XdpHandle::new(xdp);
         let table = Self {
             root_id,
             next_hop_context,
             entry_strategy,
             xdp,
+            attach_type,
         };
         Ok(table)
+    }
+
+    pub fn load_from_file<P>(
+        path: P,
+        root_id: NodeId,
+        next_hop_context: H,
+    ) -> Result<Self, EbpfFwdTablesError>
+    where
+        P: AsRef<Path>,
+    {
+        Self::with_attach_type(path, root_id, next_hop_context, Default::default())
     }
 }
 
@@ -106,6 +125,9 @@ impl<H, E> Drop for EbpfFwdTables<H, E> {
         // unpin on drop
         ebpf_utils::unpin_xdp("kira-forwarding", "xdp_forwarding")
             .expect("Unpinning should be successfull");
+
+        ebpf::delete_nid_default_route()
+            .expect("default fc00::/128 route should have been setup at initialization")
     }
 }
 

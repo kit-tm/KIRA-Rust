@@ -13,7 +13,7 @@ serde = ["dep:serde", "serde-big-array", "chrono/serde"]
 udp-tokio = ["tokio", "pnet", "sync-wrapper", "serde", "serde_json"]
 sync-wrapper = []
 in-memory-message-channel = ["tokio"]
-ebpf = ["kira-bpf-common/usr", "derive_more/from", "aya-log"]
+ebpf = ["kira-bpf-common/usr", "derive_more/from", "aya-log", "rtnetlink", "futures"]
 
 # All dependencies are well picked and although just a few have versions 1.x
 # they are considered stable enough to use in production by the Rust Community.
@@ -59,6 +59,9 @@ tokio = { version = "1.24.0", default-features = false, features = ["sync"] }
 thiserror = "1.0.63"
 derive_more = { version = "1.0.0", optional = true }
 aya-log = { version = "0.2.0", optional = true }
+rtnetlink = { version = "0.14.1", optional = true }
+netlink-packet-route = { version = "0.20.1", optional = true }
+futures = { version= "0.3.21", optional= true}
 
 [dependencies.kira-bpf-common]
 git = "ssh://git@gitlab.kit.edu/kit/tm/telematics/theses/2024-ba-julius-rueberg/kira-forwarding.git"
