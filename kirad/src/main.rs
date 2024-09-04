@@ -147,15 +147,11 @@ fn main() {
         let root_id = root_id.clone();
         // required since using the async aya-logger requires tokio runtime
         let join_handle = runtime.spawn(async {
-            EbpfFwdTables::builder()
+            EbpfFwdTables::<PnetNextHopContext, _>::builder()
                 .root_id(root_id)
                 .bpf_from_file(args.bpf_binary)
                 .expect("Bpf file path should be valid")
                 .init_log()
-                .unwrap_or_else(|builder| {
-                    log::warn!(target: "kira::ebpf", "Unable to initialize the ebpf logger");
-                    builder
-                }) // not fatal if init_log fails
                 .build()
         });
         fwd_table = runtime

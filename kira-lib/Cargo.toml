@@ -13,7 +13,8 @@ serde = ["dep:serde", "serde-big-array", "chrono/serde"]
 udp-tokio = ["tokio", "pnet", "sync-wrapper", "serde", "serde_json"]
 sync-wrapper = []
 in-memory-message-channel = ["tokio"]
-ebpf = ["kira-bpf-common/usr", "derive_more/from", "aya-log", "rtnetlink", "futures"]
+ebpf = ["kira-bpf-common/usr", "derive_more/from", "rtnetlink", "futures"]
+ebpf-log = ["aya-log"]
 
 # All dependencies are well picked and although just a few have versions 1.x
 # they are considered stable enough to use in production by the Rust Community.

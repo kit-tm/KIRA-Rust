@@ -1,4 +1,4 @@
-#[cfg(feature = "tokio")]
+#[cfg(feature = "ebpf-log")]
 use aya_log::BpfLogger;
 
 use derive_more::From;
@@ -14,8 +14,6 @@ use kira_bpf_common::{
 };
 
 use crate::forwarding::ebpf;
-use crate::forwarding::ebpf_tables::domain::context::PnetNextHopContext;
-use crate::forwarding::ebpf_tables::domain::entry_strategy;
 use crate::{
     domain::{NodeId, NodeIdSubnet, PathId, SIZE},
     forwarding::{
@@ -59,16 +57,19 @@ pub struct EbpfFwdTablesBuilder<H, E> {
     entry_strategy: PhantomData<E>, // for builder() method
     bpf: Option<Bpf>,
     attach_type: XdpAttachType,
+
+    #[cfg(feature = "ebpf-log")]
+    init_log: bool,
 }
 
-impl<E> EbpfFwdTables<PnetNextHopContext, E> {
+impl<H: Default, E> EbpfFwdTables<H, E> {
     /// Create a builder.
     ///
     /// This builder has a default [NodeId] of [zero](NodeId::zero).
     /// Remember to change it to your actual [NodeId] with
     /// [EbpfFwdTablesBuilder::root_id]
-    pub fn builder() -> EbpfFwdTablesBuilder<PnetNextHopContext, E> {
-        EbpfFwdTablesBuilder::new(PnetNextHopContext::default(), NodeId::zero())
+    pub fn builder() -> EbpfFwdTablesBuilder<H, E> {
+        EbpfFwdTablesBuilder::new(H::default(), NodeId::zero())
     }
 }
 
@@ -80,6 +81,9 @@ impl<H, E> EbpfFwdTablesBuilder<H, E> {
             entry_strategy: Default::default(),
             bpf: Default::default(),
             attach_type: Default::default(),
+
+            #[cfg(feature = "ebpf-log")]
+            init_log: Default::default(),
         }
     }
 
@@ -130,22 +134,27 @@ impl<H, E> EbpfFwdTablesBuilder<H, E> {
     /// On error the current builder instance is returned,
     /// because failing to initialize the log
     /// is not a fatal error on building.
-    #[cfg(feature = "tokio")]
-    pub fn init_log(mut self) -> Result<Self, Self> {
-        let bpf = self
-            .bpf
-            .as_mut()
-            .expect("Bpf should have been set with `Self::bpf`");
-        if BpfLogger::init(bpf).is_err() {
-            return Err(self);
-        }
-        Ok(self)
+    #[cfg(feature = "ebpf-log")]
+    pub fn init_log(mut self) -> Self {
+        self.init_log = true;
+        self
     }
 
     pub fn build_with_strategy(
-        self,
+        mut self,
         strategy: E,
     ) -> Result<EbpfFwdTables<H, E>, EbpfFwdTablesError> {
+        #[cfg(feature = "ebpf-log")]
+        if self.init_log {
+            let bpf = self
+                .bpf
+                .as_mut()
+                .expect("Bpf should have been set with `Self::bpf`");
+            if BpfLogger::init(bpf).is_err() {
+                log::warn!("Unable to initialize BpfLogger");
+            }
+        }
+
         EbpfFwdTables::new(
             self.bpf.expect("Bpf should have been set on build time"),
             self.root_id,
