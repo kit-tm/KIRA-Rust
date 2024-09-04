@@ -1,16 +1,21 @@
+#[cfg(feature = "tokio")]
 use aya_log::BpfLogger;
+
 use derive_more::From;
+use std::marker::PhantomData;
 use std::path::Path;
 use thiserror::Error;
 
 use kira_bpf_common::ebpf_utils;
 use kira_bpf_common::{
-    aya::{maps::MapError, programs::ProgramError, BpfError},
+    aya::{maps::MapError, programs::ProgramError, Bpf, BpfError},
     domain::kira::forwarding::maps::NextHop,
     ebpf_utils::EbpfUtilError,
 };
 
 use crate::forwarding::ebpf;
+use crate::forwarding::ebpf_tables::domain::context::PnetNextHopContext;
+use crate::forwarding::ebpf_tables::domain::entry_strategy;
 use crate::{
     domain::{NodeId, NodeIdSubnet, PathId, SIZE},
     forwarding::{
@@ -47,6 +52,131 @@ pub struct EbpfFwdTables<H, E> {
     attach_type: XdpAttachType,
 }
 
+/// Builder pattern for construction [EbpfFwdTables].
+pub struct EbpfFwdTablesBuilder<H, E> {
+    root_id: NodeId,
+    next_hop_context: H,
+    entry_strategy: PhantomData<E>, // for builder() method
+    bpf: Option<Bpf>,
+    attach_type: XdpAttachType,
+}
+
+impl<E> EbpfFwdTables<PnetNextHopContext, E> {
+    /// Create a builder.
+    ///
+    /// This builder has a default [NodeId] of [zero](NodeId::zero).
+    /// Remember to change it to your actual [NodeId] with
+    /// [EbpfFwdTablesBuilder::root_id]
+    pub fn builder() -> EbpfFwdTablesBuilder<PnetNextHopContext, E> {
+        EbpfFwdTablesBuilder::new(PnetNextHopContext::default(), NodeId::zero())
+    }
+}
+
+impl<H, E> EbpfFwdTablesBuilder<H, E> {
+    pub fn new(next_hop_context: H, root_id: NodeId) -> Self {
+        Self {
+            root_id,
+            next_hop_context,
+            entry_strategy: Default::default(),
+            bpf: Default::default(),
+            attach_type: Default::default(),
+        }
+    }
+
+    /// Set [ROOT_ID](kira_bpf_common::domain::kira::forwarding::maps::ROOT_ID) for builder.
+    pub fn root_id(mut self, root_id: NodeId) -> Self {
+        self.root_id = root_id;
+        self
+    }
+
+    pub fn attach_type(mut self, attach_type: XdpAttachType) -> Self {
+        self.attach_type = attach_type;
+        self
+    }
+
+    /// Use [Bpf] for constructing the [EbpfFwdTables].
+    ///
+    /// # Safety
+    ///
+    /// Make sure the set the
+    /// [ROOT_ID](kira_bpf_common::domain::kira::forwarding::maps::ROOT_ID)
+    /// yourself using [BpfLoader::set_global](kira_bpf_common::aya::BpfLoader::set_global).
+    pub unsafe fn bpf(mut self, bpf: Bpf) -> Self {
+        self.bpf = Some(bpf);
+        self
+    }
+
+    /// Loads [Bpf] from the given [Path].
+    ///
+    /// This function also sets the
+    /// [ROOT_ID](kira_bpf_common::domain::kira::forwarding::maps::ROOT_ID)
+    /// Make sure you set the right root-id using [Self::root_id]
+    pub fn bpf_from_file<P>(mut self, path: P) -> Result<Self, EbpfFwdTablesError>
+    where
+        P: AsRef<Path>,
+    {
+        // FIXME call this on final build instruction
+        let bpf = ebpf_utils::load_bpf_from_file(&self.root_id.clone().into(), path)?;
+        self.bpf = Some(bpf);
+        Ok(self)
+    }
+
+    /// Initialize the [BpfLogger].
+    ///
+    /// Requires that the builder is inside a tokio runtime.
+    ///
+    /// # Error
+    ///
+    /// On error the current builder instance is returned,
+    /// because failing to initialize the log
+    /// is not a fatal error on building.
+    #[cfg(feature = "tokio")]
+    pub fn init_log(mut self) -> Result<Self, Self> {
+        let bpf = self
+            .bpf
+            .as_mut()
+            .expect("Bpf should have been set with `Self::bpf`");
+        if BpfLogger::init(bpf).is_err() {
+            return Err(self);
+        }
+        Ok(self)
+    }
+
+    pub fn build_with_strategy(
+        self,
+        strategy: E,
+    ) -> Result<EbpfFwdTables<H, E>, EbpfFwdTablesError> {
+        EbpfFwdTables::new(
+            self.bpf.expect("Bpf should have been set on build time"),
+            self.root_id,
+            self.next_hop_context,
+            strategy,
+            self.attach_type,
+        )
+    }
+}
+impl<H, E> EbpfFwdTablesBuilder<H, E>
+where
+    E: EbpfEntryStrategy,
+    EbpfFwdTablesError: From<<E as EbpfEntryStrategy>::Error>,
+{
+    pub fn build(mut self) -> Result<EbpfFwdTables<H, E>, EbpfFwdTablesError> {
+        let bpf = self
+            .bpf
+            .as_mut()
+            .expect("Bpf should have been set with `Self::bpf`");
+
+        let entry_strategy = E::with_bpf(bpf)?;
+        EbpfFwdTables::new(
+            self.bpf.expect("Bpf should have been set on build time"),
+            self.root_id,
+            self.next_hop_context,
+            entry_strategy,
+            self.attach_type,
+        )
+    }
+}
+
 impl<H, E> EbpfFwdTables<H, E> {
     fn attach(
         &mut self,
@@ -64,29 +194,15 @@ impl<H, E> EbpfFwdTables<H, E> {
 
     // Detaching automatically if if goes down
 }
-impl<H, E> EbpfFwdTables<H, E>
-where
-    E: EbpfEntryStrategy,
-    EbpfFwdTablesError: From<<E as EbpfEntryStrategy>::Error>,
-{
-    pub fn with_attach_type<P>(
-        path: P,
+impl<H, E> EbpfFwdTables<H, E> {
+    pub fn new(
+        mut bpf: Bpf,
         root_id: NodeId,
         next_hop_context: H,
+        entry_strategy: E,
         attach_type: XdpAttachType,
-    ) -> Result<Self, EbpfFwdTablesError>
-    where
-        P: AsRef<Path>,
-    {
-        let mut bpf = ebpf_utils::load_bpf_from_file(&root_id.clone().into(), path)?;
-        if let Err(e) = BpfLogger::init(&mut bpf) {
-            log::warn!("Failed to initialize BpfLogger: {e}");
-        }
-
+    ) -> Result<Self, EbpfFwdTablesError> {
         // TODO bump_memlock_rlimit
-        // TODO setup default route including MTU
-
-        let entry_strategy = E::with_bpf(&mut bpf)?;
 
         // HACK obtain actual Xdp program
         let xdp = ebpf_utils::load_xdp(&mut bpf)?;
@@ -106,17 +222,6 @@ where
             attach_type,
         };
         Ok(table)
-    }
-
-    pub fn load_from_file<P>(
-        path: P,
-        root_id: NodeId,
-        next_hop_context: H,
-    ) -> Result<Self, EbpfFwdTablesError>
-    where
-        P: AsRef<Path>,
-    {
-        Self::with_attach_type(path, root_id, next_hop_context, Default::default())
     }
 }
 
