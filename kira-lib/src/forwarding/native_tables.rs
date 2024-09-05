@@ -273,7 +273,7 @@ impl PathIdTable for NativeFwdTables {
 
 impl ForwardingTables for NativeFwdTables {
     fn stats(&self) -> String {
-        format!("{{\n\"nftables\": {{\n\"run_time_ns\": null\n\"run_count\": null\n}}")
+        "{\n\"nftables\": {\n\"run_time_ns\": null,\n\"run_count\": null\n}\n}".to_string()
     }
 }
 

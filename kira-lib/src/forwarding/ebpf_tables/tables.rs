@@ -403,6 +403,6 @@ where
         let run_count = info.run_count();
         let run_time_ns = info.run_time().as_nanos();
 
-        format!("{{\n\"{program_name}\": {{\n\"run_time_ns\": {run_time_ns}\n\"run_count\": {run_count}\n}}")
+        format!("{{\n\"{program_name}\": {{\n\"run_time_ns\": {run_time_ns},\n\"run_count\": {run_count}\n}}\n}}")
     }
 }
