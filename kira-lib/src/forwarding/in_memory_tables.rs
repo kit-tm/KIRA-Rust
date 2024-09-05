@@ -20,7 +20,10 @@ impl InMemoryFwdTables {
 
     /// Returns the entry by [NodeId].
     pub fn node_id_entry(&self, node_id: &NodeId) -> Option<&NodeIdEntry> {
-        self.node_id_table.get(&NodeIdSubnet { node_id: node_id.clone(), prefix_length: 0 })
+        self.node_id_table.get(&NodeIdSubnet {
+            node_id: node_id.clone(),
+            prefix_length: 0,
+        })
     }
 
     /// Returns the entry by incoming [PathId].
@@ -129,7 +132,7 @@ impl PathIdTable for InMemoryFwdTables {
             Ok(None)
         }
     }
-    
+
     fn create_or_update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
         let in_path_id = match entry {
             PathIdEntry::Decapsulate(ref entry) => entry.in_path_id.clone(),
@@ -144,32 +147,34 @@ impl PathIdTable for InMemoryFwdTables {
     }
 }
 
-impl ForwardingTables for InMemoryFwdTables {}
+impl ForwardingTables for InMemoryFwdTables {
+    fn stats(&self) -> String {
+        format!("{{\n\"in_memory_fwd_tables\": {{\n\"run_time_ns\": null\n\"run_count\": null\n}}")
+    }
+}
 
 impl Extend<NodeIdEntry> for InMemoryFwdTables {
     fn extend<T: IntoIterator<Item = NodeIdEntry>>(&mut self, iter: T) {
-        let entries = iter
-            .into_iter()
-            .map(|entry| {
-                let destination = match entry {
-                    NodeIdEntry::Forward(ref entry) => entry.destination.clone(),
-                    NodeIdEntry::Encapsulate(ref entry) => entry.destination.clone(),
-                };
-                (destination, entry)});
+        let entries = iter.into_iter().map(|entry| {
+            let destination = match entry {
+                NodeIdEntry::Forward(ref entry) => entry.destination.clone(),
+                NodeIdEntry::Encapsulate(ref entry) => entry.destination.clone(),
+            };
+            (destination, entry)
+        });
         self.node_id_table.extend(entries);
     }
 }
 
 impl Extend<PathIdEntry> for InMemoryFwdTables {
     fn extend<T: IntoIterator<Item = PathIdEntry>>(&mut self, iter: T) {
-        let entries = iter
-            .into_iter()
-            .map(|entry| {
-                let in_path_id = match entry {
-                    PathIdEntry::Decapsulate(ref entry) => entry.in_path_id.clone(),
-                    PathIdEntry::Forward(ref entry) => entry.in_path_id.clone(),
-                };
-                (in_path_id, entry)});
+        let entries = iter.into_iter().map(|entry| {
+            let in_path_id = match entry {
+                PathIdEntry::Decapsulate(ref entry) => entry.in_path_id.clone(),
+                PathIdEntry::Forward(ref entry) => entry.in_path_id.clone(),
+            };
+            (in_path_id, entry)
+        });
         self.path_id_table.extend(entries);
     }
 }

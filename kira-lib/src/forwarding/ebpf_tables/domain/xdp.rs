@@ -88,4 +88,8 @@ impl XdpHandle {
 
         log::debug!("Detached physical neighbor: {physical_neighbor}");
     }
+
+    pub(crate) fn xdp(&self) -> &Xdp {
+        &self.xdp
+    }
 }

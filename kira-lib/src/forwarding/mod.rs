@@ -172,4 +172,6 @@ pub trait PathIdTable {
 }
 
 /// CRUD access interface to the whole forwarding layer and its forwarding tables.
-pub trait ForwardingTables: NodeIdTable + PathIdTable {}
+pub trait ForwardingTables: NodeIdTable + PathIdTable {
+    fn stats(&self) -> String;
+}

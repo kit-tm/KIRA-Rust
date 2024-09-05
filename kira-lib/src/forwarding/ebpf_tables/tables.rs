@@ -394,4 +394,15 @@ where
     EbpfFwdTablesError: From<<E as PathIdEntryStrategy>::Error>,
     EbpfFwdTablesError: From<<E as NodeIdEntryStrategy>::Error>,
 {
+    fn stats(&self) -> String {
+        let xdp = self.xdp.xdp();
+        let Ok(info) = xdp.info() else {
+            return "{\n}".to_string();
+        };
+        let program_name = String::from_utf8_lossy(info.name());
+        let run_count = info.run_count();
+        let run_time_ns = info.run_time().as_nanos();
+
+        format!("{{\n\"{program_name}\": {{\n\"run_time_ns\": {run_time_ns}\n\"run_count\": {run_count}\n}}")
+    }
 }
