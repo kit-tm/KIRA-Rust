@@ -156,7 +156,7 @@ impl<H, E> EbpfFwdTablesBuilder<H, E> {
         }
 
         EbpfFwdTables::new(
-            self.bpf.expect("Bpf should have been set on build time"),
+            &mut self.bpf.expect("Bpf should have been set on build time"),
             self.root_id,
             self.next_hop_context,
             strategy,
@@ -177,7 +177,7 @@ where
 
         let entry_strategy = E::with_bpf(bpf)?;
         EbpfFwdTables::new(
-            self.bpf.expect("Bpf should have been set on build time"),
+            &mut self.bpf.expect("Bpf should have been set on build time"),
             self.root_id,
             self.next_hop_context,
             entry_strategy,
@@ -205,7 +205,7 @@ impl<H, E> EbpfFwdTables<H, E> {
 }
 impl<H, E> EbpfFwdTables<H, E> {
     pub fn new(
-        mut bpf: Bpf,
+        bpf: &mut Bpf,
         root_id: NodeId,
         next_hop_context: H,
         entry_strategy: E,
@@ -214,7 +214,7 @@ impl<H, E> EbpfFwdTables<H, E> {
         // TODO bump_memlock_rlimit
 
         // HACK obtain actual Xdp program
-        let xdp = ebpf_utils::load_xdp(&mut bpf)?;
+        let xdp = ebpf_utils::load_xdp(bpf)?;
         ebpf_utils::pin_xdp(xdp, "kira-forwarding", "xdp_forwarding")?;
         let mut xdp = ebpf_utils::load_pinned_xdp("kira-forwarding", "xdp_forwarding")?;
 

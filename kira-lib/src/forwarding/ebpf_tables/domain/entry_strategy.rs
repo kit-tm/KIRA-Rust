@@ -10,7 +10,6 @@ pub use kira_bpf_common::domain::kira::forwarding::TablesHandle; // make usable
 
 use crate::domain::{NodeIdSubnet, PathId};
 use crate::forwarding::ebpf_tables::domain::context::PathIdEntryContext;
-use crate::forwarding::ebpf_tables::EbpfFwdTablesError;
 use crate::forwarding::{NodeIdEntry, PathIdEntry};
 
 pub trait NodeIdEntryStrategy {
