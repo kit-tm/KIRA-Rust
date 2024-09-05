@@ -2,7 +2,7 @@ use std::borrow::BorrowMut;
 
 use kira_bpf_common::aya::maps::{MapData, MapError};
 
-use kira_bpf_common::aya::Bpf;
+use kira_bpf_common::aya::Ebpf;
 use kira_bpf_common::domain::kira as kira_bpf;
 use kira_bpf_common::domain::kira::forwarding::maps;
 use kira_bpf_common::domain::kira::forwarding::maps::NextHop;
@@ -167,13 +167,13 @@ pub trait EbpfEntryStrategy:
     + Sized
 {
     type Error;
-    fn with_bpf(bpf: &mut Bpf) -> Result<Self, <Self as EbpfEntryStrategy>::Error>;
+    fn with_bpf(bpf: &mut Ebpf) -> Result<Self, <Self as EbpfEntryStrategy>::Error>;
 }
 
 impl EbpfEntryStrategy for TablesHandle<MapData> {
     type Error = MapError;
 
-    fn with_bpf(bpf: &mut Bpf) -> Result<Self, <Self as EbpfEntryStrategy>::Error> {
+    fn with_bpf(bpf: &mut Ebpf) -> Result<Self, <Self as EbpfEntryStrategy>::Error> {
         Ok(Self::new(bpf)?)
     }
 }

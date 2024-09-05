@@ -1,5 +1,5 @@
 #[cfg(feature = "ebpf-log")]
-use aya_log::BpfLogger;
+use aya_log::EbpfLogger;
 
 use derive_more::From;
 use std::marker::PhantomData;
@@ -8,7 +8,7 @@ use thiserror::Error;
 
 use kira_bpf_common::ebpf_utils;
 use kira_bpf_common::{
-    aya::{maps::MapError, programs::ProgramError, Bpf, BpfError},
+    aya::{maps::MapError, programs::ProgramError, Ebpf, EbpfError},
     domain::kira::forwarding::maps::NextHop,
     ebpf_utils::EbpfUtilError,
 };
@@ -33,7 +33,7 @@ pub enum EbpfFwdTablesError {
     #[error(transparent)]
     ProgramError(ProgramError),
     #[error(transparent)]
-    EbpfError(BpfError),
+    EbpfError(EbpfError),
     #[error(transparent)]
     EbpfUtilError(EbpfUtilError),
     #[error(transparent)]
@@ -55,7 +55,7 @@ pub struct EbpfFwdTablesBuilder<H, E> {
     root_id: NodeId,
     next_hop_context: H,
     entry_strategy: PhantomData<E>, // for builder() method
-    bpf: Option<Bpf>,
+    bpf: Option<Ebpf>,
     attach_type: XdpAttachType,
 
     #[cfg(feature = "ebpf-log")]
@@ -98,19 +98,19 @@ impl<H, E> EbpfFwdTablesBuilder<H, E> {
         self
     }
 
-    /// Use [Bpf] for constructing the [EbpfFwdTables].
+    /// Use [Ebpf] for constructing the [EbpfFwdTables].
     ///
     /// # Safety
     ///
     /// Make sure the set the
     /// [ROOT_ID](kira_bpf_common::domain::kira::forwarding::maps::ROOT_ID)
-    /// yourself using [BpfLoader::set_global](kira_bpf_common::aya::BpfLoader::set_global).
-    pub unsafe fn bpf(mut self, bpf: Bpf) -> Self {
+    /// yourself using [EbpfLoader::set_global](kira_bpf_common::aya::EbpfLoader::set_global).
+    pub unsafe fn bpf(mut self, bpf: Ebpf) -> Self {
         self.bpf = Some(bpf);
         self
     }
 
-    /// Loads [Bpf] from the given [Path].
+    /// Loads [Ebpf] from the given [Path].
     ///
     /// This function also sets the
     /// [ROOT_ID](kira_bpf_common::domain::kira::forwarding::maps::ROOT_ID)
@@ -125,7 +125,7 @@ impl<H, E> EbpfFwdTablesBuilder<H, E> {
         Ok(self)
     }
 
-    /// Initialize the [BpfLogger].
+    /// Initialize the [EbpfLogger].
     ///
     /// Requires that the builder is inside a tokio runtime.
     ///
@@ -149,14 +149,14 @@ impl<H, E> EbpfFwdTablesBuilder<H, E> {
             let bpf = self
                 .bpf
                 .as_mut()
-                .expect("Bpf should have been set with `Self::bpf`");
-            if BpfLogger::init(bpf).is_err() {
-                log::warn!("Unable to initialize BpfLogger");
+                .expect("Ebpf should have been set with `Self::bpf`");
+            if EbpfLogger::init(bpf).is_err() {
+                log::warn!("Unable to initialize EbpfLogger");
             }
         }
 
         EbpfFwdTables::new(
-            &mut self.bpf.expect("Bpf should have been set on build time"),
+            &mut self.bpf.expect("Ebpf should have been set on build time"),
             self.root_id,
             self.next_hop_context,
             strategy,
@@ -173,11 +173,11 @@ where
         let bpf = self
             .bpf
             .as_mut()
-            .expect("Bpf should have been set with `Self::bpf`");
+            .expect("Ebpf should have been set with `Self::bpf`");
 
         let entry_strategy = E::with_bpf(bpf)?;
         EbpfFwdTables::new(
-            &mut self.bpf.expect("Bpf should have been set on build time"),
+            &mut self.bpf.expect("Ebpf should have been set on build time"),
             self.root_id,
             self.next_hop_context,
             entry_strategy,
@@ -205,7 +205,7 @@ impl<H, E> EbpfFwdTables<H, E> {
 }
 impl<H, E> EbpfFwdTables<H, E> {
     pub fn new(
-        bpf: &mut Bpf,
+        bpf: &mut Ebpf,
         root_id: NodeId,
         next_hop_context: H,
         entry_strategy: E,

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 
 use kira_bpf_common::aya::programs::{xdp::XdpLink, Xdp, XdpFlags};
-use kira_bpf_common::aya::BpfError;
+use kira_bpf_common::aya::EbpfError;
 
 use crate::domain::NodeId;
 
@@ -51,7 +51,7 @@ impl XdpHandle {
         physical_neighbor: NodeId,
         iface: String,
         attach_type: XdpAttachType,
-    ) -> Result<(), BpfError> {
+    ) -> Result<(), EbpfError> {
         // if we already are attached to the interface
         // we don't need to attach again
         let attached_link = if let Some(attached_link) = self

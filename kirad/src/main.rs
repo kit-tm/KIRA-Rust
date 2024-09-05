@@ -150,7 +150,7 @@ fn main() {
             EbpfFwdTables::<PnetNextHopContext, _>::builder()
                 .root_id(root_id)
                 .bpf_from_file(args.bpf_binary)
-                .expect("Bpf file path should be valid")
+                .expect("Ebpf file path should be valid")
                 .init_log()
                 .build()
         });
