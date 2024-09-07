@@ -27,7 +27,7 @@ pub async fn create_kira_interface_async() -> Result<(), rtnetlink::Error> {
 
 pub fn create_nid_default_route() -> Result<(), String> {
     let output = Command::new("ip")
-        .args(["route", "add", "fc00::/112", "dev", "lo"])
+        .args(["route", "add", "fc00::/16", "dev", "lo"])
         .output()
         .expect("Failed to create default route");
 
@@ -37,11 +37,11 @@ pub fn create_nid_default_route() -> Result<(), String> {
         .expect("ip command externally terminated")
     {
         0 => {
-            log::trace!(target: "ebpf", "command \"ip route add fc00::/112 dev lo\" succeeded");
+            log::trace!(target: "ebpf", "command \"ip route add fc00::/16 dev lo\" succeeded");
         }
         status => {
             let error_message = String::from_utf8_lossy(&output.stderr);
-            log::error!(target: "ebpf", "command \"ip route add fc00::/112 dev lo\" failed with status code {} and error message {}",
+            log::error!(target: "ebpf", "command \"ip route add fc00::/16 dev lo\" failed with status code {} and error message {}",
                         status, error_message);
             return Err(error_message.to_string());
         }
@@ -52,7 +52,7 @@ pub fn create_nid_default_route() -> Result<(), String> {
 
 pub fn delete_nid_default_route() -> Result<(), String> {
     let output = Command::new("ip")
-        .args(["route", "delete", "fc00::/112"])
+        .args(["route", "delete", "fc00::/16"])
         .output()
         .expect("Failed to delete default route");
 
@@ -62,11 +62,11 @@ pub fn delete_nid_default_route() -> Result<(), String> {
         .expect("ip command externally terminated")
     {
         0 => {
-            log::trace!(target: "ebpf", "command \"ip route delete fc00::/112\" succeeded");
+            log::trace!(target: "ebpf", "command \"ip route delete fc00::/16\" succeeded");
         }
         status => {
             let error_message = String::from_utf8_lossy(&output.stderr);
-            log::error!(target: "ebpf", "command \"ip route delete fc00::/112\" failed with status code {} and error message {}",
+            log::error!(target: "ebpf", "command \"ip route delete fc00::/16\" failed with status code {} and error message {}",
                         status, error_message);
             return Err(error_message.to_string());
         }
