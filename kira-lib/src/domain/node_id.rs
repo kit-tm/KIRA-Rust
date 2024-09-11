@@ -257,7 +257,7 @@ impl From<NodeId> for NodeIdSubnet {
     fn from(value: NodeId) -> Self {
         Self {
             node_id: value,
-            prefix_length: SIZE,
+            prefix_length: SIZE * 8,
         }
     }
 }
