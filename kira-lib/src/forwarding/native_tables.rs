@@ -145,16 +145,18 @@ impl NodeIdTable for NativeFwdTables {
 
         match entry {
             NodeIdEntry::Forward(ref entry) => {
+                // FIXME: Don't exploit PNTable, just do it here
                 // known physical neighbors are already configured, so only configure new subnets
-                if prefix_len != 128 {
-                    let node_ip = format!(
-                        "{}/{}",
-                        Ipv6Addr::from(&entry.destination.node_id),
-                        prefix_len
-                    );
-                    log::trace!(target: "native_fwd_table", "Trying to replace neighbor route {:?} dst {:?}", &node_ip, &entry.out_interface.name);
-                    platform::replace_neighbor_route(&node_ip, &entry.out_interface.name).unwrap();
-                }
+                // WARNING: required for independent evaluation of nftables
+                //if prefix_len != 128 {
+                let node_ip = format!(
+                    "{}/{}",
+                    Ipv6Addr::from(&entry.destination.node_id),
+                    prefix_len
+                );
+                log::trace!(target: "native_fwd_table", "Trying to replace neighbor route {:?} dst {:?}", &node_ip, &entry.out_interface.name);
+                platform::replace_neighbor_route(&node_ip, &entry.out_interface.name).unwrap();
+                //}
             }
             NodeIdEntry::Encapsulate(ref entry) => {
                 let path_ip = Ipv6Addr::from(&entry.out_path_id).to_string();
