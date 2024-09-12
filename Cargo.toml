@@ -3,6 +3,7 @@ members = [
     "kira-lib",
     "kirad"
 ]
+resolver = "2"
 
 # Profile which optimizes the compiled binary for performance
 [profile.benchmark]
