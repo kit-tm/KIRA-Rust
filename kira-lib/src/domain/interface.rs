@@ -25,6 +25,10 @@ impl NetworkInterface {
             name: interface.name.clone(),
         }
     }
+
+    pub fn is_tunnel_interface(&self) -> bool {
+        self.name.starts_with("kira")
+    }
 }
 
 #[cfg(test)]

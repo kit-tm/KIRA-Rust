@@ -5,7 +5,6 @@ use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use clap::Parser;
 use kira_lib::forwarding::native_tables::NativeFwdTables;
@@ -13,17 +12,23 @@ use kira_lib::forwarding::platform;
 use kira_lib::hardware_events::{HardwareEvent, HardwareEventRegistry};
 use tokio::sync::{mpsc, RwLock};
 
-use kirad_lib::{Node, NodeConfig};
 use kira_lib::domain::NodeId;
 use kira_lib::messaging::format::ProtocolMessageFormat;
 use kira_lib::messaging::sync_wrapper::SyncWrapper;
 use kira_lib::messaging::{AsyncProtocolMessageReceiver, PNetInterfaceMonitor};
-use tokio::time::sleep;
+use kirad_lib::{Node, NodeConfig};
+use tracing_subscriber::prelude::*;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    #[clap(short, long, value_parser, env = "SOCKET_PORT", default_value = "19219")]
+    #[clap(
+        short,
+        long,
+        value_parser,
+        env = "SOCKET_PORT",
+        default_value = "19219"
+    )]
     socket_port: u16,
     #[clap(short, long, value_parser, env = "NODE_ID")]
     root_id: Option<NodeId>,
@@ -45,8 +50,12 @@ struct Args {
 }
 
 fn main() {
-    // Initialize the Logging Facade
-    env_logger::init();
+    // Setup tracing environment
+    let fmt_layer = tracing_subscriber::fmt::layer().with_ansi(false);
+    tracing_subscriber::registry()
+        .with(fmt_layer)
+        .with(tracing_subscriber::filter::EnvFilter::from_default_env())
+        .init();
 
     // Setup the single threaded async runtime
     let runtime = Arc::new(
@@ -59,7 +68,7 @@ fn main() {
     let args = Args::parse();
 
     let root_id: NodeId = args.root_id.unwrap_or_else(NodeId::random);
-    println!("Using id {}", root_id);
+    tracing::info!(%root_id, "Starting node...");
 
     // Initialize benchmark file
     let benchmark_writer: Option<BufWriter<File>> = args
@@ -70,7 +79,7 @@ fn main() {
             let path = PathBuf::from_str(path.as_ref())
                 .expect("invalid benchmark path")
                 .join(timestamp);
-            println!("Opening benchmark file {}", path.to_string_lossy());
+            tracing::trace!("Opening benchmark file {}", path.to_string_lossy());
             if let Some(parent_dir) = path.parent() {
                 if !parent_dir.exists() {
                     create_dir_all(parent_dir).expect("failed to create directories for benchmark");
@@ -130,7 +139,7 @@ fn main() {
     let addr = message_sender
         .local_addr()
         .expect("failed to get bind addr");
-    println!("Using Address: {}", addr);
+    tracing::info!(socket_address = %addr, "Bound to socket");
 
     let (pmr_sender, pmr_receiver) = mpsc::channel(1);
     let boxed_receiver: Box<dyn AsyncProtocolMessageReceiver + Send> = Box::new(message_receiver);

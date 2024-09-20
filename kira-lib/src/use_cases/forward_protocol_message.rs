@@ -84,7 +84,7 @@ where
                 return None
             }
 
-            if !lock.contains(neighbor_id) {
+            if !lock.contains(neighbor_id)  && !interface.is_tunnel_interface() {
                 if let Some(replaced) = lock.insert(neighbor_id.clone(), interface.clone()) {
                     // Not allowed to happen as lock is held
                     log::warn!(

@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::domain::{NodeId, Path};
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-struct Entry {
+pub struct Entry {
     valid: bool,
     neighbors: HashSet<NodeId>,
 }
@@ -22,7 +22,7 @@ impl Entry {
 pub struct VicinityGraph {
     root_id: NodeId,
     // All physical neighbors of a Node and the node itself
-    neighbors: HashMap<NodeId, Entry>,
+    pub neighbors: HashMap<NodeId, Entry>,
 }
 
 impl VicinityGraph {
@@ -54,6 +54,13 @@ impl VicinityGraph {
     /// be extended with the given neighbors instead of replacing.
     /// If replacement is required the method [insert](VicinityGraph::insert) should be used.
     pub fn add(&mut self, node: NodeId, physical_neighbors: HashSet<NodeId>) {
+        // Ensure bidirectional links
+        for neighbor in &physical_neighbors {
+            if let Some(neighbors) = self.neighbors.get_mut(&neighbor) {
+                neighbors.neighbors.insert(node.clone());
+            }
+        }
+
         if let Some(neighbors) = self.neighbors.get_mut(&node) {
             neighbors.neighbors.extend(physical_neighbors);
         } else {

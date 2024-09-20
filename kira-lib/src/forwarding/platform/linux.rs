@@ -243,6 +243,27 @@ pub fn create_kira_interface() -> Result<(), String> {
     }
 
     let output = Command::new("ip")
+        .args(["link", "set", "addrgenmode", "none", "dev", "kira"])
+        .output()
+        .expect("failed to disable link local addresses on kira interface");
+
+    match output
+        .status
+        .code()
+        .expect("ip command externally terminated")
+    {
+        0 => {
+            log::trace!(target: "linux", "command \"ip link set addrgenmode none dev kira\" succeeded");
+        }
+        status => {
+            let error_message = String::from_utf8_lossy(&output.stderr);
+            log::error!(target: "linux", "command \"ip link set addrgenmode none dev kira\" failed with status code {} and error message {}",
+                        status, error_message);
+            return Err(error_message.to_string());
+        }
+    }
+
+    let output = Command::new("ip")
         .args(["link", "set", "kira", "up"])
         .output()
         .expect("failed to enable kira interface");
@@ -263,7 +284,7 @@ pub fn create_kira_interface() -> Result<(), String> {
         }
     }
 
-    return Ok(());
+    Ok(())
 }
 
 pub fn delete_kira_interface() -> Result<(), String> {

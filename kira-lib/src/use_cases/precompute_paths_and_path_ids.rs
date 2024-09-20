@@ -84,7 +84,6 @@ where
         log::debug!(target: "precompute_paths_and_path_ids", "{:?}", graph);
         let mut entries = HashSet::new();
         for in_path in graph {
-            // FIXME don't install longer paths than vicinity radius
             let out_path =
                 Result::<Path, EmptyPathError>::from_iter(in_path.clone().into_iter().skip(1));
             if out_path.is_err() {
@@ -92,6 +91,12 @@ where
                 continue;
             }
             let out_path = out_path.unwrap();
+
+            // FIXME don't install longer paths than vicinity radius
+            if out_path.size() - 1 > self.config.vicinity_radius {
+                continue;
+            }
+
             let interface = context.pn_table().get(out_path.first()).cloned();
             if interface.is_none() {
                 log::warn!(target: "precompute_paths_and_path_ids", "VicinityGraph generated path over invalid neighbor");
@@ -104,7 +109,6 @@ where
             });
             entries.insert(entry);
         }
-        log::debug!(target: "precompute_paths_and_path_ids", "{:?}", entries);
         entries
     }
 

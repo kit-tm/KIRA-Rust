@@ -241,6 +241,10 @@ where
                         return;
                     }
                 };
+                if out_interface.is_tunnel_interface() {
+                    log::error!(target: "explicit_path_management", "Received PathSetupRequest for invalid physical neighbor {}; Ignoring", out_path.last());
+                    return;
+                }
                 let out_path_id = self.config.hasher.hash(&out_path);
                 let entry = PathIdEntry::Forward(PathIdForwardingEntry{
                     in_path_id: in_path_id.clone(),
