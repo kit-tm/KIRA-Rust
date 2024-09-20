@@ -7,12 +7,19 @@ use std::num::NonZeroU64;
 use crate::domain::{Contact, Link, NodeId, NotVia, StateSeqNr};
 use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreReqData, StoreRspData};
 use crate::messaging::source_route::SourceRoute;
+use std::fmt;
 
 /// Randomly generated number to uniquely identify a protocol message and its
 /// response.
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Nonce(u128);
+
+impl fmt::Display for Nonce {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 impl From<u128> for Nonce {
     fn from(value: u128) -> Self {

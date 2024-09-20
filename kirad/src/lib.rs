@@ -3,26 +3,29 @@ use std::error::Error;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::BufWriter;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::{StreamExt, TryFutureExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt};
 use kira_lib::use_cases::handle_api::HandleApi;
 use rtnetlink::{new_connection, Error as NlError};
 use signal_hook::consts::{SIGHUP, SIGINT, SIGKILL, SIGPIPE, SIGQUIT, SIGTERM};
 use signal_hook_tokio::Signals;
+use std::net::Ipv6Addr;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver, UnboundedSender};
 use tokio::time::Instant;
-use std::net::Ipv6Addr;
+use tracing::{span, Level};
 
 use kira_lib::broadcaster::Broadcaster;
 use kira_lib::context::{ContextConfig, SyncContext, UseCaseContext};
 use kira_lib::domain::bucket::DEFAULT_BUCKET_SIZE;
 use kira_lib::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
 use kira_lib::domain::unlimited_pn_routing_table::UnlimitedPNRoutingTable;
-use kira_lib::domain::{FlatRoutingTable, InOrderCycleRemover, NativePNTable, NetworkInterface, NodeId, PNSStrategy, ShortestFirstPathSimplifier};
+use kira_lib::domain::{
+    FlatRoutingTable, InOrderCycleRemover, NativePNTable, NetworkInterface, NodeId, PNSStrategy,
+    ShortestFirstPathSimplifier,
+};
 use kira_lib::forwarding::{ForwardingTables, NodeIdTable, PathIdTable};
 use kira_lib::hardware_events::HardwareEvent;
 use kira_lib::messaging::{
@@ -31,14 +34,16 @@ use kira_lib::messaging::{
 };
 use kira_lib::runtime::TokioRuntime;
 use kira_lib::use_cases::derive_fwd_table_entries::DeriveFwdTableEntries;
+use kira_lib::use_cases::distributed_hash_table::{
+    DefaultExpiringHashTable, DistributedHashTable, DistributedHashTableConfig,
+};
+use kira_lib::use_cases::distributed_hash_table_injector::DistributedHashTableInjector;
 use kira_lib::use_cases::explicit_path_management::{EPMConfig, ExplicitPathManagement};
 use kira_lib::use_cases::failure_handling::FailureHandling;
 use kira_lib::use_cases::forward_protocol_message::ForwardProtocolMessage;
 use kira_lib::use_cases::handle_contact_update::{HandleContactUpdate, HandleContactUpdateConfig};
 use kira_lib::use_cases::handle_overlay_discovery::HandleOverlayDiscovery;
-use kira_lib::use_cases::inject_messages::{
-    InjectMessages, InjectMessagesConfig, InjectionResult,
-};
+use kira_lib::use_cases::inject_messages::{InjectMessages, InjectMessagesConfig, InjectionResult};
 use kira_lib::use_cases::overlay_neighborhood_discovery::OverlayNeighborhoodDiscovery;
 use kira_lib::use_cases::path_probing::PathProbing;
 use kira_lib::use_cases::precompute_paths_and_path_ids::PrecomputePathIds;
@@ -48,8 +53,6 @@ use kira_lib::use_cases::{
     ContactEvent, EventHandler, HandlingResult, InjectionMessageData, UseCase, UseCaseEvent,
     UseCaseState,
 };
-use kira_lib::use_cases::distributed_hash_table::{DefaultExpiringHashTable, DistributedHashTable, DistributedHashTableConfig};
-use kira_lib::use_cases::distributed_hash_table_injector::DistributedHashTableInjector;
 
 use crate::benchmark_log::BenchmarkLog;
 use crate::errors::InjectMessageError;
@@ -290,8 +293,8 @@ where
         log::info!("Using NodeId {}", root_id);
         log::info!("Using bucket size k={}", BUCKET_SIZE);
 
-        let mut benchmark_log = BenchmarkLog::new();
-        let mut bench_file_writer = config.benchmark_path.map(BufWriter::new);
+        let mut _benchmark_log = BenchmarkLog::new();
+        let mut _bench_file_writer = config.benchmark_path.map(BufWriter::new);
 
         let (fan_in_sender, mut fan_in_receiver) =
             mpsc::channel::<(UseCaseEvent, Option<Instant>)>(100);
@@ -378,7 +381,7 @@ where
 
                         if message.source() == &root_node_id {
                             // ignoring messages from us
-                            log::warn!("Ignoring message from us [{:?}]", message);
+                            log::debug!("Ignoring message from us [{:?}]", message);
                             continue;
                         }
 
@@ -465,7 +468,6 @@ where
         #[cfg(feature = "api")]
         runtime.spawn(api::start_http_server(api_config));
 
-
         // Initialize the Use Cases
 
         let mut forward_message = ForwardProtocolMessage::default();
@@ -527,7 +529,11 @@ where
             log::error!("Failed to start explicit path management: {}", e);
         }
 
-        let mut distributed_hash_table: DistributedHashTable<_, DefaultExpiringHashTable, BUCKET_SIZE> = DistributedHashTable::new(DistributedHashTableConfig::default());
+        let mut distributed_hash_table: DistributedHashTable<
+            _,
+            DefaultExpiringHashTable,
+            BUCKET_SIZE,
+        > = DistributedHashTable::new(DistributedHashTableConfig::default());
         if let Err(e) = distributed_hash_table.start(&context) {
             log::error!("Failed to start distributed hash table UseCase: {}", e);
             return;
@@ -548,8 +554,11 @@ where
 
         let mut distributed_hash_table_injector = DistributedHashTableInjector::default();
         if let Err(e) = distributed_hash_table_injector.start(&context) {
-                log::error!("Failed to start distributed hash table injector UseCase: {}", e);
-                return;
+            log::error!(
+                "Failed to start distributed hash table injector UseCase: {}",
+                e
+            );
+            return;
         }
 
         // Initialize common tasks
@@ -566,7 +575,36 @@ where
         // IMPORTANT: The Runtime::block_on method drives progress in the CurrentThreadRuntime.
         //              Without that the tasks spawned in the runtime won't make any progress.
         while let Some((event, start_time)) = runtime.block_on(fan_in_receiver.recv()) {
-            log::trace!("Processing event {:?}", event);
+            let _span = match &event {
+                UseCaseEvent::Message(message, _) => {
+                    let nonce = match message.nonce() {
+                        Some(nonce) => nonce.to_string(),
+                        None => "None".to_string(),
+                    };
+                    span!(Level::DEBUG, "event", "type" = "Message", %nonce, source = %message.source())
+                }
+                UseCaseEvent::Hardware(event) => {
+                    span!(Level::DEBUG, "event", "type" = "Hardware", details = ?event)
+                }
+                UseCaseEvent::Contact(event) => {
+                    span!(Level::DEBUG, "event", "type" = "Contact", details = ?event)
+                }
+                UseCaseEvent::InjectMessage(nonce, _) => {
+                    span!(Level::DEBUG, "event", "type" = "InjectMessage", nonce = ?nonce)
+                }
+                UseCaseEvent::Shutdown => {
+                    span!(Level::DEBUG, "event", "type" = "Shutdown")
+                }
+                UseCaseEvent::API(event) => {
+                    span!(Level::DEBUG, "event", "type" = "API", details = ?event)
+                }
+                UseCaseEvent::ResyncNode(node_id, ssn) => {
+                    span!(Level::DEBUG, "event", "type" = "ResyncNode", %node_id, %ssn)
+                }
+                UseCaseEvent::Timer(id) => {
+                    span!(Level::DEBUG, "event", "type" = "Timer", %id)
+                }
+            }.entered();
 
             // Setup paths before we forward them to setup paths on intermediate nodes too
             match explicit_path_management.handle_event(&context, event.clone()) {
@@ -634,9 +672,11 @@ where
             {
                 log::error!("Injecting Messages returned error handling message: {}", e);
             }
-            if let Err(e) = distributed_hash_table_injector.handle_event(&context, event.clone())
-            {
-                log::error!("Injecting DHT Messages returned error handling message: {}", e);
+            if let Err(e) = distributed_hash_table_injector.handle_event(&context, event.clone()) {
+                log::error!(
+                    "Injecting DHT Messages returned error handling message: {}",
+                    e
+                );
             }
 
             if let Err(e) = handle_api.handle_event(&context, event.clone()) {
@@ -686,21 +726,22 @@ where
             }
         }
 
-        // remove IP addresses from interfaces 
-        runtime.block_on(async {
-            let (connection, handle, _) = new_connection().unwrap();
-            runtime.spawn(connection);
-            let mut addresses = handle
-                .address()
-                .get()
-                .set_address_filter(Ipv6Addr::from(&root_id).into())
-                .execute();
-            while let Some(addr) = addresses.try_next().await? {
-                handle.address().del(addr).execute().await?;
-            }
-            Ok::<(), NlError>(())
-        }).expect("removing Ips works");
-
+        // remove IP addresses from interfaces
+        runtime
+            .block_on(async {
+                let (connection, handle, _) = new_connection().unwrap();
+                runtime.spawn(connection);
+                let mut addresses = handle
+                    .address()
+                    .get()
+                    .set_address_filter(Ipv6Addr::from(&root_id).into())
+                    .execute();
+                while let Some(addr) = addresses.try_next().await? {
+                    handle.address().del(addr).execute().await?;
+                }
+                Ok::<(), NlError>(())
+            })
+            .expect("removing Ips should work");
 
         log::debug!("Shutting down");
         log::logger().flush();
