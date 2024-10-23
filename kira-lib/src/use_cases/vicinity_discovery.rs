@@ -267,7 +267,10 @@ where
                         (id, rt_lock
                             .contact(id)
                             .cloned()
-                            .ok_or(VDError::NeighborInconsistency))
+                            .ok_or_else(|| {
+                                log::error!(target: "vicinity_discovery", "No contact found for physical neighbor {}", id);
+                                VDError::NeighborInconsistency
+                            }))
                     })
                     .filter_map(|(id, result)| match result {
                         Ok(contact) => Some(contact),
@@ -364,6 +367,7 @@ where
             for pn_id in neighbors {
                 let contact = rt_lock.contact(pn_id).cloned();
                 if contact.is_none() {
+                    log::error!(target: "vicinity_discovery", "No contact found for physical neighbor {}", pn_id);
                     return Err(VDError::NeighborInconsistency);
                 }
                 contacts.push(contact.unwrap());
@@ -527,6 +531,7 @@ where
                         // check rt contact for expected ssn
                         let rt = context.routing_table();
                         let Some(contact) = rt.contact(&source) else {
+                            log::error!(target: "vicinity_discovery", "No contact found for physical neighbor {}", source);
                             return Err(VDError::NeighborInconsistency);
                         };
 

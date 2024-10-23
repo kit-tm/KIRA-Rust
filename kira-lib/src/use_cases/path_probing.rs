@@ -194,7 +194,7 @@ where
             match lock.contact_mut(&contacts_id) {
                 Some(mut contact) => {
                     *contact.state_mut() = ContactState::Invalid;
-                    log::trace!(target: "path_probing", "Invalidated contact due of timer [path: {}]", contact.path());
+                    log::warn!(target: "path_probing", "Invalidated contact due of timer [path: {}]", contact.path());
                 }
                 None => {
                     log::warn!(target: "path_probing", "Removed timeout for non existent contact {}", contacts_id)
@@ -228,7 +228,7 @@ where
             match lock.contact_mut(&contacts_id) {
                 Some(mut contact) => {
                     *contact.state_mut() = ContactState::Invalid;
-                    log::trace!(target: "path_probing", "Invalidated contact {} because ot segment failure", contact.id())
+                    log::warn!(target: "path_probing", "Invalidated contact {} because ot segment failure", contact.id())
                 }
                 None => {
                     log::warn!(target: "path_probing", "Removed timeout for non existent contact {}", contacts_id)
@@ -353,7 +353,7 @@ where
 
                     self.remove_from_tracked_messages(nonce)?;
 
-                    log::debug!(target: "path_probing", "Probing {} was successful!", source);
+                    log::trace!(target: "path_probing", "Probing {} was successful!", source);
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::Error(req), _) => {
