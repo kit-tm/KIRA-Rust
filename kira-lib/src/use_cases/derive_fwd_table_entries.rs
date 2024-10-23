@@ -183,7 +183,12 @@ where
         let iter = rt.bucket_by_index(bucket_index).iter();
         let prefix_len = rt.get_bucket_prefix_length(bucket_index);
 
-        if let Some(closest) = iter.min_by_key(|c| c.path().size()) {
+        let root_id = context.root_id();
+
+        if let Some(closest) = iter
+            .filter(|c| c.id() != root_id)
+            .min_by_key(|c| c.path().size())
+        {
             let subnet = NodeIdSubnet {
                 node_id: closest.id().prefix(prefix_len),
                 prefix_length: prefix_len,
@@ -274,8 +279,8 @@ where
         let in_path_id = self.config.hasher.hash(&in_path);
 
         // Note: currently we follow the complete path and don't decapsulate early:
-        // This is because the inner destination could be not a physical neighbor, 
-        // which would cause the packet to be rerouted according to the 
+        // This is because the inner destination could be not a physical neighbor,
+        // which would cause the packet to be rerouted according to the
         // locally installed routes instead of being forwarded to the next hop of the path.
 
         // As soon as a solution is found for forwarding early decapsulated packets
@@ -337,6 +342,7 @@ where
             }
             UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {
                 if &ContactState::Valid != new.state() && &ContactState::Valid == old.state() {
+                    log::debug!(target: "derive_fwd_table_entries", "Contact {:?} changed to invalid state", new);
                     // if changed to invalid state => remove
                     self.remove_node_id_entry(context, new.id())?;
                     self.remove_path_id_entry(context, new)?;
@@ -863,7 +869,10 @@ mod tests {
         );
         let path_id_entry = path_id_entry.unwrap();
         assert_eq!(&path_id_entry.in_path_id, &new_in_path_id);
-        assert_eq!(path_id_entry.out_path_id.as_ref().unwrap(), &new_out_path_id);
+        assert_eq!(
+            path_id_entry.out_path_id.as_ref().unwrap(),
+            &new_out_path_id
+        );
         //assert_eq!(&path_id_entry.out_interface, &interface);
     }
 }
