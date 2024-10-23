@@ -42,8 +42,7 @@ impl PNetInterfaceMonitor {
         }
     }
 
-    /// Returns filtered list of relevant interfaces present at the moment.
-    fn new_interfaces(&self) -> HashSet<datalink::NetworkInterface> {
+    fn filtered_interfaces(&self) -> HashSet<datalink::NetworkInterface> {
         fn is_link_local(ip: &&IpNetwork) -> bool {
             let IpNetwork::V6(ip) = ip else {
                 return false;
@@ -52,13 +51,8 @@ impl PNetInterfaceMonitor {
             let ll_network: Ipv6Network = "fe80::/64".parse().unwrap();
             ll_network.contains(ip.ip())
         }
-
-        let interfaces = datalink::interfaces();
-
-        // observation: all relevant interfaces have a MAC != 00:00:00:00:00:00, so maybe we can filter out those
-        let interfaces = interfaces
+        datalink::interfaces()
             .into_iter()
-            // filter out non-working interfaces
             .filter(|i| {
                 i.is_up()
                     && !i.is_loopback()
@@ -66,17 +60,15 @@ impl PNetInterfaceMonitor {
                     && !i.name.starts_with("kira")
                     && !i.name.starts_with("tunnel")
             })
-            // filter out interfaces we want to ignore
-            .filter(|i| !self.excluded_interfaces.contains(&i.index));
-
-        HashSet::from_iter(interfaces)
+            .filter(|i| !self.excluded_interfaces.contains(&i.index))
+            .collect()
     }
 
     /// Refreshes the interface information cache by blocking the inner lock.
     pub fn blocking_refresh(&self) {
         let mut interfaces = self.interfaces.blocking_write();
 
-        let new_interfaces = self.new_interfaces();
+        let new_interfaces = self.filtered_interfaces();
 
         let (added, removed) = self.convert_to_events(interfaces.clone(), new_interfaces.clone());
         if let Some(added) = added {
@@ -98,7 +90,7 @@ impl PNetInterfaceMonitor {
     pub async fn refresh(&self) {
         let mut interfaces = self.interfaces.write().await;
 
-        let new_interfaces = self.new_interfaces();
+        let new_interfaces = self.filtered_interfaces();
 
         let (added, removed) = self.convert_to_events(interfaces.clone(), new_interfaces.clone());
         if let Some(added) = added {
@@ -218,12 +210,7 @@ impl AsyncInterfaceMapper for PNetInterfaceMonitor {
 
     async fn get_available(&self) -> Vec<u32> {
         self.refresh().await;
-        self.interfaces
-            .read()
-            .await
-            .iter()
-            .map(|i| i.index)
-            .collect()
+        self.filtered_interfaces().iter().map(|i| i.index).collect()
     }
 }
 
