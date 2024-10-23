@@ -5,6 +5,7 @@ import networkx as nx
 import random
 import time
 from dataclasses import dataclass
+import json
 
 from mininet.net import Containernet
 from mininet.cli import CLI
@@ -92,9 +93,14 @@ class TestRunner:
            net.stop()
 
     def create(self, net):
+        node_map = {}
         for node in self.topology.nodes:
             container = self.create_container(net, self.topology.nodes[node]["config"])
             self.topology.nodes[node]["container"] = container
+            node_map[node] = self.topology.nodes[node]["config"].node_id.upper()
+
+        with open('idmap.json', 'w') as file:
+            json.dump(node_map, file)
 
         for (x, y) in self.topology.edges:
             x = self.topology.nodes[x]["container"]
