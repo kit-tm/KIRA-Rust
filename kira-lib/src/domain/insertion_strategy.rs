@@ -230,7 +230,7 @@ where
         }
         // If the first element is no physical neighbor
         if !pn_table.contains(contact.path().first()) {
-            log::trace!(
+            log::debug!(
                 target: "routing_table",
                 "Dropping contact info: first element not a physical neighbor [{}]",
                 contact
@@ -261,7 +261,7 @@ where
                 log::debug!(
                     target: "routing_table",
                     "Inserted contact [{:?}]",
-                    contact
+                    contact.path()
                 );
                 InsertionStrategyResult::Inserted
             }

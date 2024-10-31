@@ -72,3 +72,6 @@ Currently, you can only blacklist interfaces using the `kirad@.service` by using
 
 This will exclude the interface `4` and `2` interface from being managed by the routing daemon.
 You can obtain a list of all your interfaces by running `ip link`.
+
+## Running docker test scenarios
+Check [tests/README.md](/tests/README.md) for further information.

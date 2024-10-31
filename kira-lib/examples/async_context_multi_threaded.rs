@@ -89,6 +89,11 @@ fn main() {
                 }
             };
 
+            if message.source() == &root_node_id {
+                // ignoring messages from us
+                continue;
+            }
+
             if let Err(e) =
                 receiver_broadcaster.send(UseCaseEvent::Message(message.clone(), interface.clone()))
             {

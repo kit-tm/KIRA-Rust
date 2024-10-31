@@ -67,7 +67,7 @@ impl<C, P> UdpReceiver<C, P> {
         if let Err(err) =
             udp_socket.join_multicast_v6(&Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), 0)
         {
-            log::trace!("Error joining multicast group: {:?}", err);
+            log::warn!("Error joining multicast group: {:?}", err);
         }
 
         let socket = Arc::new(udp_socket);
@@ -124,6 +124,7 @@ where
     P: AsyncInterfaceMapper + Send + Sync,
     C: AsyncIpCache + Send + Sync,
 {
+    #[tracing::instrument(name = "recv_packet", level = "trace", skip(self))]
     async fn recv_timeout(
         &mut self,
         timeout: Option<Duration>,
@@ -142,7 +143,7 @@ where
         let (received_bytes, received_from) = match receive_with_optional_timeout {
             Ok(received) => received,
             Err(e) => {
-                log::error!("Failed to receive data from socket: {}", e);
+                tracing::error!(%e, "Failed to receive data from socket");
                 return Err(RecvError::IoError(Box::new(e)));
             }
         };
@@ -158,7 +159,7 @@ where
 
         // FIXME ignore scope_id 0 (probably caused by ipv6 attached to lo)
         if received_from.scope_id() == 0 {
-            log::warn!("Ignoring message with scope_id 0");
+            tracing::warn!("Ignoring message with scope_id 0");
             return Ok(None);
         }
 
@@ -166,7 +167,7 @@ where
         let interface = NetworkInterface::new(received_from.scope_id());
 
         if let Some(message) = &message {
-            log::trace!(target: "message_receiver", "Received {:?} from {}", &message, received_from);
+            tracing::trace!(target: "message_receiver", ?message, ?received_from);
 
             let previous_node = message.previous_hop();
 
@@ -176,11 +177,11 @@ where
                 .await
             {
                 if ip != received_from {
-                    log::trace!(
-                        "Replaced ip for {} ({} => {})",
-                        previous_node,
-                        ip,
-                        received_from.ip()
+                    tracing::trace!(
+                        %previous_node,
+                        old_address = %ip,
+                        new_address = %received_from.ip(),
+                        "Replaced address in ip cache",
                     );
                 }
             }

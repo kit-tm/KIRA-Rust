@@ -130,7 +130,7 @@ pub mod udp {
         if let Err(err) =
             udp_socket.join_multicast_v6(&Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), 0)
         {
-            log::trace!("Error joining multicast group: {:?}", err);
+            tracing::warn!(error = ?err, "Error joining multicast group");
         }
 
         let socket = Arc::new(udp_socket);

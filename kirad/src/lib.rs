@@ -381,7 +381,7 @@ where
 
                         if message.source() == &root_node_id {
                             // ignoring messages from us
-                            log::debug!("Ignoring message from us [{:?}]", message);
+                            log::trace!("Ignoring message from us [{:?}]", message);
                             continue;
                         }
 

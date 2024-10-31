@@ -52,41 +52,44 @@ class TestRunner:
     def run(self):
         net = Containernet()
         try:
-           self.create(net) 
-           net.start()
-
-           # run test pipline
-           time.sleep(10)
-           if ConnectivityTest.run(self.topology, net):
-               info("ConnectivityTest passed!")
-           else:
-               warn("ConnectivityTest failed!")
-               #CLI(net)
-           
-           failing_links = list((x,y) for x, y, data in self.topology.edges.data() if "fail" in data)
-           if len(failing_links) != 0:
-               for x, y in failing_links:
-                  info(f"Setting link {x}<->{y} down!")
-                  net.configLinkStatus(f"k{x}",f"k{y}", "down")
-
-               time.sleep(10)
-
-               if ConnectivityTest.run(self.topology, net):
-                   info("ConnectivityTest passed!")
-               else:
-                   warn("ConnectivityTest failed!")
-                   #CLI(net)
-               for x, y in failing_links:
-                  info(f"Setting link {x}<->{y} up!")
-                  net.configLinkStatus(f"k{x}",f"k{y}", "up")
-
-               time.sleep(10)
-
-               if ConnectivityTest.run(self.topology, net):
-                   info("ConnectivityTest passed!")
-               else:
-                   warn("ConnectivityTest failed!")
-                   CLI(net)
+            self.create(net) 
+            net.start()
+         
+            input("Press Enter to start the connectivity test")
+            
+            if ConnectivityTest.run(self.topology, net):
+                info("ConnectivityTest passed!")
+                CLI(net)
+            else:
+                warn("ConnectivityTest failed!")
+                CLI(net)
+            
+            failing_links = list((x,y) for x, y, data in self.topology.edges.data() if "fail" in data)
+            if len(failing_links) != 0:
+                for x, y in failing_links:
+                   info(f"Setting link {x}<->{y} down!")
+                   net.configLinkStatus(f"k{x}",f"k{y}", "down")
+ 
+                time.sleep(10)
+ 
+                if ConnectivityTest.run(self.topology, net):
+                    info("ConnectivityTest passed!")
+                    CLI(net)
+                else:
+                    warn("ConnectivityTest failed!")
+                    CLI(net)
+                for x, y in failing_links:
+                   info(f"Setting link {x}<->{y} up!")
+                   net.configLinkStatus(f"k{x}",f"k{y}", "up")
+ 
+                time.sleep(10)
+ 
+                if ConnectivityTest.run(self.topology, net):
+                    info("ConnectivityTest passed!")
+                    CLI(net)
+                else:
+                    warn("ConnectivityTest failed!")
+                    CLI(net)
 
         finally:
            input("Press Enter to stop the network")
@@ -121,8 +124,7 @@ class TestRunner:
         container_env_vars = {**env_vars, 'NODE_ID': config.node_id, 'RUST_LOG': 'debug'}
         return net.addDocker(config.name, dimage=config.image, sysctls=SYSCTLS,
                              ip=None, network_mode="none", dns=["127.0.0.1"],
-                             dcmd=DCMD, environment=container_env_vars,
-                             volumes=["/sys/kernel/debug/:/sys/kernel/debug/"])
+                             dcmd=DCMD, environment=container_env_vars)
 
     def generate_ipv6_address(self, node_id):
         hex_groups = [node_id[i:i+4].ljust(4, '0') for i in range(0, len(node_id), 4)]
@@ -138,7 +140,7 @@ def main(args):
     runner.run()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Test Execution Script')
+    parser = argparse.ArgumentParser(description='Test Execution Script with additional features')
     parser.add_argument('test_gml', type=str, help="The gml file")
     args = parser.parse_args()
     main(args)
