@@ -20,15 +20,17 @@ pub use state_seq_nr::*;
 
 pub mod bucket;
 pub mod contact;
+pub mod dht;
 pub mod insertion_strategy;
 pub mod interface;
 pub mod node_id;
 pub mod path;
 pub mod path_id;
 pub mod physical_neighbor_table;
+pub mod protocol_event;
 pub mod routing_table;
 pub mod state_seq_nr;
-pub mod dht;
+pub mod underlay;
 
 /// A physical connection between two nodes.
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]

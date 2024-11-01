@@ -116,6 +116,9 @@ pub trait UseCaseContext {
     type RoutingTable: Sized;
     type MessageSender: Sized;
     type Runtime: Sized;
+    // TODO: move insertion strategy inside RoutingTable
+    //    this will prohibit changing the routing table without calling
+    //    the required strategy and reduce the needless complexity of the context.
     type InsertionStrategy: Sized;
     type PhysicalNeighborTable: Sized;
     type ForwardingTables: Sized;
@@ -152,6 +155,8 @@ pub trait UseCaseContext {
     fn forwarding_tables_mut(&self) -> WriteGuard<'_, Self::ForwardingTables>;
 
     fn runtime(&self) -> &Self::Runtime;
+
+    fn runtime_mut(&mut self) -> &mut Self::Runtime;
 
     fn not_via(&self) -> ReadGuard<'_, HashSet<NotVia>>;
 

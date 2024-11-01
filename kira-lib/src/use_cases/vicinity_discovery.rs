@@ -8,9 +8,13 @@ use std::ops::Deref;
 use std::time::Duration;
 
 use rand::Rng;
+use tokio::runtime::Runtime;
 
 use crate::context::UseCaseContext;
-use crate::domain::{node_id, Contact, ContactState, NodeId, Path, RoutingTable, DEFAULT_BUCKET_SIZE, PNTable, NetworkInterface, StateSeqNr};
+use crate::domain::{
+    node_id, Contact, ContactState, NetworkInterface, NodeId, PNTable, Path, RoutingTable,
+    StateSeqNr, DEFAULT_BUCKET_SIZE,
+};
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -19,6 +23,8 @@ use crate::messaging::{
 };
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{ContactEvent, EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState};
+use crate::utils::sync::Sender;
+use crate::Output;
 
 /// Radius of the neighborhood considered as vicinity.
 ///
@@ -51,7 +57,7 @@ pub struct VicinityDiscoveryConfig {
     /// resynchronisation phase.
     pub resynch_count: usize,
     /// Maximum number of resynchronisation attempts after which the node is deleteted from the
-    /// resynchronisation queue. 
+    /// resynchronisation queue.
     pub max_resync_tries: usize,
 }
 
@@ -97,12 +103,12 @@ impl Error for VDError {}
 pub enum VDState {
     #[default]
     Initialized,
-    Running{
+    Running {
         last_timeout: Duration,
         hello_timer_id: TimerId,
         last_ssn: StateSeqNr,
         resync_timer_id: TimerId,
-        resync_queue: HashMap<NodeId, (StateSeqNr, usize)>
+        resync_queue: HashMap<NodeId, (StateSeqNr, usize)>,
     },
     Error,
 }
@@ -177,16 +183,17 @@ where
 {
     fn set_next_resync_timeout(&mut self, context: &C) {
         // only update if we are running already
-        if let VDState::Running { resync_timer_id, .. } = &mut self.state {
+        if let VDState::Running {
+            resync_timer_id, ..
+        } = &mut self.state
+        {
             let mut thread_rng = rand::thread_rng();
 
             let min_timeout = self.config.resync_timeout.mul_f32(0.5);
             let max_timout = self.config.resync_timeout.mul_f32(1.5);
 
             let random_timeout = thread_rng.gen_range(min_timeout..=max_timout);
-            *resync_timer_id = context
-                .runtime()
-                .register_timer(random_timeout);
+            *resync_timer_id = context.runtime().register_timer(random_timeout);
         }
     }
 }
@@ -390,11 +397,10 @@ where
     }
 }
 
-impl<C, const BUCKET_SIZE: usize> UseCase for VicinityDiscovery<C, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize, S> UseCase for VicinityDiscovery<C, BUCKET_SIZE>
 where
-    C: UseCaseContext,
-    C::MessageSender: ProtocolMessageSender,
-    C::Runtime: UseCaseRuntime,
+    C: UseCaseContext<Runtime = UseCaseRuntime<S>>,
+    S: Sender<Output>,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>,
 {
@@ -409,13 +415,11 @@ where
         let min_timeout = self.config.resync_timeout.mul_f32(0.5);
         let max_timout = self.config.resync_timeout.mul_f32(1.5);
         let random_timeout = thread_rng.gen_range(min_timeout..=max_timout);
-        let resync_timer_id = context
-            .runtime()
-            .register_timer(random_timeout);
+        let resync_timer_id = context.runtime().register_timer(random_timeout);
 
-        self.state = VDState::Running{
+        self.state = VDState::Running {
             last_timeout: self.config.initial_timeout,
-            hello_timer_id, 
+            hello_timer_id,
             last_ssn: context.pn_table().state_seq_nr().clone(),
             resync_queue: HashMap::default(),
             resync_timer_id,
@@ -429,11 +433,11 @@ where
     }
 }
 
-impl<C, const BUCKET_SIZE: usize> EventHandler for VicinityDiscovery<C, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize, S> EventHandler for VicinityDiscovery<C, BUCKET_SIZE>
 where
-    C: UseCaseContext,
+    C: UseCaseContext<Runtime = UseCaseRuntime<S>>,
     C::MessageSender: ProtocolMessageSender,
-    C::Runtime: UseCaseRuntime,
+    S: Sender<Output>,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>,
 {
@@ -448,7 +452,10 @@ where
     ) -> Result<(), Self::Error> {
         match (event.clone(), &mut self.state) {
             // ========== Vicinity Discovery - Query Route ==========
-            (UseCaseEvent::Contact(ContactEvent::New(contact)), VDState::Running { resync_queue, .. }) => {
+            (
+                UseCaseEvent::Contact(ContactEvent::New(contact)),
+                VDState::Running { resync_queue, .. },
+            ) => {
                 //if contact.path().size() <= VICINITY_RADIUS {
                 //    resync_queue.insert(contact.id().clone(), (contact.state_seq_nr().clone(), 0));
                 //}
@@ -469,7 +476,15 @@ where
                 self.send_query_route_rsp(context, request)?;
             }
             // ========== Physical Neighbor Discovery ==========
-            (UseCaseEvent::Timer(id), VDState::Running{last_timeout, hello_timer_id, last_ssn, ..}) if &id == hello_timer_id => {
+            (
+                UseCaseEvent::Timer(id),
+                VDState::Running {
+                    last_timeout,
+                    hello_timer_id,
+                    last_ssn,
+                    ..
+                },
+            ) if &id == hello_timer_id => {
                 let current_ssn = context.pn_table().state_seq_nr().clone();
 
                 // reset to initial timeout if ssn changed
@@ -500,7 +515,16 @@ where
 
                 self.send_hello(context)?;
             }
-            (UseCaseEvent::Message(ProtocolMessage::Hello(HelloMessage { source, source_state_seq_nr }), _), _) => {
+            (
+                UseCaseEvent::Message(
+                    ProtocolMessage::Hello(HelloMessage {
+                        source,
+                        source_state_seq_nr,
+                    }),
+                    _,
+                ),
+                _,
+            ) => {
                 if self.config.heuristic_enabled
                     && !deterministic_heuristic(
                         context.root_id(),
@@ -553,41 +577,54 @@ where
             }
             // reacting on InterfaceDown is done in the FailureHandling use-case
             // ========== Resynchronisation management ==========
-            (UseCaseEvent::ResyncNode(node_id, expected_ssn), VDState::Running{resync_queue, ..}) => {
+            (
+                UseCaseEvent::ResyncNode(node_id, expected_ssn),
+                VDState::Running { resync_queue, .. },
+            ) => {
                 // only update expected_ssn, if greater
                 if let Some((previous_expected_ssn, _)) = resync_queue.get_mut(&node_id) {
                     if *previous_expected_ssn < expected_ssn {
                         log::trace!(target: "vicinity_discovery", "Update expected state sequence number of node {}: {}", node_id, expected_ssn);
-                       *previous_expected_ssn = expected_ssn;
+                        *previous_expected_ssn = expected_ssn;
                     }
                 } else {
                     log::trace!(target: "vicinity_discovery", "Add node to resynchronisation queue: {}", node_id);
                     resync_queue.insert(node_id, (expected_ssn, 0));
                 }
             }
-            (UseCaseEvent::Timer(timer_id), VDState::Running {resync_timer_id, resync_queue, ..}) if &timer_id == resync_timer_id => {
-                let mut max_retries_reached = Vec::with_capacity(std::cmp::max(self.config.resynch_count, 10));
+            (
+                UseCaseEvent::Timer(timer_id),
+                VDState::Running {
+                    resync_timer_id,
+                    resync_queue,
+                    ..
+                },
+            ) if &timer_id == resync_timer_id => {
+                let mut max_retries_reached =
+                    Vec::with_capacity(std::cmp::max(self.config.resynch_count, 10));
 
-               // TODO refresh nodes in the lowest bucket first 
-               for (nid, (_, current_tries)) in resync_queue.iter_mut().take(self.config.resynch_count) {
-                   if context.pn_table().contains(nid) {
-                       Self::restricted_send_pn_disc_req(&context, nid.clone())?;
-                   } else {
-                       if let Some(contact) = context.routing_table().contact(&nid) {
+                // TODO refresh nodes in the lowest bucket first
+                for (nid, (_, current_tries)) in
+                    resync_queue.iter_mut().take(self.config.resynch_count)
+                {
+                    if context.pn_table().contains(nid) {
+                        Self::restricted_send_pn_disc_req(&context, nid.clone())?;
+                    } else {
+                        if let Some(contact) = context.routing_table().contact(&nid) {
                             Self::restricted_send_query_route_req(&context, contact.clone())?;
-                       }
-                   }
+                        }
+                    }
 
-                   *current_tries += 1;
-                   if *current_tries >= self.config.max_resync_tries {
-                       max_retries_reached.push(nid.clone());
-                   }
-               }
+                    *current_tries += 1;
+                    if *current_tries >= self.config.max_resync_tries {
+                        max_retries_reached.push(nid.clone());
+                    }
+                }
 
-               // FIXME this needs to be synced somehow to precompute_paths_and_path_ids
-               for nid_max_retries_reached in max_retries_reached {
-                   resync_queue.remove(&nid_max_retries_reached);
-               }
+                // FIXME this needs to be synced somehow to precompute_paths_and_path_ids
+                for nid_max_retries_reached in max_retries_reached {
+                    resync_queue.remove(&nid_max_retries_reached);
+                }
 
                 self.set_next_resync_timeout(&context);
             }
@@ -597,24 +634,35 @@ where
 
         // stopping resynchronisation process on receiving expected ssn
         match (event, &mut self.state) {
-            (UseCaseEvent::Message(ProtocolMessage::PNDiscReq(payload), _), VDState::Running{resync_queue, ..})
-                | (UseCaseEvent::Message(ProtocolMessage::PNDiscRsp(payload), _) , VDState::Running{resync_queue, ..})
-                | (UseCaseEvent::Message(ProtocolMessage::QueryRouteRsp(payload), _), VDState::Running{resync_queue, ..}) => {
-                    let source_ssn = &payload.source_state_seq_nr;
-                    let source_id = payload.source().clone();
-                    
-                    // TODO figure out if this actually works with a cloned source_id
-                    if let std::collections::hash_map::Entry::Occupied(entry) = resync_queue.entry(source_id.clone()) {
-                        let (expected_ssn, _) = entry.get();
-                        if source_ssn >= &expected_ssn {
-                            entry.remove();
-                            log::debug!(target: "vicinity_discovery", "No longer trying to resynchronise with node {}", source_id);
-                        } else {
-                            log::trace!(target: "vicinity_discovery", "Not received expected state sequence number ({}) of node {}: {}", expected_ssn, source_id, source_ssn);
-                        }
+            (
+                UseCaseEvent::Message(ProtocolMessage::PNDiscReq(payload), _),
+                VDState::Running { resync_queue, .. },
+            )
+            | (
+                UseCaseEvent::Message(ProtocolMessage::PNDiscRsp(payload), _),
+                VDState::Running { resync_queue, .. },
+            )
+            | (
+                UseCaseEvent::Message(ProtocolMessage::QueryRouteRsp(payload), _),
+                VDState::Running { resync_queue, .. },
+            ) => {
+                let source_ssn = &payload.source_state_seq_nr;
+                let source_id = payload.source().clone();
+
+                // TODO figure out if this actually works with a cloned source_id
+                if let std::collections::hash_map::Entry::Occupied(entry) =
+                    resync_queue.entry(source_id.clone())
+                {
+                    let (expected_ssn, _) = entry.get();
+                    if source_ssn >= &expected_ssn {
+                        entry.remove();
+                        log::debug!(target: "vicinity_discovery", "No longer trying to resynchronise with node {}", source_id);
                     } else {
-                        log::trace!(target: "vicinity_discovery", "Not expecting any state sequence number from {}", source_id);
+                        log::trace!(target: "vicinity_discovery", "Not received expected state sequence number ({}) of node {}: {}", expected_ssn, source_id, source_ssn);
                     }
+                } else {
+                    log::trace!(target: "vicinity_discovery", "Not expecting any state sequence number from {}", source_id);
+                }
             }
             _ => {}
         }
@@ -631,7 +679,10 @@ mod tests {
     use crate::broadcaster::MPSCBroadcaster;
     use crate::context::{ContextConfig, SyncContext, UseCaseContext};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{Contact, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable};
+    use crate::domain::{
+        Contact, InMemoryPNTable, InsertionStrategyResult, NetworkInterface, NodeId, PNTable, Path,
+        RoutingTable, StateSeqNr, TestInsertionStrategy,
+    };
     use crate::forwarding::in_memory_tables::InMemoryFwdTables;
     use crate::hardware_events::HardwareEvent::InterfacesUp;
     use crate::messaging::source_route::SourceRoute;
@@ -1462,10 +1513,7 @@ mod tests {
 
         let (sent_message, _) = sent_message.unwrap();
         assert!(
-            matches!(
-                    sent_message,
-                    ProtocolMessage::Hello(_)
-                ),
+            matches!(sent_message, ProtocolMessage::Hello(_)),
             "Expecting a hello message but received: {:?}",
             sent_message
         )
@@ -1514,7 +1562,6 @@ mod tests {
             timer_duration
         );
 
-
         let handle_result = use_case.handle_event(&context, UseCaseEvent::Timer(timer_id));
         assert!(
             handle_result.is_ok(),
@@ -1546,8 +1593,7 @@ mod tests {
             _ => panic!("Invalid state returned: {:?}", &use_case.state),
         };
         assert_eq!(
-            next_timer_duration,
-            use_case.config.initial_timeout,
+            next_timer_duration, use_case.config.initial_timeout,
             "Timeout should be reset to initial timeout since the ssn changed but was: {:?}",
             next_timer_duration
         );
@@ -1614,12 +1660,9 @@ mod tests {
             source_state_seq_nr: StateSeqNr::from(0),
         });
         let event = UseCaseEvent::Message(hello_msg, InMemoryMessageChannel::dummy_interface());
-        let handle_result = use_case.handle_event(
-            &context,
-            event,
-        );
+        let handle_result = use_case.handle_event(&context, event);
         assert!(
-           handle_result.is_ok(),
+            handle_result.is_ok(),
             "Handling returned an error: {:?}",
             handle_result
         );
@@ -1639,19 +1682,18 @@ mod tests {
 
         let (sent_message, _) = sent_message.unwrap();
         assert!(
-            matches!(
-                    sent_message,
-                    ProtocolMessage::PNDiscReq(_)
-                ),
+            matches!(sent_message, ProtocolMessage::PNDiscReq(_)),
             "Expecting a PNDiscReq message but received: {:?}",
             sent_message
         );
 
         // fake adding of PN
-        context.pn_table_mut().insert(sender_id.clone(), InMemoryMessageChannel::dummy_interface());
+        context
+            .pn_table_mut()
+            .insert(sender_id.clone(), InMemoryMessageChannel::dummy_interface());
         let contact = Contact::new(
             Path::from([root_id.clone(), sender_id.clone()]),
-            sent_message.source_state_seq_nr().clone()
+            sent_message.source_state_seq_nr().clone(),
         );
         let insertion_result = context.routing_table_mut().insert(contact);
         assert!(
@@ -1668,10 +1710,7 @@ mod tests {
             source_state_seq_nr: StateSeqNr::from(0),
         });
         let event = UseCaseEvent::Message(hello_msg, InMemoryMessageChannel::dummy_interface());
-        let handle_result = use_case.handle_event(
-            &context,
-            event,
-        );
+        let handle_result = use_case.handle_event(&context, event);
         assert!(
             handle_result.is_ok(),
             "Handling returned an error: {:?}",

@@ -1,0 +1,203 @@
+//! Interaction methods for [UseCase](crate::use_cases::UseCase) with (other) protocol instances.
+
+use std::collections::{BinaryHeap, VecDeque};
+use std::time::{Duration, Instant};
+use thiserror::Error;
+
+use crate::utils::sync::Sender;
+use crate::Output;
+use crate::{
+    domain::underlay::UnderlayNeighborId,
+    messaging::ProtocolMessage,
+    use_cases::{TimerId, UseCaseEvent},
+};
+
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum RuntimeError {
+    #[error("No sender present for delivering Output events")]
+    NoSender(),
+    #[error(transparent)]
+    SendingFailed(Box<dyn std::error::Error>),
+    #[error("Runtime doesn't know current time")]
+    NoTimeKnown(),
+}
+
+pub type Result<T> = core::result::Result<T, RuntimeError>;
+
+#[derive(Clone, Eq, PartialEq)]
+struct Timer {
+    due: Instant,
+    id: TimerId,
+}
+
+// reverse the order to get a min heap
+impl Ord for Timer {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.due
+            .cmp(&other.due)
+            .reverse()
+            .then_with(|| self.id.cmp(&other.id))
+    }
+}
+
+impl PartialOrd for Timer {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// Interface for the [UseCases](crate::use_cases::UseCase) to the runtime environment.
+pub struct UseCaseRuntime<S> {
+    counter: usize,
+    timers: BinaryHeap<Timer>,
+    tx_events: VecDeque<UseCaseEvent>,
+    sender: Option<S>,
+    current_time: Option<Instant>,
+}
+
+impl<S> Default for UseCaseRuntime<S> {
+    fn default() -> Self {
+        Self {
+            counter: 0,
+            timers: BinaryHeap::with_capacity(14), // heuristic: 1 / UseCase
+            tx_events: VecDeque::with_capacity(5),
+            sender: None,
+            current_time: None,
+        }
+    }
+}
+
+impl<S> UseCaseRuntime<S> {
+    /// Feeds an event into the event pipeline and to all [UseCases](crate::use_cases::UseCase).
+    pub fn spawn_event(&self, event: UseCaseEvent) {
+        // FIXME: protect UseCases from unauthorized sending of events (Timer, Contact, ...)
+        self.tx_events.push_back(event);
+    }
+
+    /// Get next [UseCaseEvent] for processing by the use cases.
+    ///
+    /// Normally this will yield the next internally buffered use case
+    /// but if a [Timer] is due it is going to yield a Timer event instead.
+    pub(crate) fn next_event(&mut self, now: Instant) -> Option<UseCaseEvent> {
+        self.current_time = Some(now);
+
+        // TODO: figure out if it's advantageous to firstly buffer all due Timer events
+        //  and then fire the first.
+
+        // enforce returning `Timer` events first
+        // so all use cases are up-to-date before processing buffered events
+        if let Some(mut next_timer) = self.timers.peek_mut() {
+            if *next_timer.due >= now {
+                let Timer { due, id } = next_timer.pop();
+                return Some(UseCaseEvent::Timer(id));
+            }
+        }
+
+        // yield buffered event
+        self.tx_events.pop_front()
+    }
+
+    /// Creates a timer which will later yield a TimerEvent.
+    ///
+    /// The returned TimerId is unique.
+    ///
+    /// It is important to call [next_event](Self::next_event)
+    /// **before** trying to register a timer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let runtime = UseCaseRuntime::default();
+    ///
+    /// let timer_id = runtime.register_timer(Instant::now() + Duration::from_secs(5));
+    /// std::thread::sleep(5);
+    /// assert_eq!(runtime.next_event(Instance::now()), UseCaseEvent::Timer(timer_id));
+    /// ```
+    pub fn register_timer(&mut self, duration: Duration) -> Result<TimerId> {
+        let due = self.current_time.ok_or(RuntimeError::NoTimeKnown())? + duration;
+        let id = self.counter.into();
+        let timer = Timer { due, id };
+
+        self.timers.push(timer);
+        // FIXME: handle overflow
+        self.counter += 1;
+
+        Ok(id)
+    }
+
+    /// Returns the next [Instant] a timer is due or None if there are no timers registered.
+    pub(crate) fn next_timeout(&self) -> Option<&Instant> {
+        self.timers.peek()
+    }
+
+    /// Updates the internal sender used for communicating
+    /// with different protocol peers.
+    ///
+    /// # Returns
+    ///
+    /// Old sender if present
+    pub(crate) fn update_sender(&mut self, sender: S) -> Option<S> {
+        self.sender.replace(sender)
+    }
+}
+
+impl<S: Sender<Output>> UseCaseRuntime<S> {
+    fn send_output(&mut self, output: Output) -> Result<()> {
+        let Some(mut sender) = self.sender else {
+            return Err(RuntimeError::NoSender());
+        };
+
+        sender
+            .send(output)
+            .map_err(|e| RuntimeError::SendingFailed(Box::new(e)))
+    }
+
+    /// Sends a [ProtocolMessage] to a different peer.
+    ///
+    /// The message will be routed via the underlay neighbor
+    /// corresponding to the specified `ulnid`.
+    pub fn send_message(
+        &mut self,
+        protocol_message: ProtocolMessage,
+        ulnid: UnderlayNeighborId,
+    ) -> Result<()> {
+        let output = Output::SendProtocolMessage(protocol_message, ulnid);
+        self.send_output(output)
+    }
+
+    /// Sends an [UpdateForwardingTables] request to the forwarding tables.
+    pub fn update_fwd_tables(&mut self, update: ()) -> Result<()> {
+        let output = Output::UpdateForwardingTables(());
+        self.send_output(output)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::collections::HashSet;
+    use std::time::Duration;
+
+    #[test]
+    fn no_timers_no_next_timeout() {
+        let runtime = UseCaseRuntime::default();
+
+        assert_eq!(runtime.next_timeout(), None);
+    }
+
+    #[test]
+    fn ten_unique_timer_ids() {
+        let mut runtime = UseCaseRuntime::default();
+        let timers = 10;
+        let mut seen_timers = HashSet::with_capacity(timers);
+
+        for i in 0..timers {
+            let timer_id = runtime.register_timer(Instant::now() + Duration::from_secs(i));
+            assert!(!seen_timers.contains(&timer_id));
+            seen_timers.push(timer_id);
+        }
+    }
+
+    // TODO: more unit tests
+}

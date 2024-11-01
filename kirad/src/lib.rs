@@ -61,6 +61,8 @@ mod benchmark_log;
 
 #[cfg(feature = "api")]
 pub mod api;
+pub mod format;
+pub mod io;
 
 #[derive(Default, Debug)]
 pub struct NodeConfig {
