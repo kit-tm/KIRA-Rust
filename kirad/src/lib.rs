@@ -777,7 +777,7 @@ mod errors {
                     write!(f, "Failed to send protocol message")
                 }
                 Self::Isolated => write!(f, "Failed to send protocol message; Node is isolated"),
-                Self::Timeout => write!(f, "Request took to long"),
+                Self::Timeout => write!(f, "Request took too long"),
             }
         }
     }
