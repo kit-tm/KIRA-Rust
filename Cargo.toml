@@ -1,5 +1,5 @@
 [workspace]
-members = [
+members = [ "kira-forwarding",
     "kira-lib",
     "kirad"
 ]

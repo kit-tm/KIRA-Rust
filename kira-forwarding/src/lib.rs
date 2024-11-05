@@ -2,18 +2,19 @@
 
 use std::fmt::{Debug, Display, Formatter};
 
-use crate::domain::path_id::PathId;
+use crate::domain::PathId;
 use crate::domain::{NetworkInterface, NodeId, NodeIdSubnet};
 
 pub use platform::*;
 
+pub mod domain;
 pub mod hasher;
 pub mod in_memory_tables;
 pub mod native_tables;
 pub mod platform;
 
 /// An entry in the [NodeIdTable] identified by the destination/contacts [NodeIdSubnet].
- #[derive(Debug, Eq, PartialEq, Clone, Hash)]
+#[derive(Debug, Eq, PartialEq, Clone, Hash)]
 pub enum NodeIdEntry {
     Forward(NodeIdForwardingEntry),
     Encapsulate(NodeIdEncapsulationEntry),
