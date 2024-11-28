@@ -209,7 +209,7 @@ where
                             let expected_ssn = entry.get();
                             // nothing new about the neighbor
                             if &source_ssn < expected_ssn {
-                                log::trace!(target: "precompute_paths_and_path_ids", "Ignoring physical neighbor update of {} as we expected newer data: {:?}", source, rtable_data);
+                                log::trace!(target: "precompute_paths_and_path_ids", "Ignoring physical neighbor update of {} as we expected newer data: {:?}", source, rtable_data.data);
                                 return Ok(());
                             }
 
@@ -231,7 +231,7 @@ where
                         if let Some(rt_contact) = context.routing_table().contact(&source) {
                             // nothing new about the neighbor
                             if &source_ssn <= rt_contact.state_seq_nr() {
-                                log::trace!(target: "precompute_paths_and_path_ids", "Ignoring physical neighbor update of {} without any new data: {:?}", source, rtable_data);
+                                log::debug!(target: "precompute_paths_and_path_ids", "Ignoring physical neighbor update of {} without any new data: {:?}", source, rtable_data.data);
                                 return Ok(());
                             }
                         }
@@ -241,7 +241,7 @@ where
                     if let Some(rt_contact) = context.routing_table().contact(&source) {
                         // `<` ok, since we add the node only once for the first time
                         if &source_ssn < rt_contact.state_seq_nr() {
-                            log::trace!(target: "precompute_paths_and_path_ids", "Not adding new node {} to vicinity graph, because its physical neighbor data is outdated: {:?}", source, rtable_data);
+                            log::trace!(target: "precompute_paths_and_path_ids", "Not adding new node {} to vicinity graph, because its physical neighbor data is outdated: {:?}", source, rtable_data.data);
                             // not adding node itself to allow checking this bootstrapping condition again
                             return Ok(());
                         }
