@@ -3,3 +3,11 @@ target/
 **/log
 **/data
 *.log
+.vscode/
+docs
+examples
+gml-szenarios/
+kira_net/
+tests/
+venv/
+.venv/

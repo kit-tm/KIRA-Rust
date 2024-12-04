@@ -1,6 +1,5 @@
-use std::cmp::Ordering;
-use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::fmt::Debug;
 
 use crate::domain::{
     AddError, Contact, ContactState, InsertionError, NodeId, PathCycleRemover, RoutingTable,
@@ -65,7 +64,7 @@ where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
 {
     /// Update an existing contact in the table instead of inserting.
-    fn update_existing(&self, mut contact: Contact, table: &mut RT) -> InsertionStrategyResult {
+    fn update_existing(&self, contact: Contact, table: &mut RT) -> InsertionStrategyResult {
         let existing = table.contact_mut(contact.id());
         assert!(
             existing.is_some(),
@@ -96,23 +95,21 @@ where
 
         // contact is newer, better or fixes a contact
 
-
         // replace invalid existing data
         // FIXME check whether the supposed new path actually avoids all broken links
         // -> `src/routing/r2kademlia/KadRoutingTable.cc:299`
-        if existing.state() == &ContactState::Invalid
-            && contact.state() == &ContactState::Valid {
+        if existing.state() == &ContactState::Invalid && contact.state() == &ContactState::Valid {
             log::trace!(target: "routing_table", "Updated path: Invalid path was replaced [{:?}]", contact);
             *existing = contact;
             return InsertionStrategyResult::Updated;
         }
 
-
         // dont replace path with longer path if ssn is same
         if existing.state_seq_nr() == contact.state_seq_nr()
             // todo support option to specify replace behaviour on equal length (called `enableSinglePathDiversity`)
             // todo use hash to prevent path flapping
-            && contact.path().size() >= /* > */ existing.path().size() {
+            && contact.path().size() >= /* > */ existing.path().size()
+        {
             log::trace!(
                 target: "routing_table",
                 "Not updating contacts path because it is longer [{:?}]",
@@ -129,6 +126,15 @@ where
                     "Not updating contacts path because its the same and doesn't change state [{}]",
                     contact.id()
                 );
+
+                // WARNING this will update the SSN even if the InsertionStrategyResult is Dropped
+                // be sure to notify other UseCases with UseCaseEvent::Resync
+                // TODO figure out if skipping the update of the SSN causes trouble
+                // this would keep the routing-table in a more sensible state
+                // this would maybe cause delayed UpdateRouteReq,
+
+                existing.set_last_seen_now();
+                *existing.state_seq_nr_mut() = contact.state_seq_nr().clone();
                 InsertionStrategyResult::Dropped
             } else {
                 // FIXME dont accept longer path to potential PN
@@ -142,16 +148,15 @@ where
                     "Updated contact [{:?}]",
                     contact
                 );
+                existing.set_last_seen_now();
+                *existing = contact.clone();
                 InsertionStrategyResult::Updated
             };
 
-        // WARNING this will update the SSN even if the InsertionStrategyResult is Dropped
-        // be sure to notify other UseCases with UseCaseEvent::Resync
-        // TODO figure out if skipping the update of the SSN causes trouble
-        // this would keep the routing-table in a more sensible state
-        // this would maybe cause delayed UpdateRouteReq,
-        contact.set_last_seen_now();
-        *existing = contact;
+        if existing.path().size() > contact.path().size() {
+            log::warn!(target: "insertion_strategy", "New Path {:?} is better than existing path {:?}, 
+                but InsertionStrategyResult is {:?} ", contact.path(), existing.path(), return_result);
+        }
 
         return_result
     }
@@ -230,7 +235,7 @@ where
         }
         // If the first element is no physical neighbor
         if !pn_table.contains(contact.path().first()) {
-            log::debug!(
+            log::warn!(
                 target: "routing_table",
                 "Dropping contact info: first element not a physical neighbor [{}]",
                 contact
@@ -249,20 +254,22 @@ where
 
         match routing_table.insert(contact.clone()) {
             Err(InsertionError::BucketSplit(_)) => {
-                self.replace_in_full_bucket(contact, routing_table)
+                let result = self.replace_in_full_bucket(contact.clone(), routing_table);
+                tracing::debug!(target: "insertion_strategy", ?result, "Replaced in full bucket [{:?}]", contact.path());
+                result
             }
             Err(InsertionError::Add(AddError::AlreadyExists(_))) => {
-                self.update_existing(contact, routing_table)
+                let result = self.update_existing(contact.clone(), routing_table);
+                tracing::debug!(target: "insertion_strategy", ?result, "Updated existing [{:?}]", contact.path());
+                result
             }
             Err(InsertionError::Add(AddError::NotAdded)) => {
-                self.replace_in_full_bucket(contact, routing_table)
+                let result = self.replace_in_full_bucket(contact.clone(), routing_table);
+                tracing::debug!(target: "insertion_strategy", ?result, "Tried to add first, then replaced in full bucket [{:?}]", contact.path());
+                result
             }
-            Ok(()) => {
-                log::debug!(
-                    target: "routing_table",
-                    "Inserted contact [{:?}]",
-                    contact.path()
-                );
+            Ok(_) => {
+                tracing::debug!(target: "insertion_strategy", "Inserted [{:?}]", contact.path());
                 InsertionStrategyResult::Inserted
             }
         }
@@ -283,7 +290,8 @@ impl From<InsertionStrategyResult> for TestInsertionStrategy {
     }
 }
 
-impl<RT, PN, const BUCKET_SIZE: usize> InsertionStrategy<RT, PN, BUCKET_SIZE> for TestInsertionStrategy
+impl<RT, PN, const BUCKET_SIZE: usize> InsertionStrategy<RT, PN, BUCKET_SIZE>
+    for TestInsertionStrategy
 where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
 {
@@ -305,7 +313,11 @@ where
 #[cfg(test)]
 mod tests {
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{Contact, ContactState, InOrderCycleRemover, InsertionStrategy, InsertionStrategyResult, NetworkInterface, NodeId, PNSStrategy, PNTable, Path, RoutingTable, ShortestFirstPathSimplifier, StateSeqNr, InMemoryPNTable};
+    use crate::domain::{
+        Contact, ContactState, InMemoryPNTable, InOrderCycleRemover, InsertionStrategy,
+        InsertionStrategyResult, NetworkInterface, NodeId, PNSStrategy, PNTable, Path,
+        RoutingTable, ShortestFirstPathSimplifier, StateSeqNr,
+    };
 
     #[test]
     fn extract_infos_from_find_node_not_for_us() {
