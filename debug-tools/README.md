@@ -47,6 +47,8 @@ bridge interfaces to bridge the nodes.
 
 #### Docker Setup requirements
 
+> This setup doesn't seem to be required anymore for newer docker versions and can be skipped.
+
 Since the kirad requires IPv6 support you must [enable support for IPv6 in docker](https://docs.docker.com/config/daemon/ipv6/) first:
 
 Edit `/etc/docker/daemon.json` to at least include `default-address-pools` for IPv6 and `ipv6tables`:
