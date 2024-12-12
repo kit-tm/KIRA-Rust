@@ -71,7 +71,7 @@ class KIRANode(object):
         nid = match.group(1)
         return bytes.fromhex(nid)
 
-    def create(self, img: str, nid: bytes = None, force: bool = False):
+    def create(self, img: str, nid: bytes = None, force: bool = False, privileged = False):
         if self._container is not None:
             if not force:
                 logger.warn(
@@ -91,6 +91,7 @@ class KIRANode(object):
         self._container = self._client.containers.create(
             image=img, name=self._name,
             detach=True,
+            privileged=privileged,
             cap_add=["NET_ADMIN"],
             sysctls={
                 'net.ipv6.conf.default.disable_ipv6': 0,

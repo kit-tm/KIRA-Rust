@@ -52,6 +52,9 @@ if __name__ == '__main__':
     parser.add_argument('--docker', required=False, dest="backend",
                         action='store_const', const="docker",
                         help="Use Docker as backend")
+    parser.add_argument('--privileged', required=False, dest="privileged",
+                        action="store_true",
+                        help="Run docker containers in privileged mode")
     parser.add_argument('--yes', required=False, dest="yes",
                         action='store_true',
                         help="Answer all questions with yes")
@@ -66,13 +69,12 @@ if __name__ == '__main__':
 
     result = None
     try:
-        if args.backend == "containernet":
-            from mininet.net import Containernet
-            from mininet.node import Controller
-
+        if args.backend == "containernet" and containernet:
+            logger.info("Using plain containernet")
             net = Containernet(controller=Controller)
             network = KIRAContainernetNetwork(graph, net, seed=args.seed)
         else:
+            logger.info("Using plain docker")
             network = KIRANetwork(graph, seed=args.seed)
 
         operation = args.operation.lower()
@@ -80,11 +82,11 @@ if __name__ == '__main__':
             if args.img is None:
                 logger.error("No default image to use was specified!")
                 exit(101)
-            network.create(args.img)
+            network.create(args.img, args.privileged)
             logger.info("All nodes are created and ready to be started.")
         elif operation == "start":
             if args.backend == "containernet":
-                network.create(args.img)
+                network.create(args.img, args.privileged)
                 network.connect()
             network.start()
             logger.info("All nodes are started.")

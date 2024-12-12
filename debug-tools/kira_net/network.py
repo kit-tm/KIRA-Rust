@@ -55,9 +55,9 @@ class KIRANetwork:
     def get_node(self, node: int) -> KIRANode:
         return self.graph.nodes[str(node)][self._node_nx]
 
-    def create(self, img: str):
+    def create(self, img: str, privileged=False):
         self._for_all_nodes(lambda n: n.create(
-            img, self._rng.getrandbits(14*8).to_bytes(14, "big")))
+            img, self._rng.getrandbits(14*8).to_bytes(14, "big"), privileged=privileged))
 
     def start(self):
         self._for_all_nodes(self._node_type.start)
