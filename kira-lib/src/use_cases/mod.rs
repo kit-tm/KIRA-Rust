@@ -5,7 +5,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 use tokio::sync::mpsc; // use tokio::sync::oneshot;
 
-use crate::domain::{Contact, NetworkInterface, NodeId, StateSeqNr};
+use crate::domain::{Contact, NetworkInterface, NodeId, StateSeqNr, UnderlayNeighborId};
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr};
 use crate::messaging::messages::ProtocolMessage;
@@ -37,7 +37,7 @@ pub type OneshotInjectMessageCallback = mpsc::UnboundedSender<InjectionResult>; 
 /// Enumeration representing all events a [UseCase] can handle.
 #[derive(Debug, Clone, PartialEq)]
 pub enum UseCaseEvent {
-    Message(ProtocolMessage, NetworkInterface),
+    Message(ProtocolMessage, UnderlayNeighborId),
     Timer(TimerId),
     Contact(ContactEvent),
     ResyncNode(NodeId, StateSeqNr),

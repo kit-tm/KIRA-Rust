@@ -1,9 +1,11 @@
 //! Interaction methods for [UseCase](crate::use_cases::UseCase) with (other) protocol instances.
 
 use std::collections::{BinaryHeap, VecDeque};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
+use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
 use crate::utils::sync::Sender;
 use crate::Output;
 use crate::{
@@ -48,29 +50,29 @@ impl PartialOrd for Timer {
 }
 
 /// Interface for the [UseCases](crate::use_cases::UseCase) to the runtime environment.
-pub struct UseCaseRuntime<S> {
+pub struct UseCaseRuntime {
     counter: usize,
     timers: BinaryHeap<Timer>,
     tx_events: VecDeque<UseCaseEvent>,
-    sender: Option<S>,
+    sender: mpsc::SyncSender<Output>,
     current_time: Option<Instant>,
 }
 
-impl<S> Default for UseCaseRuntime<S> {
-    fn default() -> Self {
+impl UseCaseRuntime {
+    pub fn new(sender: mpsc::SyncSender<Output>) -> Self {
         Self {
             counter: 0,
             timers: BinaryHeap::with_capacity(14), // heuristic: 1 / UseCase
             tx_events: VecDeque::with_capacity(5),
-            sender: None,
+            sender,
             current_time: None,
         }
     }
 }
 
-impl<S> UseCaseRuntime<S> {
+impl UseCaseRuntime {
     /// Feeds an event into the event pipeline and to all [UseCases](crate::use_cases::UseCase).
-    pub fn spawn_event(&self, event: UseCaseEvent) {
+    pub(super) fn spawn_event(&self, event: UseCaseEvent) {
         // FIXME: protect UseCases from unauthorized sending of events (Timer, Contact, ...)
         self.tx_events.push_back(event);
     }
@@ -85,7 +87,7 @@ impl<S> UseCaseRuntime<S> {
         // TODO: figure out if it's advantageous to firstly buffer all due Timer events
         //  and then fire the first.
 
-        // enforce returning `Timer` events first
+        // returning `Timer` events first
         // so all use cases are up-to-date before processing buffered events
         if let Some(mut next_timer) = self.timers.peek_mut() {
             if *next_timer.due >= now {
@@ -120,8 +122,11 @@ impl<S> UseCaseRuntime<S> {
         let timer = Timer { due, id };
 
         self.timers.push(timer);
-        // FIXME: handle overflow
-        self.counter += 1;
+        // TODO: handle overflow
+        self.counter = self
+            .counter
+            .checked_add(1)
+            .expect("TimerId overflow should not occure");
 
         Ok(id)
     }
@@ -130,25 +135,11 @@ impl<S> UseCaseRuntime<S> {
     pub(crate) fn next_timeout(&self) -> Option<&Instant> {
         self.timers.peek()
     }
-
-    /// Updates the internal sender used for communicating
-    /// with different protocol peers.
-    ///
-    /// # Returns
-    ///
-    /// Old sender if present
-    pub(crate) fn update_sender(&mut self, sender: S) -> Option<S> {
-        self.sender.replace(sender)
-    }
 }
 
-impl<S: Sender<Output>> UseCaseRuntime<S> {
+impl UseCaseRuntime {
     fn send_output(&mut self, output: Output) -> Result<()> {
-        let Some(mut sender) = self.sender else {
-            return Err(RuntimeError::NoSender());
-        };
-
-        sender
+        self.sender
             .send(output)
             .map_err(|e| RuntimeError::SendingFailed(Box::new(e)))
     }
@@ -167,7 +158,7 @@ impl<S: Sender<Output>> UseCaseRuntime<S> {
     }
 
     /// Sends an [UpdateForwardingTables] request to the forwarding tables.
-    pub fn update_fwd_tables(&mut self, update: ()) -> Result<()> {
+    pub fn update_fwd_tables(&mut self, update: ForwardingTablesUpdate) -> Result<()> {
         let output = Output::UpdateForwardingTables(());
         self.send_output(output)
     }
@@ -181,20 +172,23 @@ mod test {
 
     #[test]
     fn no_timers_no_next_timeout() {
-        let runtime = UseCaseRuntime::default();
+        let (sender, _) = mpsc::sync_channel(42);
+        let runtime = UseCaseRuntime::new(sender);
 
         assert_eq!(runtime.next_timeout(), None);
     }
 
     #[test]
     fn ten_unique_timer_ids() {
-        let mut runtime = UseCaseRuntime::default();
+        let (sender, _) = mpsc::sync_channel(42);
+        let mut runtime = UseCaseRuntime::new(sender);
+
         let timers = 10;
         let mut seen_timers = HashSet::with_capacity(timers);
 
         for i in 0..timers {
             let timer_id = runtime.register_timer(Instant::now() + Duration::from_secs(i));
-            assert!(!seen_timers.contains(&timer_id));
+            assert!(!seen_timers.contains(&timer_id), "no duplicate timers");
             seen_timers.push(timer_id);
         }
     }

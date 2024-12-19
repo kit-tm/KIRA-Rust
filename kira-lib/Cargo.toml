@@ -19,6 +19,7 @@ in-memory-message-channel = ["tokio"]
 async-trait = { workspace = true }
 bus = { version = "2.4.1", optional = true }
 chrono = { workspace = true }
+derive_more = { workspace = true }
 digest = { workspace = true }
 hex = { workspace = true }
 log = { workspace = true }

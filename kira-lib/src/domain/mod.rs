@@ -17,6 +17,7 @@ pub use physical_neighbor_table::*;
 pub use routing_table::flat_routing_table::*;
 pub use routing_table::*;
 pub use state_seq_nr::*;
+pub use underlay::*;
 
 pub mod bucket;
 pub mod contact;

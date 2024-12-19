@@ -1,10 +1,11 @@
 //! Events for interaction with the routing protocol R²/KAD.
 
-use std::time::Instant;
-
 use crate::domain::underlay::{UnderlayNeighborId, UnderlayNeighborUpdate};
 use crate::messaging::{Nonce, ProtocolMessage};
 use crate::use_cases::{ApiEvent, InjectionMessageData};
+
+pub mod forwarding;
+use forwarding::ForwardingTablesUpdate;
 
 /// Events to externally control the [R2Kad](crate::R2Kad) protocol instance.
 #[derive(Debug, Clone)]
@@ -28,13 +29,12 @@ pub enum Output {
     /// Send a protocol message via the specified
     /// [underlay neighbor connection](UnderlayNeighborId).
     SendProtocolMessage(ProtocolMessage, UnderlayNeighborId),
-    // TODO: move forwarding tables and make them accessible to the routing
-    //   with this reserved event.
-    /// Wish of the protocol to upgrade the forwarding table information.
-    UpdateForwardingTables(()),
+    /// Request to update information in the forwarding functionality.
+    UpdateForwardingTables(ForwardingTablesUpdate),
     //Timeout(Instant),
 }
 
+/// Events for inspecting the internals of the protocol instance.
 #[derive(Debug, Clone)]
 pub enum DebugEvent {
     /// Interrogation events for protocol internal routing structures.

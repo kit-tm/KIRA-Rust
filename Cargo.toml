@@ -22,6 +22,8 @@ debug = false
 async-trait = "0.1.82"
 # For Time Computations in general
 chrono = "0.4.38"
+# Conveniently derive Display
+derive_more = { version = "1.0.0", features = ["display"] }
 # For generic hash function choice
 digest = "0.10.7"
 # Asynchronous abstractions
