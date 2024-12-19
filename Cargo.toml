@@ -1,8 +1,5 @@
 [workspace]
-members = [ "kira-forwarding",
-    "kira-lib",
-    "kirad"
-]
+members = ["kira-forwarding", "kira-lib", "kirad"]
 resolver = "2"
 
 # Profile which optimizes the compiled binary for performance
@@ -14,3 +11,46 @@ codegen-units = 1
 panic = "abort"
 strip = "debuginfo"
 debug = false
+
+# All dependencies are well picked and although just a few have versions 1.x
+# they are considered stable enough to use in production by the Rust Community.
+# Nevertheless any new dependency should be weighted for its value over
+# a custom implementation.
+
+[workspace.dependencies]
+# Used to declare async traits
+async-trait = "0.1.82"
+# For Time Computations in general
+chrono = "0.4.38"
+# For generic hash function choice
+digest = "0.10.7"
+# Asynchronous abstractions
+futures = "0.3.30"
+# Hexadecimal Output formatting of NodeIDs. Non-Optional as basic functionality for a NodeID.
+hex = "0.4.3"
+# Logging facade supporting many concrete implementations in binaries
+log = "0.4.22"
+# For fetching the network interface for a given IP
+pnet = { version = "0.35.0" }
+# Random NodeId generation
+rand = "0.8.5"
+# Rust message pack support for serde
+rmp-serde = "1.3.0"
+# Abstract Serialization library for Rust (kind of standard)
+serde = "1.0.210"
+# Required until serde supports const generics (https://crates.io/crates/serde-big-array)
+serde-big-array = "0.5.1"
+serde_derive = "1.0.210"
+serde_json = "1.0.128"
+# PathID generation
+sha1 = "0.10.6"
+# PathID generation
+sha2 = "0.10.8"
+# PathID generation
+sha3 = "0.10.8"
+# Used to support sync and async rwlock on context
+tokio = { version = "1.40.0", default-features = false }
+# Logging facade for application level tracing
+tracing = { version = "0.1.40", features = ["attributes"] }
+# User friendly error trait derivation
+thiserror = "1.0.69"

@@ -4,3 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+log = { workspace = true }
+# common domain layer
+kira-lib = { path = "../kira-lib", default-features = false }
+sha1 = { workspace = true }
+sha2 = { workspace = true, optional = true }
+sha3 = { workspace = true, optional = true }
+tokio = { workspace = true, default-features = false, features = ["sync"] }
+tracing = { workspace = true, features = ["attributes"] }

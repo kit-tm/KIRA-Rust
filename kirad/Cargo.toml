@@ -24,33 +24,46 @@ name = "kirad"
 path = "src/main.rs"
 
 [dependencies]
-chrono = "0.4.38"
+chrono = { workspace = true }
 clap = { version = "4.5.17", features = ["derive", "env"] }
-futures = "0.3.30"
+futures = { workspace = true }
 humantime = "2.1.0"
-log = "0.4.22"
-kira-lib = { path = "../kira-lib", features = ["serde", "udp-tokio", "rmp-serde", "in-memory-message-channel"] }
-rmp-serde = "1.3.0"
+log = { workspace = true }
+kira-lib = { path = "../kira-lib", features = [
+  "serde",
+  "udp-tokio",
+  "rmp-serde",
+  "in-memory-message-channel",
+] }
 signal-hook = "0.3.17"
 signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
-tokio = { version = "1.40.0", default-features = true, features = ["macros", "time", "net", "rt", "signal", "sync", "full", "tracing"] }
+tokio = { workspace = true, default-features = true, features = [
+  "macros",
+  "time",
+  "net",
+  "rt",
+  "signal",
+  "sync",
+  "full",
+  "tracing",
+] }
 # Debug tool
 console-subscriber = "0.4.0"
-# rest backend
+# REST server backend
 axum = { version = "0.7.5", features = ["json"], optional = true }
-serde = { version = "1.0.210", features = ["derive"], optional = true }
-serde_derive = { version = "1.0.210", optional = true }
-serde_json = { version = "1.0.128", optional = true }
-hex = { version = "0.4.3", optional = true }
-# todo support other hashing algorithms
-sha2 = { version = "0.10.8", optional = true }
+serde = { workspace = true, features = ["derive"], optional = true }
+serde_derive = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+hex = { workspace = true, optional = true }
+# TODO: support other hashing algorithms
+sha2 = { workspace = true, optional = true }
 base64 = { version = "0.22.1", optional = true }
 # swagger documentation
 utoipa = { version = "4.2.3", optional = true }
 utoipa-swagger-ui = { version = "6.0.0", features = ["axum"], optional = true }
 itertools = { version = "0.13.0", optional = true }
 rtnetlink = "0.14.1"
-tracing = { version = "0.1.40", features = ["attributes"] }
+tracing = { workspace = true, features = ["attributes"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
 
@@ -69,7 +82,15 @@ depends = "$auto, iproute2, nftables"
 copyright = "Karlsruhe Institute of Technology (c) 2024. All rights reserved."
 maintainer-scripts = "../pkg/"
 assets = [
-    [ "target/release/kirad", "/usr/local/bin/kirad", "755", ],
-    [ "conf/nftables.conf", "/usr/local/share/kira/nftables.conf", "644", ],
+  [
+    "target/release/kirad",
+    "/usr/local/bin/kirad",
+    "755",
+  ],
+  [
+    "conf/nftables.conf",
+    "/usr/local/share/kira/nftables.conf",
+    "644",
+  ],
 ]
 systemd-units = { enable = false } #, enable = false, start = false }
