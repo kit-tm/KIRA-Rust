@@ -12,6 +12,7 @@ use crate::messaging::messages::ProtocolMessage;
 use crate::messaging::{FindNodeReqData, Nonce};
 use crate::use_cases::inject_messages::InjectionResult;
 
+pub mod context;
 pub mod derive_fwd_table_entries;
 pub mod distributed_hash_table;
 pub mod distributed_hash_table_injector;
@@ -29,6 +30,9 @@ pub mod random_overlay_discovery;
 pub mod runtime;
 pub mod vicinity_discovery;
 
+#[doc(inline)]
+pub use context::UseCaseContext;
+#[doc(inline)]
 pub use runtime::UseCaseRuntime;
 
 /// Callback used to message back an [InjectionResult] to an injector.
