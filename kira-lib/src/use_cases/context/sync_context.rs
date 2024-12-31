@@ -1,9 +1,9 @@
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashSet;
 
-use crate::context::{ContextConfig, UseCaseContext};
 use crate::domain::{NodeId, NotVia};
-use crate::use_cases::UseCaseRuntime;
+use crate::use_cases::context::ContextConfig;
+use crate::use_cases::{UseCaseContext, UseCaseRuntime};
 
 /// Implements a [UseCaseContext] which can only be used in a single threaded synchronous environment.
 ///
@@ -11,30 +11,27 @@ use crate::use_cases::UseCaseRuntime;
 /// implementation is free of locks and their runtime overhead due to the assumption that
 /// everything happens in a single thread.
 #[derive(Debug)]
-pub struct SyncContext<RT, IS, PN, FT> {
+pub struct SyncContext<RT, IS, PN> {
     root_id: NodeId,
     routing_table: RefCell<RT>,
     insertion_strategy: RefCell<IS>,
     pn_table: RefCell<PN>,
     runtime: RefCell<UseCaseRuntime>,
-    forwarding_tables: RefCell<FT>,
     not_via: RefCell<HashSet<NotVia>>,
 }
 
-impl<RT, IS, PN, FT> UseCaseContext for SyncContext<RT, IS, PN, FT> {
+impl<RT, IS, PN> UseCaseContext for SyncContext<RT, IS, PN> {
     type RoutingTable = RT;
     type InsertionStrategy = IS;
     type PhysicalNeighborTable = PN;
-    type ForwardingTables = FT;
 
-    fn new(config: ContextConfig<RT, IS, PN, FT>) -> Self {
+    fn new(config: ContextConfig<RT, IS, PN>) -> Self {
         Self {
             root_id: config.root_id,
             routing_table: RefCell::new(config.routing_table),
             insertion_strategy: RefCell::new(config.insertion_strategy),
             pn_table: RefCell::new(config.pn_table),
             runtime: config.runtime,
-            forwarding_tables: RefCell::new(config.forwarding_tables),
             not_via: RefCell::new(config.not_via),
         }
     }
@@ -55,20 +52,12 @@ impl<RT, IS, PN, FT> UseCaseContext for SyncContext<RT, IS, PN, FT> {
         self.insertion_strategy.borrow_mut()
     }
 
-    fn pn_table(&self) -> Ref<Self::PhysicalNeighborTable> {
+    fn pn_table(&self) -> Ref<'_, Self::PhysicalNeighborTable> {
         self.pn_table.borrow()
     }
 
-    fn pn_table_mut(&self) -> RefMut<Self::PhysicalNeighborTable> {
+    fn pn_table_mut(&self) -> RefMut<'_, Self::PhysicalNeighborTable> {
         self.pn_table.borrow_mut()
-    }
-
-    fn forwarding_tables(&self) -> Ref<'_, Self::ForwardingTables> {
-        self.forwarding_tables.borrow()
-    }
-
-    fn forwarding_tables_mut(&self) -> RefMut<'_, Self::ForwardingTables> {
-        self.forwarding_tables.borrow_mut()
     }
 
     fn runtime(&self) -> Ref<'_, UseCaseRuntime> {

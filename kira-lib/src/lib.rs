@@ -40,7 +40,6 @@
 #![deny(missing_docs)]
 
 pub mod broadcaster;
-pub mod context;
 pub mod domain;
 pub mod hardware_events;
 pub mod messaging;

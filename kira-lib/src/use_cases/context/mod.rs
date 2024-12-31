@@ -11,13 +11,12 @@ use crate::use_cases::UseCaseRuntime;
 pub mod sync_context;
 
 /// Configuration Wrapper for all dependencies of a [UseCaseContext].
-pub struct ContextConfig<RT, IS, PN, FT> {
+pub struct ContextConfig<RT, IS, PN> {
     pub root_id: NodeId,
     pub routing_table: RT,
     pub runtime: UseCaseRuntime,
     pub insertion_strategy: IS,
     pub pn_table: PN,
-    pub forwarding_tables: FT,
     pub not_via: HashSet<NotVia>,
 }
 
@@ -35,14 +34,12 @@ pub trait UseCaseContext {
     //    the required strategy and reduce the needless complexity of the context.
     type InsertionStrategy: Sized;
     type PhysicalNeighborTable: Sized;
-    type ForwardingTables: Sized;
 
     fn new(
         config: ContextConfig<
             Self::RoutingTable,
             Self::InsertionStrategy,
             Self::PhysicalNeighborTable,
-            Self::ForwardingTables,
         >,
     ) -> Self;
 
@@ -57,10 +54,6 @@ pub trait UseCaseContext {
     fn pn_table(&self) -> Ref<'_, Self::PhysicalNeighborTable>;
 
     fn pn_table_mut(&self) -> RefMut<'_, Self::PhysicalNeighborTable>;
-
-    fn forwarding_tables(&self) -> Ref<'_, Self::ForwardingTables>;
-
-    fn forwarding_tables_mut(&self) -> RefMut<'_, Self::ForwardingTables>;
 
     fn runtime(&self) -> Ref<'_, UseCaseRuntime>;
 
