@@ -1,7 +1,5 @@
 //! Implementation of the protocol instance R²/KAD.
 
-pub mod runtime;
-
 use std::{collections::VecDeque, time::Instant};
 use thiserror::Error;
 
@@ -25,6 +23,7 @@ use crate::{
         random_overlay_discovery::RandomOverlayDiscovery,
         vicinity_discovery::{VicinityDiscovery, VicinityDiscoveryConfig},
         UseCaseEvent,
+        UseCaseRuntime,
     },
 };
 
@@ -132,7 +131,7 @@ where
     ///
     /// # Usage
     ///
-    /// In all three cases the method can be called immediately after new
+    /// In all three cases the method should be called immediately after new
     /// data is received with [receive_event](Self::receive_event).
     ///
     /// The method can be called after the returned [Instant] is in the past.
@@ -145,18 +144,14 @@ where
         }
 
         // consume __all__ events generated inside the runtime
-        loop {
-            let Some(event) = runtime.next_event(now) else {
-                break;
-            };
-
+        while let Some(event) = runtime.next_event(now) {
             self.pipeline.process_event(&self.context, event)?;
         }
 
-        if !self.rx_events.is_empty() {
-            Ok(Some(now))
-        } else {
+        if self.rx_events.is_empty() {
             Ok(runtime.next_timeout())
+        } else {
+            Ok(Some(now))
         }
     }
 

@@ -26,7 +26,10 @@ pub mod overlay_neighborhood_discovery;
 pub mod path_probing;
 pub mod precompute_paths_and_path_ids;
 pub mod random_overlay_discovery;
+pub mod runtime;
 pub mod vicinity_discovery;
+
+pub use runtime::UseCaseRuntime;
 
 /// Callback used to message back an [InjectionResult] to an injector.
 ///

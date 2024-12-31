@@ -1,9 +1,8 @@
 //! Interaction methods for [UseCase](crate::use_cases::UseCase) with (other) protocol instances.
 
 use std::collections::{BinaryHeap, VecDeque};
-use std::sync::mpsc;
+use std::sync::mpsc::{self, SendError};
 use std::time::{Duration, Instant};
-use thiserror::Error;
 
 use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
 use crate::utils::sync::Sender;
@@ -13,19 +12,6 @@ use crate::{
     messaging::ProtocolMessage,
     use_cases::{TimerId, UseCaseEvent},
 };
-
-#[derive(Debug, Error)]
-#[non_exhaustive]
-pub enum RuntimeError {
-    #[error("No sender present for delivering Output events")]
-    NoSender(),
-    #[error(transparent)]
-    SendingFailed(Box<dyn std::error::Error>),
-    #[error("Runtime doesn't know current time")]
-    NoTimeKnown(),
-}
-
-pub type Result<T> = core::result::Result<T, RuntimeError>;
 
 #[derive(Clone, Eq, PartialEq)]
 struct Timer {
@@ -54,7 +40,7 @@ pub struct UseCaseRuntime {
     counter: usize,
     timers: BinaryHeap<Timer>,
     tx_events: VecDeque<UseCaseEvent>,
-    sender: mpsc::SyncSender<Output>,
+    output_channel: mpsc::SyncSender<Output>,
     current_time: Option<Instant>,
 }
 
@@ -64,7 +50,7 @@ impl UseCaseRuntime {
             counter: 0,
             timers: BinaryHeap::with_capacity(14), // heuristic: 1 / UseCase
             tx_events: VecDeque::with_capacity(5),
-            sender,
+            output_channel: sender,
             current_time: None,
         }
     }
@@ -72,8 +58,7 @@ impl UseCaseRuntime {
 
 impl UseCaseRuntime {
     /// Feeds an event into the event pipeline and to all [UseCases](crate::use_cases::UseCase).
-    pub(super) fn spawn_event(&self, event: UseCaseEvent) {
-        // FIXME: protect UseCases from unauthorized sending of events (Timer, Contact, ...)
+    pub(crate) fn spawn_event(&self, event: UseCaseEvent) {
         self.tx_events.push_back(event);
     }
 
@@ -104,20 +89,25 @@ impl UseCaseRuntime {
     ///
     /// The returned TimerId is unique.
     ///
-    /// It is important to call [next_event](Self::next_event)
-    /// **before** trying to register a timer.
     ///
     /// # Examples
     ///
     /// ```
     /// let runtime = UseCaseRuntime::default();
+    /// assert_eq!(runtime.next_event(Instance::now()), None);
     ///
     /// let timer_id = runtime.register_timer(Instant::now() + Duration::from_secs(5));
     /// std::thread::sleep(5);
     /// assert_eq!(runtime.next_event(Instance::now()), UseCaseEvent::Timer(timer_id));
     /// ```
-    pub fn register_timer(&mut self, duration: Duration) -> Result<TimerId> {
-        let due = self.current_time.ok_or(RuntimeError::NoTimeKnown())? + duration;
+    ///
+    /// # Panics
+    ///
+    /// If called outside of an event loop.
+    pub fn register_timer(&mut self, duration: Duration) -> TimerId {
+        let due = self
+            .current_time
+            .expect("Registering should only happen in an event loop");
         let id = self.counter.into();
         let timer = Timer { due, id };
 
@@ -138,10 +128,8 @@ impl UseCaseRuntime {
 }
 
 impl UseCaseRuntime {
-    fn send_output(&mut self, output: Output) -> Result<()> {
-        self.sender
-            .send(output)
-            .map_err(|e| RuntimeError::SendingFailed(Box::new(e)))
+    fn send_output(&self, output: Output) -> Result<(), SendError<Output>> {
+        self.output_channel.send(output)
     }
 
     /// Sends a [ProtocolMessage] to a different peer.
@@ -149,16 +137,19 @@ impl UseCaseRuntime {
     /// The message will be routed via the underlay neighbor
     /// corresponding to the specified `ulnid`.
     pub fn send_message(
-        &mut self,
+        &self,
         protocol_message: ProtocolMessage,
         ulnid: UnderlayNeighborId,
-    ) -> Result<()> {
+    ) -> Result<(), SendError<Output>> {
         let output = Output::SendProtocolMessage(protocol_message, ulnid);
         self.send_output(output)
     }
 
     /// Sends an [UpdateForwardingTables] request to the forwarding tables.
-    pub fn update_fwd_tables(&mut self, update: ForwardingTablesUpdate) -> Result<()> {
+    pub fn update_fwd_tables(
+        &self,
+        update: ForwardingTablesUpdate,
+    ) -> Result<(), SendError<Output>> {
         let output = Output::UpdateForwardingTables(());
         self.send_output(output)
     }
