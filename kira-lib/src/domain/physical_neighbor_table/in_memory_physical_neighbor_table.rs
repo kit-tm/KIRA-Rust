@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 use std::ops::Deref;
 
-use crate::domain::{NetworkInterface, NodeId, PNTable, StateSeqNr};
+use crate::domain::{NodeId, PNTable, StateSeqNr, UnderlayNeighborId};
 
 /// A physical neighbor table backed by a [HashMap].
 ///
@@ -10,7 +10,7 @@ use crate::domain::{NetworkInterface, NodeId, PNTable, StateSeqNr};
 #[derive(Debug)]
 pub struct InMemoryPNTable {
     state_seq_nr: StateSeqNr,
-    map: HashMap<NodeId, NetworkInterface>,
+    map: HashMap<NodeId, UnderlayNeighborId>,
 }
 
 impl Default for InMemoryPNTable {
@@ -20,7 +20,7 @@ impl Default for InMemoryPNTable {
 }
 
 impl Deref for InMemoryPNTable {
-    type Target = HashMap<NodeId, NetworkInterface>;
+    type Target = HashMap<NodeId, UnderlayNeighborId>;
 
     fn deref(&self) -> &Self::Target {
         &self.map
@@ -35,7 +35,7 @@ impl InMemoryPNTable {
         }
     }
 
-    pub fn into_inner(self) -> HashMap<NodeId, NetworkInterface> {
+    pub fn into_inner(self) -> HashMap<NodeId, UnderlayNeighborId> {
         self.map
     }
 
@@ -46,19 +46,24 @@ impl InMemoryPNTable {
 }
 
 impl PNTable for InMemoryPNTable {
-    fn insert(&mut self, id: NodeId, interface: NetworkInterface) -> Option<NetworkInterface> {
-        // No Update for entry => No Increase of StateSeqNr
-        if let Some(true) = self
-            .map
-            .get(&id)
-            .map(|existing_port| existing_port == &interface)
-        {
-            return None;
-        }
+    fn insert(&mut self, id: NodeId, ulnid: UnderlayNeighborId) -> Option<UnderlayNeighborId> {
+        let entry = self.map.entry(id);
+        let result = match entry {
+            Entry::Occupied(mut entry) => {
+                // No Update for entry => No Increase of StateSeqNr
+                if *entry == ulnid {
+                    return None;
+                }
+                Some(entry.insert(ulnid))
+            }
+            Entry::Vacant(mut vacant) => {
+                vacant.insert(ulnid);
+                None
+            }
+        };
 
-        let result = self.map.insert(id, interface);
         self.state_seq_nr += 1;
-        result
+        return result;
     }
 
     fn contains(&self, id: &NodeId) -> bool {
@@ -69,7 +74,7 @@ impl PNTable for InMemoryPNTable {
         &self.state_seq_nr
     }
 
-    fn remove(&mut self, id: &NodeId) -> Option<NetworkInterface> {
+    fn remove(&mut self, id: &NodeId) -> Option<UnderlayNeighborId> {
         let result = self.map.remove(id);
         // test if we actually removed something => update ssn
         if result.is_some() {
@@ -81,8 +86,8 @@ impl PNTable for InMemoryPNTable {
 }
 
 impl<'a> IntoIterator for &'a InMemoryPNTable {
-    type Item = (&'a NodeId, &'a NetworkInterface);
-    type IntoIter = std::collections::hash_map::Iter<'a, NodeId, NetworkInterface>;
+    type Item = (&'a NodeId, &'a UnderlayNeighborId);
+    type IntoIter = std::collections::hash_map::Iter<'a, NodeId, UnderlayNeighborId>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.map.iter()
@@ -98,13 +103,16 @@ mod tests {
         let mut table = InMemoryPNTable::new();
 
         let id = NodeId::zero();
-        let interface = NetworkInterface::with_name("test");
+        let interface = UnderlayNeighborId::with_name("test");
 
         let before_ssn = table.state_seq_nr().clone();
         table.insert(id, interface);
         let after_ssn = table.state_seq_nr().clone();
 
-        assert_ne!(before_ssn, after_ssn, "State sequence number didn't change after insertion.")
+        assert_ne!(
+            before_ssn, after_ssn,
+            "State sequence number didn't change after insertion."
+        )
     }
 
     #[test]
@@ -112,7 +120,7 @@ mod tests {
         let mut table = InMemoryPNTable::new();
 
         let id = NodeId::zero();
-        let interface = NetworkInterface::with_name("test");
+        let interface = UnderlayNeighborId::with_name("test");
 
         table.insert(id.clone(), interface);
 
@@ -120,7 +128,10 @@ mod tests {
         table.remove(&id);
         let after_ssn = table.state_seq_nr().clone();
 
-        assert_ne!(before_ssn, after_ssn, "State sequence number didn't change after removing.")
+        assert_ne!(
+            before_ssn, after_ssn,
+            "State sequence number didn't change after removing."
+        )
     }
 
     #[test]
@@ -128,13 +139,15 @@ mod tests {
         let mut table = InMemoryPNTable::new();
 
         let id = NodeId::zero();
-        let interface = NetworkInterface::with_name("test");
-
+        let interface = UnderlayNeighborId::with_name("test");
 
         let before_ssn = table.state_seq_nr().clone();
         table.remove(&id);
         let after_ssn = table.state_seq_nr().clone();
 
-        assert_eq!(before_ssn, after_ssn, "State sequence number did change but we didn't remove anything.")
+        assert_eq!(
+            before_ssn, after_ssn,
+            "State sequence number did change but we didn't remove anything."
+        )
     }
 }
