@@ -1,14 +1,13 @@
 //! Interaction methods for [UseCase](crate::use_cases::UseCase) with (other) protocol instances.
 
-use std::collections::{BinaryHeap, VecDeque};
+use std::collections::binary_heap::PeekMut;
+use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::sync::mpsc::{self, SendError};
 use std::time::{Duration, Instant};
 
 use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
-use crate::utils::sync::Sender;
 use crate::Output;
 use crate::{
-    domain::underlay::UnderlayNeighborId,
     messaging::ProtocolMessage,
     use_cases::{TimerId, UseCaseEvent},
 };
@@ -35,10 +34,17 @@ impl PartialOrd for Timer {
     }
 }
 
+impl From<Timer> for UseCaseEvent {
+    fn from(value: Timer) -> Self {
+        Self::Timer(value.id)
+    }
+}
+
 /// Interface for the [UseCases](crate::use_cases::UseCase) to the runtime environment.
 pub struct UseCaseRuntime {
     counter: usize,
     timers: BinaryHeap<Timer>,
+    periodic_timers: HashMap<TimerId, Duration>,
     tx_events: VecDeque<UseCaseEvent>,
     output_channel: mpsc::SyncSender<Output>,
     current_time: Option<Instant>,
@@ -49,6 +55,7 @@ impl UseCaseRuntime {
         Self {
             counter: 0,
             timers: BinaryHeap::with_capacity(14), // heuristic: 1 / UseCase
+            periodic_timers: HashMap::default(),
             tx_events: VecDeque::with_capacity(5),
             output_channel: sender,
             current_time: None,
@@ -58,7 +65,7 @@ impl UseCaseRuntime {
 
 impl UseCaseRuntime {
     /// Feeds an event into the event pipeline and to all [UseCases](crate::use_cases::UseCase).
-    pub(crate) fn spawn_event(&self, event: UseCaseEvent) {
+    pub(crate) fn spawn_event(&mut self, event: UseCaseEvent) {
         self.tx_events.push_back(event);
     }
 
@@ -74,15 +81,38 @@ impl UseCaseRuntime {
 
         // returning `Timer` events first
         // so all use cases are up-to-date before processing buffered events
-        if let Some(mut next_timer) = self.timers.peek_mut() {
-            if *next_timer.due >= now {
-                let Timer { due, id } = next_timer.pop();
-                return Some(UseCaseEvent::Timer(id));
+        let due_timer = if let Some(next_timer) = self.timers.peek_mut() {
+            if next_timer.due >= now {
+                let due_timer = PeekMut::pop(next_timer);
+                Some(due_timer)
+            } else {
+                None
             }
+        } else {
+            None
+        };
+        // &mut self.timers dropped
+        if let Some(due_timer) = due_timer {
+            // register periodic timer again with _same_ id
+            if let Some(duration) = self.periodic_timers.get(&due_timer.id) {
+                self.register_timer_with_id(duration.clone(), due_timer.id);
+            }
+
+            return Some(due_timer.into());
         }
 
         // yield buffered event
         self.tx_events.pop_front()
+    }
+
+    fn register_timer_with_id(&mut self, duration: Duration, id: TimerId) {
+        let due = self
+            .current_time
+            .expect("Registering should only happen in an event loop")
+            + duration;
+        let timer = Timer { due, id };
+
+        self.timers.push(timer);
     }
 
     /// Creates a timer which will later yield a TimerEvent.
@@ -103,27 +133,32 @@ impl UseCaseRuntime {
     ///
     /// # Panics
     ///
-    /// If called outside of an event loop.
+    /// If called outside of an event loop or on overflow.
     pub fn register_timer(&mut self, duration: Duration) -> TimerId {
-        let due = self
-            .current_time
-            .expect("Registering should only happen in an event loop");
         let id = self.counter.into();
-        let timer = Timer { due, id };
+        self.register_timer_with_id(duration, id);
 
-        self.timers.push(timer);
         // TODO: handle overflow
         self.counter = self
             .counter
             .checked_add(1)
             .expect("TimerId overflow should not occure");
 
-        Ok(id)
+        id
+    }
+
+    pub fn register_periodic_timer(&mut self, duration: Duration) -> TimerId {
+        let timer_id = self.register_timer(duration);
+
+        let pre_existing = self.periodic_timers.insert(timer_id, duration);
+        assert_eq!(pre_existing, None, "periodic timer should not pre exist");
+
+        timer_id
     }
 
     /// Returns the next [Instant] a timer is due or None if there are no timers registered.
     pub(crate) fn next_timeout(&self) -> Option<&Instant> {
-        self.timers.peek()
+        self.timers.peek().map(|timer| &timer.due)
     }
 }
 
@@ -136,12 +171,13 @@ impl UseCaseRuntime {
     ///
     /// The message will be routed via the underlay neighbor
     /// corresponding to the specified `ulnid`.
-    pub fn send_message(
+    pub fn send_message<P: Into<ProtocolMessage>>(
         &self,
-        protocol_message: ProtocolMessage,
-        ulnid: UnderlayNeighborId,
+        protocol_message: P,
+        //ulnid: UnderlayNeighborId,
     ) -> Result<(), SendError<Output>> {
-        let output = Output::SendProtocolMessage(protocol_message, ulnid);
+        // FIXME: support sending to specified underlay neighbor conveniently
+        let output = Output::SendProtocolMessage(protocol_message.into(), 0u32.into());
         self.send_output(output)
     }
 
@@ -150,7 +186,7 @@ impl UseCaseRuntime {
         &self,
         update: ForwardingTablesUpdate,
     ) -> Result<(), SendError<Output>> {
-        let output = Output::UpdateForwardingTables(());
+        let output = Output::UpdateForwardingTables(update);
         self.send_output(output)
     }
 }
