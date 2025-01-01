@@ -73,7 +73,7 @@ impl<C, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE> {
 
         Ok(Self {
             root,
-            rx_events: Vec::default(),
+            rx_events: VecDeque::default(),
             // TODO: implement context builder
             context,
             pipeline,
@@ -124,7 +124,7 @@ where
 
         // only take one use case event
         if let Some(event) = self.rx_events.pop_front() {
-            runtime.spawn_event(event.into());
+            runtime.spawn_event(event);
         }
 
         // consume __all__ events generated inside the runtime
@@ -133,7 +133,7 @@ where
         }
 
         if self.rx_events.is_empty() {
-            Ok(runtime.next_timeout())
+            Ok(runtime.next_timeout().cloned())
         } else {
             Ok(Some(now))
         }

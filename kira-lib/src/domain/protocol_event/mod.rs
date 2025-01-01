@@ -29,6 +29,13 @@ pub enum Output {
     /// Send a protocol message via the specified
     /// [underlay neighbor connection](UnderlayNeighborId).
     SendProtocolMessage(ProtocolMessage, UnderlayNeighborId),
+    /// Send a protocol message to all underlay neighbors.
+    ///
+    /// # Important
+    ///
+    /// The message must also be forwarded to neighbors who
+    /// haven't exchanged any messages or have joined the network.
+    BroadCastProtocolMessage(ProtocolMessage),
     /// Request to update information in the forwarding functionality.
     UpdateForwardingTables(ForwardingTablesUpdate),
     //Timeout(Instant),

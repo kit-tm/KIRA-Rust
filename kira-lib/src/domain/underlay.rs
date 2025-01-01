@@ -1,6 +1,9 @@
 //! Definitions for the routing protocol to interact with the underlay network.
 
-/// Represents a connection to an underlay neighbor.
+use derive_more::derive::Display;
+use std::num::NonZeroUsize;
+
+/// Represents a **connection** to an underlay neighbor.
 ///
 /// Underlay Neighbors are nodes attached to the links of the KIRA node[^uln].
 ///
@@ -21,9 +24,15 @@
 ///     are *directly* reachable via link layer and the
 ///     Internet-layer or higher-layer tunnels.
 /// [1]: https://datatracker.ietf.org/doc/rfc8200/
-#[derive(Debug, Clone)]
-pub struct UnderlayNeighborId {
-    pub id: u32,
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Display)]
+#[display("{_0:o}")]
+pub enum UnderlayNeighborId {
+    /// We are the underlink neighbor.
+    ///
+    /// This is useful if we want to send a message to our self.
+    Loopback(),
+    /// Link to different underlay neighbor.
+    Other(NonZeroUsize),
 }
 
 // NOTE: maybe an event for **newly** discovered underlay neighbors could
@@ -31,6 +40,7 @@ pub struct UnderlayNeighborId {
 
 //   with being sure it's actually necessary.
 /// Updates of the currently present underlay neighbors connections.
+#[derive(Debug, Clone)]
 pub enum UnderlayNeighborUpdate {
     /// A new connection to an underlay neighbor was discovered.
     ///

@@ -6,13 +6,14 @@ use std::sync::mpsc::{self, SendError};
 use std::time::{Duration, Instant};
 
 use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
+use crate::use_cases::BroadcastableUseCaseEvent;
 use crate::Output;
 use crate::{
     messaging::ProtocolMessage,
     use_cases::{TimerId, UseCaseEvent},
 };
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 struct Timer {
     due: Instant,
     id: TimerId,
@@ -41,6 +42,7 @@ impl From<Timer> for UseCaseEvent {
 }
 
 /// Interface for the [UseCases](crate::use_cases::UseCase) to the runtime environment.
+#[derive(Debug, Clone)]
 pub struct UseCaseRuntime {
     counter: usize,
     timers: BinaryHeap<Timer>,
@@ -63,10 +65,11 @@ impl UseCaseRuntime {
     }
 }
 
+// R2Kad protocol instance orchestration methods
 impl UseCaseRuntime {
     /// Feeds an event into the event pipeline and to all [UseCases](crate::use_cases::UseCase).
-    pub(crate) fn spawn_event(&mut self, event: UseCaseEvent) {
-        self.tx_events.push_back(event);
+    pub(crate) fn spawn_event<E: Into<UseCaseEvent>>(&mut self, event: E) {
+        self.tx_events.push_back(event.into());
     }
 
     /// Get next [UseCaseEvent] for processing by the use cases.
@@ -104,7 +107,10 @@ impl UseCaseRuntime {
         // yield buffered event
         self.tx_events.pop_front()
     }
+}
 
+// timers
+impl UseCaseRuntime {
     fn register_timer_with_id(&mut self, duration: Duration, id: TimerId) {
         let due = self
             .current_time
@@ -162,6 +168,7 @@ impl UseCaseRuntime {
     }
 }
 
+// interaction capabilities with other use cases and other components
 impl UseCaseRuntime {
     fn send_output(&self, output: Output) -> Result<(), SendError<Output>> {
         self.output_channel.send(output)
@@ -177,7 +184,7 @@ impl UseCaseRuntime {
         //ulnid: UnderlayNeighborId,
     ) -> Result<(), SendError<Output>> {
         // FIXME: support sending to specified underlay neighbor conveniently
-        let output = Output::SendProtocolMessage(protocol_message.into(), 0u32.into());
+        let output = Output::SendProtocolMessage(protocol_message.into(), todo!("ulnid"));
         self.send_output(output)
     }
 
@@ -188,6 +195,10 @@ impl UseCaseRuntime {
     ) -> Result<(), SendError<Output>> {
         let output = Output::UpdateForwardingTables(update);
         self.send_output(output)
+    }
+
+    pub fn broadcast_event(&mut self, event: BroadcastableUseCaseEvent) {
+        self.tx_events.push_back(event.into());
     }
 }
 

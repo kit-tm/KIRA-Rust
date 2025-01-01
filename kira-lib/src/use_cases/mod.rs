@@ -5,7 +5,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 use tokio::sync::mpsc; // use tokio::sync::oneshot;
 
-use crate::domain::{Contact, NetworkInterface, NodeId, StateSeqNr, UnderlayNeighborId};
+use crate::domain::{Contact, NodeId, StateSeqNr, UnderlayNeighborId};
 use crate::hardware_events::HardwareEvent;
 use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr};
 use crate::messaging::messages::ProtocolMessage;
@@ -171,6 +171,32 @@ impl Deref for TimerId {
 impl Display for TimerId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+/// Enumeration representing all events a [UseCase] can broadcasted by the [UseCaseRuntime].
+///
+/// To broadcast events see [UseCaseRuntime::broadcast_event].
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum BroadcastableUseCaseEvent {
+    Message(ProtocolMessage),
+    Contact(ContactEvent),
+    ResyncNode(NodeId, StateSeqNr),
+}
+
+impl From<BroadcastableUseCaseEvent> for UseCaseEvent {
+    fn from(value: BroadcastableUseCaseEvent) -> Self {
+        match value {
+            BroadcastableUseCaseEvent::Message(protocol_message) => {
+                UseCaseEvent::Message(protocol_message, UnderlayNeighborId::Loopback())
+            }
+            BroadcastableUseCaseEvent::Contact(contact_event) => {
+                UseCaseEvent::Contact(contact_event)
+            }
+            BroadcastableUseCaseEvent::ResyncNode(node_id, state_seq_nr) => {
+                UseCaseEvent::ResyncNode(node_id, state_seq_nr)
+            }
+        }
     }
 }
 
