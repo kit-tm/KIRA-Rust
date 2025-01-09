@@ -136,11 +136,11 @@ impl<const SIZE: usize> Bucket<SIZE> {
         with: Contact,
     ) -> Result<Contact, ReplacementError> {
         if !self.contains(replace_id) {
-            return Err(ReplacementError::NotFound(replace_id.clone()));
+            return Err(ReplacementError::NotFound(*replace_id));
         }
 
         if self.contains(with.id()) {
-            return Err(ReplacementError::DuplicateId(replace_id.clone()));
+            return Err(ReplacementError::DuplicateId(*replace_id));
         }
 
         let contact = self.get_mut(replace_id);

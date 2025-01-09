@@ -1,16 +1,16 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::ops::Deref;
 use std::time::Duration;
 
-use crate::context::UseCaseContext;
-use crate::domain::{ContactState, NodeId, RoutingTable, DEFAULT_BUCKET_SIZE, PNTable, Contact};
-use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{
-    Nonce, ProbeReqData, ProbeRspData, ProtocolMessage, ProtocolMessageSender, ReqRspMessage,
+use crate::domain::{
+    Contact, ContactState, NodeId, PNTable, RoutingTable, UnderlayNeighborId, DEFAULT_BUCKET_SIZE,
 };
-use crate::runtime::UseCaseRuntime;
+use crate::messaging::source_route::SourceRoute;
+use crate::messaging::{Nonce, ProbeReqData, ProbeRspData, ProtocolMessage, ReqRspMessage};
 use crate::use_cases::{
-    EventHandler, MessageSentFailed, TimerId, UseCase, UseCaseEvent, UseCaseState,
+    EventHandler, NeverError, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime,
+    UseCaseState,
 };
 
 /// Configuration for [PathProbing] [UseCase].
@@ -21,7 +21,7 @@ pub struct PathProbingConfig {
     pub check_interval: Duration,
     /// Maximum age of a [Contact](crate::domain::contact::Contact) before it has to be probed.
     ///
-    /// Default is **40s** because physical advertising is about 30s.
+    /// Default is **40s** because underlay advertising is about 30s.
     pub probe_age: chrono::Duration,
     /// Maximum duration a [ProbeReq](crate::messaging::messages::ProtocolMessage::ProbeReq) is allowed to take.
     pub request_timeout: Duration,
@@ -74,7 +74,7 @@ pub struct PathProbing<C, const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE> {
 impl<C, const BUCKET_SIZE: usize> PathProbing<C, BUCKET_SIZE> {
     pub fn new(config: PathProbingConfig) -> Self {
         Self {
-            _pd: PhantomData::default(),
+            _pd: PhantomData,
             state: PathProbingState::Initialized,
             config,
         }
@@ -84,36 +84,37 @@ impl<C, const BUCKET_SIZE: usize> PathProbing<C, BUCKET_SIZE> {
 impl<C, const BUCKET_SIZE: usize> PathProbing<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
-    C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     // Send ProbeReqs to two oldest valid contacts per bucket
-    fn send_probe_reqs(&mut self, context: &C) -> Result<(), MessageSentFailed> {
+    fn send_probe_reqs(&mut self, context: &C) {
         let rt = context.routing_table();
         for bucket in rt.bucket_iter() {
-            let mut considered_contacts: Vec<_> = bucket.into_iter()
+            let mut considered_contacts: Vec<_> = bucket
+                .into_iter()
                 .filter(|contact| {
                     contact.last_seen().to_age_duration() >= self.config.probe_age &&
                         contact.state() == &ContactState::Valid &&
                         // should never be the case
                         !contact.is_pn()
-                }).collect();
+                })
+                .collect();
 
             considered_contacts.sort_unstable_by_key(|contact| contact.last_seen());
             // put oldest to the front
             considered_contacts.reverse();
 
             // todo make configurable
-            considered_contacts.iter().take(2)
-                .try_for_each(|c| self.send_probe_req(context, c))?
-        };
-
-        Ok(())
+            considered_contacts
+                .iter()
+                .take(2)
+                .for_each(|c| self.send_probe_req(context, c))
+        }
     }
 
-    fn send_probe_req(&mut self, context: &C, contact: &Contact) -> Result<(), MessageSentFailed> {
+    fn send_probe_req(&mut self, context: &C, contact: &Contact) {
         let (probe_timers, requests_in_flight) = match &mut self.state {
             PathProbingState::Running {
                 probe_timers,
@@ -130,7 +131,7 @@ where
         }
 
         let mut route = SourceRoute::from(contact.path().clone());
-        route.push_front(context.root_id().clone());
+        route.push_front(*context.root_id());
         let message = ReqRspMessage {
             nonce: nonce.clone(),
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
@@ -138,23 +139,20 @@ where
             not_via: context.not_via().clone(),
             source_route: route,
         };
-        if let Err(e) = context.message_sender_mut().send_message(message) {
-            log::error!(target: "path_probing", "Failed to send ProbeReq: {}", e);
-            return Err(MessageSentFailed);
-        }
+        context
+            .runtime_mut()
+            .send_message(message, context.pn_table().deref());
 
         let timeout_timer = context
-            .runtime()
+            .runtime_mut()
             .register_timer(self.config.request_timeout);
         probe_timers.insert(timeout_timer, nonce.clone());
-        requests_in_flight.insert(nonce, contact.id().clone());
+        requests_in_flight.insert(nonce, *contact.id());
 
         log::trace!(target: "path_probing", "Sent probe to {}", contact.id());
-
-        Ok(())
     }
 
-    fn remove_from_tracked_messages(&mut self, nonce: Nonce) -> Result<(), MessageSentFailed> {
+    fn remove_from_tracked_messages(&mut self, nonce: Nonce) {
         if let PathProbingState::Running {
             requests_in_flight,
             probe_timers,
@@ -166,15 +164,9 @@ where
 
             log::trace!(target: "path_probing", "Removed message with nonce {:?} from tracked messages", nonce);
         }
-
-        Ok(())
     }
 
-    fn invalidate_contact_for_timer(
-        &mut self,
-        context: &C,
-        timer_id: TimerId,
-    ) -> Result<(), MessageSentFailed> {
+    fn invalidate_contact_for_timer(&mut self, context: &C, timer_id: TimerId) {
         if let PathProbingState::Running {
             requests_in_flight,
             probe_timers,
@@ -201,15 +193,9 @@ where
                 }
             };
         }
-
-        Ok(())
     }
 
-    fn invalidate_contact_for_message(
-        &mut self,
-        context: &C,
-        nonce: Nonce,
-    ) -> Result<(), MessageSentFailed> {
+    fn invalidate_contact_for_message(&mut self, context: &C, nonce: Nonce) {
         if let PathProbingState::Running {
             requests_in_flight,
             probe_timers,
@@ -235,16 +221,10 @@ where
                 }
             };
         }
-
-        Ok(())
     }
 
-    fn send_probe_rsp(
-        &mut self,
-        context: &C,
-        req: ReqRspMessage<ProbeReqData>,
-    ) -> Result<(), MessageSentFailed> {
-        let source = req.source().clone();
+    fn send_probe_rsp(&mut self, context: &C, req: ReqRspMessage<ProbeReqData>) {
+        let source = *req.source();
         let message = ReqRspMessage {
             nonce: req.nonce,
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
@@ -252,14 +232,11 @@ where
             not_via: context.not_via().clone(),
             source_route: SourceRoute::from_reversed(req.source_route),
         };
-        if let Err(e) = context.message_sender_mut().send_message(message) {
-            log::error!(target: "path_probing", "Failed to send probe req: {}", e);
-            return Err(MessageSentFailed);
-        }
+        context
+            .runtime_mut()
+            .send_message(message, context.pn_table().deref());
 
         log::trace!(target: "path_probing", "Sent probe rsp to {}", source);
-
-        Ok(())
     }
 
     fn is_periodic_timer(&self, timer_id: &TimerId) -> bool {
@@ -289,16 +266,15 @@ where
 impl<C, const BUCKET_SIZE: usize> UseCase for PathProbing<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
-    C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = PathProbingState;
 
-    fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error> {
+    fn start(&mut self, context: &C) -> Result<(), Self::Error> {
         let timer_id = context
-            .runtime()
+            .runtime_mut()
             .register_periodic_timer(self.config.check_interval);
 
         self.state = PathProbingState::Running {
@@ -318,28 +294,27 @@ where
 impl<C, const BUCKET_SIZE: usize> EventHandler for PathProbing<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
-    C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
-    type Error = MessageSentFailed;
+    type Error = NeverError;
     type Value = ();
 
     fn handle_event(
         &mut self,
-        context: &Self::Context,
+        context: &C,
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
         match event {
             UseCaseEvent::Timer(timer_id) => {
                 if self.is_periodic_timer(&timer_id) {
-                    self.send_probe_reqs(context)?;
+                    self.send_probe_reqs(context);
                 }
                 // A timeout happened before the answer was received => invalidate contact
                 if self.is_tracked_timer(&timer_id) {
-                    self.invalidate_contact_for_timer(context, timer_id)?;
+                    self.invalidate_contact_for_timer(context, timer_id);
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::ProbeRsp(req), _) => {
@@ -349,519 +324,24 @@ where
                         source_route,
                         ..
                     } = req;
-                    let source = source_route.source().clone();
+                    let source = *source_route.source();
 
-                    self.remove_from_tracked_messages(nonce)?;
+                    self.remove_from_tracked_messages(nonce);
 
                     log::debug!(target: "path_probing", "Probing {} was successful!", source);
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::Error(req), _) => {
                 if self.is_tracked_message(&req.nonce) {
-                    self.invalidate_contact_for_message(context, req.nonce)?;
+                    self.invalidate_contact_for_message(context, req.nonce);
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::ProbeReq(req), _) => {
-                self.send_probe_rsp(context, req)?;
+                self.send_probe_rsp(context, req);
             }
             _ => {}
         }
 
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::{HashMap, HashSet};
-
-    use chrono::{Duration, Utc};
-
-    use crate::context::{ContextConfig, SyncContext, UseCaseContext};
-    use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, Timestamp, InMemoryPNTable};
-    use crate::forwarding::in_memory_tables::InMemoryFwdTables;
-    use crate::messaging::source_route::SourceRoute;
-    use crate::messaging::{
-        AsyncProtocolMessageReceiver, ErrorData, InMemoryMessageChannel, Nonce, ProbeReqData,
-        ProbeRspData, ProtocolMessage, ReqRspMessage,
-    };
-    use crate::runtime::ImmediateRuntime;
-    use crate::use_cases::path_probing::PathProbing;
-    use crate::use_cases::{EventHandler, UseCase, UseCaseEvent};
-
-    #[tokio::test]
-    async fn path_probe_sent() {
-        crate::tests::init();
-
-        let interface = NetworkInterface::with_name("test");
-
-        let root_id = NodeId::with_lsb(1);
-        let neighbor_id = NodeId::with_lsb(2);
-
-        let contact_ids = [
-            NodeId::with_lsb(5),
-            NodeId::with_lsb(6),
-            NodeId::with_lsb(7),
-            NodeId::with_lsb(8),
-        ];
-
-        let (broadcaster, broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
-
-        let runtime = ImmediateRuntime::new(broadcaster);
-
-        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::with_capacity(5).into_parts();
-
-        let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
-        let old_contacts = contact_ids
-            .iter()
-            .cloned()
-            .map(|id| {
-                let mut contact = Contact::new(
-                    Path::from([neighbor_id.clone(), id]),
-                    StateSeqNr::from(rand::random::<u64>()),
-                );
-                *contact.last_seen_mut() = Timestamp::from(Utc::now() - Duration::days(2));
-                contact
-            })
-            .collect::<Vec<_>>();
-
-        let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
-        assert!(routing_table.insert(neighbor.clone()).is_ok());
-        for contact in old_contacts.clone() {
-            assert!(routing_table.insert(contact).is_ok());
-        }
-
-        let mut pn_table = InMemoryPNTable::new();
-        pn_table.insert(neighbor_id.clone(), interface.clone());
-
-        let sync_context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table,
-            pn_table,
-            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            message_sender: hub_sender,
-            runtime,
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case = PathProbing::new(Default::default());
-
-        let start_result = use_case.start(&sync_context);
-        assert!(start_result.is_ok(), "Failed to start use case");
-
-        // Trigger timer
-        let latest_timer_id = broadcast_receiver.try_recv();
-        assert!(latest_timer_id.is_ok(), "No timer was created");
-        let timer_event = latest_timer_id.unwrap();
-        let handle_result = use_case.handle_event(&sync_context, timer_event);
-        assert!(handle_result.is_ok(), "triggering timer event failed");
-
-        // Check if messages have been created for all contacts
-        let mut contacts_probed = HashMap::new();
-        loop {
-            match hub_receiver.try_recv().await {
-                Ok(Some((ProtocolMessage::ProbeReq(req), _))) => {
-                    let route = req.source_route;
-                    contacts_probed.insert(route.destination().clone(), route);
-                }
-                Ok(None) => break,
-                answer => panic!("Received invalid answer: {:?}", answer),
-            }
-        }
-
-        assert_eq!(
-            contacts_probed.len(),
-            2,
-            "More than two contacts per bucket probed: {:#?}",
-            contacts_probed
-        );
-
-
-        for old_contact in old_contacts {
-            let probed_contact = contacts_probed.remove(old_contact.id());
-            let Some(probed_route) = probed_contact else {
-                // we dont expect all contacts to be probed
-                continue;
-            };
-            assert_eq!(
-                &probed_route,
-                &SourceRoute::new(root_id.clone(), old_contact.path().clone()),
-                "probed pat is invalid"
-            );
-        }
-
-        assert!(
-            contacts_probed.is_empty(),
-            "Some contacts were probed that didn't have to be probed: {:?}",
-            contacts_probed
-        );
-    }
-
-    #[tokio::test]
-    async fn path_probe_answered() {
-        crate::tests::init();
-
-        let interface = NetworkInterface::with_name("test");
-
-        let root_id = NodeId::with_lsb(1);
-        let neighbor_id = NodeId::with_lsb(2);
-        let contact_id = NodeId::with_lsb(3);
-
-        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
-
-        let runtime = ImmediateRuntime::new(broadcaster);
-
-        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
-
-        let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(2));
-        let contact = Contact::new(Path::from(contact_id.clone()), StateSeqNr::from(3));
-
-        let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
-        assert!(routing_table.insert(neighbor.clone()).is_ok());
-        assert!(routing_table.insert(contact.clone()).is_ok());
-
-        let mut pn_table = InMemoryPNTable::new();
-        pn_table.insert(neighbor_id.clone(), interface.clone());
-
-        let sync_context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table,
-            pn_table,
-            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            message_sender: hub_sender,
-            runtime,
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case = PathProbing::new(Default::default());
-
-        let start_result = use_case.start(&sync_context);
-        assert!(start_result.is_ok(), "Failed to start use case");
-
-        // Send ProbeReq
-        let request = ReqRspMessage {
-            nonce: Nonce::random(),
-            source_state_seq_nr: StateSeqNr::from(3),
-            data: ProbeReqData,
-            not_via: Default::default(),
-            source_route: SourceRoute::from(Path::from([
-                contact_id.clone(),
-                neighbor_id.clone(),
-                root_id.clone(),
-            ]))
-            .advanced(),
-        };
-        let result = use_case.handle_event(
-            &sync_context,
-            UseCaseEvent::Message(request.clone().into(), interface.clone()),
-        );
-        assert!(result.is_ok(), "Failed to send message");
-
-        // Expect ProbeRsp
-        let sent_message = hub_receiver.try_recv().await;
-        assert!(sent_message.is_ok(), "Failed to receive sent message");
-        let sent_message = sent_message.unwrap();
-        assert!(sent_message.is_some(), "No message was sent");
-        let (sent_message, _) = sent_message.unwrap();
-        match sent_message {
-            ProtocolMessage::ProbeRsp(rsp) => {
-                assert_eq!(rsp.nonce, request.nonce, "Nonces should be equal");
-                assert_eq!(
-                    rsp.source_state_seq_nr,
-                    StateSeqNr::from(1),
-                    "SSN should be the one of the root"
-                );
-                assert_eq!(
-                    rsp.source_route,
-                    SourceRoute::from_reversed(request.source_route),
-                    "source route should be reversed"
-                );
-            }
-            message => panic!("Sent unexpected message: {:?}", message),
-        }
-    }
-
-    #[tokio::test]
-    async fn contact_invalidated_after_timeout() {
-        crate::tests::init();
-
-        let interface = NetworkInterface::with_name("test");
-
-        let root_id = NodeId::with_lsb(1);
-        let neighbor_id = NodeId::with_lsb(2);
-        let old_contact_not_responding_id = NodeId::with_lsb(3);
-
-        let (broadcaster, broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
-
-        let runtime = ImmediateRuntime::new(broadcaster);
-
-        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
-
-        let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
-        let mut old_contact_not_responding = Contact::new(
-            Path::from([neighbor_id.clone(), old_contact_not_responding_id.clone()]),
-            StateSeqNr::from(3),
-        );
-        *old_contact_not_responding.last_seen_mut() =
-            Timestamp::from(Utc::now() - Duration::days(1));
-
-        let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
-        assert!(routing_table.insert(neighbor.clone()).is_ok());
-        assert!(routing_table
-            .insert(old_contact_not_responding.clone())
-            .is_ok());
-
-        let mut pn_table = InMemoryPNTable::new();
-        pn_table.insert(neighbor_id.clone(), interface.clone());
-
-        let sync_context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table,
-            pn_table,
-            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            message_sender: hub_sender,
-            runtime: runtime.clone(),
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case = PathProbing::new(Default::default());
-
-        let start_result = use_case.start(&sync_context);
-        assert!(start_result.is_ok(), "Failed to start use case");
-
-        // Trigger periodic timer
-        let latest_timer_id = broadcast_receiver.try_recv();
-        assert!(latest_timer_id.is_ok(), "No timer was created");
-        let timer_event = latest_timer_id.unwrap();
-        let handle_result = use_case.handle_event(&sync_context, timer_event.clone());
-        assert!(handle_result.is_ok(), "triggering timer event failed");
-
-        // Trigger timer for timeout
-        let timeout_timer_id = runtime
-            .latest_timer_id()
-            .expect("latest timeout should be at least the periodic timer");
-        let timeout_timer_event = UseCaseEvent::Timer(timeout_timer_id);
-        assert_ne!(
-            &timer_event, &timeout_timer_event,
-            "Timeout timer for probe has to be created"
-        );
-        let handle_result = use_case.handle_event(&sync_context, timeout_timer_event.clone());
-        assert!(handle_result.is_ok(), "triggering timer event failed");
-
-        // Contact has to be invalidated
-        let lock = sync_context.routing_table();
-        let contact = lock.contact(&old_contact_not_responding_id);
-        assert!(
-            contact.is_some(),
-            "not responding contact should invalid but was deleted"
-        );
-        let contact = contact.unwrap();
-        assert_eq!(contact.state(), &ContactState::Invalid);
-    }
-
-    #[tokio::test]
-    async fn contact_invalidated_after_segment_failure() {
-        crate::tests::init();
-
-        let interface = NetworkInterface::with_name("test");
-
-        let root_id = NodeId::with_lsb(1);
-        let neighbor_id = NodeId::with_lsb(2);
-        let old_contact_not_responding_id = NodeId::with_lsb(3);
-
-        let (broadcaster, broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
-
-        let runtime = ImmediateRuntime::new(broadcaster);
-
-        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
-
-        let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
-        let mut old_contact_not_responding = Contact::new(
-            Path::from([neighbor_id.clone(), old_contact_not_responding_id.clone()]),
-            StateSeqNr::from(3),
-        );
-        *old_contact_not_responding.last_seen_mut() =
-            Timestamp::from(Utc::now() - Duration::days(1));
-
-        let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
-        assert!(routing_table.insert(neighbor.clone()).is_ok());
-        assert!(routing_table
-            .insert(old_contact_not_responding.clone())
-            .is_ok());
-
-        let mut pn_table = InMemoryPNTable::new();
-        pn_table.insert(neighbor_id.clone(), interface.clone());
-
-        let sync_context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table,
-            pn_table,
-            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            message_sender: hub_sender,
-            runtime: runtime.clone(),
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case = PathProbing::new(Default::default());
-
-        let start_result = use_case.start(&sync_context);
-        assert!(start_result.is_ok(), "Failed to start use case");
-
-        // Trigger periodic timer
-        let latest_timer_id = broadcast_receiver.try_recv();
-        assert!(latest_timer_id.is_ok(), "No timer was created");
-        let timer_event = latest_timer_id.unwrap();
-        let handle_result = use_case.handle_event(&sync_context, timer_event.clone());
-        assert!(handle_result.is_ok(), "triggering timer event failed");
-
-        let probe_sent = hub_receiver.try_recv().await;
-        assert!(probe_sent.is_ok(), "A Probe has to be sent");
-        let probe_sent = probe_sent.unwrap();
-        assert!(probe_sent.is_some(), "No probe was immediately created");
-        let (probe_sent, _) = probe_sent.unwrap();
-        assert!(
-            matches!(probe_sent, ProtocolMessage::ProbeReq(_)),
-            "Sent message has to be a ProbeReq"
-        );
-
-        // Trigger error
-        let message = ReqRspMessage {
-            nonce: probe_sent.nonce().unwrap().clone(),
-            source_state_seq_nr: *neighbor.state_seq_nr(),
-            data: ErrorData::SegmentFailure {
-                failed_link: Link::from((
-                    neighbor_id.clone(),
-                    old_contact_not_responding_id.clone(),
-                )),
-                source: neighbor_id.clone(),
-            },
-            not_via: Default::default(),
-            source_route: SourceRoute::from_reversed(probe_sent.source_route().unwrap().clone()),
-        };
-        let handle_result = use_case.handle_event(
-            &sync_context,
-            UseCaseEvent::Message(message.into(), interface.clone()),
-        );
-        assert!(handle_result.is_ok(), "triggering timer event failed");
-
-        // Contact has to be invalidated
-        let lock = sync_context.routing_table();
-        let contact = lock.contact(&old_contact_not_responding_id);
-        assert!(
-            contact.is_some(),
-            "not responding contact should invalid but was deleted"
-        );
-        let contact = contact.unwrap();
-        assert_eq!(contact.state(), &ContactState::Invalid);
-    }
-
-    #[tokio::test]
-    async fn contact_still_valid_after_successful_response_and_timeout_timer() {
-        crate::tests::init();
-
-        let interface = NetworkInterface::with_name("test");
-
-        let root_id = NodeId::with_lsb(1);
-        let neighbor_id = NodeId::with_lsb(2);
-        let old_contact_not_responding_id = NodeId::with_lsb(3);
-
-        let (broadcaster, broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
-
-        let runtime = ImmediateRuntime::new(broadcaster);
-
-        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
-
-        let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
-        let mut old_contact_not_responding = Contact::new(
-            Path::from([neighbor_id.clone(), old_contact_not_responding_id.clone()]),
-            StateSeqNr::from(3),
-        );
-        *old_contact_not_responding.last_seen_mut() =
-            Timestamp::from(Utc::now() - Duration::days(1));
-
-        let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
-        assert!(routing_table.insert(neighbor.clone()).is_ok());
-        assert!(routing_table
-            .insert(old_contact_not_responding.clone())
-            .is_ok());
-
-        let mut pn_table = InMemoryPNTable::new();
-        pn_table.insert(neighbor_id.clone(), interface.clone());
-
-        let sync_context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table,
-            pn_table,
-            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            message_sender: hub_sender,
-            runtime: runtime.clone(),
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case = PathProbing::new(Default::default());
-
-        let start_result = use_case.start(&sync_context);
-        assert!(start_result.is_ok(), "Failed to start use case");
-
-        // Trigger periodic timer
-        let latest_timer_id = broadcast_receiver.try_recv();
-        assert!(latest_timer_id.is_ok(), "No timer was created");
-        let timer_event = latest_timer_id.unwrap();
-        let handle_result = use_case.handle_event(&sync_context, timer_event.clone());
-        assert!(handle_result.is_ok(), "triggering timer event failed");
-
-        let probe_sent = hub_receiver.try_recv().await;
-        assert!(probe_sent.is_ok(), "A Probe has to be sent");
-        let probe_sent = probe_sent.unwrap();
-        assert!(probe_sent.is_some(), "No probe was immediately created");
-        let (probe_sent, _) = probe_sent.unwrap();
-        assert!(
-            matches!(probe_sent, ProtocolMessage::ProbeReq(_)),
-            "Sent message has to be a ProbeReq"
-        );
-
-        // get timer event now to not fail because of other created timers
-        let timeout_timer_id = runtime
-            .latest_timer_id()
-            .expect("latest timeout should be at least the periodic timer");
-        let timeout_timer_event = UseCaseEvent::Timer(timeout_timer_id);
-        assert_ne!(
-            &timer_event, &timeout_timer_event,
-            "Timeout timer for probe has to be created"
-        );
-
-        // Trigger successful response
-        let message = ReqRspMessage {
-            nonce: probe_sent.nonce().unwrap().clone(),
-            source_state_seq_nr: *neighbor.state_seq_nr(),
-            data: ProbeRspData,
-            not_via: Default::default(),
-            source_route: SourceRoute::from_reversed(probe_sent.source_route().unwrap().clone()),
-        };
-        let handle_result = use_case.handle_event(
-            &sync_context,
-            UseCaseEvent::Message(message.into(), interface.clone()),
-        );
-        assert!(handle_result.is_ok(), "triggering timer event failed");
-
-        // Trigger timer
-        let handle_result = use_case.handle_event(&sync_context, timeout_timer_event.clone());
-        assert!(handle_result.is_ok(), "triggering timer event failed");
-
-        // Contact has to be invalidated
-        let lock = sync_context.routing_table();
-        let contact = lock.contact(&old_contact_not_responding_id);
-        assert!(
-            contact.is_some(),
-            "not responding contact should invalid but was deleted"
-        );
-        let contact = contact.unwrap();
-        assert_eq!(contact.state(), &ContactState::Valid);
     }
 }

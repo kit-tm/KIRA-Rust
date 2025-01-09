@@ -1,12 +1,16 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
+use std::ops::Deref;
 
-use crate::context::UseCaseContext;
-use crate::domain::{Contact, ContactState, NotVia, PNTable, RoutingTable};
+use crate::domain::{
+    Contact, ContactState, NodeId, NotVia, PNTable, RoutingTable, UnderlayNeighborId,
+};
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{ProtocolMessageSender, RouteUpdate, UpdateRouteReq};
-use crate::use_cases::{ContactEvent, EventHandler, MessageSentFailed, UseCaseEvent};
+use crate::messaging::{RouteUpdate, UpdateRouteReq};
+use crate::use_cases::{
+    ContactEvent, EventHandler, NeverError, UseCaseContext, UseCaseEvent, UseCaseRuntime,
+};
 
 /// Configuration for contact update handling.
 #[derive(Debug)]
@@ -41,7 +45,7 @@ pub struct HandleContactUpdate<C, const BUCKET_SIZE: usize> {
 impl<C, const BUCKET_SIZE: usize> Default for HandleContactUpdate<C, BUCKET_SIZE> {
     fn default() -> Self {
         Self {
-            _pd: PhantomData::default(),
+            _pd: PhantomData,
             config: Default::default(),
         }
     }
@@ -50,7 +54,7 @@ impl<C, const BUCKET_SIZE: usize> Default for HandleContactUpdate<C, BUCKET_SIZE
 impl<C, const BUCKET_SIZE: usize> HandleContactUpdate<C, BUCKET_SIZE> {
     pub fn new(config: HandleContactUpdateConfig) -> Self {
         Self {
-            _pd: PhantomData::default(),
+            _pd: PhantomData,
             config,
         }
     }
@@ -59,15 +63,11 @@ impl<C, const BUCKET_SIZE: usize> HandleContactUpdate<C, BUCKET_SIZE> {
 impl<C, const BUCKET_SIZE: usize> HandleContactUpdate<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
+    C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::MessageSender: ProtocolMessageSender,
-    C::PhysicalNeighborTable: PNTable
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
-    fn send_update(
-        &self,
-        context: &C,
-        updates: HashMap<Contact, RouteUpdate>,
-    ) -> Result<(), MessageSentFailed> {
+    fn send_update(&self, context: &C, updates: HashMap<Contact, RouteUpdate>) {
         let overlay_neighbors = context
             .routing_table()
             .closest(
@@ -82,16 +82,13 @@ where
                 source_state_seq_nr: *context.pn_table().state_seq_nr(),
                 not_via: context.not_via().clone(),
                 contact_actions: updates.clone(),
-                source_route: SourceRoute::new(context.root_id().clone(), contact.path().clone()),
+                source_route: SourceRoute::new(*context.root_id(), contact.path().clone()),
             };
 
-            if let Err(e) = context.message_sender_mut().send_message(message) {
-                log::error!(target: "handle_contact_update", "failed to send UpdateRouteReq: {}", e);
-                return Err(MessageSentFailed);
-            }
+            context
+                .runtime_mut()
+                .send_message(message, context.pn_table().deref());
         }
-
-        Ok(())
     }
 
     fn invalidate_all_affected_contacts(&self, context: &C, invalidated_contact: &Contact) {
@@ -107,29 +104,29 @@ where
 impl<C, const BUCKET_SIZE: usize> EventHandler for HandleContactUpdate<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
+    C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::MessageSender: ProtocolMessageSender,
-    C::PhysicalNeighborTable: PNTable
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
-    type Error = MessageSentFailed;
+    type Error = NeverError;
     type Value = ();
 
     fn handle_event(
         &mut self,
-        context: &Self::Context,
+        context: &C,
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
         match event {
             UseCaseEvent::Contact(ContactEvent::Removed(contact)) => {
-                // only send update if physical neighbor got removed
+                // only send update if underlay neighbor got removed
                 // this doesn't happen in reality since we use the UnlimitedPNRoutingTable
                 if contact.is_pn() {
                     let mut updates = HashMap::new();
                     updates.insert(contact.clone(), RouteUpdate::Removed);
 
-                    log::trace!(target: "handle_contact_update", "Sending update concerning removal of physical neighbor {}", contact.id());
-                    self.send_update(context, updates)?;
+                    log::trace!(target: "handle_contact_update", "Sending update concerning removal of underlay neighbor {}", contact.id());
+                    self.send_update(context, updates);
                 }
 
                 context.not_via_mut().retain(|not_via| match not_via {
@@ -141,7 +138,7 @@ where
                 self.invalidate_all_affected_contacts(context, &contact);
 
                 if context.pn_table_mut().remove(contact.id()).is_some() {
-                    log::trace!(target: "handle_contact_update", "removed {} from physical neighbors", contact.id());
+                    log::trace!(target: "handle_contact_update", "removed {} from underlay neighbors", contact.id());
                 }
             }
             UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {
@@ -149,7 +146,7 @@ where
                 updates.insert(new.clone(), RouteUpdate::Updated);
 
                 // this should be fine, since we only update contacts if interesting anyways
-                self.send_update(context, updates)?;
+                self.send_update(context, updates);
                 if old.state() == &ContactState::Valid && new.state() != &ContactState::Valid {
                     // Add to not-via data if path gets invalid (maybe done already)
                     self.invalidate_all_affected_contacts(context, &new);
@@ -161,7 +158,7 @@ where
                 updates.insert(new.clone(), RouteUpdate::Updated);
 
                 log::trace!(target: "handle_contact_update", "New contact {} found. Sending update.", new.id());
-                self.send_update(context, updates)?;
+                self.send_update(context, updates);
             }
             _ => {}
         }

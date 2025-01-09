@@ -4,11 +4,6 @@ use std::str::FromStr;
 
 use digest::Digest;
 
-#[cfg(feature = "sha2")]
-pub use sha2_extension::*;
-#[cfg(feature = "sha3")]
-pub use sha3_extension::*;
-
 use crate::domain::NodeId;
 
 pub const SHORT_OUTPUT_LENGTH: usize = 8;
@@ -45,45 +40,25 @@ impl PathId {
     pub fn from_sha1<'a, I: IntoIterator<Item = &'a NodeId>>(path: I) -> Self {
         Self::from_digest(sha1::Sha1::new(), path)
     }
-}
 
-#[cfg(feature = "sha2")]
-mod sha2_extension {
-    use sha2::Digest;
-
-    use crate::domain::path_id::PathId;
-    use crate::domain::NodeId;
-
-    impl PathId {
-        pub fn from_sha2_256<'a, I: IntoIterator<Item = &'a NodeId>>(path: I) -> Self {
-            Self::from_digest(sha2::Sha256::new(), path)
-        }
+    #[cfg(feature = "sha2")]
+    pub fn from_sha2_256<'a, I: IntoIterator<Item = &'a NodeId>>(path: I) -> Self {
+        Self::from_digest(sha2::Sha256::new(), path)
     }
 
-    impl PathId {
-        pub fn from_sha2_512<'a, I: IntoIterator<Item = &'a NodeId>>(path: I) -> Self {
-            Self::from_digest(sha2::Sha512::new(), path)
-        }
-    }
-}
-
-#[cfg(feature = "sha3")]
-mod sha3_extension {
-    use sha3::Digest;
-
-    use crate::domain::path_id::PathId;
-    use crate::domain::NodeId;
-
-    impl PathId {
-        pub fn from_sha3_256<'a, I: IntoIterator<Item = &'a NodeId>>(path: I) -> Self {
-            Self::from_digest(sha3::Sha3_256::new(), path)
-        }
+    #[cfg(feature = "sha2")]
+    pub fn from_sha2_512<'a, I: IntoIterator<Item = &'a NodeId>>(path: I) -> Self {
+        Self::from_digest(sha2::Sha512::new(), path)
     }
 
-    impl PathId {
-        pub fn from_sha3_512<'a, I: IntoIterator<Item = &'a NodeId>>(path: I) -> Self {
-            Self::from_digest(sha3::Sha3_512::new(), path)
-        }
+    #[cfg(feature = "sha3")]
+    pub fn from_sha3_256<'a, I: IntoIterator<Item = &'a NodeId>>(path: I) -> Self {
+        Self::from_digest(sha3::Sha3_256::new(), path)
+    }
+
+    #[cfg(feature = "sha3")]
+    pub fn from_sha3_512<'a, I: IntoIterator<Item = &'a NodeId>>(path: I) -> Self {
+        Self::from_digest(sha3::Sha3_512::new(), path)
     }
 }
 
@@ -95,7 +70,7 @@ impl AsRef<[u8]> for PathId {
 
 impl From<&PathId> for Ipv6Addr {
     fn from(value: &PathId) -> Self {
-        let mut bytes = [0;16];
+        let mut bytes = [0; 16];
         bytes[0] = 0xfc;
         bytes[1] = 0xaa;
         bytes[2..16].copy_from_slice(&value.bytes[0..14]);

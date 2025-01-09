@@ -18,10 +18,10 @@ pub struct DistanceMap {
 }
 
 impl DistanceMap {
-    pub fn new(overlay: Duration, physical: Duration, others: Duration) -> Self {
+    pub fn new(overlay: Duration, underlay: Duration, others: Duration) -> Self {
         let mut map = HashMap::with_capacity(3);
         map.insert(Distance::OverlayNeighbor, overlay);
-        map.insert(Distance::PhysicalNeighbor, physical);
+        map.insert(Distance::PhysicalNeighbor, underlay);
         map.insert(Distance::Others, others);
         Self { values: map }
     }

@@ -4,8 +4,8 @@ use std::fmt::{Display, Formatter};
 
 pub use bucket::*;
 pub use contact::*;
+pub use hasher::*;
 pub use insertion_strategy::*;
-pub use interface::*;
 pub use node_id::*;
 pub use path::cycle_remover::*;
 pub use path::in_order_cycle_remover::*;
@@ -13,27 +13,27 @@ pub use path::shortest_first_path_simplifier::*;
 pub use path::simplifier::*;
 pub use path::*;
 pub use path_id::*;
-pub use physical_neighbor_table::*;
 pub use routing_table::flat_routing_table::*;
 pub use routing_table::*;
 pub use state_seq_nr::*;
 pub use underlay::*;
+pub use underlay_neighbor_table::*;
 
 pub mod bucket;
 pub mod contact;
 pub mod dht;
+pub mod hasher;
 pub mod insertion_strategy;
-pub mod interface;
 pub mod node_id;
 pub mod path;
 pub mod path_id;
-pub mod physical_neighbor_table;
 pub mod protocol_event;
 pub mod routing_table;
 pub mod state_seq_nr;
 pub mod underlay;
+pub mod underlay_neighbor_table;
 
-/// A physical connection between two nodes.
+/// A underlay connection between two nodes.
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Link(NodeId, NodeId);
@@ -62,7 +62,7 @@ impl From<(NodeId, NodeId)> for Link {
     }
 }
 
-/// Data structure representing nodes or physical connections to not use while forwarding protocol
+/// Data structure representing nodes or underlay connections to not use while forwarding protocol
 /// messages.
 ///
 /// Not via data is supposed to only represent information in the routing table.

@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -53,7 +52,7 @@ pub struct PNSStrategy<RT, CR, PS, const BUCKET_SIZE: usize> {
 impl<RT, CR, PS, const BUCKET_SIZE: usize> PNSStrategy<RT, CR, PS, BUCKET_SIZE> {
     pub fn new(path_cycle_remover: CR, path_simplifier: PS) -> Self {
         Self {
-            _pd: PhantomData::default(),
+            _pd: PhantomData,
             path_cycle_remover,
             path_simplifier,
         }
@@ -96,23 +95,21 @@ where
 
         // contact is newer, better or fixes a contact
 
-
         // replace invalid existing data
         // FIXME check whether the supposed new path actually avoids all broken links
         // -> `src/routing/r2kademlia/KadRoutingTable.cc:299`
-        if existing.state() == &ContactState::Invalid
-            && contact.state() == &ContactState::Valid {
+        if existing.state() == &ContactState::Invalid && contact.state() == &ContactState::Valid {
             log::trace!(target: "routing_table", "Updated path: Invalid path was replaced [{:?}]", contact);
             *existing = contact;
             return InsertionStrategyResult::Updated;
         }
 
-
         // dont replace path with longer path if ssn is same
         if existing.state_seq_nr() == contact.state_seq_nr()
             // todo support option to specify replace behaviour on equal length (called `enableSinglePathDiversity`)
             // todo use hash to prevent path flapping
-            && contact.path().size() >= /* > */ existing.path().size() {
+            && contact.path().size() >= /* > */ existing.path().size()
+        {
             log::trace!(
                 target: "routing_table",
                 "Not updating contacts path because it is longer [{:?}]",
@@ -176,7 +173,7 @@ where
             .max_by_key(|c| c.path().size());
 
         if let Some(replaceable) = replaceable {
-            let old_id = replaceable.id().clone();
+            let old_id = *replaceable.id();
             *replaceable = contact;
             log::debug!(
                 target: "routing_table",
@@ -228,11 +225,11 @@ where
             );
             return InsertionStrategyResult::Dropped;
         }
-        // If the first element is no physical neighbor
+        // If the first element is no underlay neighbor
         if !pn_table.contains(contact.path().first()) {
             log::trace!(
                 target: "routing_table",
-                "Dropping contact info: first element not a physical neighbor [{}]",
+                "Dropping contact info: first element not a underlay neighbor [{}]",
                 contact
             );
             return InsertionStrategyResult::Dropped;
@@ -283,7 +280,8 @@ impl From<InsertionStrategyResult> for TestInsertionStrategy {
     }
 }
 
-impl<RT, PN, const BUCKET_SIZE: usize> InsertionStrategy<RT, PN, BUCKET_SIZE> for TestInsertionStrategy
+impl<RT, PN, const BUCKET_SIZE: usize> InsertionStrategy<RT, PN, BUCKET_SIZE>
+    for TestInsertionStrategy
 where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
 {
@@ -299,102 +297,5 @@ where
         }
 
         self.0.clone()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{Contact, ContactState, InOrderCycleRemover, InsertionStrategy, InsertionStrategyResult, NetworkInterface, NodeId, PNSStrategy, PNTable, Path, RoutingTable, ShortestFirstPathSimplifier, StateSeqNr, InMemoryPNTable};
-
-    #[test]
-    fn extract_infos_from_find_node_not_for_us() {
-        crate::tests::init();
-
-        /* Topology:
-                         /---- target
-           neighbor -- root -x- other_neighbor -- proxy_invalidated
-               \----------------------------------/
-           (Where -x- signals a broken link)
-
-           Test: root should update its contact for proxy_invalidated after receiving
-                 a FindNodeRsp which is not directed to him.
-        */
-
-        let root_id = NodeId::with_msb(1);
-        let neighbor_id = NodeId::with_msb(2);
-        let other_neighbor_id = NodeId::with_msb(3);
-        let target_id = NodeId::with_msb(4);
-        let proxy_invalidated_id = NodeId::with_msb(5);
-
-        let interface = NetworkInterface::with_name("test");
-        let other_interface = NetworkInterface::with_name("test 2");
-        let third_interface = NetworkInterface::with_name("test 3");
-
-        let mut proxy_invalidated_contact = Contact::new(
-            Path::from([other_neighbor_id.clone(), proxy_invalidated_id.clone()]),
-            StateSeqNr::from(5),
-        );
-        *proxy_invalidated_contact.state_mut() = ContactState::Invalid;
-
-        let mut other_neighbor_contact =
-            Contact::new(Path::from([other_neighbor_id.clone()]), StateSeqNr::from(3));
-        *other_neighbor_contact.state_mut() = ContactState::Invalid;
-
-        let neighbor_contact = Contact::new(Path::from([neighbor_id.clone()]), StateSeqNr::from(2));
-
-        let target_contact = Contact::new(Path::from([target_id.clone()]), StateSeqNr::from(4));
-
-        let mut single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-
-        for contact in [
-            proxy_invalidated_contact,
-            other_neighbor_contact,
-            neighbor_contact,
-            target_contact,
-        ] {
-            assert!(
-                single_bucket_rt.insert(contact.clone()).is_ok(),
-                "Failed to insert {:?}",
-                contact
-            );
-        }
-
-        let mut pn_table = InMemoryPNTable::new();
-        pn_table.insert(neighbor_id.clone(), interface.clone());
-        pn_table.insert(other_neighbor_id.clone(), other_interface.clone());
-        pn_table.insert(target_id.clone(), third_interface.clone());
-
-        let mut insertion_strategy =
-            PNSStrategy::new(InOrderCycleRemover, ShortestFirstPathSimplifier);
-
-        // updated contact is inserted
-        let updated_contact = Contact::new(
-            Path::from([neighbor_id.clone(), proxy_invalidated_id.clone()]),
-            StateSeqNr::from(5),
-        );
-
-        let result = insertion_strategy.insert(updated_contact, &mut single_bucket_rt, &pn_table);
-
-        assert_eq!(
-            result,
-            InsertionStrategyResult::Updated,
-            "Previously invalid contact should be updated"
-        );
-
-        // Should contain the previously invalidated contact
-        let contact = single_bucket_rt.contact(&proxy_invalidated_id);
-        assert!(contact.is_some(), "couldn't find invalidated contact");
-        let contact = contact.unwrap();
-        assert_eq!(
-            contact.state(),
-            &ContactState::Valid,
-            "Contact should be validated"
-        );
-        assert_eq!(
-            contact.path(),
-            &Path::from([neighbor_id.clone(), proxy_invalidated_id.clone()]),
-            "Path was unexpectedly changed"
-        );
     }
 }

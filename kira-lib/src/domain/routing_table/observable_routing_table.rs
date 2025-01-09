@@ -123,12 +123,12 @@ pub trait NonObservableRoutingTable<'a, const BUCKET_SIZE: usize>:
 {
 }
 
-impl<'a, const BUCKET_SIZE: usize, const ACC: usize> NonObservableRoutingTable<'a, BUCKET_SIZE>
+impl<const BUCKET_SIZE: usize, const ACC: usize> NonObservableRoutingTable<'_, BUCKET_SIZE>
     for FlatRoutingTable<BUCKET_SIZE, ACC>
 {
 }
 
-impl<'a, const BUCKET_SIZE: usize, const ACC: usize> NonObservableRoutingTable<'a, BUCKET_SIZE>
+impl<const BUCKET_SIZE: usize, const ACC: usize> NonObservableRoutingTable<'_, BUCKET_SIZE>
     for UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>
 {
 }
@@ -254,8 +254,7 @@ where
         if bucket_old
             .iter()
             .zip(self.inner.bucket_by_index(index))
-            .find(|(a, b)| a.path() != b.path())
-            .is_some()
+            .any(|(a, b)| a.path() != b.path())
         {
             self.notify_all(RoutingTableEvent::UpdatedBucket(index));
         }
@@ -337,7 +336,7 @@ impl<'a, I, C, const BUCKET_SIZE: usize> Iter<'a, I, C, BUCKET_SIZE> {
         Self {
             observers,
             inner_iter,
-            _pd: PhantomData::default(),
+            _pd: PhantomData,
         }
     }
 }
@@ -374,7 +373,7 @@ where
     contact: C,
 }
 
-impl<'a, C, const BUCKET_SIZE: usize> Deref for ContactWriteGuard<'a, C, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize> Deref for ContactWriteGuard<'_, C, BUCKET_SIZE>
 where
     C: DerefMut<Target = Contact>,
 {
@@ -385,7 +384,7 @@ where
     }
 }
 
-impl<'a, C, const BUCKET_SIZE: usize> DerefMut for ContactWriteGuard<'a, C, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize> DerefMut for ContactWriteGuard<'_, C, BUCKET_SIZE>
 where
     C: DerefMut<Target = Contact>,
 {
@@ -394,7 +393,7 @@ where
     }
 }
 
-impl<'a, C, const BUCKET_SIZE: usize> Drop for ContactWriteGuard<'a, C, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize> Drop for ContactWriteGuard<'_, C, BUCKET_SIZE>
 where
     C: DerefMut<Target = Contact>,
 {
@@ -426,7 +425,7 @@ where
     bucket: B,
 }
 
-impl<'a, B, const BUCKET_SIZE: usize> Deref for BucketWriteGuard<'a, B, BUCKET_SIZE>
+impl<B, const BUCKET_SIZE: usize> Deref for BucketWriteGuard<'_, B, BUCKET_SIZE>
 where
     B: DerefMut<Target = Bucket<BUCKET_SIZE>>,
 {
@@ -437,7 +436,7 @@ where
     }
 }
 
-impl<'a, B, const BUCKET_SIZE: usize> DerefMut for BucketWriteGuard<'a, B, BUCKET_SIZE>
+impl<B, const BUCKET_SIZE: usize> DerefMut for BucketWriteGuard<'_, B, BUCKET_SIZE>
 where
     B: DerefMut<Target = Bucket<BUCKET_SIZE>>,
 {
@@ -446,17 +445,17 @@ where
     }
 }
 
-impl<'a, B, const BUCKET_SIZE: usize> Drop for BucketWriteGuard<'a, B, BUCKET_SIZE>
+impl<B, const BUCKET_SIZE: usize> Drop for BucketWriteGuard<'_, B, BUCKET_SIZE>
 where
     B: DerefMut<Target = Bucket<BUCKET_SIZE>>,
 {
     fn drop(&mut self) {
-        if let Some(_) = self
+        if self
             .bucket
             .deref()
             .iter()
             .zip(self.original.iter())
-            .find(|(a, b)| a.path() != b.path())
+            .any(|(a, b)| a.path() != b.path())
         {
             notify_all(self.observers, RoutingTableEvent::UpdatedBucket(self.index))
         }

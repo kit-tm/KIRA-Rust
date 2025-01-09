@@ -7,11 +7,10 @@ pub trait LocalHashTable<H, I, O> {
     type FetchErr;
     type InternalData;
 
-    // TODO document this
+    // TODO: document this
     fn store(&mut self, handle: H, data: I) -> Self::StoreRes;
     fn peek(&self, handle: &H) -> Result<O, Self::FetchErr>;
     fn fetch(&mut self, handle: &H) -> Result<O, Self::FetchErr>;
     fn fetch_all(&self) -> Result<Vec<(H, O)>, Self::FetchErr>;
-    fn into_handles(&self) -> Keys<'_, H, Self::InternalData>;
+    fn handles(&self) -> Keys<'_, H, Self::InternalData>;
 }
-

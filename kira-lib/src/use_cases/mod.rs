@@ -1,18 +1,17 @@
 //! Implementations of the use cases.
 
-use std::error::Error;
+use core::error::Error;
+use derive_more::derive::Display;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 use tokio::sync::mpsc; // use tokio::sync::oneshot;
 
-use crate::domain::{Contact, NodeId, StateSeqNr, UnderlayNeighborId};
-use crate::hardware_events::HardwareEvent;
+use crate::domain::{Contact, NodeId, StateSeqNr, UnderlayNeighborSource, UnderlayNeighborUpdate};
 use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr};
 use crate::messaging::messages::ProtocolMessage;
 use crate::messaging::{FindNodeReqData, Nonce};
 use crate::use_cases::inject_messages::InjectionResult;
 
-pub mod context;
 pub mod derive_fwd_table_entries;
 pub mod distributed_hash_table;
 pub mod distributed_hash_table_injector;
@@ -27,13 +26,12 @@ pub mod overlay_neighborhood_discovery;
 pub mod path_probing;
 pub mod precompute_paths_and_path_ids;
 pub mod random_overlay_discovery;
-pub mod runtime;
 pub mod vicinity_discovery;
 
 #[doc(inline)]
-pub use context::UseCaseContext;
+pub use crate::context::UseCaseContext;
 #[doc(inline)]
-pub use runtime::UseCaseRuntime;
+pub use crate::runtime::UseCaseRuntime;
 
 /// Callback used to message back an [InjectionResult] to an injector.
 ///
@@ -44,14 +42,13 @@ pub type OneshotInjectMessageCallback = mpsc::UnboundedSender<InjectionResult>; 
 /// Enumeration representing all events a [UseCase] can handle.
 #[derive(Debug, Clone, PartialEq)]
 pub enum UseCaseEvent {
-    Message(ProtocolMessage, UnderlayNeighborId),
+    Message(ProtocolMessage, UnderlayNeighborSource),
     Timer(TimerId),
     Contact(ContactEvent),
     ResyncNode(NodeId, StateSeqNr),
     InjectMessage(Option<Nonce>, InjectionMessageData),
-    Hardware(HardwareEvent),
+    UnderlayUpdate(UnderlayNeighborUpdate),
     API(ApiEvent),
-    Shutdown,
 }
 
 /// Protocol message data to inject into the network.
@@ -184,11 +181,17 @@ pub enum BroadcastableUseCaseEvent {
     ResyncNode(NodeId, StateSeqNr),
 }
 
+impl From<ProtocolMessage> for BroadcastableUseCaseEvent {
+    fn from(value: ProtocolMessage) -> Self {
+        Self::Message(value)
+    }
+}
+
 impl From<BroadcastableUseCaseEvent> for UseCaseEvent {
     fn from(value: BroadcastableUseCaseEvent) -> Self {
         match value {
             BroadcastableUseCaseEvent::Message(protocol_message) => {
-                UseCaseEvent::Message(protocol_message, UnderlayNeighborId::Loopback())
+                UseCaseEvent::Message(protocol_message, UnderlayNeighborSource::Local)
             }
             BroadcastableUseCaseEvent::Contact(contact_event) => {
                 UseCaseEvent::Contact(contact_event)
@@ -228,22 +231,12 @@ impl UseCaseState for ReactiveUseCaseState {
     }
 }
 
-/// Error representing the failure when sending a [ProtocolMessage].
-///
-/// Provided as goto Error for [UseCase]s when no other error can occur.
-#[derive(Debug, Eq, PartialEq, Clone)]
-pub struct MessageSentFailed;
+/// Error provided as goto Error for [UseCase]s when no error can occur.
+#[derive(Debug, Eq, PartialEq, Clone, Display)]
+#[display("This error can never occure because it's a zero-variant enum")]
+pub enum NeverError {}
 
-impl Display for MessageSentFailed {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Sending a ProtocolMessage through a MessageSender failed"
-        )
-    }
-}
-
-impl Error for MessageSentFailed {}
+impl Error for NeverError {}
 
 /// Returned by [EventHandler::handle_event].
 ///
@@ -278,22 +271,4 @@ pub trait UseCase: EventHandler {
 
     fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error>;
     fn state(&self) -> &Self::State;
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::messaging::ProtocolMessage;
-    use crate::use_cases::UseCaseEvent;
-    use std::sync::mpsc::Receiver;
-
-    pub fn wait_for_message(recv: Receiver<UseCaseEvent>) -> ProtocolMessage {
-        loop {
-            let response = recv.recv();
-            assert!(response.is_ok(), "Error receiving result: {:?}", response);
-
-            if let UseCaseEvent::Message(message, ..) = response.unwrap() {
-                break message;
-            }
-        }
-    }
 }

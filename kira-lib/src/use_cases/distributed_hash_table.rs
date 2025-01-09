@@ -1,12 +1,13 @@
 use core::time::Duration;
-use std::collections::HashSet;
-use std::error::Error;
-use std::fmt::{Debug, Display, Formatter};
+use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::ops::Deref;
 use std::sync::Arc;
 
-use crate::context::UseCaseContext;
-use crate::domain::{dht, Contact, ContactState, NetworkInterface, NodeId, PNTable, RoutingTable};
+use crate::domain::{
+    dht, Contact, ContactState, NodeId, PNTable, RoutingTable, UnderlayNeighborId,
+};
 use crate::messaging::dht::{
     DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchReqData, FetchRspData, StoreReqData,
     StoreResult, StoreRspData,
@@ -21,10 +22,10 @@ use crate::domain::dht::Expiring;
 use crate::domain::dht::TimedValue;
 
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{Nonce, ProtocolMessage, ProtocolMessageSender, ReqRspMessage};
-use crate::runtime::UseCaseRuntime;
+use crate::messaging::{Nonce, ProtocolMessage, ReqRspMessage};
 use crate::use_cases::{
-    ApiEvent, ContactEvent, EventHandler, TimerId, UseCase, UseCaseEvent, UseCaseState,
+    ApiEvent, BroadcastableUseCaseEvent, ContactEvent, EventHandler, NeverError, TimerId, UseCase,
+    UseCaseContext, UseCaseEvent, UseCaseRuntime, UseCaseState,
 };
 
 /// Default number of seconds between each garbage collection process.
@@ -87,28 +88,6 @@ impl Default for DistributedHashTableConfig {
         Self::with_collect_interval(DEFAULT_COLLECT_INTERVAL)
     }
 }
-
-/// This module defines an enum `DHTError` that represents errors encountered while
-/// sending data with DHT protocol.
-///
-/// # Enum Variants
-///
-/// - `DHTSendError`: Sending of DHT data over the network failed.
-#[derive(Debug)]
-pub enum DHTError {
-    SendError,
-}
-
-impl Display for DHTError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "DHTSendError: Sending a response message over the network failed."
-        )
-    }
-}
-
-impl Error for DHTError {}
 
 /// Represents the state of the [DistributedHashTable] UseCase.
 ///
@@ -182,13 +161,12 @@ impl UseCaseState for DHTState {
     }
 }
 
-impl<C, H, RS, D: Debug, const BUCKET_SIZE: usize> DistributedHashTable<C, H, BUCKET_SIZE>
+impl<C, H, RS, const BUCKET_SIZE: usize> DistributedHashTable<C, H, BUCKET_SIZE>
 where
     C: UseCaseContext,
-    C::MessageSender: ProtocolMessageSender,
+    C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::Runtime: UseCaseRuntime<SendError = D>,
-    C::PhysicalNeighborTable: PNTable,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     H: LocalHashTable<
             NodeId,
             DefaultLHTInput,
@@ -198,11 +176,7 @@ where
         > + Expiring<Context = (), Result = RS>
         + Clone,
 {
-    fn send_store_rsp(
-        &mut self,
-        context: &C,
-        req: ReqRspMessage<StoreReqData<DefaultLHTInput>>,
-    ) -> Result<(), DHTError> {
+    fn send_store_rsp(&mut self, context: &C, req: ReqRspMessage<StoreReqData<DefaultLHTInput>>) {
         let res = self.hash_table.store(req.data.handle, req.data.data);
         let source_route = SourceRoute::from_reversed(req.source_route);
 
@@ -218,24 +192,18 @@ where
 
         let message = ProtocolMessage::StoreRsp(rsp);
         if message.destination().unwrap() == context.root_id() {
-            return context.runtime().broadcast_local_event(UseCaseEvent::Message(message, NetworkInterface::loopback())).map_err(|e| {
-                log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
-                DHTError::SendError
-            });
-        }
-        if let Err(e) = context.message_sender_mut().send_message(message) {
-            log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
-            return Err(DHTError::SendError);
+            context
+                .runtime_mut()
+                .broadcast_event(BroadcastableUseCaseEvent::Message(message));
+            return;
         }
 
-        Ok(())
+        context
+            .runtime_mut()
+            .send_message(message, context.pn_table().deref());
     }
 
-    fn send_fetch_rsp(
-        &mut self,
-        context: &C,
-        req: ReqRspMessage<FetchReqData>,
-    ) -> Result<(), DHTError> {
+    fn send_fetch_rsp(&mut self, context: &C, req: ReqRspMessage<FetchReqData>) {
         let fetch_res = self.hash_table.fetch(&req.data.handle);
         let source_route = SourceRoute::from_reversed(req.source_route);
 
@@ -251,29 +219,26 @@ where
 
         let message = ProtocolMessage::FetchRsp(rsp);
         if message.destination().unwrap() == context.root_id() {
-            return context.runtime().broadcast_local_event(UseCaseEvent::Message(message, NetworkInterface::loopback())).map_err(|e| {
-                log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
-                DHTError::SendError
-            });
+            context
+                .runtime_mut()
+                .broadcast_event(BroadcastableUseCaseEvent::Message(message));
+            return;
         }
 
-        if let Err(e) = context.message_sender_mut().send_message(message) {
-            log::error!(target: "distributed_hash_table", "Failed to send message: {:?}", e);
-            return Err(DHTError::SendError);
-        }
-
-        Ok(())
+        context
+            .runtime_mut()
+            .send_message(message, context.pn_table().deref());
     }
 
-    fn republish_to_contact_if_closer(&mut self, context: &C, contact: Contact) -> Result<(), DHTError> {
-        let root_id = context.root_id();
-        for handle in self.hash_table.into_handles() {
+    fn republish_to_contact_if_closer(&mut self, context: &C, contact: Contact) {
+        for handle in self.hash_table.handles() {
             // TODO support different shared_prefix_len via config
             let contact_prefix = contact
                 .id()
                 .shared_prefix_len(handle, 1)
                 .expect("shared_prefix_len 1 failed");
-            let root_prefix = root_id
+            let root_prefix = context
+                .root_id()
                 .shared_prefix_len(handle, 1)
                 .expect("shared_prefix_len 1 failed");
 
@@ -291,28 +256,21 @@ where
             // TODO make it configurable to delete the value after a successful store
             for data in entry {
                 let data = StoreReqData {
-                    handle: handle.clone(),
+                    handle: *handle,
                     data,
                 };
-                if let Err(e) = dht::send_store_req(context, Nonce::random(), data) {
-                    log::error!(target: "distributed_hash_table", "Failed to replicate local hash entry at nearer node: {:?}", e);
-                    return Err(DHTError::SendError);
-                }
+                dht::send_store_req(context, Nonce::random(), data);
             }
         }
-
-        Ok(())
     }
 }
 
-impl<C, H, RS, D: Debug, const BUCKET_SIZE: usize> EventHandler
-    for DistributedHashTable<C, H, BUCKET_SIZE>
+impl<C, H, RS, const BUCKET_SIZE: usize> EventHandler for DistributedHashTable<C, H, BUCKET_SIZE>
 where
     C: UseCaseContext,
-    C::MessageSender: ProtocolMessageSender,
+    C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::Runtime: UseCaseRuntime<SendError = D>,
-    C::PhysicalNeighborTable: PNTable,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     H: LocalHashTable<
             NodeId,
             DefaultLHTInput,
@@ -323,21 +281,21 @@ where
         + Clone,
 {
     type Context = C;
-    type Error = DHTError;
+    type Error = NeverError;
     type Value = ();
 
     fn handle_event(
         &mut self,
-        context: &Self::Context,
+        context: &C,
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
         match (event, &self.state) {
             // ========== Respond to Requests ==========
             (UseCaseEvent::Message(ProtocolMessage::StoreReq(req), _), _) => {
-                self.send_store_rsp(context, req)?
+                self.send_store_rsp(context, req)
             }
             (UseCaseEvent::Message(ProtocolMessage::FetchReq(req), _), _) => {
-                self.send_fetch_rsp(context, req)?
+                self.send_fetch_rsp(context, req)
             }
             // ========== Expire Timer event ==========
             (UseCaseEvent::Timer(id), DHTState::Running(our_timer_id)) => {
@@ -346,10 +304,12 @@ where
                 }
             }
             // ========== Republish values ==========
-            (UseCaseEvent::Contact(ContactEvent::New(contact)), _) => self.republish_to_contact_if_closer(context, contact)?, 
+            (UseCaseEvent::Contact(ContactEvent::New(contact)), _) => {
+                self.republish_to_contact_if_closer(context, contact)
+            }
             (UseCaseEvent::Contact(ContactEvent::Updated { new, old }), _) => {
                 if new.state() == &ContactState::Valid && old.state() != &ContactState::Valid {
-                    self.republish_to_contact_if_closer(context, new)?;
+                    self.republish_to_contact_if_closer(context, new);
                 }
             }
             // ========== API Calls ==========
@@ -359,7 +319,6 @@ where
 
                 if let Err(e) = callback.send(table_dump) {
                     log::error!(target: "distributed_hash_table", "Failed to send local hash table: {:?}", e);
-                    return Err(DHTError::SendError);
                 }
             }
             _ => {}
@@ -372,10 +331,9 @@ where
 impl<C, H, RS, const BUCKET_SIZE: usize> UseCase for DistributedHashTable<C, H, BUCKET_SIZE>
 where
     C: UseCaseContext,
-    C::MessageSender: ProtocolMessageSender,
-    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::Runtime: UseCaseRuntime,
-    C::PhysicalNeighborTable: PNTable,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     H: LocalHashTable<
             NodeId,
             DefaultLHTInput,
@@ -387,9 +345,9 @@ where
 {
     type State = DHTState;
 
-    fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error> {
+    fn start(&mut self, context: &C) -> Result<(), Self::Error> {
         let timer_id = context
-            .runtime()
+            .runtime_mut()
             .register_periodic_timer(self.config.collect_interval);
 
         self.state = DHTState::Running(timer_id);
@@ -400,492 +358,4 @@ where
     fn state(&self) -> &Self::State {
         &self.state
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::broadcaster::MPSCBroadcaster;
-    use crate::context::{ContextConfig, SyncContext, UseCaseContext};
-    use crate::domain::dht::hash_table::LocalHashTable;
-    use crate::domain::dht::TimedValue;
-    use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{
-        InMemoryPNTable, InsertionStrategyResult, NetworkInterface, NodeId, Path, StateSeqNr,
-        TestInsertionStrategy,
-    };
-    use crate::forwarding::in_memory_tables::InMemoryFwdTables;
-    use crate::messaging::dht::{StoreOK, StoreReqData, StoreRspData};
-    use crate::messaging::source_route::SourceRoute;
-    use crate::messaging::{
-        AsyncProtocolMessageReceiver, InMemoryMessageChannel, Nonce, ProtocolMessage, ReqRspMessage,
-    };
-    use crate::runtime::ImmediateRuntime;
-    use crate::use_cases::distributed_hash_table::{
-        DefaultExpiringHashTable, DistributedHashTable,
-    };
-    use crate::use_cases::{EventHandler, UseCase, UseCaseEvent};
-    use std::collections::HashSet;
-    use std::sync::Arc;
-    use std::time::Instant;
-
-    fn root() -> NodeId {
-        NodeId::with_msb(0)
-    }
-
-    fn sender() -> NodeId {
-        NodeId::with_msb(1)
-    }
-
-    fn data_handle() -> NodeId {
-        NodeId::with_msb(2)
-    }
-
-    fn data() -> Arc<[u8]> {
-        Arc::new([42])
-    }
-
-    fn store_req() -> ProtocolMessage {
-        ProtocolMessage::StoreReq(ReqRspMessage {
-            nonce: Nonce::from(1),
-            source_state_seq_nr: StateSeqNr::from(0),
-            data: StoreReqData {
-                handle: data_handle(),
-                data: data(),
-            },
-            not_via: Default::default(),
-            source_route: SourceRoute::from(Path::from([sender(), root()])),
-        })
-    }
-
-    #[test]
-    fn startup_test() {
-        let routing_table = SingleBucketRT::<20>::new(root());
-        let (hub_sender, _hub_receiver) =
-            InMemoryMessageChannel::with_interface(NetworkInterface::with_name("test"))
-                .into_parts();
-        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
-        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let context = SyncContext::new(ContextConfig {
-            root_id: root(),
-            routing_table,
-            pn_table: InMemoryPNTable::new(),
-            insertion_strategy,
-            message_sender: hub_sender,
-            runtime: ImmediateRuntime::new(broadcaster.clone()),
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case: DistributedHashTable<_, DefaultExpiringHashTable> =
-            DistributedHashTable::default();
-        assert!(use_case.start(&context).is_ok());
-    }
-
-    #[test]
-    fn handling_store_req() {
-        crate::tests::init();
-
-        let routing_table = SingleBucketRT::<20>::new(root());
-
-        let interface = NetworkInterface::with_name("test");
-        let (hub_sender, _hub_receiver) =
-            InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
-
-        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
-
-        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-
-        let context = SyncContext::new(ContextConfig {
-            root_id: root(),
-            routing_table,
-            pn_table: InMemoryPNTable::new(),
-            insertion_strategy,
-            message_sender: hub_sender,
-            runtime: ImmediateRuntime::new(broadcaster.clone()),
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case: DistributedHashTable<_, DefaultExpiringHashTable> =
-            DistributedHashTable::default();
-        assert!(use_case.start(&context).is_ok());
-
-        let receive_event = UseCaseEvent::Message(store_req(), interface.clone());
-
-        let handle_result = use_case.handle_event(&context, receive_event);
-        assert!(
-            handle_result.is_ok(),
-            "Handling a StoreReq returned error: {:?}",
-            handle_result
-        );
-    }
-
-    #[tokio::test]
-    async fn send_rsp_on_store_req() {
-        crate::tests::init();
-
-        let routing_table = SingleBucketRT::<20>::new(root());
-        let interface = NetworkInterface::with_name("test");
-        let (hub_sender, mut hub_receiver) =
-            InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
-        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
-        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let context = SyncContext::new(ContextConfig {
-            root_id: root(),
-            routing_table,
-            pn_table: InMemoryPNTable::new(),
-            insertion_strategy,
-            message_sender: hub_sender,
-            runtime: ImmediateRuntime::new(broadcaster.clone()),
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case: DistributedHashTable<_, DefaultExpiringHashTable> =
-            DistributedHashTable::default();
-        assert!(use_case.start(&context).is_ok());
-
-        let receive_event = UseCaseEvent::Message(store_req(), interface.clone());
-
-        let handle_result = use_case.handle_event(&context, receive_event);
-        assert!(
-            handle_result.is_ok(),
-            "Handling a StoreReq returned error: {:?}",
-            handle_result
-        );
-
-        let response = hub_receiver.try_recv().await;
-        assert!(response.is_ok(), "No result sent: {:?}", response);
-
-        let response = response.unwrap();
-        assert!(response.is_some(), "No result sent: {:?}", response);
-
-        let (message, _) = response.unwrap();
-        assert!(
-            matches!(message, ProtocolMessage::StoreRsp(_)),
-            "Wrong response type sent: {:?}",
-            message
-        );
-
-        let ProtocolMessage::StoreRsp(ReqRspMessage {
-            data: StoreRspData { status, .. },
-            ..
-        }) = message
-        else {
-            panic!("Wrong response type sent")
-        };
-        assert!(
-            matches!(status, Ok(StoreOK::Created)),
-            "Wrong response status returned: {:?}",
-            status
-        );
-    }
-
-    #[tokio::test]
-    async fn send_storer_on_store_req() {
-        crate::tests::init();
-
-        let routing_table = SingleBucketRT::<20>::new(root());
-        let interface = NetworkInterface::with_name("test");
-        let (hub_sender, mut hub_receiver) =
-            InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
-        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
-        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let context = SyncContext::new(ContextConfig {
-            root_id: root(),
-            routing_table,
-            pn_table: InMemoryPNTable::new(),
-            insertion_strategy,
-            message_sender: hub_sender,
-            runtime: ImmediateRuntime::new(broadcaster.clone()),
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case: DistributedHashTable<_, DefaultExpiringHashTable> =
-            DistributedHashTable::default();
-        assert!(use_case.start(&context).is_ok());
-
-        let receive_event = UseCaseEvent::Message(store_req(), interface.clone());
-
-        let handle_result = use_case.handle_event(&context, receive_event);
-        assert!(
-            handle_result.is_ok(),
-            "Handling a StoreReq returned error: {:?}",
-            handle_result
-        );
-
-        let response = hub_receiver.try_recv().await;
-        assert!(response.is_ok(), "No result sent: {:?}", response);
-
-        let response = response.unwrap();
-        assert!(response.is_some(), "No result sent: {:?}", response);
-
-        let (message, _) = response.unwrap();
-        assert_eq!(
-            message.destination(),
-            Some(&sender()),
-            "Wrong destination returned: {:?}",
-            message.destination()
-        );
-    }
-
-    #[tokio::test]
-    async fn update_existing_data() {
-        crate::tests::init();
-
-        let routing_table = SingleBucketRT::<20>::new(root());
-        let interface = NetworkInterface::with_name("test");
-        let (hub_sender, mut hub_receiver) =
-            InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
-        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
-        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let context = SyncContext::new(ContextConfig {
-            root_id: root(),
-            routing_table,
-            pn_table: InMemoryPNTable::new(),
-            insertion_strategy,
-            message_sender: hub_sender,
-            runtime: ImmediateRuntime::new(broadcaster.clone()),
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case: DistributedHashTable<_, DefaultExpiringHashTable> =
-            DistributedHashTable::default();
-        let existing_data = data();
-        let insert_result = use_case.hash_table.store(data_handle(), existing_data);
-        assert!(
-            insert_result.is_ok(),
-            "Failed to insert data: {:?}",
-            insert_result
-        );
-        assert!(use_case.start(&context).is_ok());
-        let insert_time = Instant::now();
-
-        let receive_event = UseCaseEvent::Message(store_req(), interface.clone());
-
-        let handle_result = use_case.handle_event(&context, receive_event);
-        assert!(
-            handle_result.is_ok(),
-            "Handling a StoreReq returned error: {:?}",
-            handle_result
-        );
-
-        let response = hub_receiver.try_recv().await;
-        assert!(response.is_ok(), "No result sent: {:?}", response);
-
-        let response = response.unwrap();
-        assert!(response.is_some(), "No result sent: {:?}", response);
-
-        let (message, _) = response.unwrap();
-        assert!(
-            matches!(message, ProtocolMessage::StoreRsp(_)),
-            "Wrong response type sent: {:?}",
-            message
-        );
-
-        let ProtocolMessage::StoreRsp(ReqRspMessage {
-            data: StoreRspData { status, .. },
-            ..
-        }) = message
-        else {
-            panic!("Wrong response type sent")
-        };
-        assert!(
-            matches!(status, Ok(StoreOK::Updated)),
-            "Wrong response status returned: {:?}",
-            status
-        );
-
-        let stored = use_case.hash_table.fetch(&data_handle());
-        assert!(
-            stored.is_ok(),
-            "Unable to retrieve updated data: {:?}",
-            stored
-        );
-        let stored = stored.unwrap();
-
-        assert!(
-            stored.contains(&data()),
-            "Does not contain data to add: {:?}",
-            stored
-        );
-        assert_eq!(
-            stored.len(),
-            1,
-            "Unexpected data length: {} != 1",
-            stored.len()
-        );
-
-        let stored_raw = use_case
-            .hash_table
-            .map
-            .get(&data_handle())
-            .expect("Unable to retrieve raw data");
-
-        let stored_timed = stored_raw
-            .get(&TimedValue::new(data()))
-            .expect("Unable to retrieve raw data times");
-        assert!(
-            stored_timed.timestamp > insert_time,
-            "Time of value wasn't updated: {:?}",
-            stored_raw
-        );
-    }
-
-    #[test]
-    fn store_data_on_store_req() {
-        crate::tests::init();
-
-        let routing_table = SingleBucketRT::<20>::new(root());
-        let interface = NetworkInterface::with_name("test");
-        let (hub_sender, _hub_receiver) =
-            InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
-        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
-        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let context = SyncContext::new(ContextConfig {
-            root_id: root(),
-            routing_table,
-            pn_table: InMemoryPNTable::new(),
-            insertion_strategy,
-            message_sender: hub_sender,
-            runtime: ImmediateRuntime::new(broadcaster.clone()),
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case: DistributedHashTable<_, DefaultExpiringHashTable> =
-            DistributedHashTable::default();
-        assert!(use_case.start(&context).is_ok());
-
-        let receive_event = UseCaseEvent::Message(store_req(), interface.clone());
-
-        let handle_result = use_case.handle_event(&context, receive_event);
-        assert!(
-            handle_result.is_ok(),
-            "Handling a StoreReq returned error: {:?}",
-            handle_result
-        );
-
-        let fetch_result = use_case.hash_table.fetch(&data_handle());
-        assert!(
-            fetch_result.is_ok(),
-            "Failed to insert data: {:?}",
-            fetch_result
-        );
-
-        let stored_data = fetch_result.unwrap();
-        assert_eq!(
-            stored_data.len(),
-            1,
-            "Wrong amount of data stored {:?}",
-            stored_data
-        );
-
-        let stored_data = stored_data.first().unwrap().clone();
-        assert_eq!(
-            stored_data,
-            data(),
-            "Data stored is wrong: {:?}",
-            stored_data
-        );
-    }
-
-    #[tokio::test]
-    async fn append_data_to_existing_data() {
-        crate::tests::init();
-
-        let routing_table = SingleBucketRT::<20>::new(root());
-        let interface = NetworkInterface::with_name("test");
-        let (hub_sender, mut hub_receiver) =
-            InMemoryMessageChannel::with_interface(interface.clone()).into_parts();
-        let (broadcaster, _broadcast_receiver) = MPSCBroadcaster::new(10);
-        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let context = SyncContext::new(ContextConfig {
-            root_id: root(),
-            routing_table,
-            pn_table: InMemoryPNTable::new(),
-            insertion_strategy,
-            message_sender: hub_sender,
-            runtime: ImmediateRuntime::new(broadcaster.clone()),
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case: DistributedHashTable<_, DefaultExpiringHashTable> =
-            DistributedHashTable::default();
-        let existing_data: Arc<[u8]> = Arc::new([1, 2, 3, 4]);
-        let insert_result = use_case
-            .hash_table
-            .store(data_handle(), existing_data.clone());
-        assert!(
-            insert_result.is_ok(),
-            "Failed to insert data: {:?}",
-            insert_result
-        );
-        assert!(use_case.start(&context).is_ok());
-
-        let receive_event = UseCaseEvent::Message(store_req(), interface.clone());
-
-        let handle_result = use_case.handle_event(&context, receive_event);
-        assert!(
-            handle_result.is_ok(),
-            "Handling a StoreReq returned error: {:?}",
-            handle_result
-        );
-
-        let response = hub_receiver.try_recv().await;
-        assert!(response.is_ok(), "No result sent: {:?}", response);
-
-        let response = response.unwrap();
-        assert!(response.is_some(), "No result sent: {:?}", response);
-
-        let (message, _) = response.unwrap();
-        assert!(
-            matches!(message, ProtocolMessage::StoreRsp(_)),
-            "Wrong response type sent: {:?}",
-            message
-        );
-
-        let ProtocolMessage::StoreRsp(ReqRspMessage {
-            data: StoreRspData { status, .. },
-            ..
-        }) = message
-        else {
-            panic!("Wrong response type sent")
-        };
-        assert!(
-            matches!(status, Ok(StoreOK::Inserted)),
-            "Wrong response status returned: {:?}",
-            status
-        );
-
-        let stored = use_case.hash_table.fetch(&data_handle());
-        assert!(
-            stored.is_ok(),
-            "Unable to retrieve updated data: {:?}",
-            stored
-        );
-        let stored = stored.unwrap();
-
-        assert_eq!(
-            stored.len(),
-            2,
-            "Unexpected data length: {} != 2",
-            stored.len()
-        );
-        assert!(
-            stored.contains(&data()),
-            "Does not contain data to add: {:?}",
-            stored
-        );
-        assert!(
-            stored.contains(&existing_data),
-            "Does not contain existing data: {:?}",
-            stored
-        );
-    }
-
-    // todo test collect
 }

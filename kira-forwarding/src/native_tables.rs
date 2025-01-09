@@ -2,11 +2,10 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::net::Ipv6Addr;
 
-use crate::domain::path_id::PathId;
 use crate::domain::NodeIdSubnet;
-use crate::forwarding::{
-    platform, ForwardingTables, NodeIdEntry, NodeIdTable, PathIdEntry, PathIdTable,
-};
+use crate::domain::PathId;
+use crate::platform;
+use crate::tables::{ForwardingTables, NodeIdEntry, NodeIdTable, PathIdEntry, PathIdTable};
 
 /// Native linux [ForwardingTables] implementation backed by nftables and linux routing tables.
 ///
@@ -70,10 +69,10 @@ impl NodeIdTable for NativeFwdTables {
 
     fn remove(&mut self, node_id: &NodeIdSubnet) -> Result<Option<NodeIdEntry>, Self::Error> {
         if let Some(removed) = self.node_id_table.remove(node_id) {
-            let prefix_len = if node_id.prefix_length == 0 || node_id.prefix_length > 128 {
+            let prefix_len = if node_id.prefix_length() == 0 || node_id.prefix_length() > 128 {
                 128
             } else {
-                16 + node_id.prefix_length
+                16 + node_id.prefix_length()
             };
 
             match removed {
@@ -82,7 +81,7 @@ impl NodeIdTable for NativeFwdTables {
                     if prefix_len != 128 {
                         let node_ip = format!(
                             "{}/{}",
-                            Ipv6Addr::from(&entry.destination.node_id),
+                            Ipv6Addr::from(entry.destination.node_id()),
                             prefix_len
                         );
                         log::trace!(target: "native_fwd_table", "Trying to delete neighbor route {:?} dst {:?}", &node_ip, &entry.out_interface.name);
@@ -94,7 +93,7 @@ impl NodeIdTable for NativeFwdTables {
                     let path_ip = Ipv6Addr::from(&entry.out_path_id).to_string();
                     let node_ip = format!(
                         "{}/{}",
-                        Ipv6Addr::from(&entry.destination.node_id),
+                        Ipv6Addr::from(entry.destination.node_id()),
                         prefix_len
                     );
 
@@ -119,10 +118,10 @@ impl NodeIdTable for NativeFwdTables {
             return Ok(());
         }
 
-        let prefix_len = if destination.prefix_length == 0 || destination.prefix_length > 128 {
+        let prefix_len = if destination.prefix_length() == 0 || destination.prefix_length() > 128 {
             128
         } else {
-            16 + destination.prefix_length
+            16 + destination.prefix_length()
         };
 
         // TODO fix this
@@ -134,7 +133,8 @@ impl NodeIdTable for NativeFwdTables {
                 .node_id_table
                 .keys()
                 .find(|e| {
-                    e.prefix_length == destination.prefix_length && e.node_id != destination.node_id
+                    e.prefix_length() == destination.prefix_length()
+                        && e.node_id() != destination.node_id()
                 })
                 .cloned()
             {
@@ -149,7 +149,7 @@ impl NodeIdTable for NativeFwdTables {
                 if prefix_len != 128 {
                     let node_ip = format!(
                         "{}/{}",
-                        Ipv6Addr::from(&entry.destination.node_id),
+                        Ipv6Addr::from(entry.destination.node_id()),
                         prefix_len
                     );
                     log::trace!(target: "native_fwd_table", "Trying to replace neighbor route {:?} dst {:?}", &node_ip, &entry.out_interface.name);
@@ -160,7 +160,7 @@ impl NodeIdTable for NativeFwdTables {
                 let path_ip = Ipv6Addr::from(&entry.out_path_id).to_string();
                 let node_ip = format!(
                     "{}/{}",
-                    Ipv6Addr::from(&entry.destination.node_id),
+                    Ipv6Addr::from(entry.destination.node_id()),
                     prefix_len
                 );
                 let next_hop_ip = Ipv6Addr::from(&entry.next_hop).to_string();

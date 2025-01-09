@@ -1,19 +1,136 @@
 //! Implementation of the protocol instance R²/KAD.
 
-use std::{collections::VecDeque, time::Instant};
-use thiserror::Error;
+use derive_more::derive::Display;
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+    marker::PhantomData,
+    ops::Deref,
+    time::Instant,
+};
 
 mod pipeline;
+pub(crate) mod runtime;
 use pipeline::R2KadPipeline;
 
 #[doc(inline)]
 pub use crate::domain::protocol_event::{Input, Output};
 
-use crate::{domain::NodeId, use_cases::UseCaseContext};
+use crate::{
+    context::ContextConfig,
+    domain::{
+        observable_routing_table::ObservableRoutingTable,
+        unlimited_pn_routing_table::UnlimitedPNRoutingTable, FlatRoutingTable, InMemoryPNTable,
+        InOrderCycleRemover, InsertionStrategy, NodeId, PNSStrategy, PNTable, RoutingTable,
+        ShortestFirstPathSimplifier, UnderlayNeighborId,
+    },
+    r2kad::pipeline::{R2KadPipelineConfig, UseCaseStartupError, UseCaseStateError},
+    runtime::UseCaseRuntime,
+    use_cases::UseCaseContext,
+};
+use runtime::R2KadRuntime;
 
-#[derive(Debug, Error)]
+pub struct R2KadBuilder<C, const BUCKET_SIZE: usize> {
+    context: PhantomData<C>,
+    root_id: Option<NodeId>, // None => random
+    pipeline_config: R2KadPipelineConfig,
+    current_time: Instant,
+}
+
+impl<C, const BUCKET_SIZE: usize> R2KadBuilder<C, BUCKET_SIZE> {
+    /// Enables heuristics.
+    // TODO: document what it actually means.
+    pub fn enable_heuristics(mut self) -> Self {
+        self.pipeline_config.heuristic_enabled = true;
+        self
+    }
+
+    /// Sets the initial time of the runtime.
+    pub fn current_time(mut self, now: Instant) -> Self {
+        self.current_time = now;
+        self
+    }
+
+    /// Set [NodeId] of protocol instance.
+    ///
+    /// # Default
+    /// Random [NodeId].
+    pub fn root_id(mut self, root_id: NodeId) -> Self {
+        self.root_id = Some(root_id);
+        self
+    }
+}
+
+impl<C, const BUCKET_SIZE: usize> R2KadBuilder<C, BUCKET_SIZE>
+where
+    C: UseCaseContext<
+        RoutingTable = ObservableRoutingTable<UnlimitedPNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
+        PhysicalNeighborTable = InMemoryPNTable,
+        Runtime = R2KadRuntime,
+        InsertionStrategy = PNSStrategy<
+            ObservableRoutingTable<UnlimitedPNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
+            InOrderCycleRemover,
+            ShortestFirstPathSimplifier,
+            BUCKET_SIZE,
+        >,
+    >,
+{
+    pub fn build(&self) -> R2Kad<C, BUCKET_SIZE> {
+        let root_id = self.root_id.unwrap_or_else(NodeId::random);
+        let runtime = R2KadRuntime::with_startup_time(self.current_time);
+        let pipeline = R2KadPipeline::new(self.pipeline_config, &root_id);
+
+        let routing_table = ObservableRoutingTable::from(UnlimitedPNRoutingTable::from(
+            FlatRoutingTable::new(root_id).expect("FlatRoutingTable parameters should be valid"),
+        ));
+        let insertion_strategy = PNSStrategy::new(InOrderCycleRemover, ShortestFirstPathSimplifier);
+
+        let context = C::new(ContextConfig {
+            root_id,
+            routing_table,
+            runtime,
+            insertion_strategy,
+            pn_table: InMemoryPNTable::new(),
+            not_via: HashSet::default(),
+        });
+
+        R2Kad { context, pipeline }
+    }
+}
+
+impl<C, const BUCKET_SIZE: usize> Default for R2KadBuilder<C, BUCKET_SIZE> {
+    fn default() -> Self {
+        Self {
+            context: Default::default(),
+            root_id: None,
+            pipeline_config: Default::default(),
+            current_time: Instant::now(),
+        }
+    }
+}
+
+#[derive(Debug, Display)]
 #[non_exhaustive]
-pub enum R2KadError {}
+pub enum R2KadError {
+    #[display("Handling an event resulted in an invalid protocol state")]
+    StateError,
+    #[display("Starting up the protocol instance failed")]
+    StartupError,
+}
+
+impl Error for R2KadError {}
+
+impl From<UseCaseStateError> for R2KadError {
+    fn from(_value: UseCaseStateError) -> Self {
+        Self::StateError
+    }
+}
+
+impl From<UseCaseStartupError> for R2KadError {
+    fn from(_value: UseCaseStartupError) -> Self {
+        Self::StateError
+    }
+}
 
 pub type Result<T> = core::result::Result<T, R2KadError>;
 
@@ -56,108 +173,97 @@ pub type Result<T> = core::result::Result<T, R2KadError>;
 /// }
 /// ```
 pub struct R2Kad<C, const BUCKET_SIZE: usize> {
-    root: NodeId,
-    rx_events: VecDeque<Input>,
     context: C,
     pipeline: R2KadPipeline<C, BUCKET_SIZE>,
 }
 
-impl<C, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE> {
-    pub fn new(context: C) -> Result<Self> {
+impl<C: UseCaseContext, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE> {
+    pub fn builder() -> R2KadBuilder<C, BUCKET_SIZE> {
+        R2KadBuilder::default()
+    }
+}
+
+impl<C: UseCaseContext, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE> {
+    pub fn new(context: C) -> Self {
         let root = NodeId::random();
         Self::with_root(root, context)
     }
 
-    pub fn with_root(root: NodeId, context: C) -> Result<Self> {
+    pub fn with_root(root: NodeId, context: C) -> Self {
         let pipeline = R2KadPipeline::new(Default::default(), &root);
 
-        Ok(Self {
-            root,
-            rx_events: VecDeque::default(),
-            // TODO: implement context builder
-            context,
-            pipeline,
-        })
-    }
-
-    /// Receive an [Input] event.
-    ///
-    /// This function by itself will not drive *any* progress on the protocol.
-    /// To process [Input] events it is necessary to call [process_received](Self::process_received).
-    ///
-    /// The time an [Input] was received is also irrelevant to the protocol.
-    /// Only the time the [Input] is being processed is relevant.
-    pub fn receive_event(&mut self, event: Input) {
-        self.rx_events.push_back(event);
+        Self { context, pipeline }
     }
 }
 
 impl<C, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE>
 where
-    C: UseCaseContext,
+    C: UseCaseContext<Runtime = R2KadRuntime>,
+    C::Runtime: UseCaseRuntime,
+    C::PhysicalNeighborTable:
+        PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + std::fmt::Debug,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + std::fmt::Debug,
+    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
 {
+    /// Startup the protocol instance.
+    pub fn startup(&mut self, now: Instant) -> Result<()> {
+        self.context.runtime_mut().set_current_time(now);
+        self.pipeline.startup(&self.context)?;
+        Ok(())
+    }
+
     /// Process received [Input] event.
-    ///
-    /// The call returns after the protocol decides it's a good time to stop
-    /// processing.
-    ///
-    /// # Return
-    ///
-    /// Hint on when to be called again.
-    ///
-    /// There are three options:
-    ///
-    /// 1. `None`: It's at users discretion on when to call again.
-    /// 2. `Instant::now`: The protocol stopped processing received [Input]
-    ///     events even though there are some buffered left.
-    /// 3.  future `Instant`: There is no left [Input] data available but
-    ///     the protocol is waiting on some timer.
-    ///
-    /// # Usage
-    ///
-    /// In all three cases the method should be called immediately after new
-    /// data is received with [receive_event](Self::receive_event).
-    ///
-    /// The method can be called after the returned [Instant] is in the past.
-    pub fn process_received(&mut self, now: Instant) -> Result<Option<Instant>> {
-        let mut runtime = self.context.runtime_mut();
+    pub fn handle_input(&mut self, received_event: Input, now: Instant) -> Result<()> {
+        // just to be save we check for due timers
+        self.handle_timeout(now)?;
 
-        // only take one use case event
-        if let Some(event) = self.rx_events.pop_front() {
-            runtime.spawn_event(event);
-        }
+        debug_assert_eq!(self.context.runtime_mut().next_event(), None);
 
-        // consume __all__ events generated inside the runtime
-        while let Some(event) = runtime.next_event(now) {
+        // handle input event as UseCaseEvent
+        self.pipeline
+            .process_event(&self.context, received_event.into())?;
+
+        // consume __all__ events generated inside the runtime because of this
+        while let Some(event) = self.context.runtime_mut().next_event() {
             self.pipeline.process_event(&self.context, event)?;
         }
 
-        if self.rx_events.is_empty() {
-            Ok(runtime.next_timeout().cloned())
-        } else {
-            Ok(Some(now))
+        Ok(())
+    }
+
+    /// Handle a timeout.
+    ///
+    /// The next time this method has to be called can be obtained
+    /// with [poll_timeout](Self::poll_timeout).
+    pub fn handle_timeout(&mut self, now: Instant) -> Result<()> {
+        let mut runtime = self.context.runtime_mut();
+        runtime.set_current_time(now);
+
+        // process timer events first
+        while let Some(due_timer) = runtime.next_timer() {
+            let timer_event = crate::use_cases::UseCaseEvent::Timer(due_timer);
+            self.pipeline.process_event(&self.context, timer_event)?;
         }
+
+        // don't need to check timers again because
+        // even if a UseCase starts a new timer at this point
+        // timers can only be due in the future (positive duration)
+
+        // consume __all__ events generated inside the runtime
+        while let Some(event) = runtime.next_event() {
+            self.pipeline.process_event(&self.context, event)?;
+        }
+
+        Ok(())
     }
 
-    pub fn startup(&mut self, now: Instant) -> Result<Option<Instant>> {
-        assert!(
-            self.rx_events.is_empty(),
-            "No events received before startup"
-        );
-
-        let next_event = self.context.runtime_mut().next_event(now);
-        assert_eq!(
-            next_event, None,
-            "No leftover events or timers in existing runtime on startup"
-        );
-
-        self.pipeline.startup(&self.context, now)?;
-        Ok(self.context.runtime().next_timeout().cloned())
+    /// [Output] events of the protocol.
+    pub fn poll_output(&mut self) -> Option<Output> {
+        self.context.runtime_mut().poll_output()
     }
-}
 
-impl<C, const BUCKET_SIZE: usize> Drop for R2Kad<C, BUCKET_SIZE> {
-    fn drop(&mut self) {
-        todo!("send shutdown event to  UseCases")
+    /// Next time [handle_timeout](Self::handle_timeout) should be called.
+    pub fn poll_timeout(&mut self) -> Option<Instant> {
+        self.context.runtime().poll_timeout()
     }
 }

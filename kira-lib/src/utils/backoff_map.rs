@@ -31,8 +31,8 @@ impl BackoffMap {
             return Err(errors::InsertionError::DuplicateNonce);
         }
 
-        self.timer_to_node.insert(timer_id, node_id.clone());
-        self.nonce_to_id.insert(nonce, node_id.clone());
+        self.timer_to_node.insert(timer_id, node_id);
+        self.nonce_to_id.insert(nonce, node_id);
         Ok(self.node_to_state.insert(node_id, value))
     }
 
@@ -131,7 +131,7 @@ impl BackoffMap {
             return Err(errors::DuplicateTimerError);
         }
         let removed = self.remove_timer_for(&id);
-        self.timer_to_node.insert(timer_id, id.clone());
+        self.timer_to_node.insert(timer_id, id);
         Ok(removed)
     }
 

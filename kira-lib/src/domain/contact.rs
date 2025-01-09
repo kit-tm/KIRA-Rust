@@ -127,7 +127,7 @@ impl Contact {
     }
 
     pub fn into_id(self) -> NodeId {
-        self.path.last().clone()
+        *self.path.last()
     }
 
     pub fn state(&self) -> &ContactState {
@@ -138,7 +138,7 @@ impl Contact {
         &mut self.state
     }
 
-    /// Returns if the [Contact] represents a physical neighbor.
+    /// Returns if the [Contact] represents a underlay neighbor.
     pub fn is_pn(&self) -> bool {
         // FIXME: Invariant is, that path doesn't contain the own node_id. whole_path Method is for that.
         self.path.size() == 1

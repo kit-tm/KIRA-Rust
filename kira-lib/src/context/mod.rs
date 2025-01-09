@@ -6,15 +6,14 @@ use std::collections::HashSet;
 pub use sync_context::*;
 
 use crate::domain::{NodeId, NotVia};
-use crate::use_cases::UseCaseRuntime;
 
 pub mod sync_context;
 
 /// Configuration Wrapper for all dependencies of a [UseCaseContext].
-pub struct ContextConfig<RT, IS, PN> {
+pub struct ContextConfig<RT, RU, IS, PN> {
     pub root_id: NodeId,
     pub routing_table: RT,
-    pub runtime: UseCaseRuntime,
+    pub runtime: RU,
     pub insertion_strategy: IS,
     pub pn_table: PN,
     pub not_via: HashSet<NotVia>,
@@ -29,15 +28,14 @@ pub struct ContextConfig<RT, IS, PN> {
 /// NotVia Data of other nodes will only be added if they affect contacts in the own routing table.
 pub trait UseCaseContext {
     type RoutingTable: Sized;
-    // TODO: move insertion strategy inside RoutingTable
-    //    this will prohibit changing the routing table without calling
-    //    the required strategy and reduce the needless complexity of the context.
     type InsertionStrategy: Sized;
+    type Runtime: Sized;
     type PhysicalNeighborTable: Sized;
 
     fn new(
         config: ContextConfig<
             Self::RoutingTable,
+            Self::Runtime,
             Self::InsertionStrategy,
             Self::PhysicalNeighborTable,
         >,
@@ -55,9 +53,9 @@ pub trait UseCaseContext {
 
     fn pn_table_mut(&self) -> RefMut<'_, Self::PhysicalNeighborTable>;
 
-    fn runtime(&self) -> Ref<'_, UseCaseRuntime>;
+    fn runtime(&self) -> Ref<'_, Self::Runtime>;
 
-    fn runtime_mut(&self) -> RefMut<'_, UseCaseRuntime>;
+    fn runtime_mut(&self) -> RefMut<'_, Self::Runtime>;
 
     fn not_via(&self) -> Ref<'_, HashSet<NotVia>>;
 

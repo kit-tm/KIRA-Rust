@@ -23,7 +23,7 @@ pub enum Hasher {
 impl Hasher {
     /// Calculates the [PathId] for an iterator of [NodeId]s with the related hash for the [Hasher]
     /// variant.
-    pub fn hash<'a, I: IntoIterator<Item = &'a NodeId>>(&self, path: I) -> PathId {
+    pub fn hash<'a>(&self, path: impl IntoIterator<Item = &'a NodeId>) -> PathId {
         match self {
             Hasher::Sha1 => PathId::from_sha1(path),
             #[cfg(feature = "sha2")]

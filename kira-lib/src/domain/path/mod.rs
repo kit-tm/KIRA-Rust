@@ -215,15 +215,17 @@ impl AsRef<[NodeId]> for Path {
 // ============ Formatting ============
 
 impl Display for Path {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<")?;
-        let length = self.ids.len();
-        for (index, id) in self.ids.iter().enumerate() {
-            write!(f, "{}", id)?;
-            if index < length - 1 {
-                write!(f, ",")?;
-            }
-        }
+        write!(
+            f,
+            "{}",
+            self.ids
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        )?;
         write!(f, ">")
     }
 }

@@ -21,7 +21,7 @@ use domain::dht::DHTErr;
 use tokio::sync::mpsc;
 use tokio::time::{timeout, Instant};
 
-use kira_lib::messaging::{Nonce, ProtocolMessage};
+use kira_lib::messaging::ProtocolMessage;
 use kira_lib::use_cases::inject_messages::InjectionResult;
 use kira_lib::use_cases::{ApiEvent, InjectionMessageData, UseCaseEvent};
 

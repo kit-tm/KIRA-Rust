@@ -1,12 +1,11 @@
 use std::cmp::Ordering;
-use std::error::Error;
-use std::fmt::Debug;
-use std::fmt::{Display, Formatter, LowerHex, UpperHex};
+use std::fmt::{Debug, Formatter, LowerHex, UpperHex};
 use std::net::Ipv6Addr;
 use std::num::NonZeroUsize;
 use std::ops::BitXor;
 use std::str::FromStr;
 
+use derive_more::derive::{Display, Error};
 use hex::FromHexError;
 
 /// Fixed byte size of a [NodeId].
@@ -26,8 +25,9 @@ const SHORT_OUTPUT_LENGTH: usize = 8;
 /// As all NodeIds have to be of the same size for an application this implementation
 /// uses const generics to specify its size instead of using [Vec] (which uses Heap
 /// allocation by default).
-#[derive(Clone, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[display("{self:X}")]
 pub struct NodeId {
     // Sorted from MSB to LSB (Big Endian representation)
     #[cfg_attr(feature = "serde", serde(with = "serde_big_array::BigArray"))]
@@ -235,27 +235,59 @@ impl NodeId {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Display, Error)]
+#[display("Bit Index out of bounds")]
 pub struct BitIndexOutOfBounds;
 
-impl Display for BitIndexOutOfBounds {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Bit Index out of bounds")
-    }
-}
-
-impl Error for BitIndexOutOfBounds {}
-
 /// A [NodeId] subnet with a given prefix length.
-#[derive(Debug, Eq, PartialEq, Clone, Hash)]
+#[derive(Debug, Eq, PartialEq, Clone, Hash, Display)]
+#[display("{node_id}/{prefix_length}")]
 pub struct NodeIdSubnet {
-    pub(crate) node_id: NodeId,
-    pub(crate) prefix_length: usize,
+    node_id: NodeId,
+    prefix_length: usize,
 }
 
-impl Display for NodeIdSubnet {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}/{}", self.node_id, self.prefix_length)
+#[derive(Debug, Copy, Clone, Display, Error)]
+#[display("Prefix length is larger then bits of NodeId")]
+pub struct PrefixLengthError;
+
+impl NodeIdSubnet {
+    /// Creates a new [NodeIdSubnet].
+    ///
+    /// This function return [PrefixLengthError] if the `prefix_length`
+    /// is larger then the [bytes length](SIZE) of a [NodeId].
+    pub fn try_new(
+        node_id: NodeId,
+        prefix_length: usize,
+    ) -> Result<NodeIdSubnet, PrefixLengthError> {
+        if prefix_length <= SIZE {
+            Ok(Self {
+                node_id,
+                prefix_length,
+            })
+        } else {
+            Err(PrefixLengthError)
+        }
+    }
+
+    /// Creates new [NodeIdSubnet] with a zero-sized prefix length.
+    pub fn new(node_id: NodeId) -> Self {
+        Self {
+            node_id,
+            prefix_length: 0,
+        }
+    }
+
+    /// Returns the prefix length.
+    ///
+    /// The prefix length is in between zero an [SIZE].
+    pub const fn prefix_length(&self) -> usize {
+        self.prefix_length
+    }
+
+    /// Returns the node_id.
+    pub const fn node_id(&self) -> &NodeId {
+        &self.node_id
     }
 }
 
@@ -271,7 +303,7 @@ impl Display for NodeIdSubnet {
 /// The [SharedPrefix]es **a** and **b** are ordered as followed:
 ///
 /// > a < b: a is closer to **X** than b => Shared prefix is longer **or** ( shared prefix has
-/// equal length **and** numerical value of xor is smaller )
+/// > equal length **and** numerical value of xor is smaller )
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct SharedPrefix {
     pub(crate) xor: NodeId,
@@ -321,28 +353,11 @@ impl Ord for SharedPrefix {
 /// Error occurring on calculating the shared prefix.
 ///
 /// Occurs if the grouping in bits for the computation is invalid.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Display, Error)]
 pub enum GroupingError {
+    #[display("Invalid Grouping: has to be <= {}, but was {}", id_size * 8, group_size)]
     Invalid { group_size: usize, id_size: usize },
 }
-
-impl Display for GroupingError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Invalid {
-                group_size,
-                id_size,
-            } => write!(
-                f,
-                "Invalid Grouping: Has to be <= {}, but was {}",
-                id_size * 8,
-                group_size
-            ),
-        }
-    }
-}
-
-impl Error for GroupingError {}
 
 /// Creates a [NodeId] from a byte array. The resulting [NodeId] has the same size as the given array.
 impl From<[u8; SIZE]> for NodeId {
@@ -367,15 +382,15 @@ impl From<NodeId> for [u8; SIZE] {
 
 // ============ Operations ============
 
-impl<'a> BitXor for &'a NodeId {
+impl BitXor for NodeId {
     type Output = NodeId;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
-        if self == &NodeId::zero() {
-            return rhs.clone();
+        if self == NodeId::zero() {
+            return rhs;
         }
-        if rhs == &NodeId::zero() {
-            return self.clone();
+        if rhs == NodeId::zero() {
+            return self;
         }
 
         let mut result = [0u8; SIZE];
@@ -386,11 +401,11 @@ impl<'a> BitXor for &'a NodeId {
     }
 }
 
-impl BitXor for NodeId {
+impl BitXor for &NodeId {
     type Output = NodeId;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
-        &self ^ &rhs
+        *self ^ *rhs
     }
 }
 
@@ -446,12 +461,6 @@ impl UpperHex for NodeId {
     }
 }
 
-impl Display for NodeId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        UpperHex::fmt(self, f)
-    }
-}
-
 impl Debug for NodeId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         UpperHex::fmt(self, f)
@@ -480,7 +489,7 @@ mod tests {
 
     #[test]
     fn prefix_one() {
-        assert_eq!(NodeId::max_value().prefix(1), NodeId::with_msb(0x80)) 
+        assert_eq!(NodeId::max_value().prefix(1), NodeId::with_msb(0x80))
     }
 
     #[test]
@@ -520,7 +529,6 @@ mod tests {
         assert!(NodeId::one().is_one());
     }
 
-    #[cfg(feature = "rand")]
     #[test]
     fn rand_construction_smoke_test() {
         let random = NodeId::random();
@@ -555,8 +563,8 @@ mod tests {
     #[test]
     fn node_id_xor_works() {
         assert_eq!(
-            &NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1u8, 0u8])
-                ^ &NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0u8, 1u8]),
+            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1u8, 0u8])
+                ^ NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0u8, 1u8]),
             NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1u8, 1u8])
         );
     }

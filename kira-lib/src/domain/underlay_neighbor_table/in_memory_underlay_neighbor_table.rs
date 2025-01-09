@@ -3,10 +3,10 @@ use std::ops::Deref;
 
 use crate::domain::{NodeId, PNTable, StateSeqNr, UnderlayNeighborId};
 
-/// A physical neighbor table backed by a [HashMap].
+/// A underlay neighbor table backed by a [HashMap].
 ///
 /// This wrapper limits the write access on the inner [HashMap] as the [StateSeqNr] has
-/// to be updated every time the physical neighbors change.
+/// to be updated every time the underlay neighbors change.
 #[derive(Debug)]
 pub struct InMemoryPNTable {
     state_seq_nr: StateSeqNr,
@@ -51,19 +51,19 @@ impl PNTable for InMemoryPNTable {
         let result = match entry {
             Entry::Occupied(mut entry) => {
                 // No Update for entry => No Increase of StateSeqNr
-                if *entry == ulnid {
+                if entry.get() == &ulnid {
                     return None;
                 }
                 Some(entry.insert(ulnid))
             }
-            Entry::Vacant(mut vacant) => {
+            Entry::Vacant(vacant) => {
                 vacant.insert(ulnid);
                 None
             }
         };
 
         self.state_seq_nr += 1;
-        return result;
+        result
     }
 
     fn contains(&self, id: &NodeId) -> bool {
@@ -96,58 +96,24 @@ impl<'a> IntoIterator for &'a InMemoryPNTable {
 
 #[cfg(test)]
 mod tests {
+    use super::super::tests;
     use super::*;
 
     #[test]
     fn ssn_on_insert() {
-        let mut table = InMemoryPNTable::new();
-
-        let id = NodeId::zero();
-        let interface = UnderlayNeighborId::with_name("test");
-
-        let before_ssn = table.state_seq_nr().clone();
-        table.insert(id, interface);
-        let after_ssn = table.state_seq_nr().clone();
-
-        assert_ne!(
-            before_ssn, after_ssn,
-            "State sequence number didn't change after insertion."
-        )
+        let table = InMemoryPNTable::new();
+        tests::ssn_on_insert(table);
     }
 
     #[test]
     fn ssn_on_remove() {
-        let mut table = InMemoryPNTable::new();
-
-        let id = NodeId::zero();
-        let interface = UnderlayNeighborId::with_name("test");
-
-        table.insert(id.clone(), interface);
-
-        let before_ssn = table.state_seq_nr().clone();
-        table.remove(&id);
-        let after_ssn = table.state_seq_nr().clone();
-
-        assert_ne!(
-            before_ssn, after_ssn,
-            "State sequence number didn't change after removing."
-        )
+        let table = InMemoryPNTable::new();
+        tests::ssn_on_remove(table);
     }
 
     #[test]
     fn ssn_on_fake_remove() {
-        let mut table = InMemoryPNTable::new();
-
-        let id = NodeId::zero();
-        let interface = UnderlayNeighborId::with_name("test");
-
-        let before_ssn = table.state_seq_nr().clone();
-        table.remove(&id);
-        let after_ssn = table.state_seq_nr().clone();
-
-        assert_eq!(
-            before_ssn, after_ssn,
-            "State sequence number did change but we didn't remove anything."
-        )
+        let table = InMemoryPNTable::new();
+        tests::ssn_on_fake_remove(table);
     }
 }

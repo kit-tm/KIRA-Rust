@@ -1,4 +1,4 @@
-use std::collections::{HashMap};
+use std::collections::HashMap;
 
 use crate::domain::dht::strategies::fetch_strategy::FetchStrategy;
 
@@ -13,20 +13,26 @@ use crate::use_cases::distributed_hash_table::HashTableData;
 #[derive(Default, Debug, Clone)]
 pub struct PermissionlessFetchStrategy {}
 
-
-impl FetchStrategy for PermissionlessFetchStrategy
-{
+impl FetchStrategy for PermissionlessFetchStrategy {
     // todo use more abstract data types
     type Handle = NodeId;
     type Composite = HashMap<NodeId, HashTableData>;
     type OutputData = DefaultLHTOutput;
     type Error = FetchErr;
 
-    fn fetch(&self, handle: &Self::Handle, from: &mut Self::Composite) -> Result<Self::OutputData, Self::Error> {
+    fn fetch(
+        &self,
+        handle: &Self::Handle,
+        from: &mut Self::Composite,
+    ) -> Result<Self::OutputData, Self::Error> {
         self.peek(handle, from)
     }
 
-    fn peek(&self, handle: &Self::Handle, from: &Self::Composite) -> Result<Self::OutputData, Self::Error> {
+    fn peek(
+        &self,
+        handle: &Self::Handle,
+        from: &Self::Composite,
+    ) -> Result<Self::OutputData, Self::Error> {
         match from.get(handle) {
             None => Err(FetchErr::NotFoundErr),
             Some(set) => {
@@ -39,10 +45,12 @@ impl FetchStrategy for PermissionlessFetchStrategy
                 Ok(vec)
             }
         }
-
     }
 
-    fn fetch_all(&self, from: &Self::Composite) -> Result<Vec<(Self::Handle, Self::OutputData)>, Self::Error> {
+    fn fetch_all(
+        &self,
+        from: &Self::Composite,
+    ) -> Result<Vec<(Self::Handle, Self::OutputData)>, Self::Error> {
         let mut dump = Vec::with_capacity(from.len());
 
         for (handle, set) in from.iter() {
@@ -52,7 +60,7 @@ impl FetchStrategy for PermissionlessFetchStrategy
                 vec.push(timed_value.value.clone())
             }
 
-            dump.push((handle.clone(),vec));
+            dump.push((*handle, vec));
         }
 
         Ok(dump)
@@ -61,13 +69,12 @@ impl FetchStrategy for PermissionlessFetchStrategy
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-    use std::sync::Arc;
+    use super::super::FetchStrategy;
+    use super::*;
     use crate::domain::dht::TimedValue;
     use crate::use_cases::distributed_hash_table::HashTableSingle;
-    use super::*;
-    use super::super::FetchStrategy;
-
+    use std::collections::HashSet;
+    use std::sync::Arc;
 
     #[test]
     fn test_empty_fetch() {
@@ -77,10 +84,18 @@ mod tests {
 
         let result = strategy.fetch(&handle, &mut composite);
 
-        assert!(result.is_err(), "Fetching data from empty set returned an Ok result: {:?}", result);
+        assert!(
+            result.is_err(),
+            "Fetching data from empty set returned an Ok result: {:?}",
+            result
+        );
 
         let result = result.unwrap_err();
-        assert!(matches!(result, FetchErr::NotFoundErr), "Didn't return NotFoundErr as result: {:?}", result);
+        assert!(
+            matches!(result, FetchErr::NotFoundErr),
+            "Didn't return NotFoundErr as result: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -90,14 +105,21 @@ mod tests {
         let existing_data: HashTableSingle = Arc::new([1, 2, 3, 4]);
         let handle = NodeId::zero();
 
-        composite.insert(handle.clone(), HashSet::from([TimedValue::new(existing_data.clone())]));
+        composite.insert(
+            handle,
+            HashSet::from([TimedValue::new(existing_data.clone())]),
+        );
 
         let result = strategy.fetch(&handle, &mut composite);
 
         assert!(result.is_ok(), "Fetching data failed: {:?}", result);
 
         let result = result.unwrap();
-        assert_eq!(result, vec![existing_data.clone()], "Didn't return right value : {:?}", result);
+        assert_eq!(
+            result,
+            vec![existing_data.clone()],
+            "Didn't return right value : {:?}",
+            result
+        );
     }
-
 }

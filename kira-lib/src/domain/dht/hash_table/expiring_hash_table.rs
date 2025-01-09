@@ -4,13 +4,12 @@ use std::collections::{HashMap, HashSet};
 use crate::domain::dht::expiring::Expiring;
 use crate::domain::dht::hash_table::LocalHashTable;
 
-use crate::domain::dht::strategies::insert_strategy::InsertionStrategy;
 use crate::domain::dht::strategies::fetch_strategy::FetchStrategy;
+use crate::domain::dht::strategies::insert_strategy::InsertionStrategy;
 use crate::domain::dht::strategies::timeout_strategy::TimeoutStrategy;
 
 #[derive(Clone)]
-pub struct ExpiringHashTable<H, D, IS, FS, TS>
-{
+pub struct ExpiringHashTable<H, D, IS, FS, TS> {
     pub map: HashMap<H, D>,
     pub insertion_strategy: IS,
     pub fetch_strategy: FS,
@@ -34,10 +33,10 @@ impl<H, D, IS: Default, FS: Default, TS: Default> Default for ExpiringHashTable<
     }
 }
 
-
 impl<H, I, O, D, IS, FS, TS, RS, FE> LocalHashTable<H, I, O> for ExpiringHashTable<H, D, IS, FS, TS>
-    where IS: InsertionStrategy<Handle=H, Composite=HashMap<H, D>, InputData=I, Status=RS>,
-          FS: FetchStrategy<Handle=H, Composite=HashMap<H, D>, OutputData=O, Error=FE>
+where
+    IS: InsertionStrategy<Handle = H, Composite = HashMap<H, D>, InputData = I, Status = RS>,
+    FS: FetchStrategy<Handle = H, Composite = HashMap<H, D>, OutputData = O, Error = FE>,
 {
     type StoreRes = RS;
     type FetchErr = FE;
@@ -46,7 +45,7 @@ impl<H, I, O, D, IS, FS, TS, RS, FE> LocalHashTable<H, I, O> for ExpiringHashTab
     fn store(&mut self, handle: H, data: I) -> Self::StoreRes {
         self.insertion_strategy.insert(handle, data, &mut self.map)
     }
-    
+
     fn peek(&self, handle: &H) -> Result<O, Self::FetchErr> {
         self.fetch_strategy.peek(handle, &self.map)
     }
@@ -59,15 +58,16 @@ impl<H, I, O, D, IS, FS, TS, RS, FE> LocalHashTable<H, I, O> for ExpiringHashTab
         self.fetch_strategy.fetch_all(&self.map)
     }
 
-    fn into_handles(&self) -> Keys<'_, H, Self::InternalData> {
+    fn handles(&self) -> Keys<'_, H, Self::InternalData> {
         self.map.keys()
     }
 }
 
 // todo maybe we can even remove the concrete HashSet
 // todo can we put this into a separate strategy we can test?
-impl<H, D, IS, FS, TS> Expiring for ExpiringHashTable<H, HashSet<D>, IS, FS, TS> where
-    TS: TimeoutStrategy<Context=H, Expirable=D>,
+impl<H, D, IS, FS, TS> Expiring for ExpiringHashTable<H, HashSet<D>, IS, FS, TS>
+where
+    TS: TimeoutStrategy<Context = H, Expirable = D>,
 {
     type Context = ();
     type Result = ();
@@ -84,22 +84,24 @@ impl<H, D, IS, FS, TS> Expiring for ExpiringHashTable<H, HashSet<D>, IS, FS, TS>
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
     use crate::domain::dht::expiring::Expiring;
     use crate::domain::dht::hash_table::expiring_hash_table::ExpiringHashTable;
     use crate::domain::dht::strategies::timeout_strategy::{TaggedTimeoutStrategy, TaggedValue};
+    use std::collections::HashSet;
 
     #[test]
     fn expire_whole_data_set_if_timed_out() {
         let mut expiring = ExpiringHashTable::new((), (), TaggedTimeoutStrategy::default());
         let tagged_value = TaggedValue::new("test").tag();
-        expiring.map.insert("test", HashSet::from([
-            tagged_value
-        ]));
+        expiring.map.insert("test", HashSet::from([tagged_value]));
 
         Expiring::expire(&mut expiring, &());
 
-        assert!(expiring.map.is_empty(), "Hash table is not empty: {:?}", expiring.map);
+        assert!(
+            expiring.map.is_empty(),
+            "Hash table is not empty: {:?}",
+            expiring.map
+        );
     }
 
     #[test]
@@ -112,10 +114,18 @@ mod tests {
         Expiring::expire(&mut expiring, &());
 
         let expired_data = expiring.map.get("test");
-        assert!(expired_data.is_some(), "Hash table doesn't contain data for 'test': {:?}", expiring.map);
+        assert!(
+            expired_data.is_some(),
+            "Hash table doesn't contain data for 'test': {:?}",
+            expiring.map
+        );
 
         let expired_data = expired_data.unwrap();
-        assert_eq!(expired_data, &data, "Some data was expired: {:?}", expired_data);
+        assert_eq!(
+            expired_data, &data,
+            "Some data was expired: {:?}",
+            expired_data
+        );
     }
 
     #[test]
@@ -124,13 +134,26 @@ mod tests {
         let key = "test";
         let fresh_value = TaggedValue::new("test");
         let tagged_value = TaggedValue::new("tested").tag();
-        expiring.map.insert(key, HashSet::from([fresh_value, tagged_value]));
+        expiring
+            .map
+            .insert(key, HashSet::from([fresh_value, tagged_value]));
 
         Expiring::expire(&mut expiring, &());
 
-        assert!(!expiring.map.is_empty(), "Hash table is empty: {:?}", expiring.map);
-        assert!(expiring.map.get("test").is_some(), "Hash table does not contain fresh value: {:?}", expiring.map);
-        assert!(expiring.map.get("tested").is_none(), "Hash table does contain expired value: {:?}", expiring.map);
+        assert!(
+            !expiring.map.is_empty(),
+            "Hash table is empty: {:?}",
+            expiring.map
+        );
+        assert!(
+            expiring.map.contains_key("test"),
+            "Hash table does not contain fresh value: {:?}",
+            expiring.map
+        );
+        assert!(
+            !expiring.map.contains_key("tested"),
+            "Hash table does contain expired value: {:?}",
+            expiring.map
+        );
     }
 }
-

@@ -9,20 +9,20 @@ use crate::domain::{
 };
 
 /// A routing table which uses an additional data structure to store all
-/// physical neighbors.
+/// underlay neighbors.
 ///
 /// In contrast to [FlatRoutingTable] this implementation doesn't replace
-/// existing contacts with physical neighbors.
+/// existing contacts with underlay neighbors.
 /// Physical Neighbors will be added as long as they're not already present in the table.
 ///
 /// # Invariant
 ///
-/// No physical neighbors are in the inner routing table.
+/// No underlay neighbors are in the inner routing table.
 ///
 /// # Important
 ///
 /// Calling [`bucket_iter`](UnlimitedPNRoutingTable::bucket_iter) will **not** yield
-/// any physical neighbors.
+/// any underlay neighbors.
 #[derive(Debug)]
 pub struct UnlimitedPNRoutingTable<const BUCKET_SIZE: usize, const ACC: usize> {
     pn_contacts: HashMap<NodeId, Contact>,
@@ -110,12 +110,12 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
     }
 
     fn add(&mut self, contact: Contact) -> Result<(), AddError> {
-        // Add to physical neighbors if possible
+        // Add to underlay neighbors if possible
         if contact.is_pn() {
             if self.pn_contacts.contains_key(contact.id()) {
                 return Err(AddError::AlreadyExists(contact.into_id()));
             }
-            self.pn_contacts.insert(contact.id().clone(), contact);
+            self.pn_contacts.insert(*contact.id(), contact);
             return Ok(());
         }
 
@@ -130,7 +130,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
     }
 
     fn replace(&mut self, id: &NodeId, with: Contact) -> Result<Contact, ReplacementError> {
-        if let Some(contact) = self.pn_contacts.insert(id.clone(), with.clone()) {
+        if let Some(contact) = self.pn_contacts.insert(*id, with.clone()) {
             return Ok(contact);
         }
 
@@ -244,7 +244,6 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
     fn get_bucket_prefix_length(&self, bucket_index: usize) -> usize {
         self.inner.get_bucket_prefix_length(bucket_index)
     }
-
 }
 
 #[cfg(test)]

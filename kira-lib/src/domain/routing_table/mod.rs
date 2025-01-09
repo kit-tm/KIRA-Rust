@@ -81,7 +81,7 @@ impl From<BucketSplitError> for InsertionError {
 ///
 /// # Physical Neighbors
 ///
-/// As some RoutingTable implementation may handle physical neighbors in a different way
+/// As some RoutingTable implementation may handle underlay neighbors in a different way
 /// the caller has to be careful when using [RoutingTable::bucket] and [RoutingTable::bucket_mut].
 /// In structures like
 /// [UnlimitedPNRoutingTable](crate::domain::routing_table::unlimited_pn_routing_table::UnlimitedPNRoutingTable) the Neighbors

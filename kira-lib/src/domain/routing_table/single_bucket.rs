@@ -1,3 +1,6 @@
+// because we mock a lot here
+#![allow(unused_variables)]
+
 use std::cmp::Ordering;
 
 use rand::Rng;
@@ -155,10 +158,9 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
     fn get_bucket_prefix_length(&self, bucket_index: usize) -> usize {
         0
     }
-
 }
 
-impl<'a, const BUCKET_SIZE: usize> NonObservableRoutingTable<'a, BUCKET_SIZE>
+impl<const BUCKET_SIZE: usize> NonObservableRoutingTable<'_, BUCKET_SIZE>
     for SingleBucketRT<BUCKET_SIZE>
 {
 }

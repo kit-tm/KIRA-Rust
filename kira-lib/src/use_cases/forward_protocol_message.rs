@@ -3,15 +3,15 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
-use crate::context::UseCaseContext;
-use crate::domain::{Contact, ContactState, InsertionStrategy, InsertionStrategyResult, Link, NetworkInterface, NodeId, NotVia, Path, PNTable, RoutingTable};
-use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{
-    ErrorData, ProtocolMessage, ProtocolMessageSender, RTableData, ReqRspMessage, RouteUpdate,
+use crate::domain::{
+    Contact, ContactState, InsertionStrategy, InsertionStrategyResult, Link, NodeId, NotVia,
+    PNTable, Path, RoutingTable, UnderlayNeighborId, UnderlayNeighborSource,
 };
-use crate::runtime::UseCaseRuntime;
+use crate::messaging::source_route::SourceRoute;
+use crate::messaging::{ErrorData, ProtocolMessage, RTableData, ReqRspMessage, RouteUpdate};
 use crate::use_cases::{
-    ContactEvent, EventHandler, HandlingResult, MessageSentFailed, ReactiveUseCaseState, UseCase, UseCaseEvent
+    BroadcastableUseCaseEvent, EventHandler, HandlingResult, NeverError, ReactiveUseCaseState,
+    UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime,
 };
 
 /// Extracts different kinds of information out of incoming [ProtocolMessage]s before
@@ -36,7 +36,7 @@ pub struct ForwardProtocolMessage<C, const BUCKET_SIZE: usize> {
 impl<C, const BUCKET_SIZE: usize> Default for ForwardProtocolMessage<C, BUCKET_SIZE> {
     fn default() -> Self {
         Self {
-            _pd: PhantomData::default(),
+            _pd: PhantomData,
             state: ReactiveUseCaseState::default(),
         }
     }
@@ -45,18 +45,18 @@ impl<C, const BUCKET_SIZE: usize> Default for ForwardProtocolMessage<C, BUCKET_S
 impl<C, const BUCKET_SIZE: usize> ForwardProtocolMessage<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
+    C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>,
-    C::MessageSender: ProtocolMessageSender,
-    C::Runtime: UseCaseRuntime,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     fn extract_path_to_source(&self, message: &ProtocolMessage) -> Path {
-        let route = message.source_route()
+        let route = message
+            .source_route()
             // one can only trust the so far traversed path to work and exist
             .map(SourceRoute::traveled_path);
         let mut path = match route {
-            None => Path::from(message.source().clone()),
+            None => Path::from(*message.source()),
             Some(path) => path,
         };
 
@@ -71,7 +71,7 @@ where
         &self,
         context: &C,
         message: &ProtocolMessage,
-        interface: NetworkInterface,
+        ulnid: UnderlayNeighborId,
     ) -> Option<Contact> {
         let path = self.extract_path_to_source(message);
         let contact = Contact::new(path.clone(), *message.source_state_seq_nr());
@@ -81,21 +81,21 @@ where
             let neighbor_id = path.first();
             // loopback: the sender was us
             if neighbor_id == context.root_id() {
-                return None
+                return None;
             }
 
-            if !lock.contains(neighbor_id)  && !interface.is_tunnel_interface() {
-                if let Some(replaced) = lock.insert(neighbor_id.clone(), interface.clone()) {
+            if !lock.contains(neighbor_id) {
+                if let Some(replaced) = lock.insert(*neighbor_id, ulnid) {
                     // Not allowed to happen as lock is held
                     log::warn!(
                         target: "pn_table",
-                        "Overwritten interface mapping for '{}' from '{}' to '{}' but checked before",
+                        "Overwritten ulnid mapping for '{}' from '{}' to '{}' but checked before",
                         neighbor_id,
-                        interface,
+                        ulnid,
                         replaced
                     );
                 } else {
-                    log::debug!(target: "pn_table", "Inserted neighbor '{}' at interface '{}'", neighbor_id, interface);
+                    log::debug!(target: "pn_table", "Inserted neighbor '{}' at ulnid '{}'", neighbor_id, ulnid);
                 }
             }
         }
@@ -108,7 +108,7 @@ where
     /// Attempts to insert the contact into the routing table which may create a new entry,
     /// update an existing entry or do nothing.
     ///
-    /// If the contact was previously a physical neighbor but not anymore its entry in the PNTable
+    /// If the contact was previously a underlay neighbor but not anymore its entry in the PNTable
     /// will be removed.
     fn update_contact(&self, context: &C, contact: Contact) {
         if let Some(not_via) = context.not_via().iter().find(|not_via| match not_via {
@@ -122,14 +122,11 @@ where
         // TODO make more efficient by using the insertion strategy to return existing contact
         if let Some(contact_in_rt) = context.routing_table_mut().contact(contact.id()) {
             if contact_in_rt.state_seq_nr() < contact.state_seq_nr() {
-                let expected_ssn = contact.state_seq_nr().clone();
-                let event = UseCaseEvent::ResyncNode(
-                    contact.id().clone(),
-                    expected_ssn,
-                );
+                let expected_ssn = *contact.state_seq_nr();
+                let event = BroadcastableUseCaseEvent::ResyncNode(*contact.id(), expected_ssn);
 
                 log::trace!(target: "forward_protocol_message", "Inform other UseCases about updated SSN of {}: {:?}", contact.id(), event);
-                let _ = context.runtime().broadcast_local_event(event);
+                context.runtime_mut().broadcast_event(event);
             }
         }
 
@@ -141,7 +138,7 @@ where
             context.pn_table().deref(),
         );
 
-        // Remove if contact changed the routing table in any way, was a physical neighbor and is not a pn anymore
+        // Remove if contact changed the routing table in any way, was a underlay neighbor and is not a pn anymore
         if result != InsertionStrategyResult::Dropped
             && context.pn_table().contains(contact.id())
             && !context
@@ -151,7 +148,7 @@ where
                 .unwrap_or(false)
         {
             context.pn_table_mut().remove(contact.id());
-            log::trace!(target: "forward_protocol_message", "Removed {} from PNTable as no more a physical neighbor; {:?}", contact.id(), contact);
+            log::trace!(target: "forward_protocol_message", "Removed {} from PNTable as no more a underlay neighbor; {:?}", contact.id(), contact);
         }
     }
 
@@ -282,10 +279,10 @@ where
         &self,
         context: &C,
         message: ProtocolMessage,
-        interface: NetworkInterface,
-    ) -> Result<(), MessageSentFailed> {
+        ulnid: UnderlayNeighborId,
+    ) {
         if let ProtocolMessage::Hello(_) = message {
-            return Ok(());
+            return;
         }
 
         // invalidate contacts based on not-via information
@@ -293,7 +290,7 @@ where
             self.extract_not_via_data(context, message.source(), not_via);
         }
 
-        let source_contact = self.extract_source_information(context, &message, interface);
+        let source_contact = self.extract_source_information(context, &message, ulnid);
 
         match message {
             ProtocolMessage::PNDiscReq(msg)
@@ -319,30 +316,24 @@ where
             | ProtocolMessage::PathTeardownReq(_) => {}
             ProtocolMessage::StoreReq(_)
             | ProtocolMessage::StoreRsp(_)
-            |ProtocolMessage::FetchReq(_)
+            | ProtocolMessage::FetchReq(_)
             | ProtocolMessage::FetchRsp(_) => {} // todo maybe we need to extract stuff here
         }
-
-        Ok(())
     }
 
-    fn handle_next_hop_failed(
-        &self,
-        context: &C,
-        message: ProtocolMessage,
-    ) -> Result<(), <Self as EventHandler>::Error> {
+    fn handle_next_hop_failed(&self, context: &C, message: ProtocolMessage) {
         if message.nonce().is_none() {
             // Messages with no nonce don't require a response
-            return Ok(());
+            return;
         }
 
         assert!(message.source_route().is_some());
         assert!(message.source_route().unwrap().next_hop().is_some());
 
-        let root_id = context.root_id().clone();
+        let root_id = *context.root_id();
         let failed_link = Link::new(
-            root_id.clone(),
-            message.source_route().unwrap().next_hop().unwrap().clone(),
+            root_id,
+            *message.source_route().unwrap().next_hop().unwrap(),
         );
 
         let error_message = ReqRspMessage {
@@ -356,22 +347,15 @@ where
             source_route: SourceRoute::from_reversed(message.source_route().unwrap().clone()),
         };
 
-        if let Err(e) = context.message_sender_mut().send_message(error_message) {
-            log::error!("Failed to reply with error message: {}", e);
-            return Err(MessageSentFailed);
-        }
-
-        Ok(())
+        context
+            .runtime_mut()
+            .send_message(error_message, context.pn_table().deref());
     }
 
-    fn handle_forwarding(
-        &self,
-        context: &C,
-        mut message: ProtocolMessage,
-    ) -> Result<HandlingResult, MessageSentFailed> {
+    fn handle_forwarding(&self, context: &C, mut message: ProtocolMessage) -> HandlingResult {
         let source_route = message.source_route().cloned();
         if source_route.is_none() {
-            return Ok(HandlingResult::NotHandled);
+            return HandlingResult::NotHandled;
         }
         let source_route = source_route.unwrap();
 
@@ -383,7 +367,7 @@ where
                 source_route.current_hop(),
                 message
             );
-            return Ok(HandlingResult::Handled);
+            return HandlingResult::Handled;
         }
 
         let mut next_hop = source_route.next_hop();
@@ -393,7 +377,7 @@ where
             let overlay_destination = message.overlay_destination();
             // is directed to us -> nothing to forward
             if overlay_destination.is_none() {
-                return Ok(HandlingResult::NotHandled);
+                return HandlingResult::NotHandled;
             }
 
             log::debug!(
@@ -411,14 +395,14 @@ where
 
             // intended overlay destination is us -> nothing to forward
             if overlay_destination == context.root_id() {
-                return Ok(HandlingResult::NotHandled)
+                return HandlingResult::NotHandled;
             }
 
             // todo support other shared_prefix_grouping via config
-            let closest_node = context.routing_table()
+            let closest_node = context
+                .routing_table()
                 .next_hop(overlay_destination, 20, 1)
                 .expect("Shared Prefix Grouping should be valid");
-
 
             // closest known overlay hop is us -> nothing to forward,
             if closest_node.is_none() {
@@ -427,7 +411,7 @@ where
                     "Final destination of overlay message is us [{:?}]",
                     message
                 );
-                return Ok(HandlingResult::NotHandled);
+                return HandlingResult::NotHandled;
             }
 
             let next_contact = closest_node.unwrap();
@@ -445,48 +429,45 @@ where
         // From here on the message is assumed to be for us
 
         // Check if next link is in not_via data
-        if context.not_via().contains(&NotVia::Link(Link::new(
-            context.root_id().clone(),
-            next_hop.clone(),
-        ))) {
-            self.handle_next_hop_failed(context, message)?;
-            return Ok(HandlingResult::Handled);
+        if context
+            .not_via()
+            .contains(&NotVia::Link(Link::new(*context.root_id(), *next_hop)))
+        {
+            self.handle_next_hop_failed(context, message);
+            return HandlingResult::Handled;
         }
 
-        // Next hop is not a physical neighbor -> Error -> Drop
-        let neighbor_interface = context.pn_table().get(next_hop).cloned();
-        if neighbor_interface.is_none() {
-            self.handle_next_hop_failed(context, message)?;
-            return Ok(HandlingResult::Handled);
+        // Next hop is not a underlay neighbor -> Error -> Drop
+        let neighbor_ulnid = context.pn_table().get(next_hop).cloned();
+        if neighbor_ulnid.is_none() {
+            self.handle_next_hop_failed(context, message);
+            return HandlingResult::Handled;
         }
 
-        // Advance source route and send on interface
+        // Advance source route and send on ulnid
         // Checked route before
         if let Some(route) = message.source_route_mut() {
             route.advance();
         }
         log::trace!(target: "forward_protocol_message", "Forwarding message {:?}", message);
-        if let Err(e) = context.message_sender_mut().send_message(message) {
-            log::error!("Failed to forward message: {}", e);
-            return Err(MessageSentFailed);
-        }
-
-        Ok(HandlingResult::Handled)
+        context
+            .runtime_mut()
+            .send_message(message, context.pn_table().deref());
+        HandlingResult::Handled
     }
 }
 
 impl<C, const BUCKET_SIZE: usize> UseCase for ForwardProtocolMessage<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
+    C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>,
-    C::MessageSender: ProtocolMessageSender,
-    C::Runtime: UseCaseRuntime,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = ReactiveUseCaseState;
 
-    fn start(&mut self, _context: &Self::Context) -> Result<(), Self::Error> {
+    fn start(&mut self, _context: &C) -> Result<(), Self::Error> {
         Ok(())
     }
 
@@ -498,917 +479,29 @@ where
 impl<C, const BUCKET_SIZE: usize> EventHandler for ForwardProtocolMessage<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
+    C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>,
-    C::MessageSender: ProtocolMessageSender,
-    C::Runtime: UseCaseRuntime,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
-    type Error = MessageSentFailed;
+    type Error = NeverError;
     type Value = HandlingResult;
 
     fn handle_event(
         &mut self,
-        context: &Self::Context,
+        context: &C,
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
-        if let UseCaseEvent::Message(message, interface) = event {
+        if let UseCaseEvent::Message(message, ulnid) = event {
             // todo make more efficient pls
-            if interface != NetworkInterface::loopback() {
-                self.extract_message_info(context, message.clone(), interface)?;
+            if let UnderlayNeighborSource::UnderlayNeighbor(ulnid) = ulnid {
+                self.extract_message_info(context, message.clone(), ulnid);
             }
 
-            self.handle_forwarding(context, message)
+            Ok(self.handle_forwarding(context, message))
         } else {
             Ok(HandlingResult::NotHandled)
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::HashSet;
-    use std::num::NonZeroU64;
-    use std::ops::Deref;
-
-    use crate::broadcaster::BusBroadcaster;
-    use crate::context::{ContextConfig, SyncContext, UseCaseContext};
-    use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable};
-    use crate::forwarding::in_memory_tables::InMemoryFwdTables;
-    use crate::messaging::source_route::SourceRoute;
-    use crate::messaging::ProtocolMessage::{
-        FindNodeReq, FindNodeRsp, PNDiscReq, PNDiscRsp, QueryRouteRsp,
-    };
-    use crate::messaging::{
-        AsyncProtocolMessageReceiver, ErrorData, FindNodeReqData, InMemoryMessageChannel, Nonce,
-        RTableData, ReqRspMessage,
-    };
-    use crate::runtime::ImmediateRuntime;
-    use crate::use_cases::forward_protocol_message::ForwardProtocolMessage;
-    use crate::use_cases::{EventHandler, UseCaseEvent};
-
-    #[test]
-    fn extract_source_from_pndiscreq() {
-        crate::tests::init();
-
-        let root_id = NodeId::with_msb(1);
-        let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let pn_table = InMemoryPNTable::new();
-        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let (message_hub, _receiver) = InMemoryMessageChannel::default().into_parts();
-        let broadcaster = BusBroadcaster::new(10);
-        let runtime = ImmediateRuntime::new(broadcaster.clone());
-        let context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table: single_bucket_rt,
-            pn_table,
-            insertion_strategy,
-            message_sender: message_hub,
-            runtime,
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case = ForwardProtocolMessage::default();
-
-        let contact_id = NodeId::with_msb(2);
-        let interface = NetworkInterface::with_name("test");
-        let event = UseCaseEvent::Message(
-            PNDiscReq(ReqRspMessage {
-                nonce: Nonce::random(),
-                source_state_seq_nr: StateSeqNr::from(1),
-                data: RTableData { contacts: vec![] },
-                not_via: HashSet::default(),
-                source_route: SourceRoute::from(Path::from([contact_id.clone(), root_id])),
-            }),
-            interface.clone(),
-        );
-        let handled_result = use_case.handle_event(&context, event);
-        assert!(
-            handled_result.is_ok(),
-            "Handling returned error: {:?}",
-            handled_result
-        );
-
-        assert_eq!(context.pn_table().get(&contact_id), Some(&interface));
-    }
-
-    #[test]
-    fn add_source_from_pndiscreq_to_contacts() {
-        crate::tests::init();
-
-        let root_id = NodeId::with_msb(1);
-        let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let pn_table = InMemoryPNTable::new();
-        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
-        let broadcaster = BusBroadcaster::new(10);
-        let runtime = ImmediateRuntime::new(broadcaster.clone());
-        let context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table: single_bucket_rt,
-            pn_table,
-            insertion_strategy,
-            message_sender: hub_sender,
-            runtime,
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case = ForwardProtocolMessage::default();
-
-        let neighbor_id = NodeId::with_msb(2);
-        let interface = NetworkInterface::with_name("test");
-        let event = UseCaseEvent::Message(
-            PNDiscReq(ReqRspMessage {
-                nonce: Nonce::random(),
-                source_state_seq_nr: StateSeqNr::from(0),
-                data: RTableData { contacts: vec![] },
-                not_via: HashSet::default(),
-                source_route: SourceRoute::from(Path::from([neighbor_id.clone(), root_id])),
-            }),
-            interface.clone(),
-        );
-        let handled_result = use_case.handle_event(&context, event);
-        assert!(
-            handled_result.is_ok(),
-            "Handling returned error: {:?}",
-            handled_result
-        );
-
-        assert_eq!(context.pn_table().get(&neighbor_id), Some(&interface));
-
-        let rt = context.routing_table();
-        let saved_contact = rt.contact(&neighbor_id);
-        assert!(saved_contact.is_some(), "No contact found");
-        let saved_contact = saved_contact.unwrap();
-        assert_eq!(saved_contact.path(), &Path::from(neighbor_id));
-        assert_eq!(saved_contact.state_seq_nr(), &StateSeqNr::from(0));
-        assert_eq!(saved_contact.state(), &ContactState::Valid);
-    }
-
-    #[test]
-    fn add_source_to_routing_table() {
-        crate::tests::init();
-
-        let interface = NetworkInterface::with_name("test");
-
-        let root_id = NodeId::with_msb(1);
-        let source_id = NodeId::with_msb(2);
-        let neighbor_id = NodeId::with_msb(42);
-
-        let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let mut pn_table = InMemoryPNTable::new();
-        // NOTE: First element in contacts path has to be a neighbor
-        pn_table.insert(neighbor_id.clone(), interface.clone());
-        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
-        let broadcaster = BusBroadcaster::new(10);
-        let runtime = ImmediateRuntime::new(broadcaster.clone());
-        let context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table: single_bucket_rt,
-            pn_table,
-            insertion_strategy,
-            message_sender: hub_sender,
-            runtime,
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case = ForwardProtocolMessage::default();
-
-        let source_route = SourceRoute::from(Path::from([
-            source_id.clone(),
-            NodeId::with_msb(13),
-            NodeId::with_msb(14),
-            NodeId::with_msb(15),
-            neighbor_id.clone(),
-            root_id.clone(),
-        ]))
-        // One time advanced so the current_hop is the root_id
-        .advanced()
-        .advanced()
-        .advanced()
-        .advanced();
-        let event = UseCaseEvent::Message(
-            FindNodeReq(ReqRspMessage {
-                nonce: Nonce::random(),
-                source_state_seq_nr: StateSeqNr::from(5),
-                data: FindNodeReqData {
-                    exact: false,
-                    neighborhood: NonZeroU64::new(3).unwrap(),
-                    target: NodeId::with_msb(15),
-                },
-                not_via: HashSet::default(),
-                source_route,
-            }),
-            interface.clone(),
-        );
-        let handled_result = use_case.handle_event(&context, event);
-        assert!(
-            handled_result.is_ok(),
-            "Handling returned error: {:?}",
-            handled_result
-        );
-
-        let rt = context.routing_table();
-        let saved_contact = rt.contact(&source_id);
-        assert!(saved_contact.is_some(), "No contact found");
-        let saved_contact = saved_contact.unwrap();
-        assert_eq!(
-            saved_contact.path(),
-            &Path::from([
-                neighbor_id,
-                NodeId::with_msb(15),
-                NodeId::with_msb(14),
-                NodeId::with_msb(13),
-                source_id
-            ])
-        );
-        assert_eq!(saved_contact.state_seq_nr(), &StateSeqNr::from(5));
-        assert_eq!(saved_contact.state(), &ContactState::Valid);
-    }
-
-    #[test]
-    fn add_new_neighbor_to_pns() {
-        crate::tests::init();
-
-        let root_id = NodeId::with_msb(1);
-        let source_id = NodeId::with_msb(2);
-        let neighbor_id = NodeId::with_msb(3);
-
-        let interface = NetworkInterface::with_name("test");
-
-        let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let pn_table = InMemoryPNTable::new();
-        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
-        let broadcaster = BusBroadcaster::new(10);
-        let runtime = ImmediateRuntime::new(broadcaster.clone());
-        let context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table: single_bucket_rt,
-            pn_table,
-            insertion_strategy,
-            message_sender: hub_sender,
-            runtime,
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case = ForwardProtocolMessage::default();
-
-        let source_route = SourceRoute::from(Path::from([
-            source_id.clone(),
-            neighbor_id.clone(),
-            root_id.clone(),
-            NodeId::with_msb(13),
-            NodeId::with_msb(14),
-            NodeId::with_msb(15),
-        ]))
-        // One time advanced so the current_hop is the root_id
-        .advanced();
-        let event = UseCaseEvent::Message(
-            FindNodeReq(ReqRspMessage {
-                nonce: Nonce::random(),
-                source_state_seq_nr: StateSeqNr::from(5),
-                data: FindNodeReqData {
-                    exact: false,
-                    neighborhood: NonZeroU64::new(3).unwrap(),
-                    target: NodeId::with_msb(15),
-                },
-                not_via: HashSet::default(),
-                source_route,
-            }),
-            interface.clone(),
-        );
-        let handled_result = use_case.handle_event(&context, event);
-        assert!(
-            handled_result.is_ok(),
-            "Handling returned error: {:?}",
-            handled_result
-        );
-
-        assert_eq!(
-            context.pn_table().get(&neighbor_id),
-            Some(&interface),
-            "Neighbor not inserted in PNTable: {:?}",
-            context.pn_table().deref()
-        );
-    }
-
-    #[test]
-    fn extract_infos_from_pn_disc_req() {
-        crate::tests::init();
-
-        let root_id = NodeId::with_msb(1);
-        let neighbor_id = NodeId::with_msb(2);
-
-        let interface = NetworkInterface::with_name("test");
-
-        let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let mut pn_table = InMemoryPNTable::new();
-        pn_table.insert(neighbor_id.clone(), interface.clone());
-        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
-        let broadcaster = BusBroadcaster::new(10);
-        let runtime = ImmediateRuntime::new(broadcaster.clone());
-        let context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table: single_bucket_rt,
-            pn_table,
-            insertion_strategy,
-            message_sender: hub_sender,
-            runtime,
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case = ForwardProtocolMessage::default();
-
-        let neighbors_neighbors = vec![
-            Contact::new(Path::from([NodeId::with_msb(15)]), StateSeqNr::from(15)),
-            Contact::new(Path::from([NodeId::with_msb(30)]), StateSeqNr::from(30)),
-            Contact::new(Path::from([NodeId::with_msb(42)]), StateSeqNr::from(42)),
-        ];
-
-        let source_route = SourceRoute::from(Path::from([neighbor_id.clone(), root_id.clone()]));
-        let event = UseCaseEvent::Message(
-            PNDiscReq(ReqRspMessage {
-                nonce: Nonce::random(),
-                source_state_seq_nr: StateSeqNr::from(5),
-                data: RTableData {
-                    contacts: neighbors_neighbors.clone(),
-                },
-                not_via: HashSet::default(),
-                source_route,
-            }),
-            interface.clone(),
-        );
-        let handled_result = use_case.handle_event(&context, event);
-        assert!(
-            handled_result.is_ok(),
-            "Handling returned error: {:?}",
-            handled_result
-        );
-
-        let rt = context.routing_table();
-        for contact in &neighbors_neighbors {
-            let saved_contact = rt.contact(contact.id());
-            assert!(
-                saved_contact.is_some(),
-                "No contacted extracted with id '{}'",
-                contact.id()
-            );
-            let saved_contact = saved_contact.unwrap();
-            assert_eq!(saved_contact.state(), contact.state());
-            assert_eq!(saved_contact.last_seen(), contact.last_seen());
-            assert_eq!(saved_contact.state_seq_nr(), contact.state_seq_nr());
-            assert_eq!(
-                saved_contact.path(),
-                &Path::from([neighbor_id.clone(), saved_contact.id().clone()])
-            );
-        }
-    }
-
-    #[test]
-    fn extract_infos_from_pn_disc_rsp() {
-        crate::tests::init();
-
-        let root_id = NodeId::with_msb(1);
-        let neighbor_id = NodeId::with_msb(2);
-
-        let interface = NetworkInterface::with_name("test");
-
-        let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let mut pn_table = InMemoryPNTable::new();
-        pn_table.insert(neighbor_id.clone(), interface.clone());
-        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
-        let broadcaster = BusBroadcaster::new(10);
-        let runtime = ImmediateRuntime::new(broadcaster.clone());
-        let context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table: single_bucket_rt,
-            pn_table,
-            insertion_strategy,
-            message_sender: hub_sender,
-            runtime,
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case = ForwardProtocolMessage::default();
-
-        let neighbors_neighbors = vec![
-            Contact::new(Path::from([NodeId::with_msb(15)]), StateSeqNr::from(15)),
-            Contact::new(Path::from([NodeId::with_msb(30)]), StateSeqNr::from(30)),
-            Contact::new(Path::from([NodeId::with_msb(42)]), StateSeqNr::from(42)),
-        ];
-
-        let source_route = SourceRoute::from(Path::from([neighbor_id.clone(), root_id.clone()]));
-        let event = UseCaseEvent::Message(
-            PNDiscRsp(ReqRspMessage {
-                nonce: Nonce::random(),
-                source_state_seq_nr: StateSeqNr::from(5),
-                data: RTableData {
-                    contacts: neighbors_neighbors.clone(),
-                },
-                not_via: HashSet::default(),
-                source_route,
-            }),
-            interface.clone(),
-        );
-        let handled_result = use_case.handle_event(&context, event);
-        assert!(
-            handled_result.is_ok(),
-            "Handling returned error: {:?}",
-            handled_result
-        );
-
-        let rt = context.routing_table();
-        for contact in &neighbors_neighbors {
-            let saved_contact = rt.contact(contact.id());
-            assert!(
-                saved_contact.is_some(),
-                "No contacted extracted with id '{}'",
-                contact.id()
-            );
-            let saved_contact = saved_contact.unwrap();
-            assert_eq!(saved_contact.state(), contact.state());
-            assert_eq!(saved_contact.last_seen(), contact.last_seen());
-            assert_eq!(saved_contact.state_seq_nr(), contact.state_seq_nr());
-            assert_eq!(
-                saved_contact.path(),
-                &Path::from([neighbor_id.clone(), saved_contact.id().clone()])
-            );
-        }
-    }
-
-    #[test]
-    fn extract_infos_from_query_route_rsp() {
-        crate::tests::init();
-
-        let root_id = NodeId::with_msb(1);
-        let source_id = NodeId::with_msb(2);
-        let neighbor_id = NodeId::with_msb(15);
-
-        let interface = NetworkInterface::with_name("test");
-
-        let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let mut pn_table = InMemoryPNTable::new();
-        pn_table.insert(neighbor_id.clone(), interface.clone());
-        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
-        let broadcaster = BusBroadcaster::new(10);
-        let runtime = ImmediateRuntime::new(broadcaster.clone());
-        let context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table: single_bucket_rt,
-            pn_table,
-            insertion_strategy,
-            message_sender: hub_sender,
-            runtime,
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case = ForwardProtocolMessage::default();
-
-        let neighbors_neighbors = vec![
-            // Insertions strategy doesn't use cycle_remover or shortener. So the shared neighbor
-            // will be included as all the others. Therefore removing it to avoid confusion
-            //Contact::new(Path::from([neighbor_id.clone()]), StateSeqNr::from(15)),
-            Contact::new(Path::from([NodeId::with_msb(30)]), StateSeqNr::from(30)),
-            Contact::new(Path::from([NodeId::with_msb(42)]), StateSeqNr::from(42)),
-        ];
-
-        let source_route = SourceRoute::from(Path::from([
-            source_id.clone(),
-            neighbor_id.clone(),
-            root_id.clone(),
-        ]))
-        .advanced();
-        let event = UseCaseEvent::Message(
-            QueryRouteRsp(ReqRspMessage {
-                nonce: Nonce::random(),
-                source_state_seq_nr: StateSeqNr::from(5),
-                data: RTableData {
-                    contacts: neighbors_neighbors.clone(),
-                },
-                not_via: HashSet::default(),
-                source_route,
-            }),
-            interface.clone(),
-        );
-        let handled_result = use_case.handle_event(&context, event);
-        assert!(
-            handled_result.is_ok(),
-            "Handling returned error: {:?}",
-            handled_result
-        );
-
-        let rt = context.routing_table();
-        for contact in &neighbors_neighbors {
-            let saved_contact = rt.contact(contact.id());
-            assert!(
-                saved_contact.is_some(),
-                "No contacted extracted with id '{}'",
-                contact.id()
-            );
-            let saved_contact = saved_contact.unwrap();
-            assert_eq!(saved_contact.state(), contact.state());
-            assert_eq!(saved_contact.last_seen(), contact.last_seen());
-            assert_eq!(saved_contact.state_seq_nr(), contact.state_seq_nr());
-            assert_eq!(
-                saved_contact.path(),
-                &Path::from([neighbor_id.clone(), source_id.clone(), contact.id().clone()])
-            );
-        }
-    }
-
-    #[test]
-    fn extract_infos_from_find_node_rsp() {
-        crate::tests::init();
-
-        let root_id = NodeId::with_msb(1);
-        let source_id = NodeId::with_msb(2);
-        let neighbor_id = NodeId::with_msb(15);
-
-        let interface = NetworkInterface::with_name("test");
-
-        let single_bucket_rt = SingleBucketRT::<20>::new(root_id.clone());
-        let mut pn_table = InMemoryPNTable::new();
-        pn_table.insert(neighbor_id.clone(), interface.clone());
-        let insertion_strategy = TestInsertionStrategy::from(InsertionStrategyResult::Inserted);
-        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
-        let broadcaster = BusBroadcaster::new(10);
-        let runtime = ImmediateRuntime::new(broadcaster.clone());
-        let context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table: single_bucket_rt,
-            pn_table,
-            insertion_strategy,
-            message_sender: hub_sender,
-            runtime,
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case = ForwardProtocolMessage::default();
-
-        let neighbors_neighbors = vec![
-            // Insertions strategy doesn't use cycle_remover or shortener. So the shared neighbor
-            // will be included as all the others. Therefore removing it to avoid confusion
-            //Contact::new(Path::from([neighbor_id.clone()]), StateSeqNr::from(15)),
-            Contact::new(
-                Path::from([
-                    NodeId::with_msb(16),
-                    NodeId::with_msb(48),
-                    NodeId::with_msb(30),
-                ]),
-                StateSeqNr::from(30),
-            ),
-            Contact::new(
-                Path::from([NodeId::with_msb(16), NodeId::with_msb(48)]),
-                StateSeqNr::from(48),
-            ),
-            Contact::new(
-                Path::from([NodeId::with_msb(16), NodeId::with_msb(42)]),
-                StateSeqNr::from(42),
-            ),
-        ];
-
-        let source_route = SourceRoute::from(Path::from([
-            source_id.clone(),
-            NodeId::with_msb(120),
-            NodeId::with_msb(127),
-            neighbor_id.clone(),
-            root_id.clone(),
-        ]))
-        .advanced()
-        .advanced()
-        .advanced();
-        let event = UseCaseEvent::Message(
-            FindNodeRsp(ReqRspMessage {
-                nonce: Nonce::random(),
-                source_state_seq_nr: StateSeqNr::from(5),
-                data: RTableData {
-                    contacts: neighbors_neighbors.clone(),
-                },
-                not_via: HashSet::default(),
-                source_route,
-            }),
-            interface.clone(),
-        );
-        let handled_result = use_case.handle_event(&context, event);
-        assert!(
-            handled_result.is_ok(),
-            "Handling returned error: {:?}",
-            handled_result
-        );
-
-        let rt = context.routing_table();
-        for contact in &neighbors_neighbors {
-            let saved_contact = rt.contact(contact.id());
-            assert!(
-                saved_contact.is_some(),
-                "No contacted extracted with id '{}'",
-                contact.id()
-            );
-            let saved_contact = saved_contact.unwrap();
-            assert_eq!(saved_contact.state(), contact.state());
-            assert_eq!(saved_contact.last_seen(), contact.last_seen());
-            assert_eq!(saved_contact.state_seq_nr(), contact.state_seq_nr());
-            let mut expected_path = Path::from([
-                neighbor_id.clone(),
-                NodeId::with_msb(127),
-                NodeId::with_msb(120),
-                source_id.clone(),
-            ]);
-            expected_path.extend(contact.path().clone());
-            assert_eq!(saved_contact.path(), &expected_path);
-        }
-    }
-
-    #[tokio::test]
-    async fn forward_to_us_doesnt_forward() {
-        crate::tests::init();
-
-        let root_id = NodeId::random();
-
-        let (broadcaster, broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
-
-        let runtime = ImmediateRuntime::new(broadcaster);
-
-        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
-
-        // At least one has contact has to be present and valid
-        // Otherwise the use case thinks the node is isolated
-        let neighbor_id = NodeId::random();
-        let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
-
-        let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
-        assert!(routing_table.insert(neighbor.clone()).is_ok());
-        let mut pn_table = InMemoryPNTable::new();
-        pn_table.insert(neighbor_id.clone(), NetworkInterface::with_name("test"));
-
-        let sync_context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table,
-            pn_table,
-            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            message_sender: hub_sender,
-            runtime,
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case = ForwardProtocolMessage::default();
-
-        let message = ReqRspMessage {
-            nonce: Nonce::random(),
-            source_state_seq_nr: StateSeqNr::from(2),
-            data: FindNodeReqData {
-                exact: false,
-                neighborhood: NonZeroU64::new(20).unwrap(),
-                target: NodeId::random(),
-            },
-            not_via: HashSet::default(),
-            source_route: SourceRoute::from(Path::from([neighbor.id().clone(), root_id.clone()]))
-                .advanced(),
-        };
-
-        let result = use_case.handle_event(
-            &sync_context,
-            UseCaseEvent::Message(message.into(), NetworkInterface::with_name("test")),
-        );
-        assert!(
-            result.is_ok(),
-            "Handling a valid message returned an error: {:?}",
-            result
-        );
-
-        assert!(broadcast_receiver.try_recv().is_err());
-
-        let receive = hub_receiver.try_recv().await;
-        assert!(
-            receive.is_err() || receive.as_ref().unwrap().is_none(),
-            "No messages should ne emitted, but these were found: {:?}",
-            receive
-        );
-    }
-
-    #[tokio::test]
-    async fn forwarding_works() {
-        crate::tests::init();
-
-        let root_id = NodeId::with_lsb(1);
-
-        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
-
-        let runtime = ImmediateRuntime::new(broadcaster);
-
-        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
-
-        // At least one has contact has to be present and valid
-        // Otherwise the use case thinks the node is isolated
-        let neighbor_id = NodeId::with_lsb(2);
-        let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
-
-        let mut routing_table = SingleBucketRT::<1>::new(root_id.clone());
-        assert!(routing_table.insert(neighbor.clone()).is_ok());
-        let mut pn_table = InMemoryPNTable::new();
-        pn_table.insert(neighbor_id.clone(), NetworkInterface::with_name("test"));
-
-        let sync_context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table,
-            pn_table,
-            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            message_sender: hub_sender,
-            runtime,
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case = ForwardProtocolMessage::default();
-
-        let foreign_id = NodeId::with_lsb(3);
-        let sent_request = ReqRspMessage {
-            nonce: Nonce::random(),
-            source_state_seq_nr: StateSeqNr::from(0),
-            data: FindNodeReqData {
-                exact: false,
-                neighborhood: NonZeroU64::new(20).unwrap(),
-                target: NodeId::random(),
-            },
-            not_via: HashSet::default(),
-            source_route: SourceRoute::from(Path::from([
-                foreign_id,
-                root_id.clone(),
-                neighbor_id.clone(),
-            ])),
-        };
-
-        let result = use_case.handle_event(
-            &sync_context,
-            UseCaseEvent::Message(sent_request.clone().into(), NetworkInterface::with_name("test")),
-        );
-        assert!(
-            result.is_ok(),
-            "Handling a valid message returned an error: {:?}",
-            result
-        );
-
-        let sent_message = hub_receiver.try_recv().await;
-        assert!(sent_message.is_ok(), "Timed out getting forwarded message");
-        let message = sent_message.unwrap();
-        assert!(message.is_some(), "Received no message from hub");
-        let (message, _) = message.unwrap();
-        if let FindNodeReq(req) = message {
-            assert_eq!(&req.nonce, &sent_request.nonce);
-            assert_eq!(req.source(), sent_request.source());
-            assert_eq!(req.destination(), sent_request.destination());
-            let mut route = sent_request.source_route.clone();
-            route.advance();
-            assert_eq!(&req.source_route, &route);
-            assert_eq!(&req.data, &sent_request.data);
-        }
-    }
-
-    #[test]
-    fn error_invalidates_failed_contact() {
-        crate::tests::init();
-
-        let interface = NetworkInterface::with_name("test");
-
-        let root_id = NodeId::with_lsb(1);
-        let neighbor_id = NodeId::with_lsb(2);
-        let source_id = NodeId::with_lsb(3);
-        let failed_contact_id = NodeId::with_lsb(4);
-
-        let invalid_contact_ids = [
-            NodeId::with_lsb(5),
-            NodeId::with_lsb(6),
-            NodeId::with_lsb(7),
-            NodeId::with_lsb(8),
-        ];
-
-        let failed_link = Link::new(source_id.clone(), failed_contact_id.clone());
-
-        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(1);
-
-        let runtime = ImmediateRuntime::new(broadcaster);
-
-        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
-
-        let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(0));
-        let failed_contact = Contact::new(
-            Path::from([
-                neighbor_id.clone(),
-                source_id.clone(),
-                failed_contact_id.clone(),
-            ]),
-            StateSeqNr::from(13),
-        );
-        let mut invalid_contacts = invalid_contact_ids
-            .iter()
-            .cloned()
-            .map(|id| {
-                Contact::new(
-                    Path::from([
-                        neighbor_id.clone(),
-                        source_id.clone(),
-                        failed_contact_id.clone(),
-                        id,
-                    ]),
-                    StateSeqNr::from(rand::random::<u64>()),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
-        assert!(routing_table.insert(neighbor.clone()).is_ok());
-        assert!(routing_table.insert(failed_contact.clone()).is_ok());
-        for contact in invalid_contacts.clone() {
-            assert!(routing_table.insert(contact).is_ok());
-        }
-        invalid_contacts.push(failed_contact);
-
-        let mut pn_table = InMemoryPNTable::new();
-        pn_table.insert(neighbor_id.clone(), interface.clone());
-
-        let sync_context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table,
-            pn_table,
-            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            message_sender: hub_sender,
-            runtime,
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let mut use_case = ForwardProtocolMessage::default();
-
-        let sent_request = ReqRspMessage {
-            nonce: Nonce::random(),
-            source_state_seq_nr: StateSeqNr::from(0),
-            data: ErrorData::SegmentFailure {
-                failed_link,
-                source: source_id.clone(),
-            },
-            not_via: HashSet::default(),
-            source_route: SourceRoute::from(Path::from([
-                failed_contact_id.clone(),
-                source_id.clone(),
-                neighbor_id.clone(),
-                root_id.clone(),
-            ]))
-            .advanced()
-            .advanced(),
-        };
-
-        let result = use_case.handle_event(
-            &sync_context,
-            UseCaseEvent::Message(sent_request.clone().into(), interface.clone()),
-        );
-        assert!(
-            result.is_ok(),
-            "Handling a valid message returned an error: {:?}",
-            result
-        );
-
-        for contact in invalid_contacts {
-            let rt = sync_context.routing_table();
-            let invalid_contact = rt.contact(contact.id());
-            assert!(
-                invalid_contact.is_some(),
-                "invalid contact no longer present after error"
-            );
-            let invalid_contact = invalid_contact.unwrap();
-            assert_eq!(
-                invalid_contact.state(),
-                &ContactState::Invalid,
-                "All affected contacts should be invalidated"
-            );
-        }
-
-        let rt = sync_context.routing_table();
-        let valid_contact = rt.contact(&neighbor_id);
-        assert!(
-            valid_contact.is_some(),
-            "invalid contact no longer present after error"
-        );
-        let valid_contact = valid_contact.unwrap();
-        assert_eq!(
-            valid_contact.state(),
-            &ContactState::Valid,
-            "All affected contacts should be invalidated"
-        );
     }
 }

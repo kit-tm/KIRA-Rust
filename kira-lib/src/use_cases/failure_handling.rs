@@ -5,16 +5,18 @@ use std::marker::PhantomData;
 use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::ops::Deref;
 
-use crate::context::UseCaseContext;
-use crate::domain::{Contact, ContactState, Link, NetworkInterface, NodeId, NotVia, PNTable, RoutingTable};
-use crate::hardware_events::HardwareEvent;
+use crate::domain::{
+    Contact, ContactState, Link, NodeId, NotVia, PNTable, RoutingTable, UnderlayNeighborId,
+    UnderlayNeighborUpdate,
+};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
-    ErrorData, FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageSender, ReqRspMessage,
-    RouteUpdate, UpdateRouteReq,
+    ErrorData, FindNodeReqData, Nonce, ProtocolMessage, ReqRspMessage, RouteUpdate, UpdateRouteReq,
 };
-use crate::runtime::UseCaseRuntime;
-use crate::use_cases::{ContactEvent, EventHandler, ReactiveUseCaseState, UseCase, UseCaseEvent};
+use crate::use_cases::{
+    ContactEvent, EventHandler, ReactiveUseCaseState, UseCase, UseCaseContext, UseCaseEvent,
+    UseCaseRuntime,
+};
 use crate::utils::errors::{AddNonceError, InsertionError};
 use crate::utils::rediscovery_timeout_interval::{Distance, RediscoveryTimeoutInterval};
 use crate::utils::{BackoffMap, ExponentialBackoff};
@@ -26,7 +28,7 @@ use crate::utils::{BackoffMap, ExponentialBackoff};
 /// - Overlay neighbors to notify via `UpdateRouteReq`: 3.
 /// - Number of Bits grouped for calculation of closeness for overlay neighbors: 1 Bit.
 /// - Intervall used for calculation of random timeout: `[0.5 t, 1.5 t]`, t = 500ms (overlay neighbor),
-///     t = 1s (physical neighbor), t = 2s (andernfalls).
+///     t = 1s (underlay neighbor), t = 2s (andernfalls).
 /// - Max retries for exponential backoff: 5.
 pub struct FailureHandlingConfig {
     /// Number of overlay neighbors to notify about a node failure.
@@ -63,13 +65,7 @@ pub struct FailureHandling<C, const BUCKET_SIZE: usize> {
     rediscoveries: BackoffMap,
 }
 
-impl<C, const BUCKET_SIZE: usize> FailureHandling<C, BUCKET_SIZE>
-where
-    C: UseCaseContext,
-    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::MessageSender: ProtocolMessageSender,
-    C::Runtime: UseCaseRuntime,
-{
+impl<C, const BUCKET_SIZE: usize> FailureHandling<C, BUCKET_SIZE> {
     pub fn new(config: FailureHandlingConfig) -> Self {
         Self {
             _pd: Default::default(),
@@ -83,10 +79,9 @@ where
 impl<C, const BUCKET_SIZE: usize> FailureHandling<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
-    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     /// Remove all NotVia Data which is related to the contact
     fn remove_notvia_mentioning(&self, context: &C, contact_id: &NodeId) {
@@ -149,18 +144,14 @@ where
                 not_via: context.not_via().clone(),
                 contact_actions: updates.clone(),
                 source_route: SourceRoute::new(
-                    context.root_id().clone(),
+                    *context.root_id(),
                     closest_overlay_neighbor.path().clone(),
                 ),
             };
 
-            if let Err(e) = context
-                .message_sender_mut()
-                .send_message(update_route_message)
-            {
-                log::error!(target: "failure_handling", "Failed to send update route request to {}: {}", contact.id(), e);
-                return Err(FailureHandlingError::MessageSentFailed);
-            }
+            context
+                .runtime_mut()
+                .send_message(update_route_message, context.pn_table().deref());
         }
 
         let closest = context
@@ -191,17 +182,17 @@ where
 
         let nonce = {
             let mut nonce = Nonce::random();
-            let mut timer_id = context.runtime().register_timer(timer_duration);
+            let mut timer_id = context.runtime_mut().register_timer(timer_duration);
 
             while let Err(e) = self.rediscoveries.insert(
-                (contact.id().clone(), timer_id, nonce.clone()),
+                (*contact.id(), timer_id, nonce.clone()),
                 exponential_backoff.clone(),
             ) {
                 match e {
                     InsertionError::DuplicateNonce => nonce = Nonce::random(),
                     InsertionError::DuplicateTimer => {
                         log::warn!(target: "failure_handling", "runtime emitted duplicate timer id {} [{:?}]", timer_id, self.rediscoveries);
-                        timer_id = context.runtime().register_timer(timer_duration)
+                        timer_id = context.runtime_mut().register_timer(timer_duration)
                     }
                 }
             }
@@ -217,18 +208,15 @@ where
             data: FindNodeReqData {
                 exact: true,
                 neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
-                target: contact.id().clone(),
+                target: *contact.id(),
             },
             not_via: context.not_via().clone(),
-            source_route: SourceRoute::new(
-                context.root_id().clone(),
-                closest_contact.path().clone(),
-            ),
+            source_route: SourceRoute::new(*context.root_id(), closest_contact.path().clone()),
         };
 
-        if let Err(e) = context.message_sender_mut().send_message(find_node_request) {
-            log::error!(target: "failure_handling", "Failed to send find node to {}: {}", closest_contact.id(), e);
-        }
+        context
+            .runtime_mut()
+            .send_message(find_node_request, context.pn_table().deref());
 
         log::trace!(target: "failure_handling", "Sent rediscovery find node for {} to {} [retry {} of {}]", contact.id(), closest_contact.id(), exponential_backoff.current_retries, exponential_backoff.max_retries);
 
@@ -275,11 +263,9 @@ where
         let next_duration = next_duration.unwrap();
 
         // Start new find node
-        let timer_id = context.runtime().register_timer(next_duration);
+        let timer_id = context.runtime_mut().register_timer(next_duration);
 
-        let response = self
-            .rediscoveries
-            .replace_timer_for(node_id.clone(), timer_id);
+        let response = self.rediscoveries.replace_timer_for(*node_id, timer_id);
         if response.is_err() {
             log::warn!(target: "failure_handling", "runtime emitted duplicate timer id {} [{:#?}]", timer_id, self.rediscoveries);
             self.state = ReactiveUseCaseState::Error;
@@ -291,7 +277,7 @@ where
 
             while let Err(e) = self
                 .rediscoveries
-                .add_nonce_for_node(node_id.clone(), nonce.clone())
+                .add_nonce_for_node(*node_id, nonce.clone())
             {
                 match e {
                     AddNonceError::UnknownNode => {
@@ -309,18 +295,15 @@ where
             data: FindNodeReqData {
                 exact: true,
                 neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
-                target: node_id.clone(),
+                target: *node_id,
             },
             not_via: context.not_via().clone(),
-            source_route: SourceRoute::new(
-                context.root_id().clone(),
-                closest_contact.path().clone(),
-            ),
+            source_route: SourceRoute::new(*context.root_id(), closest_contact.path().clone()),
         };
 
-        if let Err(e) = context.message_sender_mut().send_message(find_node_request) {
-            log::error!(target: "failure_handling", "Failed to send find node to {}: {}", closest_contact.id(), e);
-        }
+        context
+            .runtime_mut()
+            .send_message(find_node_request, context.pn_table().deref());
 
         // Just some logging, if logging is disabled this will be eliminated through dead code elimination
         if let Some(exponential_backoff) = self.rediscoveries.get(node_id) {
@@ -331,29 +314,23 @@ where
     }
 
     /// Find all contacts whose paths start with neighbors affected by the outage.
-    fn invalidate_affected_contacts(&self, context: &C, interfaces: HashSet<NetworkInterface>) {
+    fn invalidate_affected_contacts(&self, context: &C, ulnid: UnderlayNeighborId) {
         let mut rt = context.routing_table_mut();
         let mut not_via = context.not_via_mut();
 
         let affected_neighbors = context
             .pn_table()
             .iter()
-            .filter_map(|(id, iface)| {
-                if interfaces.contains(iface) {
-                    Some(id.clone())
-                } else {
-                    None
-                }
-            })
+            .filter_map(|(id, via)| if via == &ulnid { Some(*id) } else { None })
             .collect::<HashSet<_>>();
 
-        log::trace!(target: "failure_handling", "These neighbors are affected by interfaces {:?} down: {:?}", interfaces, affected_neighbors);
+        log::trace!(target: "failure_handling", "These neighbors are affected by interfaces {:?} down: {:?}", ulnid, affected_neighbors);
 
         not_via.extend(
             affected_neighbors
                 .iter()
                 .cloned()
-                .map(|id| NotVia::Link(Link::new(context.root_id().clone(), id))),
+                .map(|id| NotVia::Link(Link::new(*context.root_id(), id))),
         );
 
         for mut contact in rt.iter_mut() {
@@ -373,10 +350,9 @@ where
 impl<C, const BUCKET_SIZE: usize> EventHandler for FailureHandling<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
-    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = FailureHandlingError;
@@ -384,7 +360,7 @@ where
 
     fn handle_event(
         &mut self,
-        context: &Self::Context,
+        context: &C,
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
         match event {
@@ -407,10 +383,8 @@ where
                 self.remove_notvia_mentioning(context, contact.id());
             }
             UseCaseEvent::Message(ProtocolMessage::FindNodeRsp(rsp), _) => {
-                if let Some((backoff, timers, nonces)) = self
-                    .rediscoveries
-                    .remove_by_nonce(&rsp.nonce)
-                    .map(|(state, timers, nonces)| (state, timers, nonces))
+                if let Some((backoff, timers, nonces)) =
+                    self.rediscoveries.remove_by_nonce(&rsp.nonce)
                 {
                     log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got a successful answer [backoff_state: {}, timers: {:?}, nonce: {:?}]", rsp.source_route.source(), backoff, timers, nonces);
                     log::debug!(target: "failure_handling", "Rediscovery of {} was successful!", rsp.source());
@@ -438,8 +412,8 @@ where
                     self.handle_rediscovery_failure(context, &node)?;
                 }
             }
-            UseCaseEvent::Hardware(HardwareEvent::InterfacesDown(interfaces)) => {
-                self.invalidate_affected_contacts(context, interfaces);
+            UseCaseEvent::UnderlayUpdate(UnderlayNeighborUpdate::UnderlayNeighborDown(ulnid)) => {
+                self.invalidate_affected_contacts(context, ulnid);
             }
             _ => {}
         }
@@ -451,14 +425,13 @@ where
 impl<C, const BUCKET_SIZE: usize> UseCase for FailureHandling<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
-    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::MessageSender: ProtocolMessageSender,
     C::Runtime: UseCaseRuntime,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, NetworkInterface>>
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = ReactiveUseCaseState;
 
-    fn start(&mut self, _context: &Self::Context) -> Result<(), Self::Error> {
+    fn start(&mut self, _context: &C) -> Result<(), Self::Error> {
         Ok(())
     }
 
@@ -470,646 +443,14 @@ where
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum FailureHandlingError {
     DuplicateTimerId,
-    MessageSentFailed,
 }
 
 impl Display for FailureHandlingError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::DuplicateTimerId => write!(f, "Runtime returned duplicate timer-id"),
-            Self::MessageSentFailed => write!(f, "Failed to send protocol message"),
         }
     }
 }
 
 impl Error for FailureHandlingError {}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::HashSet;
-    use std::num::{NonZeroU32, NonZeroUsize};
-    use std::time::Duration;
-
-    use crate::context::{ContextConfig, SyncContext, UseCaseContext};
-    use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{Contact, ContactState, InsertionStrategyResult, Link, NetworkInterface, NodeId, PNTable, Path, RoutingTable, StateSeqNr, TestInsertionStrategy, InMemoryPNTable};
-    use crate::forwarding::in_memory_tables::InMemoryFwdTables;
-    use crate::hardware_events::HardwareEvent;
-    use crate::messaging::source_route::SourceRoute;
-    use crate::messaging::{
-        AsyncProtocolMessageReceiver, ErrorData, InMemoryMessageChannel, ProtocolMessage,
-        ReqRspMessage,
-    };
-    use crate::runtime::ImmediateRuntime;
-    use crate::use_cases::failure_handling::{FailureHandling, FailureHandlingConfig};
-    use crate::use_cases::{ContactEvent, EventHandler, UseCase, UseCaseEvent};
-    use crate::utils::rediscovery_timeout_interval::{DistanceMap, RediscoveryTimeoutInterval};
-
-    #[tokio::test]
-    async fn update_route_req_is_sent_for_invalidated_contact() {
-        crate::tests::init();
-
-        let interface = NetworkInterface::with_name("test");
-
-        let root_id = NodeId::with_lsb(1);
-        let neighbor_id = NodeId::with_lsb(2);
-        let failed_id = NodeId::with_lsb(3);
-
-        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
-
-        let runtime = ImmediateRuntime::new(broadcaster);
-
-        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
-
-        let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(2));
-        let failed_contact_before = Contact::new(
-            Path::from([neighbor_id.clone(), failed_id.clone()]),
-            StateSeqNr::from(3),
-        );
-        let mut failed_contact_after = Contact::new(
-            Path::from([neighbor_id.clone(), failed_id.clone()]),
-            StateSeqNr::from(3),
-        );
-        *failed_contact_after.state_mut() = ContactState::Invalid;
-
-        let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
-        assert!(routing_table.insert(neighbor.clone()).is_ok());
-        assert!(routing_table.insert(failed_contact_before.clone()).is_ok());
-
-        let mut pn_table = InMemoryPNTable::new();
-        pn_table.insert(neighbor_id.clone(), interface.clone());
-
-        let sync_context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table,
-            pn_table,
-            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            message_sender: hub_sender,
-            runtime: runtime.clone(),
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let config = FailureHandlingConfig {
-            failure_notification_radius: NonZeroUsize::new(1).unwrap(),
-            grouping_bits: NonZeroUsize::new(1).unwrap(),
-            backoff_timeout_interval: Default::default(),
-            backoff_max_retries: NonZeroU32::new(2).unwrap(),
-        };
-        let mut use_case = FailureHandling::new(config);
-        assert!(
-            use_case.start(&sync_context).is_ok(),
-            "failed to start use case"
-        );
-
-        let event = UseCaseEvent::Contact(ContactEvent::Updated {
-            old: failed_contact_before,
-            new: failed_contact_after,
-        });
-        let result = use_case.handle_event(&sync_context, event);
-        assert!(
-            result.is_ok(),
-            "Failed to handle contact invalidation event"
-        );
-
-        // First UpdateRoute is sent
-        let update_route = hub_receiver.try_recv().await;
-        assert!(
-            matches!(
-                update_route,
-                Ok(Some((ProtocolMessage::UpdateRouteReq(_), _)))
-            ),
-            "First message is not a UpdateRouteReq: {:?}",
-            update_route
-        );
-    }
-
-    #[tokio::test]
-    async fn error_responses_yield_new_find_node_until_max_retries() {
-        crate::tests::init();
-
-        let interface = NetworkInterface::with_name("test");
-
-        let root_id = NodeId::with_lsb(1);
-        let neighbor_id = NodeId::with_lsb(2);
-        let failed_id = NodeId::with_lsb(3);
-
-        let failed_link = Link::new(neighbor_id.clone(), failed_id.clone());
-
-        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
-
-        let runtime = ImmediateRuntime::new(broadcaster);
-
-        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
-
-        let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(2));
-        let failed_contact_before = Contact::new(
-            Path::from([neighbor_id.clone(), failed_id.clone()]),
-            StateSeqNr::from(3),
-        );
-        let mut failed_contact_after = Contact::new(
-            Path::from([neighbor_id.clone(), failed_id.clone()]),
-            StateSeqNr::from(3),
-        );
-        *failed_contact_after.state_mut() = ContactState::Invalid;
-
-        let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
-        assert!(routing_table.insert(neighbor.clone()).is_ok());
-        assert!(routing_table.insert(failed_contact_before.clone()).is_ok());
-
-        let mut pn_table = InMemoryPNTable::new();
-        pn_table.insert(neighbor_id.clone(), interface.clone());
-
-        let sync_context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table,
-            pn_table,
-            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            message_sender: hub_sender,
-            runtime: runtime.clone(),
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let config = FailureHandlingConfig {
-            failure_notification_radius: NonZeroUsize::new(1).unwrap(),
-            grouping_bits: NonZeroUsize::new(1).unwrap(),
-            backoff_timeout_interval: Default::default(),
-            backoff_max_retries: NonZeroU32::new(2).unwrap(),
-        };
-        let mut use_case = FailureHandling::new(config);
-        assert!(
-            use_case.start(&sync_context).is_ok(),
-            "failed to start use case"
-        );
-
-        let event = UseCaseEvent::Contact(ContactEvent::Updated {
-            old: failed_contact_before,
-            new: failed_contact_after,
-        });
-        let result = use_case.handle_event(&sync_context, event);
-        assert!(
-            result.is_ok(),
-            "Failed to handle contact invalidation event"
-        );
-
-        // First UpdateRoute is sent
-        let update_route = hub_receiver.try_recv().await;
-        assert!(
-            matches!(
-                update_route,
-                Ok(Some((ProtocolMessage::UpdateRouteReq(_), _)))
-            ),
-            "First message is not a UpdateRouteReq: {:?}",
-            update_route
-        );
-
-        // Then a FindNodeReq is sent
-        let find_node = hub_receiver.try_recv().await;
-        assert!(
-            find_node.is_ok(),
-            "Error receiving protocol message: {:?}",
-            find_node
-        );
-        let find_node = find_node.unwrap();
-        assert!(
-            find_node.is_some(),
-            "Error receiving protocol message: {:?}",
-            find_node
-        );
-        let (find_node, _) = find_node.unwrap();
-        assert!(
-            matches!(find_node, ProtocolMessage::FindNodeReq(_)),
-            "Expected to send find node but sent this: {:?}",
-            find_node
-        );
-        let nonce = find_node.nonce().cloned();
-        assert!(
-            nonce.is_some(),
-            "Returned message without nonce: {:?}",
-            find_node
-        );
-        let nonce = nonce.unwrap();
-
-        // Max retries is 2 -> 2 FindNodes are sent. After the second error the contact gets removed.
-        let event = UseCaseEvent::Message(
-            ProtocolMessage::Error(ReqRspMessage {
-                nonce: nonce.clone(),
-                source_state_seq_nr: StateSeqNr::from(2),
-                data: ErrorData::SegmentFailure {
-                    failed_link: failed_link.clone(),
-                    source: neighbor_id.clone(),
-                },
-                not_via: Default::default(),
-                source_route: SourceRoute::from(Path::from([neighbor_id.clone(), root_id.clone()])),
-            }),
-            interface.clone(),
-        );
-        let handle_result = use_case.handle_event(&sync_context, event.clone());
-        assert!(
-            handle_result.is_ok(),
-            "Failed to handle error message: {:?}",
-            handle_result
-        );
-
-        let find_node = hub_receiver.try_recv().await;
-        assert!(
-            find_node.is_ok(),
-            "Error receiving protocol message: {:?}",
-            find_node
-        );
-        let find_node = find_node.unwrap();
-        assert!(
-            find_node.is_some(),
-            "Error receiving protocol message: {:?}",
-            find_node
-        );
-        let (find_node, _) = find_node.unwrap();
-        assert!(
-            matches!(find_node, ProtocolMessage::FindNodeReq(_)),
-            "Expected a new find node req to be emitted"
-        );
-        let nonce = find_node.nonce().cloned();
-        assert!(
-            nonce.is_some(),
-            "Returned message without nonce: {:?}",
-            find_node
-        );
-        let nonce = nonce.unwrap();
-
-        let event = UseCaseEvent::Message(
-            ProtocolMessage::Error(ReqRspMessage {
-                nonce: nonce.clone(),
-                source_state_seq_nr: StateSeqNr::from(2),
-                data: ErrorData::SegmentFailure {
-                    failed_link,
-                    source: neighbor_id.clone(),
-                },
-                not_via: Default::default(),
-                source_route: SourceRoute::from(Path::from([neighbor_id.clone(), root_id.clone()])),
-            }),
-            interface.clone(),
-        );
-        let handle_result = use_case.handle_event(&sync_context, event.clone());
-        assert!(
-            handle_result.is_ok(),
-            "Failed to handle error message: {:?}",
-            handle_result
-        );
-
-        // Now the contact should be removed
-        let routing_table = sync_context.routing_table();
-        let stored_failed_contact = routing_table.contact(&failed_id);
-        assert!(
-            stored_failed_contact.is_none(),
-            "Contact is still present after failure: {:?}",
-            stored_failed_contact
-        );
-    }
-
-    #[tokio::test]
-    async fn timeouts_yield_new_find_node_until_max_retries_with_exponential_backoff() {
-        crate::tests::init();
-
-        let interface = NetworkInterface::with_name("test");
-
-        let root_id = NodeId::with_lsb(1);
-        let neighbor_id = NodeId::with_lsb(2);
-        let failed_id = NodeId::with_lsb(3);
-
-        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
-
-        let runtime = ImmediateRuntime::new(broadcaster);
-
-        let (hub_sender, mut hub_receiver) = InMemoryMessageChannel::default().into_parts();
-
-        let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(2));
-        let failed_contact_before = Contact::new(
-            Path::from([neighbor_id.clone(), failed_id.clone()]),
-            StateSeqNr::from(3),
-        );
-        let mut failed_contact_after = Contact::new(
-            Path::from([neighbor_id.clone(), failed_id.clone()]),
-            StateSeqNr::from(3),
-        );
-        *failed_contact_after.state_mut() = ContactState::Invalid;
-
-        let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
-        assert!(routing_table.insert(neighbor.clone()).is_ok());
-        assert!(routing_table.insert(failed_contact_before.clone()).is_ok());
-
-        let mut pn_table = InMemoryPNTable::new();
-        pn_table.insert(neighbor_id.clone(), interface.clone());
-
-        let sync_context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table,
-            pn_table,
-            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            message_sender: hub_sender,
-            runtime: runtime.clone(),
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let config = FailureHandlingConfig {
-            failure_notification_radius: NonZeroUsize::new(1).unwrap(),
-            grouping_bits: NonZeroUsize::new(1).unwrap(),
-            backoff_timeout_interval: RediscoveryTimeoutInterval::new(
-                1f64,
-                1f64,
-                DistanceMap::new(
-                    Duration::from_millis(500),
-                    Duration::from_millis(500),
-                    Duration::from_millis(500),
-                ),
-            )
-            .unwrap(),
-            backoff_max_retries: NonZeroU32::new(3).unwrap(),
-        };
-        let mut use_case = FailureHandling::new(config);
-        assert!(
-            use_case.start(&sync_context).is_ok(),
-            "failed to start use case"
-        );
-
-        let event = UseCaseEvent::Contact(ContactEvent::Updated {
-            old: failed_contact_before,
-            new: failed_contact_after,
-        });
-        let result = use_case.handle_event(&sync_context, event);
-        assert!(
-            result.is_ok(),
-            "Failed to handle contact invalidation event"
-        );
-
-        // First UpdateRoute is sent
-        let update_route = hub_receiver.try_recv().await;
-        assert!(
-            matches!(
-                update_route,
-                Ok(Some((ProtocolMessage::UpdateRouteReq(_), _)))
-            ),
-            "First message is not a UpdateRouteReq: {:?}",
-            update_route
-        );
-
-        // Then a FindNodeReq is sent
-        let find_node = hub_receiver.try_recv().await;
-        assert!(
-            matches!(find_node, Ok(Some((ProtocolMessage::FindNodeReq(_), _)))),
-            "Second message is not a FindNodeReq: {:?}",
-            find_node
-        );
-
-        // 1. Timeout is triggered
-        let timer_id = runtime.latest_timer_id();
-        assert!(timer_id.is_some(), "No timer was created");
-        let timer_id = timer_id.unwrap();
-
-        assert_eq!(
-            runtime.get_timer_duration(&timer_id),
-            Some(Duration::from_millis(500))
-        );
-
-        // Max retries is 2 -> 2 FindNodes are sent. After the second error the contact gets removed.
-        let event = UseCaseEvent::Timer(timer_id);
-        let handle_result = use_case.handle_event(&sync_context, event.clone());
-        assert!(
-            handle_result.is_ok(),
-            "Failed to handle error message: {:?}",
-            handle_result
-        );
-
-        // Then a FindNodeReq is sent
-        let find_node = hub_receiver.try_recv().await;
-        assert!(
-            matches!(find_node, Ok(Some((ProtocolMessage::FindNodeReq(_), _)))),
-            "Second message is not a FindNodeReq: {:?}",
-            find_node
-        );
-
-        // 2. timeout is triggered
-        let timer_id = runtime.latest_timer_id();
-        assert!(timer_id.is_some(), "No timer was created");
-        let timer_id = timer_id.unwrap();
-
-        assert_eq!(
-            runtime.get_timer_duration(&timer_id),
-            Some(Duration::from_millis(1000)),
-            "Timer duration is not exponentially incremented"
-        );
-
-        let event = UseCaseEvent::Timer(timer_id);
-        let handle_result = use_case.handle_event(&sync_context, event.clone());
-        assert!(
-            handle_result.is_ok(),
-            "Failed to handle error message: {:?}",
-            handle_result
-        );
-
-        // Then a FindNodeReq is sent
-        let find_node = hub_receiver.try_recv().await;
-        assert!(
-            matches!(find_node, Ok(Some((ProtocolMessage::FindNodeReq(_), _)))),
-            "Second message is not a FindNodeReq: {:?}",
-            find_node
-        );
-
-        // 3. timeout is triggered
-        let timer_id = runtime.latest_timer_id();
-        assert!(timer_id.is_some(), "No timer was created");
-        let timer_id = timer_id.unwrap();
-
-        assert_eq!(
-            runtime.get_timer_duration(&timer_id),
-            Some(Duration::from_millis(2000)),
-            "Timer duration is not exponentially incremented"
-        );
-
-        let event = UseCaseEvent::Timer(timer_id);
-        let handle_result = use_case.handle_event(&sync_context, event.clone());
-        assert!(
-            handle_result.is_ok(),
-            "Failed to handle error message: {:?}",
-            handle_result
-        );
-
-        // Now the contact should be removed
-        let routing_table = sync_context.routing_table();
-        let stored_failed_contact = routing_table.contact(&failed_id);
-        assert!(
-            stored_failed_contact.is_none(),
-            "Contact is still present after failure: {:?}",
-            stored_failed_contact
-        );
-    }
-
-    #[test]
-    fn hardware_event_invalidates_all_affected_contacts() {
-        crate::tests::init();
-
-        let interface = NetworkInterface::with_name("test");
-        let other_interface = NetworkInterface::with_name("test 2");
-
-        let root_id = NodeId::with_lsb(1);
-        let neighbor_id = NodeId::with_lsb(2);
-        let over_neighbor_id = NodeId::with_lsb(3);
-        let other_id = NodeId::with_lsb(4);
-
-        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
-
-        let runtime = ImmediateRuntime::new(broadcaster);
-
-        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
-
-        let neighbor = Contact::new(Path::from(neighbor_id.clone()), StateSeqNr::from(2));
-        let over_neighbor_contact = Contact::new(
-            Path::from([neighbor_id.clone(), over_neighbor_id.clone()]),
-            StateSeqNr::from(3),
-        );
-        let other_contact = Contact::new(Path::from(other_id.clone()), StateSeqNr::from(4));
-
-        let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
-        assert!(routing_table.insert(neighbor.clone()).is_ok());
-        assert!(routing_table.insert(over_neighbor_contact.clone()).is_ok());
-        assert!(routing_table.insert(other_contact.clone()).is_ok());
-
-        let mut pn_table = InMemoryPNTable::new();
-        pn_table.insert(neighbor_id.clone(), interface.clone());
-        pn_table.insert(other_id.clone(), other_interface.clone());
-
-        let sync_context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table,
-            pn_table,
-            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            message_sender: hub_sender,
-            runtime: runtime.clone(),
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let config = FailureHandlingConfig {
-            failure_notification_radius: NonZeroUsize::new(1).unwrap(),
-            grouping_bits: NonZeroUsize::new(1).unwrap(),
-            backoff_timeout_interval: Default::default(),
-            backoff_max_retries: NonZeroU32::new(3).unwrap(),
-        };
-        let mut use_case = FailureHandling::new(config);
-        assert!(
-            use_case.start(&sync_context).is_ok(),
-            "failed to start use case"
-        );
-
-        let mut interfaces = HashSet::new();
-        interfaces.insert(interface.clone());
-        let event = UseCaseEvent::Hardware(HardwareEvent::InterfacesDown(interfaces));
-        let result = use_case.handle_event(&sync_context, event);
-        assert!(
-            result.is_ok(),
-            "Failed to handle contact invalidation event"
-        );
-
-        let rt = sync_context.routing_table();
-        assert_eq!(
-            rt.contact(&neighbor_id).map(|contact| contact.state()),
-            Some(&ContactState::Invalid),
-            "affected neighbor should be invalidated"
-        );
-        assert_eq!(
-            rt.contact(&over_neighbor_id).map(|contact| contact.state()),
-            Some(&ContactState::Invalid),
-            "affected contact should be invalidated"
-        );
-        assert_eq!(
-            rt.contact(&other_id).map(|contact| contact.state()),
-            Some(&ContactState::Valid),
-            "non-affected contact should still be valid"
-        );
-    }
-
-    #[test]
-    fn hardware_event_remove_affected_physical_neighbors() {
-        crate::tests::init();
-
-        let interface = NetworkInterface::with_name("test");
-        let other_interface = NetworkInterface::with_name("test 2");
-
-        let root_id = NodeId::with_lsb(1);
-        let neighbor_id1 = NodeId::with_lsb(2);
-        let neighbor_id2 = NodeId::with_lsb(3);
-        let neighbor_id3 = NodeId::with_lsb(4);
-
-        let (broadcaster, _broadcast_receiver) = crate::broadcaster::MPSCBroadcaster::new(30);
-
-        let runtime = ImmediateRuntime::new(broadcaster);
-
-        let (hub_sender, _hub_receiver) = InMemoryMessageChannel::default().into_parts();
-
-        let neighbor1 = Contact::new(Path::from(neighbor_id1.clone()), StateSeqNr::from(2));
-        let neighbor2 = Contact::new(Path::from(neighbor_id2.clone()), StateSeqNr::from(3));
-        let neighbor3 = Contact::new(Path::from(neighbor_id3.clone()), StateSeqNr::from(4));
-
-
-        let mut routing_table = SingleBucketRT::<20>::new(root_id.clone());
-        assert!(routing_table.insert(neighbor1.clone()).is_ok());
-        assert!(routing_table.insert(neighbor2.clone()).is_ok());
-        assert!(routing_table.insert(neighbor3.clone()).is_ok());
-
-        let mut pn_table = InMemoryPNTable::new();
-        pn_table.insert(neighbor_id1.clone(), interface.clone());
-        pn_table.insert(neighbor_id2.clone(), other_interface.clone());
-        pn_table.insert(neighbor_id3.clone(), interface.clone());
-
-        let sync_context = SyncContext::new(ContextConfig {
-            root_id: root_id.clone(),
-            routing_table,
-            pn_table,
-            insertion_strategy: TestInsertionStrategy::from(InsertionStrategyResult::Inserted),
-            message_sender: hub_sender,
-            runtime: runtime.clone(),
-            forwarding_tables: InMemoryFwdTables::new(),
-            not_via: HashSet::default(),
-        });
-
-        let config = FailureHandlingConfig {
-            failure_notification_radius: NonZeroUsize::new(1).unwrap(),
-            grouping_bits: NonZeroUsize::new(1).unwrap(),
-            backoff_timeout_interval: Default::default(),
-            backoff_max_retries: NonZeroU32::new(3).unwrap(),
-        };
-        let mut use_case = FailureHandling::new(config);
-        assert!(
-            use_case.start(&sync_context).is_ok(),
-            "failed to start use case"
-        );
-
-        let mut interfaces = HashSet::new();
-        interfaces.insert(interface.clone());
-        let event = UseCaseEvent::Hardware(HardwareEvent::InterfacesDown(interfaces));
-        let result = use_case.handle_event(&sync_context, event);
-        assert!(
-            result.is_ok(),
-            "Failed to handle contact invalidation event"
-        );
-
-        let pn = sync_context.pn_table();
-        assert_eq!(
-            pn.get(&neighbor_id1),
-            None,
-            "affected neighbor should be removed"
-        );
-        assert_eq!(
-            pn.get(&neighbor_id2),
-            Some(&other_interface),
-            "not affected neighbor should still be present"
-        );
-        assert_eq!(
-            pn.get(&neighbor_id3),
-            None,
-            "affected neighbor should be removed"
-        );
-    }
-
-}

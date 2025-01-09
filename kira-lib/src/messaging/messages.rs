@@ -247,7 +247,7 @@ impl ProtocolMessage {
 }
 
 /// Data struct representing the PNHello protocol message only exchanged
-/// between physical neighbors.
+/// between underlay neighbors.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct HelloMessage {
@@ -446,7 +446,7 @@ pub enum ErrorData {
     DeadEnd,
     /// Returned if a segment in a source route is not valid.
     ///
-    /// E.g. when forwarding a message and the next hop is not a physical neighbor.
+    /// E.g. when forwarding a message and the next hop is not a underlay neighbor.
     ///
     /// Contains the link which is invalid.
     SegmentFailure { failed_link: Link, source: NodeId },

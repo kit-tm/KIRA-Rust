@@ -1,22 +1,17 @@
-use std::fmt::Debug;
+use std::{collections::HashMap, fmt::Debug, ops::Deref};
 
-use crate::context::UseCaseContext;
-use crate::domain::NetworkInterface;
-use crate::domain::NodeId;
-use crate::domain::PNTable;
-use crate::domain::Path;
-use crate::domain::RoutingTable;
-use crate::messaging::dht::DefaultLHTInput;
-use crate::messaging::dht::FetchReqData;
-use crate::messaging::dht::StoreReqData;
-use crate::messaging::source_route::SourceRoute;
-use crate::messaging::Nonce;
-use crate::messaging::ProtocolMessage;
-use crate::messaging::ProtocolMessageSender;
-use crate::messaging::ReqRspMessage;
-use crate::runtime::UseCaseRuntime;
-use crate::use_cases::inject_messages::errors::InjectMessageError;
-use crate::use_cases::UseCaseEvent;
+use crate::{
+    domain::{NodeId, PNTable, Path, RoutingTable, UnderlayNeighborId},
+    messaging::{
+        dht::{DefaultLHTInput, FetchReqData, StoreReqData},
+        source_route::SourceRoute,
+        Nonce, ProtocolMessage, ReqRspMessage,
+    },
+    use_cases::{
+        inject_messages::errors::InjectMessageError, BroadcastableUseCaseEvent, UseCaseContext,
+        UseCaseRuntime,
+    },
+};
 
 mod expiring;
 mod timed;
@@ -27,7 +22,7 @@ pub use timed::*;
 pub mod hash_table;
 pub mod strategies;
 
-pub(crate) fn construct_req_rsp_msg<C, T, D, const BUCKET_SIZE: usize>(
+pub(crate) fn construct_req_rsp_msg<C, T, const BUCKET_SIZE: usize>(
     context: &C,
     nonce: Nonce,
     overlay_destination: &NodeId,
@@ -36,11 +31,8 @@ pub(crate) fn construct_req_rsp_msg<C, T, D, const BUCKET_SIZE: usize>(
 where
     C: UseCaseContext,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::MessageSender: ProtocolMessageSender,
-    C::Runtime: UseCaseRuntime<SendError = D>,
     C::PhysicalNeighborTable: PNTable,
     T: Debug,
-    D: Debug,
 {
     // todo support other shared_prefix_grouping via config
     let closest_node = context
@@ -48,16 +40,16 @@ where
         .next_hop(overlay_destination, 20, 1)
         .expect("Shared Prefix Grouping should be valid");
 
-    // we are the closest => loopback
-    let path = if closest_node.is_none() {
+    let path = if let Some(closest_node) = closest_node {
+        closest_node.path().clone()
+    } else {
+        // we are the closest => loopback
         log::warn!(target: "distributed_hash_table_injector", "Node is isolated!");
 
-        Path::from(context.root_id().clone())
-    } else {
-        closest_node.unwrap().path().clone()
+        Path::from(*context.root_id())
     };
 
-    let source_route = SourceRoute::new(context.root_id().clone(), path);
+    let source_route = SourceRoute::new(*context.root_id(), path);
 
     ReqRspMessage {
         source_state_seq_nr: *context.pn_table().state_seq_nr(),
@@ -68,18 +60,15 @@ where
     }
 }
 
-pub(crate) fn send_store_req<C, D, const BUCKET_SIZE: usize>(
+pub(crate) fn send_store_req<C, const BUCKET_SIZE: usize>(
     context: &C,
     nonce: Nonce,
     data: StoreReqData<DefaultLHTInput>,
-) -> Result<(), InjectMessageError>
-where
+) where
     C: UseCaseContext,
+    C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::MessageSender: ProtocolMessageSender,
-    C::Runtime: UseCaseRuntime<SendError = D>,
-    C::PhysicalNeighborTable: PNTable,
-    D: Debug,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     let message = construct_req_rsp_msg(context, nonce, &data.handle.clone(), data);
 
@@ -90,30 +79,27 @@ where
 
     let message = ProtocolMessage::StoreReq(message);
     if message.destination().unwrap() == context.root_id() {
-        return context.runtime().broadcast_local_event(UseCaseEvent::Message(message, NetworkInterface::loopback())).map_err(|e| {
-            log::error!(target: "distributed_hash_table_injector", "Failed to send triggered message: {:?}", e);
-            InjectMessageError::SendFailed
-        });
+        context
+            .runtime_mut()
+            .broadcast_event(BroadcastableUseCaseEvent::Message(message));
+        return;
     }
 
-    context.message_sender_mut().send_message(message).map_err(|e| {
-        log::error!(target: "distributed_hash_table_injector", "Failed to send triggered message: {:?}", e);
-        InjectMessageError::SendFailed
-    })
+    context
+        .runtime_mut()
+        .send_message(message, context.pn_table().deref());
 }
 
-pub(crate) fn send_fetch_req<C, D, const BUCKET_SIZE: usize>(
+pub(crate) fn send_fetch_req<C, const BUCKET_SIZE: usize>(
     context: &C,
     nonce: Nonce,
     data: FetchReqData,
 ) -> Result<(), InjectMessageError>
 where
     C: UseCaseContext,
+    C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::MessageSender: ProtocolMessageSender,
-    C::Runtime: UseCaseRuntime<SendError = D>,
-    C::PhysicalNeighborTable: PNTable,
-    D: Debug,
+    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     let message = construct_req_rsp_msg(context, nonce, &data.handle.clone(), data);
 
@@ -123,19 +109,16 @@ where
     );
 
     let message = ProtocolMessage::FetchReq(message);
-    // TODO remove duplicated code
+    // TODO: remove duplicated code
     if message.destination().unwrap() == context.root_id() {
-        return context.runtime().broadcast_local_event(UseCaseEvent::Message(message, NetworkInterface::loopback())).map_err(|e| {
-            log::error!(target: "distributed_hash_table_injector", "Failed to send triggered message: {:?}", e);
-            InjectMessageError::SendFailed
-        });
+        context
+            .runtime_mut()
+            .broadcast_event(BroadcastableUseCaseEvent::Message(message));
+        return Ok(());
     }
 
-    context.message_sender_mut().send_message(message).map_err(|e| {
-        log::error!(target: "distributed_hash_table_injector", "Failed to send triggered message: {:?}", e);
-        InjectMessageError::SendFailed
-    })
+    context
+        .runtime_mut()
+        .send_message(message, context.pn_table().deref());
+    Ok(())
 }
-
-
-

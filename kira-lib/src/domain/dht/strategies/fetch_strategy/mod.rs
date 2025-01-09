@@ -33,8 +33,11 @@ pub trait FetchStrategy {
     /// # Returns
     ///
     /// A `Result` that contains the fetched data if successful, or an error if the data couldn't be found in the [Self:Composite].
-    fn fetch(&self, handle: &Self::Handle, from: &mut Self::Composite) -> Result<Self::OutputData, Self::Error>;
-
+    fn fetch(
+        &self,
+        handle: &Self::Handle,
+        from: &mut Self::Composite,
+    ) -> Result<Self::OutputData, Self::Error>;
 
     /// Extracts data from the [Self::Composite].
     ///
@@ -48,8 +51,11 @@ pub trait FetchStrategy {
     /// # Returns
     ///
     /// A `Result` that contains the fetched data if successful, or an error if the data couldn't be found in the [Self:Composite].
-    fn peek(&self, handle: &Self::Handle, from: &Self::Composite) -> Result<Self::OutputData, Self::Error>;
-
+    fn peek(
+        &self,
+        handle: &Self::Handle,
+        from: &Self::Composite,
+    ) -> Result<Self::OutputData, Self::Error>;
 
     /// Extracts **all** data from the composite object.
     ///
@@ -64,5 +70,9 @@ pub trait FetchStrategy {
     ///
     /// Returns a `Result` object containing either a vector of [Self::Handle] tagged [Self::OutputData] or an [Self::Error]
     /// if something failed on retrieving all data.
-    fn fetch_all(&self, from: &Self::Composite) -> Result<Vec<(Self::Handle, Self::OutputData)>, Self::Error>;
+    #[allow(clippy::type_complexity)]
+    fn fetch_all(
+        &self,
+        from: &Self::Composite,
+    ) -> Result<Vec<(Self::Handle, Self::OutputData)>, Self::Error>;
 }

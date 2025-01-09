@@ -1,9 +1,10 @@
 //! Domain Layer of the KIRA forwarding functionality.
 
-pub struct PathId {
-    bytes: Vec<u8>,
-}
+#[doc(inline)]
+pub use kira_lib::domain::{underlay::UnderlayNeighborId, NodeId, NodeIdSubnet, PathId};
 
-pub struct NodeId {
-    bytes: [u8; SIZE],
+pub mod r2kad {
+    //! R2Kad protocol events for the KIRA forwarding functionality
+    #[doc(inline)]
+    pub use kira_lib::domain::protocol_event::forwarding::*;
 }

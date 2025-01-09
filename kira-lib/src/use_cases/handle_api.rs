@@ -1,9 +1,10 @@
-use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::{error::Error, fmt::Debug};
 
-use crate::context::UseCaseContext;
+use derive_more::derive::Display;
+use tokio::sync::mpsc::error::SendError;
 
-use super::{EventHandler, MessageSentFailed, UseCaseEvent};
+use super::{EventHandler, UseCaseContext, UseCaseEvent, UseCaseRuntime};
 
 pub struct HandleApi<C> {
     _pd: PhantomData<C>,
@@ -11,38 +12,47 @@ pub struct HandleApi<C> {
 
 impl<C> Default for HandleApi<C> {
     fn default() -> Self {
-        Self { _pd : PhantomData::default() }
+        Self { _pd: PhantomData }
     }
 }
 
+#[derive(Debug, Clone, Display)]
+#[display("Sending collected API result to caller failed")]
+pub struct CallbackChannelError;
+
+impl Error for CallbackChannelError {}
+
+impl<T> From<SendError<T>> for CallbackChannelError {
+    #[allow(unused_variables)]
+    fn from(value: SendError<T>) -> Self {
+        Self
+    }
+}
 
 impl<C> EventHandler for HandleApi<C>
 where
     C: UseCaseContext,
+    C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: Debug,
     C::PhysicalNeighborTable: Debug,
 {
     type Context = C;
 
-    type Error = MessageSentFailed;
+    type Error = CallbackChannelError;
 
     type Value = ();
 
     fn handle_event(
         &mut self,
-        context: &Self::Context,
+        context: &C,
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
         match event {
             UseCaseEvent::API(super::ApiEvent::RoutingTable(sender)) => {
-                sender
-                    .send(format!("{:#?}", *context.routing_table()))
-                    .map_err(|_| MessageSentFailed)?;
+                sender.send(format!("{:#?}", *context.routing_table()))?;
             }
             UseCaseEvent::API(super::ApiEvent::PNTable(sender)) => {
-                sender
-                    .send(format!("{:#?}", *context.pn_table()))
-                    .map_err(|_| MessageSentFailed)?;
+                sender.send(format!("{:#?}", *context.pn_table()))?;
             }
             _ => {}
         }

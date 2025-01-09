@@ -21,7 +21,7 @@ impl Entry {
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct VicinityGraph {
     root_id: NodeId,
-    // All physical neighbors of a Node and the node itself
+    // All underlay neighbors of a Node and the node itself
     pub neighbors: HashMap<NodeId, Entry>,
 }
 
@@ -33,7 +33,7 @@ impl VicinityGraph {
         }
     }
 
-    /// Inserts a node into the [VicinityGraph] with its physical neighbors.
+    /// Inserts a node into the [VicinityGraph] with its underlay neighbors.
     ///
     /// Overwrites any existing entries.
     ///
@@ -41,30 +41,30 @@ impl VicinityGraph {
     pub fn insert(
         &mut self,
         node: NodeId,
-        physical_neighbors: HashSet<NodeId>,
+        underlay_neighbors: HashSet<NodeId>,
     ) -> Option<HashSet<NodeId>> {
         self.neighbors
-            .insert(node, Entry::new(physical_neighbors))
+            .insert(node, Entry::new(underlay_neighbors))
             .map(|entry| entry.neighbors)
     }
 
-    /// Adds the given physical neighbors of the node to the [VicinityGraph].
+    /// Adds the given underlay neighbors of the node to the [VicinityGraph].
     ///
     /// If no entry is present it will be created and if an entry is already present they will
     /// be extended with the given neighbors instead of replacing.
     /// If replacement is required the method [insert](VicinityGraph::insert) should be used.
-    pub fn add(&mut self, node: NodeId, physical_neighbors: HashSet<NodeId>) {
+    pub fn add(&mut self, node: NodeId, underlay_neighbors: HashSet<NodeId>) {
         // Ensure bidirectional links
-        for neighbor in &physical_neighbors {
-            if let Some(neighbors) = self.neighbors.get_mut(&neighbor) {
-                neighbors.neighbors.insert(node.clone());
+        for neighbor in &underlay_neighbors {
+            if let Some(neighbors) = self.neighbors.get_mut(neighbor) {
+                neighbors.neighbors.insert(node);
             }
         }
 
         if let Some(neighbors) = self.neighbors.get_mut(&node) {
-            neighbors.neighbors.extend(physical_neighbors);
+            neighbors.neighbors.extend(underlay_neighbors);
         } else {
-            self.neighbors.insert(node, Entry::new(physical_neighbors));
+            self.neighbors.insert(node, Entry::new(underlay_neighbors));
         }
     }
 
@@ -116,7 +116,7 @@ impl VicinityGraph {
         let mut paths = Vec::new();
 
         let mut queue = Vec::new();
-        queue.push(Path::from(self.root_id.clone()));
+        queue.push(Path::from(self.root_id));
         while !queue.is_empty() {
             let path = match queue.pop() {
                 Some(path) => path,
@@ -150,7 +150,7 @@ impl VicinityGraph {
                     }
 
                     let mut next_hop_path = path.clone();
-                    next_hop_path.push(next_hop.clone());
+                    next_hop_path.push(*next_hop);
                     queue.push(next_hop_path);
                 }
             }
@@ -160,7 +160,7 @@ impl VicinityGraph {
     }
 }
 
-impl<'a> IntoIterator for &'a VicinityGraph {
+impl IntoIterator for &VicinityGraph {
     type Item = Path;
     type IntoIter = std::vec::IntoIter<Path>;
 
@@ -206,7 +206,7 @@ mod tests {
 
         let root_id = NodeId::with_msb(1);
 
-        let mut graph = VicinityGraph::new(root_id.clone());
+        let mut graph = VicinityGraph::new(root_id);
         graph.insert(
             NodeId::with_msb(1),
             HashSet::from_iter([
@@ -489,7 +489,7 @@ mod tests {
 
         let root_id = NodeId::with_msb(1);
 
-        let mut graph = VicinityGraph::new(root_id.clone());
+        let mut graph = VicinityGraph::new(root_id);
         graph.insert(
             NodeId::with_msb(1),
             HashSet::from_iter([NodeId::with_msb(2), NodeId::with_msb(3)]),
@@ -538,7 +538,7 @@ mod tests {
 
         let root_id = NodeId::with_msb(1);
 
-        let mut graph = VicinityGraph::new(root_id.clone());
+        let mut graph = VicinityGraph::new(root_id);
         graph.insert(
             NodeId::with_msb(1),
             HashSet::from_iter([NodeId::with_msb(2), NodeId::with_msb(3)]),

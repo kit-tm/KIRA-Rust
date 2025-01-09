@@ -1,7 +1,6 @@
+use crate::domain::dht::strategies::timeout_strategy::TimeoutStrategy;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
-use crate::domain::dht::strategies::timeout_strategy::TimeoutStrategy;
-
 
 /// A value which contains a [bool] tag.
 ///
@@ -25,7 +24,7 @@ impl<V> TaggedValue<V> {
     pub fn new(value: V) -> Self {
         Self {
             value,
-            tagged: false
+            tagged: false,
         }
     }
 
@@ -74,7 +73,6 @@ impl<V: Hash> Hash for TaggedValue<V> {
     }
 }
 
-
 /// A [TimeoutStrategy] that is used for testing only.
 ///
 /// This strategy decides if [TaggedValue]s are expired.
@@ -95,3 +93,4 @@ impl<C, D> TimeoutStrategy for TaggedTimeoutStrategy<C, TaggedValue<D>> {
         expirable.tagged()
     }
 }
+

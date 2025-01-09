@@ -3,6 +3,7 @@ use std::ops::{Add, AddAssign};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+/// Newtype for the underlay neighbor state.
 pub struct StateSeqNr(u64);
 
 impl From<u64> for StateSeqNr {

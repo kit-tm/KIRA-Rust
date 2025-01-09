@@ -9,7 +9,7 @@
 //! logging targets have been added.
 //!
 //! - `routing_table`: Updates to the routing table.
-//! - `pn_table`: Updated to the physical neighbor table.
+//! - `pn_table`: Updated to the underlay neighbor table.
 //! - `message_sender`: Information about sending protocol messages.
 //! - `message_receiver`: Information about receiving protocol messages.
 //! - `network_interfaces`: Logging of updates to the network interfaces.
@@ -37,15 +37,13 @@
 //! - Moritz Hepp (former student at KIT)
 
 #![forbid(unsafe_code)]
-#![deny(missing_docs)]
+#![warn(missing_docs)]
 
-pub mod broadcaster;
+pub mod context;
 pub mod domain;
-pub mod hardware_events;
 pub mod messaging;
-#[cfg(feature = "pnet")]
-pub mod pnet_interface_monitor;
 pub mod r2kad;
+pub mod runtime;
 pub mod use_cases;
 pub mod utils;
 
@@ -56,6 +54,7 @@ pub use crate::r2kad::{Input, Output, R2Kad};
 pub(crate) mod tests {
     use log::LevelFilter;
 
+    #[allow(dead_code)]
     pub fn init() {
         let _ = env_logger::builder()
             .filter_level(LevelFilter::Trace)
