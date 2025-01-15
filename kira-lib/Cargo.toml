@@ -6,38 +6,24 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["tokio", "sync-wrapper", "in-memory-message-channel"]
-tokio-rt-multi-thread = ["tokio/rt-multi-thread"]
-tokio = ["tokio/net", "tokio/rt", "tokio/time", "tokio/net", "tokio/macros"]
 serde = ["dep:serde", "serde-big-array", "chrono/serde"]
-udp-tokio = ["tokio", "pnet", "sync-wrapper", "serde", "serde_json"]
-sync-wrapper = []
-in-memory-message-channel = ["tokio"]
 
 
 [dependencies]
-async-trait = { workspace = true }
-bus = { version = "2.4.1", optional = true }
 chrono = { workspace = true }
 derive_more = { workspace = true }
+# FIXME: don't explicitly use tokio mpsc as calllback channels for API probes and message injections
+tokio = { workspace = true }
 digest = { workspace = true }
 hex = { workspace = true }
 log = { workspace = true }
-pnet = { workspace = true, optional = true, features = [
-  "pnet_datalink",
-  "std",
-] }
 rand = { workspace = true }
-rmp-serde = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["derive", "rc"] }
 serde-big-array = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
 sha1 = { workspace = true }
 sha2 = { workspace = true, optional = true }
 sha3 = { workspace = true, optional = true }
-tokio = { workspace = true, default-features = false, features = ["sync"] }
 tracing = { workspace = true, features = ["attributes"] }
-thiserror = { workspace = true }
 
 # Dependencies for examples, Benchmarks and Tests
 [dev-dependencies]
@@ -53,38 +39,3 @@ tokio = { version = "1.40.0", features = [
   "macros",
   "rt-multi-thread",
 ] }
-
-# Examples
-
-[[example]]
-name = "single_threaded"
-required-features = [
-  "tokio",
-  "tokio/macros",
-  "serde",
-  "rmp-serde",
-  "udp-tokio",
-  "pnet",
-]
-
-[[example]]
-name = "async_context_multi_threaded"
-required-features = [
-  "tokio",
-  "tokio/macros",
-  "serde",
-  "rmp-serde",
-  "tokio-rt-multi-thread",
-  "udp-tokio",
-  "pnet",
-]
-
-# Benchmarks
-
-[[bench]]
-name = "node_id_xor_bench"
-harness = false
-
-[[bench]]
-name = "node_id_shared_prefix_bits"
-harness = false
