@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt::Debug, ops::Deref};
 
 use crate::{
-    domain::{NodeId, PNTable, Path, RoutingTable, UnderlayNeighborId},
+    domain::{NodeId, Path, RoutingTable, UNTable, UnderlayNeighborId},
     messaging::{
         dht::{DefaultLHTInput, FetchReqData, StoreReqData},
         source_route::SourceRoute,
@@ -31,7 +31,7 @@ pub(crate) fn construct_req_rsp_msg<C, T, const BUCKET_SIZE: usize>(
 where
     C: UseCaseContext,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable,
+    C::PhysicalNeighborTable: UNTable,
     T: Debug,
 {
     // todo support other shared_prefix_grouping via config
@@ -68,7 +68,7 @@ pub(crate) fn send_store_req<C, const BUCKET_SIZE: usize>(
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     let message = construct_req_rsp_msg(context, nonce, &data.handle.clone(), data);
 
@@ -99,7 +99,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     let message = construct_req_rsp_msg(context, nonce, &data.handle.clone(), data);
 

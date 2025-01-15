@@ -1,5 +1,5 @@
 use crate::domain::simplifier::PathSimplifier;
-use crate::domain::{ContactState, PNTable, Path, RoutingTable};
+use crate::domain::{ContactState, Path, RoutingTable, UNTable};
 
 pub struct ShortestFirstPathSimplifier;
 
@@ -13,7 +13,7 @@ impl PathSimplifier for ShortestFirstPathSimplifier {
         path: &mut Path,
     ) where
         for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
-        PN: PNTable,
+        PN: UNTable,
     {
         // Already a underlay neighbor, can't be shortened
         if path.size() <= 1 {

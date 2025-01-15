@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
-use std::fmt::{Display, Formatter};
 
 use chrono::{DateTime, Duration, Utc};
+use derive_more::derive::Display;
 
 use crate::domain::{NodeId, Path, StateSeqNr};
 
@@ -13,7 +13,7 @@ use crate::domain::{NodeId, Path, StateSeqNr};
 ///
 /// As [Age] specifies a timestamp in milliseconds a greater value represents a bigger age.
 /// Considering `X = Age(10)` and `Y = Age(20)` then `X < Y == true`.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Age(u64);
 
@@ -23,14 +23,9 @@ impl From<u64> for Age {
     }
 }
 
-impl Display for Age {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[display("{}", self.0.timestamp_millis())]
 pub struct Timestamp(
     #[cfg_attr(feature = "serde", serde(with = "chrono::serde::ts_milliseconds"))] DateTime<Utc>,
 );
@@ -63,50 +58,23 @@ impl Timestamp {
     }
 }
 
-impl Display for Timestamp {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.timestamp_millis())
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[display("{_variant}")]
 pub enum ContactState {
     Valid,
     Invalid,
 }
 
-impl Display for ContactState {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Valid => write!(f, "Valid"),
-            Self::Invalid => write!(f, "Invalid"),
-        }
-    }
-}
-
 /// A [Contact] as represented in the [RoutingTable](crate::domain::routing_table::RoutingTable).
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[display("Contact [id: {}, age: {}, state_seq_nr: {state_seq_nr}, state: {state}, path: {path}]", self.id(), self.last_seen.to_age_duration())]
 pub struct Contact {
     state: ContactState,
     last_seen: Timestamp,
     path: Path,
     state_seq_nr: StateSeqNr,
-}
-
-impl Display for Contact {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Contact [id: {}, age: {}, state_seq_nr: {}, state: {}, path: {}]",
-            self.id(),
-            self.last_seen.to_age_duration(),
-            self.state_seq_nr,
-            self.state,
-            self.path
-        )
-    }
 }
 
 impl Contact {

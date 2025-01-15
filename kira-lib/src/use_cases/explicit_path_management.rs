@@ -1,18 +1,18 @@
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::{HashMap, HashSet};
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::ops::Deref;
 use std::time::{Duration, Instant};
+
+use derive_more::derive::{Display, Error};
 
 use crate::domain::protocol_event::forwarding::{
     DecapsulationDestination, PathIdDecapsulationEntry, PathIdEntry, PathIdForwardingEntry,
     PathIdTableUpdate,
 };
 use crate::domain::{
-    Contact, ContactState, EmptyPathError, Hasher, NodeId, PNTable, Path, PathId, RoutingTable,
+    Contact, ContactState, EmptyPathError, Hasher, NodeId, Path, PathId, RoutingTable, UNTable,
     UnderlayNeighborId,
 };
 use crate::messaging::source_route::SourceRoute;
@@ -97,7 +97,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     fn send_setup_req(&self, context: &C, contact: &Contact) {
         let source_route = SourceRoute::new(*context.root_id(), contact.path().clone());
@@ -336,7 +336,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = EPMError;
@@ -487,7 +487,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = EPMState;
 
@@ -548,17 +548,8 @@ impl UseCaseState for EPMState {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Display, Error)]
 pub enum EPMError {
+    #[display("Use case was started multiple times")]
     AlreadyStarted,
 }
-
-impl Display for EPMError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::AlreadyStarted => write!(f, "Use case was started multiple times"),
-        }
-    }
-}
-
-impl Error for EPMError {}

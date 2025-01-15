@@ -1,5 +1,4 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use derive_more::{Display, Error};
 use std::ops::Index;
 use std::slice::SliceIndex;
 
@@ -42,16 +41,9 @@ impl TryFrom<Vec<NodeId>> for Path {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Display, Error)]
+#[display("Empty paths are not allowed")]
 pub struct EmptyPathError;
-
-impl Display for EmptyPathError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Empty paths are not allowed")
-    }
-}
-
-impl Error for EmptyPathError {}
 
 impl TryFrom<&[NodeId]> for Path {
     type Error = EmptyPathError;

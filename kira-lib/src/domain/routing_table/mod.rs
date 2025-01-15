@@ -1,5 +1,4 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use derive_more::{Display, Error};
 use std::ops::DerefMut;
 
 use crate::domain::{Bucket, Contact, GroupingError, NodeId, ReplacementError, SharedPrefix};
@@ -10,56 +9,27 @@ pub mod observable_routing_table;
 pub mod single_bucket;
 pub mod unlimited_pn_routing_table;
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Display, Error)]
 pub enum AddError {
-    AlreadyExists(NodeId),
+    #[display("Contact with id {_0} already exists")]
+    AlreadyExists(#[error(not(source))] NodeId),
+    #[display("Bucket is full, not added")]
     NotAdded,
 }
 
-impl Display for AddError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NotAdded => write!(f, "Bucket is full, not added"),
-            Self::AlreadyExists(id) => write!(f, "Contact with id {} already exists", id),
-        }
-    }
-}
-
-impl Error for AddError {}
-
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Display, Error)]
 pub enum BucketSplitError {
+    #[display("RoutingTable restricts splitting this bucket")]
     Unsplittable,
+    #[display("Reached maximum number of buckets")]
     MaxBucketsReached,
 }
 
-impl Display for BucketSplitError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Unsplittable => write!(f, "RoutingTable restricts splitting this bucket"),
-            Self::MaxBucketsReached => write!(f, "Reached maximum number of buckets"),
-        }
-    }
-}
-
-impl Error for BucketSplitError {}
-
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Display, Error)]
 pub enum InsertionError {
     Add(AddError),
     BucketSplit(BucketSplitError),
 }
-
-impl Display for InsertionError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Add(err) => write!(f, "{}", err),
-            Self::BucketSplit(err) => write!(f, "{}", err),
-        }
-    }
-}
-
-impl Error for InsertionError {}
 
 impl From<AddError> for InsertionError {
     fn from(add_err: AddError) -> Self {
@@ -92,15 +62,15 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// Possible Write Guard for a mutable contact reference.
     ///
     /// Allows implementations to support RAII types to watch mutability of a contact.
-    type ContactWriteGuard: DerefMut<Target=Contact>;
+    type ContactWriteGuard: DerefMut<Target = Contact>;
     /// Possible Write Guard for a mutable bucket reference.
     ///
     /// Allows implementations to support RAII types to watch mutability of a bucket.
-    type BucketWriteGuard: DerefMut<Target=Bucket<BUCKET_SIZE>>;
+    type BucketWriteGuard: DerefMut<Target = Bucket<BUCKET_SIZE>>;
     /// Iterator type over all [Contact]s.
-    type Iter: Iterator<Item=&'a Contact>;
+    type Iter: Iterator<Item = &'a Contact>;
     /// Iterator type over mutable references of all [Contact]s.
-    type IterMut: Iterator<Item=Self::ContactWriteGuard>;
+    type IterMut: Iterator<Item = Self::ContactWriteGuard>;
 
     /// Iterator type over all [Bucket]s
     type BucketIter: Iterator<Item = &'a Bucket<BUCKET_SIZE>>;
@@ -184,7 +154,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// Extends the [RoutingTable] with [Contact]s with an option to ignore errors.
     ///
     /// Will not return an [Error] if *drop_on_error* is *true*.
-    fn extend<I: IntoIterator<Item=Contact>>(
+    fn extend<I: IntoIterator<Item = Contact>>(
         &mut self,
         drop_on_error: bool,
         iter: I,
@@ -225,7 +195,12 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// if there are multiple that would result in the same prefix progress.
     ///
     /// Using **n=1** disables proximity routing.
-    fn next_hop(&self, to: &NodeId, n: usize, shared_prefix_grouping: usize) -> Result<Option<Contact>, GroupingError> {
+    fn next_hop(
+        &self,
+        to: &NodeId,
+        n: usize,
+        shared_prefix_grouping: usize,
+    ) -> Result<Option<Contact>, GroupingError> {
         log::trace!(target: "routing_table", "Calculating next hop to {}", to);
 
         let closest = self.closest(to, n, shared_prefix_grouping)?;
@@ -233,8 +208,8 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
             None => {
                 log::warn!(target: "routing_table","Node is isolated!");
                 return Ok(None);
-            }, // table empty => we are the next hop
-            Some((nearest_prefix, contact)) => (nearest_prefix, contact)
+            } // table empty => we are the next hop
+            Some((nearest_prefix, contact)) => (nearest_prefix, contact),
         };
         let root_prefix = self.root().shared_prefix_len(to, shared_prefix_grouping)?;
 
@@ -263,20 +238,24 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
             } else {
                 // assuming sorted list first is closest by XOR metric
                 Ok(Some(next_hop.clone()))
-            }
+            };
         }
 
         // check if lowest bucket
         // todo do this more efficiently
         let lowest = self.closest(self.root(), 1, shared_prefix_grouping)?;
-        if lowest.first().is_some_and(|(prefix, _)| prefix == nearest_prefix) {
+        if lowest
+            .first()
+            .is_some_and(|(prefix, _)| prefix == nearest_prefix)
+        {
             log::trace!(target: "routing_table", "Lowest bucket, select by XOR");
             // select closest by XOR
             return Ok(Some(next_hop.clone()));
         }
 
         // all contacts with the greatest prefix progress
-        let next_hop = closest.iter()
+        let next_hop = closest
+            .iter()
             .take_while(|(prefix, _)| prefix.length == nearest_prefix.length)
             .map(|(_, contact)| contact)
             .min_by(|ca, cb| ca.path().size().cmp(&cb.path().size()));

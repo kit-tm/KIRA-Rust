@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::ops::Deref;
 
+use derive_more::derive::{Display, Error};
+
 use crate::domain::{
-    Contact, ContactState, Link, NodeId, NotVia, PNTable, RoutingTable, UnderlayNeighborId,
+    Contact, ContactState, Link, NodeId, NotVia, RoutingTable, UNTable, UnderlayNeighborId,
     UnderlayNeighborUpdate,
 };
 use crate::messaging::source_route::SourceRoute;
@@ -81,7 +81,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     /// Remove all NotVia Data which is related to the contact
     fn remove_notvia_mentioning(&self, context: &C, contact_id: &NodeId) {
@@ -352,7 +352,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = FailureHandlingError;
@@ -427,7 +427,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = ReactiveUseCaseState;
 
@@ -440,17 +440,8 @@ where
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Display, Error)]
 pub enum FailureHandlingError {
+    #[display("Runtime returned duplicate timer-id")]
     DuplicateTimerId,
 }
-
-impl Display for FailureHandlingError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::DuplicateTimerId => write!(f, "Runtime returned duplicate timer-id"),
-        }
-    }
-}
-
-impl Error for FailureHandlingError {}

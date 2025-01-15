@@ -6,7 +6,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use crate::domain::{
-    dht, Contact, ContactState, NodeId, PNTable, RoutingTable, UnderlayNeighborId,
+    dht, Contact, ContactState, NodeId, RoutingTable, UNTable, UnderlayNeighborId,
 };
 use crate::messaging::dht::{
     DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchReqData, FetchRspData, StoreReqData,
@@ -166,7 +166,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     H: LocalHashTable<
             NodeId,
             DefaultLHTInput,
@@ -270,7 +270,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     H: LocalHashTable<
             NodeId,
             DefaultLHTInput,
@@ -333,7 +333,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     H: LocalHashTable<
             NodeId,
             DefaultLHTInput,

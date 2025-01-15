@@ -4,7 +4,7 @@ use std::ops::Deref;
 use std::time::Duration;
 
 use crate::domain::{
-    Contact, ContactState, NodeId, PNTable, RoutingTable, UnderlayNeighborId, DEFAULT_BUCKET_SIZE,
+    Contact, ContactState, NodeId, RoutingTable, UNTable, UnderlayNeighborId, DEFAULT_BUCKET_SIZE,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{Nonce, ProbeReqData, ProbeRspData, ProtocolMessage, ReqRspMessage};
@@ -86,7 +86,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     // Send ProbeReqs to two oldest valid contacts per bucket
     fn send_probe_reqs(&mut self, context: &C) {
@@ -268,7 +268,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = PathProbingState;
 
@@ -296,7 +296,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = NeverError;

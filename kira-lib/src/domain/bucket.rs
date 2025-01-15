@@ -1,5 +1,6 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{fmt::Formatter, iter::FusedIterator};
+
+use derive_more::{Display, Error};
 
 use crate::domain::{Contact, NodeId};
 
@@ -9,39 +10,27 @@ use crate::domain::{Contact, NodeId};
 /// So the default bucket size is **20**.
 pub const DEFAULT_BUCKET_SIZE: usize = 20;
 
-#[derive(Debug)]
+#[derive(Debug, Display, Error)]
+/// Errors on [Bucket::insert].
 pub enum BucketInsertionError {
-    DuplicateId(NodeId),
+    /// The contact is already in the bucket.
+    #[display("Contact with id {_0} already in bucket")]
+    DuplicateId(#[error(not(source))] NodeId),
+    #[display("Tried inserting into full bucket")]
+    /// The bucket is full.
     Full,
 }
 
-impl Display for BucketInsertionError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Full => write!(f, "Tried inserting into full bucket"),
-            Self::DuplicateId(id) => write!(f, "Contact with id {} already in bucket", id),
-        }
-    }
-}
-
-impl Error for BucketInsertionError {}
-
-#[derive(Debug)]
+#[derive(Debug, Display, Error)]
+/// Errors on [Bucket::replace].
 pub enum ReplacementError {
-    NotFound(NodeId),
-    DuplicateId(NodeId),
+    /// No contact found to replace with.
+    #[display("No contact to replace with id {_0}")]
+    NotFound(#[error(not(source))] NodeId),
+    /// The contact is already in the bucket.
+    #[display("Contact with id {_0} already in bucket")]
+    DuplicateId(#[error(not(source))] NodeId),
 }
-
-impl Display for ReplacementError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NotFound(id) => write!(f, "No contact to replace with id {}", id),
-            Self::DuplicateId(id) => write!(f, "Contact with id {} already in bucket", id),
-        }
-    }
-}
-
-impl Error for ReplacementError {}
 
 /// A [Bucket] with fixed size used in the [crate::domain::RoutingTable].
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -220,42 +209,47 @@ impl<const SIZE: usize> Display for Bucket<SIZE> {
 
 impl<'a, const SIZE: usize> IntoIterator for &'a mut Bucket<SIZE> {
     type Item = &'a mut Contact;
-    type IntoIter = Iter<&'a mut Contact>;
+    type IntoIter = IntoIter<&'a mut Contact>;
 
     fn into_iter(self) -> Self::IntoIter {
-        Iter(self.contacts.iter_mut().flatten().rev().collect())
+        IntoIter(self.contacts.iter_mut().flatten().rev().collect())
     }
 }
 
 impl<'a, const SIZE: usize> IntoIterator for &'a Bucket<SIZE> {
     type Item = &'a Contact;
-    type IntoIter = Iter<&'a Contact>;
+    type IntoIter = IntoIter<&'a Contact>;
 
     fn into_iter(self) -> Self::IntoIter {
-        Iter(self.contacts.iter().flatten().rev().collect())
+        IntoIter(self.contacts.iter().flatten().rev().collect())
     }
 }
 
 impl<const SIZE: usize> IntoIterator for Bucket<SIZE> {
     type Item = Contact;
-    type IntoIter = Iter<Contact>;
+    type IntoIter = IntoIter<Contact>;
 
     fn into_iter(self) -> Self::IntoIter {
         let mut inner = Vec::from_iter(self.contacts.into_iter().flatten());
         inner.reverse();
-        Iter(inner)
+        IntoIter(inner)
     }
 }
 
-pub struct Iter<I>(Vec<I>);
+/// An iterator that moves out of a [Bucket].
+///
+/// This `struct` is created by the `into_iter` method on [Bucket] (provided by the [IntoIterator] trait).
+pub struct IntoIter<I>(Vec<I>);
 
-impl<I> Iterator for Iter<I> {
+impl<I> Iterator for IntoIter<I> {
     type Item = I;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.0.pop()
     }
 }
+
+impl<I> FusedIterator for IntoIter<I> {}
 
 #[cfg(test)]
 mod tests {

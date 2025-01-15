@@ -1,12 +1,12 @@
+use derive_more::{Display, Error};
 use std::collections::{HashMap, HashSet};
-use std::error::Error;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::ops::Deref;
 use std::time::Duration;
 
-use crate::domain::{node_id, GroupingError, NodeId, PNTable, RoutingTable, UnderlayNeighborId};
+use crate::domain::{node_id, GroupingError, NodeId, RoutingTable, UNTable, UnderlayNeighborId};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{FindNodeReqData, Nonce, ProtocolMessage, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
@@ -149,7 +149,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
-    C::PhysicalNeighborTable: PNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     /// Sets a new timer accordingly and sends a new FindNodeReq
     /// if exponential backoff allows it.
@@ -267,25 +267,11 @@ where
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Display)]
 pub enum ONDError {
+    #[display("Missing contact in routing or pn table; Is the node isolated?")]
     NeighborInconsistency,
 }
-
-impl Display for ONDError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NeighborInconsistency => {
-                write!(
-                    f,
-                    "Missing contact in routing or pn table; Is the node isolated?"
-                )
-            }
-        }
-    }
-}
-
-impl Error for ONDError {}
 
 impl<C, const BUCKET_SIZE: usize> UseCase for OverlayNeighborhoodDiscovery<C, BUCKET_SIZE>
 where
@@ -293,7 +279,7 @@ where
     C::Runtime: UseCaseRuntime,
     // Isn't used yet, but provides information for the compiler to derive the BUCKET_SIZE from RT
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
-    C::PhysicalNeighborTable: PNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = ONDState;
 
@@ -322,7 +308,7 @@ where
     C::Runtime: UseCaseRuntime,
     // Isn't used yet, but provides information for the compiler to derive the BUCKET_SIZE from RT
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
-    C::PhysicalNeighborTable: PNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = ONDError;

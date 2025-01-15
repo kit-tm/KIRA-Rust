@@ -4,7 +4,7 @@ use std::num::NonZeroUsize;
 use std::ops::Deref;
 
 use crate::domain::{
-    node_id, Contact, GroupingError, NodeId, NotVia, PNTable, RoutingTable, StateSeqNr,
+    node_id, Contact, GroupingError, NodeId, NotVia, RoutingTable, StateSeqNr, UNTable,
     UnderlayNeighborId, DEFAULT_BUCKET_SIZE,
 };
 use crate::messaging::source_route::SourceRoute;
@@ -111,7 +111,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = NeverError;

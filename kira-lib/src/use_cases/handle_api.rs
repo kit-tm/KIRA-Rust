@@ -1,7 +1,7 @@
+use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::{error::Error, fmt::Debug};
 
-use derive_more::derive::Display;
+use derive_more::derive::{Display, Error};
 use tokio::sync::mpsc::error::SendError;
 
 use super::{EventHandler, UseCaseContext, UseCaseEvent, UseCaseRuntime};
@@ -16,11 +16,9 @@ impl<C> Default for HandleApi<C> {
     }
 }
 
-#[derive(Debug, Clone, Display)]
+#[derive(Debug, Display, Error)]
 #[display("Sending collected API result to caller failed")]
 pub struct CallbackChannelError;
-
-impl Error for CallbackChannelError {}
 
 impl<T> From<SendError<T>> for CallbackChannelError {
     #[allow(unused_variables)]

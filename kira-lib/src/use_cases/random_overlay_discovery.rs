@@ -1,12 +1,12 @@
 use std::collections::HashMap;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::num::{NonZeroU64, NonZeroUsize};
 use std::ops::Deref;
 use std::time::Duration;
 
-use crate::domain::{node_id, GroupingError, NodeId, PNTable, RoutingTable, UnderlayNeighborId};
+use derive_more::derive::{Display, Error};
+
+use crate::domain::{node_id, GroupingError, NodeId, RoutingTable, UNTable, UnderlayNeighborId};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{FindNodeReqData, Nonce, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
@@ -62,7 +62,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     fn send_find_node_req(&mut self, context: &C) -> Result<(), RODError> {
         let random_id = NodeId::random();
@@ -128,7 +128,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = RODState;
 
@@ -152,7 +152,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = RODError;
@@ -173,24 +173,13 @@ where
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Display, Error)]
 pub enum RODError {
+    #[display("Could not probe, routing table is empty")]
     EmptyRoutingTable,
+    #[display("The path of a contact contains an invalid neighbor")]
     InvalidNeighbor,
 }
-
-impl Display for RODError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::EmptyRoutingTable => write!(f, "Could not probe, routing table is empty"),
-            Self::InvalidNeighbor => {
-                write!(f, "The path of a contact contains an invalid neighbor")
-            }
-        }
-    }
-}
-
-impl Error for RODError {}
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum RODState {

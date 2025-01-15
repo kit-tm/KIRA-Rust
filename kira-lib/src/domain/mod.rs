@@ -1,9 +1,8 @@
 //! Domain Layer of the KIRA software design.
 
-use std::fmt::{Display, Formatter};
-
 pub use bucket::*;
 pub use contact::*;
+use derive_more::derive::Display;
 pub use hasher::*;
 pub use insertion_strategy::*;
 pub use node_id::*;
@@ -34,8 +33,9 @@ pub mod underlay;
 pub mod underlay_neighbor_table;
 
 /// A underlay connection between two nodes.
-#[derive(Debug, Eq, PartialEq, Hash, Clone)]
+#[derive(Debug, Eq, PartialEq, Hash, Clone, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[display("({_0}, {_1})")]
 pub struct Link(NodeId, NodeId);
 
 impl Link {
@@ -69,22 +69,9 @@ impl From<(NodeId, NodeId)> for Link {
 /// It's an error for the local not via data to contain entries not affecting any nodes in the
 /// routing table.
 /// When a node gets deleted, all the not via data mentioning it will be removed.
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum NotVia {
+    #[display("NotVia {_0}")]
     Link(Link),
-}
-
-impl Display for NotVia {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Link(Link(left, right)) => {
-                write!(f, "NotVia (")?;
-                Display::fmt(left, f)?;
-                write!(f, ", ")?;
-                Display::fmt(right, f)?;
-                write!(f, ")")
-            }
-        }
-    }
 }

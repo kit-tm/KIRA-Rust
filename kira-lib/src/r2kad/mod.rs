@@ -1,6 +1,6 @@
 //! Implementation of the protocol instance R²/KAD.
 
-use derive_more::derive::Display;
+use derive_more::derive::{Display, Error};
 use std::{
     collections::{HashMap, HashSet},
     error::Error,
@@ -21,8 +21,8 @@ use crate::{
     domain::{
         observable_routing_table::ObservableRoutingTable,
         unlimited_pn_routing_table::UnlimitedPNRoutingTable, FlatRoutingTable, InMemoryPNTable,
-        InOrderCycleRemover, InsertionStrategy, NodeId, PNSStrategy, PNTable, RoutingTable,
-        ShortestFirstPathSimplifier, UnderlayNeighborId,
+        InOrderCycleRemover, InsertionStrategy, NodeId, PNSStrategy, RoutingTable,
+        ShortestFirstPathSimplifier, UNTable, UnderlayNeighborId,
     },
     r2kad::pipeline::{R2KadPipelineConfig, UseCaseStartupError, UseCaseStateError},
     runtime::UseCaseRuntime,
@@ -109,7 +109,7 @@ impl<C, const BUCKET_SIZE: usize> Default for R2KadBuilder<C, BUCKET_SIZE> {
     }
 }
 
-#[derive(Debug, Display)]
+#[derive(Debug, Display, Error)]
 #[non_exhaustive]
 pub enum R2KadError {
     #[display("Handling an event resulted in an invalid protocol state")]
@@ -117,8 +117,6 @@ pub enum R2KadError {
     #[display("Starting up the protocol instance failed")]
     StartupError,
 }
-
-impl Error for R2KadError {}
 
 impl From<UseCaseStateError> for R2KadError {
     fn from(_value: UseCaseStateError) -> Self {
@@ -201,7 +199,7 @@ where
     C: UseCaseContext<Runtime = R2KadRuntime>,
     C::Runtime: UseCaseRuntime,
     C::PhysicalNeighborTable:
-        PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + std::fmt::Debug,
+        UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + std::fmt::Debug,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + std::fmt::Debug,
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
 {

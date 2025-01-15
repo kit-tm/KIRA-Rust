@@ -1,8 +1,10 @@
-use std::fmt::{Display, Formatter};
 use std::time::Duration;
 
+use derive_more::derive::Display;
+
 /// An exponential Backoff strategy based on a [Duration] and maximum number of retries.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
+#[display("Backoff {current_retries}/{max_retries}")]
 pub struct ExponentialBackoff {
     pub base: u32,
     pub max_retries: u32,
@@ -53,12 +55,6 @@ impl Iterator for ExponentialBackoff {
         self.current_retries += 1;
 
         Some(duration)
-    }
-}
-
-impl Display for ExponentialBackoff {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Backoff {}/{}", self.current_retries, self.max_retries)
     }
 }
 

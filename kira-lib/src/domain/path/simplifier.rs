@@ -1,4 +1,4 @@
-use crate::domain::{PNTable, Path, RoutingTable};
+use crate::domain::{Path, RoutingTable, UNTable};
 
 /// An algorithm to simplify/shorten a [Path] with the information given in a
 /// [RoutingTable] and [PNTable].
@@ -10,5 +10,5 @@ pub trait PathSimplifier {
         path: &mut Path,
     ) where
         for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
-        PN: PNTable;
+        PN: UNTable;
 }

@@ -6,7 +6,7 @@ use std::ops::Deref;
 use std::time::Instant;
 
 use crate::domain::{
-    node_id, GroupingError, NodeId, PNTable, RoutingTable, UnderlayNeighborId,
+    node_id, GroupingError, NodeId, RoutingTable, UNTable, UnderlayNeighborId,
     UnderlayNeighborSource,
 };
 use crate::messaging::source_route::SourceRoute;
@@ -134,7 +134,7 @@ where
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     TS: InjectionResultSender,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = InjectMessageError;
@@ -225,7 +225,7 @@ where
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     TS: InjectionResultSender,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = ReactiveUseCaseState;
 
@@ -239,23 +239,14 @@ where
 }
 
 pub mod errors {
-    use std::error::Error;
-    use std::fmt::{Debug, Display, Formatter};
+    use derive_more::{Display, Error};
+    use std::fmt::Debug;
 
-    #[derive(Debug)]
+    #[derive(Debug, Display, Error)]
     pub enum InjectMessageError {
+        #[display("Sending injection result failed")]
         SendResultFailed,
+        #[display("Node is isolated")]
         Isolated,
     }
-
-    impl Display for InjectMessageError {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            match self {
-                Self::SendResultFailed => write!(f, "Sending injection result failed"),
-                Self::Isolated => write!(f, "Node is isolated"),
-            }
-        }
-    }
-
-    impl Error for InjectMessageError {}
 }

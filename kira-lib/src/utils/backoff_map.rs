@@ -172,63 +172,25 @@ impl BackoffMap {
 }
 
 pub mod errors {
-    use std::error::Error;
-    use std::fmt::{Display, Formatter};
+    use derive_more::{Display, Error};
 
-    #[derive(Debug, Eq, PartialEq)]
+    #[derive(Debug, Display, Error)]
     pub enum InsertionError {
+        #[display("Duplicate Timer: Only a single backoff timer is allowed for a node")]
         DuplicateTimer,
+        #[display("Duplicate Nonce: Tried to insert an already existing nonce")]
         DuplicateNonce,
     }
 
-    impl Display for InsertionError {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            match self {
-                Self::DuplicateTimer => write!(
-                    f,
-                    "Duplicate Timer: Only a single backoff timer is allowed for a node"
-                ),
-                Self::DuplicateNonce => write!(
-                    f,
-                    "Duplicate Nonce: Tried to insert an already existing nonce"
-                ),
-            }
-        }
-    }
-
-    impl Error for InsertionError {}
-
-    #[derive(Debug, Eq, PartialEq)]
+    #[derive(Debug, Display, Error)]
+    #[display("Duplicate Timer: Only a single backoff timer is allowed for a node")]
     pub struct DuplicateTimerError;
 
-    impl Display for DuplicateTimerError {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            write!(
-                f,
-                "Duplicate Timer: Only a single backoff timer is allowed for a node"
-            )
-        }
-    }
-
-    impl Error for DuplicateTimerError {}
-
-    #[derive(Debug, Eq, PartialEq)]
+    #[derive(Debug, Display, Error)]
     pub enum AddNonceError {
+        #[display("Unknown node: tried to add nonce to unknown node")]
         UnknownNode,
+        #[display("Duplicate Nonce: Tried to insert an already existing nonce")]
         DuplicateNonce,
     }
-
-    impl Display for AddNonceError {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            match self {
-                Self::UnknownNode => write!(f, "Unknown node: tried to add nonce to unknown node"),
-                Self::DuplicateNonce => write!(
-                    f,
-                    "Duplicate Nonce: Tried to insert an already existing nonce"
-                ),
-            }
-        }
-    }
-
-    impl Error for AddNonceError {}
 }

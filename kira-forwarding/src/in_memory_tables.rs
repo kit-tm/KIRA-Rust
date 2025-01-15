@@ -171,24 +171,16 @@ impl Extend<PathIdEntry> for InMemoryFwdTables {
         self.path_id_table.extend(entries);
     }
 }
-
 pub mod error {
+    use derive_more::derive::Display;
     use std::error::Error;
-    use std::fmt::{Display, Formatter};
 
-    #[derive(Debug)]
+    #[derive(Debug, Display)]
     pub enum FwdTableError {
+        #[display("Entry  already exists")]
         EntryAlreadyExists,
+        #[display("Entry with id  doesn't exist")]
         EntryMissing,
-    }
-
-    impl Display for FwdTableError {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            match self {
-                Self::EntryAlreadyExists => write!(f, "Entry already exists"),
-                Self::EntryMissing => write!(f, "Entry with id doesn't exist"),
-            }
-        }
     }
 
     impl Error for FwdTableError {}

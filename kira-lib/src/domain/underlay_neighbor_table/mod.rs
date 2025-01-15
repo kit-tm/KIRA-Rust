@@ -3,12 +3,12 @@ pub use in_memory_underlay_neighbor_table::InMemoryPNTable;
 
 mod in_memory_underlay_neighbor_table;
 
-/// A [PNTable] models the underlay neighbor table.
+/// A [UNTable] models the underlay neighbor table.
 ///
 /// ## Invariants
 ///
 /// * The output of [`state_seq_nr`][Self::state_seq_nr] should change every time the [PNTable] is mutated.
-pub trait PNTable {
+pub trait UNTable {
     /// Adds a Mapping to the table returning the [UnderlayNeighborId] previously mapped to the [NodeId].
     fn insert(&mut self, id: NodeId, ulnid: UnderlayNeighborId) -> Option<UnderlayNeighborId>;
 
@@ -31,7 +31,7 @@ mod tests {
 
     use super::*;
 
-    pub fn ssn_on_insert<P: PNTable>(mut table: P) {
+    pub fn ssn_on_insert<P: UNTable>(mut table: P) {
         let id = NodeId::zero();
         let neighbor = NonZeroUsize::new(42).unwrap().into();
 
@@ -45,7 +45,7 @@ mod tests {
         )
     }
 
-    pub fn ssn_on_remove<P: PNTable>(mut table: P) {
+    pub fn ssn_on_remove<P: UNTable>(mut table: P) {
         let id = NodeId::zero();
         let neighbor = NonZeroUsize::new(42).unwrap().into();
 
@@ -61,7 +61,7 @@ mod tests {
         )
     }
 
-    pub fn ssn_on_fake_remove<P: PNTable>(mut table: P) {
+    pub fn ssn_on_fake_remove<P: UNTable>(mut table: P) {
         let id = NodeId::zero();
 
         let before_ssn = *table.state_seq_nr();

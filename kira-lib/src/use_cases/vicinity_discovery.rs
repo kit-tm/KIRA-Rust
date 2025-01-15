@@ -1,16 +1,15 @@
 use std::collections::HashMap;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::net::Ipv6Addr;
 use std::num::NonZeroUsize;
 use std::ops::Deref;
 use std::time::Duration;
 
+use derive_more::derive::{Display, Error};
 use rand::Rng;
 
 use crate::domain::{
-    node_id, Contact, ContactState, NodeId, PNTable, Path, RoutingTable, StateSeqNr,
+    node_id, Contact, ContactState, NodeId, Path, RoutingTable, StateSeqNr, UNTable,
     UnderlayNeighborId, UnderlayNeighborUpdate, DEFAULT_BUCKET_SIZE,
 };
 use crate::messaging::source_route::SourceRoute;
@@ -74,21 +73,12 @@ impl Default for VicinityDiscoveryConfig {
 }
 
 /// Error types for vicinity discovery.
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Display, Error)]
 pub enum VDError {
     /// A Contact contains an invalid neighbor.
+    #[display("Contact contains invalid neighbor")]
     NeighborInconsistency,
 }
-
-impl Display for VDError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NeighborInconsistency => write!(f, "Contact contains invalid neighbor"),
-        }
-    }
-}
-
-impl Error for VDError {}
 
 #[derive(Debug, Eq, PartialEq, Clone, Default)]
 pub enum VDState {
@@ -194,7 +184,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     fn send_query_route_req(&mut self, context: &C, contact: Contact) -> Result<(), VDError> {
         Self::restricted_send_query_route_req(context, contact)
@@ -381,7 +371,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = VDState;
 
@@ -417,7 +407,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = VDError;

@@ -1,7 +1,7 @@
 use std::collections::{hash_map::Entry, HashMap};
 use std::ops::Deref;
 
-use crate::domain::{NodeId, PNTable, StateSeqNr, UnderlayNeighborId};
+use crate::domain::{NodeId, StateSeqNr, UNTable, UnderlayNeighborId};
 
 /// A underlay neighbor table backed by a [HashMap].
 ///
@@ -45,7 +45,7 @@ impl InMemoryPNTable {
     }
 }
 
-impl PNTable for InMemoryPNTable {
+impl UNTable for InMemoryPNTable {
     fn insert(&mut self, id: NodeId, ulnid: UnderlayNeighborId) -> Option<UnderlayNeighborId> {
         let entry = self.map.entry(id);
         let result = match entry {

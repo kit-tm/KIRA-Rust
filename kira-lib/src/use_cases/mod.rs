@@ -2,7 +2,7 @@
 
 use core::error::Error;
 use derive_more::derive::Display;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
 use std::ops::Deref;
 use tokio::sync::mpsc; // use tokio::sync::oneshot;
 
@@ -148,7 +148,7 @@ pub enum ContactEvent {
     NewBucket(usize),
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Display)]
 pub struct TimerId(usize);
 
 impl From<usize> for TimerId {
@@ -162,12 +162,6 @@ impl Deref for TimerId {
 
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-
-impl Display for TimerId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
     }
 }
 

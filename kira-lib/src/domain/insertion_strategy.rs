@@ -5,7 +5,7 @@ use crate::domain::{
     AddError, Contact, ContactState, InsertionError, NodeId, PathCycleRemover, RoutingTable,
 };
 
-use super::{PNTable, PathSimplifier};
+use super::{PathSimplifier, UNTable};
 
 /// Signals if a change to the [Path](crate::domain::path::Path) of a contact happened.
 ///
@@ -197,7 +197,7 @@ impl<RT, PN, CR, PS, const BUCKET_SIZE: usize> InsertionStrategy<RT, PN, BUCKET_
     for PNSStrategy<RT, CR, PS, BUCKET_SIZE>
 where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
-    PN: PNTable,
+    PN: UNTable,
     CR: PathCycleRemover,
     PS: PathSimplifier,
 {

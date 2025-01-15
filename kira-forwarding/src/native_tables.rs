@@ -274,22 +274,15 @@ impl PathIdTable for NativeFwdTables {
 impl ForwardingTables for NativeFwdTables {}
 
 pub mod error {
+    use derive_more::derive::Display;
     use std::error::Error;
-    use std::fmt::{Display, Formatter};
 
-    #[derive(Debug)]
+    #[derive(Debug, Display)]
     pub enum FwdTableError {
+        #[display("Entry {_0} already exists")]
         EntryAlreadyExists(String),
+        #[display("Entry with id {_0} doesn't exist")]
         EntryMissing(String),
-    }
-
-    impl Display for FwdTableError {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            match self {
-                Self::EntryAlreadyExists(s) => write!(f, "Entry {} already exists", s),
-                Self::EntryMissing(s) => write!(f, "Entry with id {} doesn't exist", s),
-            }
-        }
     }
 
     impl Error for FwdTableError {}

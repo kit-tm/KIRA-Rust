@@ -4,7 +4,7 @@ use std::num::NonZeroUsize;
 use std::ops::Deref;
 
 use crate::domain::{
-    Contact, ContactState, NodeId, NotVia, PNTable, RoutingTable, UnderlayNeighborId,
+    Contact, ContactState, NodeId, NotVia, RoutingTable, UNTable, UnderlayNeighborId,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{RouteUpdate, UpdateRouteReq};
@@ -65,7 +65,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     fn send_update(&self, context: &C, updates: HashMap<Contact, RouteUpdate>) {
         let overlay_neighbors = context
@@ -106,7 +106,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: PNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = NeverError;
