@@ -1,10 +1,11 @@
 [package]
 name = "kirad"
 version = "0.1.0"
-edition = "2021"
 description = "A kira routing daemon"
 license = ""
-authors = ["Karlsruhe Institute of Technology"]
+authors.workspace = true
+homepage.workspace = true
+edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -31,6 +32,7 @@ futures = { workspace = true }
 humantime = "2.1.0"
 log = { workspace = true }
 kira-lib = { path = "../kira-lib", features = ["serde"] }
+kira-forwarding = { path = "../kira-forwarding" }
 signal-hook = "0.3.17"
 signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
 tokio = { workspace = true, default-features = true, features = [
@@ -60,6 +62,7 @@ utoipa = { version = "4.2.3", optional = true }
 utoipa-swagger-ui = { version = "6.0.0", features = ["axum"], optional = true }
 itertools = { version = "0.13.0", optional = true }
 rtnetlink = "0.14.1"
+netlink-proto = "0.11.3"
 tracing = { workspace = true, features = ["attributes"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 

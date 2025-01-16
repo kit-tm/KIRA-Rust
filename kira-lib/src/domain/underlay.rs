@@ -26,7 +26,8 @@ use std::num::NonZeroUsize;
 /// [^uln]: I.e., neighbors in the sense of [RFC8200][1] that
 ///     are *directly* reachable via link layer and the
 ///     Internet-layer or higher-layer tunnels.
-/// [1]: https://datatracker.ietf.org/doc/rfc8200/
+///
+/// [1]: <https://datatracker.ietf.org/doc/rfc8200/>
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From)]
 #[display("{_0:o}")]
 pub struct UnderlayNeighborId(NonZeroUsize);

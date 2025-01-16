@@ -6,10 +6,6 @@ use crate::domain::{NodeId, NotVia};
 use crate::use_cases::UseCaseContext;
 
 /// Implements a [UseCaseContext] which can only be used in a single threaded synchronous environment.
-///
-/// In comparison to implementations like [TokioContext](crate::context::tokio_context::TokioContext) this
-/// implementation is free of locks and their runtime overhead due to the assumption that
-/// everything happens in a single thread.
 #[derive(Debug)]
 pub struct SyncContext<RT, RU, IS, PN> {
     root_id: NodeId,

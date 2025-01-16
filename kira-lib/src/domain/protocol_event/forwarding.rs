@@ -7,17 +7,17 @@ use crate::domain::{NodeIdSubnet, PathId, UnderlayNeighborId};
 /// An update request to the fast forwarding functionality.
 #[derive(Debug, Clone, Display, From)]
 pub enum ForwardingTablesUpdate {
-    /// Update request to the [NodeId]-forwarding-table.
+    /// Update request to the NodeIdForwardingTable.
     ///
-    /// The [NodeId]-forwarding-table consists out of [NodeIdEntrys](NodeIdEntry).
+    /// The NodeIdForwardingTable consists out of [NodeIdEntrys](NodeIdEntry).
     NodeIdTableUpdate(NodeIdTableUpdate),
     /// Update request to the [PathId]-forwarding-table.
     ///
-    /// The [PathId]-forwarding-table consists out of [PathIdEntrys](PathIdEntry).
+    /// The PathIdForwardingTable consists out of [PathIdEntrys](PathIdEntry).
     PathIdTableUpdate(PathIdTableUpdate),
 }
 
-/// An update request to the [NodeId]-table.
+/// An update request to the NodeIdForwardingTable.
 #[derive(Debug, Clone, Display)]
 #[display("{_variant}: {_0}")]
 pub enum NodeIdTableUpdate {
@@ -37,23 +37,23 @@ pub enum NodeIdTableUpdate {
     Remove(NodeIdSubnet),
 }
 
-/// An update request to the [PathId]-table.
+/// An update request to the PathIdForwardingTable.
 #[derive(Debug, Clone, Display)]
 #[display("{_variant}: {_0}")]
 pub enum PathIdTableUpdate {
     /// Creates the given [PathIdEntry].
     ///
-    /// Should fail if an entry with [destination](PathIdEntry::destination) already exists.
+    /// Should fail if an entry with [in_path_id](PathIdEntry::in_path_id) already exists.
     Create(PathIdEntry),
     /// Updates the given [PathIdEntry].
     ///
-    /// Should fail if no entry with [destination](PathIdEntry::destination) does exist yet.
+    /// Should fail if no entry with [in_path_id](PathIdEntry::in_path_id) does exist yet.
     Update(PathIdEntry),
     /// Creates the given [PathIdEntry] if it doesn't exist yet, otherwise updates it.
     CreateOrUpdate(PathIdEntry),
     /// Removes a [PathIdEntry].
     ///
-    /// Should *not* fail if no entry with [destination](PathIdEntry::destination) exists.
+    /// Should *not* fail if no entry with [in_path_id](PathIdEntry::in_path_id) exists.
     Remove(PathId),
 }
 
@@ -98,7 +98,8 @@ pub struct NodeIdEncapsulationEntry {
     pub next_hop: UnderlayNeighborId,
 }
 
-/// An entry in the PathIdTable identified by incoming [PathId] (with current nodes [NodeId]).
+/// An entry in the PathIdTable identified by incoming [PathId] (with current nodes
+/// [NodeId](crate::domain::NodeId)).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Display)]
 pub enum PathIdEntry {
     /// Forward packets to underlay neighbor.
@@ -116,20 +117,20 @@ impl PathIdEntry {
     }
 }
 
-/// An entry in the [PathIdTable] for forwarding packets.
+/// An entry in the PathId-table for forwarding packets.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Display)]
 #[display("{in_path_id} => {out_path_id} ({next_hop})")]
 pub struct PathIdForwardingEntry {
-    /// [PathId] of incoming packages starting with the [NodeId] of the current node.
+    /// [PathId] of incoming packages starting with the [NodeId](crate::domain::NodeId) of the current node.
     pub in_path_id: PathId,
     /// [PathId] of the outgoing packages (in_path_id will be replaced by this) not starting
-    /// with the [NodeId] of the current node.
+    /// with the [NodeId](crate::domain::NodeId) of the current node.
     pub out_path_id: PathId,
     /// [UnderlayNeighborId] of the next underlay hop to forward the data packet to.
     pub next_hop: UnderlayNeighborId,
 }
 
-/// An entry in the [PathIdTable] for decapsulating packets.
+/// An entry in the PathIdTable for decapsulating packets.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Display)]
 #[display("{in_path_id} => None ({next_hop})")]
 pub struct PathIdDecapsulationEntry {

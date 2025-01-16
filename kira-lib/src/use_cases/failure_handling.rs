@@ -57,7 +57,7 @@ impl Default for FailureHandlingConfig {
 ///
 /// ## Tasks
 ///
-/// - Listens to [HardwareEvent]s and invalidates all affected contacts in the routing table.
+/// - Listens to [UnderlayNeighborUpdate]s and invalidates all affected contacts in the routing table.
 pub struct FailureHandling<C, const BUCKET_SIZE: usize> {
     _pd: PhantomData<C>,
     state: ReactiveUseCaseState,
@@ -171,7 +171,7 @@ where
         let start_duration = self
             .config
             .backoff_timeout_interval
-            .gen(self.get_distance_to(context, contact.id()));
+            .next_duration(self.get_distance_to(context, contact.id()));
         let mut exponential_backoff = ExponentialBackoff::with_default_base(
             self.config.backoff_max_retries.get(),
             start_duration,

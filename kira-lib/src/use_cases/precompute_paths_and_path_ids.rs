@@ -26,7 +26,7 @@ pub struct PrecomputePathIdsConfig {
     /// [PathIds](crate::domain::PathId) for.
     ///
     /// Its assumed, that all contacts in this radius are also included in the
-    /// [RoutingTable](crate::domain::RoutingTable).
+    /// [RoutingTable].
     pub vicinity_radius: usize,
     /// Interval in which the precomputation will take place.
     ///

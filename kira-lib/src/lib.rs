@@ -13,7 +13,7 @@
 //! - `message_sender`: Information about sending protocol messages.
 //! - `message_receiver`: Information about receiving protocol messages.
 //! - `network_interfaces`: Logging of updates to the network interfaces.
-//! - `in_memory_fwd_table`: Updates to the stub implementation of the forwarding tables [InMemoryFwdTable](forwarding::in_memory_tables::InMemoryFwdTables)
+//! - `in_memory_fwd_table`: Updates to the stub implementation of the forwarding tables
 //!
 //! Use Case related:
 //!
@@ -32,12 +32,14 @@
 //! - `distributed_hash_table`: Use case [DistributedHashTable](use_cases::distributed_hash_table::DistributedHashTable)
 //! - `distributed_hash_table_injector`: Use case [DistributedHashTableInjector](use_cases::distributed_hash_table_injector::DistributedHashTableInjector)
 //!
-//! # Authors
+//! # Cargo feature flags
 //!
-//! - Moritz Hepp (former student at KIT)
+//! - **`serde`**  —  Provide serialization and deserialization support using the [serde] framework.
+//! - **`sha2`**  —  Provide support for generating [PathIds](crate::domain::PathId) using SHA-2.
+//! - **`sha3`**  —  Provide support for generating [PathIds](crate::domain::PathId) SHA-3.
 
 #![forbid(unsafe_code)]
-#![warn(missing_docs)]
+//#![warn(missing_docs)]
 
 pub mod context;
 pub mod domain;

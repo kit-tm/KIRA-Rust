@@ -4,7 +4,7 @@ use std::error::Error;
 
 /// Generic trait to send data to a generic destination.
 ///
-/// This trait is heavily inspired by [Sender](std::sync::Sender).
+/// This trait is heavily inspired by [Sender](std::sync::mpsc::Sender).
 pub trait Sender<T> {
     type SenderError: Error;
 
@@ -13,7 +13,7 @@ pub trait Sender<T> {
     /// # Note
     ///
     /// This function requires mutability since in the only current use
-    /// there is only a single producer: [Runtime](crate::runtime::Runtime).
+    /// there is only a single producer: [Runtime](crate::runtime::UseCaseRuntime).
     fn send(&mut self, value: T) -> Result<(), Self::SenderError>;
 }
 

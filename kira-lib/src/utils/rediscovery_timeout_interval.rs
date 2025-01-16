@@ -80,7 +80,7 @@ impl RediscoveryTimeoutInterval {
     ///
     /// A random value in the interval `[lower_param * distance_base, upper_param * distance_base]`
     /// where `distance_base` is given by the [DistanceMap] used for this interval.
-    pub fn gen(&self, distance: Distance) -> Duration {
+    pub fn next_duration(&self, distance: Distance) -> Duration {
         let distance_timeout = self.distance_map.values[&distance];
         let lower_bound =
             Duration::from_secs_f64(self.lower_interval_param * distance_timeout.as_secs_f64());

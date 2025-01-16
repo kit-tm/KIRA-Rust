@@ -3,59 +3,37 @@ use std::error::Error;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::BufWriter;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{StreamExt, TryStreamExt};
-use kira_lib::use_cases::handle_api::HandleApi;
-use rtnetlink::{new_connection, Error as NlError};
+use kira_lib::domain::protocol_event::DebugEvent;
+use kira_lib::messaging::ProtocolMessage;
+use rtnetlink::{Error as NlError, new_connection};
 use signal_hook::consts::{SIGHUP, SIGINT, SIGKILL, SIGPIPE, SIGQUIT, SIGTERM};
 use signal_hook_tokio::Signals;
 use std::net::Ipv6Addr;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver, UnboundedSender};
 use tokio::time::Instant;
-use tracing::{span, Level};
+use tracing::{Level, span};
 
-use kira_lib::broadcaster::Broadcaster;
 use kira_lib::context::{ContextConfig, SyncContext, UseCaseContext};
-use kira_lib::domain::bucket::DEFAULT_BUCKET_SIZE;
 use kira_lib::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
 use kira_lib::domain::unlimited_pn_routing_table::UnlimitedPNRoutingTable;
 use kira_lib::domain::{
-    FlatRoutingTable, InOrderCycleRemover, NativePNTable, NetworkInterface, NodeId, PNSStrategy,
-    ShortestFirstPathSimplifier,
+    FlatRoutingTable, InOrderCycleRemover, NodeId, PNSStrategy, ShortestFirstPathSimplifier,
+    UnderlayNeighborDestination, UnderlayNeighborId, UnderlayNeighborUpdate,
 };
-use kira_lib::forwarding::{ForwardingTables, NodeIdTable, PathIdTable};
-use kira_lib::hardware_events::HardwareEvent;
-use kira_lib::messaging::{
-    AsyncProtocolMessageReceiver, FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageSender,
-    RecvError,
-};
-use kira_lib::runtime::TokioRuntime;
-use kira_lib::use_cases::derive_fwd_table_entries::DeriveFwdTableEntries;
-use kira_lib::use_cases::distributed_hash_table::{
-    DefaultExpiringHashTable, DistributedHashTable, DistributedHashTableConfig,
-};
-use kira_lib::use_cases::distributed_hash_table_injector::DistributedHashTableInjector;
-use kira_lib::use_cases::explicit_path_management::{EPMConfig, ExplicitPathManagement};
-use kira_lib::use_cases::failure_handling::FailureHandling;
-use kira_lib::use_cases::forward_protocol_message::ForwardProtocolMessage;
-use kira_lib::use_cases::handle_contact_update::{HandleContactUpdate, HandleContactUpdateConfig};
-use kira_lib::use_cases::handle_overlay_discovery::HandleOverlayDiscovery;
-use kira_lib::use_cases::inject_messages::{InjectMessages, InjectMessagesConfig, InjectionResult};
-use kira_lib::use_cases::overlay_neighborhood_discovery::OverlayNeighborhoodDiscovery;
-use kira_lib::use_cases::path_probing::PathProbing;
-use kira_lib::use_cases::precompute_paths_and_path_ids::PrecomputePathIds;
-use kira_lib::use_cases::random_overlay_discovery::RandomOverlayDiscovery;
-use kira_lib::use_cases::vicinity_discovery::{VicinityDiscovery, VicinityDiscoveryConfig};
-use kira_lib::use_cases::{
-    ContactEvent, EventHandler, HandlingResult, InjectionMessageData, UseCase, UseCaseEvent,
-    UseCaseState,
-};
+use kira_lib::{Input, Output, R2Kad};
+
+use kira_lib::use_cases::{ApiEvent, ContactEvent, InjectionMessageData};
 
 use crate::benchmark_log::BenchmarkLog;
 use crate::errors::InjectMessageError;
+use crate::io::receiver::{AsyncProtocolMessageReceiver, ProtocolMessageReceiver};
+use crate::io::sender::{AsyncProtocolMessageSender, ProtocolMessageSender};
 
 mod benchmark_log;
 
@@ -63,6 +41,8 @@ mod benchmark_log;
 pub mod api;
 pub mod format;
 pub mod io;
+pub mod r2kad;
+pub mod underlay;
 
 #[derive(Default, Debug)]
 pub struct NodeConfig {
@@ -72,6 +52,8 @@ pub struct NodeConfig {
 
 #[cfg(feature = "small_buckets")]
 const BUCKET_SIZE: usize = 3;
+#[cfg(not(feature = "small_buckets"))]
+use kira_lib::domain::bucket::DEFAULT_BUCKET_SIZE;
 #[cfg(not(feature = "small_buckets"))]
 const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE;
 
@@ -470,264 +452,6 @@ where
         #[cfg(feature = "api")]
         runtime.spawn(api::start_http_server(api_config));
 
-        // Initialize the Use Cases
-
-        let mut forward_message = ForwardProtocolMessage::default();
-        if let Err(e) = forward_message.start(&context) {
-            log::error!("Failed to start forwarding UseCase: {}", e);
-            return;
-        }
-
-        let mut random_probing = RandomOverlayDiscovery::new(Default::default())
-            .expect("default grouping should be valid");
-        if let Err(e) = random_probing.start(&context) {
-            log::error!("Failed to start Random Probing UseCase: {}", e);
-            return;
-        }
-
-        let mut on_disc = OverlayNeighborhoodDiscovery::<_, BUCKET_SIZE>::new(Default::default())
-            .expect("default grouping should be valid");
-        if let Err(e) = on_disc.start(&context) {
-            log::error!("Failed to start overlay neighbor discovery UseCase: {}", e);
-            return;
-        }
-
-        let vicinity_config = VicinityDiscoveryConfig {
-            heuristic_enabled: config.heuristic_enabled,
-            ..Default::default()
-        };
-        let mut vicinity_disc = VicinityDiscovery::new(vicinity_config);
-        if let Err(e) = vicinity_disc.start(&context) {
-            log::error!("Failed to start overlay neighbor discovery UseCase: {}", e);
-            return;
-        }
-
-        let mut path_probing = PathProbing::new(Default::default());
-        if let Err(e) = path_probing.start(&context) {
-            log::error!("Failed to start path probing UseCase: {}", e);
-            return;
-        }
-
-        let mut derive_forwarding_tables = DeriveFwdTableEntries::new(Default::default());
-        if let Err(e) = derive_forwarding_tables.start(&context) {
-            log::error!("Failed to start path probing UseCase: {}", e);
-            return;
-        }
-
-        let mut failure_handling = FailureHandling::new(Default::default());
-        if let Err(e) = failure_handling.start(&context) {
-            log::error!("Failed to start failure handling UseCase: {}", e);
-            return;
-        }
-
-        let mut precomputation = PrecomputePathIds::new(root_id.clone(), Default::default());
-        if precomputation.start(&context).is_err() {
-            log::error!("Failed to start precomputation");
-            return;
-        }
-
-        let mut explicit_path_management = ExplicitPathManagement::new(EPMConfig::default());
-        if let Err(e) = explicit_path_management.start(&context) {
-            log::error!("Failed to start explicit path management: {}", e);
-        }
-
-        let mut distributed_hash_table: DistributedHashTable<
-            _,
-            DefaultExpiringHashTable,
-            BUCKET_SIZE,
-        > = DistributedHashTable::new(DistributedHashTableConfig::default());
-        if let Err(e) = distributed_hash_table.start(&context) {
-            log::error!("Failed to start distributed hash table UseCase: {}", e);
-            return;
-        }
-
-        let mut inject_messages = if let Some(injection_sender) = injection_sender.as_ref() {
-            let mut inject_messages =
-                InjectMessages::new(InjectMessagesConfig::default(), injection_sender.clone())
-                    .expect("default grouping should be valid");
-            if let Err(e) = inject_messages.start(&context) {
-                log::error!("Failed to start inject messages UseCase: {}", e);
-                return;
-            }
-            Some(inject_messages)
-        } else {
-            None
-        };
-
-        let mut distributed_hash_table_injector = DistributedHashTableInjector::default();
-        if let Err(e) = distributed_hash_table_injector.start(&context) {
-            log::error!(
-                "Failed to start distributed hash table injector UseCase: {}",
-                e
-            );
-            return;
-        }
-
-        // Initialize common tasks
-
-        let mut handle_overlay_discovery = HandleOverlayDiscovery::new(Default::default())
-            .expect("default grouping should be valid");
-
-        let mut handle_update_contact =
-            HandleContactUpdate::new(HandleContactUpdateConfig::default());
-
-        let mut handle_api = HandleApi::default();
-
-        // Wait for MessageReceivers or runtime to emit events and delegate to Use Cases
-        // IMPORTANT: The Runtime::block_on method drives progress in the CurrentThreadRuntime.
-        //              Without that the tasks spawned in the runtime won't make any progress.
-        while let Some((event, start_time)) = runtime.block_on(fan_in_receiver.recv()) {
-            let _span = match &event {
-                UseCaseEvent::Message(message, _) => {
-                    let nonce = match message.nonce() {
-                        Some(nonce) => nonce.to_string(),
-                        None => "None".to_string(),
-                    };
-                    span!(Level::DEBUG, "event", "type" = "Message", %nonce, source = %message.source())
-                }
-                UseCaseEvent::Hardware(event) => {
-                    span!(Level::DEBUG, "event", "type" = "Hardware", details = ?event)
-                }
-                UseCaseEvent::Contact(event) => {
-                    span!(Level::DEBUG, "event", "type" = "Contact", details = ?event)
-                }
-                UseCaseEvent::InjectMessage(nonce, _) => {
-                    span!(Level::DEBUG, "event", "type" = "InjectMessage", nonce = ?nonce)
-                }
-                UseCaseEvent::Shutdown => {
-                    span!(Level::DEBUG, "event", "type" = "Shutdown")
-                }
-                UseCaseEvent::API(event) => {
-                    span!(Level::DEBUG, "event", "type" = "API", details = ?event)
-                }
-                UseCaseEvent::ResyncNode(node_id, ssn) => {
-                    span!(Level::DEBUG, "event", "type" = "ResyncNode", %node_id, %ssn)
-                }
-                UseCaseEvent::Timer(id) => {
-                    span!(Level::DEBUG, "event", "type" = "Timer", %id)
-                }
-            }.entered();
-
-            // Setup paths before we forward them to setup paths on intermediate nodes too
-            match explicit_path_management.handle_event(&context, event.clone()) {
-                Err(e) => log::error!(
-                    "Explicit path management returned error handling message: {}",
-                    e
-                ),
-                Ok(HandlingResult::Handled) => continue, /* Skip delegation to other use cases, since path-setup/-teardown is complete */
-                Ok(HandlingResult::NotHandled) => { /* Delegate event to use cases */ }
-            }
-
-            // Some precomputation to perform actions and delegate which are common tasks
-            match forward_message.handle_event(&context, event.clone()) {
-                Err(e) => log::error!(
-                    "Forwarding protocol message returned error handling message: {}",
-                    e
-                ),
-                Ok(HandlingResult::Handled) => continue, /* Skip delegation to other use cases */
-                Ok(HandlingResult::NotHandled) => { /* Delegate event to use cases  */ }
-            }
-            if let Err(e) = handle_overlay_discovery.handle_event(&context, event.clone()) {
-                log::error!("Handling overlay discovery failed: {}", e);
-            }
-            if let Err(e) = handle_update_contact.handle_event(&context, event.clone()) {
-                log::error!("Handling contact update failed: {}", e);
-            }
-
-            // Actual use cases
-            if let Err(e) = failure_handling.handle_event(&context, event.clone()) {
-                log::error!("Failure handling returned error handling message: {}", e);
-            }
-            if let Err(e) = random_probing.handle_event(&context, event.clone()) {
-                log::error!("Random Probing returned error handling message: {}", e);
-            }
-            if let Err(e) = on_disc.handle_event(&context, event.clone()) {
-                log::error!(
-                    "Overlay Neighborhood Discovery returned error handling message: {}",
-                    e
-                );
-            }
-            if let Err(e) = vicinity_disc.handle_event(&context, event.clone()) {
-                log::error!("Vicinity Discovery returned error handling message: {}", e);
-            }
-            if let Err(e) = path_probing.handle_event(&context, event.clone()) {
-                log::error!("Path Probing returned error handling message: {}", e);
-            }
-            if let Err(e) = derive_forwarding_tables.handle_event(&context, event.clone()) {
-                log::error!("DeriveFwdEntries returned error handling message: {}", e);
-            }
-            if precomputation
-                .handle_event(&context, event.clone())
-                .is_err()
-            {
-                log::error!("Precomputation returned error handling message");
-            }
-            if let Err(e) = distributed_hash_table.handle_event(&context, event.clone()) {
-                log::error!(
-                    "Distributed Hash Table returned error handling message: {}",
-                    e
-                );
-            }
-            if let Some(Err(e)) = inject_messages
-                .as_mut()
-                .map(|use_case| use_case.handle_event(&context, event.clone()))
-            {
-                log::error!("Injecting Messages returned error handling message: {}", e);
-            }
-            if let Err(e) = distributed_hash_table_injector.handle_event(&context, event.clone()) {
-                log::error!(
-                    "Injecting DHT Messages returned error handling message: {}",
-                    e
-                );
-            }
-
-            if let Err(e) = handle_api.handle_event(&context, event.clone()) {
-                log::error!("Handling API request returned error: {}", e);
-            }
-
-            // Check States as returning an error doesn't show an unrecoverable error
-            let mut states: Vec<&(dyn UseCaseState)> = vec![
-                forward_message.state(),
-                failure_handling.state(),
-                random_probing.state(),
-                on_disc.state(),
-                vicinity_disc.state(),
-                derive_forwarding_tables.state(),
-                path_probing.state(),
-                precomputation.state(),
-                explicit_path_management.state(),
-            ];
-            // As Injection can be disabled -> Need to append.
-            if let Some(state) = inject_messages.as_ref().map(InjectMessages::state) {
-                states.push(state);
-            }
-            if states.iter().any(|use_case| use_case.is_error()) {
-                log::error!("Some use case is in error state");
-                break;
-            }
-
-            if let Some(start_time) = start_time {
-                let took_time = start_time.elapsed();
-
-                log::trace!(
-                    "Took {} to process {:?} by all use cases!",
-                    humantime::format_duration(took_time),
-                    event
-                );
-                #[cfg(feature = "bench")]
-                if let (UseCaseEvent::Message(message, _), Some(writer)) =
-                    (&event, bench_file_writer.as_mut())
-                {
-                    let bench_entry = BenchmarkEntry::new(message, took_time);
-                    benchmark_log.append_bench(bench_entry, writer);
-                }
-            }
-
-            if let UseCaseEvent::Shutdown = event {
-                break;
-            }
-        }
-
         // remove IP addresses from interfaces
         runtime
             .block_on(async {
@@ -747,42 +471,24 @@ where
 
         log::debug!("Shutting down");
         log::logger().flush();
-        #[cfg(feature = "bench")]
-        if let Some(writer) = bench_file_writer.as_mut() {
-            benchmark_log.flush(writer);
-            log::trace!("Flushed benchmarks");
-        }
     }
 }
 
 mod errors {
-    use std::error::Error;
-    use std::fmt::{Debug, Display, Formatter};
+    use derive_more::{Display, Error};
+    use std::fmt::Debug;
 
-    #[derive(Debug)]
+    #[derive(Debug, Display, Error)]
     pub enum InjectMessageError {
-        BroadcastFailed(Box<dyn Debug>),
+        #[display("Failed to broadcast request injection: {_0:?}")]
+        BroadcastFailed(#[error(not(source))] Box<dyn Debug>),
+        #[display("Channel to node closed while waiting for message")]
         Closed,
+        #[display("Failed to send protocol message")]
         SendFailed,
+        #[display("Failed to send protocol message; Node is isolated")]
         Isolated,
+        #[display("Request took to long")]
         Timeout,
     }
-
-    impl Display for InjectMessageError {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            match self {
-                Self::BroadcastFailed(inner) => {
-                    write!(f, "Failed to broadcast request injection: {:?}", inner)
-                }
-                Self::Closed => write!(f, "Channel to node closed while waiting for message"),
-                Self::SendFailed => {
-                    write!(f, "Failed to send protocol message")
-                }
-                Self::Isolated => write!(f, "Failed to send protocol message; Node is isolated"),
-                Self::Timeout => write!(f, "Request took to long"),
-            }
-        }
-    }
-
-    impl Error for InjectMessageError {}
 }

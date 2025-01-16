@@ -24,11 +24,11 @@ pub struct DeriveFwdTableEntriesConfig {
     pub hasher: Hasher,
 }
 
-/// Use case to derive forwarding table entries through the [ForwardingTables] trait.
+/// Use case to derive forwarding table entries.
 ///
 /// ## Invariants
 ///
-/// - For every [Contact] in the [RoutingTable](crate::domain::routing_table::RoutingTable) a [NodeIdEntry] exists.
+/// - For every [Contact] in the [RoutingTable] a [NodeIdEntry] exists.
 /// - For every [Contact] which is not a underlay neighbor a [PathIdEntry] exists.
 #[derive(Debug)]
 pub struct DeriveFwdTableEntries<C, const BUCKET_SIZE: usize> {

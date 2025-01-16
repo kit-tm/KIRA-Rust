@@ -12,6 +12,17 @@ panic = "abort"
 strip = "debuginfo"
 debug = false
 
+
+[workspace.package]
+authors = [
+  "Moritz Hepp <morith.hepp@student.kit.edu>",
+  "Julius Rüberg <julius.rueberg@student.kit.edu>",
+  "Jakob Müllner <uifnz@student.kit.edu>",
+  "Paul Seehofer <paul.seehofer@kit.edu>",
+]
+homepage = "https://gitlab.kit.edu/kit/tm/telematics/kira/kira-rust"
+edition = "2024"
+
 # All dependencies are well picked and although just a few have versions 1.x
 # they are considered stable enough to use in production by the Rust Community.
 # Nevertheless any new dependency should be weighted for its value over

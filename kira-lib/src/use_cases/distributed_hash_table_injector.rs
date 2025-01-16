@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 use std::time::Instant;
 
-use crate::domain::{dht, NodeId, RoutingTable, UNTable, UnderlayNeighborId};
+use crate::domain::{NodeId, RoutingTable, UNTable, UnderlayNeighborId, dht};
 use crate::use_cases::{
     EventHandler, FetchInjectData, InjectionMessageData, OneshotInjectMessageCallback,
     StoreInjectData, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime, UseCaseState,
@@ -14,8 +14,8 @@ use crate::use_cases::{
 use crate::messaging::dht::{DefaultLHTInput, FetchReqData, StoreReqData};
 use crate::messaging::{Nonce, ProtocolMessage};
 use crate::use_cases::distributed_hash_table_injector::DHTInjectorState::Running;
-use crate::use_cases::inject_messages::errors::InjectMessageError;
 use crate::use_cases::inject_messages::InjectionResult;
+use crate::use_cases::inject_messages::errors::InjectMessageError;
 
 // todo what would be a sensible value here?
 // todo random offsets for periodic restore AND collection of the hash table?
@@ -60,7 +60,7 @@ pub enum DHTInjectorState {
 /// The UseCase is responsible for handling incoming [InjectMessage](UseCaseEvent::InjectMessage)
 /// events by **creating** new [StoreReq](ProtocolMessage::StoreReq) and [FetchReq](ProtocolMessage::FetchReq) respectively.
 /// It also listens for a response of the network and notifies the injector of the response using the provided
-/// [OneshotInjectMessageCallback](super::use_cases::OneshotInjectMessageCallback).
+/// [OneshotInjectMessageCallback].
 ///
 /// This UseCase also performs the periodic restore if requested. The duration can be configured
 /// in the [DistributedHashTableInjectorConfig].

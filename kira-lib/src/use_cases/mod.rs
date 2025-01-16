@@ -258,7 +258,7 @@ pub trait EventHandler {
     ) -> Result<Self::Value, Self::Error>;
 }
 
-/// A UseCase is an [EventHandler] which can be started in a given [UseCaseContext](crate::context::UseCaseContext), has a
+/// A UseCase is an [EventHandler] which can be started in a given [UseCaseContext], has a
 /// [UseCaseState] and either returns a predefined Value or Error type.
 pub trait UseCase: EventHandler {
     type State: UseCaseState + Sized;

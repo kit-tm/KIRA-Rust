@@ -70,34 +70,6 @@ fn main() {
     let root_id: NodeId = args.root_id.unwrap_or_else(NodeId::random);
     tracing::info!(%root_id, "Starting node...");
 
-    // Initialize benchmark file
-    let benchmark_writer: Option<BufWriter<File>> = args
-        .benchmark_path
-        .filter(|path| !path.trim().is_empty())
-        .and_then(|path| {
-            let timestamp = format!("{}_{}.csv", chrono::Utc::now().to_rfc3339(), &root_id);
-            let path = PathBuf::from_str(path.as_ref())
-                .expect("invalid benchmark path")
-                .join(timestamp);
-            tracing::trace!("Opening benchmark file {}", path.to_string_lossy());
-            if let Some(parent_dir) = path.parent() {
-                if !parent_dir.exists() {
-                    create_dir_all(parent_dir).expect("failed to create directories for benchmark");
-                }
-            }
-            OpenOptions::new()
-                .write(true)
-                .truncate(false)
-                .create(true)
-                .open(Path::new(&path))
-                .map(Some)
-                .unwrap_or_else(|e| {
-                    log::error!("Failed to open benchmarking file: {}", e);
-                    None
-                })
-        })
-        .map(BufWriter::new);
-
     let excluded_interfaces = args.excluded_interfaces.map_or_else(
         || HashSet::default(),
         |vec| HashSet::from_iter(vec.into_iter()),

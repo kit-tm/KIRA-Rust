@@ -1,7 +1,7 @@
 //! Events for interaction with the routing protocol R²/KAD.
 
-use crate::domain::underlay::{UnderlayNeighborId, UnderlayNeighborUpdate};
 use crate::domain::UnderlayNeighborDestination;
+use crate::domain::underlay::{UnderlayNeighborId, UnderlayNeighborUpdate};
 use crate::messaging::{Nonce, ProtocolMessage};
 use crate::use_cases::{ApiEvent, InjectionMessageData, UseCaseEvent};
 
@@ -28,13 +28,6 @@ pub enum Output {
     /// Send a protocol message via the specified
     /// [underlay neighbor connection](UnderlayNeighborId).
     SendProtocolMessage(ProtocolMessage, UnderlayNeighborDestination),
-    /// Send a protocol message to all underlay neighbors.
-    ///
-    /// # Important
-    ///
-    /// The message must also be forwarded to neighbors who
-    /// haven't exchanged any messages or have joined the network.
-    BroadCastProtocolMessage(ProtocolMessage),
     /// Request to update information in the forwarding functionality.
     UpdateForwardingTables(ForwardingTablesUpdate),
     //Timeout(Instant),

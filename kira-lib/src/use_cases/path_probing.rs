@@ -4,7 +4,7 @@ use std::ops::Deref;
 use std::time::Duration;
 
 use crate::domain::{
-    Contact, ContactState, NodeId, RoutingTable, UNTable, UnderlayNeighborId, DEFAULT_BUCKET_SIZE,
+    Contact, ContactState, DEFAULT_BUCKET_SIZE, NodeId, RoutingTable, UNTable, UnderlayNeighborId,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{Nonce, ProbeReqData, ProbeRspData, ProtocolMessage, ReqRspMessage};
@@ -16,10 +16,10 @@ use crate::use_cases::{
 /// Configuration for [PathProbing] [UseCase].
 #[derive(Debug)]
 pub struct PathProbingConfig {
-    /// Interval to perform periodic checks if a [Contact](crate::domain::contact::Contact)
+    /// Interval to perform periodic checks if a [Contact]
     /// is about to expire.
     pub check_interval: Duration,
-    /// Maximum age of a [Contact](crate::domain::contact::Contact) before it has to be probed.
+    /// Maximum age of a [Contact] before it has to be probed.
     ///
     /// Default is **40s** because underlay advertising is about 30s.
     pub probe_age: chrono::Duration,

@@ -3,7 +3,6 @@
 use derive_more::derive::{Display, Error};
 use std::{
     collections::{HashMap, HashSet},
-    error::Error,
     marker::PhantomData,
     ops::Deref,
     time::Instant,
@@ -30,14 +29,14 @@ use crate::{
 };
 use runtime::R2KadRuntime;
 
-pub struct R2KadBuilder<C, const BUCKET_SIZE: usize> {
+pub struct Builder<C, const BUCKET_SIZE: usize> {
     context: PhantomData<C>,
     root_id: Option<NodeId>, // None => random
     pipeline_config: R2KadPipelineConfig,
     current_time: Instant,
 }
 
-impl<C, const BUCKET_SIZE: usize> R2KadBuilder<C, BUCKET_SIZE> {
+impl<C, const BUCKET_SIZE: usize> Builder<C, BUCKET_SIZE> {
     /// Enables heuristics.
     // TODO: document what it actually means.
     pub fn enable_heuristics(mut self) -> Self {
@@ -61,7 +60,7 @@ impl<C, const BUCKET_SIZE: usize> R2KadBuilder<C, BUCKET_SIZE> {
     }
 }
 
-impl<C, const BUCKET_SIZE: usize> R2KadBuilder<C, BUCKET_SIZE>
+impl<C, const BUCKET_SIZE: usize> Builder<C, BUCKET_SIZE>
 where
     C: UseCaseContext<
         RoutingTable = ObservableRoutingTable<UnlimitedPNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
@@ -83,6 +82,10 @@ where
         let routing_table = ObservableRoutingTable::from(UnlimitedPNRoutingTable::from(
             FlatRoutingTable::new(root_id).expect("FlatRoutingTable parameters should be valid"),
         ));
+
+        // TODO: add routing table observers that broadcast contact updates
+        // Rc<RefCell<Vec<ContactUpdates>>> in R2Kad and ObservableRoutingTable
+
         let insertion_strategy = PNSStrategy::new(InOrderCycleRemover, ShortestFirstPathSimplifier);
 
         let context = C::new(ContextConfig {
@@ -98,7 +101,7 @@ where
     }
 }
 
-impl<C, const BUCKET_SIZE: usize> Default for R2KadBuilder<C, BUCKET_SIZE> {
+impl<C, const BUCKET_SIZE: usize> Default for Builder<C, BUCKET_SIZE> {
     fn default() -> Self {
         Self {
             context: Default::default(),
@@ -176,8 +179,8 @@ pub struct R2Kad<C, const BUCKET_SIZE: usize> {
 }
 
 impl<C: UseCaseContext, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE> {
-    pub fn builder() -> R2KadBuilder<C, BUCKET_SIZE> {
-        R2KadBuilder::default()
+    pub fn builder() -> Builder<C, BUCKET_SIZE> {
+        Builder::default()
     }
 }
 
