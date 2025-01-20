@@ -9,7 +9,7 @@ use tokio::sync::mpsc; // use tokio::sync::oneshot;
 use crate::domain::{Contact, NodeId, StateSeqNr, UnderlayNeighborSource, UnderlayNeighborUpdate};
 use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr};
 use crate::messaging::messages::ProtocolMessage;
-use crate::messaging::{FindNodeReqData, Nonce};
+use crate::messaging::{FindNodeReqData, HelloMessage, Nonce};
 use crate::use_cases::inject_messages::InjectionResult;
 
 pub mod derive_fwd_table_entries;
@@ -178,6 +178,12 @@ pub enum BroadcastableUseCaseEvent {
 impl From<ProtocolMessage> for BroadcastableUseCaseEvent {
     fn from(value: ProtocolMessage) -> Self {
         Self::Message(value)
+    }
+}
+
+impl From<HelloMessage> for BroadcastableUseCaseEvent {
+    fn from(value: HelloMessage) -> Self {
+        Self::Message(ProtocolMessage::Hello(value))
     }
 }
 

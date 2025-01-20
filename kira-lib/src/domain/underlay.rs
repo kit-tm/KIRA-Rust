@@ -32,18 +32,32 @@ use std::num::NonZeroUsize;
 #[display("{_0:o}")]
 pub struct UnderlayNeighborId(NonZeroUsize);
 
+/// Network interface id.
+///
+/// This is used in an [UnderlayNeighborUpdate] to inform the
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From)]
+#[display("{_0}")]
+pub struct InterfaceId(NonZeroUsize);
+
 /// An underlay destination for [ProtocolMessages](crate::messaging::ProtocolMessage).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From)]
 pub enum UnderlayNeighborDestination {
     /// Broadcast to all underlay neighbors.
     ///
     /// This is primarily used when sending [HelloMessages](crate::messaging::HelloMessage)
-    /// to  discover the underlay vicinity.
+    /// to discover the underlay vicinity.
     ///
-    /// Additionally Broadcast is set when receiving a [ProtocolMessages](crate::messaging::ProtocolMessage)
-    /// from itself. See
-    /// [BroadcastableUseCaseEvent::Message](crate::use_cases::BroadcastableUseCaseEvent::Message).
+    /// All neighbors that joined the well-known link-local multicast address `ALL-KIRA-NODES`
+    /// should receive this message on *all* interfaces.
     Broadcast,
+    /// Broadcast to all underlay neighbors connected via the interface.
+    ///
+    /// This is primarily used when sending [HelloMessages](crate::messaging::HelloMessage)
+    /// to discover the underlay vicinity.
+    ///
+    /// All neighbors that joined the well-known link-local multicast address `ALL-KIRA-NODES`
+    /// on that interface should receive this message.
+    BroadcastInterface(InterfaceId),
     /// Link to an underlay neighbor.
     UnderlayNeighbor(UnderlayNeighborId),
 }
@@ -56,9 +70,15 @@ impl UnderlayNeighborDestination {
     }
 
     /// Returns if the [destination](UnderlayNeighborDestination)
-    /// is [broadcast](UnderlayNeighborDestination::UnderlayNeighbor).
+    /// is [Broadcast](UnderlayNeighborDestination::Broadcast).
     pub const fn is_broadcast(&self) -> bool {
         matches!(self, Self::Broadcast)
+    }
+
+    /// Returns if the [destination](UnderlayNeighborDestination)
+    /// is [BroadcastInterface](UnderlayNeighborDestination::BroadcastInterface).
+    pub const fn is_interface_broadcast(&self) -> bool {
+        matches!(self, Self::BroadcastInterface(_))
     }
 }
 
@@ -99,11 +119,24 @@ pub enum UnderlayNeighborSource {
 /// Updates of the currently present underlay neighbors connections.
 #[derive(Debug, Clone, PartialEq)]
 pub enum UnderlayNeighborUpdate {
+    /// Am interface has gone up.
+    InterfaceUp(InterfaceId),
+    /// An interface has gone down.
+    // NOTE: Routing daemon has no information which neighbor is reachable via which
+    //       interface, so this event currently is unused.
+    InterfaceDown(InterfaceId),
     /// A new connection to an underlay neighbor was discovered.
     ///
     /// The connection may not provide connection to a new underlay neighbor
     /// since the node is already connected using a different connection.
+    // NOTE:The Routing daemon already knows the neighbor exists because of the
+    //      message that caused the forging of this event so this is currently little
+    //      use unless we have a different method detecting new potential KIRA nodes
+    //      without R²/KAD protocol message snooping in the I/O part.
     UnderlayNeighborUp(UnderlayNeighborId),
     /// A connection to an underlay neighbor was lost.
+    ///
+    /// This *has* to be issued even if the cause is an
+    /// [InterfaceDown](UnderlayNeighborUpdate::InterfaceDown) event.
     UnderlayNeighborDown(UnderlayNeighborId),
 }

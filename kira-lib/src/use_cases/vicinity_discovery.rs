@@ -8,9 +8,10 @@ use std::time::Duration;
 use derive_more::derive::{Display, Error};
 use rand::Rng;
 
+use crate::domain::UnderlayNeighborDestination::{Broadcast, BroadcastInterface, UnderlayNeighbor};
 use crate::domain::{
-    node_id, Contact, ContactState, NodeId, Path, RoutingTable, StateSeqNr, UNTable,
-    UnderlayNeighborId, UnderlayNeighborUpdate, DEFAULT_BUCKET_SIZE,
+    Contact, ContactState, DEFAULT_BUCKET_SIZE, InterfaceId, NodeId, Path, RoutingTable,
+    StateSeqNr, UNTable, UnderlayNeighborId, UnderlayNeighborUpdate, node_id,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -18,8 +19,8 @@ use crate::messaging::{
     ReqRspMessage,
 };
 use crate::use_cases::{
-    ContactEvent, EventHandler, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime,
-    UseCaseState,
+    BroadcastableUseCaseEvent, ContactEvent, EventHandler, TimerId, UseCase, UseCaseContext,
+    UseCaseEvent, UseCaseRuntime, UseCaseState,
 };
 
 /// Radius of the neighborhood considered as vicinity.
@@ -147,7 +148,9 @@ impl<C, const BUCKET_SIZE: usize> VicinityDiscovery<C, BUCKET_SIZE> {
     /// Create a new vicinity discovery use case in [VDState::Initialized].
     pub fn new(config: VicinityDiscoveryConfig) -> Self {
         if node_id::BIT_SIZE < config.heuristic_calculation_bits.get() {
-            panic!("Number of bits to use for the heuristic in VicinityDiscovery is greater than BIT_SIZE of NodeId.")
+            panic!(
+                "Number of bits to use for the heuristic in VicinityDiscovery is greater than BIT_SIZE of NodeId."
+            )
         }
         Self {
             _c: PhantomData,
@@ -285,16 +288,36 @@ where
         Ok(())
     }
 
-    fn send_hello(&self, context: &C) {
-        let message = HelloMessage {
+    fn constract_hello(&self, context: &C) -> HelloMessage {
+        HelloMessage {
             source: *context.root_id(),
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
-        };
+        }
+    }
+
+    fn broadcast_hello(&self, context: &C) {
+        let message = self.constract_hello(context);
+        let source_ip = Ipv6Addr::from(context.root_id()).to_string();
+        log::trace!(target: "vicinity_discovery", "Sending message {:?} from {:?}", message, source_ip);
+        context.runtime_mut().send_message_via(message, Broadcast);
+    }
+
+    fn broadcast_interface_hello(&self, context: &C, interface: InterfaceId) {
+        let message = self.constract_hello(context);
         let source_ip = Ipv6Addr::from(context.root_id()).to_string();
         log::trace!(target: "vicinity_discovery", "Sending message {:?} from {:?}", message, source_ip);
         context
             .runtime_mut()
-            .send_message(message, context.pn_table().deref());
+            .send_message_via(message, BroadcastInterface(interface));
+    }
+
+    fn send_hello(&self, context: &C, ulnid: UnderlayNeighborId) {
+        let message = self.constract_hello(context);
+        let source_ip = Ipv6Addr::from(context.root_id()).to_string();
+        log::trace!(target: "vicinity_discovery", "Sending message {:?} from {:?}", message, source_ip);
+        context
+            .runtime_mut()
+            .send_message_via(message, UnderlayNeighbor(ulnid));
     }
 
     fn send_pn_disc_req(&self, context: &C, source: NodeId) {
@@ -478,7 +501,7 @@ where
                 *hello_timer_id = next_hello_timer_id;
                 *last_ssn = current_ssn;
 
-                self.send_hello(context);
+                self.broadcast_hello(context);
             }
             (
                 UseCaseEvent::Message(
@@ -534,12 +557,18 @@ where
                 }
                 self.send_pn_disc_rsp(context, req)?;
             }
-            (UseCaseEvent::UnderlayUpdate(UnderlayNeighborUpdate::UnderlayNeighborUp(_)), _) => {
+            (
+                UseCaseEvent::UnderlayUpdate(UnderlayNeighborUpdate::UnderlayNeighborUp(ulnid)),
+                _,
+            ) => {
                 // send hello message immediately if interface comes up
                 // TODO: add small random delay
                 // TODO: reset hello timer if this fires too far away in the future
                 // TODO: send hello to up neighbor only
-                self.send_hello(context);
+                self.send_hello(context, ulnid);
+            }
+            (UseCaseEvent::UnderlayUpdate(UnderlayNeighborUpdate::InterfaceUp(interface)), _) => {
+                self.broadcast_interface_hello(context, interface);
             }
             // reacting on InterfaceDown is done in the FailureHandling use-case
             // ========== Resynchronisation management ==========

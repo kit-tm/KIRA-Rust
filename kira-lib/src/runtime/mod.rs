@@ -33,10 +33,14 @@ pub trait UseCaseRuntime {
     fn send_message_via<P: Into<ProtocolMessage>>(
         &mut self,
         protocol_message: P,
-        ulnid: UnderlayNeighborDestination,
+        destination: UnderlayNeighborDestination,
     );
 
     /// Convenient method to send a [ProtocolMessage].
+    ///
+    /// If the next hop is not in the `pn_table` (physical neighbor table)
+    /// or the even is not source-routed like [HelloMessage](crate::messaging::HelloMessage)
+    /// the event is delivered by broadcasting to all interfaces.
     fn send_message<P: Into<ProtocolMessage>>(
         &mut self,
         protocol_message: P,
@@ -57,5 +61,7 @@ pub trait UseCaseRuntime {
     fn update_fwd_tables<U: Into<ForwardingTablesUpdate>>(&mut self, update: U);
 
     /// Broadcast an [UseCaseEvent](BroadcastableUseCaseEvent).
+    ///
+    /// This event is delivered *locally* to all UseCases.
     fn broadcast_event(&mut self, event: BroadcastableUseCaseEvent);
 }
