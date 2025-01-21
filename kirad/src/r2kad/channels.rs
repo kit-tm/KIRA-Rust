@@ -65,23 +65,23 @@ fn input_fan_in(
     mut input_channels: R2KadInputChannels,
     fan_in: InputSender,
 ) -> tokio::task::JoinHandle<()> {
-    async move {
+    tokio::spawn(async move {
         loop {
             let input = tokio::select! {
-                api = input_channels.api.recv() => {
+                Some(api) = input_channels.api.recv() => {
                     Input::Debug(DebugEvent::Api(api))
                 }
-                (msg, src_ulnid) = input_channels.protocol_input.recv() => {
+                Some((msg, src_ulnid)) = input_channels.protocol_input.recv() => {
                     Input::Message(msg, src_ulnid)
                 }
-                underlay_update = input_channels.underlay.recv() => {
+                Some(underlay_update) = input_channels.underlay.recv() => {
                     Input::UnderlayUpdate(underlay_update)
                 }
             };
 
-            let _ = agg_tx.send(input).await;
+            let _ = fan_in.send(input).await;
         }
-    }
+    })
 }
 
 /// Distributes all [Output] events by an [OutputReceiver] to the dedicated [output
@@ -89,10 +89,10 @@ fn input_fan_in(
 ///
 /// The [OutputReceiver] can be used to listen to output of the routing protocol.
 fn output_fan_out(
-    combined_output: OutputReceiver,
-    mut output_channels: R2KadOutputChannels,
+    mut combined_output: OutputReceiver,
+    output_channels: R2KadOutputChannels,
 ) -> tokio::task::JoinHandle<()> {
-    async move {
+    tokio::spawn(async move {
         loop {
             let Some(output) = combined_output.recv().await else {
                 break;
@@ -107,5 +107,5 @@ fn output_fan_out(
                 }
             }
         }
-    }
+    })
 }

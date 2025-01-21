@@ -10,7 +10,6 @@ edition.workspace = true
 [features]
 serde = ["dep:serde", "serde-big-array", "chrono/serde"]
 sync-wrapper = []
-in-memory-message-channel = ["tokio"]
 
 
 [dependencies]

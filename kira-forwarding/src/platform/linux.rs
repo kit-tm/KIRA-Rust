@@ -1,3 +1,4 @@
+//! Linux specific platform module
 use std::{ffi::OsStr, net::Ipv6Addr, process::Command};
 
 use crate::domain::NodeId;

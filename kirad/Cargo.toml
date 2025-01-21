@@ -45,6 +45,10 @@ tokio = { workspace = true, default-features = true, features = [
   "full",
   "tracing",
 ] }
+netlink-packet-core = { workspace = true }
+netlink-packet-route = { workspace = true }
+netlink-proto = { workspace = true }
+rtnetlink = { workspace = true }
 # Debug tool
 console-subscriber = "0.4.0"
 # REST server backend
@@ -61,8 +65,6 @@ base64 = { version = "0.22.1", optional = true }
 utoipa = { version = "4.2.3", optional = true }
 utoipa-swagger-ui = { version = "6.0.0", features = ["axum"], optional = true }
 itertools = { version = "0.13.0", optional = true }
-rtnetlink = "0.14.1"
-netlink-proto = "0.11.3"
 tracing = { workspace = true, features = ["attributes"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 

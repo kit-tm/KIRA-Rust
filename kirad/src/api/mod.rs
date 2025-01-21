@@ -19,7 +19,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use domain::dht::DHTErr;
 use tokio::sync::mpsc;
-use tokio::time::{timeout, Instant};
+use tokio::time::timeout;
 
 use kira_lib::messaging::ProtocolMessage;
 use kira_lib::use_cases::inject_messages::InjectionResult;
@@ -94,14 +94,14 @@ struct ApiDoc;
 #[derive(Clone)]
 struct ApiState {
     node_id: kira_lib::domain::NodeId,
-    sender: mpsc::Sender<(UseCaseEvent, Option<Instant>)>,
+    sender: mpsc::Sender<ApiEvent>,
 }
 
 /// The configuration for the API-Server used by [start_http_server].
 pub struct ApiConfig {
     address: SocketAddr,
     node_id: kira_lib::domain::NodeId,
-    sender: mpsc::Sender<(UseCaseEvent, Option<Instant>)>,
+    sender: mpsc::Sender<ApiEvent>,
 }
 
 impl ApiConfig {
@@ -119,7 +119,7 @@ impl ApiConfig {
     pub(crate) fn new(
         address: SocketAddr,
         node_id: kira_lib::domain::NodeId,
-        sender: mpsc::Sender<(UseCaseEvent, Option<Instant>)>,
+        sender: mpsc::Sender<ApiEvent>,
     ) -> ApiConfig {
         ApiConfig {
             address,
@@ -203,7 +203,7 @@ async fn store_dht_data(
 
     state
         .sender
-        .send((event, None))
+        .send(event)
         .await
         .map_err(|_| DHTErr::SendError)?;
     let injection_result = timeout(domain::dht::DEFAULT_TIMEOUT, rx.recv())
@@ -217,7 +217,6 @@ async fn store_dht_data(
             Ok(payload.data.status?.into())
         }
         InjectionResult::Isolated => Err(DHTErr::Isolated),
-        InjectionResult::SendFailed(_) => Err(DHTErr::SendError),
         InjectionResult::Answered(_) => Err(DHTErr::MessageReceiveMismatch),
     }
 }
@@ -258,7 +257,7 @@ async fn fetch_dht_data(
 
     state
         .sender
-        .send((event, None))
+        .send(event)
         .await
         .map_err(|_| DHTErr::SendError)?;
     let injection_result = timeout(domain::dht::DEFAULT_TIMEOUT, rx.recv())
@@ -272,7 +271,6 @@ async fn fetch_dht_data(
             Ok(Json(payload.data.data?.into()))
         }
         InjectionResult::Isolated => Err(DHTErr::Isolated),
-        InjectionResult::SendFailed(_) => Err(DHTErr::SendError),
         InjectionResult::Answered(_) => Err(DHTErr::MessageReceiveMismatch),
     }
 }
@@ -294,11 +292,11 @@ async fn dump_local_hashtable(
 ) -> Result<Json<domain::dht::LocalHashTable>, DHTErr> {
     let (tx, mut rx) = mpsc::unbounded_channel();
 
-    let event = UseCaseEvent::API(ApiEvent::LocalHashTable(tx));
+    let event = ApiEvent::LocalHashTable(tx);
 
     state
         .sender
-        .send((event, None))
+        .send(event)
         .await
         .map_err(|_| DHTErr::SendError)?;
 
@@ -326,11 +324,11 @@ async fn dump_local_hashtable(
 async fn dump_pn_table(State(state): State<crate::api::ApiState>) -> Result<String, Json<DHTErr>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
 
-    let event = UseCaseEvent::API(ApiEvent::PNTable(tx));
+    let event = ApiEvent::PNTable(tx);
 
     state
         .sender
-        .send((event, None))
+        .send(event)
         .await
         .map_err(|_| DHTErr::SendError)?;
 
@@ -347,11 +345,11 @@ async fn dump_routing_table(
 ) -> Result<String, Json<DHTErr>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
 
-    let event = UseCaseEvent::API(ApiEvent::RoutingTable(tx));
+    let event = ApiEvent::RoutingTable(tx);
 
     state
         .sender
-        .send((event, None))
+        .send(event)
         .await
         .map_err(|_| DHTErr::SendError)?;
 
@@ -368,11 +366,11 @@ async fn dump_vicinity_graph(
 ) -> Result<String, Json<DHTErr>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
 
-    let event = UseCaseEvent::API(ApiEvent::VicinityGraph(tx));
+    let event = ApiEvent::VicinityGraph(tx);
 
     state
         .sender
-        .send((event, None))
+        .send(event)
         .await
         .map_err(|_| DHTErr::SendError)?;
 

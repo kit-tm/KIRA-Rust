@@ -21,7 +21,7 @@ authors = [
   "Paul Seehofer <paul.seehofer@kit.edu>",
 ]
 homepage = "https://gitlab.kit.edu/kit/tm/telematics/kira/kira-rust"
-edition = "2024"
+edition = "2021"
 
 # All dependencies are well picked and although just a few have versions 1.x
 # they are considered stable enough to use in production by the Rust Community.
@@ -43,8 +43,11 @@ futures = "0.3.30"
 hex = "0.4.3"
 # Logging facade supporting many concrete implementations in binaries
 log = "0.4.22"
-# For fetching the network interface for a given IP
-pnet = { version = "0.35.0" }
+# Fetching link status using netlink protocol on Linux
+netlink-packet-core = "0.7.0"
+netlink-packet-route = "0.21.0"
+netlink-proto = "0.11.3"
+rtnetlink = "0.14.1"
 # Random NodeId generation
 rand = "0.8.5"
 # Rust message pack support for serde

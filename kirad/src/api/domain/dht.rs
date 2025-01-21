@@ -1,23 +1,23 @@
-use std::collections::{BTreeMap, HashMap};
-use std::fmt::{Display, Formatter};
+use crate::api::domain::NodeId;
+use axum::http;
 use axum::response::{IntoResponse, Response};
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
 use hex::FromHexError;
+#[cfg(feature = "swagger_doc")]
+use itertools::Itertools;
+use kira_lib::domain::SIZE;
 use kira_lib::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, StoreErr};
 use kira_lib::use_cases::{FetchInjectData, StoreInjectData};
 use serde_derive::Serialize;
-use std::time::Duration;
-use axum::http;
-use kira_lib::domain::SIZE;
 use sha2::{Digest, Sha256};
-use crate::api::domain::NodeId;
-#[cfg(feature = "swagger_doc")]
-use utoipa::{ToResponse, ToSchema};
+use std::collections::{BTreeMap, HashMap};
+use std::fmt::{Display, Formatter};
+use std::time::Duration;
 #[cfg(feature = "swagger_doc")]
 use utoipa::openapi::{RefOr, ResponseBuilder, ResponsesBuilder};
 #[cfg(feature = "swagger_doc")]
-use itertools::Itertools;
+use utoipa::{ToResponse, ToSchema};
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -35,7 +35,8 @@ impl TryFrom<Handle> for kira_lib::domain::NodeId {
             Handle::Key(key) => {
                 // calculating SHA256 hash
                 let hash = Sha256::digest(key.as_bytes());
-                let handle: [u8; SIZE] = hash.into_iter()
+                let handle: [u8; SIZE] = hash
+                    .into_iter()
                     .take(SIZE)
                     .collect::<Vec<u8>>()
                     .try_into()
@@ -71,8 +72,7 @@ impl From<StoreInjectData<DefaultLHTInput>> for StoreArgs {
     }
 }
 
-impl TryFrom<StoreArgs> for StoreInjectData<DefaultLHTInput>
-{
+impl TryFrom<StoreArgs> for StoreInjectData<DefaultLHTInput> {
     type Error = FromHexError;
 
     fn try_from(value: StoreArgs) -> Result<Self, Self::Error> {
@@ -120,7 +120,7 @@ impl From<kira_lib::messaging::dht::StoreOK> for StoreOK {
         match value {
             kira_lib::messaging::dht::StoreOK::Created => Self::Created,
             kira_lib::messaging::dht::StoreOK::Updated => Self::Updated,
-            kira_lib::messaging::dht::StoreOK::Inserted => Self::Inserted
+            kira_lib::messaging::dht::StoreOK::Inserted => Self::Inserted,
         }
     }
 }
@@ -134,8 +134,7 @@ impl From<StoreErr> for DHTErr {
 impl IntoResponse for StoreOK {
     fn into_response(self) -> Response {
         let status = match self {
-            StoreOK::Created |
-            StoreOK::Inserted => http::StatusCode::CREATED,
+            StoreOK::Created | StoreOK::Inserted => http::StatusCode::CREATED,
             StoreOK::Updated => http::StatusCode::OK,
         };
 
@@ -149,7 +148,12 @@ pub struct FetchRsp(Vec<String>);
 
 impl From<DefaultLHTOutput> for FetchRsp {
     fn from(value: DefaultLHTOutput) -> Self {
-        Self(value.into_iter().map(|d| BASE64_STANDARD.encode(d)).collect())
+        Self(
+            value
+                .into_iter()
+                .map(|d| BASE64_STANDARD.encode(d))
+                .collect(),
+        )
     }
 }
 
@@ -185,7 +189,9 @@ impl Display for DHTErr {
             Self::Isolated => write!(f, "Node is isolated."),
             Self::ReceiveError => write!(f, "Receive Error."),
             Self::Timeout => write!(f, "Timout of request."),
-            Self::MessageReceiveMismatch => write!(f, "Response message received isn't expected type."),
+            Self::MessageReceiveMismatch => {
+                write!(f, "Response message received isn't expected type.")
+            }
             Self::NotFound => write!(f, "Unable to locate resource in the network."),
             Self::Miscellaneous => write!(f, "Unknown error occurred."),
         }
@@ -243,29 +249,34 @@ impl From<FetchErr> for DHTErr {
 
 #[cfg(feature = "swagger_doc")]
 // creates responses based on a selected example list
-fn responses<R: IntoResponse + Display>(examples: Vec<R>) -> BTreeMap<String, RefOr<utoipa::openapi::Response>> {
+fn responses<R: IntoResponse + Display>(
+    examples: Vec<R>,
+) -> BTreeMap<String, RefOr<utoipa::openapi::Response>> {
     let binding = examples
         .into_iter()
         .map(|e| (e.to_string(), e.into_response().status()))
         // group status codes so we can display all alternatives that throw same status code
-        .group_by(|(_ , status)| status.clone());
-    let iter = binding
-        .into_iter()
-        .map(|(status_code, e)| (
+        .group_by(|(_, status)| status.clone());
+    let iter = binding.into_iter().map(|(status_code, e)| {
+        (
             status_code.to_string(),
-            ResponseBuilder::new()
-                .description(e
+            ResponseBuilder::new().description(
+                e
                     // strip common part of FormatError
-                    .map(|(description, _)| description.find(':')
-                        .map_or(description.clone(), |pos| description[pos+1..].trim_start().to_string())
-                    )
-                    .join(" | ")
-                )
-        ));
+                    .map(|(description, _)| {
+                        description.find(':').map_or(description.clone(), |pos| {
+                            description[pos + 1..].trim_start().to_string()
+                        })
+                    })
+                    .join(" | "),
+            ),
+        )
+    });
 
     ResponsesBuilder::new()
         .responses_from_iter(iter)
-        .build().into()
+        .build()
+        .into()
 }
 
 #[cfg(feature = "swagger_doc")]
@@ -274,8 +285,13 @@ impl utoipa::IntoResponses for DHTErr {
         let examples = vec![
             DHTErr::FormatError(ApiFormatErr::AmbiguousParams),
             DHTErr::FormatError(ApiFormatErr::HexFormatError),
-            DHTErr::FormatError(ApiFormatErr::MissingParams(vec!["missing_parameter".to_string()])),
-            DHTErr::FormatError(ApiFormatErr::MissingParams(vec!["missing_parameter1".to_string(), "missing_parameter2".to_string()])),
+            DHTErr::FormatError(ApiFormatErr::MissingParams(vec![
+                "missing_parameter".to_string()
+            ])),
+            DHTErr::FormatError(ApiFormatErr::MissingParams(vec![
+                "missing_parameter1".to_string(),
+                "missing_parameter2".to_string(),
+            ])),
             DHTErr::FormatError(ApiFormatErr::BoolFormatError),
             DHTErr::SendError,
             DHTErr::Isolated,
@@ -293,11 +309,7 @@ impl utoipa::IntoResponses for DHTErr {
 #[cfg(feature = "swagger_doc")]
 impl utoipa::IntoResponses for StoreOK {
     fn responses() -> BTreeMap<String, RefOr<utoipa::openapi::Response>> {
-        let examples = vec![
-            StoreOK::Inserted,
-            StoreOK::Created,
-            StoreOK::Updated
-        ];
+        let examples = vec![StoreOK::Inserted, StoreOK::Created, StoreOK::Updated];
 
         responses(examples)
     }
@@ -308,6 +320,7 @@ impl utoipa::IntoResponses for FetchRsp {
     fn responses() -> BTreeMap<String, RefOr<utoipa::openapi::Response>> {
         ResponsesBuilder::new()
             .response("200", Self::response().1)
-            .build().into()
+            .build()
+            .into()
     }
 }

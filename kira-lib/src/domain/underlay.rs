@@ -30,14 +30,14 @@ use std::num::NonZeroUsize;
 /// [1]: <https://datatracker.ietf.org/doc/rfc8200/>
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From)]
 #[display("{_0:o}")]
-pub struct UnderlayNeighborId(NonZeroUsize);
+pub struct UnderlayNeighborId(pub NonZeroUsize);
 
 /// Network interface id.
 ///
 /// This is used in an [UnderlayNeighborUpdate] to inform the
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From)]
 #[display("{_0}")]
-pub struct InterfaceId(NonZeroUsize);
+pub struct InterfaceId(pub NonZeroUsize);
 
 /// An underlay destination for [ProtocolMessages](crate::messaging::ProtocolMessage).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From)]

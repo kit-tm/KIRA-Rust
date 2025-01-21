@@ -1,5 +1,9 @@
 //! Type definitions for the forwarding layer interface.
 
+pub mod in_memory_tables;
+#[cfg(feature = "nft")]
+pub mod native_tables;
+
 use crate::domain::r2kad::{
     self,
     ForwardingTablesUpdate::{NodeIdTableUpdate, PathIdTableUpdate},
