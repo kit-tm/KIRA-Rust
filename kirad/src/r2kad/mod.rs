@@ -20,6 +20,7 @@ use tokio::sync::mpsc;
 pub use kira_forwarding::ForwardingTables;
 pub use kira_lib::r2kad::R2Kad;
 
+#[cfg(feature = "api")]
 use crate::api;
 use crate::underlay;
 

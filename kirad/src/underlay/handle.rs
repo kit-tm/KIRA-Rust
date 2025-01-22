@@ -1,3 +1,4 @@
+use std::collections::hash_map::Keys;
 use std::net::Ipv6Addr;
 
 use derive_more::derive::{Display, Error, From};
@@ -5,6 +6,7 @@ use futures::channel::mpsc::{SendError, UnboundedSender};
 use futures::channel::oneshot;
 use futures::SinkExt;
 
+use crate::domain::underlay::Interface;
 use crate::{
     domain::underlay::{EthAddr, InterfaceId, UnderlayNeighborId, UnderlayNeighborInformation},
     underlay::UnderlayNeighborInterfaceDownError,
@@ -18,6 +20,7 @@ type UnderlayObserverHandleTx = UnboundedSender<UnderlayObserverHandleRequest>;
 ///
 /// The [UnderlayInformationBase] is managed by the [UnderlayObserverConnection].
 /// This struct is created using the [observe_underlay] function.
+#[derive(Debug, Clone)]
 pub struct UnderlayObserverHandle {
     tx: UnderlayObserverHandleTx,
 }
@@ -31,13 +34,15 @@ pub(super) enum UnderlayObserverHandleRequest {
     },
     RegisterUnderlayNeighbor {
         interface_id: InterfaceId,
-        dst_mac: EthAddr,
         ll_ipv6: Ipv6Addr,
         response: oneshot::Sender<Result<UnderlayNeighborId, UnderlayNeighborInterfaceDownError>>,
     },
     UnregisterUnderlayNeighbor {
         ulnid: UnderlayNeighborId,
         // no response because UnderlayNeighborUpdate is "response"
+    },
+    GetAvailable {
+        response: oneshot::Sender<Vec<InterfaceId>>,
     },
 }
 
@@ -88,14 +93,12 @@ impl UnderlayObserverHandle {
     pub async fn register_neighbor(
         &mut self,
         interface_id: InterfaceId,
-        dst_mac: EthAddr,
         ll_ipv6: Ipv6Addr,
     ) -> Result<UnderlayNeighborId, UnderlayObserverHandleError> {
         let (tx, rx) = oneshot::channel();
         self.tx
             .send(UnderlayObserverHandleRequest::RegisterUnderlayNeighbor {
                 interface_id,
-                dst_mac,
                 ll_ipv6,
                 response: tx,
             })
@@ -121,5 +124,16 @@ impl UnderlayObserverHandle {
             .await?;
 
         Ok(())
+    }
+
+    pub async fn get_available(
+        &mut self,
+    ) -> Result<Vec<InterfaceId>, UnderlayObserverSenderClosedError> {
+        let (tx, rx) = oneshot::channel();
+        self.tx
+            .send(UnderlayObserverHandleRequest::GetAvailable { response: tx })
+            .await?;
+
+        Ok(rx.await.expect("sender should not get dropped"))
     }
 }

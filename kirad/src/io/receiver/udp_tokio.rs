@@ -1,6 +1,11 @@
+//! Implementations of the [AsyncProtocolMessageReceiver] trait using [tokio] async sockets.
+//!
+//! The main struct for receiving [ProtocolMessages](ProtocolMessage) is the [UdpReceiver].
+
 use std::collections::HashSet;
 use std::fmt::Debug;
-use std::net::{Ipv6Addr, SocketAddr};
+use std::net::SocketAddr;
+use std::num::NonZeroU32;
 use std::ops::DerefMut;
 use std::sync::Arc;
 use std::time::Duration;
@@ -8,12 +13,10 @@ use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
 
-use crate::domain::NetworkInterface;
-use crate::messaging::format::ProtocolMessageFormat;
-use crate::messaging::{
-    AsyncInterfaceMapper, AsyncIpCache, AsyncProtocolMessageReceiver, ProtocolMessage, RecvError,
-    TryRecvError,
-};
+use super::*;
+use crate::format::ProtocolMessageFormat;
+use crate::io::ALL_KIRA_NODES;
+use crate::underlay::UnderlayObserverHandle;
 
 /// Maximum Transmission Unit (MTU). In general the MTU is actually smaller due to
 /// network restrictions. But to be safe we use this.
@@ -24,32 +27,30 @@ const MTU_BYTES: usize = 65536;
 /// The buffer used for messages is not shared between (cloned) instances of [UdpReceiver].
 ///
 /// The used [UdpSocket] binds to all available IPv6 interfaces and maps the incoming IP
-/// addresses to the ports using the generic parameter P ([InterfaceMapper](crate::messaging::InterfaceMapper)).
+/// addresses to [UnderlayNeighborIds][UnderlayNeighborId] using an [UnderlayObserverHandle].
 #[derive(Debug)]
-pub struct UdpReceiver<C, P> {
+pub struct UdpReceiver {
     buffer: RwLock<[u8; MTU_BYTES]>,
     socket: Arc<UdpSocket>,
     format: ProtocolMessageFormat,
-    interface_mapper: P,
-    ip_cache: C,
-    excluded_interfaces: HashSet<u32>,
+    underlay_handle: UnderlayObserverHandle,
+    excluded_interfaces: HashSet<InterfaceId>,
 }
 
-impl<C: Clone, P: Clone> Clone for UdpReceiver<C, P> {
+impl Clone for UdpReceiver {
     /// Clones the [UdpReceiver] with a new buffer.
     fn clone(&self) -> Self {
         Self {
             buffer: RwLock::new([0u8; MTU_BYTES]),
             socket: Arc::clone(&self.socket),
             format: self.format.clone(),
-            interface_mapper: self.interface_mapper.clone(),
-            ip_cache: self.ip_cache.clone(),
+            underlay_handle: self.underlay_handle.clone(),
             excluded_interfaces: self.excluded_interfaces.clone(),
         }
     }
 }
 
-impl<C, P> UdpReceiver<C, P> {
+impl UdpReceiver {
     /// Creates a new [UdpReceiver].
     ///
     /// Initializes the internally used [UdpSocket].
@@ -58,44 +59,37 @@ impl<C, P> UdpReceiver<C, P> {
     pub async fn new(
         socket_port: u16,
         format: ProtocolMessageFormat,
-        ip_cache: C,
-        interface_mapper: P,
-        excluded_interfaces: HashSet<u32>,
+        underlay_handle: UnderlayObserverHandle,
+        excluded_interfaces: HashSet<InterfaceId>,
     ) -> tokio::io::Result<Self> {
         let udp_socket =
             UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?;
-        if let Err(err) =
-            udp_socket.join_multicast_v6(&Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), 0)
-        {
+        if let Err(err) = udp_socket.join_multicast_v6(&ALL_KIRA_NODES, 0) {
             log::trace!("Error joining multicast group: {:?}", err);
         }
 
         let socket = Arc::new(udp_socket);
 
-        Ok(Self {
-            buffer: RwLock::new([0u8; MTU_BYTES]),
+        Ok(Self::from_socket(
             socket,
             format,
-            interface_mapper,
-            ip_cache,
+            underlay_handle,
             excluded_interfaces,
-        })
+        ))
     }
 
     /// Creates a new [UdpReceiver] from a given socket.
     pub(crate) fn from_socket(
         socket: Arc<UdpSocket>,
         format: ProtocolMessageFormat,
-        ip_cache: C,
-        port_mapper: P,
-        excluded_interfaces: HashSet<u32>,
+        underlay_handle: UnderlayObserverHandle,
+        excluded_interfaces: HashSet<InterfaceId>,
     ) -> Self {
         Self {
             buffer: RwLock::new([0u8; MTU_BYTES]),
             socket,
             format,
-            interface_mapper: port_mapper,
-            ip_cache,
+            underlay_handle,
             excluded_interfaces,
         }
     }
@@ -118,16 +112,11 @@ impl<C, P> UdpReceiver<C, P> {
     }
 }
 
-#[async_trait::async_trait]
-impl<C, P> AsyncProtocolMessageReceiver for UdpReceiver<C, P>
-where
-    P: AsyncInterfaceMapper + Send + Sync,
-    C: AsyncIpCache + Send + Sync,
-{
+impl AsyncProtocolMessageReceiver for UdpReceiver {
     async fn recv_timeout(
         &mut self,
         timeout: Option<Duration>,
-    ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError> {
+    ) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, RecvError> {
         let socket = Arc::clone(&self.socket);
         let mut buffer = self.buffer.write().await;
 
@@ -151,205 +140,78 @@ where
             addr => panic!("Received Non-IPv6 Packet from {}", addr),
         };
 
-        // ignore incoming messages from excluded interfaces
-        if self.excluded_interfaces.contains(&received_from.scope_id()) {
-            return Ok(None);
-        }
-
-        // FIXME ignore scope_id 0 (probably caused by ipv6 attached to lo)
-        if received_from.scope_id() == 0 {
+        // FIXME: ignore scope_id 0 (probably caused by ipv6 attached to lo)
+        let Some(interface_id) = NonZeroU32::new(received_from.scope_id()) else {
             log::warn!("Ignoring message with scope_id 0");
             return Ok(None);
+        };
+        let interface_id = interface_id.into();
+
+        // ignore incoming messages from excluded interfaces
+        if self.excluded_interfaces.contains(&interface_id) {
+            return Ok(None);
         }
 
-        let message = self.deserialize(&buffer[..received_bytes]);
-        let interface = NetworkInterface::new(received_from.scope_id());
+        let Some(message) = self.deserialize(&buffer[..received_bytes]) else {
+            log::warn!("Deserialization of received message failed");
+            return Ok(None);
+        };
+        log::trace!(target: "message_receiver", "Received {:?} from {}", &message, received_from);
 
-        if let Some(message) = &message {
-            log::trace!(target: "message_receiver", "Received {:?} from {}", &message, received_from);
+        let ulnid = self
+            .underlay_handle
+            .register_neighbor(interface_id, *received_from.ip())
+            .await
+            .unwrap();
 
-            let previous_node = message.previous_hop();
-
-            if let Some(ip) = self
-                .ip_cache
-                .insert(previous_node.clone(), received_from)
-                .await
-            {
-                if ip != received_from {
-                    log::trace!(
-                        "Replaced ip for {} ({} => {})",
-                        previous_node,
-                        ip,
-                        received_from.ip()
-                    );
-                }
-            }
-        }
-
-        Ok(message.map(|message| (message, interface)))
+        Ok(Some((message, ulnid)))
     }
 
-    async fn recv(&mut self) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError> {
-        self.recv_timeout(None).await
+    async fn recv(&mut self) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, RecvError> {
+        AsyncProtocolMessageReceiver::recv_timeout(self, None).await
     }
 
     async fn try_recv(
         &mut self,
-    ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, TryRecvError> {
+    ) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, TryRecvError> {
+        // TODO: Remove duplicate code
+
         let mut buffer = self.buffer.write().await;
 
-        let (received_bytes, address) = match self.socket.try_recv_from(buffer.deref_mut()) {
+        let (received_bytes, received_from) = match self.socket.try_recv_from(buffer.deref_mut()) {
             Ok(received) => received,
             Err(e) => return Err(TryRecvError::IoError(Box::new(e))),
         };
 
-        let address = match address {
+        let received_from = match received_from {
             SocketAddr::V6(addr) => addr,
             addr => panic!("Received Non-IPv6 Packet from {}", addr),
         };
 
-        // ignore incoming messages from excluded interfaces
-        if self.excluded_interfaces.contains(&address.scope_id()) {
+        // FIXME: ignore scope_id 0 (probably caused by ipv6 attached to lo)
+        let Some(interface_id) = NonZeroU32::new(received_from.scope_id()) else {
             log::warn!("Ignoring message with scope_id 0");
             return Ok(None);
-        }
+        };
+        let interface_id = interface_id.into();
 
-        // FIXME ignore scope_id 0 (probably caused by ipv6 attached to lo)
-        if address.scope_id() == 0 {
+        // ignore incoming messages from excluded interfaces
+        if self.excluded_interfaces.contains(&interface_id) {
             return Ok(None);
         }
 
-        let message = self.deserialize(&buffer[..received_bytes]);
-        let interface = NetworkInterface::new(address.scope_id());
+        let Some(message) = self.deserialize(&buffer[..received_bytes]) else {
+            log::warn!("Deserialization of received message failed");
+            return Ok(None);
+        };
+        log::trace!(target: "message_receiver", "Received {:?} from {}", &message, received_from);
 
-        Ok(message.map(|message| (message, interface)))
-    }
-}
+        let ulnid = self
+            .underlay_handle
+            .register_neighbor(interface_id, *received_from.ip())
+            .await
+            .unwrap();
 
-#[cfg(test)]
-mod tests {
-    use std::collections::{HashMap, HashSet};
-    use std::error::Error;
-    use std::sync::Arc;
-    use std::time::Duration;
-
-    use tokio::net::UdpSocket;
-    use tokio::sync::RwLock;
-
-    use crate::domain::{NodeId, StateSeqNr};
-    use crate::messaging::format::ProtocolMessageFormat;
-    use crate::messaging::receiver::udp_tokio::UdpReceiver;
-    use crate::messaging::{
-        AsyncProtocolMessageReceiver, HelloMessage, PNetInterfaceMonitor, ProtocolMessage,
-    };
-
-    #[tokio::test]
-    async fn receive_timeout() -> Result<(), Box<dyn Error + Send + Sync>> {
-        crate::tests::init();
-
-        let cache = Arc::new(RwLock::new(HashMap::new()));
-
-        let mut receiver = UdpReceiver::new(
-            0,
-            ProtocolMessageFormat::Json,
-            cache,
-            PNetInterfaceMonitor::new(),
-            HashSet::default(),
-        )
-        .await
-        .expect("failed to start udp receiver");
-        let addr = receiver.local_addr()?;
-
-        let handle = tokio::spawn(async move {
-            let socket = UdpSocket::bind("[::]:0").await?;
-            // may need to join multicast group
-
-            let protocol_message = ProtocolMessage::Hello(HelloMessage {
-                source: NodeId::one(),
-                source_state_seq_nr: StateSeqNr::from(0),
-            });
-
-            let mut buffer = Vec::new();
-
-            ProtocolMessageFormat::Json.serialize(&mut buffer, &protocol_message)?;
-
-            socket.send_to(&buffer[..buffer.len()], addr).await?;
-
-            Result::<(), Box<dyn Error + Send + Sync>>::Ok(())
-        });
-
-        let received = receiver
-            .recv_timeout(Some(Duration::from_micros(500)))
-            .await;
-
-        handle.await.expect("failed to join")?;
-
-        assert!(received.is_ok(), "{:?}", received);
-        let received = received.unwrap();
-        assert!(received.is_some(), "{:?}", received);
-        let (message, _) = received.unwrap();
-        assert_eq!(
-            message,
-            ProtocolMessage::Hello(HelloMessage {
-                source: NodeId::one(),
-                source_state_seq_nr: StateSeqNr::from(0),
-            })
-        );
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn try_receive() -> Result<(), Box<dyn Error + Send + Sync>> {
-        crate::tests::init();
-
-        let cache = Arc::new(RwLock::new(HashMap::new()));
-
-        let mut receiver = UdpReceiver::new(
-            0,
-            ProtocolMessageFormat::Json,
-            cache,
-            PNetInterfaceMonitor::new(),
-            HashSet::default(),
-        )
-        .await
-        .expect("failed to create udp receiver");
-        let addr = receiver.local_addr()?;
-
-        let handle = tokio::spawn(async move {
-            let socket = UdpSocket::bind("[::]:0").await?;
-            // may need to join multicast group
-
-            let protocol_message = ProtocolMessage::Hello(HelloMessage {
-                source: NodeId::one(),
-                source_state_seq_nr: StateSeqNr::from(0),
-            });
-
-            let mut buffer = Vec::new();
-
-            ProtocolMessageFormat::Json.serialize(&mut buffer, &protocol_message)?;
-
-            socket.send_to(&buffer[..buffer.len()], addr).await?;
-
-            Result::<(), Box<dyn Error + Send + Sync>>::Ok(())
-        });
-
-        handle.await.expect("failed to join")?;
-
-        let received = receiver.try_recv().await;
-
-        assert!(received.is_ok(), "{:?}", received);
-        let received = received.unwrap();
-        assert!(received.is_some(), "{:?}", received);
-        let (message, _) = received.unwrap();
-        assert_eq!(
-            message,
-            ProtocolMessage::Hello(HelloMessage {
-                source: NodeId::one(),
-                source_state_seq_nr: StateSeqNr::from(0),
-            })
-        );
-
-        Ok(())
+        Ok(Some((message, ulnid)))
     }
 }

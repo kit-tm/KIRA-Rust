@@ -12,11 +12,10 @@ pub use handle::UnderlayObserverHandle;
 
 use netlink_proto::new_connection;
 use netlink_proto::sys::protocols::NETLINK_ROUTE;
-use netlink_proto::sys::AsyncSocket;
 
 use crate::domain::underlay::{
-    EthAddr, Interface, InterfaceId, UnderlayNeighbor, UnderlayNeighborId,
-    UnderlayNeighborInformation, UnderlayNeighborUpdate,
+    Interface, InterfaceId, UnderlayNeighbor, UnderlayNeighborId, UnderlayNeighborInformation,
+    UnderlayNeighborUpdate,
 };
 
 /// Sender of [UnderlayNeighborUpdates](UnderlayNeighborUpdate).
@@ -38,6 +37,7 @@ pub struct UnderlayNeighborInterfaceDownError(#[error(ignore)] pub InterfaceId);
 pub struct UnderlayInformationBase {
     next_ulnid: UnderlayNeighborId,
     neighbors: HashMap<UnderlayNeighborId, UnderlayNeighbor>,
+    neighbor_ids: HashMap<UnderlayNeighbor, UnderlayNeighborId>,
     interfaces: HashMap<InterfaceId, Interface>,
 }
 
@@ -46,6 +46,7 @@ impl Default for UnderlayInformationBase {
         Self {
             next_ulnid: NonZeroUsize::new(0).unwrap().into(),
             neighbors: Default::default(),
+            neighbor_ids: Default::default(),
             interfaces: Default::default(),
         }
     }
@@ -70,21 +71,34 @@ impl UnderlayInformationBase {
     pub fn register_neighbor(
         &mut self,
         interface_id: InterfaceId,
-        dst_mac: EthAddr,
         ll_ipv6: Ipv6Addr,
     ) -> Result<UnderlayNeighborId, UnderlayNeighborInterfaceDownError> {
+        let neighbor = UnderlayNeighbor::new(ll_ipv6, interface_id);
+        if let Some(ulnid) = self.neighbor_ids.get(&neighbor) {
+            log::debug!("Underlay Neighbor {neighbor:?} already registered: {ulnid:?}");
+            return Ok(*ulnid);
+        }
+
+        // interface of the underlay neighbor
         let interface = self
             .interfaces
             .get_mut(&interface_id)
             .ok_or(UnderlayNeighborInterfaceDownError(interface_id))?;
 
-        // insert neighbor
-        let neighbor = UnderlayNeighbor::new(dst_mac, ll_ipv6, interface_id);
+        log::trace!(
+            "Registering underlay neighbor {neighbor:?} with id {:?}",
+            self.next_ulnid
+        );
+
         // FIXME: Handle gracefully
         assert!(
             self.neighbors.insert(self.next_ulnid, neighbor).is_none(),
             "Collision of life underlay neighbor ids because of overflow"
         );
+        debug_assert!(self
+            .neighbor_ids
+            .insert(neighbor, self.next_ulnid)
+            .is_none());
 
         // update interface with new neighbor
         interface.add_neighbor(self.next_ulnid);
@@ -96,8 +110,12 @@ impl UnderlayInformationBase {
         Ok(self.next_ulnid)
     }
 
-    pub fn unregister_neighbor(&mut self, ulnid: &UnderlayNeighborId) -> bool {
-        self.neighbors.remove(ulnid).is_some()
+    pub fn unregister_neighbor(&mut self, ulnid: &UnderlayNeighborId) -> Option<UnderlayNeighbor> {
+        log::trace!("Unregistering neighbor: {ulnid:?}");
+
+        let neighbor = self.neighbors.remove(ulnid)?;
+        debug_assert_eq!(self.neighbor_ids.remove(&neighbor), Some(*ulnid));
+        Some(neighbor)
     }
 
     pub fn interface_down(
@@ -108,7 +126,7 @@ impl UnderlayInformationBase {
         let interface = self.interfaces.remove(interface_id)?;
 
         for ulnid in interface.neighbors() {
-            let _ = self.neighbors.remove(ulnid);
+            let _ = self.unregister_neighbor(ulnid);
         }
 
         Some(interface.into_neighbors())
@@ -119,6 +137,10 @@ impl UnderlayInformationBase {
             self.interfaces.insert(interface.idx, interface).is_none(),
             "Preexisting inteface with same index"
         );
+    }
+
+    pub fn get_available(&self) -> impl Iterator<Item = &InterfaceId> {
+        self.interfaces.keys()
     }
 }
 

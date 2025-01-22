@@ -12,9 +12,8 @@ pub struct Interface {
     neighbors: HashSet<UnderlayNeighborId>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct UnderlayNeighbor {
-    pub dst_mac: EthAddr,
     pub ll_ipv6: Ipv6Addr,
     pub if_index: InterfaceId,
 }
@@ -22,20 +21,18 @@ pub struct UnderlayNeighbor {
 pub struct UnderlayNeighborInformation {
     pub if_index: InterfaceId,
     pub src_mac: EthAddr,
-    pub dst_mac: EthAddr,
     pub broadcast_mac: EthAddr,
     pub ll_ipv6: Ipv6Addr,
 }
 
 impl UnderlayNeighbor {
-    pub fn new(dst_mac: EthAddr, ll_ipv6: Ipv6Addr, interface: InterfaceId) -> Self {
+    pub fn new(ll_ipv6: Ipv6Addr, interface: InterfaceId) -> Self {
         assert!(
             ll_ipv6.is_unicast_link_local(),
             "IPv6 should be link-local unicast"
         );
 
         Self {
-            dst_mac,
             ll_ipv6,
             if_index: interface,
         }
@@ -80,7 +77,6 @@ impl UnderlayNeighborInformation {
         Self {
             if_index: neighbor.if_index,
             src_mac: interface.src_mac,
-            dst_mac: neighbor.dst_mac,
             broadcast_mac: interface.broadcast_mac,
             ll_ipv6: neighbor.ll_ipv6,
         }

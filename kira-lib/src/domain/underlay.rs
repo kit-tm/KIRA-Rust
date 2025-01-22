@@ -1,9 +1,7 @@
 //! Definitions for the routing protocol to interact with the underlay network.
 
-use derive_more::derive::Display;
-use derive_more::derive::From;
-use std::num::NonZero;
-use std::num::NonZeroUsize;
+use derive_more::derive::{Display, From};
+use std::num::{NonZeroU32, NonZeroUsize};
 
 /// Represents a **connection** to an underlay neighbor.
 ///
@@ -37,7 +35,13 @@ pub struct UnderlayNeighborId(pub NonZeroUsize);
 /// This is used in an [UnderlayNeighborUpdate] to inform the
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From)]
 #[display("{_0}")]
-pub struct InterfaceId(pub NonZeroUsize);
+pub struct InterfaceId(pub NonZeroU32);
+
+impl From<InterfaceId> for u32 {
+    fn from(value: InterfaceId) -> Self {
+        value.0.into()
+    }
+}
 
 /// An underlay destination for [ProtocolMessages](crate::messaging::ProtocolMessage).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From)]
@@ -50,14 +54,14 @@ pub enum UnderlayNeighborDestination {
     /// All neighbors that joined the well-known link-local multicast address `ALL-KIRA-NODES`
     /// should receive this message on *all* interfaces.
     Broadcast,
-    /// Broadcast to all underlay neighbors connected via the interface.
+    /// Multicast to all underlay neighbors connected via the interface.
     ///
     /// This is primarily used when sending [HelloMessages](crate::messaging::HelloMessage)
     /// to discover the underlay vicinity.
     ///
     /// All neighbors that joined the well-known link-local multicast address `ALL-KIRA-NODES`
     /// on that interface should receive this message.
-    BroadcastInterface(InterfaceId),
+    Multicast(InterfaceId),
     /// Link to an underlay neighbor.
     UnderlayNeighbor(UnderlayNeighborId),
 }
@@ -76,9 +80,9 @@ impl UnderlayNeighborDestination {
     }
 
     /// Returns if the [destination](UnderlayNeighborDestination)
-    /// is [BroadcastInterface](UnderlayNeighborDestination::BroadcastInterface).
-    pub const fn is_interface_broadcast(&self) -> bool {
-        matches!(self, Self::BroadcastInterface(_))
+    /// is [Multicast](UnderlayNeighborDestination::Multicast).
+    pub const fn is_multicast(&self) -> bool {
+        matches!(self, Self::Multicast(_))
     }
 }
 
@@ -99,7 +103,7 @@ impl From<usize> for UnderlayNeighborDestination {
         if value == 0 {
             Self::Broadcast
         } else {
-            UnderlayNeighborId::from(NonZero::new(value).unwrap()).into()
+            UnderlayNeighborId::from(NonZeroUsize::new(value).unwrap()).into()
         }
     }
 }

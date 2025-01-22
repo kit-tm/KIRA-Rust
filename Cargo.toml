@@ -29,8 +29,6 @@ edition = "2021"
 # a custom implementation.
 
 [workspace.dependencies]
-# Used to declare async traits
-async-trait = "0.1.82"
 # For Time Computations in general
 chrono = "0.4.38"
 # Conveniently derive Display
@@ -68,5 +66,7 @@ sha3 = "0.10.8"
 tokio = { version = "1.40.0", default-features = false }
 # Logging facade for application level tracing
 tracing = { version = "0.1.40", features = ["attributes"] }
+# Async trait helper macros
+trait-variant = "0.1.2"
 # User friendly error trait derivation
 thiserror = "1.0.69"

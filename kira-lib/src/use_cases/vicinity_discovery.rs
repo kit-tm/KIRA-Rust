@@ -8,10 +8,10 @@ use std::time::Duration;
 use derive_more::derive::{Display, Error};
 use rand::Rng;
 
-use crate::domain::UnderlayNeighborDestination::{Broadcast, BroadcastInterface, UnderlayNeighbor};
+use crate::domain::UnderlayNeighborDestination::{Broadcast, Multicast, UnderlayNeighbor};
 use crate::domain::{
-    Contact, ContactState, DEFAULT_BUCKET_SIZE, InterfaceId, NodeId, Path, RoutingTable,
-    StateSeqNr, UNTable, UnderlayNeighborId, UnderlayNeighborUpdate, node_id,
+    node_id, Contact, ContactState, InterfaceId, NodeId, Path, RoutingTable, StateSeqNr, UNTable,
+    UnderlayNeighborId, UnderlayNeighborUpdate, DEFAULT_BUCKET_SIZE,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -308,7 +308,7 @@ where
         log::trace!(target: "vicinity_discovery", "Sending message {:?} from {:?}", message, source_ip);
         context
             .runtime_mut()
-            .send_message_via(message, BroadcastInterface(interface));
+            .send_message_via(message, Multicast(interface));
     }
 
     fn send_hello(&self, context: &C, ulnid: UnderlayNeighborId) {

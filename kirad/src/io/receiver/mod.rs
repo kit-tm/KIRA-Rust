@@ -1,105 +1,19 @@
-use std::collections::HashSet;
-use std::error::Error;
-use std::fmt::{Debug, Display};
+//! Traits and implementations for receiving [ProtocolMessages](kira_lib::messaging::ProtocolMessage).
+
 use std::time::Duration;
 
-use crate::domain::NetworkInterface;
-use crate::messaging::messages::ProtocolMessage;
+use error::*;
+
+pub use kira_lib::domain::InterfaceId;
+pub use kira_lib::domain::UnderlayNeighborId;
+pub use kira_lib::messaging::messages::ProtocolMessage;
 
 #[cfg(feature = "udp-tokio")]
 pub mod udp_tokio;
 
-/// Error type for [ProtocolMessageReceiver::recv] and [AsyncProtocolMessageReceiver::recv].
-#[derive(Debug)]
-pub enum RecvError {
-    /// Receiving timed out.
-    Timeout,
-    /// Returned if no interface for a message was found.
-    ///
-    /// This may signal an inconsistency in the interface configuration.
-    NoInterfaceFound,
-    /// Signals that one or many interfaces stopped working.
-    ///
-    /// This doesn't signal that the receiver stops operating.
-    InterfacesDown(HashSet<NetworkInterface>),
-    /// Signals that no more messages will be received from this receiver.
-    ///
-    /// Also includes the remaining interfaces this receiver handled.
-    Closed(HashSet<NetworkInterface>),
-    /// The I/O-Layer returned some error.
-    IoError(Box<dyn Error + Send>),
-    /// Other Error for custom error types of the implementations.
-    Other(Box<dyn Error + Send>),
-}
-
-impl Display for RecvError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Timeout => write!(f, "Timeout receiving a Message"),
-            Self::NoInterfaceFound => write!(
-                f,
-                "No interface for message was found; Network configuration may be inconsistent"
-            ),
-            Self::IoError(e) => write!(f, "Received IO Error: {}", e),
-            Self::Other(e) => write!(f, "{}", e),
-            Self::InterfacesDown(interfaces) => {
-                write!(f, "Interfaces {:?} stopped working", interfaces)
-            }
-            Self::Closed(interfaces) => {
-                write!(f, "Receiver for interfaces {:?} closed", interfaces)
-            }
-        }
-    }
-}
-
-impl Error for RecvError {}
-
-/// Error type for [ProtocolMessageReceiver::try_recv] and
-/// [ProtocolMessageReceiver::try_recv](crate::messaging::receiver::ProtocolMessageReceiver::try_recv).
-#[derive(Debug)]
-pub enum TryRecvError {
-    /// The I/O-Layer returned some error.
-    IoError(Box<dyn Error + Send>),
-    /// Returned if no interface for a message was found.
-    ///
-    /// This may signal an inconsistency in the interface configuration.
-    NoInterfaceFound,
-    /// Signals that one or many interfaces stopped working.
-    ///
-    /// This doesn't signal that the receiver stops operating.
-    InterfacesDown(HashSet<NetworkInterface>),
-    /// Signals that no more messages will be received from this receiver.
-    ///
-    /// Also includes the remaining interfaces this receiver handled.
-    Closed(HashSet<NetworkInterface>),
-    /// Other Error for custom error types of the implementations.
-    Other(Box<dyn Error + Send>),
-}
-
-impl Display for TryRecvError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::IoError(e) => write!(f, "Received IO Error: {}", e),
-            Self::NoInterfaceFound => write!(
-                f,
-                "No interface for message was found; Network configuration may be inconsistent"
-            ),
-            Self::Other(e) => write!(f, "{}", e),
-            Self::InterfacesDown(interfaces) => {
-                write!(f, "Interfaces {:?} stopped working", interfaces)
-            }
-            Self::Closed(interfaces) => {
-                write!(f, "Receiver for interfaces {:?} closed", interfaces)
-            }
-        }
-    }
-}
-
-impl Error for TryRecvError {}
-
 /// Receives [ProtocolMessage]s of other Nodes.
 ///
-/// A single [ProtocolMessageReceiver] can be responsible for one or many [NetworkInterface]s.
+/// A single [ProtocolMessageReceiver] can be responsible for one or many [InterfaceId]s.
 ///
 /// Converts a [ProtocolMessage] formatted by its corresponding
 /// [ProtocolMessageSender](crate::messaging::sender::ProtocolMessageSender) back
@@ -119,15 +33,15 @@ pub trait ProtocolMessageReceiver {
     fn recv_timeout(
         &mut self,
         timeout: Option<Duration>,
-    ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError>;
+    ) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, RecvError>;
     /// Receives a [ProtocolMessage].
     ///
     /// Short for calling [recv_timeout](ProtocolMessageReceiver::recv_timeout) with [None].
-    fn recv(&mut self) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError> {
+    fn recv(&mut self) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, RecvError> {
         self.recv_timeout(None)
     }
-    /// Tries to receive a [ProtocolMessage] and returns an [Error] if no message is present at the time.
-    fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, NetworkInterface)>, TryRecvError>;
+    /// Tries to receive a [ProtocolMessage] and returns an Error if no message is present at the time.
+    fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, TryRecvError>;
 }
 
 /// Receives [ProtocolMessage]s of other Nodes.
@@ -135,8 +49,8 @@ pub trait ProtocolMessageReceiver {
 /// Converts a [ProtocolMessage] formatted by its corresponding
 /// [ProtocolMessageSender](crate::messaging::sender::ProtocolMessageSender) back
 /// to a [ProtocolMessage] and returns it.
-#[async_trait::async_trait]
-pub trait AsyncProtocolMessageReceiver {
+#[trait_variant::make(AsyncProtocolMessageReceiver: Send)]
+pub trait LocalAsyncProtocolMessageReceiver {
     /// Receives a [ProtocolMessage].
     ///
     /// Returns an [Error] if receiving failed or the optional timeout was reached.
@@ -147,14 +61,77 @@ pub trait AsyncProtocolMessageReceiver {
     async fn recv_timeout(
         &mut self,
         timeout: Option<Duration>,
-    ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError>;
+    ) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, RecvError>;
     /// Receives a [ProtocolMessage].
     ///
     /// Short for calling [recv_timeout](ProtocolMessageReceiver::recv_timeout) with
     /// [None].
-    async fn recv(&mut self) -> Result<Option<(ProtocolMessage, NetworkInterface)>, RecvError>;
+    async fn recv(&mut self) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, RecvError>;
     /// Tries to receive a [ProtocolMessage] and returns an [Error] if no message is present at the time.
     async fn try_recv(
         &mut self,
-    ) -> Result<Option<(ProtocolMessage, NetworkInterface)>, TryRecvError>;
+    ) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, TryRecvError>;
+}
+
+/// Errors for message receivers
+pub mod error {
+    use std::collections::HashSet;
+
+    use derive_more::{Display, Error};
+    use kira_lib::domain::InterfaceId;
+
+    /// Error type for [ProtocolMessageReceiver::recv](super::ProtocolMessageReceiver::recv)
+    /// and [AsyncProtocolMessageReceiver::recv](super::AsyncProtocolMessageReceiver::recv).
+    #[derive(Debug, Display, Error)]
+    pub enum RecvError {
+        /// Receiving timed out.
+        #[display("Timeout receiving a Message")]
+        Timeout,
+        /// Returned if no interface for a message was found.
+        ///
+        /// This may signal an inconsistency in the interface configuration.
+        #[display("No interface for message was found; Network configuration may be inconsistent")]
+        NoInterfaceFound,
+        /// Signals that one or many interfaces stopped working.
+        ///
+        /// This doesn't signal that the receiver stops operating.
+        #[display("Interfaces {_0:?} stopped working")]
+        InterfacesDown(#[error(ignore)] HashSet<InterfaceId>),
+        /// Signals that no more messages will be received from this receiver.
+        ///
+        /// Also includes the remaining interfaces this receiver handled.
+        #[display("Receiver for interfaces {_0:?} closed")]
+        Closed(#[error(ignore)] HashSet<InterfaceId>),
+        /// The I/O-Layer returned some error.
+        IoError(Box<dyn Error + Send>),
+        /// Other Error for custom error types of the implementations.
+        #[display("Received IO Error: {_0}")]
+        Other(Box<dyn Error + Send>),
+    }
+
+    /// Error type for [ProtocolMessageReceiver::try_recv](super::ProtocolMessageReceiver::try_recv) and
+    /// [ProtocolMessageReceiver::try_recv](super::ProtocolMessageReceiver::try_recv).
+    #[derive(Debug, Display, Error)]
+    pub enum TryRecvError {
+        /// The I/O-Layer returned some error.
+        #[display("Received IO Error: {_0}")]
+        IoError(Box<dyn Error + Send>),
+        /// Returned if no interface for a message was found.
+        ///
+        /// This may signal an inconsistency in the interface configuration.
+        #[display("No interface for message was found; Network configuration may be inconsistent")]
+        NoInterfaceFound,
+        /// Signals that one or many interfaces stopped working.
+        ///
+        /// This doesn't signal that the receiver stops operating.
+        #[display("Interfaces {_0:?} stopped working")]
+        InterfacesDown(#[error(ignore)] HashSet<InterfaceId>),
+        /// Signals that no more messages will be received from this receiver.
+        ///
+        /// Also includes the remaining interfaces this receiver handled.
+        #[display("Receiver for interfaces {_0:?} closed")]
+        Closed(#[error(ignore)] HashSet<InterfaceId>),
+        /// Other Error for custom error types of the implementations.
+        Other(Box<dyn Error + Send>),
+    }
 }

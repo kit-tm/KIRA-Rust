@@ -1,5 +1,5 @@
 use std::future::Future;
-use std::num::NonZeroUsize;
+use std::num::NonZeroU32;
 use std::pin::Pin;
 use std::task::Poll;
 
@@ -165,8 +165,7 @@ impl UnderlayObserverConnection {
                         }
 
                         let interface_id = message.header.index;
-                        let interface_id: NonZeroUsize =
-                            (interface_id as usize).try_into().unwrap();
+                        let interface_id: NonZeroU32 = (interface_id as u32).try_into().unwrap();
                         let interface_id = InterfaceId::from(interface_id);
 
                         let mut mac_addr = None;
@@ -298,13 +297,12 @@ impl UnderlayObserverConnection {
             }
             Poll::Ready(Some(UnderlayObserverHandleRequest::RegisterUnderlayNeighbor {
                 interface_id,
-                dst_mac,
                 ll_ipv6,
                 response,
             })) => {
-                let reg_info =
-                    self.information_base
-                        .register_neighbor(interface_id, dst_mac, ll_ipv6);
+                let reg_info = self
+                    .information_base
+                    .register_neighbor(interface_id, ll_ipv6);
                 if reg_info.is_ok()
                     && self
                         .updates_tx
@@ -325,7 +323,7 @@ impl UnderlayObserverConnection {
             Poll::Ready(Some(UnderlayObserverHandleRequest::UnregisterUnderlayNeighbor {
                 ulnid,
             })) => {
-                let existed = self.information_base.unregister_neighbor(&ulnid);
+                let existed = self.information_base.unregister_neighbor(&ulnid).is_some();
                 if existed
                     && self
                         .updates_tx
@@ -338,6 +336,12 @@ impl UnderlayObserverConnection {
                 {
                     let _ = self.updates_tx.take();
                 }
+            }
+            Poll::Ready(Some(UnderlayObserverHandleRequest::GetAvailable { response })) => {
+                let interfaces = self.information_base.get_available().copied().collect();
+                response
+                    .send(interfaces)
+                    .expect("receiver should not get dropped");
             }
             Poll::Ready(None) => {
                 let _ = self.handle_rx.take();
