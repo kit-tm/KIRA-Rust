@@ -119,7 +119,7 @@ pub enum UnderlayNeighborSource {
 /// Updates of the currently present underlay neighbors connections.
 #[derive(Debug, Clone, PartialEq)]
 pub enum UnderlayNeighborUpdate {
-    /// Am interface has gone up.
+    /// An interface has gone up.
     InterfaceUp(InterfaceId),
     /// An interface has gone down.
     // NOTE: Routing daemon has no information which neighbor is reachable via which
@@ -129,10 +129,10 @@ pub enum UnderlayNeighborUpdate {
     ///
     /// The connection may not provide connection to a new underlay neighbor
     /// since the node is already connected using a different connection.
-    // NOTE:The Routing daemon already knows the neighbor exists because of the
-    //      message that caused the forging of this event so this is currently little
-    //      use unless we have a different method detecting new potential KIRA nodes
-    //      without R²/KAD protocol message snooping in the I/O part.
+    // NOTE: The Routing daemon already knows the neighbor exists because of the
+    //       message that caused the forging of this event so this is currently little
+    //       use unless we have a different method detecting new potential KIRA nodes
+    //       without R²/KAD protocol message snooping in the I/O part.
     UnderlayNeighborUp(UnderlayNeighborId),
     /// A connection to an underlay neighbor was lost.
     ///
