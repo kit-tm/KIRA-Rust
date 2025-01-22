@@ -1,4 +1,7 @@
-use std::collections::hash_map::Keys;
+//! Interacting with an [UnderlayObserverConnection](super::UnderlayObserverConnection).
+//!
+//! The main struct is the [UnderlayObserverHandle].
+
 use std::net::Ipv6Addr;
 
 use derive_more::derive::{Display, Error, From};
@@ -6,11 +9,8 @@ use futures::channel::mpsc::{SendError, UnboundedSender};
 use futures::channel::oneshot;
 use futures::SinkExt;
 
-use crate::domain::underlay::Interface;
-use crate::{
-    domain::underlay::{EthAddr, InterfaceId, UnderlayNeighborId, UnderlayNeighborInformation},
-    underlay::UnderlayNeighborInterfaceDownError,
-};
+use crate::domain::underlay::{InterfaceId, UnderlayNeighborId, UnderlayNeighborInformation};
+use crate::underlay::UnderlayNeighborInterfaceDownError;
 
 /// Sender used by the [UnderlayObserverHandle]
 /// to send request to the [UnderlayObserverConnection].
@@ -66,7 +66,7 @@ pub enum UnderlayObserverHandleError {
 pub struct UnderlayObserverSenderClosedError(pub SendError);
 
 impl UnderlayObserverHandle {
-    pub fn new(handle_tx: UnderlayObserverHandleTx) -> Self {
+    pub(super) fn new(handle_tx: UnderlayObserverHandleTx) -> Self {
         Self { tx: handle_tx }
     }
 
@@ -126,6 +126,7 @@ impl UnderlayObserverHandle {
         Ok(())
     }
 
+    /// Get the [InterfaceIds](InterfaceId) of all [Interfaces](super::Interface) that are up.
     pub async fn get_available(
         &mut self,
     ) -> Result<Vec<InterfaceId>, UnderlayObserverSenderClosedError> {

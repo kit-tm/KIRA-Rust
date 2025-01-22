@@ -120,7 +120,7 @@ impl UdpSender {
                     return None;
                 };
 
-                SocketAddrV6::new(neighbor.ll_ipv6, self.port, 0, neighbor.if_index.into())
+                SocketAddrV6::new(neighbor.ll_ipv6, self.port, 0, neighbor.interface_id.into())
             }
         };
         Some(addr.into())

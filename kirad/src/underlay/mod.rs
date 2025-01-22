@@ -3,12 +3,15 @@
 pub mod connection;
 pub mod handle;
 
-use std::{collections::HashMap, net::Ipv6Addr, num::NonZeroUsize};
-
 pub use connection::UnderlayObserverConnection;
+pub use handle::UnderlayObserverHandle;
+
+use std::collections::HashMap;
+use std::net::Ipv6Addr;
+use std::num::NonZeroUsize;
+
 use derive_more::derive::{Display, Error};
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
-pub use handle::UnderlayObserverHandle;
 
 use netlink_proto::new_connection;
 use netlink_proto::sys::protocols::NETLINK_ROUTE;
@@ -30,9 +33,9 @@ pub type UnderlayNeighborUpdatesRx = UnboundedReceiver<UnderlayNeighborUpdate>;
 /// Interface of [UnderlayNeighbor] identified by the [InterfaceId] is down.
 pub struct UnderlayNeighborInterfaceDownError(#[error(ignore)] pub InterfaceId);
 
-/// Manages underlay data.
+/// Manages all [underlay data](crate::domain::underlay).
 ///
-/// This struct is usually only accessed by message parsing using the [UnderlayObserverHandle].
+/// This struct is usually accessed by message parsing using the [UnderlayObserverHandle].
 #[derive(Debug)]
 pub struct UnderlayInformationBase {
     next_ulnid: UnderlayNeighborId,
@@ -53,16 +56,16 @@ impl Default for UnderlayInformationBase {
 }
 
 impl UnderlayInformationBase {
+    #![allow(missing_docs)]
+
     pub fn get_information(
         &self,
         ulnid: &UnderlayNeighborId,
     ) -> Option<UnderlayNeighborInformation> {
-        let Some(neighbor) = self.neighbors.get(ulnid) else {
-            return None;
-        };
+        let neighbor = self.neighbors.get(ulnid)?;
         let interface = self
             .interfaces
-            .get(&neighbor.if_index)
+            .get(&neighbor.interface_id)
             .expect("interface should be up as enforced by register_neighbor");
 
         Some(UnderlayNeighborInformation::new(neighbor, interface))
@@ -134,7 +137,9 @@ impl UnderlayInformationBase {
 
     pub fn interface_up(&mut self, interface: Interface) {
         assert!(
-            self.interfaces.insert(interface.idx, interface).is_none(),
+            self.interfaces
+                .insert(interface.interface_id, interface)
+                .is_none(),
             "Preexisting inteface with same index"
         );
     }

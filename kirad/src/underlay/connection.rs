@@ -1,3 +1,8 @@
+//! Netlink [Connection](RtNetlinkConnection) managing for observing and collecting changes in the underlay.
+//!
+//! The main struct is the [UnderlayObserverConnection] which drives the progress
+//! of the Netlink [Connection](RtNetlinkConnection).
+
 use std::future::Future;
 use std::num::NonZeroU32;
 use std::pin::Pin;
@@ -25,9 +30,9 @@ use super::*;
 use crate::domain::underlay::{Interface, InterfaceId, UnderlayNeighborUpdate};
 
 type RtNetlinkReceiver = UnboundedReceiver<(NetlinkMessage<RouteNetlinkMessage>, SocketAddr)>;
+/// [Connection] to Netlink which receives updates to [Interfaces](Interface) of the underlay.
 pub type RtNetlinkConnection = Connection<RouteNetlinkMessage>;
 
-/// Struct managing the [RtNetlinkConnection]
 struct UnderlayObserverInnerConnection {
     connection: RtNetlinkConnection,
 }
@@ -57,8 +62,7 @@ impl Future for UnderlayObserverInnerConnection {
 
 /// Processing struct for handling underlay changes.
 ///
-/// The `UnderlayObserverConnection` should usually
-/// be spawned in a thread using [tokio::spawn].
+/// The [UnderlayObserverConnection] should usually be spawned in a thread using [tokio::spawn].
 pub struct UnderlayObserverConnection {
     information_base: UnderlayInformationBase,
 
@@ -71,7 +75,7 @@ pub struct UnderlayObserverConnection {
 }
 
 impl UnderlayObserverConnection {
-    pub fn new(
+    pub(super) fn new(
         connection: RtNetlinkConnection,
         rt_handle: ConnectionHandle<RouteNetlinkMessage>,
         mut rt_messages: RtNetlinkReceiver,
@@ -165,7 +169,7 @@ impl UnderlayObserverConnection {
                         }
 
                         let interface_id = message.header.index;
-                        let interface_id: NonZeroU32 = (interface_id as u32).try_into().unwrap();
+                        let interface_id: NonZeroU32 = interface_id.try_into().unwrap();
                         let interface_id = InterfaceId::from(interface_id);
 
                         let mut mac_addr = None;

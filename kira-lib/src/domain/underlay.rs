@@ -33,6 +33,7 @@ pub struct UnderlayNeighborId(pub NonZeroUsize);
 /// Network interface id.
 ///
 /// This is used in an [UnderlayNeighborUpdate] to inform the
+/// routing protocol about changes in the underlay.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From)]
 #[display("{_0}")]
 pub struct InterfaceId(pub NonZeroU32);
