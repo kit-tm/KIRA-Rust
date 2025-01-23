@@ -12,7 +12,7 @@ pub struct SyncContext<RT, RU, IS, PN> {
     routing_table: RefCell<RT>,
     insertion_strategy: RefCell<IS>,
     pn_table: RefCell<PN>,
-    runtime: RefCell<RU>,
+    runtime: RU,
     not_via: RefCell<HashSet<NotVia>>,
 }
 
@@ -28,7 +28,7 @@ impl<RT, RU, IS, PN> UseCaseContext for SyncContext<RT, RU, IS, PN> {
             routing_table: RefCell::new(config.routing_table),
             insertion_strategy: RefCell::new(config.insertion_strategy),
             pn_table: RefCell::new(config.pn_table),
-            runtime: RefCell::new(config.runtime),
+            runtime: config.runtime,
             not_via: RefCell::new(config.not_via),
         }
     }
@@ -57,13 +57,10 @@ impl<RT, RU, IS, PN> UseCaseContext for SyncContext<RT, RU, IS, PN> {
         self.pn_table.borrow_mut()
     }
 
-    fn runtime(&self) -> Ref<'_, Self::Runtime> {
-        self.runtime.borrow()
+    fn runtime(&self) -> &Self::Runtime {
+        &self.runtime
     }
 
-    fn runtime_mut(&self) -> RefMut<'_, Self::Runtime> {
-        self.runtime.borrow_mut()
-    }
     fn not_via(&self) -> Ref<'_, HashSet<NotVia>> {
         self.not_via.borrow()
     }

@@ -193,13 +193,13 @@ where
         let message = ProtocolMessage::StoreRsp(rsp);
         if message.destination().unwrap() == context.root_id() {
             context
-                .runtime_mut()
+                .runtime()
                 .broadcast_event(BroadcastableUseCaseEvent::Message(message));
             return;
         }
 
         context
-            .runtime_mut()
+            .runtime()
             .send_message(message, context.pn_table().deref());
     }
 
@@ -220,13 +220,13 @@ where
         let message = ProtocolMessage::FetchRsp(rsp);
         if message.destination().unwrap() == context.root_id() {
             context
-                .runtime_mut()
+                .runtime()
                 .broadcast_event(BroadcastableUseCaseEvent::Message(message));
             return;
         }
 
         context
-            .runtime_mut()
+            .runtime()
             .send_message(message, context.pn_table().deref());
     }
 
@@ -347,7 +347,7 @@ where
 
     fn start(&mut self, context: &C) -> Result<(), Self::Error> {
         let timer_id = context
-            .runtime_mut()
+            .runtime()
             .register_periodic_timer(self.config.collect_interval);
 
         self.state = DHTState::Running(timer_id);

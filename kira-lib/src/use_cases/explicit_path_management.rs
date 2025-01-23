@@ -109,7 +109,7 @@ where
             source_route,
         };
         context
-            .runtime_mut()
+            .runtime()
             .send_message(message, context.pn_table().deref());
     }
 
@@ -123,7 +123,7 @@ where
             source_route,
         };
         context
-            .runtime_mut()
+            .runtime()
             .send_message(message, context.pn_table().deref());
     }
 
@@ -137,7 +137,7 @@ where
             source_route,
         };
         context
-            .runtime_mut()
+            .runtime()
             .send_message(message, context.pn_table().deref());
     }
 
@@ -168,7 +168,7 @@ where
         for id in invalidated_entries {
             entries.remove(&id);
             context
-                .runtime_mut()
+                .runtime()
                 .update_fwd_tables(PathIdTableUpdate::Remove(id));
         }
     }
@@ -231,13 +231,13 @@ where
                 match entries.entry(in_path_id) {
                     Occupied(mut occupied_entry) => {
                         context
-                            .runtime_mut()
+                            .runtime()
                             .update_fwd_tables(PathIdTableUpdate::Update(entry));
                         occupied_entry.get_mut().last_seen = Instant::now();
                     }
                     Vacant(vacant_entry) => {
                         context
-                            .runtime_mut()
+                            .runtime()
                             .update_fwd_tables(PathIdTableUpdate::CreateOrUpdate(entry.clone()));
 
                         vacant_entry.insert(Entry {
@@ -255,7 +255,7 @@ where
                         next_hop: DecapsulationDestination::Local,
                     });
                     context
-                        .runtime_mut()
+                        .runtime()
                         .update_fwd_tables(PathIdTableUpdate::CreateOrUpdate(entry));
                     local_entries.insert(in_path_id);
                 } else {
@@ -281,14 +281,14 @@ where
 
         entries.remove(&in_path_id);
         context
-            .runtime_mut()
+            .runtime()
             .update_fwd_tables(PathIdTableUpdate::Remove(in_path_id));
     }
 
     fn create_new_cleanup_timer(&mut self, context: &C) {
         if let EPMState::Running { cleanup_timer, .. } = &mut self.state {
             *cleanup_timer = context
-                .runtime_mut()
+                .runtime()
                 .register_timer(self.config.cleanup_interval);
         }
     }
@@ -298,7 +298,7 @@ where
             *refresh_timer = self
                 .config
                 .refresh_interval
-                .map(|i| context.runtime_mut().register_timer(i));
+                .map(|i| context.runtime().register_timer(i));
         }
     }
 
@@ -325,7 +325,7 @@ where
         for id in affected {
             entries.remove(&id);
             context
-                .runtime_mut()
+                .runtime()
                 .update_fwd_tables(PathIdTableUpdate::Remove(id));
         }
     }
@@ -498,12 +498,12 @@ where
 
         // As the periodic tasks may
         let cleanup_timer_id = context
-            .runtime_mut()
+            .runtime()
             .register_timer(self.config.cleanup_interval);
         let refresh_timer_id = self
             .config
             .refresh_interval
-            .map(|i| context.runtime_mut().register_timer(i));
+            .map(|i| context.runtime().register_timer(i));
         self.state = EPMState::Running {
             refresh_timer: refresh_timer_id,
             cleanup_timer: cleanup_timer_id,

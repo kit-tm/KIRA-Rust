@@ -212,6 +212,7 @@ where
 
             let mut r2kad = self.r2kad;
 
+            log::trace!("Startup R²/KAD protocol instance");
             let now = Instant::now();
             if let Err(e) = r2kad.startup(now) {
                 log::error!("Error on startup of R²/KAD: {}", e);
@@ -219,33 +220,33 @@ where
             }
 
             // MAIN EVENT LOOP
-            let mut now = now;
             let mut timer_due = r2kad.poll_timeout();
             loop {
                 if let Some(timer_due) = timer_due {
                     log::trace!("Waiting for new input events or timeout");
                     tokio::select! {
-                        _ = time::sleep(timer_due - now) => {
-                            now = Instant::now();
+                        _ = time::sleep_until(timer_due.into()) => {
+                            let now = Instant::now();
                             if let Err(e) = r2kad.handle_timeout(now) {
                                 log::error!("Error handle_timeout: {}", e);
                                 break;
                             }
                         }
                         Some(input) = input_rx.recv() => {
-                            now = Instant::now();
+                            let now = Instant::now();
                             if let Err(e) = r2kad.handle_input(input, now) {
-                                log::error!("Error handle_timeout: {}", e);
+                                log::error!("Error handle_input: {}", e);
                                 break;
                             }
 
                         }
+                        else => { continue}
                     }
                 } else {
                     log::trace!("Waiting for new input events");
                     match input_rx.recv().await {
                         Some(input) => {
-                            now = Instant::now();
+                            let now = Instant::now();
                             if let Err(e) = r2kad.handle_input(input, now) {
                                 log::error!("Error handle_timeout: {}", e);
                                 break;

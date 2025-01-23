@@ -140,11 +140,11 @@ where
             source_route: route,
         };
         context
-            .runtime_mut()
+            .runtime()
             .send_message(message, context.pn_table().deref());
 
         let timeout_timer = context
-            .runtime_mut()
+            .runtime()
             .register_timer(self.config.request_timeout);
         probe_timers.insert(timeout_timer, nonce.clone());
         requests_in_flight.insert(nonce, *contact.id());
@@ -233,7 +233,7 @@ where
             source_route: SourceRoute::from_reversed(req.source_route),
         };
         context
-            .runtime_mut()
+            .runtime()
             .send_message(message, context.pn_table().deref());
 
         log::trace!(target: "path_probing", "Sent probe rsp to {}", source);
@@ -274,7 +274,7 @@ where
 
     fn start(&mut self, context: &C) -> Result<(), Self::Error> {
         let timer_id = context
-            .runtime_mut()
+            .runtime()
             .register_periodic_timer(self.config.check_interval);
 
         self.state = PathProbingState::Running {

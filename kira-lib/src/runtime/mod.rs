@@ -18,20 +18,20 @@ pub trait UseCaseRuntime {
     ///
     /// The returned TimerId has to be unique.
     /// It's an error for runtimes to return duplicate [TimerId]s.
-    fn register_timer(&mut self, duration: Duration) -> TimerId;
+    fn register_timer(&self, duration: Duration) -> TimerId;
 
     /// Creates a periodic Timer.
     ///
     /// The returned TimerId has to be unique.
     /// It's an error for runtimes to return duplicate [TimerId]s.
-    fn register_periodic_timer(&mut self, duration: Duration) -> TimerId;
+    fn register_periodic_timer(&self, duration: Duration) -> TimerId;
 
     /// Sends a [ProtocolMessage] to a different peer.
     ///
     /// The message will be routed via the underlay neighbor
     /// corresponding to the specified `ulnid`.
     fn send_message_via<P: Into<ProtocolMessage>>(
-        &mut self,
+        &self,
         protocol_message: P,
         destination: UnderlayNeighborDestination,
     );
@@ -42,7 +42,7 @@ pub trait UseCaseRuntime {
     /// or the even is not source-routed like [HelloMessage](crate::messaging::HelloMessage)
     /// the event is delivered by broadcasting to all interfaces.
     fn send_message<P: Into<ProtocolMessage>>(
-        &mut self,
+        &self,
         protocol_message: P,
         pntable: &impl Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     ) {
@@ -58,10 +58,10 @@ pub trait UseCaseRuntime {
     }
 
     /// Sends an [ForwardingTablesUpdate] request to the forwarding tables.
-    fn update_fwd_tables<U: Into<ForwardingTablesUpdate>>(&mut self, update: U);
+    fn update_fwd_tables<U: Into<ForwardingTablesUpdate>>(&self, update: U);
 
     /// Broadcast an [UseCaseEvent](BroadcastableUseCaseEvent).
     ///
     /// This event is delivered *locally* to all UseCases.
-    fn broadcast_event(&mut self, event: BroadcastableUseCaseEvent);
+    fn broadcast_event(&self, event: BroadcastableUseCaseEvent);
 }

@@ -126,7 +126,7 @@ where
                 let event = BroadcastableUseCaseEvent::ResyncNode(*contact.id(), expected_ssn);
 
                 log::trace!(target: "forward_protocol_message", "Inform other UseCases about updated SSN of {}: {:?}", contact.id(), event);
-                context.runtime_mut().broadcast_event(event);
+                context.runtime().broadcast_event(event);
             }
         }
 
@@ -348,7 +348,7 @@ where
         };
 
         context
-            .runtime_mut()
+            .runtime()
             .send_message(error_message, context.pn_table().deref());
     }
 
@@ -451,7 +451,7 @@ where
         }
         log::trace!(target: "forward_protocol_message", "Forwarding message {:?}", message);
         context
-            .runtime_mut()
+            .runtime()
             .send_message(message, context.pn_table().deref());
         HandlingResult::Handled
     }

@@ -80,13 +80,13 @@ pub(crate) fn send_store_req<C, const BUCKET_SIZE: usize>(
     let message = ProtocolMessage::StoreReq(message);
     if message.destination().unwrap() == context.root_id() {
         context
-            .runtime_mut()
+            .runtime()
             .broadcast_event(BroadcastableUseCaseEvent::Message(message));
         return;
     }
 
     context
-        .runtime_mut()
+        .runtime()
         .send_message(message, context.pn_table().deref());
 }
 
@@ -112,13 +112,13 @@ where
     // TODO: remove duplicated code
     if message.destination().unwrap() == context.root_id() {
         context
-            .runtime_mut()
+            .runtime()
             .broadcast_event(BroadcastableUseCaseEvent::Message(message));
         return Ok(());
     }
 
     context
-        .runtime_mut()
+        .runtime()
         .send_message(message, context.pn_table().deref());
     Ok(())
 }

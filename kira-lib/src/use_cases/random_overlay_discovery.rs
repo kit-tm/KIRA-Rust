@@ -116,7 +116,7 @@ where
         log::trace!(target: "random_overlay_discovery", "Sending message {:?}", message);
 
         context
-            .runtime_mut()
+            .runtime()
             .send_message(message, context.pn_table().deref());
 
         Ok(())
@@ -134,7 +134,7 @@ where
 
     fn start(&mut self, context: &C) -> Result<(), Self::Error> {
         let timer_id = context
-            .runtime_mut()
+            .runtime()
             .register_periodic_timer(self.config.timeout);
 
         self.state = RODState::Running(timer_id);

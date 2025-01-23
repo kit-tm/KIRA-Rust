@@ -61,7 +61,7 @@ where
     ) -> Result<(), DeriveFwdEntriesError> {
         let entry = NodeIdSubnet::new(*node_id);
         context
-            .runtime_mut()
+            .runtime()
             .update_fwd_tables(NodeIdTableUpdate::Remove(entry.clone()));
 
         // FIXME: check if entry was present before
@@ -70,7 +70,7 @@ where
 
         if let Some(prefix_entry) = self.derive_prefix_entry(context, node_id)? {
             context
-                .runtime_mut()
+                .runtime()
                 .update_fwd_tables(NodeIdTableUpdate::CreateOrUpdate(prefix_entry));
         }
 
@@ -84,12 +84,12 @@ where
     ) -> Result<(), DeriveFwdEntriesError> {
         let entry = self.derive_node_id_entry(context, &contact)?;
         context
-            .runtime_mut()
+            .runtime()
             .update_fwd_tables(NodeIdTableUpdate::CreateOrUpdate(entry));
 
         if let Some(prefix_entry) = self.derive_prefix_entry(context, contact.id())? {
             context
-                .runtime_mut()
+                .runtime()
                 .update_fwd_tables(NodeIdTableUpdate::CreateOrUpdate(prefix_entry));
         }
         Ok(())
@@ -102,12 +102,12 @@ where
     ) -> Result<(), DeriveFwdEntriesError> {
         let entry = self.derive_node_id_entry(context, &new_entry)?;
         context
-            .runtime_mut()
+            .runtime()
             .update_fwd_tables(NodeIdTableUpdate::CreateOrUpdate(entry));
 
         if let Some(prefix_entry) = self.derive_prefix_entry(context, new_entry.id())? {
             context
-                .runtime_mut()
+                .runtime()
                 .update_fwd_tables(NodeIdTableUpdate::CreateOrUpdate(prefix_entry));
         }
         Ok(())
@@ -204,7 +204,7 @@ where
     fn remove_path_id_entry(&self, context: &C, contact: Contact) {
         let in_path_id = self.config.hasher.hash(contact.path());
         context
-            .runtime_mut()
+            .runtime()
             .update_fwd_tables(PathIdTableUpdate::Remove(in_path_id));
     }
 
@@ -215,7 +215,7 @@ where
     ) -> Result<(), DeriveFwdEntriesError> {
         let entry = self.derive_path_id_entry(context, contact)?;
         context
-            .runtime_mut()
+            .runtime()
             .update_fwd_tables(PathIdTableUpdate::CreateOrUpdate(entry));
 
         Ok(())
@@ -231,7 +231,7 @@ where
         if old_entry.path() != new_entry.path() {
             let entry = self.derive_path_id_entry(context, new_entry)?;
             context
-                .runtime_mut()
+                .runtime()
                 .update_fwd_tables(PathIdTableUpdate::CreateOrUpdate(entry));
         }
 
@@ -361,7 +361,7 @@ where
             next_hop: DecapsulationDestination::Local,
         };
         context
-            .runtime_mut()
+            .runtime()
             .update_fwd_tables(PathIdTableUpdate::Create(PathIdEntry::Decapsulate(entry)));
 
         Ok(())

@@ -1,3 +1,4 @@
+use std::cell::{Cell, RefCell};
 use std::collections::binary_heap::PeekMut;
 use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::time::{Duration, Instant};
@@ -37,27 +38,27 @@ impl PartialOrd for Timer {
 /// [UseCaseRuntime] implementation for the [R2Kad][super::R2Kad] protocol instance.
 #[derive(Debug, Clone)]
 pub struct R2KadRuntime {
-    counter: usize,
-    timers: BinaryHeap<Timer>,
-    periodic_timers: HashMap<TimerId, Duration>,
+    counter: Cell<usize>,
+    timers: RefCell<BinaryHeap<Timer>>,
+    periodic_timers: RefCell<HashMap<TimerId, Duration>>,
     // Next events to be processed *excluding* timer events.
     // We can't just save them in `R2Kad` since `UseCases` are allowed
     // to broadcast certain events via the runtime.
-    event_queue: VecDeque<UseCaseEvent>,
-    output_queue: VecDeque<Output>,
-    current_time: Instant,
+    event_queue: RefCell<VecDeque<UseCaseEvent>>,
+    output_queue: RefCell<VecDeque<Output>>,
+    current_time: Cell<Instant>,
 }
 
 impl R2KadRuntime {
     /// Create new [UseCaseRuntime] with a specified startup time.
     pub fn with_startup_time(startup_time: Instant) -> Self {
         Self {
-            counter: 0,
-            timers: BinaryHeap::with_capacity(14), // heuristic: 1 / UseCase
-            periodic_timers: HashMap::default(),
-            event_queue: VecDeque::with_capacity(2),
-            output_queue: VecDeque::with_capacity(5),
-            current_time: startup_time,
+            counter: Cell::default(),
+            timers: RefCell::new(BinaryHeap::with_capacity(14)), // heuristic: 1 / UseCase
+            periodic_timers: RefCell::default(),
+            event_queue: RefCell::default(),
+            output_queue: RefCell::default(),
+            current_time: Cell::new(startup_time),
         }
     }
 
@@ -74,14 +75,14 @@ impl Default for R2KadRuntime {
 
 // R2Kad protocol instance orchestration methods
 impl R2KadRuntime {
-    pub fn set_current_time(&mut self, now: Instant) {
-        self.current_time = now;
+    pub fn set_current_time(&self, now: Instant) {
+        let _ = self.current_time.replace(now);
     }
 
     /// Returns next due timer based on current time of the runtime.
-    pub fn next_timer(&mut self) -> Option<TimerId> {
-        let due_timer = if let Some(next_timer) = self.timers.peek_mut() {
-            if next_timer.due >= self.current_time {
+    pub fn next_timer(&self) -> Option<TimerId> {
+        let due_timer = if let Some(next_timer) = self.timers.borrow_mut().peek_mut() {
+            if next_timer.due >= self.current_time.get() {
                 PeekMut::pop(next_timer)
             } else {
                 // impossible to yield more timers because of monoton increasing heap
@@ -93,52 +94,52 @@ impl R2KadRuntime {
         };
 
         // register periodic timer under same id to fire again
-        if let Some(duration) = self.periodic_timers.get(&due_timer.id) {
+        if let Some(duration) = self.periodic_timers.borrow().get(&due_timer.id) {
             self.register_timer_with_id(*duration, due_timer.id);
         }
 
         Some(due_timer.id)
     }
 
-    pub fn next_event(&mut self) -> Option<UseCaseEvent> {
-        self.event_queue.pop_front()
+    pub fn next_event(&self) -> Option<UseCaseEvent> {
+        self.event_queue.borrow_mut().pop_front()
     }
 
     /// Retrieve next [Output] event.
     ///
     /// This function should be called immediately after no [UseCaseEvents](UseCaseEvent)
     /// are left to process by use cases yielded by [next_events](Self::next_events).
-    pub fn poll_output(&mut self) -> Option<Output> {
-        self.output_queue.pop_front()
+    pub fn poll_output(&self) -> Option<Output> {
+        self.output_queue.borrow_mut().pop_front()
     }
 
     /// Current time of the runtime.
     pub fn current_time(&self) -> Instant {
-        self.current_time
+        self.current_time.get()
     }
 
     /// Returns the next [Instant] a timer is due.
     ///
     /// If there are no timers registered [None](Option::None) is returned.
     pub fn poll_timeout(&self) -> Option<Instant> {
-        self.timers.peek().map(|timer| timer.due)
+        self.timers.borrow().peek().map(|timer| timer.due)
     }
 }
 
 // Helper methods
 impl R2KadRuntime {
-    fn register_timer_with_id(&mut self, duration: Duration, id: TimerId) {
+    fn register_timer_with_id(&self, duration: Duration, id: TimerId) {
         // this is so we can optimize [Self::next_events]
         assert!(!duration.is_zero(), "timers should have positive durations");
 
-        let due = self.current_time + duration;
+        let due = self.current_time.get() + duration;
         let timer = Timer { due, id };
 
-        self.timers.push(timer);
+        self.timers.borrow_mut().push(timer);
     }
 
-    fn send_output(&mut self, output: Output) {
-        self.output_queue.push_back(output)
+    fn send_output(&self, output: Output) {
+        self.output_queue.borrow_mut().push_back(output)
     }
 }
 
@@ -162,28 +163,30 @@ impl UseCaseRuntime for R2KadRuntime {
     /// # Panics
     ///
     /// If called outside of an event loop or on overflow.
-    fn register_timer(&mut self, duration: Duration) -> TimerId {
+    fn register_timer(&self, duration: Duration) -> TimerId {
         assert!(
             !duration.is_zero(),
             "Timers should have a positive duration"
         );
 
-        let id = self.counter.into();
+        let counter = self.counter.get();
+        let id = counter.into();
         self.register_timer_with_id(duration, id);
 
         // TODO: handle overflow
-        self.counter = self
-            .counter
-            .checked_add(1)
-            .expect("TimerId overflow should not occure");
+        self.counter.replace(
+            counter
+                .checked_add(1)
+                .expect("TimerId overflow should not occure"),
+        );
 
         id
     }
 
-    fn register_periodic_timer(&mut self, duration: Duration) -> TimerId {
+    fn register_periodic_timer(&self, duration: Duration) -> TimerId {
         let timer_id = self.register_timer(duration);
 
-        let pre_existing = self.periodic_timers.insert(timer_id, duration);
+        let pre_existing = self.periodic_timers.borrow_mut().insert(timer_id, duration);
         assert_eq!(pre_existing, None, "periodic timer should not pre exist");
 
         timer_id
@@ -194,7 +197,7 @@ impl UseCaseRuntime for R2KadRuntime {
     /// The message will be routed via the underlay neighbor
     /// corresponding to the specified `ulnid`.
     fn send_message_via<P: Into<ProtocolMessage>>(
-        &mut self,
+        &self,
         protocol_message: P,
         ulnid: UnderlayNeighborDestination,
     ) {
@@ -203,15 +206,15 @@ impl UseCaseRuntime for R2KadRuntime {
     }
 
     /// Sends an [ForwardingTablesUpdate] request to the forwarding tables.
-    fn update_fwd_tables<U: Into<ForwardingTablesUpdate>>(&mut self, update: U) {
+    fn update_fwd_tables<U: Into<ForwardingTablesUpdate>>(&self, update: U) {
         let update = update.into();
         let output = Output::UpdateForwardingTables(update);
         self.send_output(output)
     }
 
     /// Broadcast an [UseCaseEvent](BroadcastableUseCaseEvent).
-    fn broadcast_event(&mut self, event: BroadcastableUseCaseEvent) {
-        self.event_queue.push_back(event.into());
+    fn broadcast_event(&self, event: BroadcastableUseCaseEvent) {
+        self.event_queue.borrow_mut().push_back(event.into());
     }
 }
 
@@ -230,7 +233,7 @@ mod test {
 
     #[test]
     fn ten_unique_timer_ids() {
-        let mut runtime = R2KadRuntime::new();
+        let runtime = R2KadRuntime::new();
 
         let timers = 10;
         let mut seen_timers = HashSet::with_capacity(timers);
@@ -244,7 +247,7 @@ mod test {
 
     #[test]
     fn no_time_elapse() {
-        let mut runtime = R2KadRuntime::new();
+        let runtime = R2KadRuntime::new();
         let initial_time = runtime.current_time();
 
         let _ = runtime.register_timer(Duration::from_secs(42));

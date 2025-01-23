@@ -150,7 +150,7 @@ where
             };
 
             context
-                .runtime_mut()
+                .runtime()
                 .send_message(update_route_message, context.pn_table().deref());
         }
 
@@ -182,7 +182,7 @@ where
 
         let nonce = {
             let mut nonce = Nonce::random();
-            let mut timer_id = context.runtime_mut().register_timer(timer_duration);
+            let mut timer_id = context.runtime().register_timer(timer_duration);
 
             while let Err(e) = self.rediscoveries.insert(
                 (*contact.id(), timer_id, nonce.clone()),
@@ -192,7 +192,7 @@ where
                     InsertionError::DuplicateNonce => nonce = Nonce::random(),
                     InsertionError::DuplicateTimer => {
                         log::warn!(target: "failure_handling", "runtime emitted duplicate timer id {} [{:?}]", timer_id, self.rediscoveries);
-                        timer_id = context.runtime_mut().register_timer(timer_duration)
+                        timer_id = context.runtime().register_timer(timer_duration)
                     }
                 }
             }
@@ -215,7 +215,7 @@ where
         };
 
         context
-            .runtime_mut()
+            .runtime()
             .send_message(find_node_request, context.pn_table().deref());
 
         log::trace!(target: "failure_handling", "Sent rediscovery find node for {} to {} [retry {} of {}]", contact.id(), closest_contact.id(), exponential_backoff.current_retries, exponential_backoff.max_retries);
@@ -263,7 +263,7 @@ where
         let next_duration = next_duration.unwrap();
 
         // Start new find node
-        let timer_id = context.runtime_mut().register_timer(next_duration);
+        let timer_id = context.runtime().register_timer(next_duration);
 
         let response = self.rediscoveries.replace_timer_for(*node_id, timer_id);
         if response.is_err() {
@@ -302,7 +302,7 @@ where
         };
 
         context
-            .runtime_mut()
+            .runtime()
             .send_message(find_node_request, context.pn_table().deref());
 
         // Just some logging, if logging is disabled this will be eliminated through dead code elimination

@@ -208,24 +208,26 @@ where
 {
     /// Startup the protocol instance.
     pub fn startup(&mut self, now: Instant) -> Result<()> {
-        self.context.runtime_mut().set_current_time(now);
+        self.context.runtime().set_current_time(now);
         self.pipeline.startup(&self.context)?;
         Ok(())
     }
 
     /// Process received [Input] event.
     pub fn handle_input(&mut self, received_event: Input, now: Instant) -> Result<()> {
+        log::trace!("Handling input: {:?}", received_event);
+
         // just to be save we check for due timers
         self.handle_timeout(now)?;
 
-        debug_assert_eq!(self.context.runtime_mut().next_event(), None);
+        debug_assert_eq!(self.context.runtime().next_event(), None);
 
         // handle input event as UseCaseEvent
         self.pipeline
             .process_event(&self.context, received_event.into())?;
 
         // consume __all__ events generated inside the runtime because of this
-        while let Some(event) = self.context.runtime_mut().next_event() {
+        while let Some(event) = self.context.runtime().next_event() {
             self.pipeline.process_event(&self.context, event)?;
         }
 
@@ -237,11 +239,12 @@ where
     /// The next time this method has to be called can be obtained
     /// with [poll_timeout](Self::poll_timeout).
     pub fn handle_timeout(&mut self, now: Instant) -> Result<()> {
-        let mut runtime = self.context.runtime_mut();
-        runtime.set_current_time(now);
+        log::trace!("Handling timeout");
+
+        self.context.runtime().set_current_time(now);
 
         // process timer events first
-        while let Some(due_timer) = runtime.next_timer() {
+        while let Some(due_timer) = self.context.runtime().next_timer() {
             let timer_event = crate::use_cases::UseCaseEvent::Timer(due_timer);
             self.pipeline.process_event(&self.context, timer_event)?;
         }
@@ -251,7 +254,7 @@ where
         // timers can only be due in the future (positive duration)
 
         // consume __all__ events generated inside the runtime
-        while let Some(event) = runtime.next_event() {
+        while let Some(event) = self.context.runtime().next_event() {
             self.pipeline.process_event(&self.context, event)?;
         }
 
@@ -260,7 +263,7 @@ where
 
     /// [Output] events of the protocol.
     pub fn poll_output(&mut self) -> Option<Output> {
-        self.context.runtime_mut().poll_output()
+        self.context.runtime().poll_output()
     }
 
     /// Next time [handle_timeout](Self::handle_timeout) should be called.

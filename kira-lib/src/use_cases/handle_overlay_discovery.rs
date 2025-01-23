@@ -245,7 +245,7 @@ where
             };
 
             context
-                .runtime_mut()
+                .runtime()
                 .send_message(outgoing_message, context.pn_table().deref());
         }
 

@@ -177,7 +177,7 @@ where
             let max_timout = self.config.resync_timeout.mul_f32(1.5);
 
             let random_timeout = thread_rng.gen_range(min_timeout..=max_timout);
-            *resync_timer_id = context.runtime_mut().register_timer(random_timeout);
+            *resync_timer_id = context.runtime().register_timer(random_timeout);
         }
     }
 }
@@ -235,7 +235,7 @@ where
         log::trace!(target: "vicinity_discovery", "Sending message {:?}", request);
 
         context
-            .runtime_mut()
+            .runtime()
             .send_message(request, context.pn_table().deref());
 
         Ok(())
@@ -282,7 +282,7 @@ where
         log::trace!(target: "vicinity_discovery", "Sending: {:?}", message);
 
         context
-            .runtime_mut()
+            .runtime()
             .send_message(message, context.pn_table().deref());
 
         Ok(())
@@ -299,7 +299,7 @@ where
         let message = self.constract_hello(context);
         let source_ip = Ipv6Addr::from(context.root_id()).to_string();
         log::trace!(target: "vicinity_discovery", "Sending message {:?} from {:?}", message, source_ip);
-        context.runtime_mut().send_message_via(message, Broadcast);
+        context.runtime().send_message_via(message, Broadcast);
     }
 
     fn broadcast_interface_hello(&self, context: &C, interface: InterfaceId) {
@@ -307,7 +307,7 @@ where
         let source_ip = Ipv6Addr::from(context.root_id()).to_string();
         log::trace!(target: "vicinity_discovery", "Sending message {:?} from {:?}", message, source_ip);
         context
-            .runtime_mut()
+            .runtime()
             .send_message_via(message, Multicast(interface));
     }
 
@@ -316,7 +316,7 @@ where
         let source_ip = Ipv6Addr::from(context.root_id()).to_string();
         log::trace!(target: "vicinity_discovery", "Sending message {:?} from {:?}", message, source_ip);
         context
-            .runtime_mut()
+            .runtime()
             .send_message_via(message, UnderlayNeighbor(ulnid));
     }
 
@@ -349,7 +349,7 @@ where
         );
 
         context
-            .runtime_mut()
+            .runtime()
             .send_message(message, context.pn_table().deref());
     }
 
@@ -382,7 +382,7 @@ where
         log::trace!(target: "vicinity_discovery", "Sending: {:?}", response);
 
         context
-            .runtime_mut()
+            .runtime()
             .send_message(response, context.pn_table().deref());
 
         Ok(())
@@ -400,14 +400,14 @@ where
 
     fn start(&mut self, context: &C) -> Result<(), Self::Error> {
         let hello_timer_id = context
-            .runtime_mut()
+            .runtime()
             .register_timer(self.config.initial_timeout);
 
         let mut thread_rng = rand::thread_rng();
         let min_timeout = self.config.resync_timeout.mul_f32(0.5);
         let max_timout = self.config.resync_timeout.mul_f32(1.5);
         let random_timeout = thread_rng.gen_range(min_timeout..=max_timout);
-        let resync_timer_id = context.runtime_mut().register_timer(random_timeout);
+        let resync_timer_id = context.runtime().register_timer(random_timeout);
 
         self.state = VDState::Running {
             last_timeout: self.config.initial_timeout,
@@ -495,7 +495,7 @@ where
                     };
                     new_duration - self.config.max_scatter / 2 + random_scatter
                 };
-                let next_hello_timer_id = context.runtime_mut().register_timer(next_timeout);
+                let next_hello_timer_id = context.runtime().register_timer(next_timeout);
 
                 *last_timeout = next_timeout;
                 *hello_timer_id = next_hello_timer_id;

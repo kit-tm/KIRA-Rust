@@ -135,12 +135,12 @@ where
             };
 
             context
-                .runtime_mut()
+                .runtime()
                 .update_fwd_tables(PathIdTableUpdate::Remove(old_in_path_id));
         }
         for new_entry in new_entries {
             context
-                .runtime_mut()
+                .runtime()
                 .update_fwd_tables(PathIdTableUpdate::CreateOrUpdate(new_entry));
         }
 
@@ -346,7 +346,7 @@ where
 
     fn start(&mut self, context: &C) -> Result<(), Self::Error> {
         if let Some(duration) = self.config.update_interval {
-            let timer_id = context.runtime_mut().register_periodic_timer(duration);
+            let timer_id = context.runtime().register_periodic_timer(duration);
             self.state = PrecomputeState::Waiting {
                 timer_id,
                 resync_queue: HashMap::default(),

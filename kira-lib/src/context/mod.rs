@@ -53,9 +53,7 @@ pub trait UseCaseContext {
 
     fn pn_table_mut(&self) -> RefMut<'_, Self::PhysicalNeighborTable>;
 
-    fn runtime(&self) -> Ref<'_, Self::Runtime>;
-
-    fn runtime_mut(&self) -> RefMut<'_, Self::Runtime>;
+    fn runtime(&self) -> &Self::Runtime;
 
     fn not_via(&self) -> Ref<'_, HashSet<NotVia>>;
 

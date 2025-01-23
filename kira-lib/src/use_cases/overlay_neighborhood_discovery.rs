@@ -180,7 +180,7 @@ where
 
             // Schedule new send
             *timer_id = context
-                .runtime_mut()
+                .runtime()
                 .register_timer(self.config.send_timeout);
             return Ok(());
         };
@@ -257,11 +257,11 @@ where
         );
 
         context
-            .runtime_mut()
+            .runtime()
             .send_message(request, context.pn_table().deref());
 
         // Start next backoff timer
-        *timer_id = context.runtime_mut().register_timer(next_backoff);
+        *timer_id = context.runtime().register_timer(next_backoff);
 
         Ok(())
     }
@@ -285,7 +285,7 @@ where
 
     fn start(&mut self, context: &C) -> Result<(), Self::Error> {
         let timer_id = context
-            .runtime_mut()
+            .runtime()
             .register_timer(self.config.send_timeout);
 
         self.state = ONDState::Running {
@@ -350,7 +350,7 @@ where
 
                     // Schedule new send
                     *timer_id = context
-                        .runtime_mut()
+                        .runtime()
                         .register_timer(self.config.send_timeout);
                 }
             }

@@ -193,7 +193,7 @@ where
                 });
 
                 context
-                    .runtime_mut()
+                    .runtime()
                     .send_message(message, context.pn_table().deref());
 
                 self.nonces.insert(nonce, Instant::now());

@@ -261,7 +261,7 @@ where
 
     fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error> {
         let timer_id = context
-            .runtime_mut()
+            .runtime()
             .register_periodic_timer(self.config.periodic_restore);
 
         self.state = Running(timer_id);
