@@ -150,6 +150,7 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
         let interface_id = interface_id.into();
 
         // ignore incoming messages from excluded interfaces
+        // otherwise it will error determining the ulnid
         if self.excluded_interfaces.contains(&interface_id) {
             return Ok(None);
         }

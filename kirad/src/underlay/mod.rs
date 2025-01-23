@@ -6,7 +6,7 @@ pub mod handle;
 pub use connection::UnderlayObserverConnection;
 pub use handle::UnderlayObserverHandle;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::Ipv6Addr;
 use std::num::NonZeroUsize;
 
@@ -191,7 +191,9 @@ impl UnderlayInformationBase {
 ///     println!("Update: {update:?}");
 /// }
 /// ```
-pub fn observe_underlay() -> std::io::Result<(
+pub fn observe_underlay(
+    excluded_interfaces: HashSet<InterfaceId>,
+) -> std::io::Result<(
     UnderlayObserverConnection,
     UnderlayObserverHandle,
     UnderlayNeighborUpdatesRx,
@@ -200,8 +202,14 @@ pub fn observe_underlay() -> std::io::Result<(
     let (updates_tx, updates_rx) = unbounded();
     let (handle_tx, handle_rx) = unbounded();
 
-    let connection =
-        UnderlayObserverConnection::new(connection, handle, messages, updates_tx, handle_rx)?;
+    let connection = UnderlayObserverConnection::new(
+        excluded_interfaces,
+        connection,
+        handle,
+        messages,
+        updates_tx,
+        handle_rx,
+    )?;
     let handle = UnderlayObserverHandle::new(handle_tx);
 
     Ok((connection, handle, updates_rx))

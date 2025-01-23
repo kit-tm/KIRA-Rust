@@ -63,18 +63,22 @@ fn main() {
     let root_id: NodeId = args.root_id.unwrap_or_else(NodeId::random);
     tracing::info!(%root_id, "Starting node...");
 
-    let excluded_interfaces = args
-        .excluded_interfaces
-        .map_or_else(HashSet::default, |vec| {
+    let excluded_interfaces = args.excluded_interfaces.map_or_else(
+        // DEFAULT: ignore loopback
+        || HashSet::from([NonZeroU32::new(1).unwrap().into()]),
+        |vec| {
             HashSet::from_iter(
                 vec.into_iter()
                     .map(|id| NonZeroU32::new(id).expect("Valid InterfaceId > 0").into()),
             )
-        });
+        },
+    );
 
     // start underlay observation
-    let (connection, handle, underlay_updates) = runtime
-        .block_on(async { observe_underlay().expect("observing underlay neighborhood failed") });
+    let (connection, handle, underlay_updates) = runtime.block_on(async {
+        observe_underlay(excluded_interfaces.clone())
+            .expect("observing underlay neighborhood failed")
+    });
     runtime.spawn(connection);
 
     //let fwd_table = NativeFwdTables::new(args.nftables_conf);

@@ -74,12 +74,12 @@ impl UdpSender {
             .get_available()
             .await
             .map_err(|_| SenderError::Closed)?;
-        for interface_index in indices {
+        for interface_id in indices {
             let dest = SocketAddr::V6(SocketAddrV6::new(
                 ALL_KIRA_NODES,
                 self.port,
                 0,
-                interface_index.into(),
+                interface_id.into(),
             ));
 
             // FIXME investigate if we can mitigate sending to unready interfaces
@@ -91,7 +91,7 @@ impl UdpSender {
                 .await
                 .map_err(SenderError::SendError)
             {
-                log::error!(target: "message_sender", "Broadcasting to interface failed unexpectedly: {}", e);
+                log::error!(target: "message_sender", "Broadcasting to interface {} failed unexpectedly: {}", interface_id, e);
             }
         }
         Ok(())

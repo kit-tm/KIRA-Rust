@@ -3,6 +3,7 @@
 //! The main struct is the [UnderlayObserverConnection] which drives the progress
 //! of the Netlink [Connection](RtNetlinkConnection).
 
+use std::collections::HashSet;
 use std::future::Future;
 use std::num::NonZeroU32;
 use std::pin::Pin;
@@ -65,6 +66,7 @@ impl Future for UnderlayObserverInnerConnection {
 /// The [UnderlayObserverConnection] should usually be spawned in a thread using [tokio::spawn].
 pub struct UnderlayObserverConnection {
     information_base: UnderlayInformationBase,
+    excluded_interfaces: HashSet<InterfaceId>,
 
     connection: Option<UnderlayObserverInnerConnection>,
 
@@ -76,12 +78,14 @@ pub struct UnderlayObserverConnection {
 
 impl UnderlayObserverConnection {
     pub(super) fn new(
+        excluded_interfaces: HashSet<InterfaceId>,
         connection: RtNetlinkConnection,
         rt_handle: ConnectionHandle<RouteNetlinkMessage>,
         mut rt_messages: RtNetlinkReceiver,
         updates_tx: UnderlayNeighborUpdatesTx,
         handle_rx: UnboundedReceiver<UnderlayObserverHandleRequest>,
     ) -> std::io::Result<Self> {
+        // FIXME: move futures into poll
         let (mut init_tx, mut init_rx) = unbounded();
         // get situation on startup
         tokio::spawn(async move {
@@ -130,11 +134,12 @@ impl UnderlayObserverConnection {
 
         let connection = UnderlayObserverInnerConnection::new(connection)?;
         Ok(Self {
+            information_base: Default::default(),
+            excluded_interfaces,
             connection: Some(connection),
             rt_messages: Some(messages_rx),
             updates_tx: Some(updates_tx),
             handle_rx: Some(handle_rx),
-            information_base: Default::default(),
         })
     }
 
@@ -209,6 +214,10 @@ impl UnderlayObserverConnection {
                         log::trace!("ProtoDown: {proto_down}");
                         log::trace!("State: {link_state:?}");
 
+                        if self.excluded_interfaces.contains(&interface_id) {
+                            log::debug!("ignore excluded interface: {:?}", interface_id);
+                            return;
+                        }
                         let if_up =
                             !proto_down && link_state.is_some_and(|state| state != State::Down);
 
