@@ -158,34 +158,45 @@ pub type Result<T> = core::result::Result<T, R2KadError>;
 /// ```
 /// use std::time::Instant;
 ///
-/// use kira_lib::{R2Kad, Input, Output}
+/// use kira_lib::context::SyncContext;
+/// use kira_lib::{Output, R2Kad};
 ///
-///     let mut r2kad = R2Kad::new();
+/// // create R²/KAD protocol instance with random NodeId
+/// let mut r2kad = R2Kad::<SyncContext<_, _, _, _>, 20>::builder().build();
+///
+/// // startup R²/KAD instance
+/// {
+///     let now = Instant::now();
+///     r2kad.startup(now).unwrap();
+/// }
 ///
 /// loop {
-///     let timeout = match r2kad.poll_output().unwrap() {
-///         Output::Timeout(v) => v,
-///         Output::SendProtocolMessage(message, destination) => {
-///             // TODO: Send data to remote peer.
-///             continue; // poll again
+///     // 1. Process protocol instance output
+///     while let Some(output) = r2kad.poll_output() {
+///         match output {
+///             Output::SendProtocolMessage(message, destination) => {
+///                 todo!("Send data to remote peer.");
+///             }
+///             Output::UpdateForwardingTables(update_req) => {
+///                 todo!("Update the forwarding tables.");
+///             }
 ///         }
-///         Output::UpdateForwardingTables(update_req) => {
-///             // TODO: Update the forwarding tables.
-///             continue; // poll again
-///         }
-///     };
+///     }
 ///
-///     // Wait for two types of events:
-///     //   1. Network input or Debug requests
-///     //   2. Timeout
-///     match tokio::time::timeout(Instant::now().duration_since(timeout), async move {
-///         // TODO: Receive data from remote peers.
-///         todo!("receive protocol messages")
-///     })
-///     .await
-///     {
-///         Ok(input) => r2kad.receive_event(input).unwrap(),
-///         Err(_) => continue, // poll again
+///     let timer_due = r2kad.poll_timeout().unwrap();
+///
+///     // 2. Drive protocol instance progress
+///     tokio::select! {
+///         biased; // poll in order since we check timers on handling input regardlessly
+///
+///         Some(input) = async move { todo!("Receive Input events like ProtocolMessages from remote peers")} => {
+///             let now = Instant::now();
+///             r2kad.handle_input(input, now).unwrap();
+///         }
+///         _ = tokio::time::sleep_until(timer_due.into()) => {
+///             let now = Instant::now();
+///             r2kad.handle_timeout(now).unwrap();
+///         }
 ///     }
 /// }
 /// ```

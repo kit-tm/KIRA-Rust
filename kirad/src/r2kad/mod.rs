@@ -212,51 +212,17 @@ where
         } = self;
 
         log::trace!("Startup R²/KAD protocol instance");
-        let now = Instant::now();
-        if let Err(e) = r2kad.startup(now) {
-            log::error!("Error on startup of R²/KAD: {}", e);
-            return;
+        {
+            let now = Instant::now();
+            if let Err(e) = r2kad.startup(now) {
+                log::error!("Error on startup of R²/KAD: {}", e);
+                return;
+            }
         }
 
-        let mut timer_due = r2kad.poll_timeout();
         loop {
-            if let Some(timer_due) = timer_due {
-                log::trace!("Waiting for new input events or timeout");
-                tokio::select! {
-                    biased; // poll in order since we check timers on handling input regardlessly
-
-                    Some(input) = channels::input_fan_in(rx_channels) => {
-                        let now = Instant::now();
-                        if let Err(e) = r2kad.handle_input(input, now) {
-                            log::error!("Error handle_input: {}", e);
-                            return;
-                        }
-                    }
-                    _ = time::sleep_until(timer_due.into()) => {
-                        let now = Instant::now();
-                        if let Err(e) = r2kad.handle_timeout(now) {
-                            log::error!("Error handle_timeout: {}", e);
-                            return;
-                        }
-                    }
-                    // no else required because timer MUST complete
-                }
-            } else {
-                log::trace!("Waiting for new input events");
-                let Some(input) = channels::input_fan_in(rx_channels).await else {
-                    log::info!("Fan in channel closed and no timers left");
-                    return;
-                };
-
-                let now = Instant::now();
-                if let Err(e) = r2kad.handle_input(input, now) {
-                    log::error!("Error handle_timeout: {}", e);
-                    return;
-                }
-            }
-
+            // process output firstly to capture startup output
             log::trace!("Process R²/KAD output");
-
             while let Some(output) = r2kad.poll_output() {
                 if channels::output_fan_out(output, tx_channels)
                     .await
@@ -267,7 +233,46 @@ where
                 }
             }
 
-            timer_due = r2kad.poll_timeout();
+            // handle the rare case that the protocol instance does not utilize a single timer
+            let Some(timer_due) = r2kad.poll_timeout() else {
+                log::warn!("R²/KAD has no timeout");
+                log::trace!("Waiting for new input events");
+
+                // only process Input events then
+                let Some(input) = channels::input_fan_in(rx_channels).await else {
+                    log::info!("Fan in channel closed and no timers left");
+                    return;
+                };
+
+                let now = Instant::now();
+                if let Err(e) = r2kad.handle_input(input, now) {
+                    log::error!("Error handle_timeout: {}", e);
+                    return;
+                }
+
+                continue;
+            };
+
+            log::trace!("Waiting for new input events or timeout");
+            tokio::select! {
+                biased; // poll in order since we check timers on handling input regardlessly
+
+                Some(input) = channels::input_fan_in(rx_channels) => {
+                    let now = Instant::now();
+                    if let Err(e) = r2kad.handle_input(input, now) {
+                        log::error!("Error handle_input: {}", e);
+                        return;
+                    }
+                }
+                _ = time::sleep_until(timer_due.into()) => {
+                    let now = Instant::now();
+                    if let Err(e) = r2kad.handle_timeout(now) {
+                        log::error!("Error handle_timeout: {}", e);
+                        return;
+                    }
+                }
+                // no else required because timer MUST complete
+            }
         }
     }
 }

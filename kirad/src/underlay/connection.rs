@@ -85,7 +85,7 @@ impl UnderlayObserverConnection {
         updates_tx: UnderlayNeighborUpdatesTx,
         handle_rx: UnboundedReceiver<UnderlayObserverHandleRequest>,
     ) -> std::io::Result<Self> {
-        // FIXME: move futures into poll
+        // TODO: move futures into poll
         let (mut init_tx, mut init_rx) = unbounded();
         // get situation on startup
         tokio::spawn(async move {
