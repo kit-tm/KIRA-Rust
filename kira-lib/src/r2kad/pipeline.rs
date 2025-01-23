@@ -213,7 +213,7 @@ where
                 span!(Level::DEBUG, "event", "type" = "Message", %nonce, source = %message.source())
             }
             UseCaseEvent::UnderlayUpdate(event) => {
-                span!(Level::DEBUG, "event", "type" = "Hardware", details = ?event)
+                span!(Level::DEBUG, "event", "type" = "UnderlayUpdate", details = ?event)
             }
             UseCaseEvent::Contact(event) => {
                 span!(Level::DEBUG, "event", "type" = "Contact", details = ?event)

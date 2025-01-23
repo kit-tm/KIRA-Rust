@@ -116,7 +116,6 @@ impl UdpSender {
                     log::warn!(
                         "Can't determine SocketAddr for unknown underlay neighbor: {ulnid:?}"
                     );
-                    log::trace!("Fallback to broadcast");
                     return None;
                 };
 
@@ -153,6 +152,11 @@ impl AsyncProtocolMessageSender for UdpSender {
                 .send_to(&buffer[..buffer.len()], receiver_addr)
                 .await?;
         } else {
+            log::warn!(
+                target: "message_sender",
+                "Sending ProtocolMessage {:?} by broadcast",
+                &message,
+            );
             self.broadcast_message(&buffer).await?;
         }
 
