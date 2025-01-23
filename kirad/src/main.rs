@@ -100,8 +100,9 @@ fn main() {
         .root_id(args.root_id.unwrap_or_else(NodeId::random))
         .build();
 
-    let kira = runtime
-        .block_on(async { Kira::new(r2kad, fwd_tables, underlay_updates, pm_receiver, pm_sender) });
+    let kira = runtime.block_on(async {
+        Kira::with_components(r2kad, fwd_tables, underlay_updates, pm_receiver, pm_sender)
+    });
 
     runtime.block_on(kira.start());
 }

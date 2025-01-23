@@ -22,28 +22,28 @@
 //!   not represented in channels but type contracts by the forwarding tier.
 //!   (see: [kira_forwarding::underlay])
 
+use futures::Stream;
+use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use kira_forwarding::domain::r2kad::ForwardingTablesUpdate;
-use kira_lib::domain::protocol_event::DebugEvent;
+use kira_lib::domain::protocol_event::{forwarding, DebugEvent};
 use kira_lib::domain::{UnderlayNeighborDestination, UnderlayNeighborId, UnderlayNeighborUpdate};
 use kira_lib::messaging::ProtocolMessage;
 use kira_lib::use_cases::ApiEvent;
 use kira_lib::{Input, Output};
 
-pub type InputSender = UnboundedSender<Input>;
 pub type MessageReceiver = Receiver<(ProtocolMessage, UnderlayNeighborId)>;
 pub type ApiReceiver = Receiver<ApiEvent>;
 pub type UnderlayReceiver = Receiver<UnderlayNeighborUpdate>;
 
-pub type OutputReceiver = UnboundedReceiver<Output>;
 pub type MessageSender = Sender<(ProtocolMessage, UnderlayNeighborDestination)>;
 pub type ForwardingSender = Sender<ForwardingTablesUpdate>;
 
 pub trait ProtocolInstance {}
 
 /// Instance input channels.
+#[derive(Debug)]
 pub struct R2KadInputChannels {
     /// Events receiver from the management component.
     pub api: ApiReceiver,
@@ -54,59 +54,61 @@ pub struct R2KadInputChannels {
 }
 
 /// Instance output channels.
+#[derive(Debug)]
 pub struct R2KadOutputChannels {
-    pub protocol_output: MessageSender,
-    pub forwarding: ForwardingSender,
+    pub protocol: MessageSender,
+    pub forwarding: Option<ForwardingSender>,
 }
 
 /// Aggregates all [input channels](R2KadInputChannels) into one [InputSender].
 ///
 /// The [InputSender] can then be used to drive the progress of the routing protocol.
-pub(super) fn input_fan_in(
-    input_channels: R2KadInputChannels,
-    fan_in: InputSender,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut input_channels = input_channels;
-        loop {
-            let input = tokio::select! {
-                Some(api) = input_channels.api.recv() => {
-                    Input::Debug(DebugEvent::Api(api))
-                }
-                Some((msg, src_ulnid)) = input_channels.protocol_input.recv() => {
-                    Input::Message(msg, src_ulnid)
-                }
-                Some(underlay_update) = input_channels.underlay.recv() => {
-                    Input::UnderlayUpdate(underlay_update)
-                }
-            };
-
-            if fan_in.send(input).is_err() {
-                log::warn!("Fan in of input events aborted because receiver closed");
-                break;
-            }
+pub(super) async fn input_fan_in(input_channels: &mut R2KadInputChannels) -> Option<Input> {
+    let input = tokio::select! {
+        biased; // poll in order
+        Some((msg, src_ulnid)) = input_channels.protocol_input.recv() => {
+            Input::Message(msg, src_ulnid)
         }
-    })
+        Some(underlay_update) = input_channels.underlay.recv() => {
+            Input::UnderlayUpdate(underlay_update)
+        }
+        Some(api) = input_channels.api.recv() => {
+            Input::Debug(DebugEvent::Api(api))
+        }
+        else => return None,
+    };
+
+    Some(input)
 }
 
 /// Distributes all [Output] events by an [OutputReceiver] to the dedicated [output
 /// channels](R2KadOutputChannels).
 ///
 /// The [OutputReceiver] can be used to listen to output of the routing protocol.
-pub(super) fn output_fan_out(
-    mut combined_output: OutputReceiver,
-    output_channels: R2KadOutputChannels,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        while let Some(output) = combined_output.recv().await {
-            match output {
-                Output::SendProtocolMessage(pm, ulnid) => {
-                    let _ = output_channels.protocol_output.send((pm, ulnid)).await;
-                }
-                Output::UpdateForwardingTables(fwtables_update) => {
-                    let _ = output_channels.forwarding.send(fwtables_update).await;
-                }
+pub(super) async fn output_fan_out(
+    output: Output,
+    output_channels: &mut R2KadOutputChannels,
+) -> Option<()> {
+    match output {
+        Output::SendProtocolMessage(pm, ulnid) => {
+            if output_channels.protocol.send((pm, ulnid)).await.is_err() {
+                log::error!("protocol sending channel closed");
+                return None;
             }
         }
-    })
+        Output::UpdateForwardingTables(update) => {
+            let Some(ref forwarding) = output_channels.forwarding else {
+                log::trace!("Ignoring forwarding tables update: {}", update);
+                return Some(());
+            };
+            if let Err(SendError(update)) = forwarding.send(update).await {
+                log::warn!(
+                    "forwarding tables update can't be delivered because channel is closed: {}",
+                    update
+                );
+                let _ = output_channels.forwarding.take();
+            }
+        }
+    }
+    Some(())
 }

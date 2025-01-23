@@ -41,7 +41,6 @@ use crate::io::receiver::error::RecvError;
 use crate::io::receiver::AsyncProtocolMessageReceiver;
 use crate::io::sender::error::SenderError;
 use crate::io::sender::AsyncProtocolMessageSender;
-use crate::underlay;
 use crate::underlay::UnderlayNeighborUpdatesRx;
 
 /// Main KIRA protocol instance.
@@ -65,9 +64,15 @@ where
     FT: PathIdTable<Error = FTE>,
     FTE: std::error::Error + Send,
 {
-    #![allow(missing_docs)]
-
-    pub fn new(
+    /// Create fully functional [Kira] instance.
+    ///
+    /// It sets up various [tasks][tokio::task] for driving progress
+    /// of the individual components (fast forwarding table, R²/KAD instance, ...)
+    /// individually in an async manner.
+    /// This method needs to be spawned inside a [tokio] runtime or it will panic.
+    ///
+    /// If you want to connect custom components for debugging use [Self::with_channels]
+    pub fn with_components(
         r2kad: R2Kad<C, BUCKET_SIZE>,
         mut forwarding_tables: FT,
         mut underlay_updates: UnderlayNeighborUpdatesRx,
@@ -76,7 +81,7 @@ where
     ) -> Self {
         // forwarding tables
         let (fwtables_tx, mut fwtables_rx) = mpsc::channel(10);
-        tokio::task::spawn(async move {
+        tokio::spawn(async move {
             loop {
                 let Some(req) = fwtables_rx.recv().await else {
                     break;
@@ -98,9 +103,6 @@ where
             });
         }
 
-        // TODO: connect handle with message receiver
-        // TODO: message receiver
-        // TODO: message sender
         // TODO: shutdown on signal
 
         // API
@@ -166,8 +168,8 @@ where
         };
 
         let tx_channels = R2KadOutputChannels {
-            protocol_output: pm_sender_tx,
-            forwarding: fwtables_tx,
+            protocol: pm_sender_tx,
+            forwarding: Some(fwtables_tx),
         };
 
         Self::with_channels(r2kad, rx_channels, tx_channels)
@@ -201,91 +203,71 @@ where
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
 {
     /// Starts the R²/KAD routing protocol instance.
-    pub fn start(self) -> impl Future {
-        // FIXME: unbound_channel/channel does not make sense like this for creating back pressure
-        let (input_tx, mut input_rx) = mpsc::unbounded_channel();
-        let (output_tx, output_rx) = mpsc::unbounded_channel();
+    pub async fn start(mut self) {
+        let Self {
+            ref mut r2kad,
+            ref mut rx_channels,
+            ref mut tx_channels,
+            ..
+        } = self;
 
-        async move {
-            let fan_in = channels::input_fan_in(self.rx_channels, input_tx);
-            let fan_out = channels::output_fan_out(output_rx, self.tx_channels);
+        log::trace!("Startup R²/KAD protocol instance");
+        let now = Instant::now();
+        if let Err(e) = r2kad.startup(now) {
+            log::error!("Error on startup of R²/KAD: {}", e);
+            return;
+        }
 
-            let mut r2kad = self.r2kad;
+        let mut timer_due = r2kad.poll_timeout();
+        loop {
+            if let Some(timer_due) = timer_due {
+                log::trace!("Waiting for new input events or timeout");
+                tokio::select! {
+                    biased; // poll in order since we check timers on handling input regardlessly
 
-            log::trace!("Startup R²/KAD protocol instance");
-            let now = Instant::now();
-            if let Err(e) = r2kad.startup(now) {
-                log::error!("Error on startup of R²/KAD: {}", e);
-                return;
-            }
-
-            // MAIN EVENT LOOP
-            let mut timer_due = r2kad.poll_timeout();
-            loop {
-                if let Some(timer_due) = timer_due {
-                    log::trace!("Waiting for new input events or timeout");
-                    tokio::select! {
-                        _ = time::sleep_until(timer_due.into()) => {
-                            let now = Instant::now();
-                            if let Err(e) = r2kad.handle_timeout(now) {
-                                log::error!("Error handle_timeout: {}", e);
-                                break;
-                            }
-                        }
-                        Some(input) = input_rx.recv() => {
-                            let now = Instant::now();
-                            if let Err(e) = r2kad.handle_input(input, now) {
-                                log::error!("Error handle_input: {}", e);
-                                break;
-                            }
-
-                        }
-                        else => { continue}
-                    }
-                } else {
-                    log::trace!("Waiting for new input events");
-                    match input_rx.recv().await {
-                        Some(input) => {
-                            let now = Instant::now();
-                            if let Err(e) = r2kad.handle_input(input, now) {
-                                log::error!("Error handle_timeout: {}", e);
-                                break;
-                            }
-                        }
-                        None => {
-                            log::info!("Fan in channel closed");
-                            break;
+                    Some(input) = channels::input_fan_in(rx_channels) => {
+                        let now = Instant::now();
+                        if let Err(e) = r2kad.handle_input(input, now) {
+                            log::error!("Error handle_input: {}", e);
+                            return;
                         }
                     }
+                    _ = time::sleep_until(timer_due.into()) => {
+                        let now = Instant::now();
+                        if let Err(e) = r2kad.handle_timeout(now) {
+                            log::error!("Error handle_timeout: {}", e);
+                            return;
+                        }
+                    }
+                    // no else required because timer MUST complete
                 }
+            } else {
+                log::trace!("Waiting for new input events");
+                let Some(input) = channels::input_fan_in(rx_channels).await else {
+                    log::info!("Fan in channel closed and no timers left");
+                    return;
+                };
 
-                log::trace!("Process R²/KAD output");
-
-                while let Some(output) = r2kad.poll_output() {
-                    if output_tx.send(output).is_err() {
-                        log::error!("Output channel closed");
-                        break;
-                    }
+                let now = Instant::now();
+                if let Err(e) = r2kad.handle_input(input, now) {
+                    log::error!("Error handle_timeout: {}", e);
+                    return;
                 }
-
-                timer_due = r2kad.poll_timeout();
             }
 
-            // drop channels
-            let _ = output_tx;
-            let _ = input_rx;
+            log::trace!("Process R²/KAD output");
 
-            log::info!("Waiting for input and output channels to shutdown");
-
-            let (fan_in, fan_out) = tokio::join!(fan_in, fan_out);
-            if let Err(e) = fan_in {
-                log::warn!("Error waiting on fan_in: {}", e);
-            }
-            if let Err(e) = fan_out {
-                log::warn!("Error waiting on fan_out: {}", e);
+            while let Some(output) = r2kad.poll_output() {
+                if channels::output_fan_out(output, tx_channels)
+                    .await
+                    .is_none()
+                {
+                    log::error!("output channels closed");
+                    return;
+                }
             }
 
-            log::trace!("finished");
+            timer_due = r2kad.poll_timeout();
         }
     }
 }
