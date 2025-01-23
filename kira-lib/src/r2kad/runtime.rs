@@ -82,7 +82,7 @@ impl R2KadRuntime {
     /// Returns next due timer based on current time of the runtime.
     pub fn next_timer(&self) -> Option<TimerId> {
         let due_timer = if let Some(next_timer) = self.timers.borrow_mut().peek_mut() {
-            if next_timer.due >= self.current_time.get() {
+            if next_timer.due <= self.current_time.get() {
                 PeekMut::pop(next_timer)
             } else {
                 // impossible to yield more timers because of monoton increasing heap
@@ -90,11 +90,17 @@ impl R2KadRuntime {
             }
         } else {
             // no timers present => no need to check again
+            log::warn!("no runtime timers set");
             return None;
         };
 
         // register periodic timer under same id to fire again
         if let Some(duration) = self.periodic_timers.borrow().get(&due_timer.id) {
+            log::trace!(
+                "register periodic timer again: {:?} ({:?})",
+                due_timer.id,
+                duration
+            );
             self.register_timer_with_id(*duration, due_timer.id);
         }
 
@@ -130,12 +136,13 @@ impl R2KadRuntime {
 impl R2KadRuntime {
     fn register_timer_with_id(&self, duration: Duration, id: TimerId) {
         // this is so we can optimize [Self::next_events]
-        assert!(!duration.is_zero(), "timers should have positive durations");
+        debug_assert!(!duration.is_zero(), "timers should have positive durations");
 
         let due = self.current_time.get() + duration;
         let timer = Timer { due, id };
 
         self.timers.borrow_mut().push(timer);
+        log::trace!("registered timer: {:?} ({:?})", timer, duration);
     }
 
     fn send_output(&self, output: Output) {
@@ -238,7 +245,7 @@ mod test {
         let timers = 10;
         let mut seen_timers = HashSet::with_capacity(timers);
 
-        for i in 0..timers {
+        for i in 1..timers {
             let timer_id = runtime.register_timer(Duration::from_secs(i as u64));
             assert!(!seen_timers.contains(&timer_id), "No duplicate timers");
             seen_timers.insert(timer_id);
@@ -257,6 +264,27 @@ mod test {
             initial_time, current_time,
             "No time change on registering a timer"
         );
+    }
+    #[test]
+    fn next_timer() {
+        let runtime = R2KadRuntime::new();
+        let now = Instant::now();
+        runtime.set_current_time(now);
+
+        let duration = Duration::from_secs(42);
+        let id = runtime.register_timer(duration);
+
+        assert!(
+            runtime.next_timer().is_none(),
+            "timer should not fire immediately"
+        );
+        runtime.set_current_time(now + duration / 2);
+        assert!(
+            runtime.next_timer().is_none(),
+            "timer should not fire if not due"
+        );
+        runtime.set_current_time(now + duration);
+        assert_eq!(runtime.next_timer(), Some(id), "timer should fire on due");
     }
 
     // TODO: more unit tests
