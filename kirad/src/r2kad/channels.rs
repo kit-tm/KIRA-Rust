@@ -22,21 +22,22 @@
 //!   not represented in channels but type contracts by the forwarding tier.
 //!   (see: [kira_forwarding::underlay])
 
-use kira_forwarding::domain::r2kad::ForwardingTablesUpdate;
-use kira_lib::Output;
 use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use kira_lib::domain::protocol_event::{DebugEvent, Input};
+use kira_forwarding::domain::r2kad::ForwardingTablesUpdate;
+use kira_lib::domain::protocol_event::DebugEvent;
 use kira_lib::domain::{UnderlayNeighborDestination, UnderlayNeighborId, UnderlayNeighborUpdate};
 use kira_lib::messaging::ProtocolMessage;
 use kira_lib::use_cases::ApiEvent;
+use kira_lib::{Input, Output};
 
-pub type InputSender = Sender<Input>;
+pub type InputSender = UnboundedSender<Input>;
 pub type MessageReceiver = Receiver<(ProtocolMessage, UnderlayNeighborId)>;
 pub type ApiReceiver = Receiver<ApiEvent>;
 pub type UnderlayReceiver = Receiver<UnderlayNeighborUpdate>;
 
-pub type OutputReceiver = Receiver<Output>;
+pub type OutputReceiver = UnboundedReceiver<Output>;
 pub type MessageSender = Sender<(ProtocolMessage, UnderlayNeighborDestination)>;
 pub type ForwardingSender = Sender<ForwardingTablesUpdate>;
 
@@ -61,11 +62,12 @@ pub struct R2KadOutputChannels {
 /// Aggregates all [input channels](R2KadInputChannels) into one [InputSender].
 ///
 /// The [InputSender] can then be used to drive the progress of the routing protocol.
-fn input_fan_in(
-    mut input_channels: R2KadInputChannels,
+pub(super) fn input_fan_in(
+    input_channels: R2KadInputChannels,
     fan_in: InputSender,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
+        let mut input_channels = input_channels;
         loop {
             let input = tokio::select! {
                 Some(api) = input_channels.api.recv() => {
@@ -79,7 +81,10 @@ fn input_fan_in(
                 }
             };
 
-            let _ = fan_in.send(input).await;
+            if fan_in.send(input).is_err() {
+                log::warn!("Fan in of input events aborted because receiver closed");
+                break;
+            }
         }
     })
 }
@@ -88,16 +93,12 @@ fn input_fan_in(
 /// channels](R2KadOutputChannels).
 ///
 /// The [OutputReceiver] can be used to listen to output of the routing protocol.
-fn output_fan_out(
+pub(super) fn output_fan_out(
     mut combined_output: OutputReceiver,
     output_channels: R2KadOutputChannels,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        loop {
-            let Some(output) = combined_output.recv().await else {
-                break;
-            };
-
+        while let Some(output) = combined_output.recv().await {
             match output {
                 Output::SendProtocolMessage(pm, ulnid) => {
                     let _ = output_channels.protocol_output.send((pm, ulnid)).await;

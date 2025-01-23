@@ -1,9 +1,12 @@
 //! Traits and implementations for receiving [ProtocolMessages](kira_lib::messaging::ProtocolMessage).
 
+use std::task::Poll;
 use std::time::Duration;
 
 use error::*;
 
+use futures::FutureExt;
+use futures::Stream;
 pub use kira_lib::domain::InterfaceId;
 pub use kira_lib::domain::UnderlayNeighborId;
 pub use kira_lib::messaging::messages::ProtocolMessage;
@@ -71,6 +74,28 @@ pub trait LocalAsyncProtocolMessageReceiver {
     async fn try_recv(
         &mut self,
     ) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, TryRecvError>;
+}
+
+/// Struct wrapping an [AsyncProtocolMessageReceiver] for implementing [Stream] and [TryStream].
+pub struct ProtocolMessageReceiverStream<R>(R);
+
+impl<R: AsyncProtocolMessageReceiver + Unpin> Stream for ProtocolMessageReceiverStream<R> {
+    type Item = Result<(ProtocolMessage, UnderlayNeighborId), RecvError>;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        let Self(rx) = self.get_mut();
+        let mut rx = Box::pin(rx.recv());
+
+        match rx.poll_unpin(cx) {
+            Poll::Ready(Ok(Some(item))) => Poll::Ready(Some(Ok(item))),
+            Poll::Ready(Err(e)) => Poll::Ready(Some(Err(e))),
+            Poll::Ready(Ok(None)) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
 }
 
 /// Errors for message receivers

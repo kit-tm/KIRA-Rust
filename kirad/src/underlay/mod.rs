@@ -47,7 +47,7 @@ pub struct UnderlayInformationBase {
 impl Default for UnderlayInformationBase {
     fn default() -> Self {
         Self {
-            next_ulnid: NonZeroUsize::new(0).unwrap().into(),
+            next_ulnid: NonZeroUsize::new(1).unwrap().into(),
             neighbors: Default::default(),
             neighbor_ids: Default::default(),
             interfaces: Default::default(),
