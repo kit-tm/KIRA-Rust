@@ -11,9 +11,9 @@
 pub mod channels;
 
 use std::collections::HashMap;
-use std::future::Future;
 use std::marker::PhantomData;
 use std::ops::Deref;
+use std::rc::Rc;
 use std::time::Instant;
 
 use channels::{R2KadInputChannels, R2KadOutputChannels};
@@ -193,7 +193,7 @@ impl<C, const BUCKET_SIZE: usize, FT> Kira<C, BUCKET_SIZE, FT> {
 
 impl<C, const BUCKET_SIZE: usize, FT> Kira<C, BUCKET_SIZE, FT>
 where
-    C: UseCaseContext<Runtime = R2KadRuntime>,
+    C: UseCaseContext<Runtime = Rc<R2KadRuntime>>,
     C::Runtime: UseCaseRuntime,
     C::PhysicalNeighborTable:
         UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + std::fmt::Debug,

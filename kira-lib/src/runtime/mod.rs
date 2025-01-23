@@ -63,5 +63,31 @@ pub trait UseCaseRuntime {
     /// Broadcast an [UseCaseEvent](BroadcastableUseCaseEvent).
     ///
     /// This event is delivered *locally* to all UseCases.
-    fn broadcast_event(&self, event: BroadcastableUseCaseEvent);
+    fn broadcast_event<B: Into<BroadcastableUseCaseEvent>>(&self, event: B);
+}
+
+impl<UR: UseCaseRuntime, D: Deref<Target = UR>> UseCaseRuntime for D {
+    fn register_timer(&self, duration: Duration) -> TimerId {
+        self.deref().register_timer(duration)
+    }
+
+    fn register_periodic_timer(&self, duration: Duration) -> TimerId {
+        self.deref().register_periodic_timer(duration)
+    }
+
+    fn send_message_via<P: Into<ProtocolMessage>>(
+        &self,
+        protocol_message: P,
+        destination: UnderlayNeighborDestination,
+    ) {
+        self.deref().send_message_via(protocol_message, destination);
+    }
+
+    fn update_fwd_tables<U: Into<ForwardingTablesUpdate>>(&self, update: U) {
+        self.deref().update_fwd_tables(update);
+    }
+
+    fn broadcast_event<B: Into<BroadcastableUseCaseEvent>>(&self, event: B) {
+        self.deref().broadcast_event(event);
+    }
 }

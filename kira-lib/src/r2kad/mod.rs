@@ -5,6 +5,7 @@ use std::{
     collections::{HashMap, HashSet},
     marker::PhantomData,
     ops::Deref,
+    rc::Rc,
     time::Instant,
 };
 
@@ -25,7 +26,7 @@ use crate::{
     },
     r2kad::pipeline::{R2KadPipelineConfig, UseCaseStartupError, UseCaseStateError},
     runtime::UseCaseRuntime,
-    use_cases::UseCaseContext,
+    use_cases::{ContactEvent, UseCaseContext},
 };
 use runtime::R2KadRuntime;
 
@@ -65,7 +66,7 @@ where
     C: UseCaseContext<
         RoutingTable = ObservableRoutingTable<UnlimitedPNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
         PhysicalNeighborTable = InMemoryPNTable,
-        Runtime = R2KadRuntime,
+        Runtime = Rc<R2KadRuntime>,
         InsertionStrategy = PNSStrategy<
             ObservableRoutingTable<UnlimitedPNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
             InOrderCycleRemover,
@@ -76,15 +77,30 @@ where
 {
     pub fn build(&self) -> R2Kad<C, BUCKET_SIZE> {
         let root_id = self.root_id.unwrap_or_else(NodeId::random);
-        let runtime = R2KadRuntime::with_startup_time(self.current_time);
+        let runtime = Rc::new(R2KadRuntime::with_startup_time(self.current_time));
         let pipeline = R2KadPipeline::new(self.pipeline_config, &root_id);
 
-        let routing_table = ObservableRoutingTable::from(UnlimitedPNRoutingTable::from(
+        let mut routing_table = ObservableRoutingTable::from(UnlimitedPNRoutingTable::from(
             FlatRoutingTable::new(root_id).expect("FlatRoutingTable parameters should be valid"),
         ));
 
-        // TODO: add routing table observers that broadcast contact updates
-        // Rc<RefCell<Vec<ContactUpdates>>> in R2Kad and ObservableRoutingTable
+        // Add observer which emits to runtime
+        {
+            // this is why Rc<R2KadRuntime> is required
+            let runtime = runtime.clone();
+            routing_table.add_observer(move |event| {
+                use crate::domain::observable_routing_table::RoutingTableEvent::*;
+                let contact_event = match event {
+                    NewContact(contact) => ContactEvent::New(contact),
+                    RemovedContact(contact) => ContactEvent::Removed(contact),
+                    UpdatedContact { new, old } => ContactEvent::Updated { new, old },
+                    UpdatedBucket(bucket) => ContactEvent::BucketUpdated(bucket),
+                    NewBucket(bucket) => ContactEvent::NewBucket(bucket),
+                };
+                runtime.broadcast_event(contact_event);
+            });
+        }
+        routing_table.add_observer(|event| log::trace!(target: "routing_table", "{}", event));
 
         let insertion_strategy = PNSStrategy::new(InOrderCycleRemover, ShortestFirstPathSimplifier);
 
@@ -199,7 +215,7 @@ impl<C: UseCaseContext, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE> {
 
 impl<C, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE>
 where
-    C: UseCaseContext<Runtime = R2KadRuntime>,
+    C: UseCaseContext<Runtime = Rc<R2KadRuntime>>,
     C::Runtime: UseCaseRuntime,
     C::PhysicalNeighborTable:
         UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + std::fmt::Debug,

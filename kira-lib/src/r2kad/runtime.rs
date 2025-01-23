@@ -220,8 +220,8 @@ impl UseCaseRuntime for R2KadRuntime {
     }
 
     /// Broadcast an [UseCaseEvent](BroadcastableUseCaseEvent).
-    fn broadcast_event(&self, event: BroadcastableUseCaseEvent) {
-        self.event_queue.borrow_mut().push_back(event.into());
+    fn broadcast_event<B: Into<BroadcastableUseCaseEvent>>(&self, event: B) {
+        self.event_queue.borrow_mut().push_back(event.into().into());
     }
 }
 
