@@ -2,7 +2,7 @@
 //!
 //! The main struct for receiving [ProtocolMessages](ProtocolMessage) is the [UdpSender].
 
-use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
+use std::net::{SocketAddr, SocketAddrV6};
 use std::sync::Arc;
 
 use tokio::io;
@@ -76,7 +76,7 @@ impl UdpSender {
             .map_err(|_| SenderError::Closed)?;
         for interface_index in indices {
             let dest = SocketAddr::V6(SocketAddrV6::new(
-                Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1),
+                ALL_KIRA_NODES,
                 self.port,
                 0,
                 interface_index.into(),
