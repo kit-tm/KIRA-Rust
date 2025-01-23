@@ -148,7 +148,7 @@ where
                             break;
                         }
                         Err(other_error) => {
-                            log::error!("Error on sending protocol message: {}", other_error)
+                            log::error!("Sending protocol message failed: {}", other_error)
                         }
                     },
                     None => {

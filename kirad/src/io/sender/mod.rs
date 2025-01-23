@@ -2,7 +2,6 @@
 
 use error::*;
 
-use futures::Sink;
 pub use kira_lib::domain::UnderlayNeighborDestination;
 pub use kira_lib::messaging::messages::ProtocolMessage;
 
