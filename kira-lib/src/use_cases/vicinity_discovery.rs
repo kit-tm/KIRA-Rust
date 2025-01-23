@@ -19,8 +19,8 @@ use crate::messaging::{
     ReqRspMessage,
 };
 use crate::use_cases::{
-    BroadcastableUseCaseEvent, ContactEvent, EventHandler, TimerId, UseCase, UseCaseContext,
-    UseCaseEvent, UseCaseRuntime, UseCaseState,
+    ContactEvent, EventHandler, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime,
+    UseCaseState,
 };
 
 /// Radius of the neighborhood considered as vicinity.

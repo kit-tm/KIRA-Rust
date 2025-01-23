@@ -82,7 +82,7 @@ fn main() {
     runtime.spawn(connection);
 
     //let fwd_table = NativeFwdTables::new(args.nftables_conf);
-    let fwd_tables = InMemoryFwdTables::new();
+    let fwd_tables = InMemoryFwdTables::default();
 
     // create message sender and receiver
     let (pm_sender, pm_receiver) = runtime

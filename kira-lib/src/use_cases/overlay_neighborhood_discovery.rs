@@ -1,10 +1,11 @@
-use derive_more::{Display, Error};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::ops::Deref;
 use std::time::Duration;
+
+use derive_more::Display;
 
 use crate::domain::{node_id, GroupingError, NodeId, RoutingTable, UNTable, UnderlayNeighborId};
 use crate::messaging::source_route::SourceRoute;
@@ -179,9 +180,7 @@ where
             *latest = None;
 
             // Schedule new send
-            *timer_id = context
-                .runtime()
-                .register_timer(self.config.send_timeout);
+            *timer_id = context.runtime().register_timer(self.config.send_timeout);
             return Ok(());
         };
         // otherwise send next message and register another timer
@@ -284,9 +283,7 @@ where
     type State = ONDState;
 
     fn start(&mut self, context: &C) -> Result<(), Self::Error> {
-        let timer_id = context
-            .runtime()
-            .register_timer(self.config.send_timeout);
+        let timer_id = context.runtime().register_timer(self.config.send_timeout);
 
         self.state = ONDState::Running {
             timer_id,
@@ -349,9 +346,7 @@ where
                     self.backoff.reset();
 
                     // Schedule new send
-                    *timer_id = context
-                        .runtime()
-                        .register_timer(self.config.send_timeout);
+                    *timer_id = context.runtime().register_timer(self.config.send_timeout);
                 }
             }
             // An error response was received

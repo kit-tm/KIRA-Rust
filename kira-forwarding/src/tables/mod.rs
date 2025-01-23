@@ -7,20 +7,13 @@ pub mod native_tables;
 use crate::domain::r2kad::{
     self,
     ForwardingTablesUpdate::{NodeIdTableUpdate, PathIdTableUpdate},
+    NodeIdEntry, PathIdEntry,
 };
 use crate::domain::{NodeIdSubnet, PathId};
 
-#[doc(inline)]
-pub use kira_lib::domain::protocol_event::forwarding::{
-    NodeIdEncapsulationEntry, NodeIdEntry, NodeIdForwardingEntry,
-};
-#[doc(inline)]
-pub use kira_lib::domain::protocol_event::forwarding::{
-    PathIdDecapsulationEntry, PathIdEntry, PathIdForwardingEntry,
-};
-
 /// CRUD access interface to the forwarding table based on [NodeIds](crate::domain::NodeId).
 pub trait NodeIdTable {
+    #[allow(missing_docs)]
     type Error: std::fmt::Debug;
 
     /// Creates the given [NodeIdEntry].
@@ -43,6 +36,7 @@ pub trait NodeIdTable {
 
 /// CRUD access interface to the forwarding table based on [PathId]s.
 pub trait PathIdTable {
+    #[allow(missing_docs)]
     type Error: std::fmt::Debug;
 
     /// Creates the given [PathIdEntry].

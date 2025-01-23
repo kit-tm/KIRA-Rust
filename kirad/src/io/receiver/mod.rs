@@ -7,8 +7,8 @@ use error::*;
 
 use futures::FutureExt;
 use futures::Stream;
-pub use kira_lib::domain::InterfaceId;
-pub use kira_lib::domain::UnderlayNeighborId;
+
+pub use kira_lib::domain::{InterfaceId, UnderlayNeighborId};
 pub use kira_lib::messaging::messages::ProtocolMessage;
 
 #[cfg(feature = "udp-tokio")]

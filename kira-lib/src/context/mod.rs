@@ -3,7 +3,7 @@
 use std::cell::{Ref, RefMut};
 use std::collections::HashSet;
 
-pub use sync_context::*;
+pub use sync_context::SyncContext;
 
 use crate::domain::{NodeId, NotVia};
 

@@ -3,6 +3,10 @@ use std::{ffi::OsStr, net::Ipv6Addr, process::Command};
 
 use crate::domain::NodeId;
 
+/// Loads a config from a path for [nftables](https://netfilter.org/projects/nftables/)
+/// and tries to apply it.
+///
+/// If the command fails the captured error message is returned as [Err].
 pub fn load_nft_config<S: AsRef<OsStr>>(path: S) -> Result<(), String> {
     let output = Command::new("nft").arg("-f").arg(path).output().unwrap();
     match output.status.code().expect("failed to execute nft command") {
@@ -18,6 +22,9 @@ pub fn load_nft_config<S: AsRef<OsStr>>(path: S) -> Result<(), String> {
     }
 }
 
+/// Adds a destination based forwarding rule.
+///
+/// This rule forwards IPv6 packets destined to `from` using the new destination.
 pub fn add_forwarding_rule(from: Ipv6Addr, to: Ipv6Addr) -> Result<(), String> {
     let from_addr = from.to_string();
     let to_addr = to.to_string();
@@ -53,12 +60,16 @@ pub fn add_forwarding_rule(from: Ipv6Addr, to: Ipv6Addr) -> Result<(), String> {
     }
 }
 
+/// Updates an existing forwarding rule by first deleting it.
+///
+/// See [add_forwarding_rule] for more details.
 pub fn update_forwarding_rule(from: Ipv6Addr, to: Ipv6Addr) -> Result<(), String> {
     // TODO make this (and the other nft operations) atomic with: printf <config> | nft -f -
     delete_forwarding_rule(from)?;
     add_forwarding_rule(from, to)
 }
 
+/// Deletes an existing forwarding rule.
 pub fn delete_forwarding_rule(from: Ipv6Addr) -> Result<(), String> {
     let from_addr = from.to_string();
     let output = Command::new("nft")
@@ -92,10 +103,15 @@ pub fn delete_forwarding_rule(from: Ipv6Addr) -> Result<(), String> {
     }
 }
 
+/// Encapsulates packets with a destination ip of `node_ip`
+/// using the encapsulation device `kira` and sets the new outer destination to `path_id`.
+///
+/// This rule is used for realizing an [Encapsulate NodeIdEntry](crate::tables::NodeIdEntry::Encapsulate).
+/// An existing rule is overwritten.
 pub fn replace_encap_route(node_ip: &str, path_ip: &str) -> Result<(), String> {
     let output = Command::new("ip")
         .args([
-            "-6", "route", "replace", &node_ip, "encap", "ip6", "dst", &path_ip, "dev", "kira",
+            "-6", "route", "replace", node_ip, "encap", "ip6", "dst", path_ip, "dev", "kira",
         ])
         .output()
         .expect("failed to execute ip command");
@@ -119,10 +135,11 @@ pub fn replace_encap_route(node_ip: &str, path_ip: &str) -> Result<(), String> {
     }
 }
 
+/// Stops encapsulating packets with destination `node_id`.
 pub fn delete_encap_route(node_ip: &str, path_ip: &str) -> Result<(), String> {
     let output = Command::new("ip")
         .args([
-            "-6", "route", "del", &node_ip, "encap", "ip6", "dst", &path_ip, "dev", "kira",
+            "-6", "route", "del", node_ip, "encap", "ip6", "dst", path_ip, "dev", "kira",
         ])
         .output()
         .expect("failed to execute ip command");
@@ -146,9 +163,16 @@ pub fn delete_encap_route(node_ip: &str, path_ip: &str) -> Result<(), String> {
     }
 }
 
+/// Forwards packets with destination `path_ip` as if they where destined to `next_hop_ip`.
+///
+/// This rule is used to determine to which underlay neighbor (`next_hop_ip`)
+/// a packet with a given [PathId] is forwarded.
+/// This rule is used in combination with a [forwarding_rule](add_forwarding_rule)
+/// to realize A [Forward PathIdEntry](crate::tables::PathIdEntry::Forward).
+/// An existing rule is overwritten.
 pub fn replace_via_route(path_ip: &str, next_hop_ip: &str) -> Result<(), String> {
     let output = Command::new("ip")
-        .args(["-6", "route", "replace", &path_ip, "via", &next_hop_ip])
+        .args(["-6", "route", "replace", path_ip, "via", next_hop_ip])
         .output()
         .expect("failed to execute ip command");
 
@@ -171,9 +195,12 @@ pub fn replace_via_route(path_ip: &str, next_hop_ip: &str) -> Result<(), String>
     }
 }
 
+/// Forwards packets with destination `ip` to interface with name `interface_name` unchanged.
+///
+/// This is used to realize [Forward NodeIdEntry](crate::tables::NodeIdEntry::Forward).
 pub fn replace_neighbor_route(ip: &str, interface_name: &str) -> Result<(), String> {
     let output = Command::new("ip")
-        .args(["route", "replace", &ip, "dev", &interface_name])
+        .args(["route", "replace", ip, "dev", interface_name])
         .output()
         .expect("failed to execute ip command");
 
@@ -196,9 +223,10 @@ pub fn replace_neighbor_route(ip: &str, interface_name: &str) -> Result<(), Stri
     }
 }
 
+/// Deletes a [neighbor route](replace_neighbor_route).
 pub fn delete_neighbor_route(ip: &str, interface_name: &str) -> Result<(), String> {
     let output = Command::new("ip")
-        .args(["route", "del", &ip, "dev", &interface_name])
+        .args(["route", "del", ip, "dev", interface_name])
         .output()
         .expect("failed to execute ip command");
 
@@ -221,6 +249,12 @@ pub fn delete_neighbor_route(ip: &str, interface_name: &str) -> Result<(), Strin
     }
 }
 
+/// Creates an interface with name `kira` for encapsulating and decapsulating
+/// IPv6 packets using [GRE](https://datatracker.ietf.org/doc/rfc7676/).
+///
+/// This interface is needed for [encapsulation routes](replace_encap_route).
+/// Decapsulation happens automatically if the outer destination IPv6 address
+/// of a packets matches an address attached to the interface.
 pub fn create_kira_interface() -> Result<(), String> {
     let output = Command::new("ip")
         .args(["link", "add", "name", "kira", "type", "ip6gre", "external"])
@@ -288,6 +322,7 @@ pub fn create_kira_interface() -> Result<(), String> {
     Ok(())
 }
 
+/// Deletes the [`kira` interface](create_kira_interface).
 pub fn delete_kira_interface() -> Result<(), String> {
     let output = Command::new("ip")
         .args(["link", "delete", "kira"])
@@ -310,9 +345,12 @@ pub fn delete_kira_interface() -> Result<(), String> {
         }
     }
 
-    return Ok(());
+    Ok(())
 }
 
+/// Attaches the corresponding IPv6 address of `node_id` to the interface with name `interface`.
+///
+/// The `node_id` usually is the root-id of KIRA instance running on the node.
 pub fn attach_node_id_ip(interface: String, node_id: &NodeId) -> Result<(), String> {
     let node_ip = Ipv6Addr::from(node_id);
     let node_ip = format!("{}", node_ip);
@@ -339,5 +377,5 @@ pub fn attach_node_id_ip(interface: String, node_id: &NodeId) -> Result<(), Stri
         }
     }
 
-    return Ok(());
+    Ok(())
 }

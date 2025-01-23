@@ -1,3 +1,7 @@
+//! Dummy [ForwardingTables] implementation just storing the forwarding entries.
+//!
+//! The main struct is the [InMemoryFwdTables].
+
 use std::collections::HashMap;
 
 use crate::domain::PathId;
@@ -6,6 +10,7 @@ use crate::tables::{ForwardingTables, NodeIdEntry, NodeIdTable, PathIdEntry, Pat
 
 /// In-Memory [ForwardingTables] implementation backed by [HashMap]s.
 ///
+/// The implementation *does not* provide any fast forwarding since it just stores all entries.
 /// Also logs every change to the forwarding tables with log target `in_memory_fwd_table`.
 #[derive(Debug, Default)]
 pub struct InMemoryFwdTables {
@@ -14,10 +19,6 @@ pub struct InMemoryFwdTables {
 }
 
 impl InMemoryFwdTables {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Returns the entry by [NodeId].
     pub fn node_id_entry(&self, node_id: &NodeId) -> Option<&NodeIdEntry> {
         self.node_id_table.get(&NodeIdSubnet::new(*node_id))
@@ -171,17 +172,23 @@ impl Extend<PathIdEntry> for InMemoryFwdTables {
         self.path_id_table.extend(entries);
     }
 }
-pub mod error {
-    use derive_more::derive::Display;
-    use std::error::Error;
 
-    #[derive(Debug, Display)]
+pub mod error {
+    //! Errors for [InMemoryFwdTables](super::InMemoryFwdTables).
+
+    use derive_more::derive::{Display, Error};
+
+    #[derive(Debug, Display, Error)]
+    /// Error for [InMemoryFwdTables](super::InMemoryFwdTables) used collectively
+    /// in the [NodeIdTable](super::super::NodeIdTable) and the [PathIdTable](super::super::PathIdTable) trait implementation.
     pub enum FwdTableError {
         #[display("Entry  already exists")]
+        /// If the exact entry is already contained in the [InMemoryFwdTables]
+        /// and tried to added using the `create` methods this error is returned.
         EntryAlreadyExists,
         #[display("Entry with id  doesn't exist")]
+        /// Retrieving an entry with the given id was unsuccessful because
+        /// the [InMemoryFwdTables] does not has any entry stored under the given id.
         EntryMissing,
     }
-
-    impl Error for FwdTableError {}
 }

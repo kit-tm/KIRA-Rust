@@ -22,39 +22,55 @@
 //!   not represented in channels but type contracts by the forwarding tier.
 //!   (see: [kira_forwarding::underlay])
 
-use futures::Stream;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use kira_forwarding::domain::r2kad::ForwardingTablesUpdate;
-use kira_lib::domain::protocol_event::{forwarding, DebugEvent};
+use kira_lib::domain::protocol_event::DebugEvent;
 use kira_lib::domain::{UnderlayNeighborDestination, UnderlayNeighborId, UnderlayNeighborUpdate};
 use kira_lib::messaging::ProtocolMessage;
 use kira_lib::use_cases::ApiEvent;
 use kira_lib::{Input, Output};
 
+/// [Receiver] of [ProtocolMessages](ProtocolMessage) and the source [UnderlayNeighborId].
+///
+/// See [crate::io::receiver] for implementations of message receivers.
+/// This [Receiver] is used in the [R2KadInputChannels] to construct [Input::Message] events.
 pub type MessageReceiver = Receiver<(ProtocolMessage, UnderlayNeighborId)>;
+/// [Receiver] of [ApiEvents](ApiEvent).
+///
+/// This [Receiver] is used in the [R2KadInputChannels] to construct [API DebugEvents](DebugEvent::Api) for [Input::Debug].
 pub type ApiReceiver = Receiver<ApiEvent>;
+/// [Receiver] of [UnderlayNeighborUpdates](UnderlayNeighborUpdate).
+///
+/// [UnderlayNeighborUpdates](UnderlayNeighborUpdate) can be obtained using the
+/// [UnderlayNeighborUpdatesRx](crate::underlay::UnderlayNeighborUpdatesRx) stream
+/// constructed using [crate::underlay::observe_underlay].
+/// This [Receiver] is used in the [R2KadInputChannels] to construct [Input::UnderlayUpdate] events.
 pub type UnderlayReceiver = Receiver<UnderlayNeighborUpdate>;
 
+/// [Sender] of [ProtocolMessages](ProtocolMessage)  to an [UnderlayNeighborDestination].
+///
+/// See [crate::io::sender] for implementations of message senders.
+/// This [Sender] is used in [R2KadOutputChannels] for processing [Output::SendProtocolMessage] events.
 pub type MessageSender = Sender<(ProtocolMessage, UnderlayNeighborDestination)>;
+/// [Sender] of [ForwardingTablesUpdates](ForwardingTablesUpdate).
+///
+/// This [Sender] is used in [R2KadOutputChannels] for processing [Output::UpdateForwardingTables] events.
 pub type ForwardingSender = Sender<ForwardingTablesUpdate>;
-
-pub trait ProtocolInstance {}
 
 /// Instance input channels.
 #[derive(Debug)]
+#[allow(missing_docs)]
 pub struct R2KadInputChannels {
-    /// Events receiver from the management component.
     pub api: ApiReceiver,
-    /// Deserialized [ProtocolMessages](ProtocolMessage) received from other underlay neighbors.
     pub protocol_input: MessageReceiver,
-    /// Notifications of changes in the underlay neighborhood of the node.
     pub underlay: UnderlayReceiver,
 }
 
 /// Instance output channels.
 #[derive(Debug)]
+#[allow(missing_docs)]
 pub struct R2KadOutputChannels {
     pub protocol: MessageSender,
     pub forwarding: Option<ForwardingSender>,

@@ -9,7 +9,6 @@ use crate::domain::{NodeId, UnderlayNeighborDestination, UnderlayNeighborId};
 use crate::messaging::ProtocolMessage;
 use crate::use_cases::{BroadcastableUseCaseEvent, TimerId};
 
-#[doc(inline)]
 pub use crate::r2kad::runtime::R2KadRuntime;
 
 /// Interface for the [UseCases](crate::use_cases::UseCase) to the runtime environment.

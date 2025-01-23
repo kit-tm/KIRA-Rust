@@ -1,11 +1,13 @@
 //! Events for interaction with the routing protocol R²/KAD.
 
-use crate::domain::UnderlayNeighborDestination;
-use crate::domain::underlay::{UnderlayNeighborId, UnderlayNeighborUpdate};
+pub mod forwarding;
+
+use crate::domain::underlay::{
+    UnderlayNeighborDestination, UnderlayNeighborId, UnderlayNeighborUpdate,
+};
 use crate::messaging::{Nonce, ProtocolMessage};
 use crate::use_cases::{ApiEvent, InjectionMessageData, UseCaseEvent};
 
-pub mod forwarding;
 use forwarding::ForwardingTablesUpdate;
 
 /// Events to externally control the [R2Kad](crate::R2Kad) protocol instance.
