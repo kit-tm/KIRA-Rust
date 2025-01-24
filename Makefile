@@ -16,16 +16,16 @@ build-release:
 install: install-bin install-data
 
 install-bin: build-release
-	install target/release/kirad $(PREFIX)/bin/
+	sudo install target/release/kirad $(PREFIX)/bin/
 
 install-data: $(PKG_PREFIX)/kirad.service $(DATA_PREFIX)/nftables.conf
 	# todo make vars propagate to service file
-	mkdir -p $(PREFIX)/lib/systemd/system
-	install $(PKG_PREFIX)/kirad.service $(PREFIX)/lib/systemd/system
-	install $(PKG_PREFIX)/kirad@.service $(PREFIX)/lib/systemd/system
+	sudo mkdir -p $(PREFIX)/lib/systemd/system
+	sudo install $(PKG_PREFIX)/kirad.service $(PREFIX)/lib/systemd/system
+	sudo install $(PKG_PREFIX)/kirad@.service $(PREFIX)/lib/systemd/system
 
-	mkdir -p $(PREFIX)/share/$(PKGNAME)
-	install $(DATA_PREFIX)/nftables.conf $(PREFIX)/share/$(PKGNAME)/nftables.conf
+	sudo mkdir -p $(PREFIX)/share/$(PKGNAME)
+	sudo install $(DATA_PREFIX)/nftables.conf $(PREFIX)/share/$(PKGNAME)/nftables.conf
 
 uninstall: uninstall-bin uninstall-data
 
@@ -68,7 +68,7 @@ build-debian-x86:
 
 pkg-debian-x86: build-debian-x86
 	cargo deb --target x86_64-unknown-linux-musl -p kirad --no-build
-	
+
 build-debian-aarch64:
 	cross build --target aarch64-unknown-linux-musl --release
 

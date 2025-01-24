@@ -64,7 +64,7 @@ where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
 {
     /// Update an existing contact in the table instead of inserting.
-    fn update_existing(&self, mut contact: Contact, table: &mut RT) -> InsertionStrategyResult {
+    fn update_existing(&self, contact: Contact, table: &mut RT) -> InsertionStrategyResult {
         let existing = table.contact_mut(contact.id());
         assert!(
             existing.is_some(),
@@ -126,6 +126,15 @@ where
                     "Not updating contacts path because its the same and doesn't change state [{}]",
                     contact.id()
                 );
+
+                // WARNING this will update the SSN even if the InsertionStrategyResult is Dropped
+                // be sure to notify other UseCases with UseCaseEvent::Resync
+                // TODO figure out if skipping the update of the SSN causes trouble
+                // this would keep the routing-table in a more sensible state
+                // this would maybe cause delayed UpdateRouteReq,
+
+                existing.set_last_seen_now();
+                *existing.state_seq_nr_mut() = contact.state_seq_nr().clone();
                 InsertionStrategyResult::Dropped
             } else {
                 // FIXME dont accept longer path to potential PN
@@ -139,16 +148,15 @@ where
                     "Updated contact [{:?}]",
                     contact
                 );
+                existing.set_last_seen_now();
+                *existing = contact.clone();
                 InsertionStrategyResult::Updated
             };
 
-        // WARNING this will update the SSN even if the InsertionStrategyResult is Dropped
-        // be sure to notify other UseCases with UseCaseEvent::Resync
-        // TODO figure out if skipping the update of the SSN causes trouble
-        // this would keep the routing-table in a more sensible state
-        // this would maybe cause delayed UpdateRouteReq,
-        contact.set_last_seen_now();
-        *existing = contact;
+        if existing.path().size() > contact.path().size() {
+            log::warn!(target: "insertion_strategy", "New Path {:?} is better than existing path {:?}, 
+                but InsertionStrategyResult is {:?} ", contact.path(), existing.path(), return_result);
+        }
 
         return_result
     }
@@ -227,7 +235,7 @@ where
         }
         // If the first element is no underlay neighbor
         if !pn_table.contains(contact.path().first()) {
-            log::trace!(
+            log::warn!(
                 target: "routing_table",
                 "Dropping contact info: first element not a underlay neighbor [{}]",
                 contact
@@ -246,20 +254,22 @@ where
 
         match routing_table.insert(contact.clone()) {
             Err(InsertionError::BucketSplit(_)) => {
-                self.replace_in_full_bucket(contact, routing_table)
+                let result = self.replace_in_full_bucket(contact.clone(), routing_table);
+                tracing::debug!(target: "insertion_strategy", ?result, "Replaced in full bucket [{:?}]", contact.path());
+                result
             }
             Err(InsertionError::Add(AddError::AlreadyExists(_))) => {
-                self.update_existing(contact, routing_table)
+                let result = self.update_existing(contact.clone(), routing_table);
+                tracing::debug!(target: "insertion_strategy", ?result, "Updated existing [{:?}]", contact.path());
+                result
             }
             Err(InsertionError::Add(AddError::NotAdded)) => {
-                self.replace_in_full_bucket(contact, routing_table)
+                let result = self.replace_in_full_bucket(contact.clone(), routing_table);
+                tracing::debug!(target: "insertion_strategy", ?result, "Tried to add first, then replaced in full bucket [{:?}]", contact.path());
+                result
             }
-            Ok(()) => {
-                log::debug!(
-                    target: "routing_table",
-                    "Inserted contact [{:?}]",
-                    contact
-                );
+            Ok(_) => {
+                tracing::debug!(target: "insertion_strategy", "Inserted [{:?}]", contact.path());
                 InsertionStrategyResult::Inserted
             }
         }

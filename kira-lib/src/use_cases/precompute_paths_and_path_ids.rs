@@ -82,7 +82,10 @@ where
     C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     fn gen_entries_from_graph(&self, context: &C, graph: &VicinityGraph) -> HashSet<PathIdEntry> {
-        log::debug!(target: "precompute_paths_and_path_ids", "{:?}", graph);
+        if !graph.neighbors.is_empty() {
+            log::trace!(target: "precompute_paths_and_path_ids", "{:?}", graph);
+        }
+
         let mut entries = HashSet::new();
         for in_path in graph {
             let out_path =
@@ -94,12 +97,18 @@ where
             let out_path = out_path.unwrap();
 
             // FIXME don't install longer paths than vicinity radius
-            if out_path.size() - 1 > self.config.vicinity_radius {
+            if out_path.size() > self.config.vicinity_radius {
+                tracing::warn!(
+                    "Skipping path {} with size {} as it exceeds vicinity radius {}",
+                    out_path,
+                    out_path.size(),
+                    self.config.vicinity_radius
+                );
                 continue;
             }
 
             let Some(ulnid) = context.pn_table().get(out_path.first()).cloned() else {
-                log::warn!(target: "precompute_paths_and_path_ids", "VicinityGraph generated path over invalid neighbor");
+                log::warn!(target: "precompute_paths_and_path_ids", "VicinityGraph generated path over invalid neighbor {:?}", out_path.first());
                 continue;
             };
 
@@ -120,6 +129,7 @@ where
 
         let mut old_entries = self.gen_entries_from_graph(context, &self.old_graph);
         let mut new_entries = self.gen_entries_from_graph(context, &self.vicinity_graph);
+        log::trace!(target: "precompute_paths_and_path_ids", "Calculated paths: {:?}", new_entries);
         // Remove intersection
         for new_entry in new_entries.clone() {
             if old_entries.remove(&new_entry) {
@@ -128,6 +138,7 @@ where
         }
         // Now in old_entries only the removed paths are present
         // and in new_entries only the newly added paths are present
+        log::debug!(target: "precompute_paths_and_path_ids", "New paths: {:?}", new_entries);
         for old_entry in old_entries {
             let old_in_path_id = match old_entry {
                 PathIdEntry::Forward(entry) => entry.in_path_id,
@@ -165,17 +176,25 @@ where
         context: &C,
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
+        match &event {
+            UseCaseEvent::Message(ProtocolMessage::PNDiscReq(rtable_data), _) => {
+                tracing::trace!(source_route = ?rtable_data.source_route, "Received PNDiscReq");
+            }
+            _ => {}
+        }
         match event {
             UseCaseEvent::Message(ProtocolMessage::PNDiscReq(rtable_data), _)
             | UseCaseEvent::Message(ProtocolMessage::PNDiscRsp(rtable_data), _)
             | UseCaseEvent::Message(ProtocolMessage::QueryRouteRsp(rtable_data), _) => {
                 // Skip everything not in configured vicinity radius
-                if rtable_data.source_route.size() - 1 > self.config.vicinity_radius {
+                if rtable_data.source_route.size() > self.config.vicinity_radius {
                     return Ok(());
                 }
 
                 let source = *rtable_data.source();
                 let source_ssn = rtable_data.source_state_seq_nr;
+
+                log::trace!(target: "precompute_paths_and_path_ids", "{} has rtable data: {:?}", source, rtable_data.data);
 
                 if self.vicinity_graph.contains(&source) {
                     // check if we received more recent data by sent ssn
@@ -187,7 +206,7 @@ where
                             let expected_ssn = entry.get();
                             // nothing new about the neighbor
                             if &source_ssn < expected_ssn {
-                                log::trace!(target: "precompute_paths_and_path_ids", "Ignoring underlay neighbor update of {} as we expected newer data: {:?}", source, rtable_data);
+                                log::trace!(target: "precompute_paths_and_path_ids", "Ignoring underlay neighbor update of {} as we expected newer data: {:?}", source, rtable_data.data);
                                 return Ok(());
                             }
 
@@ -209,7 +228,7 @@ where
                         if let Some(rt_contact) = context.routing_table().contact(&source) {
                             // nothing new about the neighbor
                             if &source_ssn <= rt_contact.state_seq_nr() {
-                                log::trace!(target: "precompute_paths_and_path_ids", "Ignoring underlay neighbor update of {} without any new data: {:?}", source, rtable_data);
+                                log::trace!(target: "precompute_paths_and_path_ids", "Ignoring underlay neighbor update of {} without any new data: {:?}", source, rtable_data.data);
                                 return Ok(());
                             }
                         }
@@ -219,13 +238,17 @@ where
                     if let Some(rt_contact) = context.routing_table().contact(&source) {
                         // `<` ok, since we add the node only once for the first time
                         if &source_ssn < rt_contact.state_seq_nr() {
-                            log::trace!(target: "precompute_paths_and_path_ids", "Not adding new node {} to vicinity graph, because its underlay neighbor data is outdated: {:?}", source, rtable_data);
+                            log::trace!(target: "precompute_paths_and_path_ids", "Not adding new node {} to vicinity graph, because its underlay neighbor data is outdated: {:?}", source, rtable_data.data);
                             // not adding node itself to allow checking this bootstrapping condition again
                             return Ok(());
                         }
+                    } else {
+                        // TODO if we don't have a contact this should probably error out
+                        log::error!(target: "precompute_paths_and_path_ids", "No contact for node {}, not adding to vicinity graph", source);
+                        log::debug!(target: "precompute_paths_and_path_ids", "Routing table: {:?}", context.routing_table().iter().collect::<Vec<_>>());
+                        log::debug!(target: "precompute_paths_and_path_ids", "Physical neighbor table: {:?}", context.pn_table().iter().collect::<Vec<_>>());
+                        log::debug!(target: "precompute_paths_and_path_ids", "Vicinity graph: {:?}", self.vicinity_graph);
                     }
-                    // TODO if we don't have a contact this should probably error out
-                    log::trace!(target: "precompute_paths_and_path_ids", "Adding new node to vicinity graph: {} ", source);
                 }
 
                 // update underlay neighbors of source
@@ -240,7 +263,7 @@ where
                     .vicinity_graph
                     .insert(source, underlay_neighbors_of_source.clone());
                 if previous.is_none() || previous.as_ref() != Some(&underlay_neighbors_of_source) {
-                    log::trace!(target: "precompute_paths_and_path_ids", "Updated underlay neighbors of {} to {:?}", source, underlay_neighbors_of_source);
+                    log::debug!(target: "precompute_paths_and_path_ids", "Updated underlay neighbors of {} to {:?}", source, underlay_neighbors_of_source);
 
                     self.vicinity_changed = true;
 
@@ -262,6 +285,7 @@ where
             UseCaseEvent::Contact(ContactEvent::New(contact)) => {
                 // only add underlay neighbors
                 if !contact.is_pn() {
+                    tracing::trace!(target: "precompute_paths_and_path_ids", "Not adding non-physical neighbor contact: {:?}", contact);
                     return Ok(());
                 }
 

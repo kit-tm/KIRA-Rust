@@ -238,7 +238,7 @@ where
         let closest_contact = match closest.first().cloned() {
             Some((_, closest)) => closest,
             None => {
-                log::trace!(target: "failure_handling", "No closest contacts found. Assuming isolation.");
+                log::debug!(target: "failure_handling", "No closest contacts found. Assuming isolation.");
                 context.routing_table_mut().remove(node_id);
                 context.pn_table_mut().remove(node_id);
                 self.rediscoveries.remove(node_id);
@@ -253,7 +253,7 @@ where
         );
         let next_duration = backoff.unwrap().next();
         if next_duration.is_none() {
-            log::trace!(target: "failure_handling", "Rediscovery of {} failed. Removing from routing table", node_id);
+            log::debug!(target: "failure_handling", "Rediscovery of {} failed. Removing from routing table", node_id);
             context.pn_table_mut().remove(node_id);
             context.routing_table_mut().remove(node_id);
             self.remove_notvia_mentioning(context, node_id);

@@ -77,15 +77,15 @@ where
         let contact = Contact::new(path.clone(), *message.source_state_seq_nr());
 
         {
-            let mut lock = context.pn_table_mut();
+            let mut pn_table = context.pn_table_mut();
             let neighbor_id = path.first();
             // loopback: the sender was us
             if neighbor_id == context.root_id() {
                 return None;
             }
 
-            if !lock.contains(neighbor_id) {
-                if let Some(replaced) = lock.insert(*neighbor_id, ulnid) {
+            if !pn_table.contains(neighbor_id) {
+                if let Some(replaced) = pn_table.insert(*neighbor_id, ulnid) {
                     // Not allowed to happen as lock is held
                     log::warn!(
                         target: "pn_table",
@@ -148,7 +148,7 @@ where
                 .unwrap_or(false)
         {
             context.pn_table_mut().remove(contact.id());
-            log::trace!(target: "forward_protocol_message", "Removed {} from PNTable as no more a underlay neighbor; {:?}", contact.id(), contact);
+            log::debug!(target: "forward_protocol_message", "Removed {} from UNTable as no more a undelay neighbor; {:?}", contact.id(), contact);
         }
     }
 

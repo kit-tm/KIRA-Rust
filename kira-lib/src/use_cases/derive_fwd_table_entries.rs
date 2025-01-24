@@ -166,7 +166,10 @@ where
         let iter = rt.bucket_by_index(bucket_index).iter();
         let prefix_len = rt.get_bucket_prefix_length(bucket_index);
 
-        if let Some(closest) = iter.min_by_key(|c| c.path().size()) {
+        if let Some(closest) = iter
+            .filter(|c| c.id() != context.root_id())
+            .min_by_key(|c| c.path().size())
+        {
             let subnet = NodeIdSubnet::try_new(closest.id().prefix(prefix_len), prefix_len)
                 .expect("should be valid prefix length");
             log::trace!(target: "derive_fwd_table_entries", "derived prefix entry {:?} for contact {:?}", subnet, closest.path());
@@ -314,6 +317,7 @@ where
             }
             UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {
                 if &ContactState::Valid != new.state() && &ContactState::Valid == old.state() {
+                    log::debug!(target: "derive_fwd_table_entries", "Contact {:?} changed to invalid state", new);
                     // if changed to invalid state => remove
                     self.remove_node_id_entry(context, new.id())?;
                     self.remove_path_id_entry(context, new);

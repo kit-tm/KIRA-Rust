@@ -27,10 +27,9 @@ pub struct VicinityGraph {
 
 impl VicinityGraph {
     pub fn new(root_id: NodeId) -> Self {
-        Self {
-            root_id,
-            neighbors: HashMap::default(),
-        }
+        let mut neighbors = HashMap::default();
+        neighbors.insert(root_id.clone(), Entry::new(HashSet::default()));
+        Self { root_id, neighbors }
     }
 
     /// Inserts a node into the [VicinityGraph] with its underlay neighbors.
@@ -43,6 +42,12 @@ impl VicinityGraph {
         node: NodeId,
         underlay_neighbors: HashSet<NodeId>,
     ) -> Option<HashSet<NodeId>> {
+        // Ensure bidirectional links
+        for neighbor in &underlay_neighbors {
+            if let Some(neighbors_of_neighbor) = self.neighbors.get_mut(neighbor) {
+                neighbors_of_neighbor.neighbors.insert(node.clone());
+            }
+        }
         self.neighbors
             .insert(node, Entry::new(underlay_neighbors))
             .map(|entry| entry.neighbors)
@@ -56,8 +61,8 @@ impl VicinityGraph {
     pub fn add(&mut self, node: NodeId, underlay_neighbors: HashSet<NodeId>) {
         // Ensure bidirectional links
         for neighbor in &underlay_neighbors {
-            if let Some(neighbors) = self.neighbors.get_mut(neighbor) {
-                neighbors.neighbors.insert(node);
+            if let Some(neighbors_of_neighbor) = self.neighbors.get_mut(neighbor) {
+                neighbors_of_neighbor.neighbors.insert(node);
             }
         }
 
@@ -73,7 +78,15 @@ impl VicinityGraph {
         if node == &self.root_id {
             return None;
         }
-        self.neighbors.remove(node).map(|entry| entry.neighbors)
+        let neighbors = self.neighbors.remove(node).map(|entry| entry.neighbors);
+        if let Some(neighbors) = &neighbors {
+            for neighbor in neighbors {
+                if let Some(neighbors_of_neighbor) = self.neighbors.get_mut(neighbor) {
+                    neighbors_of_neighbor.neighbors.remove(node);
+                }
+            }
+        }
+        neighbors
     }
 
     /// Invalidates the entry for the given [NodeId].
@@ -105,58 +118,10 @@ impl VicinityGraph {
     /// Returns if an entry was found with the given [NodeId].
     pub fn contains(&self, node: &NodeId) -> bool {
         self.neighbors.contains_key(node)
-    }
-
-    /// Calculates all paths (not only shortest) from one node to the other.
-    ///
-    /// Implements the breadth-first search algorithm.
-    ///
-    /// Only considers links which are approved by both involved nodes.
-    fn get_paths(&self, to: &NodeId) -> Vec<Path> {
-        let mut paths = Vec::new();
-
-        let mut queue = Vec::new();
-        queue.push(Path::from(self.root_id));
-        while !queue.is_empty() {
-            let path = match queue.pop() {
-                Some(path) => path,
-                None => continue,
-            };
-            if path.last() == to {
-                paths.push(path);
-            } else {
-                let next_hops = match self.neighbors.get(path.last()) {
-                    Some(Entry {
-                        valid: true,
-                        neighbors: next_hops,
-                    }) => next_hops,
-                    _ => continue,
-                };
-                for next_hop in next_hops {
-                    if path.contains(next_hop) {
-                        continue;
-                    }
-                    // Check if the next hop also has the link as its neighbors
-                    let is_approved = self
-                        .neighbors
-                        .get(next_hop)
-                        .map(|next_hop_neighbors| {
-                            next_hop_neighbors.valid
-                                && next_hop_neighbors.neighbors.contains(path.last())
-                        })
-                        .unwrap_or(false);
-                    if !is_approved {
-                        continue;
-                    }
-
-                    let mut next_hop_path = path.clone();
-                    next_hop_path.push(*next_hop);
-                    queue.push(next_hop_path);
-                }
-            }
-        }
-
-        paths
+            || self
+                .neighbors
+                .values()
+                .any(|entry| entry.neighbors.contains(node))
     }
 }
 
@@ -166,13 +131,20 @@ impl IntoIterator for &VicinityGraph {
 
     fn into_iter(self) -> Self::IntoIter {
         let mut paths = Vec::with_capacity(self.neighbors.len() * self.neighbors.len());
-        for node in self.neighbors.keys() {
-            if node == &self.root_id {
+        for (neigh1_id, neigh1_entry) in self.neighbors.iter() {
+            if !neigh1_entry.valid || neigh1_id == &self.root_id {
                 continue;
             }
-            paths.extend(self.get_paths(node));
-        }
 
+            paths.push(Path::from([self.root_id, *neigh1_id]));
+
+            for neigh2_id in neigh1_entry.neighbors.iter() {
+                if neigh2_id == &self.root_id {
+                    continue;
+                }
+                paths.push(Path::from([self.root_id, *neigh1_id, *neigh2_id]));
+            }
+        }
         paths.into_iter()
     }
 }
