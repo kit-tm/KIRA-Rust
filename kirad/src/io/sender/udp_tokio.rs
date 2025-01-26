@@ -39,7 +39,7 @@ impl UdpSender {
         let udp_socket =
             UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?;
         if let Err(err) = udp_socket.join_multicast_v6(&ALL_KIRA_NODES, 0) {
-            log::trace!("Error joining multicast group: {:?}", err);
+            log::trace!(target: "message_sender", "Error joining multicast group: {:?}", err);
         }
 
         let socket = Arc::new(udp_socket);
@@ -74,6 +74,7 @@ impl UdpSender {
             .get_available()
             .await
             .map_err(|_| SenderError::Closed)?;
+        log::trace!(target: "message_sender", "Broadcasting to {:?}", indices);
         for interface_id in indices {
             let dest = SocketAddr::V6(SocketAddrV6::new(
                 ALL_KIRA_NODES,
@@ -91,7 +92,7 @@ impl UdpSender {
                 .await
                 .map_err(SenderError::SendError)
             {
-                log::error!(target: "message_sender", "Broadcasting to interface {} failed unexpectedly: {}", interface_id, e);
+                log::error!(target: "message_sender", "Multicast to interface {} failed unexpectedly: {} (addr: {})", interface_id, e, ALL_KIRA_NODES);
             }
         }
         Ok(())
@@ -113,7 +114,7 @@ impl UdpSender {
                     .await
                     .expect("Sender should not be closed")
                 else {
-                    log::warn!(
+                    log::warn!(target: "message_sender",
                         "Can't determine SocketAddr for unknown underlay neighbor: {ulnid:?}"
                     );
                     return None;
@@ -152,9 +153,9 @@ impl AsyncProtocolMessageSender for UdpSender {
                 .send_to(&buffer[..buffer.len()], receiver_addr)
                 .await?;
         } else {
-            log::warn!(
+            log::trace!(
                 target: "message_sender",
-                "Sending ProtocolMessage {:?} by broadcast",
+                "Broadcasting ProtocolMessage {:?}",
                 &message,
             );
             self.broadcast_message(&buffer).await?;

@@ -211,7 +211,7 @@ where
             ..
         } = self;
 
-        log::trace!("Startup R²/KAD protocol instance");
+        log::trace!("Startup protocol instance");
         {
             let now = Instant::now();
             if let Err(e) = r2kad.startup(now) {
@@ -222,8 +222,8 @@ where
 
         loop {
             // process output firstly to capture startup output
-            log::trace!("Process R²/KAD output");
             while let Some(output) = r2kad.poll_output() {
+                log::trace!("Process output: {:?}", output);
                 if channels::output_fan_out(output, tx_channels)
                     .await
                     .is_none()
@@ -243,7 +243,7 @@ where
                     log::info!("Fan in channel closed and no timers left");
                     return;
                 };
-
+                log::trace!("Process input: {:?}", input);
                 let now = Instant::now();
                 if let Err(e) = r2kad.handle_input(input, now) {
                     log::error!("Error handle_timeout: {}", e);
@@ -258,6 +258,7 @@ where
                 biased; // poll in order since we check timers on handling input regardlessly
 
                 Some(input) = channels::input_fan_in(rx_channels) => {
+                    log::trace!("Process input: {:?}", input);
                     let now = Instant::now();
                     if let Err(e) = r2kad.handle_input(input, now) {
                         log::error!("Error handle_input: {}", e);
@@ -265,6 +266,7 @@ where
                     }
                 }
                 _ = time::sleep_until(timer_due.into()) => {
+                    log::trace!("Process timeout");
                     let now = Instant::now();
                     if let Err(e) = r2kad.handle_timeout(now) {
                         log::error!("Error handle_timeout: {}", e);

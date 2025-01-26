@@ -75,6 +75,7 @@ impl UnderlayObserverHandle {
         &mut self,
         ulnid: &UnderlayNeighborId,
     ) -> Result<Option<UnderlayNeighborInformation>, UnderlayObserverSenderClosedError> {
+        log::trace!(target: "underlay_observer::handle", "get_information {:?}", ulnid);
         let (tx, rx) = oneshot::channel();
         self.tx
             .send(UnderlayObserverHandleRequest::GetInformation {
@@ -95,6 +96,7 @@ impl UnderlayObserverHandle {
         interface_id: InterfaceId,
         ll_ipv6: Ipv6Addr,
     ) -> Result<UnderlayNeighborId, UnderlayObserverHandleError> {
+        log::trace!(target: "underlay_observer::handle", "register_neighbor {}%{}", ll_ipv6, interface_id);
         let (tx, rx) = oneshot::channel();
         self.tx
             .send(UnderlayObserverHandleRequest::RegisterUnderlayNeighbor {
@@ -119,6 +121,7 @@ impl UnderlayObserverHandle {
         &mut self,
         ulnid: &UnderlayNeighborId,
     ) -> Result<(), UnderlayObserverSenderClosedError> {
+        log::trace!(target: "underlay_observer::handle", "unregister_neighbor {}", ulnid);
         self.tx
             .send(UnderlayObserverHandleRequest::UnregisterUnderlayNeighbor { ulnid: *ulnid })
             .await?;
@@ -130,10 +133,12 @@ impl UnderlayObserverHandle {
     pub async fn get_available(
         &mut self,
     ) -> Result<Vec<InterfaceId>, UnderlayObserverSenderClosedError> {
+        log::trace!(target: "underlay_observer::handle", "get_available");
         let (tx, rx) = oneshot::channel();
         self.tx
             .send(UnderlayObserverHandleRequest::GetAvailable { response: tx })
             .await?;
+        log::trace!(target: "underlay_observer::handle", "get_available awaiting return...");
 
         Ok(rx.await.expect("sender should not get dropped"))
     }

@@ -68,7 +68,9 @@ impl UnderlayInformationBase {
             .get(&neighbor.interface_id)
             .expect("interface should be up as enforced by register_neighbor");
 
-        Some(UnderlayNeighborInformation::new(neighbor, interface))
+        let info = UnderlayNeighborInformation::new(neighbor, interface);
+        log::trace!(target: "underlay_observer::information_base", "get_information {}: {:?}", ulnid, info);
+        Some(info)
     }
 
     pub fn register_neighbor(
@@ -78,7 +80,7 @@ impl UnderlayInformationBase {
     ) -> Result<UnderlayNeighborId, UnderlayNeighborInterfaceDownError> {
         let neighbor = UnderlayNeighbor::new(ll_ipv6, interface_id);
         if let Some(ulnid) = self.neighbor_ids.get(&neighbor) {
-            log::debug!("Underlay Neighbor {neighbor:?} already registered: {ulnid:?}");
+            log::warn!(target: "underlay_observer", "Underlay Neighbor {neighbor:?} already registered: {ulnid:?}");
             return Ok(*ulnid);
         }
 
@@ -87,11 +89,6 @@ impl UnderlayInformationBase {
             .interfaces
             .get_mut(&interface_id)
             .ok_or(UnderlayNeighborInterfaceDownError(interface_id))?;
-
-        log::trace!(
-            "Registering underlay neighbor {neighbor:?} with id {:?}",
-            self.next_ulnid
-        );
 
         // FIXME: Handle gracefully
         assert!(
@@ -106,6 +103,13 @@ impl UnderlayInformationBase {
         // update interface with new neighbor
         interface.add_neighbor(self.next_ulnid);
 
+        log::debug!(
+            target: "underlay_observer::information_base",
+            "underlay neighbor registered: {:?} -> {:?}",
+            self.next_ulnid,
+            neighbor,
+        );
+
         // increment underlay neighbor id
         let UnderlayNeighborId(ulnid) = self.next_ulnid;
         // NOTE: overflow can occur here but this is only a problem on "live" underlay neighbor ids
@@ -114,7 +118,7 @@ impl UnderlayInformationBase {
     }
 
     pub fn unregister_neighbor(&mut self, ulnid: &UnderlayNeighborId) -> Option<UnderlayNeighbor> {
-        log::trace!("Unregistering neighbor: {ulnid:?}");
+        log::trace!(target: "underlay_observer::information_base", "Unregistering neighbor: {ulnid:?}");
 
         let neighbor = self.neighbors.remove(ulnid)?;
         debug_assert_eq!(self.neighbor_ids.remove(&neighbor), Some(*ulnid));
@@ -125,9 +129,9 @@ impl UnderlayInformationBase {
         &mut self,
         interface_id: &InterfaceId,
     ) -> Option<impl Iterator<Item = UnderlayNeighborId>> {
-        // remove link
         let interface = self.interfaces.remove(interface_id)?;
 
+        log::debug!(target: "underlay_observer::information_base", "Downing all neighbors of interface: {}", interface_id);
         for ulnid in interface.neighbors() {
             let _ = self.unregister_neighbor(ulnid);
         }
@@ -136,6 +140,7 @@ impl UnderlayInformationBase {
     }
 
     pub fn interface_up(&mut self, interface: Interface) {
+        log::debug!(target: "underlay_observer::information_base", "Interface is up: {:?}", interface);
         assert!(
             self.interfaces
                 .insert(interface.interface_id, interface)

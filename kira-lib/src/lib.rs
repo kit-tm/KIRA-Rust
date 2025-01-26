@@ -10,10 +10,7 @@
 //!
 //! - `routing_table`: Updates to the routing table.
 //! - `pn_table`: Updated to the underlay neighbor table.
-//! - `message_sender`: Information about sending protocol messages.
-//! - `message_receiver`: Information about receiving protocol messages.
-//! - `network_interfaces`: Logging of updates to the network interfaces.
-//! - `in_memory_fwd_table`: Updates to the stub implementation of the forwarding tables
+//! - `r2kad`: Information about the event processing by the R²/KAD instance.
 //!
 //! Use Case related:
 //!

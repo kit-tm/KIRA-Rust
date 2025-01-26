@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::net::Ipv6Addr;
 use std::num::NonZeroUsize;
 use std::ops::Deref;
 use std::time::Duration;
@@ -291,7 +290,7 @@ where
         Ok(())
     }
 
-    fn constract_hello(&self, context: &C) -> HelloMessage {
+    fn construct_hello(&self, context: &C) -> HelloMessage {
         HelloMessage {
             source: *context.root_id(),
             source_state_seq_nr: *context.pn_table().state_seq_nr(),
@@ -299,25 +298,22 @@ where
     }
 
     fn broadcast_hello(&self, context: &C) {
-        let message = self.constract_hello(context);
-        let source_ip = Ipv6Addr::from(context.root_id()).to_string();
-        log::trace!(target: "vicinity_discovery", "Sending message {:?} from {:?}", message, source_ip);
+        let message = self.construct_hello(context);
+        log::trace!(target: "vicinity_discovery", "Broadcasting message {:?}", message);
         context.runtime().send_message_via(message, Broadcast);
     }
 
     fn broadcast_interface_hello(&self, context: &C, interface: InterfaceId) {
-        let message = self.constract_hello(context);
-        let source_ip = Ipv6Addr::from(context.root_id()).to_string();
-        log::trace!(target: "vicinity_discovery", "Sending message {:?} from {:?}", message, source_ip);
+        let message = self.construct_hello(context);
+        log::trace!(target: "vicinity_discovery", "Sending message {:?} to {:?}", message, interface);
         context
             .runtime()
             .send_message_via(message, Multicast(interface));
     }
 
     fn send_hello(&self, context: &C, ulnid: UnderlayNeighborId) {
-        let message = self.constract_hello(context);
-        let source_ip = Ipv6Addr::from(context.root_id()).to_string();
-        log::trace!(target: "vicinity_discovery", "Sending message {:?} from {:?}", message, source_ip);
+        let message = self.construct_hello(context);
+        log::trace!(target: "vicinity_discovery", "Sending message {:?} to {:?}", message, ulnid);
         context
             .runtime()
             .send_message_via(message, UnderlayNeighbor(ulnid));

@@ -67,7 +67,7 @@ impl UdpReceiver {
         let udp_socket =
             UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?;
         if let Err(err) = udp_socket.join_multicast_v6(&ALL_KIRA_NODES, 0) {
-            log::trace!("Error joining multicast group: {:?}", err);
+            log::trace!(target: "message_receiver", "Error joining multicast group: {:?}", err);
         }
 
         let socket = Arc::new(udp_socket);
@@ -100,7 +100,7 @@ impl UdpReceiver {
         let deserialized = match self.format.deserialize(buffer) {
             Ok(message) => message,
             Err(e) => {
-                log::trace!("Received invalid serialized message: {}", e);
+                log::trace!(target: "message_receiver", "Received invalid serialized message: {}", e);
                 return None;
             }
         };
@@ -133,7 +133,7 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
         let (received_bytes, received_from) = match receive_with_optional_timeout {
             Ok(received) => received,
             Err(e) => {
-                log::error!("Failed to receive data from socket: {}", e);
+                log::error!(target: "message_receiver", "Failed to receive data from socket: {}", e);
                 return Err(RecvError::IoError(Box::new(e)));
             }
         };
@@ -144,7 +144,7 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
 
         // FIXME: ignore scope_id 0 (probably caused by ipv6 attached to lo)
         let Some(interface_id) = NonZeroU32::new(received_from.scope_id()) else {
-            log::warn!("Ignoring message with scope_id 0");
+            log::warn!(target: "message_receiver", "Ignoring message with scope_id 0");
             return Ok(None);
         };
         let interface_id = interface_id.into();
@@ -156,7 +156,7 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
         }
 
         let Some(message) = self.deserialize(&buffer[..received_bytes]) else {
-            log::warn!("Deserialization of received message failed");
+            log::warn!(target: "message_receiver", "Deserialization of received message failed");
             return Ok(None);
         };
         log::trace!(target: "message_receiver", "Received {:?} from {}", &message, received_from);
@@ -168,13 +168,13 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
         {
             Ok(ulnid) => ulnid,
             Err(UnderlayObserverHandleError::SenderClosed(e)) => {
-                log::error!("underlay handle sender closed: {}", e);
+                log::error!(target: "message_receiver", "underlay handle sender closed: {}", e);
                 return Err(RecvError::Other(Box::new(e)));
             }
             Err(UnderlayObserverHandleError::InterfaceDown(
                 UnderlayNeighborInterfaceDownError(id),
             )) => {
-                log::warn!("interface ({}) down before able to determine underlay neighbor id of received message: {:?}", id, message);
+                log::warn!(target: "message_receiver", "interface ({}) down before able to determine underlay neighbor id of received message: {:?}", id, message);
 
                 let mut ids = HashSet::with_capacity(1);
                 ids.insert(id);
@@ -208,7 +208,7 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
 
         // FIXME: ignore scope_id 0 (probably caused by ipv6 attached to lo)
         let Some(interface_id) = NonZeroU32::new(received_from.scope_id()) else {
-            log::warn!("Ignoring message with scope_id 0");
+            log::warn!(target: "message_receiver", "Ignoring message with scope_id 0");
             return Ok(None);
         };
         let interface_id = interface_id.into();
@@ -219,7 +219,7 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
         }
 
         let Some(message) = self.deserialize(&buffer[..received_bytes]) else {
-            log::warn!("Deserialization of received message failed");
+            log::warn!(target: "message_receiver", "Deserialization of received message failed");
             return Ok(None);
         };
         log::trace!(target: "message_receiver", "Received {:?} from {}", &message, received_from);

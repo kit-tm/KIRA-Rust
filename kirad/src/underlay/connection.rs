@@ -55,7 +55,7 @@ impl Future for UnderlayObserverInnerConnection {
     type Output = ();
 
     fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
-        log::trace!("Polling UnderlayConnection");
+        log::trace!(target: "underlay_observer::connection", "Polling UnderlayConnection");
         // simple delegation to connection for now
         Pin::new(&mut self.get_mut().connection).poll(cx)
     }
@@ -101,30 +101,28 @@ impl UnderlayObserverConnection {
             );
 
             // Send the request
-            log::debug!("Sending initial request");
+            log::debug!(target: "underlay_observer::connection", "Sending initial request: {:?}", msg);
             let request = rt_handle.request(msg, SocketAddr::new(0, 0));
             let mut response = request.expect("request should complete succesfully");
 
-            // Print all the messages received in response
+            // Relay all the messages received in response
             while let Some(message) = response.next().await {
-                init_tx
-                    .send(message)
-                    .await
-                    .expect("receiver should not have been dropped");
+                log::trace!(target: "underlay_observer::connection", "processing initial message: {:?}", message);
+                init_tx.send(message).await.unwrap();
             }
         });
 
         // join initial and rt_messages channel
         let (mut messages_tx, messages_rx) = unbounded();
         tokio::spawn(async move {
-            log::trace!("joining rt_messages and initial messages");
+            log::trace!(target: "underlay_observer::connection", "joining rt_messages and initial messages");
 
             // initial messages
             while let Some(message) = init_rx.next().await {
                 messages_tx.send(message).await.unwrap();
             }
 
-            log::trace!("initial messages finished");
+            log::trace!(target: "underlay_observer::connection", "initial messages finished");
 
             // rt_messages
             while let Some((message, _)) = rt_messages.next().await {
@@ -144,13 +142,13 @@ impl UnderlayObserverConnection {
     }
 
     fn poll_connection(&mut self, cx: &mut std::task::Context<'_>) {
-        log::trace!("polling connection");
+        log::trace!(target: "underlay_observer::connection", "polling connection");
         if matches!(
             self.connection.as_mut().map(|c| c.poll_unpin(cx)),
             Some(Poll::Ready(_))
         ) {
             let _ = self.connection.take();
-            log::trace!("connection closed");
+            log::trace!(target: "underlay_observer::connection", "connection closed");
         }
     }
 
@@ -159,23 +157,27 @@ impl UnderlayObserverConnection {
             return;
         };
 
-        log::trace!("polling messages");
+        log::trace!(target: "underlay_observer::connection", "polling messages");
         match rt_messages.poll_next_unpin(cx) {
             Poll::Ready(Some(message)) => {
                 match message.payload {
                     NetlinkPayload::Error(err_message) => {
-                        log::error!("received an error message: {:?}", err_message);
+                        log::error!(target: "underlay_observer::connection", "received an error message: {:?}", err_message);
                     }
                     NetlinkPayload::InnerMessage(RouteNetlinkMessage::NewLink(message)) => {
-                        //log::trace!("{message:?}");
-
                         if message.header.link_layer_type != LinkLayerType::Ether {
-                            log::warn!("non ether link update detected: {message:?}");
+                            log::warn!(target: "underlay_observer::connection", "non ether link update detected: {message:?}");
                         }
 
                         let interface_id = message.header.index;
                         let interface_id: NonZeroU32 = interface_id.try_into().unwrap();
                         let interface_id = InterfaceId::from(interface_id);
+                        if self.excluded_interfaces.contains(&interface_id) {
+                            log::debug!(target: "underlay_observer::connection", "ignoring excluded interface: {:?}", interface_id);
+                            return;
+                        }
+
+                        log::trace!(target: "underlay_observer::connection", "processing information about link: {:?}", interface_id);
 
                         let mut mac_addr = None;
                         let mut broadcast_addr = None;
@@ -193,10 +195,10 @@ impl UnderlayObserverConnection {
                                     let addr = addr.try_into().expect("MAC should fit");
                                     broadcast_addr.replace(addr);
                                 }
-                                // TODO: LinkAttribute::Mode(mode) => todo!("Handle link mode"),
+                                // TODO: LinkAttribute::Mode(mode) => todo!(target: "underlay_observer::connection", "Handle link mode"),
                                 LinkAttribute::Carrier(1) => {}
                                 LinkAttribute::Carrier(carrier) => {
-                                    log::warn!("Ignoring carrier {} != 1", carrier)
+                                    log::warn!(target: "underlay_observer::connection", "Ignoring carrier {} != 1", carrier)
                                 }
                                 LinkAttribute::ProtoDown(0) => {
                                     proto_down = false;
@@ -211,13 +213,9 @@ impl UnderlayObserverConnection {
                             }
                         }
 
-                        log::trace!("ProtoDown: {proto_down}");
-                        log::trace!("State: {link_state:?}");
+                        log::trace!(target: "underlay_observer::connection", "ProtoDown: {proto_down}");
+                        log::trace!(target: "underlay_observer::connection", "State: {link_state:?}");
 
-                        if self.excluded_interfaces.contains(&interface_id) {
-                            log::debug!("ignore excluded interface: {:?}", interface_id);
-                            return;
-                        }
                         let if_up =
                             !proto_down && link_state.is_some_and(|state| state != State::Down);
 
@@ -228,7 +226,7 @@ impl UnderlayObserverConnection {
                                 broadcast_addr
                                     .expect("MAC address should be supplied by rtnetlink"),
                             );
-                            log::debug!("Interface up: {:?}", interface);
+                            log::debug!(target: "underlay_observer::connection", "Interface up: {:?}", interface);
 
                             self.information_base.interface_up(interface);
                             if self
@@ -241,13 +239,13 @@ impl UnderlayObserverConnection {
                                 let _ = self.updates_tx.take();
                             }
                         } else {
-                            log::debug!("Interface down: {}", interface_id);
+                            log::debug!(target: "underlay_observer::connection", "Interface down: {}", interface_id);
 
                             let Some(affected) =
                                 self.information_base.interface_down(&interface_id)
                             else {
                                 // no neighbors affected
-                                log::warn!("Interface {interface_id} was not registered as up yet");
+                                log::warn!(target: "underlay_observer::connection", "Interface {interface_id} was not registered as up yet");
                                 return;
                             };
 
@@ -285,7 +283,7 @@ impl UnderlayObserverConnection {
                 }
             }
             Poll::Ready(None) => {
-                log::trace!("closed rt_messages");
+                log::trace!(target: "underlay_observer::connection", "closed rt_messages");
                 let _ = self.rt_messages.take();
             }
             Poll::Pending => {}
@@ -294,10 +292,11 @@ impl UnderlayObserverConnection {
 
     fn poll_handle(&mut self, cx: &mut std::task::Context<'_>) {
         let Some(handle_rx) = self.handle_rx.as_mut() else {
+            log::warn!(target: "underlay_observer::connection", "no Handle left to poll");
             return;
         };
 
-        log::trace!("polling UnderlayObserverHandle");
+        log::trace!(target: "underlay_observer::connection", "polling UnderlayObserverHandle");
         match handle_rx.poll_next_unpin(cx) {
             Poll::Ready(Some(UnderlayObserverHandleRequest::GetInformation {
                 ulnid,
@@ -370,9 +369,9 @@ impl Future for UnderlayObserverConnection {
     fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
         let pinned = self.get_mut();
 
-        pinned.poll_connection(cx);
-        pinned.poll_messages(cx);
         pinned.poll_handle(cx);
+        pinned.poll_messages(cx);
+        pinned.poll_connection(cx);
 
         if pinned.updates_tx.is_none()
             || (pinned.rt_messages.is_none() && pinned.handle_rx.is_none())

@@ -227,7 +227,6 @@ impl<C: UseCaseContext, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE> {
 impl<C, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE>
 where
     C: UseCaseContext<Runtime = Rc<R2KadRuntime>>,
-    C::Runtime: UseCaseRuntime,
     C::PhysicalNeighborTable:
         UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + std::fmt::Debug,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + std::fmt::Debug,
@@ -235,6 +234,7 @@ where
 {
     /// Startup the protocol instance.
     pub fn startup(&mut self, now: Instant) -> Result<()> {
+        log::trace!(target: "r2kad", "startup instance");
         self.context.runtime().set_current_time(now);
         self.pipeline.startup(&self.context)?;
         Ok(())
@@ -242,7 +242,7 @@ where
 
     /// Process received [Input] event.
     pub fn handle_input(&mut self, received_event: Input, now: Instant) -> Result<()> {
-        log::trace!("handle input: {:?}", received_event);
+        log::trace!(target: "r2kad", "handle input: {:?}", received_event);
 
         // just to be save we check for due timers
         self.handle_timeout(now)?;
@@ -266,13 +266,13 @@ where
     /// The next time this method has to be called can be obtained
     /// with [poll_timeout](Self::poll_timeout).
     pub fn handle_timeout(&mut self, now: Instant) -> Result<()> {
-        log::trace!("handle timeout");
+        log::trace!(target: "r2kad", "handle timeout");
 
         self.context.runtime().set_current_time(now);
 
         // process timer events first
         while let Some(due_timer) = self.context.runtime().next_timer() {
-            log::trace!("handle timer: {:?}", due_timer);
+            log::trace!(target: "r2kad", "handle timer: {:?}", due_timer);
 
             let timer_event = crate::use_cases::UseCaseEvent::Timer(due_timer);
             self.pipeline.process_event(&self.context, timer_event)?;
@@ -284,7 +284,7 @@ where
 
         // consume __all__ events generated inside the runtime
         while let Some(event) = self.context.runtime().next_event() {
-            log::trace!("handle follow up event: {:?}", event);
+            log::trace!(target: "r2kad", "handle follow up event: {:?}", event);
             self.pipeline.process_event(&self.context, event)?;
         }
 
