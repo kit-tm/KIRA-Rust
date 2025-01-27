@@ -5,7 +5,7 @@ use std::{
     collections::{HashMap, HashSet},
     marker::PhantomData,
     ops::Deref,
-    rc::Rc,
+    sync::Arc,
     time::Instant,
 };
 
@@ -66,7 +66,7 @@ where
     C: UseCaseContext<
         RoutingTable = ObservableRoutingTable<UnlimitedPNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
         PhysicalNeighborTable = InMemoryPNTable,
-        Runtime = Rc<R2KadRuntime>,
+        Runtime = Arc<R2KadRuntime>,
         InsertionStrategy = PNSStrategy<
             ObservableRoutingTable<UnlimitedPNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
             InOrderCycleRemover,
@@ -77,7 +77,7 @@ where
 {
     pub fn build(&self) -> R2Kad<C, BUCKET_SIZE> {
         let root_id = self.root_id.unwrap_or_else(NodeId::random);
-        let runtime = Rc::new(R2KadRuntime::with_startup_time(self.current_time));
+        let runtime = Arc::new(R2KadRuntime::with_startup_time(self.current_time));
         let pipeline = R2KadPipeline::new(self.pipeline_config, &root_id);
 
         let mut routing_table = ObservableRoutingTable::from(UnlimitedPNRoutingTable::from(
@@ -86,7 +86,7 @@ where
 
         // Add observer which emits to runtime
         {
-            // this is why Rc<R2KadRuntime> is required
+            // this is why Arc<R2KadRuntime> is required
             let runtime = runtime.clone();
             routing_table.add_observer(move |event| {
                 use crate::domain::observable_routing_table::RoutingTableEvent::*;
@@ -227,7 +227,8 @@ impl<C: UseCaseContext, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE> {
 
 impl<C, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE>
 where
-    C: UseCaseContext<Runtime = Rc<R2KadRuntime>>,
+    C: UseCaseContext,
+    C::Runtime: Deref<Target = R2KadRuntime>,
     C::PhysicalNeighborTable:
         UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + std::fmt::Debug,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + std::fmt::Debug,

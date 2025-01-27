@@ -3,6 +3,7 @@ use std::ffi::OsString;
 use std::num::NonZeroU32;
 
 use clap::Parser;
+use futures::StreamExt;
 use kira_forwarding::tables::in_memory_tables::InMemoryFwdTables;
 use kira_lib::context::SyncContext;
 use kira_lib::R2Kad;
@@ -12,6 +13,13 @@ use kirad_lib::underlay::observe_underlay;
 use kirad_lib::Kira;
 
 use kira_lib::domain::NodeId;
+use signal_hook::consts::SIGHUP;
+use signal_hook::consts::SIGINT;
+use signal_hook::consts::SIGKILL;
+use signal_hook::consts::SIGPIPE;
+use signal_hook::consts::SIGQUIT;
+use signal_hook::consts::SIGTERM;
+use signal_hook_tokio::Signals;
 use tracing_subscriber::prelude::*;
 
 #[derive(Parser, Debug)]
@@ -44,19 +52,16 @@ struct Args {
     excluded_interfaces: Option<Vec<u32>>,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // Setup tracing environment
+    let console_layer = console_subscriber::spawn();
     let fmt_layer = tracing_subscriber::fmt::layer().with_ansi(false);
     tracing_subscriber::registry()
+        .with(console_layer)
         .with(fmt_layer)
         .with(tracing_subscriber::filter::EnvFilter::from_default_env())
         .init();
-
-    // Setup the single threaded async runtime
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("failed to build tokio runtime");
 
     let args = Args::parse();
 
@@ -75,24 +80,22 @@ fn main() {
     );
 
     // start underlay observation
-    let (connection, handle, underlay_updates) = runtime.block_on(async {
-        observe_underlay(excluded_interfaces.clone())
-            .expect("observing underlay neighborhood failed")
-    });
-    runtime.spawn(connection);
+    let (connection, handle, underlay_updates) = observe_underlay(excluded_interfaces.clone())
+        .expect("observing underlay neighborhood failed");
+    tokio::spawn(connection);
 
     //let fwd_table = NativeFwdTables::new(args.nftables_conf);
     let fwd_tables = InMemoryFwdTables::default();
 
     // create message sender and receiver
-    let (pm_sender, pm_receiver) = runtime
-        .block_on(async_channel(
-            args.socket_port,
-            ProtocolMessageFormat::MessagePack,
-            handle,
-            excluded_interfaces,
-        ))
-        .expect("socket creation failed");
+    let (pm_sender, pm_receiver) = async_channel(
+        args.socket_port,
+        ProtocolMessageFormat::MessagePack,
+        handle,
+        excluded_interfaces,
+    )
+    .await
+    .expect("socket creation failed");
     let addr = pm_sender.local_addr().expect("failed to get bind addr");
     tracing::info!(socket_address = %addr, "Bound to socket");
 
@@ -100,9 +103,21 @@ fn main() {
         .root_id(args.root_id.unwrap_or_else(NodeId::random))
         .build();
 
-    let kira = runtime.block_on(async {
-        Kira::with_components(r2kad, fwd_tables, underlay_updates, pm_receiver, pm_sender)
-    });
+    let kira = Kira::with_components(r2kad, fwd_tables, underlay_updates, pm_receiver, pm_sender);
+    let kira = tokio::spawn(kira.start());
 
-    runtime.block_on(kira.start());
+    let mut signals: Signals = Signals::new([SIGHUP, SIGTERM, SIGINT, SIGQUIT, SIGPIPE])
+        .expect("failed to create signals");
+    let received = signals.next().await;
+    match received {
+        Some(SIGHUP) => println!("Received SIGHUP"),
+        Some(SIGTERM) => println!("Received SIGTERM"),
+        Some(SIGINT) => println!("Received SIGQUIT"),
+        Some(SIGPIPE) => println!("Received SIGPIPE"),
+        Some(SIGKILL) => println!("Received SIGKILL"),
+        Some(signal) => println!("Received unsupported signal: {}", signal),
+        None => println!("Closed before signal could be received"),
+    }
+
+    kira.abort();
 }

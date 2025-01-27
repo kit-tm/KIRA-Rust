@@ -56,7 +56,7 @@ pub trait LocalAsyncProtocolMessageSender {
         destination: UnderlayNeighborDestination,
     ) -> Result<(), SenderError>
     where
-        M: Into<ProtocolMessage> + Send + Sync;
+        M: Into<ProtocolMessage> + Send + Sync + std::fmt::Debug;
 }
 
 /// Errors for message senders.

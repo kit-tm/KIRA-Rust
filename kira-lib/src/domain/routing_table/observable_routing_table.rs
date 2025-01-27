@@ -80,7 +80,7 @@ impl<const BUCKET_SIZE: usize> Display for RoutingTableEvent<BUCKET_SIZE> {
 ///
 /// observable_rt.emit(RoutingTableEvent::NewBucket(Bucket::new()));
 /// ```
-pub trait RoutingTableObserver<const BUCKET_SIZE: usize> {
+pub trait RoutingTableObserver<const BUCKET_SIZE: usize>: Send {
     /// Notify the [RoutingTableObserver] about a [RoutingTableEvent].
     fn notify(&self, event: RoutingTableEvent<BUCKET_SIZE>);
 }
@@ -88,6 +88,7 @@ pub trait RoutingTableObserver<const BUCKET_SIZE: usize> {
 impl<F, const BUCKET_SIZE: usize> RoutingTableObserver<BUCKET_SIZE> for F
 where
     F: Fn(RoutingTableEvent<BUCKET_SIZE>),
+    F: Send,
 {
     fn notify(&self, event: RoutingTableEvent<BUCKET_SIZE>) {
         self(event);
@@ -464,8 +465,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-    use std::rc::Rc;
+    use std::sync::{Arc, RwLock};
 
     use crate::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
     use crate::domain::single_bucket::SingleBucketRT;
@@ -477,10 +477,10 @@ mod tests {
 
         let mut observable = ObservableRoutingTable::from(SingleBucketRT::<10>::new(NodeId::one()));
 
-        let events = Rc::new(RefCell::new(vec![]));
+        let events = Arc::new(RwLock::new(vec![]));
 
-        let observable_events = Rc::clone(&events);
-        observable.add_observer(move |event| observable_events.borrow_mut().push(event));
+        let observable_events = Arc::clone(&events);
+        observable.add_observer(move |event| observable_events.write().unwrap().push(event));
 
         let add_result = observable.add(contact.clone());
         assert!(
@@ -488,7 +488,7 @@ mod tests {
             "Adding should be ok in empty routing table but was: {:?}",
             add_result
         );
-        assert!((events.borrow()).contains(&RoutingTableEvent::NewContact(contact)));
+        assert!((events.read().unwrap()).contains(&RoutingTableEvent::NewContact(contact)));
     }
 
     #[test]
@@ -500,14 +500,14 @@ mod tests {
 
         let mut observable = ObservableRoutingTable::from(rt);
 
-        let events = Rc::new(RefCell::new(vec![]));
+        let events = Arc::new(RwLock::new(vec![]));
 
-        let observable_events = Rc::clone(&events);
-        observable.add_observer(move |event| observable_events.borrow_mut().push(event));
+        let observable_events = Arc::clone(&events);
+        observable.add_observer(move |event| observable_events.write().unwrap().push(event));
 
         let add_result = observable.remove(contact.id());
         assert!(add_result.is_some());
-        assert!((events.borrow()).contains(&RoutingTableEvent::RemovedContact(contact)));
+        assert!((events.read().unwrap()).contains(&RoutingTableEvent::RemovedContact(contact)));
     }
 
     #[test]
@@ -519,17 +519,17 @@ mod tests {
 
         let mut observable = ObservableRoutingTable::from(rt);
 
-        let events = Rc::new(RefCell::new(vec![]));
+        let events = Arc::new(RwLock::new(vec![]));
 
-        let observable_events = Rc::clone(&events);
-        observable.add_observer(move |event| observable_events.borrow_mut().push(event));
+        let observable_events = Arc::clone(&events);
+        observable.add_observer(move |event| observable_events.write().unwrap().push(event));
 
         let new_contact = Contact::new(Path::from(NodeId::with_msb(3)), StateSeqNr::from(2));
 
         let add_result = observable.replace(contact.id(), new_contact.clone());
         assert!(add_result.is_ok());
-        assert!((events.borrow()).contains(&RoutingTableEvent::RemovedContact(contact)));
-        assert!((events.borrow()).contains(&RoutingTableEvent::NewContact(new_contact)));
+        assert!((events.read().unwrap()).contains(&RoutingTableEvent::RemovedContact(contact)));
+        assert!((events.read().unwrap()).contains(&RoutingTableEvent::NewContact(new_contact)));
     }
 
     #[test]
@@ -541,10 +541,10 @@ mod tests {
 
         let mut observable = ObservableRoutingTable::from(rt);
 
-        let events = Rc::new(RefCell::new(vec![]));
+        let events = Arc::new(RwLock::new(vec![]));
 
-        let observable_events = Rc::clone(&events);
-        observable.add_observer(move |event| observable_events.borrow_mut().push(event));
+        let observable_events = Arc::clone(&events);
+        observable.add_observer(move |event| observable_events.write().unwrap().push(event));
 
         let timestamp = Timestamp::now();
         {
@@ -562,7 +562,8 @@ mod tests {
 
         assert!(
             events
-                .borrow()
+                .read()
+                .unwrap()
                 .contains(&RoutingTableEvent::UpdatedContact {
                     new: updated_contact,
                     old: contact,

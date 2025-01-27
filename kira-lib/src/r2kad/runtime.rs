@@ -1,6 +1,6 @@
-use std::cell::{Cell, RefCell};
 use std::collections::binary_heap::PeekMut;
 use std::collections::{BinaryHeap, HashMap, VecDeque};
+use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
@@ -36,29 +36,29 @@ impl PartialOrd for Timer {
 }
 
 /// [UseCaseRuntime] implementation for the [R2Kad][super::R2Kad] protocol instance.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct R2KadRuntime {
-    counter: Cell<usize>,
-    timers: RefCell<BinaryHeap<Timer>>,
-    periodic_timers: RefCell<HashMap<TimerId, Duration>>,
+    counter: Mutex<usize>,
+    timers: RwLock<BinaryHeap<Timer>>,
+    periodic_timers: RwLock<HashMap<TimerId, Duration>>,
     // Next events to be processed *excluding* timer events.
     // We can't just save them in `R2Kad` since `UseCases` are allowed
     // to broadcast certain events via the runtime.
-    event_queue: RefCell<VecDeque<UseCaseEvent>>,
-    output_queue: RefCell<VecDeque<Output>>,
-    current_time: Cell<Instant>,
+    event_queue: RwLock<VecDeque<UseCaseEvent>>,
+    output_queue: RwLock<VecDeque<Output>>,
+    current_time: Mutex<Instant>,
 }
 
 impl R2KadRuntime {
     /// Create new [UseCaseRuntime] with a specified startup time.
     pub fn with_startup_time(startup_time: Instant) -> Self {
         Self {
-            counter: Cell::default(),
-            timers: RefCell::new(BinaryHeap::with_capacity(14)), // heuristic: 1 / UseCase
-            periodic_timers: RefCell::default(),
-            event_queue: RefCell::default(),
-            output_queue: RefCell::default(),
-            current_time: Cell::new(startup_time),
+            counter: Mutex::default(),
+            timers: RwLock::new(BinaryHeap::with_capacity(14)), // heuristic: 1 / UseCase
+            periodic_timers: RwLock::default(),
+            event_queue: RwLock::default(),
+            output_queue: RwLock::default(),
+            current_time: Mutex::new(startup_time),
         }
     }
 
@@ -76,13 +76,13 @@ impl Default for R2KadRuntime {
 // R2Kad protocol instance orchestration methods
 impl R2KadRuntime {
     pub fn set_current_time(&self, now: Instant) {
-        let _ = self.current_time.replace(now);
+        *self.current_time.lock().unwrap() = now;
     }
 
     /// Returns next due timer based on current time of the runtime.
     pub fn next_timer(&self) -> Option<TimerId> {
-        let due_timer = if let Some(next_timer) = self.timers.borrow_mut().peek_mut() {
-            if next_timer.due <= self.current_time.get() {
+        let due_timer = if let Some(next_timer) = self.timers.write().unwrap().peek_mut() {
+            if next_timer.due <= *self.current_time.lock().unwrap() {
                 PeekMut::pop(next_timer)
             } else {
                 // impossible to yield more timers because of monoton increasing heap
@@ -95,7 +95,7 @@ impl R2KadRuntime {
         };
 
         // register periodic timer under same id to fire again
-        if let Some(duration) = self.periodic_timers.borrow().get(&due_timer.id) {
+        if let Some(duration) = self.periodic_timers.read().unwrap().get(&due_timer.id) {
             log::trace!(
                 "register periodic timer again: {:?} ({:?})",
                 due_timer.id,
@@ -108,7 +108,7 @@ impl R2KadRuntime {
     }
 
     pub fn next_event(&self) -> Option<UseCaseEvent> {
-        self.event_queue.borrow_mut().pop_front()
+        self.event_queue.write().unwrap().pop_front()
     }
 
     /// Retrieve next [Output] event.
@@ -116,19 +116,19 @@ impl R2KadRuntime {
     /// This function should be called immediately after no [UseCaseEvents](UseCaseEvent)
     /// are left to process by use cases yielded by [next_events](Self::next_events).
     pub fn poll_output(&self) -> Option<Output> {
-        self.output_queue.borrow_mut().pop_front()
+        self.output_queue.write().unwrap().pop_front()
     }
 
     /// Current time of the runtime.
     pub fn current_time(&self) -> Instant {
-        self.current_time.get()
+        *self.current_time.lock().unwrap()
     }
 
     /// Returns the next [Instant] a timer is due.
     ///
     /// If there are no timers registered [None](Option::None) is returned.
     pub fn poll_timeout(&self) -> Option<Instant> {
-        self.timers.borrow().peek().map(|timer| timer.due)
+        self.timers.read().unwrap().peek().map(|timer| timer.due)
     }
 }
 
@@ -138,15 +138,15 @@ impl R2KadRuntime {
         // this is so we can optimize [Self::next_events]
         debug_assert!(!duration.is_zero(), "timers should have positive durations");
 
-        let due = self.current_time.get() + duration;
+        let due = *self.current_time.lock().unwrap() + duration;
         let timer = Timer { due, id };
 
-        self.timers.borrow_mut().push(timer);
+        self.timers.write().unwrap().push(timer);
         log::trace!("registered timer: {:?} ({:?})", timer, duration);
     }
 
     fn send_output(&self, output: Output) {
-        self.output_queue.borrow_mut().push_back(output)
+        self.output_queue.write().unwrap().push_back(output)
     }
 }
 
@@ -176,16 +176,14 @@ impl UseCaseRuntime for R2KadRuntime {
             "Timers should have a positive duration"
         );
 
-        let counter = self.counter.get();
-        let id = counter.into();
+        let mut counter = self.counter.lock().unwrap();
+        let id = (*counter).into();
         self.register_timer_with_id(duration, id);
 
         // TODO: handle overflow
-        self.counter.replace(
-            counter
-                .checked_add(1)
-                .expect("TimerId overflow should not occure"),
-        );
+        *counter = counter
+            .checked_add(1)
+            .expect("TimerId overflow should not occure");
 
         id
     }
@@ -193,7 +191,11 @@ impl UseCaseRuntime for R2KadRuntime {
     fn register_periodic_timer(&self, duration: Duration) -> TimerId {
         let timer_id = self.register_timer(duration);
 
-        let pre_existing = self.periodic_timers.borrow_mut().insert(timer_id, duration);
+        let pre_existing = self
+            .periodic_timers
+            .write()
+            .unwrap()
+            .insert(timer_id, duration);
         assert_eq!(pre_existing, None, "periodic timer should not pre exist");
 
         timer_id
@@ -221,7 +223,10 @@ impl UseCaseRuntime for R2KadRuntime {
 
     /// Broadcast an [UseCaseEvent](BroadcastableUseCaseEvent).
     fn broadcast_event<B: Into<BroadcastableUseCaseEvent>>(&self, event: B) {
-        self.event_queue.borrow_mut().push_back(event.into().into());
+        self.event_queue
+            .write()
+            .unwrap()
+            .push_back(event.into().into());
     }
 }
 

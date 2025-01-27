@@ -98,6 +98,7 @@ impl UdpSender {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", target = "message_sender")]
     async fn get_receiver_addr(
         &mut self,
         destination: UnderlayNeighborDestination,
@@ -128,13 +129,14 @@ impl UdpSender {
 }
 
 impl AsyncProtocolMessageSender for UdpSender {
+    #[tracing::instrument(level = "debug", target = "message_sender")]
     async fn send_message<M>(
         &mut self,
         message: M,
         destination: UnderlayNeighborDestination,
     ) -> Result<(), SenderError>
     where
-        M: Into<ProtocolMessage> + Send + Sync,
+        M: Into<ProtocolMessage> + Send + Sync + std::fmt::Debug,
     {
         let message = message.into();
 
