@@ -26,6 +26,7 @@ use crate::use_cases::{
 };
 
 /// Configuration for [ExplicitPathManagement] use case.
+#[derive(Debug)]
 pub struct EPMConfig {
     /// Maximum age of an externally added [PathIdEntry].
     pub max_age: Duration,
@@ -76,6 +77,7 @@ impl Default for EPMConfig {
 ///
 /// This [UseCase] will return [HandlingResult::Handled] if no further forwarding by the
 /// [ForwardProtocolMessage](super::forward_protocol_message::ForwardProtocolMessage) [UseCase] is necessary.
+#[derive(Debug)]
 pub struct ExplicitPathManagement<C, const BUCKET_SIZE: usize> {
     _pd: PhantomData<C>,
     state: EPMState,

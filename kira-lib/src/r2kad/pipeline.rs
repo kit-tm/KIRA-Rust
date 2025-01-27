@@ -37,6 +37,7 @@ pub struct R2KadPipelineConfig {
 
 // NOTE: in the future this can be refactored into a trait
 //     to allow "custom" pipeline creations
+#[derive(Debug)]
 pub struct R2KadPipeline<C, const BUCKET_SIZE: usize> {
     derive_forwarding_tables: DeriveFwdTableEntries<C, BUCKET_SIZE>,
     distributed_hash_table: DistributedHashTable<C, DefaultExpiringHashTable, BUCKET_SIZE>,

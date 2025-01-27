@@ -14,7 +14,7 @@ use kira_lib::messaging::ProtocolMessage;
 /// Instead of using a trait this implementation supports easy to use methods for a closed set of transmission formats.
 /// As it's currently not desired to support a broad set of transmission formats this decision has been made.
 // TODO: Refactor this to be more efficient. Currently it doesn't support proper buffer writing.
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum ProtocolMessageFormat {
     #[cfg(feature = "serde_json")]
     /// [JavaScript object notation](https://www.json.org) message format

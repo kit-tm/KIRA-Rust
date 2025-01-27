@@ -3,7 +3,6 @@
 //! The main struct for receiving [ProtocolMessages](ProtocolMessage) is the [UdpReceiver].
 
 use std::collections::HashSet;
-use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::ops::DerefMut;
@@ -30,8 +29,9 @@ const MTU_BYTES: usize = 65536;
 ///
 /// The used [UdpSocket] binds to all available IPv6 interfaces and maps the incoming IP
 /// addresses to [UnderlayNeighborIds][UnderlayNeighborId] using an [UnderlayObserverHandle].
-#[derive(Debug)]
+#[derive(derive_more::Debug)]
 pub struct UdpReceiver {
+    #[debug(skip)]
     buffer: RwLock<[u8; MTU_BYTES]>,
     socket: Arc<UdpSocket>,
     format: ProtocolMessageFormat,
@@ -45,7 +45,7 @@ impl Clone for UdpReceiver {
         Self {
             buffer: RwLock::new([0u8; MTU_BYTES]),
             socket: Arc::clone(&self.socket),
-            format: self.format.clone(),
+            format: self.format,
             underlay_handle: self.underlay_handle.clone(),
             excluded_interfaces: self.excluded_interfaces.clone(),
         }
@@ -115,6 +115,7 @@ impl UdpReceiver {
 }
 
 impl AsyncProtocolMessageReceiver for UdpReceiver {
+    #[tracing::instrument(level = "debug", target = "message_receiver")]
     async fn recv_timeout(
         &mut self,
         timeout: Option<Duration>,
@@ -189,6 +190,7 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
         AsyncProtocolMessageReceiver::recv_timeout(self, None).await
     }
 
+    #[tracing::instrument(level = "debug", target = "message_receiver")]
     async fn try_recv(
         &mut self,
     ) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, TryRecvError> {

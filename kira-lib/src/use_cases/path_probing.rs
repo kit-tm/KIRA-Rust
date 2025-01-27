@@ -4,7 +4,7 @@ use std::ops::Deref;
 use std::time::Duration;
 
 use crate::domain::{
-    Contact, ContactState, DEFAULT_BUCKET_SIZE, NodeId, RoutingTable, UNTable, UnderlayNeighborId,
+    Contact, ContactState, NodeId, RoutingTable, UNTable, UnderlayNeighborId, DEFAULT_BUCKET_SIZE,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{Nonce, ProbeReqData, ProbeRspData, ProtocolMessage, ReqRspMessage};
@@ -65,6 +65,7 @@ impl UseCaseState for PathProbingState {
 /// returned the
 /// [ForwardProtocolMessage](crate::use_cases::forward_protocol_message::ForwardProtocolMessage)
 /// [UseCase] will invalidate all affected [Contacts](crate::domain::Contact).
+#[derive(Debug)]
 pub struct PathProbing<C, const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE> {
     _pd: PhantomData<C>,
     state: PathProbingState,

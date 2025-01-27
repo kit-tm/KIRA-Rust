@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 use std::time::Instant;
 
-use crate::domain::{NodeId, RoutingTable, UNTable, UnderlayNeighborId, dht};
+use crate::domain::{dht, NodeId, RoutingTable, UNTable, UnderlayNeighborId};
 use crate::use_cases::{
     EventHandler, FetchInjectData, InjectionMessageData, OneshotInjectMessageCallback,
     StoreInjectData, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime, UseCaseState,
@@ -14,8 +14,8 @@ use crate::use_cases::{
 use crate::messaging::dht::{DefaultLHTInput, FetchReqData, StoreReqData};
 use crate::messaging::{Nonce, ProtocolMessage};
 use crate::use_cases::distributed_hash_table_injector::DHTInjectorState::Running;
-use crate::use_cases::inject_messages::InjectionResult;
 use crate::use_cases::inject_messages::errors::InjectMessageError;
+use crate::use_cases::inject_messages::InjectionResult;
 
 // todo what would be a sensible value here?
 // todo random offsets for periodic restore AND collection of the hash table?
@@ -71,6 +71,7 @@ pub enum DHTInjectorState {
 /// # Generics
 ///
 /// - `C`: [UseCaseContext] in which the UseCase is running in.
+#[derive(Debug)]
 pub struct DistributedHashTableInjector<C, const BUCKET_SIZE: usize> {
     _c: PhantomData<C>,
     state: DHTInjectorState,

@@ -200,6 +200,7 @@ pub type Result<T> = core::result::Result<T, R2KadError>;
 ///     }
 /// }
 /// ```
+#[derive(Debug)]
 pub struct R2Kad<C, const BUCKET_SIZE: usize> {
     context: C,
     pipeline: R2KadPipeline<C, BUCKET_SIZE>,

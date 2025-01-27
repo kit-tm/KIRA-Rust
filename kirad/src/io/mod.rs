@@ -47,8 +47,7 @@ pub mod udp {
             tracing::warn!(error = ?err, "Error joining multicast group");
         }
         let socket = Arc::new(udp_socket);
-        let sender =
-            UdpSender::from_socket(socket.clone(), format.clone(), underlay_handle.clone())?;
+        let sender = UdpSender::from_socket(socket.clone(), format, underlay_handle.clone())?;
         let receiver =
             UdpReceiver::from_socket(socket, format, underlay_handle, excluded_interfaces);
         Ok((sender, receiver))

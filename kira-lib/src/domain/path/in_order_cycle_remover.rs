@@ -5,6 +5,7 @@ use crate::domain::Path;
 ///
 /// When searching for duplicates it starts from the back to remove the
 /// longest cycle for the given [NodeId](crate::domain::node_id::NodeId).
+#[derive(Debug)]
 pub struct InOrderCycleRemover;
 
 impl PathCycleRemover for InOrderCycleRemover {

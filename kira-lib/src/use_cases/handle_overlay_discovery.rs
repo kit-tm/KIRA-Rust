@@ -27,6 +27,7 @@ impl Default for OverlayDiscoveryConfig {
 /// The shared functionality to answer to overlay discovery (`FindNodeReq`) appropriately.
 ///
 /// As this is not a defined UseCase this is extracted as [EventHandler].
+#[derive(Debug)]
 pub struct HandleOverlayDiscovery<C, const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE> {
     _c: PhantomData<C>,
     config: OverlayDiscoveryConfig,

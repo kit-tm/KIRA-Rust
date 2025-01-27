@@ -53,6 +53,7 @@ impl Default for PrecomputePathIdsConfig {
 ///
 /// Based on its [PrecomputePathIdsConfig] the precomputation happens on every change or in a
 /// periodic interval.
+#[derive(Debug)]
 pub struct PrecomputePathIds<C, const BUCKET_SIZE: usize> {
     _pd: PhantomData<C>,
     state: PrecomputeState,

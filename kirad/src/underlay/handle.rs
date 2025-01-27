@@ -138,7 +138,6 @@ impl UnderlayObserverHandle {
         self.tx
             .send(UnderlayObserverHandleRequest::GetAvailable { response: tx })
             .await?;
-        log::trace!(target: "underlay_observer::handle", "get_available awaiting return...");
 
         Ok(rx.await.expect("sender should not get dropped"))
     }

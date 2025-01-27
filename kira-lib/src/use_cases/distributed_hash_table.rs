@@ -125,6 +125,7 @@ pub enum DHTState {
 /// - `C`: [UseCaseContext] in which the UseCase is running in.
 /// - `H`: [LocalHashTable] type used.
 /// - `BUCKET_SIZE`: Bucket size of the [RoutingTable].
+#[derive(Debug)]
 pub struct DistributedHashTable<C, H, const BUCKET_SIZE: usize> {
     _c: PhantomData<C>,
     state: DHTState,

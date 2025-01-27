@@ -30,6 +30,7 @@ use crate::utils::{BackoffMap, ExponentialBackoff};
 /// - Intervall used for calculation of random timeout: `[0.5 t, 1.5 t]`, t = 500ms (overlay neighbor),
 ///     t = 1s (underlay neighbor), t = 2s (andernfalls).
 /// - Max retries for exponential backoff: 5.
+#[derive(Debug)]
 pub struct FailureHandlingConfig {
     /// Number of overlay neighbors to notify about a node failure.
     pub failure_notification_radius: NonZeroUsize,
@@ -58,6 +59,7 @@ impl Default for FailureHandlingConfig {
 /// ## Tasks
 ///
 /// - Listens to [UnderlayNeighborUpdate]s and invalidates all affected contacts in the routing table.
+#[derive(Debug)]
 pub struct FailureHandling<C, const BUCKET_SIZE: usize> {
     _pd: PhantomData<C>,
     state: ReactiveUseCaseState,

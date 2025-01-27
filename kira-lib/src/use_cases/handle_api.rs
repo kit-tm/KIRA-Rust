@@ -6,6 +6,7 @@ use tokio::sync::mpsc::error::SendError;
 
 use super::{EventHandler, UseCaseContext, UseCaseEvent, UseCaseRuntime};
 
+#[derive(Debug)]
 pub struct HandleApi<C> {
     _pd: PhantomData<C>,
 }

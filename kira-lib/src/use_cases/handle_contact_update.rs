@@ -37,6 +37,7 @@ impl Default for HandleContactUpdateConfig {
 /// Also handles cascading effects.
 /// If one contact gets removed or invalid, all contacts whose paths go through this contact
 /// have to be invalidated.
+#[derive(Debug)]
 pub struct HandleContactUpdate<C, const BUCKET_SIZE: usize> {
     _pd: PhantomData<C>,
     config: HandleContactUpdateConfig,
