@@ -19,5 +19,7 @@ pub mod api;
 pub mod domain;
 pub mod format;
 pub mod io;
-pub mod r2kad;
+pub mod kira;
 pub mod underlay;
+
+pub use kira::Kira;

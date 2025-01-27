@@ -8,8 +8,8 @@ use kira_lib::context::SyncContext;
 use kira_lib::R2Kad;
 use kirad_lib::format::ProtocolMessageFormat;
 use kirad_lib::io::udp::async_channel;
-use kirad_lib::r2kad::Kira;
 use kirad_lib::underlay::observe_underlay;
+use kirad_lib::Kira;
 
 use kira_lib::domain::NodeId;
 use tracing_subscriber::prelude::*;

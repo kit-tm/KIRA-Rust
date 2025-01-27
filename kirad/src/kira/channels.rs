@@ -79,6 +79,7 @@ pub struct R2KadOutputChannels {
 /// Aggregates all [input channels](R2KadInputChannels) into one [InputSender].
 ///
 /// The [InputSender] can then be used to drive the progress of the routing protocol.
+#[tracing::instrument(target = "kira")]
 pub(super) async fn input_fan_in(input_channels: &mut R2KadInputChannels) -> Option<Input> {
     let input = tokio::select! {
         biased; // poll in order
@@ -101,6 +102,7 @@ pub(super) async fn input_fan_in(input_channels: &mut R2KadInputChannels) -> Opt
 /// channels](R2KadOutputChannels).
 ///
 /// The [OutputReceiver] can be used to listen to output of the routing protocol.
+#[tracing::instrument(target = "kira")]
 pub(super) async fn output_fan_out(
     output: Output,
     output_channels: &mut R2KadOutputChannels,
@@ -108,17 +110,18 @@ pub(super) async fn output_fan_out(
     match output {
         Output::SendProtocolMessage(pm, ulnid) => {
             if output_channels.protocol.send((pm, ulnid)).await.is_err() {
-                log::error!("protocol sending channel closed");
+                log::error!(target: "kira", "protocol sending channel closed");
                 return None;
             }
         }
         Output::UpdateForwardingTables(update) => {
             let Some(ref forwarding) = output_channels.forwarding else {
-                log::trace!("Ignoring forwarding tables update: {}", update);
+                log::trace!(target: "kira", "Ignoring forwarding tables update: {}", update);
                 return Some(());
             };
             if let Err(SendError(update)) = forwarding.send(update).await {
                 log::warn!(
+                    target: "kira",
                     "forwarding tables update can't be delivered because channel is closed: {}",
                     update
                 );

@@ -13,7 +13,6 @@ pub mod channels;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::rc::Rc;
 use std::time::Instant;
 
 use channels::{R2KadInputChannels, R2KadOutputChannels};
@@ -33,6 +32,7 @@ use tokio::sync::mpsc;
 
 pub use kira_forwarding::ForwardingTables;
 pub use kira_lib::r2kad::R2Kad;
+use tokio::task::yield_now;
 use tokio::time;
 
 #[cfg(feature = "api")]
@@ -49,6 +49,7 @@ use crate::underlay::UnderlayNeighborUpdatesRx;
 ///
 /// 1. sans i/o implementation of the [R²/KAD](R2Kad) routing protocol
 /// 2. [forwarding layer](ForwardingTables)
+#[derive(Debug)]
 pub struct Kira<C, const BUCKET_SIZE: usize, FT> {
     r2kad: R2Kad<C, BUCKET_SIZE>,
     _forwarding_tables: PhantomData<FT>,
@@ -111,7 +112,7 @@ where
         #[cfg(feature = "api")]
         let api_config = api::ApiConfig::new(
             "[::]:8080".parse().unwrap(),
-            todo!("root_id for API"),
+            todo!(target: "kira", "root_id for API"),
             api_tx,
         );
         #[cfg(feature = "api")]
@@ -122,18 +123,18 @@ where
             loop {
                 match pm_receiver.recv().await {
                     Ok(None) => {
-                        log::debug!("Protocol message receiver finished: {pm_receiver:?}");
+                        log::debug!(target: "kira", "Protocol message receiver finished: {pm_receiver:?}");
                         break;
                     }
                     Ok(Some(msg)) => {
                         let _ = pm_receiver_tx.send(msg).await;
                     }
                     Err(RecvError::Closed(e)) => {
-                        log::debug!("Protocol message receiver closed: {}", RecvError::Closed(e));
+                        log::debug!(target: "kira", "Protocol message receiver closed: {}", RecvError::Closed(e));
                         break;
                     }
                     Err(other_error) => {
-                        log::error!("Error on receiving protocol messages: {}", other_error)
+                        log::error!(target: "kira", "Error on receiving protocol messages: {}", other_error)
                     }
                 }
             }
@@ -141,24 +142,19 @@ where
 
         let (pm_sender_tx, mut pm_sender_rx) = mpsc::channel(10);
         tokio::spawn(async move {
-            loop {
-                match pm_sender_rx.recv().await {
-                    Some((msg, dest)) => match pm_sender.send_message(msg, dest).await {
-                        Ok(()) => {}
-                        Err(SenderError::Closed) => {
-                            log::debug!("Protocol message sender closed: {}", SenderError::Closed);
-                            break;
-                        }
-                        Err(other_error) => {
-                            log::error!("Sending protocol message failed: {}", other_error)
-                        }
-                    },
-                    None => {
-                        log::trace!("Channel for sending protocol messages closed");
+            while let Some((msg, dest)) = pm_sender_rx.recv().await {
+                match pm_sender.send_message(msg, dest).await {
+                    Ok(()) => {}
+                    Err(SenderError::Closed) => {
+                        log::debug!(target: "kira", "Protocol message sender closed: {}", SenderError::Closed);
                         break;
+                    }
+                    Err(other_error) => {
+                        log::error!(target: "kira", "Sending protocol message failed: {}", other_error)
                     }
                 }
             }
+            log::warn!(target: "kira", "Channel for sending protocol messages closed");
         });
 
         let rx_channels = R2KadInputChannels {
@@ -195,7 +191,8 @@ impl<C, const BUCKET_SIZE: usize, FT> Kira<C, BUCKET_SIZE, FT> {
 
 impl<C, const BUCKET_SIZE: usize, FT> Kira<C, BUCKET_SIZE, FT>
 where
-    C: UseCaseContext<Runtime = Rc<R2KadRuntime>>,
+    C: UseCaseContext,
+    C::Runtime: Deref<Target = R2KadRuntime>,
     C::Runtime: UseCaseRuntime,
     C::PhysicalNeighborTable:
         UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + std::fmt::Debug,
@@ -203,6 +200,7 @@ where
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
 {
     /// Starts the R²/KAD routing protocol instance.
+    #[tracing::instrument(target = "kira", skip_all)]
     pub async fn start(mut self) {
         let Self {
             ref mut r2kad,
@@ -211,11 +209,11 @@ where
             ..
         } = self;
 
-        log::trace!("Startup protocol instance");
+        log::trace!(target: "kira",  "Startup protocol instance");
         {
             let now = Instant::now();
             if let Err(e) = r2kad.startup(now) {
-                log::error!("Error on startup of R²/KAD: {}", e);
+                log::error!(target: "kira", "Error on startup of R²/KAD: {}", e);
                 return;
             }
         }
@@ -223,53 +221,55 @@ where
         loop {
             // process output firstly to capture startup output
             while let Some(output) = r2kad.poll_output() {
-                log::trace!("Process output: {:?}", output);
                 if channels::output_fan_out(output, tx_channels)
                     .await
                     .is_none()
                 {
-                    log::error!("output channels closed");
+                    log::error!(target: "kira", "output channels closed");
                     return;
                 }
             }
 
+            yield_now().await;
+
             // handle the rare case that the protocol instance does not utilize a single timer
             let Some(timer_due) = r2kad.poll_timeout() else {
-                log::warn!("R²/KAD has no timeout");
-                log::trace!("Waiting for new input events");
+                log::warn!(target: "kira", "R²/KAD has no timeout");
+                log::trace!(target: "kira", "Waiting for new input events");
 
                 // only process Input events then
                 let Some(input) = channels::input_fan_in(rx_channels).await else {
-                    log::info!("Fan in channel closed and no timers left");
+                    log::info!(target: "kira", "Fan in channel closed and no timers left");
                     return;
                 };
-                log::trace!("Process input: {:?}", input);
+                log::trace!(target: "kira", "Process input: {:?}", input);
                 let now = Instant::now();
                 if let Err(e) = r2kad.handle_input(input, now) {
-                    log::error!("Error handle_timeout: {}", e);
+                    log::error!(target: "kira", "Error handle_timeout: {}", e);
                     return;
                 }
 
                 continue;
             };
 
-            log::trace!("Waiting for new input events or timeout");
+            //time::sleep(Duration::from_secs(2)).await;
+            log::trace!(target: "kira", "Waiting for new input events or timeout ({:?})", timer_due);
             tokio::select! {
                 biased; // poll in order since we check timers on handling input regardlessly
 
                 Some(input) = channels::input_fan_in(rx_channels) => {
-                    log::trace!("Process input: {:?}", input);
+                    log::trace!(target: "kira", "Process input: {:?}", input);
                     let now = Instant::now();
                     if let Err(e) = r2kad.handle_input(input, now) {
-                        log::error!("Error handle_input: {}", e);
+                        log::error!(target: "kira", "Error handle_input: {}", e);
                         return;
                     }
                 }
                 _ = time::sleep_until(timer_due.into()) => {
-                    log::trace!("Process timeout");
+                    log::trace!(target: "kira", "Process timeout");
                     let now = Instant::now();
                     if let Err(e) = r2kad.handle_timeout(now) {
-                        log::error!("Error handle_timeout: {}", e);
+                        log::error!(target: "kira", "Error handle_timeout: {}", e);
                         return;
                     }
                 }
