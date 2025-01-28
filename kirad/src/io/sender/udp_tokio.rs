@@ -98,7 +98,7 @@ impl UdpSender {
         Ok(())
     }
 
-    #[tracing::instrument(level = "trace", target = "message_sender")]
+    #[tracing::instrument(level = "trace", target = "message_sender", skip(self), fields(port = ?self.port, format = ?self.format))]
     async fn get_receiver_addr(
         &mut self,
         destination: UnderlayNeighborDestination,
@@ -129,7 +129,7 @@ impl UdpSender {
 }
 
 impl AsyncProtocolMessageSender for UdpSender {
-    #[tracing::instrument(level = "debug", target = "message_sender")]
+    #[tracing::instrument(level = "trace", target = "message_sender", skip(self), fields(port = ?self.port, format = ?self.format))]
     async fn send_message<M>(
         &mut self,
         message: M,

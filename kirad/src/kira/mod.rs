@@ -101,6 +101,7 @@ where
             .name("Underlay Observer channel")
             .spawn(async move {
                 while let Some(update) = underlay_updates.next().await {
+                    log::trace!(target: "underlay_observer::update", "Update: {:?}", update);
                     if underlay_tx.send(update).await.is_err() {
                         break;
                     }

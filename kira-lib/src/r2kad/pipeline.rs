@@ -211,25 +211,25 @@ where
                     Some(nonce) => nonce.to_string(),
                     None => "None".to_string(),
                 };
-                span!(Level::DEBUG, "event", "type" = "Message", %nonce, source = %message.source(), details = ?message)
+                span!(target: "r2kad", Level::DEBUG, "event", "type" = "Message", %nonce, source = %message.source(), details = ?message)
             }
             UseCaseEvent::UnderlayUpdate(event) => {
-                span!(Level::DEBUG, "event", "type" = "UnderlayUpdate", details = ?event)
+                span!(target: "r2kad", Level::DEBUG, "event", "type" = "UnderlayUpdate", details = ?event)
             }
             UseCaseEvent::Contact(event) => {
-                span!(Level::DEBUG, "event", "type" = "Contact", details = ?event)
+                span!(target: "r2kad", Level::DEBUG, "event", "type" = "Contact", details = ?event)
             }
             UseCaseEvent::InjectMessage(nonce, _) => {
-                span!(Level::DEBUG, "event", "type" = "InjectMessage", nonce = ?nonce)
+                span!(target: "r2kad", Level::DEBUG, "event", "type" = "InjectMessage", nonce = ?nonce)
             }
             UseCaseEvent::API(event) => {
-                span!(Level::DEBUG, "event", "type" = "API", details = ?event)
+                span!(target: "r2kad", Level::DEBUG, "event", "type" = "API", details = ?event)
             }
             UseCaseEvent::ResyncNode(node_id, ssn) => {
-                span!(Level::DEBUG, "event", "type" = "ResyncNode", %node_id, %ssn)
+                span!(target: "r2kad", Level::DEBUG, "event", "type" = "ResyncNode", %node_id, %ssn)
             }
             UseCaseEvent::Timer(id) => {
-                span!(Level::DEBUG, "event", "type" = "Timer", %id)
+                span!(target: "r2kad", Level::DEBUG, "event", "type" = "Timer", %id)
             }
         }
         .entered();
