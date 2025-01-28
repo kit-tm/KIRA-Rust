@@ -329,21 +329,7 @@ impl UnderlayObserverConnection {
                         let reg_info = self
                             .information_base
                             .register_neighbor(interface_id, ll_ipv6);
-                        if reg_info.is_ok()
-                            && self
-                                .updates_tx
-                                .as_mut()
-                                .map(|updates_tx| {
-                                    updates_tx.unbounded_send(
-                                        UnderlayNeighborUpdate::UnderlayNeighborUp(
-                                            *reg_info.as_ref().unwrap(),
-                                        ),
-                                    )
-                                })
-                                .is_some_and(|s| s.is_err())
-                        {
-                            let _ = self.updates_tx.take();
-                        }
+                        // don't send UnderlayNeighborUpdate: no use for routing
                         response
                             .send(reg_info)
                             .expect("receiver should not get dropped");
