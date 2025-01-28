@@ -44,6 +44,12 @@ pub enum DebugEvent {
     InjectMessage(Option<Nonce>, InjectionMessageData),
 }
 
+impl From<ApiEvent> for DebugEvent {
+    fn from(value: ApiEvent) -> Self {
+        Self::Api(value)
+    }
+}
+
 impl From<Input> for UseCaseEvent {
     fn from(value: Input) -> Self {
         match value {

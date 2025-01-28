@@ -64,6 +64,7 @@ where
     FT: NodeIdTable<Error = FTE>,
     FT: PathIdTable<Error = FTE>,
     FTE: std::error::Error + Send,
+    C: UseCaseContext, // root-id for API -- should probably be queried explicitly by API
 {
     /// Create fully functional [Kira] instance.
     ///
@@ -115,7 +116,7 @@ where
         #[cfg(feature = "api")]
         let api_config = api::ApiConfig::new(
             "[::]:8080".parse().unwrap(),
-            todo!(target: "kira", "root_id for API"),
+            *r2kad.context().root_id(),
             api_tx,
         );
         #[cfg(feature = "api")]
@@ -158,7 +159,7 @@ where
         }).unwrap();
 
         let rx_channels = R2KadInputChannels {
-            api: api_rx,
+            debug: api_rx,
             protocol_input: pm_receiver_rx,
             underlay: underlay_rx,
         };

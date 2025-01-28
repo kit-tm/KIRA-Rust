@@ -12,6 +12,7 @@ use axum::extract::{Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 
+use kira_lib::domain::protocol_event::DebugEvent;
 #[cfg(feature = "swagger_doc")]
 use utoipa::OpenApi;
 #[cfg(feature = "swagger_doc")]
@@ -23,7 +24,7 @@ use tokio::time::timeout;
 
 use kira_lib::messaging::ProtocolMessage;
 use kira_lib::use_cases::inject_messages::InjectionResult;
-use kira_lib::use_cases::{ApiEvent, InjectionMessageData, UseCaseEvent};
+use kira_lib::use_cases::{ApiEvent, InjectionMessageData};
 
 /// Starts a REST API-server based on the provided [ApiConfig].
 ///
@@ -94,14 +95,14 @@ struct ApiDoc;
 #[derive(Clone)]
 struct ApiState {
     node_id: kira_lib::domain::NodeId,
-    sender: mpsc::Sender<ApiEvent>,
+    sender: mpsc::Sender<DebugEvent>,
 }
 
 /// The configuration for the API-Server used by [start_http_server].
 pub struct ApiConfig {
     address: SocketAddr,
     node_id: kira_lib::domain::NodeId,
-    sender: mpsc::Sender<ApiEvent>,
+    sender: mpsc::Sender<DebugEvent>,
 }
 
 impl ApiConfig {
@@ -119,7 +120,7 @@ impl ApiConfig {
     pub(crate) fn new(
         address: SocketAddr,
         node_id: kira_lib::domain::NodeId,
-        sender: mpsc::Sender<ApiEvent>,
+        sender: mpsc::Sender<DebugEvent>,
     ) -> ApiConfig {
         ApiConfig {
             address,
@@ -199,7 +200,7 @@ async fn store_dht_data(
     let payload = args
         .try_into()
         .map_err(|_| crate::api::domain::dht::ApiFormatErr::HexFormatError)?;
-    let event = UseCaseEvent::InjectMessage(None, InjectionMessageData::Store(payload, tx));
+    let event = DebugEvent::InjectMessage(None, InjectionMessageData::Store(payload, tx));
 
     state
         .sender
@@ -246,7 +247,7 @@ async fn fetch_dht_data(
     };
     let (tx, mut rx) = mpsc::unbounded_channel();
 
-    let event = UseCaseEvent::InjectMessage(
+    let event = DebugEvent::InjectMessage(
         None,
         InjectionMessageData::Fetch(
             args.try_into()
@@ -296,7 +297,7 @@ async fn dump_local_hashtable(
 
     state
         .sender
-        .send(event)
+        .send(event.into())
         .await
         .map_err(|_| DHTErr::SendError)?;
 
@@ -328,7 +329,7 @@ async fn dump_pn_table(State(state): State<crate::api::ApiState>) -> Result<Stri
 
     state
         .sender
-        .send(event)
+        .send(event.into())
         .await
         .map_err(|_| DHTErr::SendError)?;
 
@@ -349,7 +350,7 @@ async fn dump_routing_table(
 
     state
         .sender
-        .send(event)
+        .send(event.into())
         .await
         .map_err(|_| DHTErr::SendError)?;
 
@@ -370,7 +371,7 @@ async fn dump_vicinity_graph(
 
     state
         .sender
-        .send(event)
+        .send(event.into())
         .await
         .map_err(|_| DHTErr::SendError)?;
 

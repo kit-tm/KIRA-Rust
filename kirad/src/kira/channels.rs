@@ -29,7 +29,6 @@ use kira_forwarding::domain::r2kad::ForwardingTablesUpdate;
 use kira_lib::domain::protocol_event::DebugEvent;
 use kira_lib::domain::{UnderlayNeighborDestination, UnderlayNeighborId, UnderlayNeighborUpdate};
 use kira_lib::messaging::ProtocolMessage;
-use kira_lib::use_cases::ApiEvent;
 use kira_lib::{Input, Output};
 
 /// [Receiver] of [ProtocolMessages](ProtocolMessage) and the source [UnderlayNeighborId].
@@ -39,8 +38,8 @@ use kira_lib::{Input, Output};
 pub type MessageReceiver = Receiver<(ProtocolMessage, UnderlayNeighborId)>;
 /// [Receiver] of [ApiEvents](ApiEvent).
 ///
-/// This [Receiver] is used in the [R2KadInputChannels] to construct [API DebugEvents](DebugEvent::Api) for [Input::Debug].
-pub type ApiReceiver = Receiver<ApiEvent>;
+/// This [Receiver] is used in the [R2KadInputChannels] to construct [DebugEvents](DebugEvent) for [Input::Debug].
+pub type DebugReceiver = Receiver<DebugEvent>;
 /// [Receiver] of [UnderlayNeighborUpdates](UnderlayNeighborUpdate).
 ///
 /// [UnderlayNeighborUpdates](UnderlayNeighborUpdate) can be obtained using the
@@ -63,7 +62,7 @@ pub type ForwardingSender = Sender<ForwardingTablesUpdate>;
 #[derive(Debug)]
 #[allow(missing_docs)]
 pub struct R2KadInputChannels {
-    pub api: ApiReceiver,
+    pub debug: DebugReceiver,
     pub protocol_input: MessageReceiver,
     pub underlay: UnderlayReceiver,
 }
@@ -89,8 +88,8 @@ pub(super) async fn input_fan_in(input_channels: &mut R2KadInputChannels) -> Opt
         Some(underlay_update) = input_channels.underlay.recv() => {
             Input::UnderlayUpdate(underlay_update)
         }
-        Some(api) = input_channels.api.recv() => {
-            Input::Debug(DebugEvent::Api(api))
+        Some(api) = input_channels.debug.recv() => {
+            Input::Debug(api)
         }
         else => return None,
     };

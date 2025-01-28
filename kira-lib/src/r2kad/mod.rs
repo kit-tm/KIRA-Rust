@@ -223,6 +223,10 @@ impl<C: UseCaseContext, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE> {
 
         Self { context, pipeline }
     }
+
+    pub fn context(&self) -> &C {
+        &self.context
+    }
 }
 
 impl<C, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE>
