@@ -83,7 +83,7 @@ async fn main() {
     let (connection, handle, underlay_updates) = observe_underlay(excluded_interfaces.clone())
         .expect("observing underlay neighborhood failed");
     tokio::task::Builder::new()
-        .name("Underlay Connction")
+        .name("Underlay Connection")
         .spawn(connection)
         .unwrap();
 
