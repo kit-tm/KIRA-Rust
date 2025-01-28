@@ -82,7 +82,7 @@ where
         mut pm_sender: impl AsyncProtocolMessageSender + std::fmt::Debug + 'static,
     ) -> Self {
         // forwarding tables
-        let (fwtables_tx, mut fwtables_rx) = mpsc::channel(10);
+        let (fwtables_tx, mut fwtables_rx) = mpsc::channel(100);
         tokio::task::Builder::new()
             .name("KIRA: Fowarding Tables Channel").spawn(async move {
             loop {
@@ -96,7 +96,7 @@ where
         }).unwrap();
 
         // underlay observer
-        let (underlay_tx, underlay_rx) = mpsc::channel(10);
+        let (underlay_tx, underlay_rx) = mpsc::channel(100);
         // adapt stream
         tokio::task::Builder::new()
             .name("Underlay Observer channel")
@@ -112,7 +112,7 @@ where
 
         // API
         #[allow(unused_variables)]
-        let (api_tx, api_rx) = mpsc::channel(10);
+        let (api_tx, api_rx) = mpsc::channel(100);
         #[cfg(feature = "api")]
         let api_config = api::ApiConfig::new(
             "[::]:8080".parse().unwrap(),
@@ -122,7 +122,7 @@ where
         #[cfg(feature = "api")]
         tokio::spawn(api::start_http_server(api_config));
 
-        let (pm_receiver_tx, pm_receiver_rx) = mpsc::channel(1); // rendezvous channel for now
+        let (pm_receiver_tx, pm_receiver_rx) = mpsc::channel(100);
         tokio::task::Builder::new().name("KIRA: Protocol Message Receiver channel").spawn(async move {
             while let Some(recv) = pm_receiver.recv().await {
                 match recv {
@@ -141,7 +141,7 @@ where
             log::debug!(target: "kira", "Protocol message receiver finished: {pm_receiver:?}");
         }).unwrap();
 
-        let (pm_sender_tx, mut pm_sender_rx) = mpsc::channel(1); // rendezvous channel for now
+        let (pm_sender_tx, mut pm_sender_rx) = mpsc::channel(100);
         tokio::task::Builder::new().name("KIRA: Protocol Message Sender channel").spawn(async move {
             while let Some((msg, dest)) = pm_sender_rx.recv().await {
                 match pm_sender.send_message(msg, dest).await {
