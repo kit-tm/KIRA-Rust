@@ -229,7 +229,11 @@ impl UnderlayObserverConnection {
                                     );
                                     log::debug!(target: "underlay_observer::connection", "Interface up: {:?}", interface);
 
-                                    self.information_base.interface_up(interface);
+                                    if !self.information_base.interface_up(interface) {
+                                        // don't generate InterfaceUp if interface is already known to be up
+                                        continue;
+                                    }
+
                                     if self
                                         .updates_tx
                                         .as_mut()

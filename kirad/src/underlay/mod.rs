@@ -6,6 +6,7 @@ pub mod handle;
 pub use connection::UnderlayObserverConnection;
 pub use handle::UnderlayObserverHandle;
 
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::net::Ipv6Addr;
 use std::num::NonZeroUsize;
@@ -139,14 +140,26 @@ impl UnderlayInformationBase {
         Some(interface.into_neighbors())
     }
 
-    pub fn interface_up(&mut self, interface: Interface) {
+    pub fn interface_up(&mut self, interface: Interface) -> bool {
         log::debug!(target: "underlay_observer::information_base", "Interface is up: {:?}", interface);
-        assert!(
-            self.interfaces
-                .insert(interface.interface_id, interface)
-                .is_none(),
-            "Preexisting inteface with same index"
-        );
+        match self.interfaces.entry(interface.interface_id) {
+            Entry::Occupied(mut entry) => {
+                if interface.src_mac != entry.get().src_mac
+                    || interface.broadcast_mac != entry.get().broadcast_mac
+                {
+                    log::warn!(target: "underlay_observer::information_base", "Preexisting inteface with same index updated: {:?}", interface.interface_id);
+                    // add old neighbors back
+                    for ulnid in entry.insert(interface).into_neighbors() {
+                        entry.get_mut().add_neighbor(ulnid)
+                    }
+                }
+                false
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(interface);
+                true
+            }
+        }
     }
 
     pub fn get_available(&self) -> impl Iterator<Item = &InterfaceId> {
