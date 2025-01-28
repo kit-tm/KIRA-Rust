@@ -120,7 +120,10 @@ where
             api_tx,
         );
         #[cfg(feature = "api")]
-        tokio::spawn(api::start_http_server(api_config));
+        tokio::task::Builder::new()
+            .name("API Server")
+            .spawn(api::start_http_server(api_config))
+            .unwrap();
 
         let (pm_receiver_tx, pm_receiver_rx) = mpsc::channel(100);
         tokio::task::Builder::new().name("KIRA: Protocol Message Receiver channel").spawn(async move {
