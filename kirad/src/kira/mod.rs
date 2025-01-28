@@ -82,7 +82,8 @@ where
     ) -> Self {
         // forwarding tables
         let (fwtables_tx, mut fwtables_rx) = mpsc::channel(10);
-        tokio::spawn(async move {
+        tokio::task::Builder::new()
+            .name("KIRA: Fowarding Tables Channel").spawn(async move {
             loop {
                 let Some(req) = fwtables_rx.recv().await else {
                     break;
@@ -91,18 +92,19 @@ where
                     log::error!(target: "forwarding_tables", "Handling an ForwardingTablesUpdate failed: {}", e);
                 }
             }
-        });
+        }).unwrap();
 
         // underlay observer
         let (underlay_tx, underlay_rx) = mpsc::channel(10);
-        {
-            // adapt stream
-            tokio::spawn(async move {
+        // adapt stream
+        tokio::task::Builder::new()
+            .name("Underlay Observer channel")
+            .spawn(async move {
                 while let Some(update) = underlay_updates.next().await {
                     underlay_tx.send(update).await.unwrap();
                 }
-            });
-        }
+            })
+            .unwrap();
 
         // TODO: shutdown on signal
 
@@ -119,7 +121,7 @@ where
         tokio::spawn(api::start_http_server(api_config));
 
         let (pm_receiver_tx, pm_receiver_rx) = mpsc::channel(10);
-        tokio::spawn(async move {
+        tokio::task::Builder::new().name("KIRA: Protocol Message Receiver channel").spawn(async move {
             while let Some(recv) = pm_receiver.recv().await {
                 match recv {
                     Ok(msg) => {
@@ -135,10 +137,10 @@ where
                 }
             }
             log::debug!(target: "kira", "Protocol message receiver finished: {pm_receiver:?}");
-        });
+        }).unwrap();
 
         let (pm_sender_tx, mut pm_sender_rx) = mpsc::channel(10);
-        tokio::spawn(async move {
+        tokio::task::Builder::new().name("KIRA: Protocol Message Sender channel").spawn(async move {
             while let Some((msg, dest)) = pm_sender_rx.recv().await {
                 match pm_sender.send_message(msg, dest).await {
                     Ok(()) => {}
@@ -152,7 +154,7 @@ where
                 }
             }
             log::warn!(target: "kira", "Channel for sending protocol messages closed");
-        });
+        }).unwrap();
 
         let rx_channels = R2KadInputChannels {
             api: api_rx,

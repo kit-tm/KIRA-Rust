@@ -89,7 +89,7 @@ impl UnderlayObserverConnection {
         // TODO: move futures into poll
         let (mut init_tx, mut init_rx) = unbounded();
         // get situation on startup
-        tokio::spawn(async move {
+        tokio::task::Builder::new().name("Netlink initial state query").spawn(async move {
             // Create the netlink message that requests the links to be dumped
             let mut nl_hdr = NetlinkHeader::default();
             nl_hdr.flags = NLM_F_DUMP | NLM_F_REQUEST;
@@ -111,11 +111,11 @@ impl UnderlayObserverConnection {
                 log::trace!(target: "underlay_observer::connection", "processing initial message: {:?}", message);
                 init_tx.send(message).await.unwrap();
             }
-        });
+        }).unwrap();
 
         // join initial and rt_messages channel
         let (mut messages_tx, messages_rx) = unbounded();
-        tokio::spawn(async move {
+        tokio::task::Builder::new().name("Netlink Message fan in").spawn(async move {
             log::trace!(target: "underlay_observer::connection", "joining rt_messages and initial messages");
 
             // initial messages
@@ -129,7 +129,7 @@ impl UnderlayObserverConnection {
             while let Some((message, _)) = rt_messages.next().await {
                 messages_tx.send(message).await.unwrap();
             }
-        });
+        }).unwrap();
 
         let connection = UnderlayObserverInnerConnection::new(connection)?;
         Ok(Self {

@@ -82,7 +82,10 @@ async fn main() {
     // start underlay observation
     let (connection, handle, underlay_updates) = observe_underlay(excluded_interfaces.clone())
         .expect("observing underlay neighborhood failed");
-    tokio::spawn(connection);
+    tokio::task::Builder::new()
+        .name("Underlay Connction")
+        .spawn(connection)
+        .unwrap();
 
     //let fwd_table = NativeFwdTables::new(args.nftables_conf);
     let fwd_tables = InMemoryFwdTables::default();
@@ -105,7 +108,10 @@ async fn main() {
         .build();
 
     let kira = Kira::with_components(r2kad, fwd_tables, underlay_updates, pm_receiver, pm_sender);
-    let kira = tokio::spawn(kira.start());
+    let kira = tokio::task::Builder::new()
+        .name("KIRA main loop")
+        .spawn(kira.start())
+        .unwrap();
 
     let mut signals: Signals = Signals::new([SIGHUP, SIGTERM, SIGINT, SIGQUIT, SIGPIPE])
         .expect("failed to create signals");
