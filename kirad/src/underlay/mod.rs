@@ -80,7 +80,7 @@ impl UnderlayInformationBase {
     ) -> Result<UnderlayNeighborId, UnderlayNeighborInterfaceDownError> {
         let neighbor = UnderlayNeighbor::new(ll_ipv6, interface_id);
         if let Some(ulnid) = self.neighbor_ids.get(&neighbor) {
-            log::warn!(target: "underlay_observer", "Underlay Neighbor {neighbor:?} already registered: {ulnid:?}");
+            log::trace!(target: "underlay_observer", "Underlay Neighbor {neighbor:?} already registered: {ulnid:?}");
             return Ok(*ulnid);
         }
 

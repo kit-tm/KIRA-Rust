@@ -211,7 +211,7 @@ where
                     Some(nonce) => nonce.to_string(),
                     None => "None".to_string(),
                 };
-                span!(Level::DEBUG, "event", "type" = "Message", %nonce, source = %message.source())
+                span!(Level::DEBUG, "event", "type" = "Message", %nonce, source = %message.source(), details = ?message)
             }
             UseCaseEvent::UnderlayUpdate(event) => {
                 span!(Level::DEBUG, "event", "type" = "UnderlayUpdate", details = ?event)
