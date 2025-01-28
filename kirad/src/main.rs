@@ -101,7 +101,7 @@ async fn main() {
     tracing::info!(socket_address = %addr, "Bound to socket");
 
     let r2kad = R2Kad::<SyncContext<_, _, _, _>, 20>::builder()
-        .root_id(args.root_id.unwrap_or_else(NodeId::random))
+        .root_id(root_id)
         .build();
 
     let kira = Kira::with_components(r2kad, fwd_tables, underlay_updates, pm_receiver, pm_sender);
