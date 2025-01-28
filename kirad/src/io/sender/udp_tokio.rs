@@ -144,22 +144,13 @@ impl AsyncProtocolMessageSender for UdpSender {
         self.format.serialize(&mut buffer, &message)?;
 
         if let Some(receiver_addr) = self.get_receiver_addr(destination).await {
-            log::trace!(
-                target: "message_sender",
-                "Sending ProtocolMessage {:?} to {}",
-                &message,
-                receiver_addr
-            );
+            log::trace!( target: "message_sender", "Sending ProtocolMessage to {}", receiver_addr);
 
             self.socket
                 .send_to(&buffer[..buffer.len()], receiver_addr)
                 .await?;
         } else {
-            log::trace!(
-                target: "message_sender",
-                "Broadcasting ProtocolMessage {:?}",
-                &message,
-            );
+            log::trace!( target: "message_sender", "Broadcasting ProtocolMessage");
             self.broadcast_message(&buffer).await?;
         }
 

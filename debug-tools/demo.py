@@ -1,4 +1,12 @@
-from kira_net import KIRANetwork, KIRAContainernetNetwork
+from kira_net import KIRANetwork
+try:
+    containernet = True
+    from kira_net import KIRAContainernetNetwork
+    from mininet.net import Containernet
+    from mininet.node import Controller
+except ImportError:
+    containernet = False
+
 
 import docker
 import networkx as nx
@@ -37,9 +45,10 @@ if __name__ == '__main__':
     parser.add_argument('--plain', required=False, dest="plain",
                         action='store_true',
                         help="Don't replace NIDs with topology IDs in outputs")
-    parser.add_argument('--containernet', required=False, dest="backend",
-                        action='store_const', const="containernet",
-                        help="Use Containernet as backend")
+    if containernet:
+        parser.add_argument('--containernet', required=False, dest="backend",
+                            action='store_const', const="containernet",
+                            help="Use Containernet as backend")
     parser.add_argument('--docker', required=False, dest="backend",
                         action='store_const', const="docker",
                         help="Use Docker as backend")

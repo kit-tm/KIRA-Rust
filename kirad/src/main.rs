@@ -93,6 +93,7 @@ async fn main() {
         ProtocolMessageFormat::MessagePack,
         handle,
         excluded_interfaces,
+        root_id,
     )
     .await
     .expect("socket creation failed");

@@ -14,7 +14,7 @@ pub const ALL_KIRA_NODES: Ipv6Addr = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1);
 /// using async [tokio] channels.
 #[cfg(feature = "udp-tokio")]
 pub mod udp {
-    use kira_lib::domain::InterfaceId;
+    use kira_lib::domain::{InterfaceId, NodeId};
     use std::collections::HashSet;
     use std::net::SocketAddr;
     use std::sync::Arc;
@@ -40,6 +40,7 @@ pub mod udp {
         format: ProtocolMessageFormat,
         underlay_handle: UnderlayObserverHandle,
         excluded_interfaces: HashSet<InterfaceId>,
+        root_id: NodeId,
     ) -> tokio::io::Result<(UdpSender, UdpReceiver)> {
         let udp_socket =
             UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port))).await?;
@@ -48,8 +49,13 @@ pub mod udp {
         }
         let socket = Arc::new(udp_socket);
         let sender = UdpSender::from_socket(socket.clone(), format, underlay_handle.clone())?;
-        let receiver =
-            UdpReceiver::from_socket(socket, format, underlay_handle, excluded_interfaces);
+        let receiver = UdpReceiver::from_socket(
+            socket,
+            format,
+            underlay_handle,
+            excluded_interfaces,
+            root_id,
+        );
         Ok((sender, receiver))
     }
 }

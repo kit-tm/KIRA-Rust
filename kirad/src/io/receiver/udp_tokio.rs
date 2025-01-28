@@ -9,6 +9,7 @@ use std::ops::DerefMut;
 use std::sync::Arc;
 use std::time::Duration;
 
+use kira_lib::domain::NodeId;
 use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
 
@@ -37,6 +38,7 @@ pub struct UdpReceiver {
     format: ProtocolMessageFormat,
     underlay_handle: UnderlayObserverHandle,
     excluded_interfaces: HashSet<InterfaceId>,
+    root_id: NodeId,
 }
 
 impl Clone for UdpReceiver {
@@ -48,6 +50,7 @@ impl Clone for UdpReceiver {
             format: self.format,
             underlay_handle: self.underlay_handle.clone(),
             excluded_interfaces: self.excluded_interfaces.clone(),
+            root_id: self.root_id,
         }
     }
 }
@@ -63,6 +66,7 @@ impl UdpReceiver {
         format: ProtocolMessageFormat,
         underlay_handle: UnderlayObserverHandle,
         excluded_interfaces: HashSet<InterfaceId>,
+        root_id: NodeId,
     ) -> tokio::io::Result<Self> {
         let udp_socket =
             UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?;
@@ -77,6 +81,7 @@ impl UdpReceiver {
             format,
             underlay_handle,
             excluded_interfaces,
+            root_id,
         ))
     }
 
@@ -86,6 +91,7 @@ impl UdpReceiver {
         format: ProtocolMessageFormat,
         underlay_handle: UnderlayObserverHandle,
         excluded_interfaces: HashSet<InterfaceId>,
+        root_id: NodeId,
     ) -> Self {
         Self {
             buffer: RwLock::new([0u8; MTU_BYTES]),
@@ -93,6 +99,7 @@ impl UdpReceiver {
             format,
             underlay_handle,
             excluded_interfaces,
+            root_id,
         }
     }
 
@@ -160,6 +167,9 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
             log::warn!(target: "message_receiver", "Deserialization of received message failed");
             return Ok(None);
         };
+        if message.source() == &self.root_id {
+            log::warn!(target: "message_receiver", "Ignoring message from us");
+        }
         log::trace!(target: "message_receiver", "Received {:?} from {}", &message, received_from);
 
         let ulnid = match self

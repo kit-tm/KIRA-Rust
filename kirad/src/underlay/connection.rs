@@ -25,6 +25,7 @@ use netlink_proto::sys::SocketAddr;
 use netlink_proto::Connection;
 use netlink_proto::ConnectionHandle;
 use rtnetlink::constants::RTMGRP_LINK;
+use tracing::trace_span;
 
 use super::handle::UnderlayObserverHandleRequest;
 use super::*;
@@ -143,222 +144,241 @@ impl UnderlayObserverConnection {
 
     fn poll_connection(&mut self, cx: &mut std::task::Context<'_>) {
         log::trace!(target: "underlay_observer::connection", "polling connection");
-        if matches!(
-            self.connection.as_mut().map(|c| c.poll_unpin(cx)),
-            Some(Poll::Ready(_))
-        ) {
+        if let Some(Poll::Ready(_)) = self.connection.as_mut().map(|c| c.poll_unpin(cx)) {
             let _ = self.connection.take();
-            log::trace!(target: "underlay_observer::connection", "connection closed");
+            log::trace!(target: "underlay_observer::connection", "netlink_proto connection closed poll_conection done");
         }
     }
 
     fn poll_messages(&mut self, cx: &mut std::task::Context<'_>) {
-        let Some(rt_messages) = self.rt_messages.as_mut() else {
-            return;
-        };
+        if let Some(rt_messages) = self.rt_messages.as_mut() {
+            log::trace!(target: "underlay_observer::connection", "polling messages");
+            loop {
+                match rt_messages.poll_next_unpin(cx) {
+                    Poll::Ready(Some(message)) => {
+                        match message.payload {
+                            NetlinkPayload::Error(err_message) => {
+                                log::error!(target: "underlay_observer::connection", "received an error message: {:?}", err_message);
+                            }
+                            NetlinkPayload::InnerMessage(RouteNetlinkMessage::NewLink(message)) => {
+                                let _span = trace_span!(target: "underlay_observer::connection", "poll_messages", ?message).entered();
+                                if message.header.link_layer_type != LinkLayerType::Ether {
+                                    log::warn!(target: "underlay_observer::connection", "non ether link update detected: {message:?}");
+                                }
 
-        log::trace!(target: "underlay_observer::connection", "polling messages");
-        match rt_messages.poll_next_unpin(cx) {
-            Poll::Ready(Some(message)) => {
-                match message.payload {
-                    NetlinkPayload::Error(err_message) => {
-                        log::error!(target: "underlay_observer::connection", "received an error message: {:?}", err_message);
+                                let interface_id = message.header.index;
+                                let interface_id: NonZeroU32 = interface_id.try_into().unwrap();
+                                let interface_id = InterfaceId::from(interface_id);
+                                if self.excluded_interfaces.contains(&interface_id) {
+                                    log::debug!(target: "underlay_observer::connection", "ignoring excluded interface: {:?}", interface_id);
+                                    continue;
+                                }
+
+                                log::trace!(target: "underlay_observer::connection", "processing information about link: {:?}", interface_id);
+
+                                let mut mac_addr = None;
+                                let mut broadcast_addr = None;
+                                let mut proto_down = false;
+                                let mut link_state = None;
+
+                                for attr in message.attributes.into_iter() {
+                                    match attr {
+                                        // TODO: maybe we need to react to changed attributes
+                                        LinkAttribute::Address(addr) => {
+                                            let addr = addr.try_into().expect("MAC should fit");
+                                            mac_addr.replace(addr);
+                                        }
+                                        LinkAttribute::Broadcast(addr) => {
+                                            let addr = addr.try_into().expect("MAC should fit");
+                                            broadcast_addr.replace(addr);
+                                        }
+                                        // TODO: LinkAttribute::Mode(mode) => todo!(target: "underlay_observer::connection", "Handle link mode"),
+                                        LinkAttribute::Carrier(1) => {}
+                                        LinkAttribute::Carrier(carrier) => {
+                                            log::warn!(target: "underlay_observer::connection", "Ignoring carrier {} != 1", carrier)
+                                        }
+                                        LinkAttribute::ProtoDown(0) => {
+                                            proto_down = false;
+                                        }
+                                        LinkAttribute::ProtoDown(_) => {
+                                            proto_down = true;
+                                        }
+                                        LinkAttribute::OperState(state) => {
+                                            link_state.replace(state);
+                                        }
+                                        _ => {}
+                                    }
+                                }
+
+                                log::trace!(target: "underlay_observer::connection", "ProtoDown: {proto_down}");
+                                log::trace!(target: "underlay_observer::connection", "State: {link_state:?}");
+
+                                let if_up = !proto_down
+                                    && link_state.is_some_and(|state| state != State::Down);
+
+                                if if_up {
+                                    // register interface as up
+                                    // and generate respective update
+
+                                    let interface = Interface::new(
+                                        interface_id,
+                                        mac_addr
+                                            .expect("MAC address should be supplied by rtnetlink"),
+                                        broadcast_addr
+                                            .expect("MAC address should be supplied by rtnetlink"),
+                                    );
+                                    log::debug!(target: "underlay_observer::connection", "Interface up: {:?}", interface);
+
+                                    self.information_base.interface_up(interface);
+                                    if self
+                                        .updates_tx
+                                        .as_mut()
+                                        .unwrap()
+                                        .unbounded_send(UnderlayNeighborUpdate::InterfaceUp(
+                                            interface_id,
+                                        ))
+                                        .is_err()
+                                    {
+                                        let _ = self.updates_tx.take();
+                                        return;
+                                    }
+                                } else {
+                                    // register interface as down
+                                    // and generate respective updates for interface __and__ effected neighbors
+                                    log::debug!(target: "underlay_observer::connection", "Interface down: {}", interface_id);
+
+                                    let Some(affected) =
+                                        self.information_base.interface_down(&interface_id)
+                                    else {
+                                        // no neighbors affected
+                                        log::warn!(target: "underlay_observer::connection", "Interface {interface_id} was not registered as up yet");
+                                        continue;
+                                    };
+
+                                    if self
+                                        .updates_tx
+                                        .as_mut()
+                                        .unwrap()
+                                        .unbounded_send(UnderlayNeighborUpdate::InterfaceDown(
+                                            interface_id,
+                                        ))
+                                        .is_err()
+                                    {
+                                        let _ = self.updates_tx.take();
+                                        return;
+                                    }
+
+                                    // queue updates of affected neighbors
+                                    for affected in affected {
+                                        if self
+                                            .updates_tx
+                                            .as_mut()
+                                            .unwrap()
+                                            .unbounded_send(
+                                                UnderlayNeighborUpdate::UnderlayNeighborDown(
+                                                    affected,
+                                                ),
+                                            )
+                                            .is_err()
+                                        {
+                                            let _ = self.updates_tx.take();
+                                            return;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // ignore other messages but keep listening for new messages
+                            _ => {}
+                        }
                     }
-                    NetlinkPayload::InnerMessage(RouteNetlinkMessage::NewLink(message)) => {
-                        if message.header.link_layer_type != LinkLayerType::Ether {
-                            log::warn!(target: "underlay_observer::connection", "non ether link update detected: {message:?}");
-                        }
-
-                        let interface_id = message.header.index;
-                        let interface_id: NonZeroU32 = interface_id.try_into().unwrap();
-                        let interface_id = InterfaceId::from(interface_id);
-                        if self.excluded_interfaces.contains(&interface_id) {
-                            log::debug!(target: "underlay_observer::connection", "ignoring excluded interface: {:?}", interface_id);
-                            return;
-                        }
-
-                        log::trace!(target: "underlay_observer::connection", "processing information about link: {:?}", interface_id);
-
-                        let mut mac_addr = None;
-                        let mut broadcast_addr = None;
-                        let mut proto_down = false;
-                        let mut link_state = None;
-
-                        for attr in message.attributes.into_iter() {
-                            match attr {
-                                // TODO: maybe we need to react to changed attributes
-                                LinkAttribute::Address(addr) => {
-                                    let addr = addr.try_into().expect("MAC should fit");
-                                    mac_addr.replace(addr);
-                                }
-                                LinkAttribute::Broadcast(addr) => {
-                                    let addr = addr.try_into().expect("MAC should fit");
-                                    broadcast_addr.replace(addr);
-                                }
-                                // TODO: LinkAttribute::Mode(mode) => todo!(target: "underlay_observer::connection", "Handle link mode"),
-                                LinkAttribute::Carrier(1) => {}
-                                LinkAttribute::Carrier(carrier) => {
-                                    log::warn!(target: "underlay_observer::connection", "Ignoring carrier {} != 1", carrier)
-                                }
-                                LinkAttribute::ProtoDown(0) => {
-                                    proto_down = false;
-                                }
-                                LinkAttribute::ProtoDown(_) => {
-                                    proto_down = true;
-                                }
-                                LinkAttribute::OperState(state) => {
-                                    link_state.replace(state);
-                                }
-                                _ => {}
-                            }
-                        }
-
-                        log::trace!(target: "underlay_observer::connection", "ProtoDown: {proto_down}");
-                        log::trace!(target: "underlay_observer::connection", "State: {link_state:?}");
-
-                        let if_up =
-                            !proto_down && link_state.is_some_and(|state| state != State::Down);
-
-                        if if_up {
-                            let interface = Interface::new(
-                                interface_id,
-                                mac_addr.expect("MAC address should be supplied by rtnetlink"),
-                                broadcast_addr
-                                    .expect("MAC address should be supplied by rtnetlink"),
-                            );
-                            log::debug!(target: "underlay_observer::connection", "Interface up: {:?}", interface);
-
-                            self.information_base.interface_up(interface);
-                            if self
-                                .updates_tx
-                                .as_mut()
-                                .unwrap()
-                                .unbounded_send(UnderlayNeighborUpdate::InterfaceUp(interface_id))
-                                .is_err()
-                            {
-                                let _ = self.updates_tx.take();
-                            }
-                        } else {
-                            log::debug!(target: "underlay_observer::connection", "Interface down: {}", interface_id);
-
-                            let Some(affected) =
-                                self.information_base.interface_down(&interface_id)
-                            else {
-                                // no neighbors affected
-                                log::warn!(target: "underlay_observer::connection", "Interface {interface_id} was not registered as up yet");
-                                return;
-                            };
-
-                            if self
-                                .updates_tx
-                                .as_mut()
-                                .unwrap()
-                                .unbounded_send(UnderlayNeighborUpdate::InterfaceDown(interface_id))
-                                .is_err()
-                            {
-                                let _ = self.updates_tx.take();
-                                return;
-                            }
-
-                            // queue updates of affected neighbors
-                            for affected in affected {
-                                if self
-                                    .updates_tx
-                                    .as_mut()
-                                    .unwrap()
-                                    .unbounded_send(UnderlayNeighborUpdate::UnderlayNeighborDown(
-                                        affected,
-                                    ))
-                                    .is_err()
-                                {
-                                    let _ = self.updates_tx.take();
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    // ignore other messages but keep listening for new messages
-                    _ => {}
+                    Poll::Ready(None) => break,
+                    Poll::Pending => return,
                 }
             }
-            Poll::Ready(None) => {
-                log::trace!(target: "underlay_observer::connection", "closed rt_messages");
-                let _ = self.rt_messages.take();
-            }
-            Poll::Pending => {}
+            let _ = self.rt_messages.take();
+            log::trace!(target: "underlay_observer::connection", "no link updates from rt_messages left to handle poll_messages done");
         }
     }
 
     fn poll_handle(&mut self, cx: &mut std::task::Context<'_>) {
-        let Some(handle_rx) = self.handle_rx.as_mut() else {
-            log::warn!(target: "underlay_observer::connection", "no Handle left to poll");
-            return;
-        };
+        if let Some(handle_rx) = self.handle_rx.as_mut() {
+            log::trace!(target: "underlay_observer::connection", "polling UnderlayObserverHandle");
+            loop {
+                let request = handle_rx.poll_next_unpin(cx);
+                let _span =
+                    trace_span!(target: "underlay_observer::connection", "poll_handle", ?request)
+                        .entered();
+                match request {
+                    Poll::Ready(Some(UnderlayObserverHandleRequest::GetInformation {
+                        ulnid,
+                        response,
+                    })) => {
+                        let info = self.information_base.get_information(&ulnid);
+                        response
+                            .send(info)
+                            .expect("receiver should not get dropped");
+                    }
+                    Poll::Ready(Some(
+                        UnderlayObserverHandleRequest::RegisterUnderlayNeighbor {
+                            interface_id,
+                            ll_ipv6,
+                            response,
+                        },
+                    )) => {
+                        let reg_info = self
+                            .information_base
+                            .register_neighbor(interface_id, ll_ipv6);
+                        if reg_info.is_ok()
+                            && self
+                                .updates_tx
+                                .as_mut()
+                                .map(|updates_tx| {
+                                    updates_tx.unbounded_send(
+                                        UnderlayNeighborUpdate::UnderlayNeighborUp(
+                                            *reg_info.as_ref().unwrap(),
+                                        ),
+                                    )
+                                })
+                                .is_some_and(|s| s.is_err())
+                        {
+                            let _ = self.updates_tx.take();
+                        }
+                        response
+                            .send(reg_info)
+                            .expect("receiver should not get dropped");
+                    }
+                    Poll::Ready(Some(
+                        UnderlayObserverHandleRequest::UnregisterUnderlayNeighbor { ulnid },
+                    )) => {
+                        let existed = self.information_base.unregister_neighbor(&ulnid).is_some();
+                        if existed
+                            && self
+                                .updates_tx
+                                .as_mut()
+                                .map(|updates_tx| {
+                                    updates_tx.unbounded_send(
+                                        UnderlayNeighborUpdate::UnderlayNeighborDown(ulnid),
+                                    )
+                                })
+                                .is_some_and(|s| s.is_err())
+                        {
+                            let _ = self.updates_tx.take();
+                        }
+                    }
+                    Poll::Ready(Some(UnderlayObserverHandleRequest::GetAvailable { response })) => {
+                        let interfaces = self.information_base.get_available().copied().collect();
+                        response
+                            .send(interfaces)
+                            .expect("receiver should not get dropped");
+                    }
+                    Poll::Ready(None) => break,
+                    Poll::Pending => return,
+                }
+            }
 
-        log::trace!(target: "underlay_observer::connection", "polling UnderlayObserverHandle");
-        match handle_rx.poll_next_unpin(cx) {
-            Poll::Ready(Some(UnderlayObserverHandleRequest::GetInformation {
-                ulnid,
-                response,
-            })) => {
-                let info = self.information_base.get_information(&ulnid);
-                response
-                    .send(info)
-                    .expect("receiver should not get dropped");
-            }
-            Poll::Ready(Some(UnderlayObserverHandleRequest::RegisterUnderlayNeighbor {
-                interface_id,
-                ll_ipv6,
-                response,
-            })) => {
-                let reg_info = self
-                    .information_base
-                    .register_neighbor(interface_id, ll_ipv6);
-                if reg_info.is_ok()
-                    && self
-                        .updates_tx
-                        .as_mut()
-                        .map(|updates_tx| {
-                            updates_tx.unbounded_send(UnderlayNeighborUpdate::UnderlayNeighborUp(
-                                *reg_info.as_ref().unwrap(),
-                            ))
-                        })
-                        .is_some_and(|s| s.is_err())
-                {
-                    let _ = self.updates_tx.take();
-                }
-                response
-                    .send(reg_info)
-                    .expect("receiver should not get dropped");
-            }
-            Poll::Ready(Some(UnderlayObserverHandleRequest::UnregisterUnderlayNeighbor {
-                ulnid,
-            })) => {
-                let existed = self.information_base.unregister_neighbor(&ulnid).is_some();
-                if existed
-                    && self
-                        .updates_tx
-                        .as_mut()
-                        .map(|updates_tx| {
-                            updates_tx
-                                .unbounded_send(UnderlayNeighborUpdate::UnderlayNeighborDown(ulnid))
-                        })
-                        .is_some_and(|s| s.is_err())
-                {
-                    let _ = self.updates_tx.take();
-                }
-            }
-            Poll::Ready(Some(UnderlayObserverHandleRequest::GetAvailable { response })) => {
-                let interfaces = self.information_base.get_available().copied().collect();
-                response
-                    .send(interfaces)
-                    .expect("receiver should not get dropped");
-            }
-            Poll::Ready(None) => {
-                let _ = self.handle_rx.take();
-            }
-            Poll::Pending => {}
+            let _ = self.handle_rx.take();
+            log::warn!(target: "underlay_observer::connection", "no requests from handle left poll_handle done");
         }
     }
 }
@@ -376,6 +396,7 @@ impl Future for UnderlayObserverConnection {
         if pinned.updates_tx.is_none()
             || (pinned.rt_messages.is_none() && pinned.handle_rx.is_none())
         {
+            log::trace!(target: "underlay_observer::connection", "poll done");
             Poll::Ready(())
         } else {
             Poll::Pending
