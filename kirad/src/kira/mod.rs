@@ -120,13 +120,9 @@ where
 
         let (pm_receiver_tx, pm_receiver_rx) = mpsc::channel(10);
         tokio::spawn(async move {
-            loop {
-                match pm_receiver.recv().await {
-                    Ok(None) => {
-                        log::debug!(target: "kira", "Protocol message receiver finished: {pm_receiver:?}");
-                        break;
-                    }
-                    Ok(Some(msg)) => {
+            while let Some(recv) = pm_receiver.recv().await {
+                match recv {
+                    Ok(msg) => {
                         let _ = pm_receiver_tx.send(msg).await;
                     }
                     Err(RecvError::Closed(e)) => {
@@ -138,6 +134,7 @@ where
                     }
                 }
             }
+            log::debug!(target: "kira", "Protocol message receiver finished: {pm_receiver:?}");
         });
 
         let (pm_sender_tx, mut pm_sender_rx) = mpsc::channel(10);

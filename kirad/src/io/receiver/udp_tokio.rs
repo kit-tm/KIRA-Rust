@@ -7,7 +7,6 @@ use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::ops::DerefMut;
 use std::sync::Arc;
-use std::time::Duration;
 
 use kira_lib::domain::NodeId;
 use tokio::net::UdpSocket;
@@ -123,125 +122,68 @@ impl UdpReceiver {
 
 impl AsyncProtocolMessageReceiver for UdpReceiver {
     #[tracing::instrument(level = "debug", target = "message_receiver")]
-    async fn recv_timeout(
-        &mut self,
-        timeout: Option<Duration>,
-    ) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, RecvError> {
+    async fn recv(&mut self) -> Option<Result<(ProtocolMessage, UnderlayNeighborId), RecvError>> {
         let socket = Arc::clone(&self.socket);
         let mut buffer = self.buffer.write().await;
 
-        let receive_with_optional_timeout = if let Some(duration) = timeout {
-            tokio::time::timeout(duration, socket.recv_from(buffer.deref_mut()))
+        loop {
+            let (received_bytes, received_from) = match socket.recv_from(buffer.deref_mut()).await {
+                Ok(received) => received,
+                Err(e) => {
+                    log::error!(target: "message_receiver", "Failed to receive data from socket: {}", e);
+                    return Some(Err(RecvError::IoError(Box::new(e))));
+                }
+            };
+            let received_from = match received_from {
+                SocketAddr::V6(addr) => addr,
+                addr => panic!("Received Non-IPv6 Packet from {}", addr),
+            };
+
+            // FIXME: ignore scope_id 0 (probably caused by ipv6 attached to lo)
+            let Some(interface_id) = NonZeroU32::new(received_from.scope_id()) else {
+                log::warn!(target: "message_receiver", "Ignoring message with scope_id 0");
+                continue;
+            };
+            let interface_id = interface_id.into();
+
+            // ignore incoming messages from excluded interfaces
+            // otherwise it will error determining the ulnid
+            if self.excluded_interfaces.contains(&interface_id) {
+                continue;
+            }
+
+            let Some(message) = self.deserialize(&buffer[..received_bytes]) else {
+                log::warn!(target: "message_receiver", "Deserialization of received message failed");
+                continue;
+            };
+            if message.source() == &self.root_id {
+                log::warn!(target: "message_receiver", "Ignoring message from us");
+                continue;
+            }
+            log::trace!(target: "message_receiver", "Received {:?} from {}", &message, received_from);
+
+            let ulnid = match self
+                .underlay_handle
+                .register_neighbor(interface_id, *received_from.ip())
                 .await
-                .map_err(|_| RecvError::Timeout)?
-        } else {
-            socket.recv_from(buffer.deref_mut()).await
-        };
+            {
+                Ok(ulnid) => ulnid,
+                Err(UnderlayObserverHandleError::SenderClosed(e)) => {
+                    log::error!(target: "message_receiver", "underlay handle sender closed: {}", e);
+                    return Some(Err(RecvError::Other(Box::new(e))));
+                }
+                Err(UnderlayObserverHandleError::InterfaceDown(
+                    UnderlayNeighborInterfaceDownError(id),
+                )) => {
+                    log::warn!(target: "message_receiver", "interface ({}) down before able to determine underlay neighbor id of received message: {:?}", id, message);
 
-        let (received_bytes, received_from) = match receive_with_optional_timeout {
-            Ok(received) => received,
-            Err(e) => {
-                log::error!(target: "message_receiver", "Failed to receive data from socket: {}", e);
-                return Err(RecvError::IoError(Box::new(e)));
-            }
-        };
-        let received_from = match received_from {
-            SocketAddr::V6(addr) => addr,
-            addr => panic!("Received Non-IPv6 Packet from {}", addr),
-        };
+                    let mut ids = HashSet::with_capacity(1);
+                    ids.insert(id);
+                    return Some(Err(RecvError::InterfacesDown(ids)));
+                }
+            };
 
-        // FIXME: ignore scope_id 0 (probably caused by ipv6 attached to lo)
-        let Some(interface_id) = NonZeroU32::new(received_from.scope_id()) else {
-            log::warn!(target: "message_receiver", "Ignoring message with scope_id 0");
-            return Ok(None);
-        };
-        let interface_id = interface_id.into();
-
-        // ignore incoming messages from excluded interfaces
-        // otherwise it will error determining the ulnid
-        if self.excluded_interfaces.contains(&interface_id) {
-            return Ok(None);
+            return Some(Ok((message, ulnid)));
         }
-
-        let Some(message) = self.deserialize(&buffer[..received_bytes]) else {
-            log::warn!(target: "message_receiver", "Deserialization of received message failed");
-            return Ok(None);
-        };
-        if message.source() == &self.root_id {
-            log::warn!(target: "message_receiver", "Ignoring message from us");
-        }
-        log::trace!(target: "message_receiver", "Received {:?} from {}", &message, received_from);
-
-        let ulnid = match self
-            .underlay_handle
-            .register_neighbor(interface_id, *received_from.ip())
-            .await
-        {
-            Ok(ulnid) => ulnid,
-            Err(UnderlayObserverHandleError::SenderClosed(e)) => {
-                log::error!(target: "message_receiver", "underlay handle sender closed: {}", e);
-                return Err(RecvError::Other(Box::new(e)));
-            }
-            Err(UnderlayObserverHandleError::InterfaceDown(
-                UnderlayNeighborInterfaceDownError(id),
-            )) => {
-                log::warn!(target: "message_receiver", "interface ({}) down before able to determine underlay neighbor id of received message: {:?}", id, message);
-
-                let mut ids = HashSet::with_capacity(1);
-                ids.insert(id);
-                return Err(RecvError::InterfacesDown(ids));
-            }
-        };
-
-        Ok(Some((message, ulnid)))
-    }
-
-    async fn recv(&mut self) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, RecvError> {
-        AsyncProtocolMessageReceiver::recv_timeout(self, None).await
-    }
-
-    #[tracing::instrument(level = "debug", target = "message_receiver")]
-    async fn try_recv(
-        &mut self,
-    ) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, TryRecvError> {
-        // TODO: Remove duplicate code
-
-        let mut buffer = self.buffer.write().await;
-
-        let (received_bytes, received_from) = match self.socket.try_recv_from(buffer.deref_mut()) {
-            Ok(received) => received,
-            Err(e) => return Err(TryRecvError::IoError(Box::new(e))),
-        };
-
-        let received_from = match received_from {
-            SocketAddr::V6(addr) => addr,
-            addr => panic!("Received Non-IPv6 Packet from {}", addr),
-        };
-
-        // FIXME: ignore scope_id 0 (probably caused by ipv6 attached to lo)
-        let Some(interface_id) = NonZeroU32::new(received_from.scope_id()) else {
-            log::warn!(target: "message_receiver", "Ignoring message with scope_id 0");
-            return Ok(None);
-        };
-        let interface_id = interface_id.into();
-
-        // ignore incoming messages from excluded interfaces
-        if self.excluded_interfaces.contains(&interface_id) {
-            return Ok(None);
-        }
-
-        let Some(message) = self.deserialize(&buffer[..received_bytes]) else {
-            log::warn!(target: "message_receiver", "Deserialization of received message failed");
-            return Ok(None);
-        };
-        log::trace!(target: "message_receiver", "Received {:?} from {}", &message, received_from);
-
-        let ulnid = self
-            .underlay_handle
-            .register_neighbor(interface_id, *received_from.ip())
-            .await
-            .unwrap();
-
-        Ok(Some((message, ulnid)))
     }
 }

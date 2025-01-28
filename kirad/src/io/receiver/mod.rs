@@ -56,24 +56,10 @@ pub trait ProtocolMessageReceiver {
 pub trait LocalAsyncProtocolMessageReceiver {
     /// Receives a [ProtocolMessage].
     ///
-    /// Returns an [Error] if receiving failed or the optional timeout was reached.
-    ///
-    /// If no timeout was given the operation waits until a new [ProtocolMessage] arrived.
-    ///
+    /// Waits until a new [ProtocolMessage] arrived.
+    /// Returns an [Error] if receiving failed.
     /// Returns [None] if no messages will be received from this [ProtocolMessageReceiver] anymore.
-    async fn recv_timeout(
-        &mut self,
-        timeout: Option<Duration>,
-    ) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, RecvError>;
-    /// Receives a [ProtocolMessage].
-    ///
-    /// Short for calling [recv_timeout](ProtocolMessageReceiver::recv_timeout) with
-    /// [None].
-    async fn recv(&mut self) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, RecvError>;
-    /// Tries to receive a [ProtocolMessage] and returns an [Error] if no message is present at the time.
-    async fn try_recv(
-        &mut self,
-    ) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, TryRecvError>;
+    async fn recv(&mut self) -> Option<Result<(ProtocolMessage, UnderlayNeighborId), RecvError>>;
 }
 
 /// Struct wrapping an [AsyncProtocolMessageReceiver] for implementing [Stream] and [TryStream].
@@ -88,13 +74,7 @@ impl<R: AsyncProtocolMessageReceiver + Unpin> Stream for ProtocolMessageReceiver
     ) -> Poll<Option<Self::Item>> {
         let Self(rx) = self.get_mut();
         let mut rx = Box::pin(rx.recv());
-
-        match rx.poll_unpin(cx) {
-            Poll::Ready(Ok(Some(item))) => Poll::Ready(Some(Ok(item))),
-            Poll::Ready(Err(e)) => Poll::Ready(Some(Err(e))),
-            Poll::Ready(Ok(None)) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
-        }
+        rx.poll_unpin(cx)
     }
 }
 
@@ -106,7 +86,7 @@ pub mod error {
     use kira_lib::domain::InterfaceId;
 
     /// Error type for [ProtocolMessageReceiver::recv](super::ProtocolMessageReceiver::recv)
-    /// and [AsyncProtocolMessageReceiver::recv](super::AsyncProtocolMessageReceiver::recv).
+    /// and [AsyncProtocolMessageReceiver::recv_timeout](super::AsyncProtocolMessageReceiver::recv_timeout).
     #[derive(Debug, Display, Error)]
     pub enum RecvError {
         /// Receiving timed out.
@@ -134,8 +114,7 @@ pub mod error {
         Other(Box<dyn Error + Send>),
     }
 
-    /// Error type for [ProtocolMessageReceiver::try_recv](super::ProtocolMessageReceiver::try_recv) and
-    /// [ProtocolMessageReceiver::try_recv](super::ProtocolMessageReceiver::try_recv).
+    /// Error type for [ProtocolMessageReceiver::try_recv](super::ProtocolMessageReceiver::try_recv).
     #[derive(Debug, Display, Error)]
     pub enum TryRecvError {
         /// The I/O-Layer returned some error.
