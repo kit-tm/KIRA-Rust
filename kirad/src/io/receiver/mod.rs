@@ -103,10 +103,8 @@ pub mod error {
         #[display("Interfaces {_0:?} stopped working")]
         InterfacesDown(#[error(ignore)] HashSet<InterfaceId>),
         /// Signals that no more messages will be received from this receiver.
-        ///
-        /// Also includes the remaining interfaces this receiver handled.
-        #[display("Receiver for interfaces {_0:?} closed")]
-        Closed(#[error(ignore)] HashSet<InterfaceId>),
+        #[display("Receiver closed")]
+        Closed,
         /// The I/O-Layer returned some error.
         IoError(Box<dyn Error + Send>),
         /// Other Error for custom error types of the implementations.
@@ -131,10 +129,8 @@ pub mod error {
         #[display("Interfaces {_0:?} stopped working")]
         InterfacesDown(#[error(ignore)] HashSet<InterfaceId>),
         /// Signals that no more messages will be received from this receiver.
-        ///
-        /// Also includes the remaining interfaces this receiver handled.
-        #[display("Receiver for interfaces {_0:?} closed")]
-        Closed(#[error(ignore)] HashSet<InterfaceId>),
+        #[display("Receiver closed")]
+        Closed,
         /// Other Error for custom error types of the implementations.
         Other(Box<dyn Error + Send>),
     }

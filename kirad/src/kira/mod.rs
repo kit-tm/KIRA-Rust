@@ -125,8 +125,8 @@ where
                     Ok(msg) => {
                         let _ = pm_receiver_tx.send(msg).await;
                     }
-                    Err(RecvError::Closed(e)) => {
-                        log::debug!(target: "kira", "Protocol message receiver closed: {}", RecvError::Closed(e));
+                    Err(RecvError::Closed) => {
+                        log::debug!(target: "kira", "Protocol message receiver closed");
                         break;
                     }
                     Err(other_error) => {

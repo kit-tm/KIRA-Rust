@@ -170,7 +170,8 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
                 Ok(ulnid) => ulnid,
                 Err(UnderlayObserverHandleError::SenderClosed(e)) => {
                     log::error!(target: "message_receiver", "underlay handle sender closed: {}", e);
-                    return Some(Err(RecvError::Other(Box::new(e))));
+                    // fatal error if we can't query underlay observer anymore
+                    return Some(Err(RecvError::Closed));
                 }
                 Err(UnderlayObserverHandleError::InterfaceDown(
                     UnderlayNeighborInterfaceDownError(id),
