@@ -101,12 +101,12 @@ where
             .name("Underlay Observer channel")
             .spawn(async move {
                 while let Some(update) = underlay_updates.next().await {
-                    underlay_tx.send(update).await.unwrap();
+                    if underlay_tx.send(update).await.is_err() {
+                        break;
+                    }
                 }
             })
             .unwrap();
-
-        // TODO: shutdown on signal
 
         // API
         #[allow(unused_variables)]
