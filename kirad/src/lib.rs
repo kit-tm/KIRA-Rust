@@ -10,6 +10,15 @@
 //! - `message_sender`: Information about sending protocol messages.
 //! - `message_receiver`: Information about receiving protocol messages.
 //! - `underlay_observer`: Updates to the nodes underlay neighborhood.
+//!
+//! # Cargo feature flags
+//!
+//! - **`small_buckets`**  —  Construct routing tables with default bucket size of three.
+//! - **`udp-tokio`**  —  Async implementations for sending and receiving protocol messages using tokio sockets
+//! - **`rpm-serde`**  —  Protocol Message Format support: Message Pack
+//! - **`serde_json`**  —  Protocol Message Format support: Json
+//! - **`api`**  —  API REST service for accessing the DHT and inspecting internal data structures
+//! - **`swagger_doc`**  —  Swagger documentation of the API service.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
