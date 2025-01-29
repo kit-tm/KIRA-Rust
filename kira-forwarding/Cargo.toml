@@ -4,15 +4,24 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-nft = []
+nft = ["netlink"]
+netlink = [
+  "netlink-proto",
+  "netlink-packet-core",
+  "netlink-packet-route",
+  "netlink-packet-utils",
+  "futures",
+]
 
 [dependencies]
 log = { workspace = true }
 # common domain layer
 kira-lib = { path = "../kira-lib", default-features = false }
-sha1 = { workspace = true }
-sha2 = { workspace = true, optional = true }
-sha3 = { workspace = true, optional = true }
 tokio = { workspace = true, default-features = false, features = ["sync"] }
 tracing = { workspace = true, features = ["attributes"] }
 derive_more = { workspace = true }
+netlink-proto = { workspace = true, optional = true }
+netlink-packet-core = { workspace = true, optional = true }
+netlink-packet-route = { workspace = true, optional = true }
+netlink-packet-utils = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }

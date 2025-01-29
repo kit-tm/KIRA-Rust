@@ -2,10 +2,9 @@ use hex::FromHexError;
 use serde_derive::{Deserialize, Serialize};
 use std::str::FromStr;
 #[cfg(feature = "swagger_doc")]
-use utoipa::{ToSchema};
+use utoipa::ToSchema;
 
 pub mod dht;
-
 
 #[derive(Clone, Serialize, Deserialize, Debug, Hash, PartialEq, Eq)]
 #[cfg_attr(feature = "swagger_doc", derive(ToSchema))]
@@ -16,7 +15,9 @@ pub struct NodeId {
 
 impl From<kira_lib::domain::NodeId> for NodeId {
     fn from(value: kira_lib::domain::NodeId) -> Self {
-        NodeId { node_id: format!("{}", value) }
+        NodeId {
+            node_id: format!("{}", value),
+        }
     }
 }
 
