@@ -6,7 +6,9 @@ use std::collections::HashMap;
 
 use crate::domain::PathId;
 use crate::domain::{NodeId, NodeIdSubnet};
-use crate::tables::{ForwardingTables, NodeIdEntry, NodeIdTable, PathIdEntry, PathIdTable};
+use crate::tables::{
+    AsyncForwardingTables, AsyncNodeIdTable, AsyncPathIdTable, NodeIdEntry, PathIdEntry,
+};
 
 /// In-Memory [ForwardingTables] implementation backed by [HashMap]s.
 ///
@@ -30,10 +32,10 @@ impl InMemoryFwdTables {
     }
 }
 
-impl NodeIdTable for InMemoryFwdTables {
+impl AsyncNodeIdTable for InMemoryFwdTables {
     type Error = error::FwdTableError;
 
-    fn create(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
+    async fn create(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
         let destination = match entry {
             NodeIdEntry::Forward(ref entry) => entry.destination.clone(),
             NodeIdEntry::Encapsulate(ref entry) => entry.destination.clone(),
@@ -50,7 +52,7 @@ impl NodeIdTable for InMemoryFwdTables {
         Ok(())
     }
 
-    fn update(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
+    async fn update(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
         let destination = match entry {
             NodeIdEntry::Forward(ref entry) => entry.destination.clone(),
             NodeIdEntry::Encapsulate(ref entry) => entry.destination.clone(),
@@ -64,7 +66,7 @@ impl NodeIdTable for InMemoryFwdTables {
         }
     }
 
-    fn remove(&mut self, node_id: &NodeIdSubnet) -> Result<Option<NodeIdEntry>, Self::Error> {
+    async fn remove(&mut self, node_id: &NodeIdSubnet) -> Result<Option<NodeIdEntry>, Self::Error> {
         if let Some(removed) = self.node_id_table.remove(node_id) {
             log::trace!(target: "in_memory_fwd_table", "Removed {:?}", removed);
             Ok(Some(removed))
@@ -73,24 +75,24 @@ impl NodeIdTable for InMemoryFwdTables {
         }
     }
 
-    fn create_or_update(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
+    async fn create_or_update(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
         let destination = match entry {
             NodeIdEntry::Forward(ref entry) => entry.destination.clone(),
             NodeIdEntry::Encapsulate(ref entry) => entry.destination.clone(),
         };
         if self.node_id_table.contains_key(&destination) {
-            NodeIdTable::update(self, entry)?;
+            AsyncNodeIdTable::update(self, entry).await?;
         } else {
-            NodeIdTable::create(self, entry)?;
+            AsyncNodeIdTable::create(self, entry).await?;
         }
         Ok(())
     }
 }
 
-impl PathIdTable for InMemoryFwdTables {
+impl AsyncPathIdTable for InMemoryFwdTables {
     type Error = error::FwdTableError;
 
-    fn create(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
+    async fn create(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
         let in_path_id = match entry {
             PathIdEntry::Decapsulate(ref entry) => entry.in_path_id.clone(),
             PathIdEntry::Forward(ref entry) => entry.in_path_id.clone(),
@@ -107,7 +109,7 @@ impl PathIdTable for InMemoryFwdTables {
         Ok(())
     }
 
-    fn update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
+    async fn update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
         let in_path_id = match entry {
             PathIdEntry::Decapsulate(ref entry) => entry.in_path_id.clone(),
             PathIdEntry::Forward(ref entry) => entry.in_path_id.clone(),
@@ -122,7 +124,7 @@ impl PathIdTable for InMemoryFwdTables {
         }
     }
 
-    fn remove(&mut self, path_id: &PathId) -> Result<Option<PathIdEntry>, Self::Error> {
+    async fn remove(&mut self, path_id: &PathId) -> Result<Option<PathIdEntry>, Self::Error> {
         if let Some(removed) = self.path_id_table.remove(path_id) {
             log::trace!(target: "in_memory_fwd_table", "Removed {:?}", removed);
             Ok(Some(removed))
@@ -131,21 +133,21 @@ impl PathIdTable for InMemoryFwdTables {
         }
     }
 
-    fn create_or_update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
+    async fn create_or_update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
         let in_path_id = match entry {
             PathIdEntry::Decapsulate(ref entry) => entry.in_path_id.clone(),
             PathIdEntry::Forward(ref entry) => entry.in_path_id.clone(),
         };
 
         if self.path_id_table.contains_key(&in_path_id) {
-            PathIdTable::update(self, entry)
+            AsyncPathIdTable::update(self, entry).await
         } else {
-            PathIdTable::create(self, entry)
+            AsyncPathIdTable::create(self, entry).await
         }
     }
 }
 
-impl ForwardingTables for InMemoryFwdTables {}
+impl AsyncForwardingTables for InMemoryFwdTables {}
 
 impl Extend<NodeIdEntry> for InMemoryFwdTables {
     fn extend<T: IntoIterator<Item = NodeIdEntry>>(&mut self, iter: T) {

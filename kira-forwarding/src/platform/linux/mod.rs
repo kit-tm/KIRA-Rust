@@ -1,6 +1,7 @@
 //! Linux specific platform module
 use std::{ffi::OsStr, net::Ipv6Addr, process::Command};
 
+#[cfg(feature = "nft")]
 pub mod netlink;
 
 /// Loads a config from a path for [nftables](https://netfilter.org/projects/nftables/)

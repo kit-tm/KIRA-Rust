@@ -11,4 +11,4 @@ pub mod tables;
 pub mod underlay;
 
 #[doc(inline)]
-pub use tables::{ForwardingTables, NodeIdTable, PathIdTable};
+pub use tables::{AsyncForwardingTables, AsyncNodeIdTable, AsyncPathIdTable};

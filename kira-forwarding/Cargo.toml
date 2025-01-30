@@ -25,3 +25,4 @@ netlink-packet-core = { workspace = true, optional = true }
 netlink-packet-route = { workspace = true, optional = true }
 netlink-packet-utils = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
+trait-variant = { workspace = true}

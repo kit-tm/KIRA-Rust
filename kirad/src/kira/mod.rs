@@ -17,20 +17,17 @@ use std::time::Instant;
 
 use channels::{R2KadInputChannels, R2KadOutputChannels};
 use futures::StreamExt;
-use kira_forwarding::tables::handle_r2kad_request;
-use kira_forwarding::tables::NodeIdTable;
-use kira_forwarding::tables::PathIdTable;
-use kira_lib::context::UseCaseContext;
-use kira_lib::domain::InsertionStrategy;
-use kira_lib::domain::NodeId;
-use kira_lib::domain::RoutingTable;
-use kira_lib::domain::UNTable;
-use kira_lib::domain::UnderlayNeighborId;
-use kira_lib::runtime::R2KadRuntime;
-use kira_lib::runtime::UseCaseRuntime;
 use tokio::sync::mpsc;
 
-pub use kira_forwarding::ForwardingTables;
+use kira_forwarding::tables::{handle_r2kad_request, AsyncNodeIdTable, AsyncPathIdTable};
+use kira_lib::context::UseCaseContext;
+use kira_lib::runtime::UseCaseRuntime;
+use kira_lib::{
+    domain::{InsertionStrategy, NodeId, RoutingTable, UNTable, UnderlayNeighborId},
+    runtime::R2KadRuntime,
+};
+
+pub use kira_forwarding::AsyncForwardingTables;
 pub use kira_lib::r2kad::R2Kad;
 use tokio::task::yield_now;
 use tokio::time;
@@ -60,9 +57,9 @@ pub struct Kira<C, const BUCKET_SIZE: usize, FT> {
 
 impl<C, const BUCKET_SIZE: usize, FT, FTE> Kira<C, BUCKET_SIZE, FT>
 where
-    FT: ForwardingTables + Send + 'static,
-    FT: NodeIdTable<Error = FTE>,
-    FT: PathIdTable<Error = FTE>,
+    FT: AsyncForwardingTables + Send + 'static,
+    FT: AsyncNodeIdTable<Error = FTE>,
+    FT: AsyncPathIdTable<Error = FTE>,
     FTE: std::error::Error + Send,
     C: UseCaseContext, // root-id for API -- should probably be queried explicitly by API
 {
@@ -89,7 +86,7 @@ where
                 let Some(req) = fwtables_rx.recv().await else {
                     break;
                 };
-                if let Err(e) = handle_r2kad_request(&mut forwarding_tables, req) {
+                if let Err(e) = handle_r2kad_request(&mut forwarding_tables, req).await {
                     log::error!(target: "forwarding_tables", "Handling an ForwardingTablesUpdate failed: {}", e);
                 }
             }
