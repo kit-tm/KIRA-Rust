@@ -121,6 +121,6 @@ impl Display for PathId {
 
 impl Debug for PathId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        UpperHex::fmt(self, f)
+        write!(f, "PathId({:X})", self)
     }
 }

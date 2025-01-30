@@ -463,7 +463,7 @@ impl UpperHex for NodeId {
 
 impl Debug for NodeId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        UpperHex::fmt(self, f)
+        write!(f, "NodeId({:X})", self)
     }
 }
 
