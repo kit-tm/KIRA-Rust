@@ -96,10 +96,8 @@ impl UnderlayInformationBase {
             self.neighbors.insert(self.next_ulnid, neighbor).is_none(),
             "Collision of life underlay neighbor ids because of overflow"
         );
-        debug_assert!(self
-            .neighbor_ids
-            .insert(neighbor, self.next_ulnid)
-            .is_none());
+        let existing = self.neighbor_ids.insert(neighbor, self.next_ulnid);
+        debug_assert!(existing.is_none());
 
         // update interface with new neighbor
         interface.add_neighbor(self.next_ulnid);
@@ -122,7 +120,8 @@ impl UnderlayInformationBase {
         log::trace!(target: "underlay_observer::information_base", "Unregistering neighbor: {ulnid:?}");
 
         let neighbor = self.neighbors.remove(ulnid)?;
-        debug_assert_eq!(self.neighbor_ids.remove(&neighbor), Some(*ulnid));
+        let removed = self.neighbor_ids.remove(&neighbor);
+        debug_assert_eq!(removed, Some(*ulnid));
         Some(neighbor)
     }
 
