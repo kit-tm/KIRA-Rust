@@ -10,3 +10,9 @@ pub mod r2kad {
     #[doc(inline)]
     pub use kira_lib::domain::protocol_event::forwarding::*;
 }
+
+#[doc(inline)]
+pub use kira_lib::domain::protocol_event::forwarding::{
+    DecapsulationDestination, NodeIdEncapsulationEntry, NodeIdForwardingEntry,
+    PathIdDecapsulationEntry, PathIdForwardingEntry,
+};

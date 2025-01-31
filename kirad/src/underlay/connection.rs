@@ -163,7 +163,8 @@ impl UnderlayObserverConnection {
                             NetlinkPayload::InnerMessage(RouteNetlinkMessage::NewLink(message)) => {
                                 let _span = trace_span!(target: "underlay_observer::connection", "poll_messages", ?message).entered();
                                 if message.header.link_layer_type != LinkLayerType::Ether {
-                                    log::warn!(target: "underlay_observer::connection", "non ether link update detected: {message:?}");
+                                    log::warn!(target: "underlay_observer::connection", "non ether link update ignored: {message:?}");
+                                    continue;
                                 }
 
                                 let interface_id = message.header.index;

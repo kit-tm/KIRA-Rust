@@ -289,6 +289,25 @@ impl NodeIdSubnet {
     pub const fn node_id(&self) -> &NodeId {
         &self.node_id
     }
+
+    /// Returns the [Ipv6Addr] subnet equivalent representation of this [NodeIdSubnet].
+    ///
+    /// The second parameter is the [prefix length](Self::ipv6_subnet_prefix_length)
+    pub fn to_ipv6_subnet(&self) -> (Ipv6Addr, u8) {
+        let prefix_len = self.ipv6_subnet_prefix_length();
+        ((&self.node_id).into(), prefix_len)
+    }
+
+    /// Returns a valid [Ipv6Addr] subnet prefix length.
+    ///
+    /// If the prefix length is greater than 128 bits or zero it is clamped to 128 bits.
+    pub const fn ipv6_subnet_prefix_length(&self) -> u8 {
+        if self.prefix_length() == 0 || self.prefix_length() > 128 {
+            128
+        } else {
+            16 + self.prefix_length() as u8
+        }
+    }
 }
 
 /// Shared prefix of two [NodeId]s.

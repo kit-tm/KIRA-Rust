@@ -1,41 +1,80 @@
+//! Fast forwarding implementation utilizing the native routing of the linux kernel.
+//!
+//! The main struct of this module is [NativeFwdTables].
+
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::fmt::Debug;
 use std::net::Ipv6Addr;
 
-use crate::domain::NodeIdSubnet;
-use crate::domain::PathId;
+use netlink_packet_route::RouteNetlinkMessage;
+use netlink_proto::ConnectionHandle;
+
+use crate::domain::{
+    DecapsulationDestination, NodeIdEncapsulationEntry, NodeIdForwardingEntry,
+    PathIdDecapsulationEntry, PathIdForwardingEntry,
+};
+use crate::domain::{InterfaceId, NodeId, NodeIdSubnet, PathId, UnderlayNeighborId};
+use crate::netlink::ForwardingRtNetlink;
 use crate::platform;
-use crate::tables::{ForwardingTables, NodeIdEntry, NodeIdTable, PathIdEntry, PathIdTable};
+use crate::tables::{
+    AsyncForwardingTables, AsyncNodeIdTable, AsyncPathIdTable, NodeIdEntry, PathIdEntry,
+};
+use crate::underlay::{UnderlayInformationProvider, UnderlayNeighborInformation};
 
 /// Native linux [ForwardingTables] implementation backed by nftables and linux routing tables.
 ///
 /// Also logs every change to the forwarding tables with log target `native_fwd_table`.
-#[derive(Debug, Default)]
-pub struct NativeFwdTables {
+#[derive(Debug)]
+pub struct NativeFwdTables<I> {
+    root_id: NodeId,
+
     node_id_table: HashMap<NodeIdSubnet, NodeIdEntry>,
     path_id_table: HashMap<PathId, PathIdEntry>,
+
+    netlink: ForwardingRtNetlink,
+    interface_id_table: HashMap<UnderlayNeighborId, InterfaceId>,
+    underlay_information_provider: I,
 }
 
-impl NativeFwdTables {
-    pub fn new<S: AsRef<OsStr>>(nftables_conf: S) -> Self {
-        platform::create_kira_interface().expect("KIRA interface doesn't exist prior");
+impl<I> NativeFwdTables<I> {
+    /// Create a new forwarding tables instance.
+    pub async fn new<S: AsRef<OsStr>>(
+        root_id: NodeId,
+        nftables_conf: S,
+        handle: ConnectionHandle<RouteNetlinkMessage>,
+        underlay_information: I,
+    ) -> Self {
+        let netlink = ForwardingRtNetlink::new(handle)
+            .await
+            .expect("KIRA interface should successfully be created");
         platform::load_nft_config(nftables_conf).unwrap();
         log::debug!(target: "native_fwd_table", "Loaded nftables successfully");
-        Self::default()
+        Self {
+            root_id,
+            netlink,
+            node_id_table: Default::default(),
+            path_id_table: Default::default(),
+            interface_id_table: Default::default(),
+            underlay_information_provider: underlay_information,
+        }
     }
 }
 
-impl Drop for NativeFwdTables {
+impl<I> Drop for NativeFwdTables<I> {
     fn drop(&mut self) {
-        platform::delete_kira_interface()
-            .expect("KIRA interface should have been created at creation");
+        // FIXME: cleanup interfaces and routes
     }
 }
 
-impl NodeIdTable for NativeFwdTables {
+impl<I> AsyncNodeIdTable for NativeFwdTables<I>
+where
+    I: UnderlayInformationProvider<Information = UnderlayNeighborInformation> + Send,
+    I::Error: Debug,
+{
     type Error = error::FwdTableError;
 
-    fn create(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
+    async fn create(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
         log::debug!(target: "native_fwd_table", "CREATE {:?}", entry);
 
         let destination = match entry {
@@ -48,10 +87,10 @@ impl NodeIdTable for NativeFwdTables {
             log::error!(target: "native_fwd_table", "entry already exists {:?}", entry);
         }
 
-        NodeIdTable::create_or_update(self, entry)
+        AsyncNodeIdTable::create_or_update(self, entry).await
     }
 
-    fn update(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
+    async fn update(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
         log::debug!(target: "native_fwd_table", "UPDATE {:?}", entry);
 
         let destination = match entry {
@@ -64,41 +103,35 @@ impl NodeIdTable for NativeFwdTables {
             log::error!(target: "native_fwd_table", "entry missing {:?}", entry);
         }
 
-        NodeIdTable::create_or_update(self, entry)
+        AsyncNodeIdTable::create_or_update(self, entry).await
     }
 
-    fn remove(&mut self, node_id: &NodeIdSubnet) -> Result<Option<NodeIdEntry>, Self::Error> {
+    async fn remove(&mut self, node_id: &NodeIdSubnet) -> Result<Option<NodeIdEntry>, Self::Error> {
         if let Some(removed) = self.node_id_table.remove(node_id) {
-            let prefix_len = if node_id.prefix_length() == 0 || node_id.prefix_length() > 128 {
-                128
-            } else {
-                16 + node_id.prefix_length()
-            };
-
-            match removed {
-                NodeIdEntry::Forward(ref entry) => {
+            match &removed {
+                NodeIdEntry::Forward(NodeIdForwardingEntry { next_hop, .. }) => {
                     // only delete routes to subnets and not our neighbors
-                    if prefix_len != 128 {
-                        let node_ip = format!(
-                            "{}/{}",
-                            Ipv6Addr::from(entry.destination.node_id()),
-                            prefix_len
-                        );
-                        log::trace!(target: "native_fwd_table", "Trying to delete neighbor route {:?} dst {:?}", &node_ip, &entry.out_interface.name);
-                        platform::delete_neighbor_route(&node_ip, &entry.out_interface.name)
+                    if node_id.ipv6_subnet_prefix_length() != 128 {
+                        log::trace!(target: "native_fwd_table", "Trying to delete neighbor route {} dst {:?}", node_id, next_hop);
+                        let interface_id = *self
+                            .interface_id_table
+                            .get(next_hop)
+                            .expect("interface id of underlay neighbor should be known");
+                        let (node_ip, prefix) = node_id.to_ipv6_subnet();
+                        self.netlink
+                            .delete_neighbor_route(&node_ip, prefix, interface_id)
+                            .await
                             .unwrap();
                     }
                 }
-                NodeIdEntry::Encapsulate(ref entry) => {
-                    let path_ip = Ipv6Addr::from(&entry.out_path_id).to_string();
-                    let node_ip = format!(
-                        "{}/{}",
-                        Ipv6Addr::from(entry.destination.node_id()),
-                        prefix_len
-                    );
+                NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry { out_path_id, .. }) => {
+                    log::trace!(target: "native_fwd_table", "Trying to delete encap route {} dst {:?}", node_id, out_path_id);
+                    self.netlink
+                        .delete_encap_route(node_id, out_path_id)
+                        .await
+                        .unwrap();
 
-                    log::trace!(target: "native_fwd_table", "Trying to delete encap route {:?} dst {:?}", &node_ip, &path_ip);
-                    platform::delete_encap_route(&node_ip, &path_ip).unwrap();
+                    // FIXME: delete via routes
                 }
             }
 
@@ -108,26 +141,21 @@ impl NodeIdTable for NativeFwdTables {
         }
     }
 
-    fn create_or_update(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
+    async fn create_or_update(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
         let destination = match entry {
             NodeIdEntry::Forward(ref entry) => entry.destination.clone(),
             NodeIdEntry::Encapsulate(ref entry) => entry.destination.clone(),
         };
+        let prefix_length = destination.ipv6_subnet_prefix_length();
 
         if self.node_id_table.get(&destination) == Some(&entry) {
             return Ok(());
         }
 
-        let prefix_len = if destination.prefix_length() == 0 || destination.prefix_length() > 128 {
-            128
-        } else {
-            16 + destination.prefix_length()
-        };
-
         // TODO fix this
         // Because of how the routing table works, there can only be one entry per prefix_len != 128 (not completely correct but works for now)
         // these subnet entries may change their destination when the routing table grows, so remove the old ones first
-        if prefix_len != 128 {
+        if prefix_length != 128 {
             log::debug!(target: "native_fwd_table", "Checking for prefix entry change {:?}", entry);
             if let Some(old_entry) = self
                 .node_id_table
@@ -139,42 +167,56 @@ impl NodeIdTable for NativeFwdTables {
                 .cloned()
             {
                 log::debug!(target: "native_fwd_table", "Prefix entry changed from {} to {}", old_entry, entry);
-                NodeIdTable::remove(self, &old_entry)?;
+                AsyncNodeIdTable::remove(self, &old_entry).await?;
             }
         }
 
-        match entry {
-            NodeIdEntry::Forward(ref entry) => {
+        match &entry {
+            NodeIdEntry::Forward(NodeIdForwardingEntry {
+                destination,
+                next_hop,
+            }) => {
                 // known physical neighbors are already configured, so only configure new subnets
-                if prefix_len != 128 {
-                    let node_ip = format!(
-                        "{}/{}",
-                        Ipv6Addr::from(entry.destination.node_id()),
-                        prefix_len
-                    );
-                    log::trace!(target: "native_fwd_table", "Trying to replace neighbor route {:?} dst {:?}", &node_ip, &entry.out_interface.name);
-                    platform::replace_neighbor_route(&node_ip, &entry.out_interface.name).unwrap();
-                }
-            }
-            NodeIdEntry::Encapsulate(ref entry) => {
-                let path_ip = Ipv6Addr::from(&entry.out_path_id).to_string();
-                let node_ip = format!(
-                    "{}/{}",
-                    Ipv6Addr::from(entry.destination.node_id()),
-                    prefix_len
-                );
-                let next_hop_ip = Ipv6Addr::from(&entry.next_hop).to_string();
+                log::trace!(target: "native_fwd_table", "Trying to replace neighbor route {} dst {:?}", destination, next_hop);
+                let out_interface = self
+                    .underlay_information_provider
+                    .get_information(next_hop)
+                    .await
+                    .expect("next_hop ulnid is known")
+                    .interface_id;
+                let _ = self.interface_id_table.insert(*next_hop, out_interface);
 
-                log::trace!(target: "native_fwd_table", "Trying to replace encap route {:?} dst {:?}", &node_ip, &path_ip);
-                platform::replace_encap_route(&node_ip, &path_ip).unwrap();
+                self.netlink
+                    .replace_neighbor_route(destination, out_interface)
+                    .await
+                    .unwrap();
+            }
+            NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry {
+                destination,
+                out_path_id,
+                next_hop,
+            }) => {
+                log::trace!(target: "native_fwd_table", "Trying to replace encap route {:?} dst {:?}", destination, out_path_id);
+                self.netlink
+                    .replace_encap_route(destination, out_path_id)
+                    .await
+                    .unwrap();
 
                 // If the prefix length is != 128, a subnet route is configured.
                 // This means that an already existing and configured path to a contact is used.
                 // The via route to this contact is already configured.
                 // To avoid unnecessary reconfiguration we don't configure the via route again.
-                if prefix_len == 128 {
-                    log::trace!(target: "native_fwd_table", "Trying to replace route to {:?} via {:?}", &path_ip, &next_hop_ip);
-                    platform::replace_via_route(&path_ip, &next_hop_ip).unwrap();
+                if prefix_length == 128 {
+                    log::trace!(target: "native_fwd_table", "Trying to replace route to {:?} via {:?}", &out_path_id, &next_hop);
+                    let next_hop = self
+                        .underlay_information_provider
+                        .get_information(next_hop)
+                        .await
+                        .expect("next_hop ulnid is known");
+                    self.netlink
+                        .replace_via_route(out_path_id, &next_hop)
+                        .await
+                        .unwrap();
                 }
             }
         }
@@ -189,10 +231,14 @@ impl NodeIdTable for NativeFwdTables {
     }
 }
 
-impl PathIdTable for NativeFwdTables {
+impl<I> AsyncPathIdTable for NativeFwdTables<I>
+where
+    I: UnderlayInformationProvider<Information = UnderlayNeighborInformation> + Send,
+    I::Error: Debug,
+{
     type Error = error::FwdTableError;
 
-    fn create(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
+    async fn create(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
         log::debug!(target: "native_fwd_table", "PathIdTable CREATE {:?}", entry);
 
         let in_path_id = match entry {
@@ -204,10 +250,10 @@ impl PathIdTable for NativeFwdTables {
             return Err(error::FwdTableError::EntryAlreadyExists(entry.to_string()));
         }
 
-        PathIdTable::create_or_update(self, entry)
+        AsyncPathIdTable::create_or_update(self, entry).await
     }
 
-    fn update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
+    async fn update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
         log::trace!(target: "native_fwd_table", "PathIdTable UPDATE {:?}", entry);
 
         let in_path_id = match entry {
@@ -216,25 +262,50 @@ impl PathIdTable for NativeFwdTables {
         };
 
         if self.path_id_table.contains_key(&in_path_id) {
-            PathIdTable::create_or_update(self, entry)
+            AsyncPathIdTable::create_or_update(self, entry).await
         } else {
             Err(error::FwdTableError::EntryMissing(entry.to_string()))
         }
     }
 
-    fn create_or_update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
+    async fn create_or_update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
         let in_path_id = match entry {
             PathIdEntry::Decapsulate(ref entry) => entry.in_path_id.clone(),
             PathIdEntry::Forward(ref entry) => entry.in_path_id.clone(),
         };
-        let out_ip = match entry {
-            PathIdEntry::Decapsulate(ref entry) => Ipv6Addr::from(&entry.local_id),
-            PathIdEntry::Forward(ref entry) => Ipv6Addr::from(&entry.out_path_id),
+        let (out_ip, via) = match &entry {
+            PathIdEntry::Decapsulate(PathIdDecapsulationEntry {
+                next_hop: DecapsulationDestination::UnderlayNeighbor(ulnid),
+                ..
+            }) => {
+                log::error!(target: "native_fwd_table", "Penultimate hop popping is currently not supported by the native forwarding tables: {:?}", entry);
+                (
+                    self.underlay_information_provider
+                        .get_information(ulnid)
+                        .await
+                        .unwrap()
+                        .ll_ipv6,
+                    None,
+                )
+            }
+            PathIdEntry::Decapsulate(PathIdDecapsulationEntry {
+                next_hop: DecapsulationDestination::Local,
+                ..
+            }) => (Ipv6Addr::from(&self.root_id), None),
+            PathIdEntry::Forward(PathIdForwardingEntry {
+                out_path_id,
+                next_hop,
+                ..
+            }) => {
+                let next_hop = self
+                    .underlay_information_provider
+                    .get_information(next_hop)
+                    .await
+                    .unwrap();
+                (out_path_id.into(), Some((next_hop, out_path_id.clone())))
+            }
         };
-        let next_hop = match entry {
-            PathIdEntry::Forward(ref entry) => Some(Ipv6Addr::from(&entry.next_hop)),
-            _ => None,
-        };
+        let in_ip = Ipv6Addr::from(&in_path_id);
 
         if let Some(old_entry) = self.path_id_table.get_mut(&in_path_id) {
             if old_entry == &entry {
@@ -242,22 +313,25 @@ impl PathIdTable for NativeFwdTables {
             }
             log::trace!(target: "native_fwd_table", "Trying to update entry in forwardmap from {:?} to {:?}", old_entry, entry);
             *old_entry = entry;
-            platform::update_forwarding_rule(Ipv6Addr::from(&in_path_id), out_ip).unwrap();
+            platform::update_forwarding_rule(in_ip, out_ip).unwrap();
         } else {
             log::trace!(target: "native_fwd_table", "Trying to insert entry into forwardmap: {:?}", entry);
 
-            platform::add_forwarding_rule(Ipv6Addr::from(&in_path_id), out_ip).unwrap();
+            platform::add_forwarding_rule(in_ip, out_ip).unwrap();
             self.path_id_table.insert(in_path_id, entry);
         }
 
-        if let Some(next_hop) = next_hop {
+        if let Some((next_hop, out_path_id)) = via {
             log::trace!(target: "native_fwd_table", "Trying to create via route: {:?} via {:?}", out_ip, next_hop);
-            platform::replace_via_route(&out_ip.to_string(), &next_hop.to_string()).unwrap();
+            self.netlink
+                .replace_via_route(&out_path_id, &next_hop)
+                .await
+                .unwrap();
         }
         Ok(())
     }
 
-    fn remove(&mut self, path_id: &PathId) -> Result<Option<PathIdEntry>, Self::Error> {
+    async fn remove(&mut self, path_id: &PathId) -> Result<Option<PathIdEntry>, Self::Error> {
         log::trace!(target: "native_fwd_table", "PathIdTable REMOVE {:?} -> ?", path_id);
         if let Some(removed) = self.path_id_table.remove(path_id) {
             let in_path_ip = Ipv6Addr::from(path_id);
@@ -271,8 +345,14 @@ impl PathIdTable for NativeFwdTables {
     }
 }
 
-impl ForwardingTables for NativeFwdTables {}
+impl<I> AsyncForwardingTables for NativeFwdTables<I>
+where
+    I: UnderlayInformationProvider<Information = UnderlayNeighborInformation> + Send,
+    I::Error: Debug,
+{
+}
 
+#[allow(missing_docs)]
 pub mod error {
     use derive_more::derive::Display;
     use std::error::Error;

@@ -61,6 +61,7 @@ pub trait LocalAsyncPathIdTable {
 
 /// CRUD access interface to the whole forwarding layer and its forwarding tables.
 pub trait LocalAsyncForwardingTables: LocalAsyncNodeIdTable + LocalAsyncPathIdTable {}
+/// CRUD access interface to the whole forwarding layer and its forwarding tables.
 pub trait AsyncForwardingTables: AsyncNodeIdTable + AsyncPathIdTable {}
 
 /// Handle an [ForwardingTablesUpdate](r2kad::ForwardingTablesUpdate) by

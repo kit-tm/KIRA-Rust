@@ -10,7 +10,7 @@ edition.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["rmp-serde", "udp-tokio", "api", "swagger_doc"]
+default = ["rmp-serde", "udp-tokio", "api", "swagger_doc", "nft"]
 #bench = ["log/release_max_level_off"]
 api = ["axum", "hex", "sha2", "base64", "serde", "serde_derive", "serde_json"]
 swagger_doc = ["utoipa", "utoipa-swagger-ui", "api", "itertools"]
@@ -21,6 +21,8 @@ udp-tokio = []
 rmp-serde = ["dep:rmp-serde", "serde"]
 # json (de)serialization support [debug]
 serde_json = ["dep:serde_json", "serde"]
+# native forwarding tables implementation integration
+nft = ["kira-forwarding/nft"]
 
 [lib]
 name = "kirad_lib"

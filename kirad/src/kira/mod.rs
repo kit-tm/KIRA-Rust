@@ -57,10 +57,10 @@ pub struct Kira<C, const BUCKET_SIZE: usize, FT> {
 
 impl<C, const BUCKET_SIZE: usize, FT, FTE> Kira<C, BUCKET_SIZE, FT>
 where
-    FT: AsyncForwardingTables + Send + 'static,
+    FT: AsyncForwardingTables + 'static,
     FT: AsyncNodeIdTable<Error = FTE>,
     FT: AsyncPathIdTable<Error = FTE>,
-    FTE: std::error::Error + Send,
+    FTE: std::error::Error,
     C: UseCaseContext, // root-id for API -- should probably be queried explicitly by API
 {
     /// Create fully functional [Kira] instance.

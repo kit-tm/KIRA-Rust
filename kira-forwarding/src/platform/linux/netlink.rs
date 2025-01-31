@@ -2,6 +2,7 @@
 
 use derive_more::derive::{Display, Error, From};
 use futures::StreamExt;
+use kira_lib::domain::NodeIdSubnet;
 use std::net::Ipv6Addr;
 use std::num::NonZeroU32;
 
@@ -92,22 +93,26 @@ impl ForwardingRtNetlink {
     /// This rule is used for realizing an [Encapsulate NodeIdEntry](crate::tables::NodeIdEntry::Encapsulate).
     /// An existing rule is overwritten.
     #[tracing::instrument(level = "trace", target = "native_fwd_tables::netlink")]
-    pub async fn replace_encap_route(&mut self, node_id: &NodeId, path_id: &PathId) -> Result<()> {
+    pub async fn replace_encap_route(
+        &mut self,
+        node_id: &NodeIdSubnet,
+        path_id: &PathId,
+    ) -> Result<()> {
+        let (node_ip, prefix_length) = node_id.to_ipv6_subnet();
+
         let mut nl_hdr = NetlinkHeader::default();
         nl_hdr.flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_REPLACE | NLM_F_ACK;
 
         let mut rt_msg = RouteMessage::default();
         rt_msg.header = RouteHeader {
             address_family: AddressFamily::Inet6,
-            destination_prefix_length: 128,
+            destination_prefix_length: prefix_length,
             protocol: RouteProtocol::Static,
             ..rt_msg.header
         };
         rt_msg
             .attributes
-            .push(RouteAttribute::Destination(RouteAddress::Inet6(
-                node_id.into(),
-            )));
+            .push(RouteAttribute::Destination(RouteAddress::Inet6(node_ip)));
         rt_msg
             .attributes
             .push(RouteAttribute::Oif(self.kira.into()));
@@ -140,22 +145,26 @@ impl ForwardingRtNetlink {
 
     /// Stops encapsulating packets with destination `node_id`.
     #[tracing::instrument(level = "trace", target = "native_fwd_tables::netlink")]
-    pub async fn delete_encap_route(&mut self, node_id: &NodeId, path_id: &PathId) -> Result<()> {
+    pub async fn delete_encap_route(
+        &mut self,
+        node_id: &NodeIdSubnet,
+        path_id: &PathId,
+    ) -> Result<()> {
+        let (node_ip, prefix_length) = node_id.to_ipv6_subnet();
+
         let mut nl_hdr = NetlinkHeader::default();
         nl_hdr.flags = NLM_F_REQUEST | NLM_F_ACK;
 
         let mut rt_msg = RouteMessage::default();
         rt_msg.header = RouteHeader {
             address_family: AddressFamily::Inet6,
-            destination_prefix_length: 128,
+            destination_prefix_length: prefix_length,
             protocol: RouteProtocol::Static,
             ..rt_msg.header
         };
         rt_msg
             .attributes
-            .push(RouteAttribute::Destination(RouteAddress::Inet6(
-                node_id.into(),
-            )));
+            .push(RouteAttribute::Destination(RouteAddress::Inet6(node_ip)));
         rt_msg
             .attributes
             .push(RouteAttribute::Oif(self.kira.into()));
@@ -238,22 +247,24 @@ impl ForwardingRtNetlink {
     #[tracing::instrument(level = "trace", target = "native_fwd_tables::netlink")]
     pub async fn replace_neighbor_route(
         &mut self,
-        ip: &Ipv6Addr,
+        node_id: &NodeIdSubnet,
         interface_id: InterfaceId,
     ) -> Result<()> {
+        let (node_ip, prefix_length) = node_id.to_ipv6_subnet();
+
         let mut nl_hdr = NetlinkHeader::default();
         nl_hdr.flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_REPLACE | NLM_F_ACK;
 
         let mut rt_msg = RouteMessage::default();
         rt_msg.header = RouteHeader {
             address_family: AddressFamily::Inet6,
-            destination_prefix_length: 128,
+            destination_prefix_length: prefix_length,
             protocol: RouteProtocol::Static,
             ..rt_msg.header
         };
         rt_msg
             .attributes
-            .push(RouteAttribute::Destination(RouteAddress::Inet6(*ip)));
+            .push(RouteAttribute::Destination(RouteAddress::Inet6(node_ip)));
         rt_msg
             .attributes
             .push(RouteAttribute::Oif(interface_id.into()));
@@ -268,7 +279,7 @@ impl ForwardingRtNetlink {
             }
         }
 
-        log::debug!(target: "native_fwd_tables::netlink", "route replaced: {} dev {}", ip, interface_id);
+        log::debug!(target: "native_fwd_tables::netlink", "route replaced: {} dev {}", node_ip, interface_id);
 
         Ok(())
     }
@@ -278,6 +289,7 @@ impl ForwardingRtNetlink {
     pub async fn delete_neighbor_route(
         &mut self,
         ip: &Ipv6Addr,
+        prefix: u8,
         interface_id: InterfaceId,
     ) -> Result<()> {
         let mut nl_hdr = NetlinkHeader::default();
@@ -286,7 +298,7 @@ impl ForwardingRtNetlink {
         let mut rt_msg = RouteMessage::default();
         rt_msg.header = RouteHeader {
             address_family: AddressFamily::Inet6,
-            destination_prefix_length: 128,
+            destination_prefix_length: prefix,
             protocol: RouteProtocol::Static,
             ..rt_msg.header
         };

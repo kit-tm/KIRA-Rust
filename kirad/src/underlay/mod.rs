@@ -5,6 +5,8 @@ pub mod handle;
 
 pub use connection::UnderlayObserverConnection;
 pub use handle::UnderlayObserverHandle;
+use kira_forwarding::underlay::UnderlayNeighborInformation;
+use netlink_packet_route::RouteNetlinkMessage;
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -14,12 +16,11 @@ use std::num::NonZeroUsize;
 use derive_more::derive::{Display, Error};
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 
-use netlink_proto::new_connection;
 use netlink_proto::sys::protocols::NETLINK_ROUTE;
+use netlink_proto::{new_connection, ConnectionHandle};
 
 use crate::domain::underlay::{
-    Interface, InterfaceId, UnderlayNeighbor, UnderlayNeighborId, UnderlayNeighborInformation,
-    UnderlayNeighborUpdate,
+    Interface, InterfaceId, UnderlayNeighbor, UnderlayNeighborId, UnderlayNeighborUpdate,
 };
 
 /// Sender of [UnderlayNeighborUpdates](UnderlayNeighborUpdate).
@@ -69,7 +70,7 @@ impl UnderlayInformationBase {
             .get(&neighbor.interface_id)
             .expect("interface should be up as enforced by register_neighbor");
 
-        let info = UnderlayNeighborInformation::new(neighbor, interface);
+        let info = neighbor.information(interface);
         log::trace!(target: "underlay_observer::information_base", "get_information {}: {:?}", ulnid, info);
         Some(info)
     }
@@ -187,7 +188,7 @@ impl UnderlayInformationBase {
 /// use kirad::domain::underlay::{InterfaceId, UnderlayNeighborId};
 /// use kirad::underlay::observe_underlay;
 ///
-/// let (conn, handle, mut updates) = observe_underlay().unwrap();
+/// let (conn, handle, mut updates, _) = observe_underlay().unwrap();
 ///
 /// tokio::spawn(conn);
 ///
@@ -214,20 +215,21 @@ pub fn observe_underlay(
     UnderlayObserverConnection,
     UnderlayObserverHandle,
     UnderlayNeighborUpdatesRx,
+    ConnectionHandle<RouteNetlinkMessage>,
 )> {
-    let (connection, handle, messages) = new_connection(NETLINK_ROUTE)?;
+    let (connection, raw_handle, messages) = new_connection(NETLINK_ROUTE)?;
     let (updates_tx, updates_rx) = unbounded();
     let (handle_tx, handle_rx) = unbounded();
 
     let connection = UnderlayObserverConnection::new(
         excluded_interfaces,
         connection,
-        handle,
+        raw_handle.clone(),
         messages,
         updates_tx,
         handle_rx,
     )?;
     let handle = UnderlayObserverHandle::new(handle_tx);
 
-    Ok((connection, handle, updates_rx))
+    Ok((connection, handle, updates_rx, raw_handle))
 }

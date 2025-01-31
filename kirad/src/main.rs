@@ -4,21 +4,22 @@ use std::num::NonZeroU32;
 
 use clap::Parser;
 use futures::StreamExt;
-use kira_forwarding::tables::in_memory_tables::InMemoryFwdTables;
-use kira_lib::context::SyncContext;
+
 use kira_lib::R2Kad;
+use kirad_lib::Kira;
+
+#[cfg(not(feature = "nft"))]
+use kira_forwarding::tables::in_memory_tables::InMemoryFwdTables;
+#[cfg(feature = "nft")]
+use kira_forwarding::tables::native_tables::NativeFwdTables;
+
+use kira_lib::context::SyncContext;
+use kira_lib::domain::NodeId;
 use kirad_lib::format::ProtocolMessageFormat;
 use kirad_lib::io::udp::async_channel;
 use kirad_lib::underlay::observe_underlay;
-use kirad_lib::Kira;
 
-use kira_lib::domain::NodeId;
-use signal_hook::consts::SIGHUP;
-use signal_hook::consts::SIGINT;
-use signal_hook::consts::SIGKILL;
-use signal_hook::consts::SIGPIPE;
-use signal_hook::consts::SIGQUIT;
-use signal_hook::consts::SIGTERM;
+use signal_hook::consts::{SIGHUP, SIGINT, SIGKILL, SIGPIPE, SIGQUIT, SIGTERM};
 use signal_hook_tokio::Signals;
 use tracing_subscriber::prelude::*;
 
@@ -80,15 +81,21 @@ async fn main() {
     );
 
     // start underlay observation
-    let (connection, handle, underlay_updates) = observe_underlay(excluded_interfaces.clone())
-        .expect("observing underlay neighborhood failed");
+    let (connection, handle, underlay_updates, netlink_handle) =
+        observe_underlay(excluded_interfaces.clone())
+            .expect("observing underlay neighborhood failed");
     tokio::task::Builder::new()
         .name("Underlay Connection")
         .spawn(connection)
         .unwrap();
 
-    //let fwd_table = NativeFwdTables::new(args.nftables_conf);
+    #[cfg(not(feature = "nft"))]
     let fwd_tables = InMemoryFwdTables::default();
+    #[cfg(feature = "nft")]
+    let fwd_tables =
+        NativeFwdTables::new(root_id, args.nftables_conf, netlink_handle, handle.clone()).await;
+
+    // TODO: attach NodeId-IP to every interface
 
     // create message sender and receiver
     let (pm_sender, pm_receiver) = async_channel(

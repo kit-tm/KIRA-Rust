@@ -8,8 +8,9 @@ use derive_more::derive::{Display, Error, From};
 use futures::channel::mpsc::{SendError, UnboundedSender};
 use futures::channel::oneshot;
 use futures::SinkExt;
+use kira_forwarding::underlay::{UnderlayInformationProvider, UnderlayNeighborInformation};
 
-use crate::domain::underlay::{InterfaceId, UnderlayNeighborId, UnderlayNeighborInformation};
+use crate::domain::underlay::{InterfaceId, UnderlayNeighborId};
 use crate::underlay::UnderlayNeighborInterfaceDownError;
 
 /// Sender used by the [UnderlayObserverHandle]
@@ -71,6 +72,8 @@ impl UnderlayObserverHandle {
     }
 
     /// Get [UnderlayNeighborInformation] of an [UnderlayNeighborId].
+    ///
+    /// If no underlay neighbor is known under this id [None] is returned.
     pub async fn get_information(
         &mut self,
         ulnid: &UnderlayNeighborId,
@@ -140,5 +143,33 @@ impl UnderlayObserverHandle {
             .await?;
 
         Ok(rx.await.expect("sender should not get dropped"))
+    }
+}
+
+#[derive(Debug, Display, Error)]
+/// Error for the implementation of the [UnderlayInformationProvider] trait
+/// for the [UnderlayObserverHandle].
+pub enum ProvidingInfoError {
+    /// Neighbor is not known to the handle.
+    #[display("No neighbor known under id {_0}")]
+    UnknownNeighbor(#[error(ignore)] UnderlayNeighborId),
+    /// The result sender was closed unexpectedly.
+    UnderlayObserverSenderClosed(UnderlayObserverSenderClosedError),
+}
+
+impl UnderlayInformationProvider for UnderlayObserverHandle {
+    type Information = UnderlayNeighborInformation;
+
+    type Error = ProvidingInfoError;
+
+    async fn get_information(
+        &mut self,
+        ulnid: &UnderlayNeighborId,
+    ) -> Result<Self::Information, Self::Error> {
+        match UnderlayObserverHandle::get_information(self, ulnid).await {
+            Err(e) => Err(ProvidingInfoError::UnderlayObserverSenderClosed(e)),
+            Ok(None) => Err(ProvidingInfoError::UnknownNeighbor(*ulnid)),
+            Ok(Some(info)) => Ok(info),
+        }
     }
 }
