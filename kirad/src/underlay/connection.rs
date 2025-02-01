@@ -15,7 +15,7 @@ use futures::{FutureExt, SinkExt, StreamExt};
 use netlink_packet_core::{
     NetlinkHeader, NetlinkMessage, NetlinkPayload, NLM_F_DUMP, NLM_F_REQUEST,
 };
-use netlink_packet_route::link::LinkMessage;
+use netlink_packet_route::link::{AfSpecInet6, AfSpecUnspec, LinkMessage};
 use netlink_packet_route::{
     link::{LinkAttribute, LinkLayerType, State},
     RouteNetlinkMessage,
@@ -153,7 +153,7 @@ impl UnderlayObserverConnection {
     fn poll_messages(&mut self, cx: &mut std::task::Context<'_>) {
         if let Some(rt_messages) = self.rt_messages.as_mut() {
             log::trace!(target: "underlay_observer::connection", "polling messages");
-            loop {
+            'poll_messages: loop {
                 match rt_messages.poll_next_unpin(cx) {
                     Poll::Ready(Some(message)) => {
                         match message.payload {
@@ -163,7 +163,7 @@ impl UnderlayObserverConnection {
                             NetlinkPayload::InnerMessage(RouteNetlinkMessage::NewLink(message)) => {
                                 let _span = trace_span!(target: "underlay_observer::connection", "poll_messages", ?message).entered();
                                 if message.header.link_layer_type != LinkLayerType::Ether {
-                                    log::warn!(target: "underlay_observer::connection", "non ether link update ignored: {message:?}");
+                                    log::debug!(target: "underlay_observer::connection", "interface with unsupported link layer type ignored: {:?}", message.header.link_layer_type);
                                     continue;
                                 }
 
@@ -206,6 +206,39 @@ impl UnderlayObserverConnection {
                                         }
                                         LinkAttribute::OperState(state) => {
                                             link_state.replace(state);
+                                        }
+                                        LinkAttribute::AfSpecUnspec(af_specs) => {
+                                            // check for IPv6 support
+                                            let Some(af_specsv6) =
+                                                af_specs.into_iter().find_map(|spec| {
+                                                    if let AfSpecUnspec::Inet6(af_specsv6) = spec {
+                                                        Some(af_specsv6)
+                                                    } else {
+                                                        None
+                                                    }
+                                                })
+                                            else {
+                                                log::debug!(target: "underlay_observer::connection", "ignoring interface not providing any IPv6 support: {:}", interface_id);
+                                                continue 'poll_messages;
+                                            };
+
+                                            let Some(conf) =
+                                                af_specsv6.into_iter().find_map(|specv6| {
+                                                    if let AfSpecInet6::DevConf(conf) = specv6 {
+                                                        Some(conf)
+                                                    } else {
+                                                        None
+                                                    }
+                                                })
+                                            else {
+                                                log::debug!(target: "underlay_observer::connection", "ignoring interface not providing any IPv6 support: {:}", interface_id);
+                                                continue 'poll_messages;
+                                            };
+
+                                            if conf.disable_ipv6 != 0 {
+                                                log::debug!(target: "underlay_observer::connection", "ignoring interface not providing any IPv6 support: {:}", interface_id);
+                                                continue 'poll_messages;
+                                            }
                                         }
                                         _ => {}
                                     }
