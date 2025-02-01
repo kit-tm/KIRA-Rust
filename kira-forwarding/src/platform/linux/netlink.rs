@@ -92,7 +92,7 @@ impl ForwardingRtNetlink {
     ///
     /// This rule is used for realizing an [Encapsulate NodeIdEntry](crate::tables::NodeIdEntry::Encapsulate).
     /// An existing rule is overwritten.
-    #[tracing::instrument(level = "trace", target = "native_fwd_tables::netlink")]
+    #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink")]
     pub async fn replace_encap_route(
         &mut self,
         node_id: &NodeIdSubnet,
@@ -138,13 +138,13 @@ impl ForwardingRtNetlink {
             }
         }
 
-        log::debug!(target: "native_fwd_tables::netlink", "encap route replaced: {:?} encap {:?} ", node_id, path_id);
+        log::debug!(target: "native_fwd_table::netlink", "encap route replaced: {:?} encap {:?} ", node_id, path_id);
 
         Ok(())
     }
 
     /// Stops encapsulating packets with destination `node_id`.
-    #[tracing::instrument(level = "trace", target = "native_fwd_tables::netlink")]
+    #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink")]
     pub async fn delete_encap_route(
         &mut self,
         node_id: &NodeIdSubnet,
@@ -190,7 +190,7 @@ impl ForwardingRtNetlink {
             }
         }
 
-        log::debug!(target: "native_fwd_tables::netlink", "encap route deleted: {:?} encap {:?} ", node_id, path_id);
+        log::debug!(target: "native_fwd_table::netlink", "encap route deleted: {:?} encap {:?} ", node_id, path_id);
 
         Ok(())
     }
@@ -203,7 +203,7 @@ impl ForwardingRtNetlink {
     /// to realize A [Forward PathIdEntry](crate::tables::PathIdEntry::Forward).
     /// An existing rule is overwritten.
 
-    #[tracing::instrument(level = "trace", target = "native_fwd_tables::netlink")]
+    #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink")]
     // TODO: figure out where route should get deleted
     pub async fn replace_via_route(
         &mut self,
@@ -236,7 +236,7 @@ impl ForwardingRtNetlink {
             }
         }
 
-        log::debug!(target: "native_fwd_tables::netlink", "route replaced: {:?} via {}%{}", path_id, next_hop.ll_ipv6, next_hop.interface_id);
+        log::debug!(target: "native_fwd_table::netlink", "route replaced: {:?} via {}%{}", path_id, next_hop.ll_ipv6, next_hop.interface_id);
 
         Ok(())
     }
@@ -244,7 +244,7 @@ impl ForwardingRtNetlink {
     /// Forwards packets with destination `ip` to interface with name `interface_name` unchanged.
     ///
     /// This is used to realize [Forward NodeIdEntry](crate::tables::NodeIdEntry::Forward).
-    #[tracing::instrument(level = "trace", target = "native_fwd_tables::netlink")]
+    #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink")]
     pub async fn replace_neighbor_route(
         &mut self,
         node_id: &NodeIdSubnet,
@@ -279,7 +279,7 @@ impl ForwardingRtNetlink {
             }
         }
 
-        log::debug!(target: "native_fwd_tables::netlink", "route replaced: {} dev {}", node_ip, interface_id);
+        log::debug!(target: "native_fwd_table::netlink", "route replaced: {} dev {}", node_ip, interface_id);
 
         Ok(())
     }
@@ -319,7 +319,7 @@ impl ForwardingRtNetlink {
             }
         }
 
-        log::debug!(target: "native_fwd_tables::netlink", "route deleted: {} dev {}", ip, interface_id);
+        log::debug!(target: "native_fwd_table::netlink", "route deleted: {} dev {}", ip, interface_id);
 
         Ok(())
     }
@@ -327,7 +327,7 @@ impl ForwardingRtNetlink {
     /// Attaches the corresponding IPv6 address of `node_id` to the interface with name `interface`.
     ///
     /// The `node_id` usually is the root-id of KIRA instance running on the node.
-    #[tracing::instrument(level = "trace", target = "native_fwd_tables::netlink")]
+    #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink")]
     pub async fn attach_node_id_ip(
         &mut self,
         node_id: &NodeId,
@@ -359,7 +359,7 @@ impl ForwardingRtNetlink {
             }
         }
 
-        log::debug!(target: "native_fwd_tables::netlink", "added node-id ip to interface: {} dev {}", node_id, interface_id);
+        log::debug!(target: "native_fwd_table::netlink", "added node-id ip to interface: {} dev {}", node_id, interface_id);
 
         Ok(())
     }
@@ -368,7 +368,7 @@ impl ForwardingRtNetlink {
     ///
     /// This method consumes the struct because other methods rely on the interface
     /// to be present.
-    #[tracing::instrument(level = "trace", target = "native_fwd_tables::netlink")]
+    #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink")]
     pub async fn delete_encap_interface(self) -> Result<()> {
         let mut nl_hdr = NetlinkHeader::default();
         nl_hdr.flags = NLM_F_REQUEST | NLM_F_ACK;
@@ -389,7 +389,7 @@ impl ForwardingRtNetlink {
             }
         }
 
-        log::debug!(target: "native_fwd_tables::netlink", "deleted encap interface: {:?}", self.kira);
+        log::debug!(target: "native_fwd_table::netlink", "deleted encap interface: {:?}", self.kira);
 
         Ok(())
     }
@@ -399,13 +399,13 @@ impl ForwardingRtNetlink {
 /// IPv6 packets using [GRE](https://datatracker.ietf.org/doc/rfc7676/).
 ///
 /// This interface is fully managed by the Nftables component.
-#[tracing::instrument(level = "trace", target = "native_fwd_tables::netlink")]
+#[tracing::instrument(level = "trace", target = "native_fwd_table::netlink")]
 pub async fn create_encap_interface(
     handle: &ConnectionHandle<RouteNetlinkMessage>,
     if_name: &str,
 ) -> Result<InterfaceId> {
     // create interface
-    log::trace!(target: "native_fwd_tables::netlink", "create encap interface {}", if_name);
+    log::trace!(target: "native_fwd_table::netlink", "create encap interface {}", if_name);
     {
         let mut nl_hdr = NetlinkHeader::default();
         nl_hdr.flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_ACK | NLM_F_EXCL;
@@ -437,7 +437,7 @@ pub async fn create_encap_interface(
     let mut nl_hdr = NetlinkHeader::default();
     nl_hdr.flags = NLM_F_REQUEST | NLM_F_ACK;
 
-    log::trace!(target: "native_fwd_tables::netlink", "obtain interface index of encap interface");
+    log::trace!(target: "native_fwd_table::netlink", "obtain interface index of encap interface");
     // get interface index
     let kira = {
         let mut rt_msg = LinkMessage::default();
@@ -464,9 +464,9 @@ pub async fn create_encap_interface(
         }
         kira.expect("request should yield interface id")
     };
-    log::trace!(target: "native_fwd_tables::netlink", "Obtained interface id of interface {}: {}", if_name, kira);
+    log::trace!(target: "native_fwd_table::netlink", "Obtained interface id of interface {}: {}", if_name, kira);
 
-    log::trace!(target: "native_fwd_tables::netlink", "disable address generation mode on interface");
+    log::trace!(target: "native_fwd_table::netlink", "disable address generation mode on interface");
     // disable address generation mode on interface
     {
         let mut rt_msg = LinkMessage::default();
@@ -505,7 +505,7 @@ pub async fn create_encap_interface(
         }
     }
 
-    log::debug!(target: "native_fwd_tables::netlink", "created encap interface {}: {:?}", if_name, kira);
+    log::debug!(target: "native_fwd_table::netlink", "created encap interface {}: {:?}", if_name, kira);
 
     Ok(kira)
 }
