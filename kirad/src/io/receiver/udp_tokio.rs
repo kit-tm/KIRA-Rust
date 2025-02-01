@@ -157,7 +157,7 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
                 continue;
             };
             if message.source() == &self.root_id {
-                log::warn!(target: "message_receiver", "Ignoring message from us");
+                log::trace!(target: "message_receiver", "Ignoring message from us");
                 continue;
             }
             log::trace!(target: "message_receiver", "Received {:?} from {}", &message, received_from);

@@ -57,7 +57,7 @@ struct Args {
 async fn main() {
     // Setup tracing environment
     let console_layer = console_subscriber::spawn();
-    let fmt_layer = tracing_subscriber::fmt::layer().with_ansi(false);
+    let fmt_layer = tracing_subscriber::fmt::layer();
     tracing_subscriber::registry()
         .with(console_layer)
         .with(fmt_layer)
