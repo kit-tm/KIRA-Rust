@@ -69,11 +69,12 @@ impl<I> Drop for NativeFwdTables<I> {
 
 impl<I> AsyncNodeIdTable for NativeFwdTables<I>
 where
-    I: UnderlayInformationProvider<Information = UnderlayNeighborInformation> + Send,
+    I: UnderlayInformationProvider<Information = UnderlayNeighborInformation> + Send + Debug,
     I::Error: Debug,
 {
     type Error = error::FwdTableError;
 
+    #[tracing::instrument(level = "trace", target = "native_fwd_table")]
     async fn create(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
         log::debug!(target: "native_fwd_table", "CREATE {:?}", entry);
 
@@ -90,6 +91,7 @@ where
         AsyncNodeIdTable::create_or_update(self, entry).await
     }
 
+    #[tracing::instrument(level = "trace", target = "native_fwd_table")]
     async fn update(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
         log::debug!(target: "native_fwd_table", "UPDATE {:?}", entry);
 
@@ -106,6 +108,7 @@ where
         AsyncNodeIdTable::create_or_update(self, entry).await
     }
 
+    #[tracing::instrument(level = "trace", target = "native_fwd_table")]
     async fn remove(&mut self, node_id: &NodeIdSubnet) -> Result<Option<NodeIdEntry>, Self::Error> {
         if let Some(removed) = self.node_id_table.remove(node_id) {
             match &removed {
@@ -141,6 +144,7 @@ where
         }
     }
 
+    #[tracing::instrument(level = "trace", target = "native_fwd_table")]
     async fn create_or_update(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
         let destination = match entry {
             NodeIdEntry::Forward(ref entry) => entry.destination.clone(),
@@ -182,7 +186,7 @@ where
                     .underlay_information_provider
                     .get_information(next_hop)
                     .await
-                    .expect("next_hop ulnid is known")
+                    .expect("next_hop ulnid is known") // FIXME: panic, understand how this can be
                     .interface_id;
                 let _ = self.interface_id_table.insert(*next_hop, out_interface);
 
@@ -233,11 +237,12 @@ where
 
 impl<I> AsyncPathIdTable for NativeFwdTables<I>
 where
-    I: UnderlayInformationProvider<Information = UnderlayNeighborInformation> + Send,
+    I: UnderlayInformationProvider<Information = UnderlayNeighborInformation> + Send + Debug,
     I::Error: Debug,
 {
     type Error = error::FwdTableError;
 
+    #[tracing::instrument(level = "trace", target = "native_fwd_table")]
     async fn create(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
         log::debug!(target: "native_fwd_table", "PathIdTable CREATE {:?}", entry);
 
@@ -253,6 +258,7 @@ where
         AsyncPathIdTable::create_or_update(self, entry).await
     }
 
+    #[tracing::instrument(level = "trace", target = "native_fwd_table")]
     async fn update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
         log::trace!(target: "native_fwd_table", "PathIdTable UPDATE {:?}", entry);
 
@@ -268,6 +274,7 @@ where
         }
     }
 
+    #[tracing::instrument(level = "trace", target = "native_fwd_table")]
     async fn create_or_update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
         let in_path_id = match entry {
             PathIdEntry::Decapsulate(ref entry) => entry.in_path_id.clone(),
@@ -331,6 +338,7 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", target = "native_fwd_table")]
     async fn remove(&mut self, path_id: &PathId) -> Result<Option<PathIdEntry>, Self::Error> {
         log::trace!(target: "native_fwd_table", "PathIdTable REMOVE {:?} -> ?", path_id);
         if let Some(removed) = self.path_id_table.remove(path_id) {
@@ -347,7 +355,7 @@ where
 
 impl<I> AsyncForwardingTables for NativeFwdTables<I>
 where
-    I: UnderlayInformationProvider<Information = UnderlayNeighborInformation> + Send,
+    I: UnderlayInformationProvider<Information = UnderlayNeighborInformation> + Send + Debug,
     I::Error: Debug,
 {
 }
