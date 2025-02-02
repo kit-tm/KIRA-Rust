@@ -64,7 +64,10 @@ impl UnderlayInformationBase {
         &self,
         ulnid: &UnderlayNeighborId,
     ) -> Option<UnderlayNeighborInformation> {
-        let neighbor = self.neighbors.get(ulnid)?;
+        let Some(neighbor) = self.neighbors.get(ulnid) else {
+            log::warn!(target: "underlay_observer::information_base", "neighbor id is unknown: {:?}", ulnid);
+            return None;
+        };
         let interface = self
             .interfaces
             .get(&neighbor.interface_id)
