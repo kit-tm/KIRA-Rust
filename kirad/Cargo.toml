@@ -10,19 +10,21 @@ edition.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["rmp-serde", "udp-tokio", "api", "swagger_doc", "nft"]
+default = ["rmp-serde", "udp-tokio", "api", "swagger_doc", "nft", "tokio-console"]
 #bench = ["log/release_max_level_off"]
-api = ["axum", "hex", "sha2", "base64", "serde", "serde_derive", "serde_json"]
+api = ["axum", "hex", "sha2", "base64", "serde_derive", "serde_json"]
 swagger_doc = ["utoipa", "utoipa-swagger-ui", "api", "itertools"]
 # default routing table bucket size: 3
 small_buckets = []
 udp-tokio = []
 # rust message pack (de)serialization support
-rmp-serde = ["dep:rmp-serde", "serde"]
+rmp-serde = ["dep:rmp-serde"]
 # json (de)serialization support [debug]
-serde_json = ["dep:serde_json", "serde"]
+serde_json = ["dep:serde_json"]
 # native forwarding tables implementation integration
 nft = ["kira-forwarding/nft"]
+# enable tracing support for tokio-console
+tokio-console = ["console-subscriber"]
 
 [lib]
 name = "kirad_lib"
@@ -35,6 +37,8 @@ path = "src/main.rs"
 [dependencies]
 chrono = { workspace = true }
 clap = { version = "4.5.17", features = ["derive", "env"] }
+# Debug tool
+console-subscriber = { version = "0.4.0", optional = true }
 derive_more = { workspace = true }
 futures = { workspace = true }
 humantime = "2.1.0"
@@ -57,11 +61,9 @@ netlink-packet-core = { workspace = true }
 netlink-packet-route = { workspace = true }
 netlink-proto = { workspace = true }
 rtnetlink = { workspace = true }
-# Debug tool
-console-subscriber = "0.4.0"
 # REST server backend
 axum = { version = "0.7.5", features = ["json"], optional = true }
-serde = { workspace = true, features = ["derive"], optional = true }
+serde = { workspace = true, features = ["derive"]}
 serde_derive = { workspace = true, optional = true }
 rmp-serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }

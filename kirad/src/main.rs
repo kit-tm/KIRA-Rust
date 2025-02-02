@@ -21,7 +21,6 @@ use kirad_lib::underlay::observe_underlay;
 
 use signal_hook::consts::{SIGHUP, SIGINT, SIGKILL, SIGPIPE, SIGQUIT, SIGTERM};
 use signal_hook_tokio::Signals;
-use tracing_subscriber::prelude::*;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -51,20 +50,53 @@ struct Args {
     nftables_conf: OsString,
     #[clap(short, long, value_parser, value_delimiter = ',')]
     excluded_interfaces: Option<Vec<u32>>,
+    /// Enable [tokio console](https://github.com/tokio-rs/console/tree/main/tokio-console) support.
+    ///
+    /// This will enable the [console_subscriber] layer
+    #[cfg(feature = "tokio-console")]
+    #[cfg_attr(feature = "tokio-console", clap(short, long))]
+    tokio_console: bool,
 }
 
 #[tokio::main]
 async fn main() {
-    // Setup tracing environment
-    let console_layer = console_subscriber::spawn();
-    let fmt_layer = tracing_subscriber::fmt::layer();
-    tracing_subscriber::registry()
-        .with(console_layer)
-        .with(fmt_layer)
-        .with(tracing_subscriber::filter::EnvFilter::from_default_env())
-        .init();
-
     let args = Args::parse();
+    // Setup tracing environment
+    {
+        use tracing::Level;
+        use tracing_subscriber::{
+            filter::{filter_fn, EnvFilter, FilterExt, LevelFilter, Targets},
+            layer::SubscriberExt,
+            util::SubscriberInitExt,
+            Layer,
+        };
+
+        #[cfg(feature = "tokio-console")]
+        let console_layer = console_subscriber::spawn().with_filter(
+            // enable required targets for console layer
+            Targets::new()
+                .with_target("tokio", Level::TRACE)
+                .with_target("runtime", Level::TRACE)
+                .with_default(LevelFilter::OFF),
+        );
+        // disable noisy netlink_proto debug messages
+        // https://github.com/rust-netlink/netlink-proto/issues/19
+        let netlink_proto_filter = filter_fn(|metadata| {
+            !metadata.target().starts_with("netlink_proto") || metadata.level() != &Level::DEBUG
+        });
+        let fmt_layer = tracing_subscriber::fmt::layer()
+            .with_filter(EnvFilter::from_default_env().and(netlink_proto_filter));
+
+        let reg = tracing_subscriber::registry().with(fmt_layer);
+        #[cfg(feature = "tokio-console")]
+        if args.tokio_console {
+            reg.with(console_layer).init()
+        } else {
+            reg.init()
+        }
+        #[cfg(not(feature = "tokio-console"))]
+        reg.init()
+    }
 
     let root_id: NodeId = args.root_id.unwrap_or_else(NodeId::random);
     tracing::info!(%root_id, "Starting node...");

@@ -25,7 +25,7 @@ use netlink_proto::sys::SocketAddr;
 use netlink_proto::Connection;
 use netlink_proto::ConnectionHandle;
 use rtnetlink::constants::RTMGRP_LINK;
-use tracing::trace_span;
+use tracing::{instrument, trace_span};
 
 use super::handle::UnderlayObserverHandleRequest;
 use super::*;
@@ -35,7 +35,9 @@ type RtNetlinkReceiver = UnboundedReceiver<(NetlinkMessage<RouteNetlinkMessage>,
 /// [Connection] to Netlink which receives updates to [Interfaces](Interface) of the underlay.
 pub type RtNetlinkConnection = Connection<RouteNetlinkMessage>;
 
+#[derive(derive_more::Debug)]
 struct UnderlayObserverInnerConnection {
+    #[debug(ignore)]
     connection: RtNetlinkConnection,
 }
 
@@ -65,6 +67,7 @@ impl Future for UnderlayObserverInnerConnection {
 /// Processing struct for handling underlay changes.
 ///
 /// The [UnderlayObserverConnection] should usually be spawned in a thread using [tokio::spawn].
+#[derive(Debug)]
 pub struct UnderlayObserverConnection {
     information_base: UnderlayInformationBase,
     excluded_interfaces: HashSet<InterfaceId>,
@@ -142,6 +145,7 @@ impl UnderlayObserverConnection {
         })
     }
 
+    #[instrument(level = "trace", target = "underlay_observer::connection" skip(cx))]
     fn poll_connection(&mut self, cx: &mut std::task::Context<'_>) {
         log::trace!(target: "underlay_observer::connection", "polling connection");
         if let Some(Poll::Ready(_)) = self.connection.as_mut().map(|c| c.poll_unpin(cx)) {
@@ -150,6 +154,7 @@ impl UnderlayObserverConnection {
         }
     }
 
+    #[instrument(level = "trace", target = "underlay_observer::connection" skip(cx))]
     fn poll_messages(&mut self, cx: &mut std::task::Context<'_>) {
         if let Some(rt_messages) = self.rt_messages.as_mut() {
             log::trace!(target: "underlay_observer::connection", "polling messages");
@@ -161,7 +166,7 @@ impl UnderlayObserverConnection {
                                 log::error!(target: "underlay_observer::connection", "received an error message: {:?}", err_message);
                             }
                             NetlinkPayload::InnerMessage(RouteNetlinkMessage::NewLink(message)) => {
-                                let _span = trace_span!(target: "underlay_observer::connection", "poll_messages", ?message).entered();
+                                let _span = trace_span!(target: "underlay_observer::connection", "processing netlink message", ?message).entered();
                                 if message.header.link_layer_type != LinkLayerType::Ether {
                                     log::debug!(target: "underlay_observer::connection", "interface with unsupported link layer type ignored: {:?}", message.header.link_layer_type);
                                     continue;
@@ -339,13 +344,14 @@ impl UnderlayObserverConnection {
         }
     }
 
+    #[instrument(level = "trace", target = "underlay_observer::connection" skip(cx))]
     fn poll_handle(&mut self, cx: &mut std::task::Context<'_>) {
         if let Some(handle_rx) = self.handle_rx.as_mut() {
             log::trace!(target: "underlay_observer::connection", "polling UnderlayObserverHandle");
             loop {
                 let request = handle_rx.poll_next_unpin(cx);
                 let _span =
-                    trace_span!(target: "underlay_observer::connection", "poll_handle", ?request)
+                    trace_span!(target: "underlay_observer::connection", "processing handle request", ?request)
                         .entered();
                 match request {
                     Poll::Ready(Some(UnderlayObserverHandleRequest::GetInformation {
@@ -410,6 +416,7 @@ impl UnderlayObserverConnection {
 impl Future for UnderlayObserverConnection {
     type Output = ();
 
+    #[instrument(level = "trace", target = "underlay_observer::connection" skip(cx))]
     fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
         let pinned = self.get_mut();
 
