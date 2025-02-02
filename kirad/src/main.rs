@@ -85,6 +85,7 @@ async fn main() {
             !metadata.target().starts_with("netlink_proto") || metadata.level() != &Level::DEBUG
         });
         let fmt_layer = tracing_subscriber::fmt::layer()
+            .compact()
             .with_filter(EnvFilter::from_default_env().and(netlink_proto_filter));
 
         let reg = tracing_subscriber::registry().with(fmt_layer);
