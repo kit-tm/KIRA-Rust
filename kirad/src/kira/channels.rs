@@ -119,12 +119,13 @@ pub(super) async fn output_fan_out(
                 return Some(());
             };
             if let Err(SendError(update)) = forwarding.send(update).await {
-                log::warn!(
+                log::error!(
                     target: "kira",
                     "forwarding tables update can't be delivered because channel is closed: {}",
                     update
                 );
                 let _ = output_channels.forwarding.take();
+                return None;
             }
         }
     }
