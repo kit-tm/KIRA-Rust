@@ -152,18 +152,32 @@ async fn main() {
         .spawn(kira.start())
         .unwrap();
 
+    log::debug!("Waiting for stop signal");
     let mut signals: Signals = Signals::new([SIGHUP, SIGTERM, SIGINT, SIGQUIT, SIGPIPE])
         .expect("failed to create signals");
-    let received = signals.next().await;
-    match received {
-        Some(SIGHUP) => println!("Received SIGHUP"),
-        Some(SIGTERM) => println!("Received SIGTERM"),
-        Some(SIGINT) => println!("Received SIGQUIT"),
-        Some(SIGPIPE) => println!("Received SIGPIPE"),
-        Some(SIGKILL) => println!("Received SIGKILL"),
-        Some(signal) => println!("Received unsupported signal: {}", signal),
-        None => println!("Closed before signal could be received"),
-    }
 
-    kira.abort();
+    let signal = tokio::task::Builder::new()
+        .name("Signal handler")
+        .spawn(async move {
+            while let Some(signal) = signals.next().await {
+                match signal {
+                    SIGHUP => println!("Received SIGHUP"),
+                    SIGTERM => println!("Received SIGTERM"),
+                    SIGINT => println!("Received SIGQUIT"),
+                    SIGPIPE => println!("Received SIGPIPE"),
+                    SIGKILL => println!("Received SIGKILL"),
+                    signal => {
+                        log::debug!("Received unsupported signal: {}", signal);
+                        continue;
+                    }
+                }
+                return;
+            }
+        })
+        .unwrap();
+
+    // we only await KIRA and not other tasks spawned
+    // since KIRA should "finish" if task was crucial for its operation
+    //   e. g.: API endpoint failure is not crucial for KIRA operation
+    tokio::select! { _ = kira => {}, _ = signal => {}}
 }

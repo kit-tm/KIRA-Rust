@@ -226,7 +226,7 @@ where
                     .await
                     .is_none()
                 {
-                    log::error!(target: "kira", "output channels closed");
+                    log::debug!(target: "kira", "Stopping KIRA as output channel is closed");
                     return;
                 }
             }

@@ -359,9 +359,7 @@ impl UnderlayObserverConnection {
                         response,
                     })) => {
                         let info = self.information_base.get_information(&ulnid);
-                        response
-                            .send(info)
-                            .expect("receiver should not get dropped");
+                        let _ = response.send(info);
                     }
                     Poll::Ready(Some(
                         UnderlayObserverHandleRequest::RegisterUnderlayNeighbor {
@@ -374,9 +372,7 @@ impl UnderlayObserverConnection {
                             .information_base
                             .register_neighbor(interface_id, ll_ipv6);
                         // don't send UnderlayNeighborUpdate: no use for routing
-                        response
-                            .send(reg_info)
-                            .expect("receiver should not get dropped");
+                        let _ = response.send(reg_info);
                     }
                     Poll::Ready(Some(
                         UnderlayObserverHandleRequest::UnregisterUnderlayNeighbor { ulnid },
@@ -398,9 +394,7 @@ impl UnderlayObserverConnection {
                     }
                     Poll::Ready(Some(UnderlayObserverHandleRequest::GetAvailable { response })) => {
                         let interfaces = self.information_base.get_available().copied().collect();
-                        response
-                            .send(interfaces)
-                            .expect("receiver should not get dropped");
+                        let _ = response.send(interfaces);
                     }
                     Poll::Ready(None) => break,
                     Poll::Pending => return,
