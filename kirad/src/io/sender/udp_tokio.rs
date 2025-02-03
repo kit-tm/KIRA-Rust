@@ -38,9 +38,7 @@ impl UdpSender {
     ) -> io::Result<Self> {
         let udp_socket =
             UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?;
-        if let Err(err) = udp_socket.join_multicast_v6(&ALL_KIRA_NODES, 0) {
-            log::trace!(target: "message_sender", "Error joining multicast group: {:?}", err);
-        }
+        udp_socket.join_multicast_v6(&ALL_KIRA_NODES, 0)?;
 
         let socket = Arc::new(udp_socket);
 
