@@ -30,7 +30,7 @@ pub type UnderlayNeighborUpdatesTx = UnboundedSender<UnderlayNeighborUpdate>;
 /// The receiver is returned on [observe_underlay].
 pub type UnderlayNeighborUpdatesRx = UnboundedReceiver<UnderlayNeighborUpdate>;
 
-#[derive(Debug, Display, Clone, Error)]
+#[derive(Debug, Display, Clone, Error, PartialEq, Eq)]
 #[display("Interface {_0} that is used by the underlay neighbor is down")]
 /// Interface of [UnderlayNeighbor] identified by the [InterfaceId] is down.
 pub struct UnderlayNeighborInterfaceDownError(#[error(ignore)] pub InterfaceId);
@@ -89,6 +89,8 @@ impl UnderlayInformationBase {
             return Ok(*ulnid);
         }
 
+        let ulnid = self.next_ulnid;
+
         // interface of the underlay neighbor
         let interface = self
             .interfaces
@@ -97,14 +99,14 @@ impl UnderlayInformationBase {
 
         // FIXME: Handle gracefully
         assert!(
-            self.neighbors.insert(self.next_ulnid, neighbor).is_none(),
+            self.neighbors.insert(ulnid, neighbor).is_none(),
             "Collision of life underlay neighbor ids because of overflow"
         );
-        let existing = self.neighbor_ids.insert(neighbor, self.next_ulnid);
+        let existing = self.neighbor_ids.insert(neighbor, ulnid);
         debug_assert!(existing.is_none());
 
         // update interface with new neighbor
-        interface.add_neighbor(self.next_ulnid);
+        interface.add_neighbor(ulnid);
 
         log::debug!(
             target: "underlay_observer::information_base",
@@ -114,10 +116,13 @@ impl UnderlayInformationBase {
         );
 
         // increment underlay neighbor id
-        let UnderlayNeighborId(ulnid) = self.next_ulnid;
-        // NOTE: overflow can occur here but this is only a problem on "live" underlay neighbor ids
-        self.next_ulnid = UnderlayNeighborId(ulnid.checked_add(1).unwrap_or(NonZeroUsize::MIN));
-        Ok(self.next_ulnid)
+        {
+            let UnderlayNeighborId(ulnid) = ulnid;
+            // NOTE: overflow can occur here but this is only a problem on "live" underlay neighbor ids
+            //       and checked via an assert
+            self.next_ulnid = UnderlayNeighborId(ulnid.checked_add(1).unwrap_or(NonZeroUsize::MIN));
+        }
+        Ok(ulnid)
     }
 
     pub fn unregister_neighbor(&mut self, ulnid: &UnderlayNeighborId) -> Option<UnderlayNeighbor> {
@@ -188,28 +193,30 @@ impl UnderlayInformationBase {
 /// use futures::StreamExt;
 /// use tokio::time::{sleep, Duration};
 ///
-/// use kirad::domain::underlay::{InterfaceId, UnderlayNeighborId};
-/// use kirad::underlay::observe_underlay;
+/// use kirad_lib::domain::underlay::{InterfaceId, UnderlayNeighborId};
+/// use kirad_lib::underlay::observe_underlay;
 ///
-/// let (conn, handle, mut updates, _) = observe_underlay().unwrap();
+/// #[tokio::main]
+/// async fn main() {
+///     let (conn, mut handle, mut updates, _) = observe_underlay(Default::default()).unwrap();
 ///
-/// tokio::spawn(conn);
+///     tokio::spawn(conn);
 ///
-/// tokio::spawn(async move {
-///     sleep(Duration::from_secs(5)).await;
-///     let ulnid = UnderlayNeighborId(0);
-///     let loopback = InterfaceId::from(NonZeroUsize::new(1).unwrap());
-///     let mac = Default::default();
-///     let ip = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 42);
+///     tokio::spawn(async move {
+///         sleep(Duration::from_secs(5)).await;
+///         // register underlay neighbor and get information back
+///         let loopback = InterfaceId::try_from(1).unwrap();
+///         let ip = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 42);
 ///
-///     handle.register_neighbor(loopback, mac, ip).await.unwrap();
+///         let ulnid = handle.register_neighbor(loopback, ip).await.unwrap();
 ///
-///     let information = handle.get_information(&ulnid).await.unwrap();
-///     println!("Information on {ulnid:?}: {information:?}");
-/// });
+///         let information = handle.get_information(&ulnid).await.unwrap();
+///         println!("Information on {ulnid:?}: {information:?}");
+///     });
 ///
-/// while let Some(update) = updates.next().await {
-///     println!("Update: {update:?}");
+///     while let Some(update) = updates.next().await {
+///         println!("Update: {update:?}");
+///     }
 /// }
 /// ```
 pub fn observe_underlay(
@@ -235,4 +242,109 @@ pub fn observe_underlay(
     let handle = UnderlayObserverHandle::new(handle_tx);
 
     Ok((connection, handle, updates_rx, raw_handle))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    const LL_IPV6: Ipv6Addr = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+
+    #[test]
+    fn empty_default() {
+        let ulnib = UnderlayInformationBase::default();
+        assert!(
+            ulnib.get_available().next().is_none(),
+            "no available interfaces"
+        );
+
+        let UnderlayInformationBase {
+            neighbors,
+            neighbor_ids,
+            interfaces,
+            ..
+        } = ulnib;
+        assert!(neighbors.is_empty(), "no neighbors");
+        assert!(neighbor_ids.is_empty(), "no ids");
+        assert!(interfaces.is_empty(), "no interfaces");
+    }
+
+    #[test]
+    #[should_panic]
+    fn avoid_ulnid_collision() {
+        let mut ulnib = UnderlayInformationBase::default();
+
+        // insert link with matching ID first
+        let interface_id = InterfaceId::try_from(42).unwrap();
+        let interface = Interface::new(interface_id, [0; 6], [0; 6]);
+        ulnib.interfaces.insert(interface_id, interface);
+
+        // set next id to live id
+        let live_id = UnderlayNeighborId(42.try_into().unwrap());
+        ulnib.next_ulnid = live_id;
+
+        ulnib.neighbors.insert(
+            live_id,
+            UnderlayNeighbor {
+                ll_ipv6: LL_IPV6,
+                interface_id: InterfaceId::try_from(42).unwrap(),
+            },
+        );
+        let _ = ulnib.register_neighbor(interface_id, LL_IPV6);
+    }
+
+    #[test]
+    fn avoid_interface_down() {
+        let mut ulnib = UnderlayInformationBase::default();
+
+        let down_interface = InterfaceId::try_from(42).unwrap();
+        assert_eq!(
+            ulnib.register_neighbor(down_interface, LL_IPV6),
+            Err(UnderlayNeighborInterfaceDownError(down_interface))
+        );
+    }
+
+    #[test]
+    fn correct_next_ulnid() {
+        let mut ulnib = UnderlayInformationBase::default();
+
+        // insert link with matching ID first
+        let interface_id = InterfaceId::try_from(42).unwrap();
+        let interface = Interface::new(interface_id, [0; 6], [0; 6]);
+        ulnib.interfaces.insert(interface_id, interface);
+
+        // set next id to live id
+        let expected_ulnid = ulnib.next_ulnid;
+        let ulnid = ulnib.register_neighbor(interface_id, LL_IPV6).unwrap();
+        assert_eq!(ulnid, expected_ulnid, "ulnid should be next ulnid");
+    }
+
+    #[test]
+    fn interface() {
+        let mut ulnib = UnderlayInformationBase::default();
+        let interface_id = InterfaceId::try_from(42).unwrap();
+        let interface = Interface::new(interface_id, [0; 6], [0; 6]);
+
+        assert!(
+            ulnib.interface_down(&interface_id).is_none(),
+            "interface does not exist prior"
+        );
+
+        // interface up
+        assert!(ulnib.interface_up(interface), "is a fresh interface");
+        assert_eq!(
+            ulnib.get_available().next(),
+            Some(&interface_id),
+            "interface should be available on up"
+        );
+        assert_eq!(
+            ulnib.get_available().next(),
+            Some(&interface_id),
+            "interface should be available on up"
+        );
+
+        // interface down
+        let mut affected_neighbors = ulnib.interface_down(&interface_id).expect("exists prior");
+        assert_eq!(affected_neighbors.next(), None, "no neighbor down");
+    }
 }

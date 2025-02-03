@@ -1,7 +1,7 @@
 //! Definitions for the routing protocol to interact with the underlay network.
 
 use derive_more::derive::{Display, From};
-use std::num::{NonZeroU32, NonZeroUsize};
+use std::num::{NonZeroU32, NonZeroUsize, TryFromIntError};
 
 /// Represents a **connection** to an underlay neighbor.
 ///
@@ -30,6 +30,14 @@ use std::num::{NonZeroU32, NonZeroUsize};
 #[display("{_0:o}")]
 pub struct UnderlayNeighborId(pub NonZeroUsize);
 
+impl TryFrom<usize> for UnderlayNeighborId {
+    type Error = TryFromIntError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Ok(Self(value.try_into()?))
+    }
+}
+
 /// Network interface id.
 ///
 /// This is used in an [UnderlayNeighborUpdate] to inform the
@@ -41,6 +49,14 @@ pub struct InterfaceId(pub NonZeroU32);
 impl From<InterfaceId> for u32 {
     fn from(value: InterfaceId) -> Self {
         value.0.into()
+    }
+}
+
+impl TryFrom<u32> for InterfaceId {
+    type Error = TryFromIntError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        Ok(Self(value.try_into()?))
     }
 }
 
