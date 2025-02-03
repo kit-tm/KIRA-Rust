@@ -1,6 +1,18 @@
-//! Source code documentation for the library crate of the KIRA implementation created at the
+//! Source code documentation for the crate of the R²/KAD protocol implementation created at the
 //! [institute for telematics](https://telematics.tm.kit.edu/index.php) at the
 //! [Karlsruher Institute of Technology (KIT)](https://www.kit.edu).
+//!
+//! # Where is the I/O?
+//!
+//! The protocol implementation employs the [sans I/O](https://sans-io.readthedocs.io/) design principles.
+//! Therefore in this crate there is no I/O implementation present.
+//! Additionally it does not include any (de)serialization of protocol messages.
+//! If you enable the feature flag **`serde`** we provide generic (de)serialization support.
+//!
+//! The [kira-lib](../kira_lib/index.html) crate provides components on integration this R²/KAD protocol implementation
+//! in a fully working KIRA instance using async futures for the different KIRA components
+//! that can be run independently.
+//! A fully integrated routing daemon implementation can be found in [kirad](../kirad/index.html).
 //!
 //! # Logging Targets
 //!

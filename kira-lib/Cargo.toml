@@ -14,8 +14,6 @@ default = ["format-mp", "udp-tokio", "api", "swagger_doc"]
 #bench = ["log/release_max_level_off"]
 api = ["axum", "hex", "sha2", "base64", "serde", "serde/derive", "serde_json"]
 swagger_doc = ["utoipa", "utoipa-swagger-ui", "api", "itertools"]
-# default routing table bucket size: 3
-small_buckets = []
 udp-tokio = ["tokio/net"]
 # rust message pack (de)serialization support
 format-mp = ["rmp-serde", "serde"]

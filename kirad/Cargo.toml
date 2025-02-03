@@ -10,14 +10,13 @@ edition.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["tokio-console", "api", "swagger_doc", "nft"]
+default = ["tokio-console", "api", "swagger_doc"]
 api = ["kira-lib/api"]
 swagger_doc = ["kira-lib/swagger_doc"]
 # default routing table bucket size: 3
-small_buckets = ["kira-lib/small_buckets"]
+small_buckets = []
 # enable tracing support for tokio-console
 tokio-console = ["console-subscriber"]
-nft = ["kira-forwarding/nft"]
 
 [lib]
 name = "kirad_lib"
@@ -40,7 +39,7 @@ kira-lib = { path = "../kira-lib", default-features = false, features = [
     "format-mp",
     "udp-tokio",
 ]}
-kira-forwarding = { path = "../kira-forwarding", default-features = false }
+kira-forwarding = { path = "../kira-forwarding", default-features = false, features = ["nft"] }
 kira-r2kad = { path = "../kira-r2kad", default-features = false, features = ["serde"] }
 signal-hook = "0.3.17"
 signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }

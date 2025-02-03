@@ -1,4 +1,4 @@
-//! Provides interaction methods with the sans i/o implementation of the routing protocol of KIRA ([R²/KAD](kira_forwarding::R2Kad)).
+//! Provides interaction methods with the sans i/o implementation of the routing protocol of KIRA ([R²/KAD](kira_r2kad::R2Kad)).
 //!
 //! # Channels
 //!
@@ -45,7 +45,10 @@ use crate::underlay::UnderlayNeighborUpdatesRx;
 /// The KIRA protocol instance is the orchestrator of the main KIRA components:
 ///
 /// 1. sans i/o implementation of the [R²/KAD](R2Kad) routing protocol
-/// 2. [forwarding layer](ForwardingTables)
+/// 2. [forwarding layer](kira_forwarding::AsyncForwardingTables)
+/// 3. [underlay observer](crate::underlay).
+/// 4. i/o implementation for sending and receiving protocol messages: [io](crate::io).
+/// 5. REST-API debug access of the routing daemon: [api](crate::api)
 #[derive(Debug)]
 pub struct Kira<C, const BUCKET_SIZE: usize, FT> {
     r2kad: R2Kad<C, BUCKET_SIZE>,

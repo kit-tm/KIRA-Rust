@@ -16,6 +16,11 @@ use kira_forwarding::tables::native_tables::NativeFwdTables;
 use signal_hook::consts::{SIGHUP, SIGINT, SIGKILL, SIGPIPE, SIGQUIT, SIGTERM};
 use signal_hook_tokio::Signals;
 
+#[cfg(feature = "small_buckets")]
+const BUCKET_SIZE: usize = 3;
+#[cfg(not(feature = "small_buckets"))]
+const BUCKET_SIZE: usize = 20;
+
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
@@ -161,7 +166,7 @@ async fn main() {
     let addr = pm_sender.local_addr().expect("failed to get bind addr");
     tracing::info!(socket_address = %addr, "Bound to socket");
 
-    let r2kad = R2Kad::<SyncContext<_, _, _, _>, 20>::builder()
+    let r2kad = R2Kad::<SyncContext<_, _, _, _>, BUCKET_SIZE>::builder()
         .root_id(root_id)
         .build();
 
