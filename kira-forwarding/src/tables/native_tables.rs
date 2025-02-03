@@ -5,8 +5,12 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt::Debug;
+use std::future::Future;
 use std::net::Ipv6Addr;
 
+use futures::channel::mpsc::UnboundedReceiver;
+use futures::StreamExt;
+use kira_lib::domain::UnderlayNeighborUpdate;
 use netlink_packet_route::RouteNetlinkMessage;
 use netlink_proto::ConnectionHandle;
 
@@ -39,25 +43,45 @@ pub struct NativeFwdTables<I> {
 
 impl<I> NativeFwdTables<I> {
     /// Create a new forwarding tables instance.
+    ///
+    /// The returned future is responsible for attaching IPv6s on upcoming interfaces.
     pub async fn new<S: AsRef<OsStr>>(
         root_id: NodeId,
         nftables_conf: S,
         handle: ConnectionHandle<RouteNetlinkMessage>,
         underlay_information: I,
-    ) -> Self {
+        mut underlay_updates: UnboundedReceiver<UnderlayNeighborUpdate>,
+    ) -> (Self, impl Future<Output = ()> + 'static) {
         let netlink = ForwardingRtNetlink::new(handle)
             .await
             .expect("KIRA interface should successfully be created");
         platform::load_nft_config(nftables_conf).unwrap();
         log::debug!(target: "native_fwd_table", "Loaded nftables successfully");
-        Self {
-            root_id,
-            netlink,
-            node_id_table: Default::default(),
-            path_id_table: Default::default(),
-            interface_id_table: Default::default(),
-            underlay_information_provider: underlay_information,
-        }
+
+        let attaching_ips = {
+            let mut netlink = netlink.clone();
+            async move {
+                while let Some(update) = underlay_updates.next().await {
+                    if let UnderlayNeighborUpdate::InterfaceUp(id) = update {
+                        if let Err(e) = netlink.attach_node_id_ip(&root_id, id).await {
+                            log::error!(target: "native_fwd_table", "Attaching to interface {:?} faile: {}", id, e);
+                        }
+                    }
+                }
+            }
+        };
+
+        (
+            Self {
+                root_id,
+                netlink,
+                node_id_table: Default::default(),
+                path_id_table: Default::default(),
+                interface_id_table: Default::default(),
+                underlay_information_provider: underlay_information,
+            },
+            attaching_ips,
+        )
     }
 }
 
@@ -180,7 +204,6 @@ where
                 destination,
                 next_hop,
             }) => {
-                // known physical neighbors are already configured, so only configure new subnets
                 log::trace!(target: "native_fwd_table", "Trying to replace neighbor route {} dst {:?}", destination, next_hop);
                 let out_interface = self
                     .underlay_information_provider

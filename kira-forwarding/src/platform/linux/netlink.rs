@@ -41,7 +41,7 @@ enum AddrGenMode {
 // https://github.com/torvalds/linux/blob/72deda0abee6e705ae71a93f69f55e33be5bca5c/include/uapi/linux/if_tunnel.h#L78
 const IFLA_GRE_COLLECT_METADATA: u16 = 18;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// Manages links, addresses and routes using Netlink for the
 /// [Native Forwarding Tables](crate::tables::native_tables).
 ///
@@ -336,7 +336,7 @@ impl ForwardingRtNetlink {
         let node_id = node_id.into();
 
         let mut nl_hdr = NetlinkHeader::default();
-        nl_hdr.flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_EXCL | NLM_F_ACK;
+        nl_hdr.flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_REPLACE | NLM_F_ACK;
 
         let mut rt_msg = AddressMessage::default();
         rt_msg.header = AddressHeader {

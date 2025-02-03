@@ -8,9 +8,6 @@ use futures::StreamExt;
 use kira_lib::R2Kad;
 use kirad_lib::Kira;
 
-#[cfg(not(feature = "nft"))]
-use kira_forwarding::tables::in_memory_tables::InMemoryFwdTables;
-#[cfg(feature = "nft")]
 use kira_forwarding::tables::native_tables::NativeFwdTables;
 
 use kira_lib::context::SyncContext;
@@ -114,7 +111,7 @@ async fn main() {
     );
 
     // start underlay observation
-    let (connection, handle, underlay_updates, netlink_handle) =
+    let (connection, handle, mut underlay_updates, netlink_handle) =
         observe_underlay(excluded_interfaces.clone())
             .expect("observing underlay neighborhood failed");
     tokio::task::Builder::new()
@@ -122,13 +119,37 @@ async fn main() {
         .spawn(connection)
         .unwrap();
 
-    #[cfg(not(feature = "nft"))]
-    let fwd_tables = InMemoryFwdTables::default();
-    #[cfg(feature = "nft")]
-    let fwd_tables =
-        NativeFwdTables::new(root_id, args.nftables_conf, netlink_handle, handle.clone()).await;
+    // duplicate mpsc underlay updates channel for fwd_tables and R²/KAD
+    let (tx1, underlay_updates1) = futures::channel::mpsc::unbounded();
+    let (tx2, underlay_updates2) = futures::channel::mpsc::unbounded();
+    tokio::task::Builder::new()
+        .name("fork underlay updates")
+        .spawn(async move {
+            while let Some(update) = underlay_updates.next().await {
+                if tx1.unbounded_send(update.clone()).is_err()
+                    || tx2.unbounded_send(update).is_err()
+                {
+                    break;
+                }
+            }
 
-    // TODO: attach NodeId-IP to every interface
+            log::debug!("fork underlay updates finished");
+        })
+        .unwrap();
+
+    let (fwd_tables, attach_ips) = NativeFwdTables::new(
+        root_id,
+        args.nftables_conf,
+        netlink_handle,
+        handle.clone(),
+        underlay_updates1,
+    )
+    .await;
+
+    tokio::task::Builder::new()
+        .name("attach NodeIds to interfaces")
+        .spawn(attach_ips)
+        .unwrap();
 
     // create message sender and receiver
     let (pm_sender, pm_receiver) = async_channel(
@@ -147,7 +168,7 @@ async fn main() {
         .root_id(root_id)
         .build();
 
-    let kira = Kira::with_components(r2kad, fwd_tables, underlay_updates, pm_receiver, pm_sender);
+    let kira = Kira::with_components(r2kad, fwd_tables, underlay_updates2, pm_receiver, pm_sender);
     let kira = tokio::task::Builder::new()
         .name("KIRA main loop")
         .spawn(kira.start())
