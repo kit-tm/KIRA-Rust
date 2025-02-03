@@ -4,6 +4,7 @@
 use std::error::Error;
 use std::io::{Read, Write};
 
+#[cfg(any(feature = "format-json", feature = "format-mp"))]
 use serde::Serialize;
 
 use kira_lib::messaging::ProtocolMessage;
@@ -16,10 +17,10 @@ use kira_lib::messaging::ProtocolMessage;
 // TODO: Refactor this to be more efficient. Currently it doesn't support proper buffer writing.
 #[derive(Debug, Copy, Clone)]
 pub enum ProtocolMessageFormat {
-    #[cfg(feature = "serde_json")]
+    #[cfg(feature = "format-json")]
     /// [JavaScript object notation](https://www.json.org) message format
     Json,
-    #[cfg(feature = "rmp-serde")]
+    #[cfg(feature = "format-mp")]
     /// [MessagePack](https://msgpack.org/) message format.
     ///
     /// MessagePack is similar to [Json](Self::Json) but more compact and
@@ -48,9 +49,9 @@ impl ProtocolMessageFormat {
     /// If no message format was selected this method panics.
     pub fn deserialize<R: Read>(&self, reader: R) -> Result<ProtocolMessage, Box<dyn Error>> {
         let result = match self {
-            #[cfg(feature = "serde_json")]
+            #[cfg(feature = "format-json")]
             Self::Json => serde_json::from_reader(reader)?,
-            #[cfg(feature = "rmp-serde")]
+            #[cfg(feature = "format-mp")]
             Self::MessagePack => rmp_serde::from_read(reader)?,
             Self::None => panic!("No Format enabled"),
         };
@@ -67,9 +68,9 @@ impl ProtocolMessageFormat {
         data: &ProtocolMessage,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         match self {
-            #[cfg(feature = "serde_json")]
+            #[cfg(feature = "format-json")]
             Self::Json => serde_json::to_writer(writer, data)?,
-            #[cfg(feature = "rmp-serde")]
+            #[cfg(feature = "format-mp")]
             Self::MessagePack => data.serialize(&mut rmp_serde::Serializer::new(writer))?,
             Self::None => panic!("No Format enabled"),
         };

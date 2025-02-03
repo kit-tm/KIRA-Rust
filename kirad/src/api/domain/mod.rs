@@ -1,5 +1,5 @@
 use hex::FromHexError;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 #[cfg(feature = "swagger_doc")]
 use utoipa::ToSchema;

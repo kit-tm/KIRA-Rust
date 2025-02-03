@@ -9,7 +9,7 @@ use itertools::Itertools;
 use kira_lib::domain::SIZE;
 use kira_lib::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, StoreErr};
 use kira_lib::use_cases::{FetchInjectData, StoreInjectData};
-use serde_derive::Serialize;
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Display, Formatter};
