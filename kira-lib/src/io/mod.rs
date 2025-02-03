@@ -1,4 +1,4 @@
-//! Type definitions containing everything related to [ProtocolMessage](kira_lib::messaging::ProtocolMessage) transmission.
+//! Type definitions containing everything related to [ProtocolMessage](kira_r2kad::messaging::ProtocolMessage) transmission.
 
 use std::net::Ipv6Addr;
 
@@ -10,11 +10,11 @@ pub mod sender;
 /// This should reach all nodes running a KIRA instance
 pub const ALL_KIRA_NODES: Ipv6Addr = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1);
 
-/// Utilities for sending and receiving [ProtocolMessages](kira_lib::messaging::ProtocolMessage)
+/// Utilities for sending and receiving [ProtocolMessages](kira_r2kad::messaging::ProtocolMessage)
 /// using async [tokio] channels.
 #[cfg(feature = "udp-tokio")]
 pub mod udp {
-    use kira_lib::domain::{InterfaceId, NodeId};
+    use kira_r2kad::domain::{InterfaceId, NodeId};
     use std::collections::HashSet;
     use std::net::SocketAddr;
     use std::sync::Arc;
@@ -33,7 +33,7 @@ pub mod udp {
     /// [tokio::net::UdpSocket].
     /// This way multiple senders can send and multiple receivers can receive from the
     /// same [tokio::net::UdpSocket].
-    /// But all [ProtocolMessages](kira_lib::messaging::ProtocolMessage) will only arrive
+    /// But all [ProtocolMessages](kira_r2kad::messaging::ProtocolMessage) will only arrive
     /// *at one receiver* at the time.
     pub async fn async_channel(
         port: u16,

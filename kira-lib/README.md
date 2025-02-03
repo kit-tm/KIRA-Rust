@@ -1,27 +1,16 @@
-# KIRA Library
+# KIRA Routing Daemon Implementation
 
-Contains the major building parts for an KIRA Daemon implementation.
+Rust crate representing the binary implementation of the KIRA routing daemon.
+For overall instructions please see the overall [README](../README.md).
 
-## Setup
+## Test Framework
 
-To build the [examples](examples) you have to install Rust.
-The recommended way is through [rustup.rs](https://rustup.rs):
+The test framework is custom-built to be able to run the test cases as integration tests instead of manual ones.
+The integration tests themselves are located in the folder [`tests`](./tests).
+The test framework and its structures are located in the module [`common`](./tests/common).
 
-## Source Code Organisation
-
-The Domain Layer containing the most basic parts of KIRA (e.g. [NodeId](src/domain/node_id.rs)) is located
-in [src/domain](src/domain).
-
-The logic around the Domain Layer (called *Use Cases*) is located in the [src/use_cases](src/use_cases) package.
-
-Other packages contained in the [src](src) directory contain Interfaces (called **Traits** in Rust) and some useful
-implementations of them to build an implementation of an KIRA Routing Tier Application.
-
-Examples are provided in the [examples](examples) directory.
-
-For a more detailed description see the [Source Code Documentation](#Source-Code-Documentation).
-
-## Source Code Documentation
-
-Source Code Documentation can be built with `cargo doc --open` or `make docs`.
-Both will open the documentation in your default browser.
+The integrations tests yield trace logs in files located in the log directory `log/integration_test/{test_name}`.
+The network of the integration tests is constructed with Threads and in memory message channels (Cables).
+Every thread runs a Node and they communicate through the cables, which can be closed at runtime.
+Therefore, the files in the log directory are structured by thread and are identified by the node id of the associated
+node.

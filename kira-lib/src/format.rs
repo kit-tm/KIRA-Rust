@@ -7,7 +7,7 @@ use std::io::{Read, Write};
 #[cfg(any(feature = "format-json", feature = "format-mp"))]
 use serde::Serialize;
 
-use kira_lib::messaging::ProtocolMessage;
+use kira_r2kad::messaging::ProtocolMessage;
 
 /// Implementation of the interface ProtocolMessageFormat as closed set of
 /// supported formats.

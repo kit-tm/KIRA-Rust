@@ -13,15 +13,15 @@ pub struct NodeId {
     pub node_id: String,
 }
 
-impl From<kira_lib::domain::NodeId> for NodeId {
-    fn from(value: kira_lib::domain::NodeId) -> Self {
+impl From<kira_r2kad::domain::NodeId> for NodeId {
+    fn from(value: kira_r2kad::domain::NodeId) -> Self {
         NodeId {
             node_id: format!("{}", value),
         }
     }
 }
 
-impl TryFrom<NodeId> for kira_lib::domain::NodeId {
+impl TryFrom<NodeId> for kira_r2kad::domain::NodeId {
     type Error = FromHexError;
 
     fn try_from(value: NodeId) -> Result<Self, Self::Error> {

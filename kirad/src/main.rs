@@ -5,16 +5,13 @@ use std::num::NonZeroU32;
 use clap::Parser;
 use futures::StreamExt;
 
-use kira_lib::R2Kad;
-use kirad_lib::Kira;
+use kira_lib::format::ProtocolMessageFormat;
+use kira_lib::io::udp::async_channel;
+use kira_lib::underlay::observe_underlay;
+use kira_lib::Kira;
+use kira_r2kad::{context::SyncContext, domain::NodeId, R2Kad};
 
 use kira_forwarding::tables::native_tables::NativeFwdTables;
-
-use kira_lib::context::SyncContext;
-use kira_lib::domain::NodeId;
-use kirad_lib::format::ProtocolMessageFormat;
-use kirad_lib::io::udp::async_channel;
-use kirad_lib::underlay::observe_underlay;
 
 use signal_hook::consts::{SIGHUP, SIGINT, SIGKILL, SIGPIPE, SIGQUIT, SIGTERM};
 use signal_hook_tokio::Signals;

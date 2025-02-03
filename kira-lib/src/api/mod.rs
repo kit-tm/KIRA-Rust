@@ -12,7 +12,7 @@ use axum::extract::{Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 
-use kira_lib::domain::protocol_event::DebugEvent;
+use kira_r2kad::domain::protocol_event::DebugEvent;
 #[cfg(feature = "swagger_doc")]
 use utoipa::OpenApi;
 #[cfg(feature = "swagger_doc")]
@@ -22,9 +22,9 @@ use domain::dht::DHTErr;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 
-use kira_lib::messaging::ProtocolMessage;
-use kira_lib::use_cases::inject_messages::InjectionResult;
-use kira_lib::use_cases::{ApiEvent, InjectionMessageData};
+use kira_r2kad::messaging::ProtocolMessage;
+use kira_r2kad::use_cases::inject_messages::InjectionResult;
+use kira_r2kad::use_cases::{ApiEvent, InjectionMessageData};
 
 /// Starts a REST API-server based on the provided [ApiConfig].
 ///
@@ -94,14 +94,14 @@ struct ApiDoc;
 
 #[derive(Clone)]
 struct ApiState {
-    node_id: kira_lib::domain::NodeId,
+    node_id: kira_r2kad::domain::NodeId,
     sender: mpsc::Sender<DebugEvent>,
 }
 
 /// The configuration for the API-Server used by [start_http_server].
 pub struct ApiConfig {
     address: SocketAddr,
-    node_id: kira_lib::domain::NodeId,
+    node_id: kira_r2kad::domain::NodeId,
     sender: mpsc::Sender<DebugEvent>,
 }
 
@@ -111,7 +111,7 @@ impl ApiConfig {
     /// # Arguments
     ///
     /// * `address` - The [SocketAddr] to bind the server to.
-    /// * `node_id` - The [NodeId](kira_lib::domain::NodeId) of the Node running the API-Server.
+    /// * `node_id` - The [NodeId](kira_r2kad::domain::NodeId) of the Node running the API-Server.
     /// * `sender` - The [mpsc::Sender] used to send created [UseCaseEvent]s by the server.
     ///
     /// # Returns
@@ -119,7 +119,7 @@ impl ApiConfig {
     /// A new [ApiConfig] instance.
     pub(crate) fn new(
         address: SocketAddr,
-        node_id: kira_lib::domain::NodeId,
+        node_id: kira_r2kad::domain::NodeId,
         sender: mpsc::Sender<DebugEvent>,
     ) -> ApiConfig {
         ApiConfig {

@@ -1,163 +1,120 @@
-//! Definitions for the routing protocol to interact with the underlay network.
+//! Definitions for KIRA to interact with the underlay network.
+//!
+//! This information is usually collected by an
+//! [UnderlayObserverConnection](crate::underlay::UnderlayObserverConnection)
+//! and accessed using an [UnderlayObserverHandle](crate::underlay::UnderlayObserverHandle).
+//! The data structure holding the information is the
+//! [UnderlayInformationBase](crate::underlay::UnderlayInformationBase)
 
-use derive_more::derive::{Display, From};
-use std::num::{NonZeroU32, NonZeroUsize, TryFromIntError};
+use std::{collections::HashSet, net::Ipv6Addr};
 
-/// Represents a **connection** to an underlay neighbor.
-///
-/// Underlay Neighbors are nodes attached to the links of the KIRA node[^uln].
-///
-/// The [UnderlayNeighborId] is used to transparently inform the R²/KAD protocol
-/// about a changed underlay environment.
-/// Additionally they are used as "addresses" for sending protocol messages
-/// over the underlay.
-///
-/// # Important
-///
-/// Since [UnderlayNeighborId] correspond to a **connection**,
-/// it is possible that an underlay neighbor is addressable by more than one id.
-/// It is the responsibility by the routing protocol to decide which connection
-/// to use in case of multiple connections present.
-///
-/// There is at most one underlay neighbor reachable per [UnderlayNeighborId].
-///
-/// [^uln]: I.e., neighbors in the sense of [RFC8200][1] that
-///     are *directly* reachable via link layer and the
-///     Internet-layer or higher-layer tunnels.
-///
-/// [1]: <https://datatracker.ietf.org/doc/rfc8200/>
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From)]
-#[display("{_0:o}")]
-pub struct UnderlayNeighborId(pub NonZeroUsize);
+use kira_forwarding::underlay::UnderlayNeighborInformation;
+pub use kira_r2kad::domain::{InterfaceId, UnderlayNeighborId, UnderlayNeighborUpdate};
 
-impl TryFrom<usize> for UnderlayNeighborId {
-    type Error = TryFromIntError;
+/// Ethernet Address.
+pub type EthAddr = [u8; 6];
 
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        Ok(Self(value.try_into()?))
-    }
+/// A struct storing all necessary information on an network interface
+/// for the KIRA daemon.
+///
+/// This information is used through the [UnderlayNeighborInformation] by
+/// the fast forwarding layer and the [io-part](crate::io) of R²/KAD.
+#[derive(Debug, Clone)]
+pub struct Interface {
+    /// Id of the [Interface].
+    pub interface_id: InterfaceId,
+    /// Ethernet address used for sending messages from this [Interface].
+    pub src_mac: EthAddr,
+    /// Ethernet address used for broadcasting messages from this [Interface].
+    pub broadcast_mac: EthAddr,
+    /// List of all neighbors connected via this [Interface].
+    neighbors: HashSet<UnderlayNeighborId>,
 }
 
-/// Network interface id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// An struct containing all information about an underlay neighbor
+/// excluding the actual [Interface] data.
 ///
-/// This is used in an [UnderlayNeighborUpdate] to inform the
-/// routing protocol about changes in the underlay.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From)]
-#[display("{_0}")]
-pub struct InterfaceId(pub NonZeroU32);
-
-impl From<InterfaceId> for u32 {
-    fn from(value: InterfaceId) -> Self {
-        value.0.into()
-    }
+/// An underlay neighbor is discovered by the [io-part](crate::io) when receiving
+/// R²/KAD [ProtocolMessages](kira_r2kad::messaging::ProtocolMessage) from
+/// unknown underlay neighbor sources.
+///
+/// This information is used through the [UnderlayNeighborInformation] by
+/// the fast forwarding layer and the [io-part](crate::io) of R²/KAD.
+pub struct UnderlayNeighbor {
+    /// link-local IPv6 address under which the neighbor can be reached.
+    pub ll_ipv6: Ipv6Addr,
+    /// Id of the interface under which the neighbor can be reached.
+    pub interface_id: InterfaceId,
 }
 
-impl TryFrom<u32> for InterfaceId {
-    type Error = TryFromIntError;
-
-    fn try_from(value: u32) -> Result<Self, Self::Error> {
-        Ok(Self(value.try_into()?))
-    }
-}
-
-/// An underlay destination for [ProtocolMessages](crate::messaging::ProtocolMessage).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From)]
-pub enum UnderlayNeighborDestination {
-    /// Broadcast to all underlay neighbors.
+impl UnderlayNeighbor {
+    /// Creates a new [UnderlayNeighbor].
     ///
-    /// This is primarily used when sending [HelloMessages](crate::messaging::HelloMessage)
-    /// to discover the underlay vicinity.
+    /// If the `ll_ipv6` is not a link-local unicast address this method will panic.
+    pub fn new(ll_ipv6: Ipv6Addr, interface: InterfaceId) -> Self {
+        assert!(
+            ll_ipv6.is_unicast_link_local(),
+            "IPv6 should be link-local unicast"
+        );
+
+        Self {
+            ll_ipv6,
+            interface_id: interface,
+        }
+    }
+
+    /// Collects the information about an [UnderlayNeighbor]
+    /// from the [UnderlayNeighbor] and the [Interface] under which it can be reached.
     ///
-    /// All neighbors that joined the well-known link-local multicast address `ALL-KIRA-NODES`
-    /// should receive this message on *all* interfaces.
-    Broadcast,
-    /// Multicast to all underlay neighbors connected via the interface.
-    ///
-    /// This is primarily used when sending [HelloMessages](crate::messaging::HelloMessage)
-    /// to discover the underlay vicinity.
-    ///
-    /// All neighbors that joined the well-known link-local multicast address `ALL-KIRA-NODES`
-    /// on that interface should receive this message.
-    Multicast(InterfaceId),
-    /// Link to an underlay neighbor.
-    UnderlayNeighbor(UnderlayNeighborId),
-}
+    /// If the `interface id`s don't match the method will panic.
+    pub fn information(&self, interface: &Interface) -> UnderlayNeighborInformation {
+        assert_eq!(
+            self.interface_id, interface.interface_id,
+            "Interface of underlay neighbor should match supplied interface"
+        );
 
-impl UnderlayNeighborDestination {
-    /// Returns if the [destination](UnderlayNeighborDestination)
-    /// is an [UnderlayNeighbor](UnderlayNeighborDestination::UnderlayNeighbor).
-    pub const fn is_underlay_neighbor(&self) -> bool {
-        matches!(self, Self::UnderlayNeighbor(_))
-    }
-
-    /// Returns if the [destination](UnderlayNeighborDestination)
-    /// is [Broadcast](UnderlayNeighborDestination::Broadcast).
-    pub const fn is_broadcast(&self) -> bool {
-        matches!(self, Self::Broadcast)
-    }
-
-    /// Returns if the [destination](UnderlayNeighborDestination)
-    /// is [Multicast](UnderlayNeighborDestination::Multicast).
-    pub const fn is_multicast(&self) -> bool {
-        matches!(self, Self::Multicast(_))
-    }
-}
-
-impl Default for UnderlayNeighborDestination {
-    fn default() -> Self {
-        Self::Broadcast
-    }
-}
-
-impl From<Option<UnderlayNeighborId>> for UnderlayNeighborDestination {
-    fn from(value: Option<UnderlayNeighborId>) -> Self {
-        value.map(|ulnid| ulnid.into()).unwrap_or_default()
-    }
-}
-
-impl From<usize> for UnderlayNeighborDestination {
-    fn from(value: usize) -> Self {
-        if value == 0 {
-            Self::Broadcast
-        } else {
-            UnderlayNeighborId::from(NonZeroUsize::new(value).unwrap()).into()
+        UnderlayNeighborInformation {
+            interface_id: self.interface_id,
+            src_mac: interface.src_mac,
+            broadcast_mac: interface.broadcast_mac,
+            ll_ipv6: self.ll_ipv6,
         }
     }
 }
 
-/// The origin of [ProtocolMessages](crate::messaging::ProtocolMessage).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From)]
-pub enum UnderlayNeighborSource {
-    /// The running protocol instance is the source.
+impl Interface {
+    /// Creates a new [Interface]
     ///
-    /// This is to support sending [ProtocolMessages](crate::messaging::ProtocolMessage)
-    /// to ourselves.
-    Local,
-    /// Link to an underlay neighbor.
-    UnderlayNeighbor(UnderlayNeighborId),
-}
+    /// The initial neighbor capacity is set to `1`.
+    pub fn new(if_index: InterfaceId, src_mac: EthAddr, broadcast_mac: EthAddr) -> Self {
+        Self {
+            interface_id: if_index,
+            src_mac,
+            broadcast_mac,
+            // one neighbor per link should be the norm
+            // e.g.: Containernet simulation == 1
+            neighbors: HashSet::with_capacity(1),
+        }
+    }
 
-/// Updates of the currently present underlay neighbors connections.
-#[derive(Debug, Clone, PartialEq)]
-pub enum UnderlayNeighborUpdate {
-    /// An interface has gone up.
-    InterfaceUp(InterfaceId),
-    /// An interface has gone down.
-    // NOTE: Routing daemon has no information which neighbor is reachable via which
-    //       interface, so this event currently is unused.
-    InterfaceDown(InterfaceId),
-    /// A new connection to an underlay neighbor was discovered.
+    /// Add a new underlay neighbor specified by its [UnderlayNeighborId] to an [Interface].
     ///
-    /// The connection may not provide connection to a new underlay neighbor
-    /// since the node is already connected using a different connection.
-    // NOTE: The Routing daemon already knows the neighbor exists because of the
-    //       message that caused the forging of this event so this is currently little
-    //       use unless we have a different method detecting new potential KIRA nodes
-    //       without R²/KAD protocol message snooping in the I/O part.
-    UnderlayNeighborUp(UnderlayNeighborId),
-    /// A connection to an underlay neighbor was lost.
-    ///
-    /// This *has* to be issued even if the cause is an
-    /// [InterfaceDown](UnderlayNeighborUpdate::InterfaceDown) event.
-    UnderlayNeighborDown(UnderlayNeighborId),
+    /// If the interface already has the [UnderlayNeighborId] added this method will panic.
+    pub fn add_neighbor(&mut self, ulnid: UnderlayNeighborId) {
+        assert!(
+            self.neighbors.insert(ulnid),
+            "UnderlayNeighbors can only be registered once"
+        );
+    }
+
+    /// Returns a list of all underlay neighbors connected via this [Interface].
+    pub fn neighbors(&self) -> impl Iterator<Item = &UnderlayNeighborId> {
+        self.neighbors.iter()
+    }
+
+    /// Converts the [Interface] into all underlay neighbors connected via itself.
+    pub fn into_neighbors(self) -> impl Iterator<Item = UnderlayNeighborId> {
+        self.neighbors.into_iter()
+    }
 }

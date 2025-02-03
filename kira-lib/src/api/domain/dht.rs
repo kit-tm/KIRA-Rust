@@ -6,9 +6,9 @@ use base64::Engine;
 use hex::FromHexError;
 #[cfg(feature = "swagger_doc")]
 use itertools::Itertools;
-use kira_lib::domain::SIZE;
-use kira_lib::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, StoreErr};
-use kira_lib::use_cases::{FetchInjectData, StoreInjectData};
+use kira_r2kad::domain::SIZE;
+use kira_r2kad::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, StoreErr};
+use kira_r2kad::use_cases::{FetchInjectData, StoreInjectData};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
@@ -26,7 +26,7 @@ pub enum Handle {
     Key(String),
 }
 
-impl TryFrom<Handle> for kira_lib::domain::NodeId {
+impl TryFrom<Handle> for kira_r2kad::domain::NodeId {
     type Error = FromHexError;
 
     fn try_from(value: Handle) -> Result<Self, Self::Error> {
@@ -115,12 +115,12 @@ impl Display for StoreOK {
     }
 }
 
-impl From<kira_lib::messaging::dht::StoreOK> for StoreOK {
-    fn from(value: kira_lib::messaging::dht::StoreOK) -> Self {
+impl From<kira_r2kad::messaging::dht::StoreOK> for StoreOK {
+    fn from(value: kira_r2kad::messaging::dht::StoreOK) -> Self {
         match value {
-            kira_lib::messaging::dht::StoreOK::Created => Self::Created,
-            kira_lib::messaging::dht::StoreOK::Updated => Self::Updated,
-            kira_lib::messaging::dht::StoreOK::Inserted => Self::Inserted,
+            kira_r2kad::messaging::dht::StoreOK::Created => Self::Created,
+            kira_r2kad::messaging::dht::StoreOK::Updated => Self::Updated,
+            kira_r2kad::messaging::dht::StoreOK::Inserted => Self::Inserted,
         }
     }
 }

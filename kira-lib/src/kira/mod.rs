@@ -20,15 +20,15 @@ use futures::StreamExt;
 use tokio::sync::mpsc;
 
 use kira_forwarding::tables::{handle_r2kad_request, AsyncNodeIdTable, AsyncPathIdTable};
-use kira_lib::context::UseCaseContext;
-use kira_lib::runtime::UseCaseRuntime;
-use kira_lib::{
+use kira_r2kad::context::UseCaseContext;
+use kira_r2kad::runtime::UseCaseRuntime;
+use kira_r2kad::{
     domain::{InsertionStrategy, NodeId, RoutingTable, UNTable, UnderlayNeighborId},
     runtime::R2KadRuntime,
 };
 
 pub use kira_forwarding::AsyncForwardingTables;
-pub use kira_lib::r2kad::R2Kad;
+pub use kira_r2kad::r2kad::R2Kad;
 use tokio::task::yield_now;
 use tokio::time;
 

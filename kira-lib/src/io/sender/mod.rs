@@ -1,9 +1,9 @@
-//! Traits and implementations for sending [ProtocolMessages](kira_lib::messaging::ProtocolMessage).
+//! Traits and implementations for sending [ProtocolMessages](kira_r2kad::messaging::ProtocolMessage).
 
 use error::*;
 
-pub use kira_lib::domain::UnderlayNeighborDestination;
-pub use kira_lib::messaging::messages::ProtocolMessage;
+pub use kira_r2kad::domain::UnderlayNeighborDestination;
+pub use kira_r2kad::messaging::messages::ProtocolMessage;
 
 #[cfg(feature = "udp-tokio")]
 pub mod udp_tokio;

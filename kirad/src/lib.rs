@@ -23,13 +23,3 @@
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
-
-#[cfg(feature = "api")]
-pub mod api;
-pub mod domain;
-pub mod format;
-pub mod io;
-pub mod kira;
-pub mod underlay;
-
-pub use kira::Kira;

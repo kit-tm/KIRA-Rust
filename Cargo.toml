@@ -1,5 +1,6 @@
 [workspace]
-members = ["kira-forwarding", "kira-lib", "kirad"]
+members = ["kira-lib", "kira-r2kad", "kira-forwarding", "kirad"]
+default-members = ["kirad", "kira-lib"]
 resolver = "2"
 
 # Profile which optimizes the compiled binary for performance
@@ -73,5 +74,3 @@ tokio = { version = "1.40.0", default-features = false }
 tracing = { version = "0.1.40", features = ["attributes"] }
 # Async trait helper macros (https://blog.rust-lang.org/2023/12/21/async-fn-rpit-in-traits.html)
 trait-variant = "0.1.2"
-# User friendly error trait derivation
-thiserror = "1.0.69"

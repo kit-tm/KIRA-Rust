@@ -10,7 +10,6 @@ use std::net::Ipv6Addr;
 
 use futures::channel::mpsc::UnboundedReceiver;
 use futures::StreamExt;
-use kira_lib::domain::UnderlayNeighborUpdate;
 use netlink_packet_route::RouteNetlinkMessage;
 use netlink_proto::ConnectionHandle;
 
@@ -25,6 +24,7 @@ use crate::tables::{
     AsyncForwardingTables, AsyncNodeIdTable, AsyncPathIdTable, NodeIdEntry, PathIdEntry,
 };
 use crate::underlay::{UnderlayInformationProvider, UnderlayNeighborInformation};
+use kira_r2kad::domain::UnderlayNeighborUpdate;
 
 /// Native linux [ForwardingTables] implementation backed by nftables and linux routing tables.
 ///

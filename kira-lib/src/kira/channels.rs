@@ -1,8 +1,8 @@
 //! Dedicated [Tokio](tokio) synchronization primitives for interaction of
-//! the KIRA routing protocol [R²/KAD](kira_lib::R2Kad) and dependent components.
+//! the KIRA routing protocol [R²/KAD](kira_r2kad::R2Kad) and dependent components.
 //!
-//! The dedicated channels are grouped by [Input](kira_lib::Input) and
-//! [Output](kira_lib::Output) event channels:
+//! The dedicated channels are grouped by [Input](kira_r2kad::Input) and
+//! [Output](kira_r2kad::Output) event channels:
 //!
 //! 1. [R2KadInputChannels]: Collection of all types of input channels.
 //! 2. [R2KadOutputChannels]: Composed of output
@@ -26,10 +26,10 @@ use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use kira_forwarding::domain::r2kad::ForwardingTablesUpdate;
-use kira_lib::domain::protocol_event::DebugEvent;
-use kira_lib::domain::{UnderlayNeighborDestination, UnderlayNeighborId, UnderlayNeighborUpdate};
-use kira_lib::messaging::ProtocolMessage;
-use kira_lib::{Input, Output};
+use kira_r2kad::domain::protocol_event::DebugEvent;
+use kira_r2kad::domain::{UnderlayNeighborDestination, UnderlayNeighborId, UnderlayNeighborUpdate};
+use kira_r2kad::messaging::ProtocolMessage;
+use kira_r2kad::{Input, Output};
 
 /// [Receiver] of [ProtocolMessages](ProtocolMessage) and the source [UnderlayNeighborId].
 ///

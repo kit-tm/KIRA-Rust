@@ -1,4 +1,4 @@
-//! Traits and implementations for receiving [ProtocolMessages](kira_lib::messaging::ProtocolMessage).
+//! Traits and implementations for receiving [ProtocolMessages](kira_r2kad::messaging::ProtocolMessage).
 
 use std::task::Poll;
 use std::time::Duration;
@@ -8,8 +8,8 @@ use error::*;
 use futures::FutureExt;
 use futures::Stream;
 
-pub use kira_lib::domain::{InterfaceId, UnderlayNeighborId};
-pub use kira_lib::messaging::messages::ProtocolMessage;
+pub use kira_r2kad::domain::{InterfaceId, UnderlayNeighborId};
+pub use kira_r2kad::messaging::messages::ProtocolMessage;
 
 #[cfg(feature = "udp-tokio")]
 pub mod udp_tokio;
@@ -83,7 +83,7 @@ pub mod error {
     use std::collections::HashSet;
 
     use derive_more::{Display, Error};
-    use kira_lib::domain::InterfaceId;
+    use kira_r2kad::domain::InterfaceId;
 
     /// Error type for [ProtocolMessageReceiver::recv](super::ProtocolMessageReceiver::recv)
     /// and [AsyncProtocolMessageReceiver::recv_timeout](super::AsyncProtocolMessageReceiver::recv_timeout).

@@ -8,7 +8,7 @@ use std::num::NonZeroU32;
 use std::ops::DerefMut;
 use std::sync::Arc;
 
-use kira_lib::domain::NodeId;
+use kira_r2kad::domain::NodeId;
 use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
 

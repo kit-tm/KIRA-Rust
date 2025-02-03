@@ -2,7 +2,6 @@
 
 use derive_more::derive::{Display, Error, From};
 use futures::StreamExt;
-use kira_lib::domain::NodeIdSubnet;
 use std::net::Ipv6Addr;
 use std::num::NonZeroU32;
 
@@ -23,7 +22,7 @@ use netlink_packet_route::{AddressFamily, RouteNetlinkMessage};
 use netlink_packet_utils::nla::DefaultNla;
 use netlink_proto::{sys::SocketAddr, ConnectionHandle};
 
-use crate::domain::{InterfaceId, NodeId, PathId};
+use crate::domain::{InterfaceId, NodeId, NodeIdSubnet, PathId};
 use crate::underlay::UnderlayNeighborInformation;
 
 // https://github.com/torvalds/linux/blob/05dbaf8dd8bf537d4b4eb3115ab42a5fb40ff1f5/include/uapi/linux/lwtunnel.h#L39
