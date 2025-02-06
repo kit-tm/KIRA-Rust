@@ -37,7 +37,7 @@ pub trait UseCaseRuntime {
 
     /// Convenient method to send a [ProtocolMessage].
     ///
-    /// If the next hop is not in the `pn_table` (physical neighbor table)
+    /// If the next hop is not in the `un_table` (underlay neighbor table)
     /// or the even is not source-routed like [HelloMessage](crate::messaging::HelloMessage)
     /// the event is delivered by broadcasting to all interfaces.
     fn send_message<P: Into<ProtocolMessage>>(

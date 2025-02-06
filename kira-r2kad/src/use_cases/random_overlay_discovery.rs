@@ -62,7 +62,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     fn send_find_node_req(&mut self, context: &C) -> Result<(), RODError> {
         let random_id = NodeId::random();
@@ -88,7 +88,7 @@ where
         let closest_path = closest_path.unwrap();
 
         // Get interface of neighbor
-        let interface = context.pn_table().get(closest_path.first()).cloned();
+        let interface = context.un_table().get(closest_path.first()).cloned();
         if interface.is_none() {
             log::error!(
                 target: "random_overlay_discovery",
@@ -104,7 +104,7 @@ where
 
         let message = ReqRspMessage {
             nonce: Nonce::random(),
-            source_state_seq_nr: *context.pn_table().state_seq_nr(),
+            source_state_seq_nr: *context.un_table().state_seq_nr(),
             data: FindNodeReqData {
                 exact: false,
                 neighborhood: self.config.neighborhood_size,
@@ -117,7 +117,7 @@ where
 
         context
             .runtime()
-            .send_message(message, context.pn_table().deref());
+            .send_message(message, context.un_table().deref());
 
         Ok(())
     }
@@ -128,7 +128,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = RODState;
 
@@ -152,7 +152,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = RODError;

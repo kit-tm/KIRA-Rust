@@ -11,7 +11,7 @@ pub struct SyncContext<RT, RU, IS, PN> {
     root_id: NodeId,
     routing_table: RefCell<RT>,
     insertion_strategy: RefCell<IS>,
-    pn_table: RefCell<PN>,
+    un_table: RefCell<PN>,
     runtime: RU,
     not_via: RefCell<HashSet<NotVia>>,
 }
@@ -20,14 +20,14 @@ impl<RT, RU, IS, PN> UseCaseContext for SyncContext<RT, RU, IS, PN> {
     type RoutingTable = RT;
     type Runtime = RU;
     type InsertionStrategy = IS;
-    type PhysicalNeighborTable = PN;
+    type UnderlayNeighborTable = PN;
 
     fn new(config: ContextConfig<RT, RU, IS, PN>) -> Self {
         Self {
             root_id: config.root_id,
             routing_table: RefCell::new(config.routing_table),
             insertion_strategy: RefCell::new(config.insertion_strategy),
-            pn_table: RefCell::new(config.pn_table),
+            un_table: RefCell::new(config.uln_table),
             runtime: config.runtime,
             not_via: RefCell::new(config.not_via),
         }
@@ -49,12 +49,12 @@ impl<RT, RU, IS, PN> UseCaseContext for SyncContext<RT, RU, IS, PN> {
         self.insertion_strategy.borrow_mut()
     }
 
-    fn pn_table(&self) -> Ref<'_, Self::PhysicalNeighborTable> {
-        self.pn_table.borrow()
+    fn un_table(&self) -> Ref<'_, Self::UnderlayNeighborTable> {
+        self.un_table.borrow()
     }
 
-    fn pn_table_mut(&self) -> RefMut<'_, Self::PhysicalNeighborTable> {
-        self.pn_table.borrow_mut()
+    fn un_table_mut(&self) -> RefMut<'_, Self::UnderlayNeighborTable> {
+        self.un_table.borrow_mut()
     }
 
     fn runtime(&self) -> &Self::Runtime {

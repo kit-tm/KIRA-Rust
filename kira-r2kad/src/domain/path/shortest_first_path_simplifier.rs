@@ -10,7 +10,7 @@ impl PathSimplifier for ShortestFirstPathSimplifier {
     fn simplify<RT, PN, const BUCKET_SIZE: usize>(
         &mut self,
         routing_table: &RT,
-        pn_table: &PN,
+        un_table: &PN,
         path: &mut Path,
     ) where
         for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
@@ -31,7 +31,7 @@ impl PathSimplifier for ShortestFirstPathSimplifier {
             let dest_id = path[dest_index];
 
             // Replace if target is a underlay neighbor
-            if pn_table.contains(&dest_id) {
+            if un_table.contains(&dest_id) {
                 path.replace_interval(0, dest_index, [dest_id]);
                 // Breaking, as the remaining path to check is replaced by the underlay neighbors path
                 break;

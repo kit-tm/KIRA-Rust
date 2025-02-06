@@ -38,7 +38,7 @@ where
         &mut self,
         contact: Contact,
         routing_table: &mut RT,
-        pn_table: &PN,
+        un_table: &PN,
     ) -> InsertionStrategyResult;
 }
 
@@ -213,7 +213,7 @@ where
         &mut self,
         mut contact: Contact,
         routing_table: &mut RT,
-        pn_table: &PN,
+        un_table: &PN,
     ) -> InsertionStrategyResult {
         // Ignore paths to us
         if contact.id() == routing_table.root() {
@@ -234,7 +234,7 @@ where
             return InsertionStrategyResult::Dropped;
         }
         // If the first element is no underlay neighbor
-        if !pn_table.contains(contact.path().first()) {
+        if !un_table.contains(contact.path().first()) {
             log::warn!(
                 target: "routing_table",
                 "Dropping contact info: first element not a underlay neighbor [{}]",
@@ -249,7 +249,7 @@ where
         let mut path = contact.path().clone();
         self.path_cycle_remover.remove_cycles_in_place(&mut path);
         self.path_simplifier
-            .simplify(routing_table, pn_table, &mut path);
+            .simplify(routing_table, un_table, &mut path);
         *contact.path_mut() = path;
 
         match routing_table.insert(contact.clone()) {
@@ -299,7 +299,7 @@ where
         &mut self,
         contact: Contact,
         routing_table: &mut RT,
-        _pn_table: &PN,
+        _un_table: &PN,
     ) -> InsertionStrategyResult {
         let result = routing_table.insert(contact);
         if let Err(e) = result {

@@ -198,10 +198,10 @@ where
     C: UseCaseContext,
     C::Runtime: Deref<Target = R2KadRuntime>,
     C::Runtime: UseCaseRuntime,
-    C::PhysicalNeighborTable:
+    C::UnderlayNeighborTable:
         UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + std::fmt::Debug,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + std::fmt::Debug,
-    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
+    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::UnderlayNeighborTable, BUCKET_SIZE>,
 {
     /// Starts the R²/KAD routing protocol instance.
     #[tracing::instrument(target = "kira", skip_all)]

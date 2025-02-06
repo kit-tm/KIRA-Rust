@@ -51,7 +51,7 @@ impl<C, const BUCKET_SIZE: usize> DeriveFwdTableEntries<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
-    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     fn remove_node_id_entry(
@@ -130,12 +130,12 @@ where
     ) -> Result<NodeIdEntry, DeriveFwdEntriesError> {
         let next_hop = *contact.path().first();
         let next_hop = context
-            .pn_table()
+            .un_table()
             .get(&next_hop)
             .copied()
             .ok_or(DeriveFwdEntriesError::NeighborNotInPNTable(next_hop))?;
 
-        if context.pn_table().contains_key(contact.id()) && !contact.is_pn() {
+        if context.un_table().contains_key(contact.id()) && !contact.is_pn() {
             log::warn!(target: "derive_fwd_table_entries", 
                 "Contact {:?} is not a underlay neighbor but listed in PNTable -> may overwrite previous route unintentionally!", 
                 contact);
@@ -176,7 +176,7 @@ where
 
             let next_hop = *closest.path().first();
             let next_hop = context
-                .pn_table()
+                .un_table()
                 .get(&next_hop)
                 .copied()
                 .ok_or(DeriveFwdEntriesError::NeighborNotInPNTable(next_hop))?;
@@ -202,7 +202,7 @@ impl<C, const BUCKET_SIZE: usize> DeriveFwdTableEntries<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
-    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     fn remove_path_id_entry(&self, context: &C, contact: Contact) {
         let in_path_id = self.config.hasher.hash(contact.path());
@@ -272,7 +272,7 @@ where
         } else {
             let next_hop = *contact.path().first();
             let next_hop = context
-                .pn_table()
+                .un_table()
                 .get(&next_hop)
                 .copied()
                 .ok_or(DeriveFwdEntriesError::NeighborNotInPNTable(next_hop))?;
@@ -294,7 +294,7 @@ impl<C, const BUCKET_SIZE: usize> EventHandler for DeriveFwdTableEntries<C, BUCK
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
-    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     type Context = C;
@@ -352,7 +352,7 @@ impl<C, const BUCKET_SIZE: usize> UseCase for DeriveFwdTableEntries<C, BUCKET_SI
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
-    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     type State = ReactiveUseCaseState;

@@ -13,7 +13,7 @@ use crate::domain::{
 ///
 /// In contrast to [FlatRoutingTable] this implementation doesn't replace
 /// existing contacts with underlay neighbors.
-/// Physical Neighbors will be added as long as they're not already present in the table.
+/// Underlay Neighbors will be added as long as they're not already present in the table.
 ///
 /// # Invariant
 ///

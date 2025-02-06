@@ -99,48 +99,48 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     fn send_setup_req(&self, context: &C, contact: &Contact) {
         let source_route = SourceRoute::new(*context.root_id(), contact.path().clone());
         let message = ReqRspMessage {
             nonce: Nonce::random(),
-            source_state_seq_nr: *context.pn_table().state_seq_nr(),
+            source_state_seq_nr: *context.un_table().state_seq_nr(),
             data: PathSetupReqData,
             not_via: context.not_via().clone(),
             source_route,
         };
         context
             .runtime()
-            .send_message(message, context.pn_table().deref());
+            .send_message(message, context.un_table().deref());
     }
 
     fn send_probe_req(&self, context: &C, contact: &Contact) {
         let source_route = SourceRoute::new(*context.root_id(), contact.path().clone());
         let message = ReqRspMessage {
             nonce: Nonce::random(),
-            source_state_seq_nr: *context.pn_table().state_seq_nr(),
+            source_state_seq_nr: *context.un_table().state_seq_nr(),
             data: ProbeReqData,
             not_via: context.not_via().clone(),
             source_route,
         };
         context
             .runtime()
-            .send_message(message, context.pn_table().deref());
+            .send_message(message, context.un_table().deref());
     }
 
     fn send_teardown_req(&self, context: &C, contact: &Contact) {
         let source_route = SourceRoute::new(*context.root_id(), contact.path().clone());
         let message = ReqRspMessage {
             nonce: Nonce::random(),
-            source_state_seq_nr: *context.pn_table().state_seq_nr(),
+            source_state_seq_nr: *context.un_table().state_seq_nr(),
             data: PathTeardownReqData,
             not_via: context.not_via().clone(),
             source_route,
         };
         context
             .runtime()
-            .send_message(message, context.pn_table().deref());
+            .send_message(message, context.un_table().deref());
     }
 
     // Only deletes paths setup by others.
@@ -216,7 +216,7 @@ where
 
         match out_path {
             Some(out_path) => {
-                let next_hop = match context.pn_table().get(out_path.first()).cloned() {
+                let next_hop = match context.un_table().get(out_path.first()).cloned() {
                     Some(next_hop) => next_hop,
                     None => {
                         log::error!(target: "explicit_path_management", "Received PathSetupRequest for invalid underlay neighbor {}; Ignoring", out_path.first());
@@ -338,7 +338,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = EPMError;
@@ -489,7 +489,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = EPMState;
 

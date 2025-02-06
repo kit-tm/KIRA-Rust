@@ -127,10 +127,10 @@ impl<C, const BUCKET_SIZE: usize> R2KadPipeline<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
-    C::PhysicalNeighborTable:
+    C::UnderlayNeighborTable:
         UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + std::fmt::Debug,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + std::fmt::Debug,
-    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
+    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::UnderlayNeighborTable, BUCKET_SIZE>,
 {
     pub fn startup(&mut self, context: &C) -> Result<(), UseCaseStartupError> {
         // Initialize the Use Cases

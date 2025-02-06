@@ -7,7 +7,7 @@ use rand::Rng;
 #[derive(Debug, Eq, PartialEq, Hash)]
 pub enum Distance {
     OverlayNeighbor,
-    PhysicalNeighbor,
+    UnderlayNeighbor,
     Others,
 }
 
@@ -21,7 +21,7 @@ impl DistanceMap {
     pub fn new(overlay: Duration, underlay: Duration, others: Duration) -> Self {
         let mut map = HashMap::with_capacity(3);
         map.insert(Distance::OverlayNeighbor, overlay);
-        map.insert(Distance::PhysicalNeighbor, underlay);
+        map.insert(Distance::UnderlayNeighbor, underlay);
         map.insert(Distance::Others, others);
         Self { values: map }
     }

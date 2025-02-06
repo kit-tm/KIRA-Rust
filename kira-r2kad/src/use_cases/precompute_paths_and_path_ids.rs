@@ -80,7 +80,7 @@ impl<C, const BUCKET_SIZE: usize> PrecomputePathIds<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
-    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     fn gen_entries_from_graph(&self, context: &C, graph: &VicinityGraph) -> HashSet<PathIdEntry> {
         if !graph.neighbors.is_empty() {
@@ -108,7 +108,7 @@ where
                 continue;
             }
 
-            let Some(ulnid) = context.pn_table().get(out_path.first()).cloned() else {
+            let Some(ulnid) = context.un_table().get(out_path.first()).cloned() else {
                 log::warn!(target: "precompute_paths_and_path_ids", "VicinityGraph generated path over invalid neighbor {:?}", out_path.first());
                 continue;
             };
@@ -165,7 +165,7 @@ impl<C, const BUCKET_SIZE: usize> EventHandler for PrecomputePathIds<C, BUCKET_S
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
-    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     type Context = C;
@@ -247,7 +247,7 @@ where
                         // TODO if we don't have a contact this should probably error out
                         log::error!(target: "precompute_paths_and_path_ids", "No contact for node {}, not adding to vicinity graph", source);
                         log::debug!(target: "precompute_paths_and_path_ids", "Routing table: {:?}", context.routing_table().iter().collect::<Vec<_>>());
-                        log::debug!(target: "precompute_paths_and_path_ids", "Physical neighbor table: {:?}", context.pn_table().iter().collect::<Vec<_>>());
+                        log::debug!(target: "precompute_paths_and_path_ids", "Underlay neighbor table: {:?}", context.un_table().iter().collect::<Vec<_>>());
                         log::debug!(target: "precompute_paths_and_path_ids", "Vicinity graph: {:?}", self.vicinity_graph);
                     }
                 }
@@ -286,7 +286,7 @@ where
             UseCaseEvent::Contact(ContactEvent::New(contact)) => {
                 // only add underlay neighbors
                 if !contact.is_pn() {
-                    tracing::trace!(target: "precompute_paths_and_path_ids", "Not adding non-physical neighbor contact: {:?}", contact);
+                    tracing::trace!(target: "precompute_paths_and_path_ids", "Not adding non-underlay neighbor contact: {:?}", contact);
                     return Ok(());
                 }
 
@@ -364,7 +364,7 @@ impl<C, const BUCKET_SIZE: usize> UseCase for PrecomputePathIds<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
-    C::PhysicalNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     type State = PrecomputeState;

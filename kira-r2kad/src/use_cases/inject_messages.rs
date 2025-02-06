@@ -134,7 +134,7 @@ where
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     TS: InjectionResultSender,
-    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = InjectMessageError;
@@ -186,7 +186,7 @@ where
 
                 let message = ProtocolMessage::FindNodeReq(ReqRspMessage {
                     nonce: nonce.clone(),
-                    source_state_seq_nr: *context.pn_table().state_seq_nr(),
+                    source_state_seq_nr: *context.un_table().state_seq_nr(),
                     data,
                     not_via: context.not_via().clone(),
                     source_route,
@@ -194,7 +194,7 @@ where
 
                 context
                     .runtime()
-                    .send_message(message, context.pn_table().deref());
+                    .send_message(message, context.un_table().deref());
 
                 self.nonces.insert(nonce, Instant::now());
             }
@@ -225,7 +225,7 @@ where
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     TS: InjectionResultSender,
-    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = ReactiveUseCaseState;
 

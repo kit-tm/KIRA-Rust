@@ -66,7 +66,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     fn send_update(&self, context: &C, updates: HashMap<Contact, RouteUpdate>) {
         let overlay_neighbors = context
@@ -80,7 +80,7 @@ where
 
         for (_, contact) in overlay_neighbors {
             let message = UpdateRouteReq {
-                source_state_seq_nr: *context.pn_table().state_seq_nr(),
+                source_state_seq_nr: *context.un_table().state_seq_nr(),
                 not_via: context.not_via().clone(),
                 contact_actions: updates.clone(),
                 source_route: SourceRoute::new(*context.root_id(), contact.path().clone()),
@@ -88,7 +88,7 @@ where
 
             context
                 .runtime()
-                .send_message(message, context.pn_table().deref());
+                .send_message(message, context.un_table().deref());
         }
     }
 
@@ -107,7 +107,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = NeverError;
@@ -138,7 +138,7 @@ where
 
                 self.invalidate_all_affected_contacts(context, &contact);
 
-                if context.pn_table_mut().remove(contact.id()).is_some() {
+                if context.un_table_mut().remove(contact.id()).is_some() {
                     log::trace!(target: "handle_contact_update", "removed {} from underlay neighbors", contact.id());
                 }
             }

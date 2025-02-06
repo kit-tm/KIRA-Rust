@@ -49,7 +49,7 @@ impl From<BucketSplitError> for InsertionError {
 ///
 /// A [RoutingTable] has to guarantee to have at least one [Bucket] at any given time.
 ///
-/// # Physical Neighbors
+/// # Underlay Neighbors
 ///
 /// As some RoutingTable implementation may handle underlay neighbors in a different way
 /// the caller has to be careful when using [RoutingTable::bucket] and [RoutingTable::bucket_mut].

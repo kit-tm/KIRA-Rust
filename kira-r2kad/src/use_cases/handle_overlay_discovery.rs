@@ -112,7 +112,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = NeverError;
@@ -174,7 +174,7 @@ where
                     self.build_find_node_rsp(
                         context.not_via().clone(),
                         req.clone(),
-                        *context.pn_table().state_seq_nr(),
+                        *context.un_table().state_seq_nr(),
                         closest,
                     )
                 }
@@ -196,14 +196,14 @@ where
                         self.build_error(
                             context.not_via().clone(),
                             req.clone(),
-                            *context.pn_table().state_seq_nr(),
+                            *context.un_table().state_seq_nr(),
                         )
                     }
                 }
                 (true, _, false, None) => self.build_error(
                     context.not_via().clone(),
                     req.clone(),
-                    *context.pn_table().state_seq_nr(),
+                    *context.un_table().state_seq_nr(),
                 ),
                 (false, _, true, _) => {
                     log::warn!(
@@ -232,7 +232,7 @@ where
                         self.build_find_node_rsp(
                             context.not_via().clone(),
                             req.clone(),
-                            *context.pn_table().state_seq_nr(),
+                            *context.un_table().state_seq_nr(),
                             closest,
                         )
                     }
@@ -240,14 +240,14 @@ where
                 (false, _, false, None) => self.build_find_node_rsp(
                     context.not_via().clone(),
                     req.clone(),
-                    *context.pn_table().state_seq_nr(),
+                    *context.un_table().state_seq_nr(),
                     Vec::with_capacity(0),
                 ),
             };
 
             context
                 .runtime()
-                .send_message(outgoing_message, context.pn_table().deref());
+                .send_message(outgoing_message, context.un_table().deref());
         }
 
         Ok(())

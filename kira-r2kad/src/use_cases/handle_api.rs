@@ -33,7 +33,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: Debug,
-    C::PhysicalNeighborTable: Debug,
+    C::UnderlayNeighborTable: Debug,
 {
     type Context = C;
 
@@ -51,7 +51,7 @@ where
                 sender.send(format!("{:#?}", *context.routing_table()))?;
             }
             UseCaseEvent::API(super::ApiEvent::PNTable(sender)) => {
-                sender.send(format!("{:#?}", *context.pn_table()))?;
+                sender.send(format!("{:#?}", *context.un_table()))?;
             }
             _ => {}
         }

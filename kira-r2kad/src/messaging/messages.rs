@@ -5,7 +5,9 @@ use std::fmt::Debug;
 use std::num::NonZeroU64;
 
 use crate::domain::{Contact, Link, NodeId, NotVia, StateSeqNr};
-use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreReqData, StoreRspData};
+use crate::messaging::dht::{
+    DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreReqData, StoreRspData,
+};
 use crate::messaging::source_route::SourceRoute;
 use std::fmt;
 
@@ -77,7 +79,7 @@ impl ProtocolMessage {
             Self::StoreReq(req) => Some(&mut req.source_route),
             Self::StoreRsp(req) => Some(&mut req.source_route),
             Self::FetchReq(req) => Some(&mut req.source_route),
-            Self::FetchRsp(req) => Some(&mut req.source_route)
+            Self::FetchRsp(req) => Some(&mut req.source_route),
         }
     }
 
@@ -99,7 +101,7 @@ impl ProtocolMessage {
             Self::StoreReq(req) => Some(&req.source_route),
             Self::StoreRsp(req) => Some(&req.source_route),
             Self::FetchReq(req) => Some(&req.source_route),
-            Self::FetchRsp(req) => Some(&req.source_route)
+            Self::FetchRsp(req) => Some(&req.source_route),
         }
     }
 
@@ -122,7 +124,7 @@ impl ProtocolMessage {
             Self::StoreReq(req) => Some(req.destination()),
             Self::StoreRsp(req) => Some(req.destination()),
             Self::FetchReq(req) => Some(req.destination()),
-            Self::FetchRsp(req) => Some(req.destination())
+            Self::FetchRsp(req) => Some(req.destination()),
         }
     }
 
@@ -144,7 +146,7 @@ impl ProtocolMessage {
             Self::StoreReq(req) => Some(&req.nonce),
             Self::StoreRsp(req) => Some(&req.nonce),
             Self::FetchReq(req) => Some(&req.nonce),
-            Self::FetchRsp(req) => Some(&req.nonce)
+            Self::FetchRsp(req) => Some(&req.nonce),
         }
     }
 
@@ -158,14 +160,14 @@ impl ProtocolMessage {
             Self::FindNodeReq(req) => req.source(),
             Self::FindNodeRsp(req) => req.source(),
             Self::Error(ReqRspMessage {
-                            data: ErrorData::DeadEnd,
-                            source_route,
-                            ..
-                        }) => source_route.source(),
+                data: ErrorData::DeadEnd,
+                source_route,
+                ..
+            }) => source_route.source(),
             Self::Error(ReqRspMessage {
-                            data: ErrorData::SegmentFailure { source, .. },
-                            ..
-                        }) => source,
+                data: ErrorData::SegmentFailure { source, .. },
+                ..
+            }) => source,
             Self::ProbeReq(req) => req.source(),
             Self::ProbeRsp(req) => req.source(),
             Self::PathSetupReq(req) => req.source(),
@@ -174,7 +176,7 @@ impl ProtocolMessage {
             ProtocolMessage::StoreReq(req) => req.source(),
             ProtocolMessage::StoreRsp(req) => req.source(),
             ProtocolMessage::FetchReq(req) => req.source(),
-            ProtocolMessage::FetchRsp(req) => req.source()
+            ProtocolMessage::FetchRsp(req) => req.source(),
         }
     }
 
@@ -196,7 +198,7 @@ impl ProtocolMessage {
             ProtocolMessage::StoreReq(req) => &req.source_state_seq_nr,
             ProtocolMessage::StoreRsp(req) => &req.source_state_seq_nr,
             ProtocolMessage::FetchReq(req) => &req.source_state_seq_nr,
-            ProtocolMessage::FetchRsp(req) => &req.source_state_seq_nr
+            ProtocolMessage::FetchRsp(req) => &req.source_state_seq_nr,
         }
     }
 
@@ -218,7 +220,7 @@ impl ProtocolMessage {
             Self::StoreReq(req) => Some(&req.not_via),
             Self::StoreRsp(req) => Some(&req.not_via),
             Self::FetchReq(req) => Some(&req.not_via),
-            Self::FetchRsp(req) => Some(&req.not_via)
+            Self::FetchRsp(req) => Some(&req.not_via),
         }
     }
 
@@ -228,7 +230,7 @@ impl ProtocolMessage {
         match self {
             Self::StoreReq(req) => Some(&req.data.handle),
             Self::FetchReq(req) => Some(&req.data.handle),
-            _ => None
+            _ => None,
         }
     }
 
@@ -387,7 +389,7 @@ pub struct QueryRouteReqData {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum QueryRouteType {
-    PhysicalNeighbors,
+    UnderlayNeighbors,
     // TODO: Evaluate if this is used and when
     //OverlayNeighbors(NonZeroU64),
 }

@@ -65,7 +65,7 @@ impl<C, const BUCKET_SIZE: usize> Builder<C, BUCKET_SIZE>
 where
     C: UseCaseContext<
         RoutingTable = ObservableRoutingTable<UnlimitedPNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
-        PhysicalNeighborTable = InMemoryPNTable,
+        UnderlayNeighborTable = InMemoryPNTable,
         Runtime = Arc<R2KadRuntime>,
         InsertionStrategy = PNSStrategy<
             ObservableRoutingTable<UnlimitedPNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
@@ -109,7 +109,7 @@ where
             routing_table,
             runtime,
             insertion_strategy,
-            pn_table: InMemoryPNTable::new(),
+            uln_table: InMemoryPNTable::new(),
             not_via: HashSet::default(),
         });
 
@@ -233,10 +233,10 @@ impl<C, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::Runtime: Deref<Target = R2KadRuntime>,
-    C::PhysicalNeighborTable:
+    C::UnderlayNeighborTable:
         UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + std::fmt::Debug,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + std::fmt::Debug,
-    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
+    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::UnderlayNeighborTable, BUCKET_SIZE>,
 {
     /// Startup the protocol instance.
     pub fn startup(&mut self, now: Instant) -> Result<()> {

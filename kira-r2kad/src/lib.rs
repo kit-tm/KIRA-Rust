@@ -21,7 +21,7 @@
 //! logging targets have been added.
 //!
 //! - `routing_table`: Updates to the routing table.
-//! - `pn_table`: Updated to the underlay neighbor table.
+//! - `un_table`: Updated to the underlay neighbor table.
 //! - `r2kad`: Information about the event processing by the R²/KAD instance.
 //!
 //! Use Case related:

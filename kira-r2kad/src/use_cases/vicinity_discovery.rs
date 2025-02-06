@@ -186,14 +186,14 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     fn send_query_route_req(&mut self, context: &C, contact: Contact) -> Result<(), VDError> {
         Self::restricted_send_query_route_req(context, contact)
     }
 
     fn restricted_send_query_route_req(context: &C, contact: Contact) -> Result<(), VDError> {
-        // Physical Neighbors and Nodes outside of the Vicinity are not included
+        // Underlay Neighbors and Nodes outside of the Vicinity are not included
         if contact.is_pn() || contact.path().size() > VICINITY_RADIUS {
             log::trace!(target: "vicinity_discovery", "Ignoring contact update: underlay neighbor or not in vicinity radius");
             return Ok(());
@@ -210,7 +210,7 @@ where
         route.push_front(*context.root_id());
 
         // Get interface of route
-        let neighbor_port = context.pn_table().get(contact.path().first()).cloned();
+        let neighbor_port = context.un_table().get(contact.path().first()).cloned();
         if neighbor_port.is_none() {
             log::error!(
                 target: "vicinity_discovery",
@@ -223,9 +223,9 @@ where
         // Request only underlay Neighborhood of that Node
         let request = ReqRspMessage {
             nonce: Nonce::random(),
-            source_state_seq_nr: *context.pn_table().state_seq_nr(),
+            source_state_seq_nr: *context.un_table().state_seq_nr(),
             data: QueryRouteReqData {
-                query_type: QueryRouteType::PhysicalNeighbors,
+                query_type: QueryRouteType::UnderlayNeighbors,
             },
             not_via: context.not_via().clone(),
             source_route: route,
@@ -235,7 +235,7 @@ where
 
         context
             .runtime()
-            .send_message(request, context.pn_table().deref());
+            .send_message(request, context.un_table().deref());
 
         Ok(())
     }
@@ -246,8 +246,8 @@ where
         request: ReqRspMessage<QueryRouteReqData>,
     ) -> Result<(), VDError> {
         let contacts = match request.data.query_type {
-            QueryRouteType::PhysicalNeighbors => {
-                let pn_lock = context.pn_table();
+            QueryRouteType::UnderlayNeighbors => {
+                let pn_lock = context.un_table();
                 let rt_lock = context.routing_table();
 
                 let result: Vec<Contact> = pn_lock
@@ -257,7 +257,7 @@ where
                             .contact(id)
                             .cloned()
                             .ok_or_else(|| {
-                                log::error!(target: "vicinity_discovery", "No contact found for physical neighbor {}", id);
+                                log::error!(target: "vicinity_discovery", "No contact found for underlay neighbor {}", id);
                                 VDError::NeighborInconsistency
                             }))
                     })
@@ -275,7 +275,7 @@ where
 
         let message = ProtocolMessage::QueryRouteRsp(ReqRspMessage {
             nonce: request.nonce,
-            source_state_seq_nr: *context.pn_table().state_seq_nr(),
+            source_state_seq_nr: *context.un_table().state_seq_nr(),
             data: RTableData { contacts },
             not_via: context.not_via().clone(),
             source_route: SourceRoute::from_reversed(request.source_route),
@@ -285,7 +285,7 @@ where
 
         context
             .runtime()
-            .send_message(message, context.pn_table().deref());
+            .send_message(message, context.un_table().deref());
 
         Ok(())
     }
@@ -293,7 +293,7 @@ where
     fn construct_hello(&self, context: &C) -> HelloMessage {
         HelloMessage {
             source: *context.root_id(),
-            source_state_seq_nr: *context.pn_table().state_seq_nr(),
+            source_state_seq_nr: *context.un_table().state_seq_nr(),
         }
     }
 
@@ -325,14 +325,14 @@ where
     fn restricted_send_pn_disc_req(context: &C, source: NodeId) {
         // Answer with a PNDiscReq to ensure bidirectional connectivity
         let pn_contacts = context
-            .pn_table()
+            .un_table()
             .iter()
             .filter_map(|(id, _)| context.routing_table().contact(id).cloned())
             .collect::<Vec<_>>();
 
         let message = ProtocolMessage::PNDiscReq(ReqRspMessage {
             nonce: Nonce::random(),
-            source_state_seq_nr: *context.pn_table().state_seq_nr(),
+            source_state_seq_nr: *context.un_table().state_seq_nr(),
             data: RTableData {
                 contacts: pn_contacts,
             },
@@ -349,21 +349,21 @@ where
 
         context
             .runtime()
-            .send_message(message, context.pn_table().deref());
+            .send_message(message, context.un_table().deref());
     }
 
     fn send_pn_disc_rsp(&self, context: &C, req: ReqRspMessage<RTableData>) -> Result<(), VDError> {
         // Note: Locks will be released at end of curly braces
         let (ssn, contacts) = {
             let rt_lock = context.routing_table();
-            let pn_lock = context.pn_table();
+            let pn_lock = context.un_table();
 
             let neighbors = pn_lock.keys().collect::<Vec<_>>();
             let mut contacts = Vec::with_capacity(neighbors.len());
             for pn_id in neighbors {
                 let contact = rt_lock.contact(pn_id).cloned();
                 if contact.is_none() {
-                    log::error!(target: "vicinity_discovery", "No contact found for physical neighbor {}", pn_id);
+                    log::error!(target: "vicinity_discovery", "No contact found for underlay neighbor {}", pn_id);
                     return Err(VDError::NeighborInconsistency);
                 }
                 contacts.push(contact.unwrap());
@@ -383,7 +383,7 @@ where
 
         context
             .runtime()
-            .send_message(response, context.pn_table().deref());
+            .send_message(response, context.un_table().deref());
 
         Ok(())
     }
@@ -394,7 +394,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = VDState;
 
@@ -412,7 +412,7 @@ where
         self.state = VDState::Running {
             last_timeout: self.config.initial_timeout,
             hello_timer_id,
-            last_ssn: *context.pn_table().state_seq_nr(),
+            last_ssn: *context.un_table().state_seq_nr(),
             resync_queue: HashMap::default(),
             resync_timer_id,
         };
@@ -430,7 +430,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = VDError;
@@ -463,7 +463,7 @@ where
 
                 self.send_query_route_rsp(context, request)?;
             }
-            // ========== Physical Neighbor Discovery ==========
+            // ========== Underlay Neighbor Discovery ==========
             (
                 UseCaseEvent::Timer(id),
                 VDState::Running {
@@ -473,7 +473,7 @@ where
                     ..
                 },
             ) if &id == hello_timer_id => {
-                let current_ssn = *context.pn_table().state_seq_nr();
+                let current_ssn = *context.un_table().state_seq_nr();
 
                 // reset to initial timeout if ssn changed
                 let next_timeout = if *last_ssn != current_ssn {
@@ -526,7 +526,7 @@ where
 
                 // we already know the neighbor
                 // only resynchronise if we see a newer ssn in the hello message
-                if context.pn_table().contains(&source) {
+                if context.un_table().contains(&source) {
                     if let VDState::Running { resync_queue, .. } = &self.state {
                         if let Some((expected_ssn, _)) = resync_queue.get(&source) {
                             // nothing new about the neighbor
@@ -539,7 +539,7 @@ where
                         // check rt contact for expected ssn
                         let rt = context.routing_table();
                         let Some(contact) = rt.contact(&source) else {
-                            log::error!(target: "vicinity_discovery", "No contact found for physical neighbor {}", source);
+                            log::error!(target: "vicinity_discovery", "No contact found for underlay neighbor {}", source);
                             return Err(VDError::NeighborInconsistency);
                         };
 
@@ -603,7 +603,7 @@ where
                 for (nid, (_, current_tries)) in
                     resync_queue.iter_mut().take(self.config.resynch_count)
                 {
-                    if context.pn_table().contains(nid) {
+                    if context.un_table().contains(nid) {
                         Self::restricted_send_pn_disc_req(context, *nid);
                     } else if let Some(contact) = context.routing_table().contact(nid) {
                         Self::restricted_send_query_route_req(context, contact.clone())?;

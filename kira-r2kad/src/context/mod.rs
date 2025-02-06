@@ -10,12 +10,12 @@ use crate::domain::{NodeId, NotVia};
 pub mod sync_context;
 
 /// Configuration Wrapper for all dependencies of a [UseCaseContext].
-pub struct ContextConfig<RT, RU, IS, PN> {
+pub struct ContextConfig<RT, RU, IS, UN> {
     pub root_id: NodeId,
     pub routing_table: RT,
     pub runtime: RU,
     pub insertion_strategy: IS,
-    pub pn_table: PN,
+    pub uln_table: UN,
     pub not_via: HashSet<NotVia>,
 }
 
@@ -30,14 +30,14 @@ pub trait UseCaseContext {
     type RoutingTable: Sized;
     type InsertionStrategy: Sized;
     type Runtime: Sized;
-    type PhysicalNeighborTable: Sized;
+    type UnderlayNeighborTable: Sized;
 
     fn new(
         config: ContextConfig<
             Self::RoutingTable,
             Self::Runtime,
             Self::InsertionStrategy,
-            Self::PhysicalNeighborTable,
+            Self::UnderlayNeighborTable,
         >,
     ) -> Self;
 
@@ -49,9 +49,9 @@ pub trait UseCaseContext {
 
     fn routing_table_insertion_strategy(&self) -> RefMut<'_, Self::InsertionStrategy>;
 
-    fn pn_table(&self) -> Ref<'_, Self::PhysicalNeighborTable>;
+    fn un_table(&self) -> Ref<'_, Self::UnderlayNeighborTable>;
 
-    fn pn_table_mut(&self) -> RefMut<'_, Self::PhysicalNeighborTable>;
+    fn un_table_mut(&self) -> RefMut<'_, Self::UnderlayNeighborTable>;
 
     fn runtime(&self) -> &Self::Runtime;
 

@@ -64,7 +64,7 @@ pub async fn start_http_server(api_config: ApiConfig) {
         .route("/dht/store", post(store_dht_data))
         .route("/dht/fetch", get(fetch_dht_data))
         .route("/dht/_dev/local-hashtable", get(dump_local_hashtable))
-        .route("/_dev/pn-table", get(dump_pn_table))
+        .route("/_dev/pn-table", get(dump_un_table))
         .route("/_dev/routing-table", get(dump_routing_table))
         .route("/_dev/vicinity-graph", get(dump_vicinity_graph))
         .with_state(api_state);
@@ -322,7 +322,7 @@ async fn dump_local_hashtable(
 // todo Swagger doc
 // todo create generic ApiErr
 
-async fn dump_pn_table(State(state): State<crate::api::ApiState>) -> Result<String, Json<DHTErr>> {
+async fn dump_un_table(State(state): State<crate::api::ApiState>) -> Result<String, Json<DHTErr>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
 
     let event = ApiEvent::PNTable(tx);
@@ -333,12 +333,12 @@ async fn dump_pn_table(State(state): State<crate::api::ApiState>) -> Result<Stri
         .await
         .map_err(|_| DHTErr::SendError)?;
 
-    let pn_table_debug_string = timeout(domain::dht::DEFAULT_TIMEOUT, rx.recv())
+    let un_table_debug_string = timeout(domain::dht::DEFAULT_TIMEOUT, rx.recv())
         .await
         .map(|received| received.ok_or(DHTErr::ReceiveError))
         .map_err(|_| DHTErr::Timeout)??;
 
-    Ok(pn_table_debug_string)
+    Ok(un_table_debug_string)
 }
 
 async fn dump_routing_table(

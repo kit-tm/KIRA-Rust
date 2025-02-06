@@ -106,7 +106,7 @@ impl UseCaseState for ONDState {
 ///
 /// Inconsistencies (underlay neighbors without contacts, contacts with invalid paths)
 /// yield an error and will change the state to an unrecoverable error state.
-/// The reason is that a failing neighbor and its removal should yield changes to pn_table
+/// The reason is that a failing neighbor and its removal should yield changes to un_table
 /// and routing table at the same time.
 #[derive(Debug, Clone)]
 pub struct OverlayNeighborhoodDiscovery<C, const BUCKET_SIZE: usize> {
@@ -150,7 +150,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
-    C::PhysicalNeighborTable: UNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: UNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     /// Sets a new timer accordingly and sends a new FindNodeReq
     /// if exponential backoff allows it.
@@ -191,7 +191,7 @@ where
         *latest = Some(nonce.clone());
 
         // No need for discovery if isolated
-        if context.pn_table().is_empty() {
+        if context.un_table().is_empty() {
             log::warn!(target: "overlay_neighborhood_discovery",
                 "No underlay neighbors present; Node is isolated"
             );
@@ -214,9 +214,9 @@ where
         if path_to_closest_on.is_none() {
             log::warn!(
                 target: "overlay_neighborhood_discovery",
-                "Physical neighbors are present, but no contacts; Assuming isolation due to invalid neighbors. RT: {:?}, NT: {:?}",
+                "Underlay neighbors are present, but no contacts; Assuming isolation due to invalid neighbors. RT: {:?}, NT: {:?}",
                 *context.routing_table(),
-                *context.pn_table()
+                *context.un_table()
             );
             return Err(ONDError::NeighborInconsistency);
         }
@@ -226,7 +226,7 @@ where
 
         // Get the interface of the next underlay neighbor to route this request through
         let neighbor = route_to_closest_on.current_hop();
-        let interface = context.pn_table().get(neighbor).cloned();
+        let interface = context.un_table().get(neighbor).cloned();
         if interface.is_none() {
             log::error!(
                 target: "overlay_neighborhood_discovery",
@@ -239,7 +239,7 @@ where
 
         let request = ReqRspMessage {
             nonce,
-            source_state_seq_nr: *context.pn_table().state_seq_nr(),
+            source_state_seq_nr: *context.un_table().state_seq_nr(),
             data: FindNodeReqData {
                 exact: false,
                 neighborhood: self.config.overlay_neighborhood_size,
@@ -257,7 +257,7 @@ where
 
         context
             .runtime()
-            .send_message(request, context.pn_table().deref());
+            .send_message(request, context.un_table().deref());
 
         // Start next backoff timer
         *timer_id = context.runtime().register_timer(next_backoff);
@@ -278,7 +278,7 @@ where
     C::Runtime: UseCaseRuntime,
     // Isn't used yet, but provides information for the compiler to derive the BUCKET_SIZE from RT
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
-    C::PhysicalNeighborTable: UNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: UNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = ONDState;
 
@@ -305,7 +305,7 @@ where
     C::Runtime: UseCaseRuntime,
     // Isn't used yet, but provides information for the compiler to derive the BUCKET_SIZE from RT
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
-    C::PhysicalNeighborTable: UNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: UNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = ONDError;

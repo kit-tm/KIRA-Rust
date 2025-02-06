@@ -47,8 +47,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::UnderlayNeighborTable, BUCKET_SIZE>,
+    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     fn extract_path_to_source(&self, message: &ProtocolMessage) -> Path {
         let route = message
@@ -77,25 +77,25 @@ where
         let contact = Contact::new(path.clone(), *message.source_state_seq_nr());
 
         {
-            let mut pn_table = context.pn_table_mut();
+            let mut un_table = context.un_table_mut();
             let neighbor_id = path.first();
             // loopback: the sender was us
             if neighbor_id == context.root_id() {
                 return None;
             }
 
-            if !pn_table.contains(neighbor_id) {
-                if let Some(replaced) = pn_table.insert(*neighbor_id, ulnid) {
+            if !un_table.contains(neighbor_id) {
+                if let Some(replaced) = un_table.insert(*neighbor_id, ulnid) {
                     // Not allowed to happen as lock is held
                     log::warn!(
-                        target: "pn_table",
+                        target: "un_table",
                         "Overwritten ulnid mapping for '{}' from '{}' to '{}' but checked before",
                         neighbor_id,
                         ulnid,
                         replaced
                     );
                 } else {
-                    log::debug!(target: "pn_table", "Inserted neighbor '{}' at ulnid '{}'", neighbor_id, ulnid);
+                    log::debug!(target: "un_table", "Inserted neighbor '{}' at ulnid '{}'", neighbor_id, ulnid);
                 }
             }
         }
@@ -135,19 +135,19 @@ where
         let result = context.routing_table_insertion_strategy().insert(
             contact.clone(),
             context.routing_table_mut().deref_mut(),
-            context.pn_table().deref(),
+            context.un_table().deref(),
         );
 
         // Remove if contact changed the routing table in any way, was a underlay neighbor and is not a pn anymore
         if result != InsertionStrategyResult::Dropped
-            && context.pn_table().contains(contact.id())
+            && context.un_table().contains(contact.id())
             && !context
                 .routing_table()
                 .contact(contact.id())
                 .map(Contact::is_pn)
                 .unwrap_or(false)
         {
-            context.pn_table_mut().remove(contact.id());
+            context.un_table_mut().remove(contact.id());
             log::debug!(target: "forward_protocol_message", "Removed {} from UNTable as no more a undelay neighbor; {:?}", contact.id(), contact);
         }
     }
@@ -338,7 +338,7 @@ where
 
         let error_message = ReqRspMessage {
             nonce: message.nonce().unwrap().clone(),
-            source_state_seq_nr: *context.pn_table().state_seq_nr(),
+            source_state_seq_nr: *context.un_table().state_seq_nr(),
             data: ErrorData::SegmentFailure {
                 failed_link,
                 source: root_id,
@@ -349,7 +349,7 @@ where
 
         context
             .runtime()
-            .send_message(error_message, context.pn_table().deref());
+            .send_message(error_message, context.un_table().deref());
     }
 
     fn handle_forwarding(&self, context: &C, mut message: ProtocolMessage) -> HandlingResult {
@@ -438,7 +438,7 @@ where
         }
 
         // Next hop is not a underlay neighbor -> Error -> Drop
-        let neighbor_ulnid = context.pn_table().get(next_hop).cloned();
+        let neighbor_ulnid = context.un_table().get(next_hop).cloned();
         if neighbor_ulnid.is_none() {
             self.handle_next_hop_failed(context, message);
             return HandlingResult::Handled;
@@ -452,7 +452,7 @@ where
         log::trace!(target: "forward_protocol_message", "Forwarding message {:?}", message);
         context
             .runtime()
-            .send_message(message, context.pn_table().deref());
+            .send_message(message, context.un_table().deref());
         HandlingResult::Handled
     }
 }
@@ -462,8 +462,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::UnderlayNeighborTable, BUCKET_SIZE>,
+    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = ReactiveUseCaseState;
 
@@ -481,8 +481,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::PhysicalNeighborTable, BUCKET_SIZE>,
-    C::PhysicalNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::UnderlayNeighborTable, BUCKET_SIZE>,
+    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = NeverError;

@@ -15,7 +15,7 @@ pub const DEFAULT_ACCELERATION: usize = 1;
 ///
 /// This [RoutingTable] has a root [NodeId] which the distance is computed to.
 ///
-/// This kind of [RoutingTable] is only working with Physical Neighbor Selection
+/// This kind of [RoutingTable] is only working with Underlay Neighbor Selection
 /// and Proximity Routing.
 ///
 /// ## Improvements
@@ -397,7 +397,6 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
     fn get_bucket_prefix_length(&self, bucket_index: usize) -> usize {
         ACC + ACC * (bucket_index / Self::level_width())
     }
-    
 }
 
 #[cfg(test)]
