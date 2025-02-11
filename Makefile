@@ -39,12 +39,13 @@ uninstall-data:
 	rm -r $(PREFIX)/share/$(PKGNAME)
 
 lib-docs:
-	cargo doc --package=kira-lib --all-features --open
+	cargo doc --package=kira-lib --all-features --open --no-deps
+r2kad-docs:
+	cargo doc --package=kira-r2kad --all-features --open --no-deps
+forwarding-docs:
+	cargo doc --package=kira-forwarding --all-features --open --no-deps
 
-daemon-docs:
-	cargo doc --package=kirad --all-features --open
-
-docs: lib-docs daemon-docs
+docs: lib-docs r2kad-docs forwarding-docs
 
 unit-test:
 	cargo test --lib

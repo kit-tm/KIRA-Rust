@@ -17,7 +17,7 @@ use crate::underlay::UnderlayObserverHandle;
 /// happen for physical neighbors).
 ///
 /// Delegates the sending of messages to lower layers based on
-/// [UnderlayNeighborInformation](crate::domain::underlay::UnderlayNeighborInformation)
+/// [UnderlayNeighborInformation](kira_forwarding::underlay::UnderlayNeighborInformation)
 #[derive(Debug, Clone)]
 pub struct UdpSender {
     socket: Arc<UdpSocket>,

@@ -29,7 +29,7 @@ pub enum ProtocolMessageFormat {
     /// No message format enabled.
     ///
     /// This usually results in a panic if trying to [serialize](Self::serialize) or
-    /// [deserialize](Self::deserialize) [ProtocolMessages](ProtocolMessages).
+    /// [deserialize](Self::deserialize) [ProtocolMessages](ProtocolMessage).
     // WARNING: Why does this variant exist?
     None,
 }

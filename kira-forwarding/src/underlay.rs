@@ -1,5 +1,5 @@
 //! Definitions of the forwarding layer to interact with the [generic underlay information](UnderlayNeighborId)
-//! provided by the [routing layer](kira_lib::R2Kad).
+//! provided by the [routing layer](../../kira_r2kad/index.html).
 
 use std::net::Ipv6Addr;
 
@@ -12,13 +12,13 @@ pub trait LocalUnderlayInformationProvider {
     ///
     /// The information is typically made up of [link-layer-specific information](MacLayerInformation)
     /// but also contains the link-local IPv6-address of the node. See
-    /// [UnderlayInformation] for further info on the provided information.
+    /// [UnderlayNeighborInformation] for further info on the provided information.
     type Information;
 
-    /// Error type returned if acquiring [Information] for an [UnderlayNeighborId] failed.
+    /// Error type returned if acquiring information for an [UnderlayNeighborId] failed.
     type Error;
 
-    /// Tries to acquire [Information] for an [UnderlayNeighborId].
+    /// Tries to acquire [Information](Self::Information) for an [UnderlayNeighborId].
     ///
     /// If the [UnderlayNeighborId] is not know this function should error.
     async fn get_information(
@@ -32,15 +32,15 @@ pub type EthAddr = [u8; 6];
 
 /// All information known by KIRA about an underlay neighbor.
 ///
-/// This information is used by the fast forwarding layer and the [io-part](crate::io) of R²/KAD.
-/// You can obtain this struct using [UnderlayObserverHandle::get_information](crate::underlay::UnderlayObserverHandle::get_information)
+/// This information is used by the fast forwarding layer and the [io-part](../../kira_lib/io/index.html) of R²/KAD.
+/// You can obtain this struct using [UnderlayObserverHandle::get_information](kira_lib::underlay::handle::UnderlayObserverHandle::get_information)
 #[derive(Debug, Clone)]
 pub struct UnderlayNeighborInformation {
-    /// Id of the [Interface] under which the neighbor can be reached.
+    /// Id of the interface under which the neighbor can be reached.
     pub interface_id: InterfaceId,
-    /// Ethernet address used for sending messages to the neighbor from this [Interface].
+    /// Ethernet address used for sending messages to the neighbor from this interface.
     pub src_mac: EthAddr,
-    /// Ethernet address used for broadcasting messages from this [Interface].
+    /// Ethernet address used for broadcasting messages from this interface.
     pub broadcast_mac: EthAddr,
     /// link-local IPv6 address under which the neighbor can be reached.
     pub ll_ipv6: Ipv6Addr,

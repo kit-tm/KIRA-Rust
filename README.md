@@ -19,11 +19,22 @@ For a working example see [DNS-DHT-Example](./examples/dns-4in6-tunnel-example/)
 ## Structure
 
 - [KIRA Routing Daemon](kirad): Contains the crate representing the routing daemon executable.
-- [KIRA Library](kira-lib): Contains the different abstract modules, classes, traits to implement the routing
-  daemon.
+- [Sans-I/O R²/KAD](kira-r2kad): Contains the implementation of the routing protocol of KIRA R²/KAD.
+- [KIRA Library](kira-lib): Contains the different abstract modules, classes, traits
+  to implement a complete routing daemon.
+  Crucially this provides the i/o implementation of R²/KAD.
+- [KIRA Forwarding](kira-forwarding): Contains the traits and implementations of the fast forwarding layer of KIRA.
 - [Examples](examples): Contains minimal examples of running KIRA in an emulated network using [Containernet](https://containernet.github.io)
 
 More specific information can be found in the respective folders and in the following chapters.
+
+## Rustdoc
+
+The majority of the KIRA routing daemon is written in Rust.
+To access the [rustdoc](https://doc.rust-lang.org/rustdoc/index.html) of the respective packages run
+```shell
+make docs
+```
 
 ## Cloning the repository
 

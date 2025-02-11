@@ -1,8 +1,8 @@
 //! Dedicated [Tokio](tokio) synchronization primitives for interaction of
 //! the KIRA routing protocol [R²/KAD](kira_r2kad::R2Kad) and dependent components.
 //!
-//! The dedicated channels are grouped by [Input](kira_r2kad::Input) and
-//! [Output](kira_r2kad::Output) event channels:
+//! The dedicated channels are grouped by [Input] and
+//! [Output] event channels:
 //!
 //! 1. [R2KadInputChannels]: Collection of all types of input channels.
 //! 2. [R2KadOutputChannels]: Composed of output
@@ -36,7 +36,7 @@ use kira_r2kad::{Input, Output};
 /// See [crate::io::receiver] for implementations of message receivers.
 /// This [Receiver] is used in the [R2KadInputChannels] to construct [Input::Message] events.
 pub type MessageReceiver = Receiver<(ProtocolMessage, UnderlayNeighborId)>;
-/// [Receiver] of [ApiEvents](ApiEvent).
+/// [Receiver] of [ApiEvents](kira_r2kad::use_cases::ApiEvent).
 ///
 /// This [Receiver] is used in the [R2KadInputChannels] to construct [DebugEvents](DebugEvent) for [Input::Debug].
 pub type DebugReceiver = Receiver<DebugEvent>;

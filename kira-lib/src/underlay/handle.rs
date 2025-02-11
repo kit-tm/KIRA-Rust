@@ -1,4 +1,4 @@
-//! Interacting with an [UnderlayObserverConnection](super::UnderlayObserverConnection).
+//! Interacting with an [UnderlayObserverConnection].
 //!
 //! The main struct is the [UnderlayObserverHandle].
 
@@ -12,6 +12,10 @@ use kira_forwarding::underlay::{UnderlayInformationProvider, UnderlayNeighborInf
 
 use crate::domain::underlay::{InterfaceId, UnderlayNeighborId};
 use crate::underlay::UnderlayNeighborInterfaceDownError;
+
+// docs
+#[allow(unused_imports)]
+use super::*;
 
 /// Sender used by the [UnderlayObserverHandle]
 /// to send request to the [UnderlayObserverConnection].
@@ -119,7 +123,8 @@ impl UnderlayObserverHandle {
     ///
     /// This function returns nothing on success.
     /// If you want to know *if* an [UnderlayNeighbor] existed listen to the generated
-    /// [UnderlayNeighborUpdate::UnderlayNeighborDown] event on the [UnderlayNeighborUpdatesRx].
+    /// [UnderlayNeighborUpdate::UnderlayNeighborDown] event on
+    /// the [UnderlayNeighborUpdatesRx].
     pub async fn unregister_neighbor(
         &mut self,
         ulnid: &UnderlayNeighborId,
@@ -132,7 +137,7 @@ impl UnderlayObserverHandle {
         Ok(())
     }
 
-    /// Get the [InterfaceIds](InterfaceId) of all [Interfaces](super::Interface) that are up.
+    /// Get the [InterfaceIds](InterfaceId) of all [Interfaces](Interface) that are up.
     pub async fn get_available(
         &mut self,
     ) -> Result<Vec<InterfaceId>, UnderlayObserverSenderClosedError> {

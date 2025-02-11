@@ -65,7 +65,7 @@ where
         path
     }
 
-    /// Extracts source information, inserts it into the [PNTable] and [RoutingTable] and returns
+    /// Extracts source information, inserts it into the [UNTable] and [RoutingTable] and returns
     /// the extracted [Contact] information.
     fn extract_source_information(
         &self,

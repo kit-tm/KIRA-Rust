@@ -1,7 +1,13 @@
 //! Integration library of the KIRA daemon.
 //!
-//! See [Kira] for the main component that orchestrates all other components necessary
-//! to run a KIRA daemon.
+//! See [Kira] for the main component that orchestrates all other components
+//! necessary to run a KIRA daemon.
+//!
+//! # Architecture
+//!
+//!  <div>
+//! <img src="../../../docs/images/lib.svg" />
+//! </div>
 //!
 //! # Logging Targets
 //!

@@ -32,7 +32,7 @@ pub trait FetchStrategy {
     ///
     /// # Returns
     ///
-    /// A `Result` that contains the fetched data if successful, or an error if the data couldn't be found in the [Self:Composite].
+    /// A `Result` that contains the fetched data if successful, or an error if the data couldn't be found in the [Self::Composite].
     fn fetch(
         &self,
         handle: &Self::Handle,
@@ -50,7 +50,7 @@ pub trait FetchStrategy {
     ///
     /// # Returns
     ///
-    /// A `Result` that contains the fetched data if successful, or an error if the data couldn't be found in the [Self:Composite].
+    /// A `Result` that contains the fetched data if successful, or an error if the data couldn't be found in the [Self::Composite].
     fn peek(
         &self,
         handle: &Self::Handle,

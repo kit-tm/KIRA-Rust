@@ -114,7 +114,7 @@ impl R2KadRuntime {
     /// Retrieve next [Output] event.
     ///
     /// This function should be called immediately after no [UseCaseEvents](UseCaseEvent)
-    /// are left to process by use cases yielded by [next_events](Self::next_events).
+    /// are left to process by use cases yielded by [next_event](Self::next_event).
     pub fn poll_output(&self) -> Option<Output> {
         self.output_queue.write().unwrap().pop_front()
     }
@@ -135,7 +135,7 @@ impl R2KadRuntime {
 // Helper methods
 impl R2KadRuntime {
     fn register_timer_with_id(&self, duration: Duration, id: TimerId) {
-        // this is so we can optimize [Self::next_events]
+        // this is so we can optimize [Self::next_event]
         debug_assert!(!duration.is_zero(), "timers should have positive durations");
 
         let due = *self.current_time.lock().unwrap() + duration;

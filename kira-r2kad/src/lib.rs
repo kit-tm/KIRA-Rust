@@ -2,6 +2,12 @@
 //! [institute for telematics](https://telematics.tm.kit.edu/index.php) at the
 //! [Karlsruher Institute of Technology (KIT)](https://www.kit.edu).
 //!
+//! # Architecture
+//!
+//!  <div>
+//! <img src="../../../docs/images/r2kad.svg" />
+//! </div>
+//!
 //! # Where is the I/O?
 //!
 //! The protocol implementation employs the [sans I/O](https://sans-io.readthedocs.io/) design principles.

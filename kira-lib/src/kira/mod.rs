@@ -48,7 +48,7 @@ use crate::underlay::UnderlayNeighborUpdatesRx;
 /// 2. [forwarding layer](kira_forwarding::AsyncForwardingTables)
 /// 3. [underlay observer](crate::underlay).
 /// 4. i/o implementation for sending and receiving protocol messages: [io](crate::io).
-/// 5. REST-API debug access of the routing daemon: [api](crate::api)
+/// 5. REST-API debug access of the routing daemon: [api]
 #[derive(Debug)]
 pub struct Kira<C, const BUCKET_SIZE: usize, FT> {
     r2kad: R2Kad<C, BUCKET_SIZE>,

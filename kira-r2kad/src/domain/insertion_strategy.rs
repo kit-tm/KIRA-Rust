@@ -22,7 +22,7 @@ pub enum InsertionStrategyResult {
 ///
 /// The actions performed with the [Contact] are limited to the [InsertionStrategyResult].
 ///
-/// The Algorithm can use the [PNTable] but is not allowed to insert into it.
+/// The Algorithm can use the [UNTable] but is not allowed to insert into it.
 /// This will be handled where the Hello-Messages are handled explicitly.
 ///
 /// Also [NotVia](crate::domain::NotVia) Data is not handled by the [InsertionStrategy] as it

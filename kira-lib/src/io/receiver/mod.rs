@@ -19,7 +19,7 @@ pub mod udp_tokio;
 /// A single [ProtocolMessageReceiver] can be responsible for one or many [InterfaceId]s.
 ///
 /// Converts a [ProtocolMessage] formatted by its corresponding
-/// [ProtocolMessageSender](crate::messaging::sender::ProtocolMessageSender) back
+/// [ProtocolMessageSender](super::sender::ProtocolMessageSender) back
 /// to a [ProtocolMessage] and returns it.
 ///
 /// Every method is allowed to return [None] at any point in time.
@@ -28,7 +28,7 @@ pub mod udp_tokio;
 pub trait ProtocolMessageReceiver {
     /// Receives a [ProtocolMessage].
     ///
-    /// Returns an [Error] if receiving failed or the optional timeout was reached.
+    /// Returns an Error if receiving failed or the optional timeout was reached.
     ///
     /// If no timeout was given the operation waits until a new [ProtocolMessage] arrived.
     ///
@@ -50,19 +50,20 @@ pub trait ProtocolMessageReceiver {
 /// Receives [ProtocolMessage]s of other Nodes.
 ///
 /// Converts a [ProtocolMessage] formatted by its corresponding
-/// [ProtocolMessageSender](crate::messaging::sender::ProtocolMessageSender) back
+/// [ProtocolMessageSender](super::sender::ProtocolMessageSender) back
 /// to a [ProtocolMessage] and returns it.
 #[trait_variant::make(AsyncProtocolMessageReceiver: Send)]
 pub trait LocalAsyncProtocolMessageReceiver {
     /// Receives a [ProtocolMessage].
     ///
     /// Waits until a new [ProtocolMessage] arrived.
-    /// Returns an [Error] if receiving failed.
+    /// Returns an Error if receiving failed.
     /// Returns [None] if no messages will be received from this [ProtocolMessageReceiver] anymore.
     async fn recv(&mut self) -> Option<Result<(ProtocolMessage, UnderlayNeighborId), RecvError>>;
 }
 
-/// Struct wrapping an [AsyncProtocolMessageReceiver] for implementing [Stream] and [TryStream].
+/// Struct wrapping an [AsyncProtocolMessageReceiver] for implementing [Stream] and
+/// [TryStream](futures::prelude::TryStream).
 pub struct ProtocolMessageReceiverStream<R>(R);
 
 impl<R: AsyncProtocolMessageReceiver + Unpin> Stream for ProtocolMessageReceiverStream<R> {
@@ -85,8 +86,7 @@ pub mod error {
     use derive_more::{Display, Error};
     use kira_r2kad::domain::InterfaceId;
 
-    /// Error type for [ProtocolMessageReceiver::recv](super::ProtocolMessageReceiver::recv)
-    /// and [AsyncProtocolMessageReceiver::recv_timeout](super::AsyncProtocolMessageReceiver::recv_timeout).
+    /// Error type for [AsyncProtocolMessageReceiver::recv](super::AsyncProtocolMessageReceiver::recv)
     #[derive(Debug, Display, Error)]
     pub enum RecvError {
         /// Receiving timed out.

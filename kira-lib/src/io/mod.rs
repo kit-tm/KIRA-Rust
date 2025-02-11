@@ -26,10 +26,10 @@ pub mod udp {
     use crate::io::{receiver::udp_tokio::UdpReceiver, sender::udp_tokio::UdpSender};
     use crate::underlay::UnderlayObserverHandle;
 
-    /// Creates a asynchronous I/O Channel consisting of one [UdpSender](super::sender::udp_tokio::UdpSender) and
-    /// one [UdpReceiver](super::receiver::udp_tokio::UdpReceiver) with UDP implementations.
+    /// Creates a asynchronous I/O Channel consisting of one [UdpSender] and
+    /// one [UdpReceiver] with UDP implementations.
     ///
-    /// The [UdpSender](super::sender::udp_tokio::UdpSender) and [UdpReceiver](super::receiver::udp_tokio::UdpReceiver) share the same
+    /// The [UdpSender] and [UdpReceiver] share the same
     /// [tokio::net::UdpSocket].
     /// This way multiple senders can send and multiple receivers can receive from the
     /// same [tokio::net::UdpSocket].

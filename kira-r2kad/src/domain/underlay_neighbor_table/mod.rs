@@ -7,12 +7,12 @@ mod in_memory_underlay_neighbor_table;
 ///
 /// ## Invariants
 ///
-/// * The output of [`state_seq_nr`][Self::state_seq_nr] should change every time the [PNTable] is mutated.
+/// * The output of [`state_seq_nr`][Self::state_seq_nr] should change every time the [UNTable] is mutated.
 pub trait UNTable {
     /// Adds a Mapping to the table returning the [UnderlayNeighborId] previously mapped to the [NodeId].
     fn insert(&mut self, id: NodeId, ulnid: UnderlayNeighborId) -> Option<UnderlayNeighborId>;
 
-    /// Returns if a Mapping for the [NodeId] is present in the [PNTable].
+    /// Returns if a Mapping for the [NodeId] is present in the [UNTable].
     fn contains(&self, id: &NodeId) -> bool;
 
     /// Returns the state sequence number.

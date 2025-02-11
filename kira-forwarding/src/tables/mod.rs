@@ -23,13 +23,13 @@ pub trait LocalAsyncNodeIdTable {
     async fn create(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error>;
     /// Updates an existing [NodeIdEntry].
     ///
-    /// Emits an error if the entries destination [NodeId] doesn't yet exist.
+    /// Emits an error if the entries destination [NodeId](crate::domain::NodeId) doesn't yet exist.
     async fn update(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error>;
     /// Creates the given [NodeIdEntry] if it doesn't exist yet, otherwise updates it.
     async fn create_or_update(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error>;
     /// Removes a [NodeIdEntry].
     ///
-    /// Doesn't emit an error if the entries destination [NodeId] doesn't exist.
+    /// Doesn't emit an error if the entries destination [NodeId](crate::domain::NodeId) doesn't exist.
     ///
     /// Returns the removed [NodeIdEntry].
     async fn remove(&mut self, node_id: &NodeIdSubnet) -> Result<Option<NodeIdEntry>, Self::Error>;
