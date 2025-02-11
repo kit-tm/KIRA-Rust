@@ -384,3 +384,458 @@ pub enum DeriveFwdEntriesError {
     NonPNInPNTable(Contact),
 }
 impl Error for DeriveFwdEntriesError {}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use crate::context::ContextConfig;
+    use crate::context::SyncContext;
+    use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
+    use crate::domain::single_bucket::SingleBucketRT;
+    use crate::domain::StateSeqNr;
+    use crate::domain::SIZE;
+    use crate::runtime::testing::TestingUseCaseRuntime;
+    use crate::Output;
+
+    use super::*;
+
+    #[test]
+    fn contact_entries_added() {
+        crate::tests::init();
+
+        let runtime = TestingUseCaseRuntime::default();
+
+        let ulnid = UnderlayNeighborId::try_from(1).unwrap();
+        let root_id = NodeId::with_lsb(1);
+        let neighbor_id = NodeId::with_lsb(2);
+        let vicinity_contact_id = NodeId::with_lsb(3);
+
+        let neighbor = Contact::new(Path::from(neighbor_id), StateSeqNr::from(0));
+        let vicinity_contact = Contact::new(
+            Path::from([neighbor_id, vicinity_contact_id]),
+            StateSeqNr::from(3),
+        );
+
+        let mut routing_table = SingleBucketRT::<20>::new(root_id);
+        assert!(routing_table.insert(neighbor.clone()).is_ok());
+
+        let mut uln_table = Box::new(HashMap::new());
+        uln_table.insert(neighbor_id, ulnid);
+
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id,
+            routing_table,
+            uln_table,
+            insertion_strategy: (),
+            runtime,
+            not_via: HashSet::default(),
+        });
+
+        let config = DeriveFwdTableEntriesConfig {
+            hasher: Hasher::Sha1,
+        };
+        let mut use_case = DeriveFwdTableEntries::new(config);
+        assert!(use_case.start(&sync_context).is_ok(), "starting failed");
+        let _ = sync_context.runtime().output();
+
+        let event = UseCaseEvent::Contact(ContactEvent::New(vicinity_contact.clone()));
+        let handle_result = use_case.handle_event(&sync_context, event);
+        assert!(
+            handle_result.is_ok(),
+            "Error handling event: {:?}",
+            handle_result
+        );
+
+        let updates: Vec<_> = sync_context.runtime().output().collect();
+
+        let node_id_update = updates
+            .iter()
+            .find_map(|u| {
+                if let Output::UpdateForwardingTables(ForwardingTablesUpdate::NodeIdTableUpdate(
+                    node_id_update,
+                )) = u
+                {
+                    Some(node_id_update)
+                } else {
+                    None
+                }
+            })
+            .expect("No node id table update generated for added contact");
+        let NodeIdTableUpdate::CreateOrUpdate(NodeIdEntry::Encapsulate(node_id_entry)) =
+            node_id_update
+        else {
+            panic!("unexpected kind of node id table update: {node_id_update:?}");
+        };
+        assert_eq!(node_id_entry.destination.node_id(), vicinity_contact.id(),);
+        assert!(
+            node_id_entry.destination.prefix_length() == 0
+                || node_id_entry.destination.prefix_length() == SIZE,
+        );
+        assert_eq!(node_id_entry.next_hop, ulnid);
+        assert_eq!(
+            node_id_entry.out_path_id,
+            //Hasher::Sha1.hash(vicinity_contact.path().into_iter().skip(1))
+            Hasher::Sha1.hash(vicinity_contact.path().into_iter())
+        );
+
+        let path_id_update = updates
+            .iter()
+            .find_map(|u| {
+                if let Output::UpdateForwardingTables(ForwardingTablesUpdate::PathIdTableUpdate(
+                    path_id_update,
+                )) = u
+                {
+                    Some(path_id_update)
+                } else {
+                    None
+                }
+            })
+            .expect("No node id table update generated for added contact");
+        let PathIdTableUpdate::CreateOrUpdate(PathIdEntry::Forward(path_id_entry)) = path_id_update
+        else {
+            panic!("unexpected kind of path id table update: {path_id_update:?}");
+        };
+
+        let mut in_path = Path::from(root_id);
+        in_path.extend(vicinity_contact.path().clone());
+        let in_path_id = Hasher::Sha1.hash(&in_path);
+        assert_eq!(&path_id_entry.in_path_id, &in_path_id);
+
+        assert_eq!(
+            path_id_entry.out_path_id,
+            //Hasher::Sha1.hash(vicinity_contact.path().into_iter().skip(1))
+            Hasher::Sha1.hash(vicinity_contact.path().into_iter())
+        );
+        assert_eq!(path_id_entry.next_hop, ulnid);
+    }
+
+    #[test]
+    fn neighbor_entries_added() {
+        crate::tests::init();
+
+        let runtime = TestingUseCaseRuntime::default();
+
+        let ulnid = UnderlayNeighborId::try_from(1).unwrap();
+        let root_id = NodeId::with_lsb(1);
+        let neighbor_id = NodeId::with_lsb(2);
+
+        let neighbor = Contact::new(Path::from(neighbor_id), StateSeqNr::from(0));
+
+        let mut routing_table = SingleBucketRT::<20>::new(root_id);
+        assert!(routing_table.insert(neighbor.clone()).is_ok());
+
+        let mut uln_table = Box::new(HashMap::new());
+        uln_table.insert(neighbor_id, ulnid);
+
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id,
+            routing_table,
+            uln_table,
+            insertion_strategy: (),
+            runtime,
+            not_via: HashSet::default(),
+        });
+
+        let config = DeriveFwdTableEntriesConfig {
+            hasher: Hasher::Sha1,
+        };
+        let mut use_case = DeriveFwdTableEntries::new(config);
+        assert!(use_case.start(&sync_context).is_ok(), "starting failed");
+        let _ = sync_context.runtime().output();
+
+        let event = UseCaseEvent::Contact(ContactEvent::New(neighbor.clone()));
+        let handle_result = use_case.handle_event(&sync_context, event);
+        assert!(
+            handle_result.is_ok(),
+            "Error handling event: {:?}",
+            handle_result
+        );
+
+        let updates: Vec<_> = sync_context.runtime().output().collect();
+
+        let node_id_update = updates
+            .iter()
+            .find_map(|u| {
+                if let Output::UpdateForwardingTables(ForwardingTablesUpdate::NodeIdTableUpdate(
+                    node_id_update,
+                )) = u
+                {
+                    Some(node_id_update)
+                } else {
+                    None
+                }
+            })
+            .expect("No node id table update generated for added contact");
+        let NodeIdTableUpdate::CreateOrUpdate(NodeIdEntry::Forward(node_id_entry)) = node_id_update
+        else {
+            panic!("unexpected kind of node id table update: {node_id_update:?}");
+        };
+        assert!(
+            node_id_entry.destination.prefix_length() == 0
+                || node_id_entry.destination.prefix_length() == SIZE,
+        );
+        assert_eq!(node_id_entry.next_hop, ulnid);
+
+        assert!(
+            updates.iter().any(|u| {
+                matches!(
+                    u,
+                    Output::UpdateForwardingTables(ForwardingTablesUpdate::PathIdTableUpdate(_)),
+                )
+            }),
+            "No PathID entry should be created for neighbor"
+        );
+    }
+
+    #[test]
+    fn contact_entries_removed() {
+        crate::tests::init();
+
+        let runtime = TestingUseCaseRuntime::default();
+
+        let ulnid = UnderlayNeighborId::try_from(1).unwrap();
+        let root_id = NodeId::with_lsb(1);
+        let neighbor_id = NodeId::with_lsb(2);
+        let vicinity_contact_id = NodeId::with_lsb(3);
+
+        let neighbor = Contact::new(Path::from(neighbor_id), StateSeqNr::from(0));
+        let vicinity_contact = Contact::new(
+            Path::from([neighbor_id, vicinity_contact_id]),
+            StateSeqNr::from(3),
+        );
+
+        let mut routing_table = SingleBucketRT::<20>::new(root_id);
+        assert!(routing_table.insert(neighbor.clone()).is_ok());
+
+        let mut uln_table = Box::new(HashMap::new());
+        uln_table.insert(neighbor_id, ulnid);
+
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id,
+            routing_table,
+            uln_table,
+            insertion_strategy: (),
+            runtime,
+            not_via: HashSet::default(),
+        });
+
+        let config = DeriveFwdTableEntriesConfig {
+            hasher: Hasher::Sha1,
+        };
+        let mut use_case = DeriveFwdTableEntries::new(config);
+        assert!(use_case.start(&sync_context).is_ok(), "starting failed");
+        let _ = sync_context.runtime().output();
+
+        let in_path_id = Hasher::Sha1.hash(vicinity_contact.path());
+
+        let event = UseCaseEvent::Contact(ContactEvent::Removed(vicinity_contact.clone()));
+        let handle_result = use_case.handle_event(&sync_context, event);
+        assert!(
+            handle_result.is_ok(),
+            "Error handling event: {:?}",
+            handle_result
+        );
+
+        let updates: Vec<_> = sync_context.runtime().output().collect();
+
+        let node_id_update = updates
+            .iter()
+            .find_map(|u| {
+                if let Output::UpdateForwardingTables(ForwardingTablesUpdate::NodeIdTableUpdate(
+                    node_id_update,
+                )) = u
+                {
+                    Some(node_id_update)
+                } else {
+                    None
+                }
+            })
+            .expect("No node id table update generated for removed  contact");
+        let NodeIdTableUpdate::Remove(removed_subnet) = node_id_update else {
+            panic!("unexpected kind of node id table update: {node_id_update:?}");
+        };
+        assert_eq!(removed_subnet.node_id(), vicinity_contact.id(),);
+
+        let path_id_update = updates
+            .iter()
+            .find_map(|u| {
+                if let Output::UpdateForwardingTables(ForwardingTablesUpdate::PathIdTableUpdate(
+                    path_id_update,
+                )) = u
+                {
+                    Some(path_id_update)
+                } else {
+                    None
+                }
+            })
+            .expect("No removal of path id table entry");
+        let PathIdTableUpdate::Remove(removed_pid) = path_id_update else {
+            panic!("unexpected kind of path id table update: {path_id_update:?}");
+        };
+        assert_eq!(*removed_pid, in_path_id);
+
+        {
+            let event = UseCaseEvent::Contact(ContactEvent::Removed(neighbor.clone()));
+            let handle_result = use_case.handle_event(&sync_context, event);
+            assert!(
+                handle_result.is_ok(),
+                "Error handling event: {:?}",
+                handle_result
+            );
+
+            let updates: Vec<_> = sync_context.runtime().output().collect();
+
+            let node_id_update = updates
+                .iter()
+                .find_map(|u| {
+                    if let Output::UpdateForwardingTables(
+                        ForwardingTablesUpdate::NodeIdTableUpdate(node_id_update),
+                    ) = u
+                    {
+                        Some(node_id_update)
+                    } else {
+                        None
+                    }
+                })
+                .expect("No node id table update generated for removed contact");
+            let NodeIdTableUpdate::Remove(removed_subnet) = node_id_update else {
+                panic!("unexpected kind of node id table update: {node_id_update:?}");
+            };
+            assert_eq!(removed_subnet.node_id(), neighbor.id(),);
+        }
+    }
+
+    #[test]
+    fn contact_updated() {
+        crate::tests::init();
+
+        let runtime = TestingUseCaseRuntime::default();
+
+        let ulnid = UnderlayNeighborId::try_from(1).unwrap();
+        let root_id = NodeId::with_lsb(1);
+        let neighbor_id = NodeId::with_lsb(2);
+        let vicinity_contact_id = NodeId::with_lsb(3);
+
+        let neighbor = Contact::new(Path::from(neighbor_id), StateSeqNr::from(0));
+        let vicinity_contact = Contact::new(
+            Path::from([neighbor_id, vicinity_contact_id]),
+            StateSeqNr::from(3),
+        );
+
+        let mut routing_table = SingleBucketRT::<20>::new(root_id);
+        assert!(routing_table.insert(neighbor.clone()).is_ok());
+
+        let mut uln_table = Box::new(HashMap::new());
+        uln_table.insert(neighbor_id, ulnid);
+
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id,
+            routing_table,
+            uln_table,
+            insertion_strategy: (),
+            runtime,
+            not_via: HashSet::default(),
+        });
+
+        let config = DeriveFwdTableEntriesConfig {
+            hasher: Hasher::Sha1,
+        };
+        let mut use_case = DeriveFwdTableEntries::new(config);
+        assert!(use_case.start(&sync_context).is_ok(), "starting failed");
+        let _ = sync_context.runtime().output();
+
+        let in_path_id = Hasher::Sha1.hash(vicinity_contact.path());
+
+        let new_contact = Contact::new(
+            Path::from([
+                neighbor_id,
+                NodeId::with_lsb(4),
+                NodeId::with_lsb(5),
+                vicinity_contact_id,
+            ]),
+            StateSeqNr::from(15),
+        );
+
+        let mut new_in_path = Path::from(root_id);
+        new_in_path.extend(new_contact.path().clone());
+        let new_in_path_id = Hasher::Sha1.hash(&new_in_path);
+        let new_out_path_id = Hasher::Sha1.hash(new_contact.path());
+
+        let event = UseCaseEvent::Contact(ContactEvent::Updated {
+            old: vicinity_contact.clone(),
+            new: new_contact.clone(),
+        });
+        let handle_result = use_case.handle_event(&sync_context, event);
+        assert!(
+            handle_result.is_ok(),
+            "Error handling event: {:?}",
+            handle_result
+        );
+
+        // Node id entry is updated
+        let updates: Vec<_> = sync_context.runtime().output().collect();
+
+        let node_id_update = updates
+            .iter()
+            .find_map(|u| {
+                if let Output::UpdateForwardingTables(ForwardingTablesUpdate::NodeIdTableUpdate(
+                    node_id_update,
+                )) = u
+                {
+                    Some(node_id_update)
+                } else {
+                    None
+                }
+            })
+            .expect("No node id table update generated for updated contact");
+        let NodeIdTableUpdate::CreateOrUpdate(NodeIdEntry::Encapsulate(node_id_entry)) =
+            node_id_update
+        else {
+            panic!("unexpected kind of node id table update: {node_id_update:?}");
+        };
+        assert_eq!(node_id_entry.destination.node_id(), vicinity_contact.id(),);
+        assert!(
+            node_id_entry.destination.prefix_length() == 0
+                || node_id_entry.destination.prefix_length() == SIZE,
+        );
+        assert_eq!(node_id_entry.next_hop, ulnid);
+        assert_eq!(node_id_entry.out_path_id, new_out_path_id,);
+
+        // Old pathid entry is removed
+        let removed_pid = updates.iter().find_map(|u| {
+            if let Output::UpdateForwardingTables(ForwardingTablesUpdate::PathIdTableUpdate(
+                PathIdTableUpdate::Remove(removed_pid),
+            )) = u
+            {
+                Some(removed_pid)
+            } else {
+                None
+            }
+        });
+        assert!(
+            removed_pid.is_some(),
+            "No removal of path id entry on changed contact: {updates:?}"
+        );
+        let removed_pid = removed_pid.unwrap();
+        assert_eq!(*removed_pid, in_path_id);
+
+        // new path id entry is created
+        let path_id_entry = updates
+            .iter()
+            .find_map(|u| {
+                if let Output::UpdateForwardingTables(ForwardingTablesUpdate::PathIdTableUpdate(
+                    PathIdTableUpdate::CreateOrUpdate(PathIdEntry::Forward(path_id_entry)),
+                )) = u
+                {
+                    Some(path_id_entry)
+                } else {
+                    None
+                }
+            })
+            .expect("No path id table update generated for changed contact");
+        assert_eq!(path_id_entry.in_path_id, new_in_path_id);
+        assert_eq!(path_id_entry.out_path_id, new_out_path_id);
+        assert_eq!(path_id_entry.next_hop, ulnid);
+    }
+}

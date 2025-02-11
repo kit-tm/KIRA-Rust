@@ -11,6 +11,9 @@ use crate::use_cases::{BroadcastableUseCaseEvent, TimerId};
 
 pub use crate::r2kad::runtime::R2KadRuntime;
 
+#[cfg(test)]
+pub mod testing;
+
 /// Interface for the [UseCases](crate::use_cases::UseCase) to the runtime environment.
 pub trait UseCaseRuntime {
     /// Creates a timer which will later yield a TimerEvent.
