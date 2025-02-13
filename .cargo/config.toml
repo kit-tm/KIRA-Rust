@@ -1,0 +1,3 @@
+[build]
+# see https://crates.io/crates/console-subscriber
+rustflags = ["--cfg", "tokio_unstable"]

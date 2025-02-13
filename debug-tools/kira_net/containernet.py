@@ -11,13 +11,16 @@ from typing import Optional, TypeVar
 Self = TypeVar("Self", bound="KIRAContainernetNode")
 
 
+import logging
+logger = logging.getLogger(__name__)
+
 class KIRAContainernetNode(KIRANode):
     def __init__(self, net: Containernet, client=docker.from_env(), name: str = None, api_port: int = 8080):
         self._net = net
         self._cannonical_name = name.replace("mn.", "")
         super().__init__(client, name, api_port)
 
-    def create(self, img: str, nid: bytes = None, force: bool = False):
+    def create(self, img: str, nid: bytes = None, force: bool = False, privileged=False):
         sysctls = {
             'net.ipv6.conf.default.disable_ipv6': 0,
             'net.ipv6.conf.all.forwarding': 1,
@@ -30,17 +33,18 @@ class KIRAContainernetNode(KIRANode):
             nid = nid[:14]
             environment.append(f"NODE_ID={nid.hex()}")
 
-        # FIXME why is this needed?
-        cmd = "/usr/bin/supervisord -c /etc/supervisord.conf"
+        cmd = "/usr/bin/bash -c '[ -f /usr/bin/supervisord ] && /usr/bin/supervisord -c /etc/supervisord.conf"
 
         self._container = self._net.addDocker(self._cannonical_name,
                                               ip=None, dimage=img,
                                               sysctls=sysctls,
                                               environment=environment,
+                                              # WARNING: this doesn't actually work for now in containernet
+                                              privileged=privileged,
                                               dcmd=cmd)
 
     def connect_with(self, other: Self, id: str, nw: Optional[Network] = None) -> Network:
-        return self._net.addLink(self._cannonical_name, other._cannonical_name)
+        return self._net.addLink(self._container, other._container)
 
     def start(self):
         # can't start individual nodes

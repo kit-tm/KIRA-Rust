@@ -1,0 +1,161 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/26.0.4 Chrome/128.0.6613.186 Electron/32.2.5 Safari/537.36" version="26.0.4">
+  <diagram name="Seite-1" id="OeVLuIpwBigQHmO3GvJU">
+    <mxGraphModel dx="446" dy="338" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="900" pageHeight="1600" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="FBHxz-J80IPrW97s-dik-83" value="" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="269" y="270" width="491" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-84" value="&lt;span style=&quot;font-family: &amp;quot;Fira Sans&amp;quot;; font-weight: 700;&quot;&gt;Context&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;rotation=-90;" vertex="1" parent="1">
+          <mxGeometry x="199" y="318" width="173" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-6" value="R²/KAD" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;fontFamily=Fira Sans;" vertex="1" parent="1">
+          <mxGeometry x="350" y="95" width="200" height="106" as="geometry">
+            <mxRectangle x="400" y="220" width="80" height="30" as="alternateBounds" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-56" value="&lt;ul style=&quot;padding-left: 20px;&quot;&gt;&lt;li&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;component orchestration&lt;/span&gt;&lt;/li&gt;&lt;li&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;provide context to UseCases&lt;/span&gt;&lt;br&gt;&lt;/li&gt;&lt;/ul&gt;" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=Fira Sans;" vertex="1" parent="FBHxz-J80IPrW97s-dik-6">
+          <mxGeometry y="26" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-26" value="" style="endArrow=classic;html=1;rounded=0;fontFamily=Fira Sans;entryX=0.853;entryY=1.002;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" target="FBHxz-J80IPrW97s-dik-56">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="520" y="280" as="sourcePoint" />
+            <mxPoint x="520" y="160" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-27" value="" style="endArrow=classic;html=1;rounded=0;entryX=0.25;entryY=1;entryDx=0;entryDy=0;exitX=0.25;exitY=1;exitDx=0;exitDy=0;fontFamily=Fira Sans;" edge="1" parent="1" source="FBHxz-J80IPrW97s-dik-6">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="450" y="230" as="sourcePoint" />
+            <mxPoint x="400" y="280" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-66" value="" style="endArrow=classic;startArrow=classic;html=1;rounded=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;exitX=0.25;exitY=1;exitDx=0;exitDy=0;" edge="1" parent="1" source="FBHxz-J80IPrW97s-dik-64" target="FBHxz-J80IPrW97s-dik-44">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="420" y="300" as="sourcePoint" />
+            <mxPoint x="470" y="250" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-70" value="" style="endArrow=classic;startArrow=classic;html=1;rounded=0;entryX=0.364;entryY=1.011;entryDx=0;entryDy=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryPerimeter=0;" edge="1" parent="1" source="FBHxz-J80IPrW97s-dik-48" target="FBHxz-J80IPrW97s-dik-64">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="450" y="490" as="sourcePoint" />
+            <mxPoint x="500" y="440" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-72" value="" style="endArrow=classic;startArrow=classic;html=1;rounded=0;entryX=0.454;entryY=1.001;entryDx=0;entryDy=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryPerimeter=0;" edge="1" parent="1" source="FBHxz-J80IPrW97s-dik-47" target="FBHxz-J80IPrW97s-dik-64">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="400" y="515" as="sourcePoint" />
+            <mxPoint x="460" y="396" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-73" value="" style="endArrow=classic;startArrow=classic;html=1;rounded=0;entryX=0.58;entryY=1.002;entryDx=0;entryDy=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryPerimeter=0;" edge="1" parent="1" source="FBHxz-J80IPrW97s-dik-40" target="FBHxz-J80IPrW97s-dik-64">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="410" y="525" as="sourcePoint" />
+            <mxPoint x="470" y="406" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-74" value="" style="endArrow=classic;startArrow=classic;html=1;rounded=0;entryX=0.678;entryY=1.008;entryDx=0;entryDy=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryPerimeter=0;" edge="1" parent="1" source="FBHxz-J80IPrW97s-dik-45" target="FBHxz-J80IPrW97s-dik-64">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="420" y="535" as="sourcePoint" />
+            <mxPoint x="480" y="416" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-76" value="" style="endArrow=classic;startArrow=classic;html=1;rounded=0;entryX=0.75;entryY=1;entryDx=0;entryDy=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" edge="1" parent="1" source="FBHxz-J80IPrW97s-dik-46" target="FBHxz-J80IPrW97s-dik-64">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="440" y="555" as="sourcePoint" />
+            <mxPoint x="500" y="436" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-78" value="" style="group" vertex="1" connectable="0" parent="1">
+          <mxGeometry x="270" y="480" width="360" height="216.587572106361" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-35" value="" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="FBHxz-J80IPrW97s-dik-78">
+          <mxGeometry width="360" height="210" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-37" value="&lt;span style=&quot;font-family: &amp;quot;Fira Sans&amp;quot;; font-weight: 700;&quot;&gt;R²/KAD Pipeline&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;rotation=-90;" vertex="1" parent="FBHxz-J80IPrW97s-dik-78">
+          <mxGeometry x="-70" y="90" width="170" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-38" value="&lt;span style=&quot;font-family: &amp;quot;Fira Sans&amp;quot;; font-weight: 700;&quot;&gt;&quot;UseCases&quot;&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;rotation=-45;" vertex="1" parent="FBHxz-J80IPrW97s-dik-78">
+          <mxGeometry x="287" y="168" width="65" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-40" value="DeriveForwardingTables" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;strokeColor=default;swimlaneLine=0;rotation=270;" vertex="1" parent="FBHxz-J80IPrW97s-dik-78">
+          <mxGeometry x="120" y="90" width="160" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-44" value="OverlayDiscovery" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;strokeColor=default;swimlaneLine=0;rotation=270;" vertex="1" parent="FBHxz-J80IPrW97s-dik-78">
+          <mxGeometry y="90" width="160" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-45" value="ForwardProtocolMessages" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;strokeColor=default;swimlaneLine=0;rotation=270;" vertex="1" parent="FBHxz-J80IPrW97s-dik-78">
+          <mxGeometry x="160" y="90" width="160" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-46" value="FailureHandling" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;strokeColor=default;swimlaneLine=0;rotation=270;" vertex="1" parent="FBHxz-J80IPrW97s-dik-78">
+          <mxGeometry x="200" y="90" width="160" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-47" value="VicinityDiscovery" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;strokeColor=default;swimlaneLine=0;rotation=270;" vertex="1" parent="FBHxz-J80IPrW97s-dik-78">
+          <mxGeometry x="80" y="90" width="160" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-48" value="ExplicitPathManagement" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;strokeColor=default;swimlaneLine=0;rotation=270;" vertex="1" parent="FBHxz-J80IPrW97s-dik-78">
+          <mxGeometry x="40" y="90" width="160" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-49" value="&lt;span style=&quot;font-weight: 700;&quot;&gt;...&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;rotation=270;" vertex="1" parent="FBHxz-J80IPrW97s-dik-78">
+          <mxGeometry x="290" y="90" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-79" value="" style="group" vertex="1" connectable="0" parent="1">
+          <mxGeometry x="340" y="280" width="220" height="106" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-21" value="R²/KAD Runtime" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;fontFamily=Fira Sans;" vertex="1" parent="FBHxz-J80IPrW97s-dik-79">
+          <mxGeometry width="220" height="106" as="geometry">
+            <mxRectangle x="340" y="280" width="130" height="30" as="alternateBounds" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-64" value="&lt;ul style=&quot;padding-left: 20px;&quot;&gt;&lt;li&gt;interaction of UseCases with external components&lt;/li&gt;&lt;li&gt;timer management&amp;nbsp;&lt;/li&gt;&lt;/ul&gt;" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=Fira Sans;" vertex="1" parent="FBHxz-J80IPrW97s-dik-21">
+          <mxGeometry y="26" width="220" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-62" value="" style="sketch=0;pointerEvents=1;shadow=0;dashed=0;html=1;strokeColor=none;fillColor=#505050;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;outlineConnect=0;align=center;shape=mxgraph.office.concepts.clock;aspect=fixed;" vertex="1" parent="FBHxz-J80IPrW97s-dik-79">
+          <mxGeometry x="162" y="64" width="33" height="33" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-86" value="&lt;span style=&quot;font-family: &amp;quot;Fira Sans&amp;quot;; font-weight: 700;&quot;&gt;RT&lt;/span&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;" vertex="1" parent="1">
+          <mxGeometry x="600" y="310" width="60" height="63" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-87" value="&lt;span style=&quot;font-family: &amp;quot;Fira Sans&amp;quot;; font-weight: 700;&quot;&gt;UNT&lt;/span&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;" vertex="1" parent="1">
+          <mxGeometry x="670" y="308.5" width="60" height="63" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-88" value="" style="endArrow=none;dashed=1;html=1;rounded=0;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="55" y="240" as="sourcePoint" />
+            <mxPoint x="845" y="240" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-90" value="" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="345" y="177" width="10" height="8" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-91" value="" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="345" y="137" width="10" height="8" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-92" value="" style="endArrow=classic;html=1;rounded=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" target="FBHxz-J80IPrW97s-dik-91">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="120" y="140" as="sourcePoint" />
+            <mxPoint x="330" y="154" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-93" value="" style="endArrow=classic;html=1;rounded=0;edgeStyle=orthogonalEdgeStyle;exitX=0;exitY=0.5;exitDx=0;exitDy=0;" edge="1" parent="1" source="FBHxz-J80IPrW97s-dik-90">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="340" y="147" as="sourcePoint" />
+            <mxPoint x="120" y="181" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-94" value="&lt;span style=&quot;font-family: &amp;quot;Fira Sans&amp;quot;; font-weight: 700;&quot;&gt;Input&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+          <mxGeometry x="272" y="118" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-96" value="&lt;span style=&quot;font-family: &amp;quot;Fira Sans&amp;quot;; font-weight: 700;&quot;&gt;Output&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+          <mxGeometry x="272" y="157" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-98" value="&lt;span style=&quot;font-family: &amp;quot;Fira Sans&amp;quot;; font-weight: 700;&quot;&gt;Input/Output Events&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+          <mxGeometry x="780" y="200" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="FBHxz-J80IPrW97s-dik-99" value="&lt;span style=&quot;font-family: &amp;quot;Fira Sans&amp;quot;; font-weight: 700;&quot;&gt;UseCase&lt;/span&gt;&lt;div&gt;&lt;span style=&quot;font-family: &amp;quot;Fira Sans&amp;quot;; font-weight: 700;&quot;&gt;Events&lt;/span&gt;&lt;/div&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+          <mxGeometry x="780" y="250" width="60" height="30" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
