@@ -10,7 +10,7 @@ use rand::Rng;
 use crate::domain::UnderlayNeighborDestination::{Broadcast, Multicast, UnderlayNeighbor};
 use crate::domain::{
     node_id, Contact, ContactState, InterfaceId, NodeId, Path, RoutingTable, StateSeqNr, UNTable,
-    UnderlayNeighborId, UnderlayNeighborUpdate, DEFAULT_BUCKET_SIZE,
+    UnderlayNeighborId, UnderlayNeighborSource, UnderlayNeighborUpdate, DEFAULT_BUCKET_SIZE,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -319,9 +319,41 @@ where
             .send_message_via(message, UnderlayNeighbor(ulnid));
     }
 
-    fn send_pn_disc_req(&self, context: &C, source: NodeId) {
-        Self::restricted_send_pn_disc_req(context, source)
+    fn send_directed_pn_disc_req(
+        &self,
+        context: &C,
+        source: NodeId,
+        underlay_source: UnderlayNeighborId,
+    ) {
+        // Answer with a PNDiscReq to ensure bidirectional connectivity
+        let pn_contacts = context
+            .un_table()
+            .iter()
+            .filter_map(|(id, _)| context.routing_table().contact(id).cloned())
+            .collect::<Vec<_>>();
+
+        let message = ProtocolMessage::PNDiscReq(ReqRspMessage {
+            nonce: Nonce::random(),
+            source_state_seq_nr: *context.un_table().state_seq_nr(),
+            data: RTableData {
+                contacts: pn_contacts,
+            },
+            not_via: context.not_via().clone(),
+            // Source route is ignored, as only underlay neighbors get these
+            source_route: SourceRoute::from(Path::from([*context.root_id(), source])),
+        });
+
+        log::trace!(
+            target: "vicinity_discovery",
+            "Sending message: {:?}",
+            message
+        );
+
+        context
+            .runtime()
+            .send_message_via(message, UnderlayNeighbor(underlay_source));
     }
+
     fn restricted_send_pn_disc_req(context: &C, source: NodeId) {
         // Answer with a PNDiscReq to ensure bidirectional connectivity
         let pn_contacts = context
@@ -509,7 +541,7 @@ where
                         source,
                         source_state_seq_nr,
                     }),
-                    _,
+                    UnderlayNeighborSource::UnderlayNeighbor(underlay_source),
                 ),
                 _,
             ) => {
@@ -550,7 +582,7 @@ where
                     }
                 }
 
-                self.send_pn_disc_req(context, source);
+                self.send_directed_pn_disc_req(context, source, underlay_source);
             }
             (UseCaseEvent::Message(ProtocolMessage::PNDiscReq(req), _), _) => {
                 if req.destination() != context.root_id() {

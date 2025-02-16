@@ -32,7 +32,6 @@ pub enum Output {
     SendProtocolMessage(ProtocolMessage, UnderlayNeighborDestination),
     /// Request to update information in the forwarding functionality.
     UpdateForwardingTables(ForwardingTablesUpdate),
-    //Timeout(Instant),
 }
 
 /// Events for inspecting the internals of the protocol instance.

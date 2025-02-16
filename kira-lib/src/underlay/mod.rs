@@ -193,8 +193,8 @@ impl UnderlayInformationBase {
 /// use futures::StreamExt;
 /// use tokio::time::{sleep, Duration};
 ///
-/// use kirad_lib::domain::underlay::{InterfaceId, UnderlayNeighborId};
-/// use kirad_lib::underlay::observe_underlay;
+/// use kira_lib::domain::underlay::{InterfaceId, UnderlayNeighborId};
+/// use kira_lib::underlay::observe_underlay;
 ///
 /// #[tokio::main]
 /// async fn main() {

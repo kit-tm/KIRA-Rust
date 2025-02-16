@@ -177,11 +177,8 @@ where
         context: &C,
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
-        match &event {
-            UseCaseEvent::Message(ProtocolMessage::PNDiscReq(rtable_data), _) => {
-                tracing::trace!(source_route = ?rtable_data.source_route, "Received PNDiscReq");
-            }
-            _ => {}
+        if let UseCaseEvent::Message(ProtocolMessage::PNDiscReq(ref rtable_data), _) = event {
+            tracing::trace!(source_route = ?rtable_data.source_route, "Received PNDiscReq");
         }
         match event {
             UseCaseEvent::Message(ProtocolMessage::PNDiscReq(rtable_data), _)
