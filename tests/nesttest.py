@@ -1,5 +1,6 @@
 import argparse
 import os
+from cmd import Cmd
 import sys
 import re
 from subprocess import Popen
@@ -63,30 +64,6 @@ class NestTest:
                           logfile=f,
                           env_vars=env_vars)
 
-    def run(self):
-        """
-        Run the test.
-        """
-        while True:
-            cmd = input("Enter a command (type 'exit' to quit): ").strip()
-            if cmd.lower() == "exit":
-                return
-
-            elif cmd.lower() == "ping":
-                self.pingall()
-            elif cmd.startswith("exec "):
-                _, nid, cmd = cmd.split(maxsplit=2)
-                idx = re.match(r"n?(\d+)", nid).group(1)
-                idx = int(idx)
-                node = self.nodes[idx]
-                p = node_exec(node, cmd, logfile=sys.stdout)
-                p.wait()
-                print()
-
-            # TODO more commands
-            else:
-                print("Command not found. Please try again.")
-
     def pingall(self):
         for x in self.nodes:
             for (idx_y, y) in enumerate(self.nodes):
@@ -100,7 +77,59 @@ class NestTest:
                         print("failed!")
 
 
-def node_exec(node, cmd, env_vars=None, logfile=None):
+class DebugShell(Cmd):
+    intro = "Welcome to the debug shell of nesttest.  Type help or ? to list commands.\n"
+    prompt = '(debug)'
+    file = None
+
+    test: NestTest
+
+    def __init__(self, test: NestTest):
+        super().__init__()
+        self.test = test
+
+    def do_pingall(self, arg):
+        'Ping all nodes'
+        self.test.pingall()
+
+    def do_exec(self, arg):
+        nid, cmd = arg.split(maxsplit=1)
+        idx = re.match(r"n?(\d+)", nid).group(1)
+        idx = int(idx)
+        node = self.test.nodes[idx]
+        p = node_exec(node, cmd, logfile=sys.stdout)
+        p.wait()
+        print()
+
+    def do_exit(self, arg):
+        'Exit the debug shell'
+        self.close()
+        return True
+
+    # ----- record and playback -----
+    def do_record(self, arg):
+        'Save future commands to filename:  RECORD rose.cmd'
+        self.file = open(arg, 'w')
+
+    def do_playback(self, arg):
+        'Playback commands from a file:  PLAYBACK rose.cmd'
+        self.close()
+        with open(arg) as f:
+            self.cmdqueue.extend(f.read().splitlines())
+
+    def precmd(self, line):
+        line = line.lower()
+        if self.file and 'playback' not in line:
+            print(line, file=self.file)
+        return line
+
+    def close(self):
+        if self.file:
+            self.file.close()
+            self.file = None
+
+
+def node_exec(node: Node, cmd, env_vars=None, logfile=None):
     """
     Execute a command in the node's namespace.
     """
@@ -121,7 +150,7 @@ def main(args):
 
     # Create and run the test
     test = NestTest(G)
-    test.run()
+    DebugShell(test).cmdloop()
 
 
 if __name__ == "__main__":
