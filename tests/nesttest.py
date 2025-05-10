@@ -3,7 +3,8 @@ import os
 from cmd import Cmd
 import sys
 import re
-from subprocess import Popen
+from subprocess import Popen, PIPE
+from typing import Optional, Self
 
 import networkx as nx
 
@@ -12,6 +13,67 @@ from nest.topology import Node, connect, Address
 
 
 from common import NodeConfig
+
+
+class KIRANode(Node):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self._api_port = 8080
+
+    def exec(self, cmd: str, env_vars=None, logfile=None) -> Popen:
+        """
+        Execute a command in the node's namespace.
+        """
+        if env_vars is None:
+            env_vars = os.environ.copy()
+        if logfile is None:
+            print("No logfile provided, using stdout")
+        return Popen(f"ip netns exec {self.id} {cmd}", shell=True,
+                     env=env_vars, stdout=logfile, stderr=logfile)
+
+    def api_call(self, path: str, payload: str = None) -> Optional[str]:
+        cmd = f"curl localhost:{self._api_port}/{path}"
+        if payload:
+            cmd += f" -d {payload}"
+
+        p = self.exec(cmd, logfile=PIPE)
+        stdout, _ = p.communicate()
+        return stdout.decode("utf-8")
+
+    def store(self, key: str, data: str) -> str:
+        path = f"dht/store?key={key}"
+        return self.api_call(path, data)
+
+    def fetch(self, key: str) -> str:
+        path = f"dht/fetch?key={key}"
+        return self.api_call(path)
+
+    def routing_table(self) -> str:
+        path = "_dev/routing-table"
+        return self.api_call(path)
+
+    def pn_table(self) -> str:
+        path = "_dev/pn-table"
+        return self.api_call(path)
+
+    def vicinity_graph(self) -> str:
+        path = "_dev/vicinity-graph"
+        return self.api_call(path)
+
+    def local_hashtable(self) -> str:
+        path = "dht/_dev/local-hashtable"
+        return self.api_call(path)
+
+    def ping(self, other: Self, args: str = None) -> bool:
+        if args is None:
+            args = "-c 3 -i 0.25 -W 1 -q"
+
+        other_nid = other.nid.hex(":", 2)
+        cmd = f"ping {args} fc00:{other_nid}"
+        # print(cmd)
+        (res, _) = self._container.exec_run(cmd)
+        return res == 0
 
 
 class NestTest:
@@ -35,7 +97,7 @@ class NestTest:
 
         # Create the Nest topology according to the configuration
         for idx, node in enumerate(self.topology.nodes):
-            n = Node(f'n{idx}')
+            n = KIRANode(f'n{idx}')
             n.enable_ip_forwarding(True, True)
             self.nodes.append(n)
 
@@ -58,9 +120,7 @@ class NestTest:
             env_vars["RUST_LOG"] = "info"
             env_vars["RUST_BACKTRACE"] = "1"
             with open(logfile, 'w') as f:
-                node_exec(node,
-                          f"./target/debug/kirad --root-id {
-                              node_id} --nftables-conf ./kirad/conf/nftables.conf",
+                node.exec(f"./target/debug/kirad --root-id {node_id} --nftables-conf ./kirad/conf/nftables.conf",
                           logfile=f,
                           env_vars=env_vars)
 
@@ -88,18 +148,61 @@ class DebugShell(Cmd):
         super().__init__()
         self.test = test
 
+    def _extract_nid(self, arg: str) -> (KIRANode, Optional[str]):
+        args = arg.split(maxsplit=1)
+        nid = args[0]
+        scmd = args[1] if len(args) >= 2 else None
+
+        idx = re.match(r"n?(\d+)", nid).group(1)
+        idx = int(idx)
+        node = self.test.nodes[idx]
+        return (node, scmd)
+
     def do_pingall(self, arg):
         'Ping all nodes'
         self.test.pingall()
 
     def do_exec(self, arg):
-        nid, cmd = arg.split(maxsplit=1)
-        idx = re.match(r"n?(\d+)", nid).group(1)
-        idx = int(idx)
-        node = self.test.nodes[idx]
-        p = node_exec(node, cmd, logfile=sys.stdout)
+        "Execute arbitrary command in the networns of node"
+        node, cmd = self._extract_nid(arg)
+        p = node.exec(cmd, logfile=sys.stdout)
         p.wait()
         print()
+
+    def do_api(self, arg):
+        # TODO: support payload
+        node, path = self._extract_nid(arg)
+        res = node.api_call(path)
+        print(res)
+
+    def do_store(self, arg) -> str:
+        node, key_data = self._extract_nid(arg)
+        key, data = key_data.split(maxsplit=1)
+        return node.store(key, data)
+
+    def do_fetch(self, arg) -> str:
+        node, key = self._extract_nid(arg)
+        return node.fetch(key)
+
+    def do_routing_table(self, arg) -> str:
+        node, _ = self._extract_nid(arg)
+        res = node.routing_table()
+        print(res)
+
+    def do_pn_table(self, arg) -> str:
+        node, _ = self._extract_nid(arg)
+        res = node.pn_table()
+        print(res)
+
+    def do_vicinity_graph(self, arg) -> str:
+        node, _ = self._extract_nid(arg)
+        res = node.vicinity_graph()
+        print(res)
+
+    def do_local_hashtable(self, arg) -> str:
+        node, _ = self._extract_nid(arg)
+        res = node.local_hashtable()
+        print(res)
 
     def do_exit(self, arg):
         'Exit the debug shell'
@@ -107,6 +210,7 @@ class DebugShell(Cmd):
         return True
 
     # ----- record and playback -----
+
     def do_record(self, arg):
         'Save future commands to filename:  RECORD rose.cmd'
         self.file = open(arg, 'w')
@@ -127,18 +231,6 @@ class DebugShell(Cmd):
         if self.file:
             self.file.close()
             self.file = None
-
-
-def node_exec(node: Node, cmd, env_vars=None, logfile=None):
-    """
-    Execute a command in the node's namespace.
-    """
-    if env_vars is None:
-        env_vars = os.environ.copy()
-    if logfile is None:
-        print("No logfile provided, using stdout")
-    return Popen(f"ip netns exec {node.id} {cmd}", shell=True,
-                 env=env_vars, stdout=logfile, stderr=logfile)
 
 
 def main(args):
