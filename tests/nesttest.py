@@ -77,6 +77,9 @@ class KIRANode(Node):
         path = "node-id"
         return self.api_call(path) is not None
 
+    def __str__(self) -> str:
+        return self.name
+
 
 class NestTest:
     """
@@ -126,18 +129,6 @@ class NestTest:
                           logfile=f,
                           env_vars=env_vars)
 
-    def pingall(self):
-        for x in self.nodes:
-            for (idx_y, y) in enumerate(self.nodes):
-                if x != y:
-                    print(f'Pinging {x} -> {y} ...', end='')
-                    result = x.ping(
-                        Address(self.topology.nodes[str(idx_y)]["config"].ipv6), packets=1)
-                    if result:
-                        continue
-                    else:
-                        print("failed!")
-
 
 class DebugShell(Cmd):
     intro = "Welcome to the debug shell of nesttest.  Type help or ? to list commands.\n"
@@ -161,8 +152,37 @@ class DebugShell(Cmd):
         return (node, scmd)
 
     def do_pingall(self, arg):
-        'Ping all nodes'
-        self.test.pingall()
+        "Ping all nodes: PINGALL [-f,--failed] [-v,--verbose]"
+        # process flags
+        args = arg.split()
+        if "-f" in args or "--failed" in args:
+            failed = True
+        else:
+            failed = False
+
+        if "-v" in args or "--verbose" in args:
+            verbose = 2
+        else:
+            verbose = 0
+
+        for x in self.test.nodes:
+            for (idx_y, y) in enumerate(self.test.nodes):
+                if x != y:
+                    print(f'Pinging {x} -> {y} ...', end='\r')
+
+                    ip_y = self.test.topology.nodes[str(idx_y)]["config"].ipv6
+                    ip_y = Address(ip_y)
+                    result = x.ping(ip_y, packets=1, verbose=verbose)
+
+                    if not verbose:
+                        if result:
+                            # overwrite line if failed
+                            end = '\r' if failed else '\n'
+                            print(f"Pinging {x} -> {y} ✓  ",
+                                  end=end, flush=True)
+                            continue
+                        else:
+                            print(f"Pinging {x}->{y} ✗          ", flush=True)
 
     def do_exec(self, arg):
         "Execute arbitrary command in the network namespace of node: EXECUTE <nid> <cmd>"
@@ -230,15 +250,15 @@ class DebugShell(Cmd):
                 print("All nodes are up!")
             else:
                 for n in down_nodes:
-                    print(f"Node {n.name} is down.")
+                    print(f"Node {n} is down.")
 
             return
         node, _ = self._extract_nid(arg)
         is_up = node.is_up()
         if is_up:
-            print(f"Node {node.name} is up")
+            print(f"Node {node} is up")
         else:
-            print(f"Node {node.name} is not up")
+            print(f"Node {node} is not up")
 
     def do_exit(self, arg):
         'Exit the debug shell'
