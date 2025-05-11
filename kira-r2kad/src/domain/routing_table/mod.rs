@@ -67,10 +67,6 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     ///
     /// Allows implementations to support RAII types to watch mutability of a bucket.
     type BucketWriteGuard: DerefMut<Target = Bucket<BUCKET_SIZE>>;
-    /// Iterator type over all [Contact]s.
-    type Iter: Iterator<Item = &'a Contact>;
-    /// Iterator type over mutable references of all [Contact]s.
-    type IterMut: Iterator<Item = Self::ContactWriteGuard>;
 
     /// Iterator type over all [Bucket]s
     type BucketIter: Iterator<Item = &'a Bucket<BUCKET_SIZE>>;
@@ -267,10 +263,10 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     }
 
     /// Iterator over all [Contact]s in the [RoutingTable].
-    fn iter(&'a self) -> Self::Iter;
+    fn iter(&self) -> impl Iterator<Item = &Contact>;
 
     /// Iterator over mutable references to all contacts in the [RoutingTable].
-    fn iter_mut(&'a mut self) -> Self::IterMut;
+    fn iter_mut(&'a mut self) -> impl Iterator<Item = Self::ContactWriteGuard>;
 
     /// Iterator over all [Bucket]s in the [RoutingTable]
     fn bucket_iter(&'a self) -> Self::BucketIter;

@@ -191,8 +191,6 @@ where
 {
     type ContactWriteGuard = ContactWriteGuard<'a, RT::ContactWriteGuard, BUCKET_SIZE>;
     type BucketWriteGuard = BucketWriteGuard<'a, RT::BucketWriteGuard, BUCKET_SIZE>;
-    type Iter = RT::Iter;
-    type IterMut = Iter<'a, RT::IterMut, RT::ContactWriteGuard, BUCKET_SIZE>;
     type BucketIter = RT::BucketIter;
 
     fn root(&self) -> &NodeId {
@@ -288,11 +286,11 @@ where
         self.inner.closest(to, n, shared_prefix_grouping)
     }
 
-    fn iter(&'a self) -> Self::Iter {
+    fn iter(&self) -> impl Iterator<Item = &Contact> {
         self.inner.iter()
     }
 
-    fn iter_mut(&'a mut self) -> Self::IterMut {
+    fn iter_mut(&'a mut self) -> impl Iterator<Item = Self::ContactWriteGuard> {
         Iter::new(&self.observers, self.inner.iter_mut())
     }
 

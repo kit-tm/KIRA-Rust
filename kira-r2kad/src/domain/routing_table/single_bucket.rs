@@ -38,8 +38,6 @@ impl<const BUCKET_SIZE: usize> SingleBucketRT<BUCKET_SIZE> {
 impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucketRT<BUCKET_SIZE> {
     type ContactWriteGuard = &'a mut Contact;
     type BucketWriteGuard = &'a mut Bucket<BUCKET_SIZE>;
-    type Iter = crate::domain::bucket::IntoIter<&'a Contact>;
-    type IterMut = crate::domain::bucket::IntoIter<&'a mut Contact>;
     type BucketIter = std::iter::Once<&'a Bucket<BUCKET_SIZE>>;
 
     fn root(&self) -> &NodeId {
@@ -131,11 +129,11 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
         Ok(result)
     }
 
-    fn iter(&'a self) -> Self::Iter {
+    fn iter(&self) -> impl Iterator<Item = &Contact> {
         (&self.bucket).into_iter()
     }
 
-    fn iter_mut(&'a mut self) -> Self::IterMut {
+    fn iter_mut(&'a mut self) -> impl Iterator<Item = Self::ContactWriteGuard> {
         (&mut self.bucket).into_iter()
     }
 

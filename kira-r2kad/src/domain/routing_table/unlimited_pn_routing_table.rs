@@ -1,4 +1,3 @@
-use std::collections::hash_map::{Values, ValuesMut};
 use std::collections::HashMap;
 
 use rand::Rng;
@@ -40,61 +39,11 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> From<FlatRoutingTable<BUCKET_SI
     }
 }
 
-pub struct Iter<'a, const BUCKET_SIZE: usize, const ACC: usize> {
-    pn_iter: Values<'a, NodeId, Contact>,
-    inner_iter: <FlatRoutingTable<BUCKET_SIZE, ACC> as RoutingTable<'a, BUCKET_SIZE>>::Iter,
-}
-
-impl<'a, const BUCKET_SIZE: usize, const ACC: usize>
-    From<&'a UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>> for Iter<'a, BUCKET_SIZE, ACC>
-{
-    fn from(table: &'a UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>) -> Self {
-        Self {
-            pn_iter: table.pn_contacts.values(),
-            inner_iter: table.inner.iter(),
-        }
-    }
-}
-
-impl<'a, const BUCKET_SIZE: usize, const ACC: usize> Iterator for Iter<'a, BUCKET_SIZE, ACC> {
-    type Item = &'a Contact;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.pn_iter.next().or_else(|| self.inner_iter.next())
-    }
-}
-
-pub struct IterMut<'a, const BUCKET_SIZE: usize, const ACC: usize> {
-    pn_iter: ValuesMut<'a, NodeId, Contact>,
-    inner_iter: <FlatRoutingTable<BUCKET_SIZE, ACC> as RoutingTable<'a, BUCKET_SIZE>>::IterMut,
-}
-
-impl<'a, const BUCKET_SIZE: usize, const ACC: usize>
-    From<&'a mut UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>> for IterMut<'a, BUCKET_SIZE, ACC>
-{
-    fn from(table: &'a mut UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>) -> Self {
-        Self {
-            pn_iter: table.pn_contacts.values_mut(),
-            inner_iter: table.inner.iter_mut(),
-        }
-    }
-}
-
-impl<'a, const BUCKET_SIZE: usize, const ACC: usize> Iterator for IterMut<'a, BUCKET_SIZE, ACC> {
-    type Item = &'a mut Contact;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.pn_iter.next().or_else(|| self.inner_iter.next())
-    }
-}
-
 impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZE>
     for UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>
 {
     type ContactWriteGuard = &'a mut Contact;
     type BucketWriteGuard = &'a mut Bucket<BUCKET_SIZE>;
-    type Iter = Iter<'a, BUCKET_SIZE, ACC>;
-    type IterMut = IterMut<'a, BUCKET_SIZE, ACC>;
     type BucketIter = std::slice::Iter<'a, Bucket<BUCKET_SIZE>>;
 
     fn root(&self) -> &NodeId {
@@ -217,12 +166,12 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         Ok(closest)
     }
 
-    fn iter(&'a self) -> Self::Iter {
-        Iter::from(self)
+    fn iter(&self) -> impl Iterator<Item = &Contact> {
+        self.pn_contacts.values().chain(self.inner.iter())
     }
 
-    fn iter_mut(&'a mut self) -> Self::IterMut {
-        IterMut::from(self)
+    fn iter_mut(&'a mut self) -> impl Iterator<Item = Self::ContactWriteGuard> {
+        self.pn_contacts.values_mut().chain(self.inner.iter_mut())
     }
 
     fn bucket_iter(&'a self) -> Self::BucketIter {
@@ -253,6 +202,46 @@ mod tests {
         Contact, ContactState, FlatRoutingTable, NodeId, Path, RoutingTable, StateSeqNr,
     };
 
+    #[test]
+    fn yield_physical_neighbors() {
+        let invalid_contact = Contact::new(Path::from([NodeId::with_msb(4)]), StateSeqNr::from(0));
+
+        let mut routing_table =
+            UnlimitedPNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+
+        let contacts = vec![
+            invalid_contact,
+            Contact::new(Path::from([NodeId::with_msb(5)]), StateSeqNr::from(0)),
+            Contact::new(
+                Path::from([NodeId::with_msb(4), NodeId::with_msb(1)]),
+                StateSeqNr::from(0),
+            ),
+            Contact::new(
+                Path::from([NodeId::with_msb(5), NodeId::with_msb(2)]),
+                StateSeqNr::from(0),
+            ),
+            Contact::new(
+                Path::from([NodeId::with_msb(4), NodeId::with_msb(3)]),
+                StateSeqNr::from(0),
+            ),
+        ];
+
+        routing_table
+            .extend(false, contacts.clone())
+            .expect("failed to insert all contacts");
+
+        assert_eq!(
+            routing_table.iter().collect::<Vec<_>>().len(),
+            contacts.len(),
+            "yield all contacts"
+        );
+
+        assert_eq!(
+            routing_table.iter_mut().collect::<Vec<_>>().len(),
+            contacts.len(),
+            "yield all contacts"
+        );
+    }
     #[test]
     fn get_closest_contact() {
         let mut invalid_contact =

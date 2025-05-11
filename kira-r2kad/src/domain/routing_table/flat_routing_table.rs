@@ -84,16 +84,16 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
     /// Returns a [NonZeroUsize] version of *ACC*. Workaround for using
     /// [NonZeroUsize] in const generics.
     fn non_zero_acc() -> NonZeroUsize {
-        NonZeroUsize::new(ACC).unwrap()
+        NonZeroUsize::new(ACC).expect("checked on initialization")
     }
 
     /// Returns the max number of buckets for a [RoutingTable] with the given
-    /// *ID_SIZE* and *ACC*.
+    /// `ID_SIZE` and `ACC`.
     pub const fn max_buckets() -> usize {
         (node_id::BIT_SIZE / ACC) * Self::level_width()
     }
 
-    /// Returns the number of [Bucket]s.
+    /// Returns the number of present [Bucket]s.
     pub fn num_buckets(&self) -> usize {
         self.buckets.len()
     }
@@ -102,53 +102,6 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
     pub fn num_contacts(&self) -> usize {
         self.buckets.iter().flat_map(|bucket| bucket.iter()).count()
     }
-
-    /// Returns the index of the [Bucket] the id should be in related
-    /// to the current state of the [RoutingTable].
-    fn get_bucket_index_for(of: &NodeId, for_root: &NodeId, num_buckets: usize) -> usize {
-        let SharedPrefix {
-            xor: delta,
-            length: prefix_len,
-        } = for_root
-            .shared_prefix_len(of, ACC)
-            .expect("GroupingError after checking");
-
-        // bitindex is now the index of the LSB of the first non-zero digit in delta
-        let bit_index = (node_id::BIT_SIZE).checked_sub((prefix_len + 1) * ACC);
-        let bit_index = match bit_index {
-            // This is the root key
-            None => return num_buckets - 1, // Always at least one bucket present
-            Some(bit_index) => bit_index,
-        };
-
-        // bitindex is the LSB of the first non-zero digit, so digit must not be zero
-        let digit = delta
-            .bits(bit_index, Self::non_zero_acc())
-            .expect("invalid index");
-        assert_ne!(digit, 0);
-
-        assert!(
-            bit_index + ACC >= node_id::BIT_SIZE
-                || delta.bits(bit_index + ACC, Self::non_zero_acc()) == Ok(0)
-        );
-
-        // on each level we have levelWidth buckets:
-        // levelWidth = 2^accelerationfactor - 1
-        // the prefixLen denotes depth of the level
-        // levelId = prefixLen
-        // bucket 0 is the farthest one from my id.
-        // levelBaseIndex =  levelId * levelWidth
-        // levelOffset = levelWidth - digit
-        // index = levelBaseIndex + levelOffset
-        // => index = (prefixLen+1) * levelWidth - digit
-        let level_id = prefix_len;
-        let level_base_index = level_id * Self::level_width();
-        let level_offset = Self::level_width() - digit;
-        let index = level_base_index + level_offset;
-        assert!(index <= Self::max_buckets());
-
-        index.min(num_buckets - 1) // Always at least one bucket present
-    }
 }
 
 impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZE>
@@ -156,8 +109,6 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
 {
     type ContactWriteGuard = &'a mut Contact;
     type BucketWriteGuard = &'a mut Bucket<BUCKET_SIZE>;
-    type Iter = std::vec::IntoIter<&'a Contact>;
-    type IterMut = std::vec::IntoIter<&'a mut Contact>;
     type BucketIter = std::slice::Iter<'a, Bucket<BUCKET_SIZE>>;
 
     fn root(&self) -> &NodeId {
@@ -227,7 +178,11 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         }
         let bucket = self.buckets.remove(bucket_index);
 
-        self.buckets.push(Bucket::new());
+        // create new bucket level
+        for _ in 0..Self::level_width() {
+            self.buckets.push(Bucket::new());
+        }
+        // recreate deepest bucket
         self.buckets.push(Bucket::new());
 
         for contact in bucket {
@@ -257,10 +212,10 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         n: usize,
         shared_prefix_grouping: usize,
     ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError> {
-        let index = self.get_bucket_index(to);
+        // check for valid grouping first because we don't want unexpectetly panic inside iters
+        to.shared_prefix_len(&self.root, shared_prefix_grouping)?;
 
-        // Longer prefix has to be in front
-        // todo this shouldn't be necessary since the default order on tuples is already lexicographical
+        // sort by longest prefix
         let sorter = |first: &(SharedPrefix, Contact), second: &(SharedPrefix, Contact)| {
             if first.0 < second.0 {
                 return Ordering::Less;
@@ -272,23 +227,24 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
             Ordering::Greater
         };
 
+        let index = self.get_bucket_index(to);
+
         let mut result = Vec::with_capacity(n);
         // copy all valid elements from buckets[index] to result
-        result.extend(
-            self.buckets[index]
-                .iter()
-                .filter(|c| c.state() == &ContactState::Valid)
-                .map(|c| {
-                    let prefix = to
-                        .shared_prefix_len(c.id(), shared_prefix_grouping)
-                        .expect("valid shared_prefix_grouping");
-                    (prefix, c.clone())
-                }),
-        );
-        result.sort_by(sorter);
+        let bucket_content = self.buckets[index]
+            .iter()
+            .filter(|c| c.state() == &ContactState::Valid)
+            .map(|c| {
+                let prefix = to
+                    .shared_prefix_len(c.id(), shared_prefix_grouping)
+                    .expect("checked shared_prefix_grouping on root");
+                (prefix, c.clone())
+            });
+        result.extend(bucket_content);
 
         if result.len() >= n || self.buckets.len() == 1 {
             // return early if enough contacts were found or only 1 bucket exists
+            result.sort_by(sorter);
             return Ok(result);
         }
 
@@ -306,41 +262,38 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
             let level = first_bucket_on_level + iteration_count * level_width;
 
             // if this is the last bucket copy content
-            let mut buckets_content: Vec<_> = if level == self.buckets.len() - 1 && level != index {
-                bucket
+            if level == self.buckets.len() - 1 && level != index {
+                let bucket_content = bucket
                     .iter()
                     .filter(|c| c.state() == &ContactState::Valid)
                     .map(|c| {
                         let prefix = to
                             .shared_prefix_len(c.id(), shared_prefix_grouping)
-                            .expect("valid shared_prefix_grouping");
+                            .expect("checked shared_prefix_grouping on root");
                         (prefix, c.clone())
-                    })
-                    .collect()
+                    });
+                result.extend(bucket_content);
             } else {
                 // else copy whole level
-                self.buckets[level..level + level_width]
-                    .iter()
-                    .flat_map(|b| {
-                        b.iter()
-                            .filter(|c| c.state() == &ContactState::Valid)
-                            .map(|c| {
-                                let prefix = to
-                                    .shared_prefix_len(c.id(), shared_prefix_grouping)
-                                    .expect("valid shared_prefix_grouping");
-                                (prefix, c.clone())
-                            })
-                    })
-                    .collect()
+                let buckets_content =
+                    self.buckets[level..level + level_width]
+                        .iter()
+                        .flat_map(|b| {
+                            b.iter()
+                                .filter(|c| c.state() == &ContactState::Valid)
+                                .map(|c| {
+                                    let prefix = to
+                                        .shared_prefix_len(c.id(), shared_prefix_grouping)
+                                        .expect("checked shared_prefix_grouping on root");
+                                    (prefix, c.clone())
+                                })
+                        });
+                result.extend(buckets_content);
             };
-            buckets_content.sort_by(sorter);
-
-            let missing_contacts = n - result.len();
-            let next_contacts = buckets_content.into_iter().take(missing_contacts);
-            result.extend(next_contacts);
 
             // collected the requested amount
             if result.len() >= n {
+                result.sort_by(sorter);
                 return Ok(result);
             }
         }
@@ -352,7 +305,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
             .rev()
             .skip(self.buckets.len() - first_bucket_on_level)
         {
-            let mut bucket_contents: Vec<_> = bucket
+            let bucket_contents = bucket
                 .iter()
                 .filter(|c| c.state() == &ContactState::Valid)
                 .map(|c| {
@@ -360,37 +313,25 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
                         .shared_prefix_len(c.id(), shared_prefix_grouping)
                         .expect("valid shared_prefix_grouping");
                     (prefix, c.clone())
-                })
-                .collect();
-            bucket_contents.sort_by(sorter);
-
-            let remaining_contacts = n - result.len();
-            let next_contacts = bucket_contents.into_iter().take(remaining_contacts);
-            result.extend(next_contacts);
-
+                });
+            result.extend(bucket_contents);
             if result.len() >= n {
-                return Ok(result);
+                break;
             }
         }
+
+        result.sort_by(sorter);
         Ok(result)
     }
 
-    fn iter(&'a self) -> Self::Iter {
-        self.buckets
-            .iter()
-            .flat_map(|bucket| bucket.into_iter())
-            // FIXME: Remove allocation
-            .collect::<Vec<_>>()
-            .into_iter()
+    fn iter(&self) -> impl Iterator<Item = &Contact> {
+        self.buckets.iter().flat_map(|bucket| bucket.into_iter())
     }
 
-    fn iter_mut(&'a mut self) -> Self::IterMut {
+    fn iter_mut(&'a mut self) -> impl Iterator<Item = Self::ContactWriteGuard> {
         self.buckets
             .iter_mut()
             .flat_map(|bucket| bucket.into_iter())
-            // FIXME: Remove allocation
-            .collect::<Vec<_>>()
-            .into_iter()
     }
 
     fn bucket_iter(&'a self) -> Self::BucketIter {
@@ -405,8 +346,55 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         self.buckets.index_mut(index)
     }
 
+    /// Returns the index of the [Bucket] the id should be in related
+    /// to the current state of the [RoutingTable].
     fn get_bucket_index(&self, of: &NodeId) -> usize {
-        Self::get_bucket_index_for(of, &self.root, self.num_buckets())
+        let SharedPrefix {
+            xor: delta,
+            length: prefix_len,
+        } = self
+            .root
+            .shared_prefix_len(of, ACC)
+            .expect("grouping is checked on initialization");
+
+        // bitindex is now the index of the LSB of the first non-zero digit in delta
+        // Example: delta = 00 00 00 01 10 11 10; ACC=2
+        // => prefix_len = 3, bit_index = 14 - 8 = 6
+        let bit_index = (node_id::BIT_SIZE).checked_sub((prefix_len + 1) * ACC);
+        let bit_index = match bit_index {
+            // This is the root key
+            None => return self.num_buckets() - 1, // Always at least one bucket present
+            Some(bit_index) => bit_index,
+        };
+
+        // Example: digit = 01
+        let digit = delta.bits(bit_index, Self::non_zero_acc()).unwrap();
+        assert_ne!(
+            digit, 0,
+            "bit_index is the LSB of the first non-zero digit, so digit must not be zero"
+        );
+
+        assert!(
+            bit_index + ACC >= node_id::BIT_SIZE
+                || delta.bits(bit_index + ACC, Self::non_zero_acc()) == Ok(0)
+        );
+
+        // on each level we have levelWidth buckets:
+        // levelWidth = 2^accelerationfactor - 1
+        // the prefixLen denotes depth of the level
+        // levelId = prefixLen
+        // bucket 0 is the farthest one from my id.
+        // levelBaseIndex =  levelId * levelWidth
+        // levelOffset = levelWidth - digit
+        // index = levelBaseIndex + levelOffset
+        // => index = (prefixLen+1) * levelWidth - digit
+        let level_id = prefix_len;
+        let level_base_index = level_id * Self::level_width();
+        let level_offset = Self::level_width() - digit;
+        let index = level_base_index + level_offset;
+        assert!(index <= Self::max_buckets());
+
+        index.min(self.num_buckets() - 1) // Always at least one bucket present
     }
 
     fn get_bucket_prefix_length(&self, bucket_index: usize) -> usize {
@@ -481,44 +469,112 @@ mod routing_tests {
             Path::from(NodeId::with_lsb(0b00000010)),
             StateSeqNr::from(0),
         ))?;
-
-        table.insert(Contact::new(
-            Path::from(NodeId::with_lsb(0b00000100)),
-            StateSeqNr::from(0),
-        ))?;
-
-        table.insert(Contact::new(
-            Path::from(NodeId::with_lsb(0b00001000)),
-            StateSeqNr::from(0),
-        ))?;
+        assert_eq!(
+            table.num_buckets(),
+            FlatRoutingTable::<1, 1>::max_buckets(),
+            "max buckets"
+        );
 
         table.insert(Contact::new(
             Path::from(NodeId::with_lsb(0b00010000)),
             StateSeqNr::from(0),
         ))?;
 
-        table.insert(Contact::new(
-            Path::from(NodeId::with_lsb(0b00100000)),
+        assert!(
+            table
+                .insert(Contact::new(
+                    Path::from(NodeId::with_lsb(0b00010111)),
+                    StateSeqNr::from(0),
+                ))
+                .is_err(),
+            "is in the same bucket as 00010000"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_split_acc() -> Result<(), Box<dyn Error>> {
+        let mut table = FlatRoutingTable::<2, 2>::new(NodeId::zero())?;
+
+        table.add(Contact::new(
+            Path::from(NodeId::with_lsb(0b00000001)),
             StateSeqNr::from(0),
         ))?;
+        assert_eq!(table.buckets.len(), 1);
 
-        table.insert(Contact::new(
-            Path::from(NodeId::with_lsb(0b01000000)),
-            StateSeqNr::from(0),
-        ))?;
+        assert!(
+            table
+                .add(Contact::new(
+                    Path::from(NodeId::with_msb(0b11000000)),
+                    StateSeqNr::from(0),
+                ))
+                .is_ok(),
+            "no split required on bucket BUCKET_SIZE=2"
+        );
+        assert_eq!(table.buckets.len(), 1, "really, no split happend");
 
-        table.insert(Contact::new(
-            Path::from(NodeId::with_lsb(0b10000000)),
-            StateSeqNr::from(0),
-        ))?;
-
-        assert!(table
-            .insert(Contact::new(
-                Path::from(NodeId::with_lsb(0b00010111)),
+        // try to add node into full bucket should not work
+        assert_eq!(
+            table.add(Contact::new(
+                Path::from(NodeId::with_msb(0b10000000)),
                 StateSeqNr::from(0),
-            ))
-            .is_err());
-        assert_eq!(table.num_buckets(), FlatRoutingTable::<1, 1>::max_buckets());
+            )),
+            Err(AddError::NotAdded),
+            "split required because single bucket is full"
+        );
+
+        // split bucket and then add node
+        assert!(
+            table.split_bucket(&NodeId::with_msb(0b10000000)).is_ok(),
+            "split should be possible because ID would reside in lowest bucket"
+        );
+        assert!(
+            table
+                .add(Contact::new(
+                    Path::from(NodeId::with_msb(0b10000000)),
+                    StateSeqNr::from(0),
+                ))
+                .is_ok(),
+            "bucket should have been created on split"
+        );
+
+        // add another node into same bucket
+        assert!(
+            table
+                .add(Contact::new(
+                    Path::from(NodeId::with_msb(0b10000001)),
+                    StateSeqNr::from(0),
+                ))
+                .is_ok(),
+            "bucket with prefix 10 should have space"
+        );
+        assert!(
+            table
+                .add(Contact::new(
+                    Path::from(NodeId::with_msb(0b00000011)),
+                    StateSeqNr::from(0),
+                ))
+                .is_ok(),
+            "bucket with prefix 00 should have space"
+        );
+
+        assert!(
+            table
+                .add(Contact::new(
+                    Path::from(NodeId::with_msb(0b01000000)),
+                    StateSeqNr::from(0),
+                ))
+                .is_ok(),
+            "bucket with prefix 01 should have space"
+        );
+        println!("{:#?}", table);
+
+        assert_eq!(
+            table.buckets.len(),
+            4,
+            "split because lowest bucket is over-full"
+        );
 
         Ok(())
     }
