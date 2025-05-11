@@ -225,7 +225,11 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         }
         let bucket = self.buckets.remove(bucket_index);
 
-        self.buckets.push(Bucket::new());
+        // create new bucket level
+        for _ in 0..Self::level_width() {
+            self.buckets.push(Bucket::new());
+        }
+        // recreate deepest bucket
         self.buckets.push(Bucket::new());
 
         for contact in bucket {
@@ -471,44 +475,112 @@ mod routing_tests {
             Path::from(NodeId::with_lsb(0b00000010)),
             StateSeqNr::from(0),
         ))?;
-
-        table.insert(Contact::new(
-            Path::from(NodeId::with_lsb(0b00000100)),
-            StateSeqNr::from(0),
-        ))?;
-
-        table.insert(Contact::new(
-            Path::from(NodeId::with_lsb(0b00001000)),
-            StateSeqNr::from(0),
-        ))?;
+        assert_eq!(
+            table.num_buckets(),
+            FlatRoutingTable::<1, 1>::max_buckets(),
+            "max buckets"
+        );
 
         table.insert(Contact::new(
             Path::from(NodeId::with_lsb(0b00010000)),
             StateSeqNr::from(0),
         ))?;
 
-        table.insert(Contact::new(
-            Path::from(NodeId::with_lsb(0b00100000)),
+        assert!(
+            table
+                .insert(Contact::new(
+                    Path::from(NodeId::with_lsb(0b00010111)),
+                    StateSeqNr::from(0),
+                ))
+                .is_err(),
+            "is in the same bucket as 00010000"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_split_acc() -> Result<(), Box<dyn Error>> {
+        let mut table = FlatRoutingTable::<2, 2>::new(NodeId::zero())?;
+
+        table.add(Contact::new(
+            Path::from(NodeId::with_lsb(0b00000001)),
             StateSeqNr::from(0),
         ))?;
+        assert_eq!(table.buckets.len(), 1);
 
-        table.insert(Contact::new(
-            Path::from(NodeId::with_lsb(0b01000000)),
-            StateSeqNr::from(0),
-        ))?;
+        assert!(
+            table
+                .add(Contact::new(
+                    Path::from(NodeId::with_msb(0b11000000)),
+                    StateSeqNr::from(0),
+                ))
+                .is_ok(),
+            "no split required on bucket BUCKET_SIZE=2"
+        );
+        assert_eq!(table.buckets.len(), 1, "really, no split happend");
 
-        table.insert(Contact::new(
-            Path::from(NodeId::with_lsb(0b10000000)),
-            StateSeqNr::from(0),
-        ))?;
-
-        assert!(table
-            .insert(Contact::new(
-                Path::from(NodeId::with_lsb(0b00010111)),
+        // try to add node into full bucket should not work
+        assert_eq!(
+            table.add(Contact::new(
+                Path::from(NodeId::with_msb(0b10000000)),
                 StateSeqNr::from(0),
-            ))
-            .is_err());
-        assert_eq!(table.num_buckets(), FlatRoutingTable::<1, 1>::max_buckets());
+            )),
+            Err(AddError::NotAdded),
+            "split required because single bucket is full"
+        );
+
+        // split bucket and then add node
+        assert!(
+            table.split_bucket(&NodeId::with_msb(0b10000000)).is_ok(),
+            "split should be possible because ID would reside in lowest bucket"
+        );
+        assert!(
+            table
+                .add(Contact::new(
+                    Path::from(NodeId::with_msb(0b10000000)),
+                    StateSeqNr::from(0),
+                ))
+                .is_ok(),
+            "bucket should have been created on split"
+        );
+
+        // add another node into same bucket
+        assert!(
+            table
+                .add(Contact::new(
+                    Path::from(NodeId::with_msb(0b10000001)),
+                    StateSeqNr::from(0),
+                ))
+                .is_ok(),
+            "bucket with prefix 10 should have space"
+        );
+        assert!(
+            table
+                .add(Contact::new(
+                    Path::from(NodeId::with_msb(0b00000011)),
+                    StateSeqNr::from(0),
+                ))
+                .is_ok(),
+            "bucket with prefix 00 should have space"
+        );
+
+        assert!(
+            table
+                .add(Contact::new(
+                    Path::from(NodeId::with_msb(0b01000000)),
+                    StateSeqNr::from(0),
+                ))
+                .is_ok(),
+            "bucket with prefix 01 should have space"
+        );
+        println!("{:#?}", table);
+
+        assert_eq!(
+            table.buckets.len(),
+            4,
+            "split because lowest bucket is over-full"
+        );
 
         Ok(())
     }
