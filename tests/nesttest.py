@@ -4,7 +4,9 @@ from cmd import Cmd
 import sys
 import re
 from subprocess import Popen, PIPE
-from typing import Optional, Self
+from typing import Optional
+import json
+import base64
 
 import networkx as nx
 
@@ -39,15 +41,21 @@ class KIRANode(Node):
 
         p = self.exec(cmd, logfile=PIPE)
         stdout, _ = p.communicate()
-        return stdout.decode("utf-8")
+        return stdout.decode("utf-8") if p.returncode == 0 else None
 
     def store(self, key: str, data: str) -> str:
         path = f"dht/store?key={key}"
         return self.api_call(path, data)
 
-    def fetch(self, key: str) -> str:
+    def fetch(self, key: str) -> list[str]:
         path = f"dht/fetch?key={key}"
-        return self.api_call(path)
+        res = self.api_call(path)
+        if res is None:
+            return list()
+        else:
+            # decode
+            res = json.loads(res)
+            return [base64.b64decode(value).decode("utf-8") for value in res]
 
     def routing_table(self) -> str:
         path = "_dev/routing-table"
@@ -64,6 +72,10 @@ class KIRANode(Node):
     def local_hashtable(self) -> str:
         path = "dht/_dev/local-hashtable"
         return self.api_call(path)
+
+    def is_up(self) -> bool:
+        path = "node-id"
+        return self.api_call(path) is not None
 
 
 class NestTest:
@@ -153,46 +165,80 @@ class DebugShell(Cmd):
         self.test.pingall()
 
     def do_exec(self, arg):
-        "Execute arbitrary command in the networns of node"
+        "Execute arbitrary command in the network namespace of node: EXECUTE <nid> <cmd>"
         node, cmd = self._extract_nid(arg)
         p = node.exec(cmd, logfile=sys.stdout)
         p.wait()
         print()
 
     def do_api(self, arg):
-        # TODO: support payload
+        "Issue arbitrary API call to node: API <nid> <rest_path>"
         node, path = self._extract_nid(arg)
         res = node.api_call(path)
         print(res)
 
     def do_store(self, arg) -> str:
+        "Store a key-value pair in the DHT: STORE <nid> <key> <value>"
         node, key_data = self._extract_nid(arg)
         key, data = key_data.split(maxsplit=1)
-        return node.store(key, data)
+        print(node.store(key, data))
 
     def do_fetch(self, arg) -> str:
+        "Obtain value of a key in the DHT: FETCH <nid> <key>"
         node, key = self._extract_nid(arg)
-        return node.fetch(key)
+        res = node.fetch(key)
+        if len(res) == 0:
+            print(f"No value with key {key} found!")
+        elif len(res) == 1:
+            print(f"{key}={res[0]}")
+        else:
+            print(f"{key}=[")
+            for value in res:
+                print(f"    {value},")
+            print("]")
 
     def do_routing_table(self, arg) -> str:
+        "Dumps routing table of node: ROUTING_TABLE <nid>"
         node, _ = self._extract_nid(arg)
         res = node.routing_table()
         print(res)
 
     def do_pn_table(self, arg) -> str:
+        "Dump physical neighbor table of node: PN_TABLE <nid>"
         node, _ = self._extract_nid(arg)
         res = node.pn_table()
         print(res)
 
     def do_vicinity_graph(self, arg) -> str:
+        "Dump vicinity graph of node: VICINITY_GRAPH <nid>"
         node, _ = self._extract_nid(arg)
         res = node.vicinity_graph()
         print(res)
 
     def do_local_hashtable(self, arg) -> str:
+        "Dump local hashtable of node: LOCAL_HASHTABLE <nid>"
         node, _ = self._extract_nid(arg)
         res = node.local_hashtable()
         print(res)
+
+    def do_checkup(self, arg) -> str:
+        "Check if nodes are up: CHECKUP [nid]"
+        # check all of no node is specified
+        if arg == "":
+            down_nodes = [n for n in self.test.nodes if not n.is_up()]
+            if len(down_nodes) == 0:
+                print("All nodes are up!")
+            else:
+                for n in down_nodes:
+                    print(f"Node {n.name} is down.")
+
+            return
+        node, _ = self._extract_nid(arg)
+        is_up = node.is_up()
+        if is_up:
+            print(f"Node {node.name} is up")
+        else:
+            print(f"Node {node.name} is not up")
 
     def do_exit(self, arg):
         'Exit the debug shell'
