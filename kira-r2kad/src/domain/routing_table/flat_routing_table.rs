@@ -156,8 +156,6 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
 {
     type ContactWriteGuard = &'a mut Contact;
     type BucketWriteGuard = &'a mut Bucket<BUCKET_SIZE>;
-    type Iter = std::vec::IntoIter<&'a Contact>;
-    type IterMut = std::vec::IntoIter<&'a mut Contact>;
     type BucketIter = std::slice::Iter<'a, Bucket<BUCKET_SIZE>>;
 
     fn root(&self) -> &NodeId {
@@ -375,22 +373,14 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         Ok(result)
     }
 
-    fn iter(&'a self) -> Self::Iter {
-        self.buckets
-            .iter()
-            .flat_map(|bucket| bucket.into_iter())
-            // FIXME: Remove allocation
-            .collect::<Vec<_>>()
-            .into_iter()
+    fn iter(&self) -> impl Iterator<Item = &Contact> {
+        self.buckets.iter().flat_map(|bucket| bucket.into_iter())
     }
 
-    fn iter_mut(&'a mut self) -> Self::IterMut {
+    fn iter_mut(&'a mut self) -> impl Iterator<Item = Self::ContactWriteGuard> {
         self.buckets
             .iter_mut()
             .flat_map(|bucket| bucket.into_iter())
-            // FIXME: Remove allocation
-            .collect::<Vec<_>>()
-            .into_iter()
     }
 
     fn bucket_iter(&'a self) -> Self::BucketIter {
