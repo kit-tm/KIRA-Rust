@@ -65,16 +65,6 @@ class KIRANode(Node):
         path = "dht/_dev/local-hashtable"
         return self.api_call(path)
 
-    def ping(self, other: Self, args: str = None) -> bool:
-        if args is None:
-            args = "-c 3 -i 0.25 -W 1 -q"
-
-        other_nid = other.nid.hex(":", 2)
-        cmd = f"ping {args} fc00:{other_nid}"
-        # print(cmd)
-        (res, _) = self._container.exec_run(cmd)
-        return res == 0
-
 
 class NestTest:
     """
