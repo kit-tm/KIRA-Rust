@@ -119,16 +119,12 @@ impl NodeId {
     /// This algorithm uses basic operations for computing the shared prefix.
     /// As this function is used every time a package arrives optimizing it may be
     /// worth the effort.
-    ///
-    /// # Panics
-    ///
-    /// When *bits_per_group* > SIZE.
     pub fn shared_prefix_len(
         &self,
         other: &Self,
         bits_per_group: usize,
     ) -> Result<SharedPrefix, GroupingError> {
-        if bits_per_group > BIT_SIZE {
+        if bits_per_group > BIT_SIZE || bits_per_group == 0 {
             return Err(GroupingError::Invalid {
                 group_size: bits_per_group,
                 id_size: SIZE,
@@ -634,6 +630,10 @@ mod tests {
         let zero = NodeId::zero();
         let one = NodeId::one();
 
+        assert!(zero
+            .shared_prefix_len(&one, 0)
+            .map(SharedPrefix::into_bit_len)
+            .is_err());
         assert_eq!(
             zero.shared_prefix_len(&one, 1)
                 .map(SharedPrefix::into_bit_len),
