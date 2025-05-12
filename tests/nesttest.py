@@ -7,13 +7,11 @@ from subprocess import Popen, PIPE
 from typing import Optional, Iterator
 import json
 import base64
-import threading
-import signal
 
 import networkx as nx
 
 import nest
-from nest.topology import Node, connect, Address
+from nest.topology import Node, Address, Interface, connect
 
 
 from common import NodeConfig
@@ -83,8 +81,25 @@ class KIRANode(Node):
         res = json.loads(res)
         return "node-id" in res
 
-    def __str__(self) -> str:
-        return self.name
+    def __format__(self, fmt):
+        return f"{self.name:{fmt}}"
+
+
+class KIRALink:
+    _interface_x: Interface
+    _interface_y: Interface
+
+    def __init__(self, inteface_x: Interface, interface_y: Interface):
+        self._interface_x = inteface_x
+        self._interface_y = interface_y
+
+    def down(self):
+        self._interface_x.set_mode("DOWN")
+        self._interface_y.set_mode("DOWN")
+
+    def up(self):
+        self._interface_x.set_mode("UP")
+        self._interface_y.set_mode("UP")
 
 
 class NestTest:
@@ -110,7 +125,7 @@ class NestTest:
 
         # Create the Nest topology according to the configuration
         for tid in self.topology:
-            node = KIRANode(f'n{tid}')
+            node = KIRANode(tid)
             node.enable_ip_forwarding(True, True)
             self.topology.nodes[tid]["node"] = node
 
@@ -124,8 +139,7 @@ class NestTest:
             if_y.set_address(self.topology.nodes[y]["config"].ipv6)
 
             # safe interfaces for later
-            self.topology.edges[x, y][x] = if_x
-            self.topology.edges[x, y][y] = if_y
+            self.topology.edges[x, y]["link"] = KIRALink(if_x, if_y)
 
         nest.logging.info("Starting daemons ...")
         for node, config in self.nodes():
@@ -144,6 +158,9 @@ class NestTest:
 
     def nodes(self) -> Iterator[tuple[KIRANode, NodeConfig]]:
         return ((ndata["node"], ndata["config"]) for _tid, ndata in self.topology.nodes(data=True))
+
+    def link(self, x, y) -> KIRALink:
+        return self.topology.edges[x, y]["link"]
 
 
 class DebugShell(Cmd):
@@ -220,7 +237,7 @@ class DebugShell(Cmd):
         for x, _ in self.test.nodes():
             for y, y_config in self.test.nodes():
                 if x != y:
-                    print(f'Pinging {x} -> {y} ...', end='\r')
+                    print(f'Pinging {x:>3} --> {y:>3} ...', end='\r')
                     ip_y = y_config.ipv6
                     ip_y = Address(ip_y)
                     result = x.ping(ip_y, packets=1, verbose=verbose)
@@ -229,12 +246,12 @@ class DebugShell(Cmd):
                         if result:
                             # overwrite line if failed
                             end = '\r' if failed else '\n'
-                            print(f"Pinging {x} -> {y} ✓  ",
+                            print(f"Pinging {x:>3} --> {y:>3} ✓  ",
                                   end=end, flush=True)
                             continue
                         else:
                             print(
-                                f"Pinging {x} -> {y} ✗          ", flush=True)
+                                f"Pinging {x:>3} --> {y:>3} ✗   ", flush=True)
 
     def do_exec(self, arg):
         "Execute arbitrary command in the network namespace of node: EXECUTE <nid> <cmd>"
@@ -250,13 +267,13 @@ class DebugShell(Cmd):
         res = self.sub_nid_tid(res)
         print(res)
 
-    def do_store(self, arg) -> str:
+    def do_store(self, arg):
         "Store a key-value pair in the DHT: STORE <nid> <key> <value>"
         node, key_data = self._extract_tid(arg)
         key, data = key_data.split(maxsplit=1)
         print(node.store(key, data))
 
-    def do_fetch(self, arg) -> str:
+    def do_fetch(self, arg):
         "Obtain value of a key in the DHT: FETCH <nid> <key>"
         node, key = self._extract_tid(arg)
         res = node.fetch(key)
@@ -270,34 +287,34 @@ class DebugShell(Cmd):
                 print(f"    {value},")
             print("]")
 
-    def do_routing_table(self, arg) -> str:
+    def do_routing_table(self, arg):
         "Dumps routing table of node: ROUTING_TABLE <nid>"
         node, _ = self._extract_tid(arg)
         res = node.routing_table()
         res = self.sub_nid_tid(res)
         print(res)
 
-    def do_pn_table(self, arg) -> str:
+    def do_pn_table(self, arg):
         "Dump physical neighbor table of node: PN_TABLE <nid>"
         node, _ = self._extract_tid(arg)
         res = node.pn_table()
         res = self.sub_nid_tid(res)
         print(res)
 
-    def do_vicinity_graph(self, arg) -> str:
+    def do_vicinity_graph(self, arg):
         "Dump vicinity graph of node: VICINITY_GRAPH <nid>"
         node, _ = self._extract_tid(arg)
         res = node.vicinity_graph()
         res = self.sub_nid_tid(res)
         print(res)
 
-    def do_local_hashtable(self, arg) -> str:
+    def do_local_hashtable(self, arg):
         "Dump local hashtable of node: LOCAL_HASHTABLE <nid>"
         node, _ = self._extract_tid(arg)
         res = node.local_hashtable()
         print(res)
 
-    def do_checkup(self, arg) -> str:
+    def do_checkup(self, arg):
         "Check if nodes are up: CHECKUP [nid]"
         # check all of no node is specified
         if arg == "":
@@ -315,6 +332,55 @@ class DebugShell(Cmd):
             print(f"Node {node} is up")
         else:
             print(f"Node {node} is not up")
+
+    def do_link(self, arg):
+        "Sets link (or all links of node) up or down: LINK <DOWN/UP> <nid_x> [nid_y]"
+        # parse args
+        mode, arg = arg.split(maxsplit=1)
+        x, arg = self._extract_tid(arg)
+        x = x.name
+        if arg is not None:
+            y, _arg = self._extract_tid(arg)
+            y = y.name
+            ys = list(y)
+        else:
+            # all links from x
+            ys = [y for _x, y in self.test.topology.edges(x)]
+        mode = mode.lower()
+
+        if mode == "up":
+            for y in ys:
+                print(f"{x:>3} -✔- {y:>3} ...")
+                self.test.link(x, y).up()
+        elif mode == "down":
+            for y in ys:
+                print(f"{x:>3} -✗- {y:>3} ...")
+                self.test.link(x, y).down()
+        else:
+            print(f"ERR: Unknown mode {mode}")
+
+    def do_down(self, arg):
+        "Alias for LINK DOWN <...>"
+        self.do_link(f"DOWN {arg}")
+
+    def do_up(self, arg):
+        "Alias for LINK UP <...>"
+        self.do_link(f"UP {arg}")
+
+    def do_links(self, arg):
+        "List links in topology: LINKS [nid]"
+        if arg == "":
+            for x, y in self.test.topology.edges:
+                print(f"{x:>3} --- {y:>3}")
+            return
+
+        node, _ = self._extract_tid(arg)
+        for x, y in self.test.topology.edges(node.name):
+            print(f"{x:>3} --- {y:>3}")
+
+    def do_edges(self, arg):
+        "Alias for LINKS: EDGES [nid]"
+        self.do_links(arg)
 
     def do_exit(self, arg):
         'Exit the debug shell'
