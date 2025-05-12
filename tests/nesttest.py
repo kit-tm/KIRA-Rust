@@ -262,8 +262,15 @@ class DebugShell(Cmd):
 
     def do_exit(self, arg):
         'Exit the debug shell'
+        print("Exiting...")
         self.close()
         return True
+
+    def cmdloop(self):
+        try:
+            super().cmdloop()
+        except KeyboardInterrupt:
+            return self.do_exit(None)
 
     # ----- record and playback -----
 
