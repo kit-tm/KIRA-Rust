@@ -172,8 +172,6 @@ class DebugShell(Cmd):
 
     def _compile_re(self):
         self._replacement_map = dict(self._construct_replacement_map())
-        print(self._replacement_map)
-
         replace_re = "|".join(re.escape(nid)
                               for nid in self._replacement_map.keys())
         ignore_case = f"(?i:{replace_re})"
