@@ -7,6 +7,7 @@ from subprocess import Popen, PIPE
 from typing import Optional, Iterator
 import json
 import base64
+from ipaddress import IPv6Address, IPv6Network, AddressValueError
 
 import networkx as nx
 
@@ -15,6 +16,10 @@ from nest.topology import Node, Address, Interface, connect
 
 
 from common import NodeConfig
+
+
+PATH_IP = IPv6Network("fcaa::/16")
+NODE_IP = IPv6Network("fc00::/16")
 
 
 class KIRANode(Node):
@@ -120,6 +125,139 @@ class KIRANode(Node):
 
         return status
 
+    def next_ip(self, ip: IPv6Address) -> IPv6Address | None:
+        """
+        Returns next `IPv6Address` used for forwarding of the packet.
+        Usually this IP changes per hop but can remain the same,
+        if the packet is not encapsulated but forwarded unchanged to the next hop.
+        """
+
+        if ip in PATH_IP:
+            # lookup nftables forwardmap for translation
+
+            cmd = f"nft get element ip6 kira forwardmap {{ {ip} }}"
+            p = self.exec(cmd, logfile=PIPE)
+            stdout, _ = p.communicate()
+            if p.returncode != 0:
+                #print(f"IPv6Address {ip} unknown to node {self}")
+                return None
+            stdout = stdout.decode("utf-8")
+
+            # parse output
+            match = re.search(r'elements = { [a-fA-F0-9:]+ : ([a-fA-F0-9:]+) }',
+                              stdout)
+            if match:
+                next_ip = IPv6Address(match.group(1))
+                # label swap or decap
+                assert next_ip in PATH_IP or next_ip in NODE_IP
+                return next_ip
+            else:
+                #print(f"IPv6Address {ip} unknown to node {self}, parsing failed.")
+                return None
+        elif ip in NODE_IP:
+            # lookup ip route
+            cmd = f"ip -j route get {ip}"
+            p = self.exec(cmd, logfile=PIPE)
+            stdout, _ = p.communicate()
+            if p.returncode != 0:
+                #print(f"IPv6Address {ip} unknown to node {self}")
+                return None
+            stdout = stdout.decode("utf-8")
+
+            # parse output
+            result = json.loads(stdout)
+            assert len(result) == 1
+            result = result[0]
+
+            # OPTION 1: ENCAP
+            if "encap" in result:
+                path_ip = IPv6Address(result["encap"]["dst"])
+                assert path_ip in PATH_IP
+                return path_ip
+
+            # OPTION 2: it's us
+            if result.get("type") == "local":
+                # IP technically doesn't change
+                return ip
+
+            # OPTION 3: physical neighbor
+            if "dst" in result and ip in IPv6Network(result["dst"]):
+                return ip
+            #print(f"Unexpected route for {ip} on node {self}: {result}")
+            return None
+        else:
+            #print(f"Unexpected IPv6Address {ip} is neither Path- nor Node-IP")
+            return None
+
+    def next_hop(self, ip: IPv6Address) -> IPv6Address | None:
+        """
+        Returns IPv6Address (Node-IP) of the next hop the packet will go to.
+        The supplied IPv6Address is the egress IPv6Address of the packet,
+        so after label switching, encapsulation, ... .
+
+        To determine this next ip use `self.next_ip`.
+        """
+        # lookup ip route
+        cmd = f"ip -6 -j route get {ip}"
+        p = self.exec(cmd, logfile=PIPE)
+        stdout, _ = p.communicate()
+        if p.returncode != 0:
+            #print(f"IPv6Address {ip} unknown to node {self}")
+            return None
+        stdout = stdout.decode("utf-8")
+
+        # parse output
+        result = json.loads(stdout)
+        assert len(result) == 1
+        result = result[0]
+
+        # OPTION 1: it's us
+        if result.get("type") == "local":
+            assert IPv6Address(result["prefsrc"]) == ip
+            return ip
+
+        # OPTION 2: Forward VIA next hop
+        if "gateway" in result: # gateway == via :/
+            gateway = IPv6Address(result["gateway"])
+            if gateway in NODE_IP:
+                return gateway
+            # in newer implementation we use LL-IPv6 as gateway
+            assert gateway.is_link_local
+            dev = result.get("dev")
+
+            cmd = f"ip -6 -j route show"
+            p = self.exec(cmd, logfile=PIPE)
+            stdout, _ = p.communicate()
+            if p.returncode != 0:
+                #print(f"IPv6Address {ip} unknown to node {self}")
+                return None
+            # parse output
+            stdout = stdout.decode("utf-8")
+            routes = json.loads(stdout)
+
+            # find NODE_IP dev <dev> entry to obtain NODE_IP
+            next_hop = None
+            for route in routes:
+                if route.get("dev") == dev and route.get("protocol") == "static":
+                    try:
+                        dst = IPv6Address(route.get("dst"))
+                        if dst in NODE_IP:
+                            # HACK: this only works in unswitched networks
+                            #       where one node is reachable per interface
+                            assert next_hop is None
+                            next_hop = dst
+                    except AddressValueError:
+                        continue
+            return next_hop
+
+        # OPTION 3: Physical neighbor
+        if "dst" in result and IPv6Address(result["dst"]) == ip:
+            assert ip in NODE_IP
+            return ip
+
+        #print(f"Unexpected route for {ip} on node {self}: {result}")
+        return None
+
     def __format__(self, fmt):
         return f"{self.name:{fmt}}"
 
@@ -206,11 +344,72 @@ class NestTest[T]:  # T = tid type, usually int or str
     def node(self, tid) -> KIRANode:
         return self.topology.nodes[tid]["node"]
 
+    def node_by_ip(self, ip: IPv6Address) -> KIRANode:
+        assert ip in NODE_IP
+        for _tid, data in self.topology.nodes(data=True):
+            config = data["config"]
+            n_ip = IPv6Address(config.ipv6)
+            if n_ip == ip:
+                return data["node"]
+
     def nodes(self) -> Iterator[tuple[KIRANode, NodeConfig]]:
         return ((ndata["node"], ndata["config"]) for _tid, ndata in self.topology.nodes(data=True))
 
     def link(self, x_tid: T, y_tid: T) -> KIRALink:
         return self.topology.edges[x_tid, y_tid]["link"]
+
+    def traceroute(self, x_tid: T, y_tid: T, maxhops: int = 10, verbose: bool = False) -> bool:
+        current_hop = self.node(x_tid)
+        current_ip = IPv6Address(self.topology.nodes[x_tid]["config"].ipv6)
+
+        dst_hop = self.node(y_tid)
+        dst_ip = IPv6Address(self.topology.nodes[y_tid]["config"].ipv6)
+        outer_ip = dst_ip
+
+        if verbose:
+            print(f"Tracerouting from {current_hop} to {dst_ip}({dst_hop}):")
+
+        hc = 0
+        while hc <= maxhops and (current_ip != dst_ip or outer_ip != dst_ip):
+            prev_outer_ip = outer_ip
+            outer_ip = current_hop.next_ip(outer_ip)
+            if outer_ip is None:
+                if verbose:
+                    print(f"{current_hop:<3} : ERR unknown  : {prev_outer_ip}")
+                return False
+
+            if prev_outer_ip != outer_ip:
+                # pop label
+                if outer_ip == current_ip:
+                    outer_ip = dst_ip
+
+                # don't change destination!
+                assert prev_outer_ip in PATH_IP or outer_ip in PATH_IP
+                if verbose:
+                    if prev_outer_ip in PATH_IP and outer_ip in PATH_IP:
+                        print(f"{current_hop:<3} : SWAP Path-ID : {prev_outer_ip} --> {outer_ip}")
+                    elif prev_outer_ip in PATH_IP:
+                        print(f"{current_hop:<3} : POP  Path-ID : {prev_outer_ip} --> {outer_ip}")
+                    elif outer_ip in PATH_IP:
+                        print(f"{current_hop:<3} : PUSH Path-ID : {outer_ip}")
+
+            next_ip = current_hop.next_hop(outer_ip)
+            next_hop = self.node_by_ip(next_ip)
+
+            if verbose:
+                print(f"{current_hop:<3} : FORWARD to {next_hop}")
+
+            current_hop = next_hop
+            current_ip = next_ip
+            hc += 1
+
+        if hc > maxhops:
+            if verbose:
+                print(f"{current_hop:<3} : HLIMIT = {maxhops} reache")
+            return False
+        if verbose:
+            print(f"{current_hop:<3} : ACK")
+        return True
 
 
 class DebugShell(Cmd):
@@ -438,8 +637,66 @@ class DebugShell(Cmd):
         else:
             print(f"Node {node} is not up")
 
+    def do_next_ip(self, arg):
+        node, ip = self._extract_node(arg)
+        if node is None:
+            print((f"ERR: Node '{ip}' not found.\n"
+                   "To get a list of available nodes type NODES."))
+            return
+        
+        next = node.next_ip(IPv6Address(ip))
+        print()
+        print(next)
+
+    def do_next_hop(self, arg):
+        node, ip = self._extract_node(arg)
+        if node is None:
+            print((f"ERR: Node '{ip}' not found.\n"
+                   "To get a list of available nodes type NODES."))
+            return
+        
+        next = node.next_hop(IPv6Address(ip))
+        print()
+        print(next)
+
+    def do_traceroute(self, arg):
+        "Traceroute (all) forwarding path: TRACEROUTE [<nid_x> <nid_y>]"
+
+        # trace __all__ paths
+        if arg == "":
+            for x_tid in self.test.topology:
+                for y_tid in self.test.topology:
+                    success = self.test.traceroute(x_tid, y_tid, verbose=False)
+                    # only show unsuccessful traceroutes
+                    if not success:
+                        self.test.traceroute(x_tid, y_tid, verbose=True)
+                        print()
+                        print("==============================================")
+                        print()
+
+            return
+
+        x, arg = self._extract_node(arg)
+        if x is None:
+            print((f"ERR: Node '{x}' not found.\n"
+                   "To get a list of available nodes type NODES."))
+            return
+        if arg is None:
+            print("Destination not found. Usage: TRACEROUTE <nid_x> <nid_y>")
+
+        y, _arg = self._extract_node(arg)
+        if y is None:
+            print((f"ERR: Node '{_arg}' not found.\n"
+                   "To get a list of available nodes type NODES."))
+            return
+        x_tid = self.test.tid(x)
+        y_tid = self.test.tid(y)
+
+        self.test.traceroute(x_tid, y_tid, verbose=True)
+
     def do_link(self, arg):
         "Sets link (or all links of node) up or down: LINK <DOWN/UP> <nid_x> [nid_y]"
+
         # parse args
         mode, arg = arg.split(maxsplit=1)
         x, arg = self._extract_node(arg)
