@@ -4,9 +4,11 @@ from cmd import Cmd
 import sys
 import re
 from subprocess import Popen, PIPE
-from typing import Optional
+from typing import Optional, Iterator
 import json
 import base64
+import threading
+import signal
 
 import networkx as nx
 
@@ -82,6 +84,9 @@ class KIRANode(Node):
 
 
 class NestTest:
+
+    config: nx.Graph
+
     """
     Nest Test
     ===========
@@ -94,31 +99,35 @@ class NestTest:
         The configuration for the test.
     """
 
-    def __init__(self, config):
+    def __init__(self, config: nx.Graph):
         self.topology = config
-        self.nodes = []
 
         nest.logging.info("Setting up the topology ...")
 
         # Create the Nest topology according to the configuration
-        for idx, node in enumerate(self.topology.nodes):
-            n = KIRANode(f'n{idx}')
-            n.enable_ip_forwarding(True, True)
-            self.nodes.append(n)
+        for tid in self.topology:
+            node = KIRANode(f'n{tid}')
+            node.enable_ip_forwarding(True, True)
+            self.topology.nodes[tid]["node"] = node
 
         nest.logging.info("Setting up interfaces ...")
-
         for x, y in self.topology.edges:
-            if_x, if_y = connect(self.nodes[int(x)], (self.nodes[int(y)]), f"n{
-                                 x}n{y}", f"n{y}n{x}")
-            if_x.set_address(self.topology.nodes[str(x)]["config"].ipv6)
-            if_y.set_address(self.topology.nodes[str(y)]["config"].ipv6)
+            nx = self.topology.nodes[x]["node"]
+            ny = self.topology.nodes[y]["node"]
+
+            if_x, if_y = connect(nx, ny, f"n{x}n{y}", f"n{y}n{x}")
+            if_x.set_address(self.topology.nodes[x]["config"].ipv6)
+            if_y.set_address(self.topology.nodes[y]["config"].ipv6)
+
+            # safe interfaces for later
+            self.topology.edges[x, y][x] = if_x
+            self.topology.edges[x, y][y] = if_y
 
         nest.logging.info("Starting daemons ...")
-        for idx, node in enumerate(self.nodes):
-            logfile = f"n{idx}.log"
-            node_id = self.topology.nodes[str(idx)]["config"].node_id
-            ipv6 = self.topology.nodes[str(idx)]["config"].ipv6
+        for node, config in self.nodes():
+            node_id = config.node_id
+
+            logfile = f"n{node}.log"
             env_vars = os.environ.copy()
             env_vars["RUST_LOG_STYLE"] = "never"
             env_vars["NO_COLOR"] = "1"
@@ -128,6 +137,9 @@ class NestTest:
                 node.exec(f"./target/debug/kirad --root-id {node_id} --nftables-conf ./kirad/conf/nftables.conf",
                           logfile=f,
                           env_vars=env_vars)
+
+    def nodes(self) -> Iterator[tuple[KIRANode, NodeConfig]]:
+        return ((ndata["node"], ndata["config"]) for _tid, ndata in self.topology.nodes(data=True))
 
 
 class DebugShell(Cmd):
@@ -141,71 +153,92 @@ class DebugShell(Cmd):
         super().__init__()
         self.test = test
 
-    def _extract_nid(self, arg: str) -> (KIRANode, Optional[str]):
+    def _extract_tid(self, arg: str) -> (KIRANode, Optional[str]):
         args = arg.split(maxsplit=1)
         nid = args[0]
         scmd = args[1] if len(args) >= 2 else None
 
-        idx = re.match(r"n?(\d+)", nid).group(1)
-        idx = int(idx)
-        node = self.test.nodes[idx]
+        # strip beginning n if present
+        tid = re.match(r"n?(.+)", nid).group(1)
+        node = self.test.topology.nodes[tid]["node"]
         return (node, scmd)
 
     def do_pingall(self, arg):
         "Ping all nodes: PINGALL [-f,--failed] [-v,--verbose]"
         # process flags
-        args = arg.split()
-        if "-f" in args or "--failed" in args:
-            failed = True
-        else:
-            failed = False
+        stop_event = threading.Event()
 
-        if "-v" in args or "--verbose" in args:
-            verbose = 2
-        else:
-            verbose = 0
+        def pingall():
+            args = arg.split()
+            if "-f" in args or "--failed" in args:
+                failed = True
+            else:
+                failed = False
 
-        for x in self.test.nodes:
-            for (idx_y, y) in enumerate(self.test.nodes):
-                if x != y:
-                    print(f'Pinging {x} -> {y} ...', end='\r')
+            if "-v" in args or "--verbose" in args:
+                verbose = 2
+            else:
+                verbose = 0
 
-                    ip_y = self.test.topology.nodes[str(idx_y)]["config"].ipv6
-                    ip_y = Address(ip_y)
-                    result = x.ping(ip_y, packets=1, verbose=verbose)
+            for x, _ in self.test.nodes():
+                for y, y_config in self.test.nodes():
+                    if stop_event.is_set():
+                        return
+                    if x != y:
+                        print(f'Pinging {x} -> {y} ...', end='\r')
+                        ip_y = y_config.ipv6
+                        ip_y = Address(ip_y)
+                        result = x.ping(ip_y, packets=1, verbose=verbose)
 
-                    if not verbose:
-                        if result:
-                            # overwrite line if failed
-                            end = '\r' if failed else '\n'
-                            print(f"Pinging {x} -> {y} ✓  ",
-                                  end=end, flush=True)
-                            continue
-                        else:
-                            print(f"Pinging {x}->{y} ✗          ", flush=True)
+                        if not verbose:
+                            if result:
+                                # overwrite line if failed
+                                end = '\r' if failed else '\n'
+                                print(f"Pinging {x} -> {y} ✓  ",
+                                      end=end, flush=True)
+                                continue
+                            else:
+                                print(
+                                    f"Pinging {x} -> {y} ✗          ", flush=True)
+
+        def stop_pingall(_sig, _stack):
+            print("Aborting pingall...")
+            stop_event.set()
+
+        # run as thread to be able to interrupt
+        thread = threading.Thread(target=pingall)
+        # setup interrupt handler
+        orig_sigint = signal.getsignal(signal.SIGINT)
+        stop_event.clear()
+        signal.signal(signal.SIGINT, stop_pingall)
+        thread.start()
+        thread.join()
+
+        # restore original interrupt handler
+        signal.signal(signal.SIGINT, orig_sigint)
 
     def do_exec(self, arg):
         "Execute arbitrary command in the network namespace of node: EXECUTE <nid> <cmd>"
-        node, cmd = self._extract_nid(arg)
+        node, cmd = self._extract_tid(arg)
         p = node.exec(cmd, logfile=sys.stdout)
         p.wait()
         print()
 
     def do_api(self, arg):
         "Issue arbitrary API call to node: API <nid> <rest_path>"
-        node, path = self._extract_nid(arg)
+        node, path = self._extract_tid(arg)
         res = node.api_call(path)
         print(res)
 
     def do_store(self, arg) -> str:
         "Store a key-value pair in the DHT: STORE <nid> <key> <value>"
-        node, key_data = self._extract_nid(arg)
+        node, key_data = self._extract_tid(arg)
         key, data = key_data.split(maxsplit=1)
         print(node.store(key, data))
 
     def do_fetch(self, arg) -> str:
         "Obtain value of a key in the DHT: FETCH <nid> <key>"
-        node, key = self._extract_nid(arg)
+        node, key = self._extract_tid(arg)
         res = node.fetch(key)
         if len(res) == 0:
             print(f"No value with key {key} found!")
@@ -219,25 +252,25 @@ class DebugShell(Cmd):
 
     def do_routing_table(self, arg) -> str:
         "Dumps routing table of node: ROUTING_TABLE <nid>"
-        node, _ = self._extract_nid(arg)
+        node, _ = self._extract_tid(arg)
         res = node.routing_table()
         print(res)
 
     def do_pn_table(self, arg) -> str:
         "Dump physical neighbor table of node: PN_TABLE <nid>"
-        node, _ = self._extract_nid(arg)
+        node, _ = self._extract_tid(arg)
         res = node.pn_table()
         print(res)
 
     def do_vicinity_graph(self, arg) -> str:
         "Dump vicinity graph of node: VICINITY_GRAPH <nid>"
-        node, _ = self._extract_nid(arg)
+        node, _ = self._extract_tid(arg)
         res = node.vicinity_graph()
         print(res)
 
     def do_local_hashtable(self, arg) -> str:
         "Dump local hashtable of node: LOCAL_HASHTABLE <nid>"
-        node, _ = self._extract_nid(arg)
+        node, _ = self._extract_tid(arg)
         res = node.local_hashtable()
         print(res)
 
@@ -245,7 +278,7 @@ class DebugShell(Cmd):
         "Check if nodes are up: CHECKUP [nid]"
         # check all of no node is specified
         if arg == "":
-            down_nodes = [n for n in self.test.nodes if not n.is_up()]
+            down_nodes = [n for n, _ in self.test.nodes() if not n.is_up()]
             if len(down_nodes) == 0:
                 print("All nodes are up!")
             else:
@@ -253,7 +286,7 @@ class DebugShell(Cmd):
                     print(f"Node {n} is down.")
 
             return
-        node, _ = self._extract_nid(arg)
+        node, _ = self._extract_tid(arg)
         is_up = node.is_up()
         if is_up:
             print(f"Node {node} is up")
