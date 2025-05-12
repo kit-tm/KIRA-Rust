@@ -77,7 +77,11 @@ class KIRANode(Node):
 
     def is_up(self) -> bool:
         path = "node-id"
-        return self.api_call(path) is not None
+        res = self.api_call(path)
+        if res is None:
+            return False
+        res = json.loads(res)
+        return "node-id" in res
 
     def __str__(self) -> str:
         return self.name
