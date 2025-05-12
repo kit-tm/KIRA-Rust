@@ -157,6 +157,43 @@ class DebugShell(Cmd):
         super().__init__()
         self.test = test
 
+        self._compile_re()
+
+    def _construct_replacement_map(self) -> Iterator[tuple[str, str]]:
+        for node, node_cfg in self.test.nodes():
+            nid = node_cfg.node_id
+            ipv6 = node_cfg.ipv6
+            short_nid = nid[:8]
+            tid = node.name
+
+            yield nid, str(tid)
+            yield short_nid, str(tid)
+            yield ipv6, str(tid)
+
+    def _compile_re(self):
+        self._replacement_map = dict(self._construct_replacement_map())
+        print(self._replacement_map)
+
+        replace_re = "|".join(re.escape(nid)
+                              for nid in self._replacement_map.keys())
+        ignore_case = f"(?i:{replace_re})"
+        self._replace_re = re.compile(ignore_case)
+
+    def sub_nid_tid(self, string: str) -> str:
+        """
+        Substitute Node-IDs with the corresponding ID used in the topology.
+
+        Shortened Node-IDs of length 8
+        and the IPv6-addresses of the nodes are also replaced.
+        """
+
+        def replace(match: re.Match):
+            matched = match.group(0).lower()
+            replace_with = self._replacement_map.get(matched, matched)
+            return replace_with
+
+        return self._replace_re.sub(replace, string)
+
     def _extract_tid(self, arg: str) -> (KIRANode, Optional[str]):
         args = arg.split(maxsplit=1)
         nid = args[0]
@@ -232,6 +269,7 @@ class DebugShell(Cmd):
         "Issue arbitrary API call to node: API <nid> <rest_path>"
         node, path = self._extract_tid(arg)
         res = node.api_call(path)
+        res = self.sub_nid_tid(res)
         print(res)
 
     def do_store(self, arg) -> str:
@@ -258,18 +296,21 @@ class DebugShell(Cmd):
         "Dumps routing table of node: ROUTING_TABLE <nid>"
         node, _ = self._extract_tid(arg)
         res = node.routing_table()
+        res = self.sub_nid_tid(res)
         print(res)
 
     def do_pn_table(self, arg) -> str:
         "Dump physical neighbor table of node: PN_TABLE <nid>"
         node, _ = self._extract_tid(arg)
         res = node.pn_table()
+        res = self.sub_nid_tid(res)
         print(res)
 
     def do_vicinity_graph(self, arg) -> str:
         "Dump vicinity graph of node: VICINITY_GRAPH <nid>"
         node, _ = self._extract_tid(arg)
         res = node.vicinity_graph()
+        res = self.sub_nid_tid(res)
         print(res)
 
     def do_local_hashtable(self, arg) -> str:
