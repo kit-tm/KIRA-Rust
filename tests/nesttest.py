@@ -141,9 +141,10 @@ class KIRALink:
         self._interface_y.set_mode("UP")
 
 
-class NestTest:
+class NestTest[T]:  # T = tid type, usually int or str
 
     config: nx.Graph
+    name_tid_mapping: dict[str, T]
 
     """
     Nest Test
@@ -159,14 +160,17 @@ class NestTest:
 
     def __init__(self, config: nx.Graph):
         self.topology = config
+        self.name_tid_mapping = dict()
 
         nest.logging.info("Setting up the topology ...")
 
         # Create the Nest topology according to the configuration
-        for tid in self.topology:
-            node = KIRANode(tid)
+        for tid, config in self.topology.nodes(data="config"):
+            name = config.name
+            node = KIRANode(name)
             node.enable_ip_forwarding(True, True)
             self.topology.nodes[tid]["node"] = node
+            self.name_tid_mapping[name] = tid
 
         nest.logging.info("Setting up interfaces ...")
         for x, y in self.topology.edges:
@@ -195,11 +199,18 @@ class NestTest:
                           logfile=f,
                           env_vars=env_vars)
 
+    def tid(self, node: KIRANode) -> T | None:
+        name = node.name
+        return self.name_tid_mapping.get(name)
+
+    def node(self, tid) -> KIRANode:
+        return self.topology.nodes[tid]["node"]
+
     def nodes(self) -> Iterator[tuple[KIRANode, NodeConfig]]:
         return ((ndata["node"], ndata["config"]) for _tid, ndata in self.topology.nodes(data=True))
 
-    def link(self, x, y) -> KIRALink:
-        return self.topology.edges[x, y]["link"]
+    def link(self, x_tid: T, y_tid: T) -> KIRALink:
+        return self.topology.edges[x_tid, y_tid]["link"]
 
 
 class DebugShell(Cmd):
@@ -234,9 +245,9 @@ class DebugShell(Cmd):
         ignore_case = f"(?i:{replace_re})"
         self._replace_re = re.compile(ignore_case)
 
-    def sub_nid_tid(self, string: str) -> str:
+    def sub_nid_name(self, string: str) -> str:
         """
-        Substitute Node-IDs with the corresponding ID used in the topology.
+        Substitute Node-IDs with the corresponding name used in the topology.
 
         Shortened Node-IDs of length 8
         and the IPv6-addresses of the nodes are also replaced.
@@ -249,14 +260,22 @@ class DebugShell(Cmd):
 
         return self._replace_re.sub(replace, string)
 
-    def _extract_tid(self, arg: str) -> (KIRANode, Optional[str]):
-        args = arg.split(maxsplit=1)
-        nid = args[0]
-        scmd = args[1] if len(args) >= 2 else None
+    def _extract_node(self, arg: str) -> tuple[KIRANode | None, str | None]:
+        """
+        Get node in the next argument name.
 
-        # strip beginning n if present
-        tid = re.match(r"n?(.+)", nid).group(1)
-        node = self.test.topology.nodes[tid]["node"]
+        If the node can't be identified by its name the name will be placed
+        in the second element of the return tuple.
+        Otherwise the second element contains the remaining argument(s).
+        """
+        args = arg.split(maxsplit=1)
+        node_name = args[0]
+        scmd = args[1] if len(args) == 2 else None
+
+        tid = self.test.name_tid_mapping.get(node_name)
+        if tid is None:
+            return None, arg
+        node = self.test.node(tid)
         return (node, scmd)
 
     def do_pingall(self, arg):
@@ -295,27 +314,47 @@ class DebugShell(Cmd):
 
     def do_exec(self, arg):
         "Execute arbitrary command in the network namespace of node: EXECUTE <nid> <cmd>"
-        node, cmd = self._extract_tid(arg)
+        node, cmd = self._extract_node(arg)
+        if node is None:
+            print((f"ERR: Node '{cmd}' not found.\n"
+                   "To get a list of available nodes type NODES."))
+            return
+
         p = node.exec(cmd, logfile=sys.stdout)
         p.wait()
         print()
 
     def do_api(self, arg):
         "Issue arbitrary API call to node: API <nid> <rest_path>"
-        node, path = self._extract_tid(arg)
+        node, path = self._extract_node(arg)
+        if node is None:
+            print((f"ERR: Node '{path}' not found.\n"
+                   "To get a list of available nodes type NODES."))
+            return
+
         res = node.api_call(path)
-        res = self.sub_nid_tid(res)
+        res = self.sub_nid_name(res)
         print(res)
 
     def do_store(self, arg):
         "Store a key-value pair in the DHT: STORE <nid> <key> <value>"
-        node, key_data = self._extract_tid(arg)
+        node, key_data = self._extract_node(arg)
+        if node is None:
+            print((f"ERR: Node '{key_data}' not found.\n"
+                   "To get a list of available nodes type NODES."))
+            return
+
         key, data = key_data.split(maxsplit=1)
         print(node.store(key, data))
 
     def do_fetch(self, arg):
         "Obtain value of a key in the DHT: FETCH <nid> <key>"
-        node, key = self._extract_tid(arg)
+        node, key = self._extract_node(arg)
+        if node is None:
+            print((f"ERR: Node '{key}' not found.\n"
+                   "To get a list of available nodes type NODES."))
+            return
+
         res = node.fetch(key)
         if len(res) == 0:
             print(f"No value with key {key} found!")
@@ -329,34 +368,54 @@ class DebugShell(Cmd):
 
     def do_routing_table(self, arg):
         "Dumps routing table of node: ROUTING_TABLE <nid>"
-        node, _ = self._extract_tid(arg)
+        node, _arg = self._extract_node(arg)
+        if node is None:
+            print((f"ERR: Node '{_arg}' not found.\n"
+                   "To get a list of available nodes type NODES."))
+            return
+
         res = node.routing_table()
-        res = self.sub_nid_tid(res)
+        res = self.sub_nid_name(res)
         print(res)
 
     def do_pn_table(self, arg):
         "Dump physical neighbor table of node: PN_TABLE <nid>"
-        node, _ = self._extract_tid(arg)
+        node, _arg = self._extract_node(arg)
+        if node is None:
+            print((f"ERR: Node '{_arg}' not found.\n"
+                   "To get a list of available nodes type NODES."))
+            return
+
         res = node.pn_table()
-        res = self.sub_nid_tid(res)
+        res = self.sub_nid_name(res)
         print(res)
 
     def do_vicinity_graph(self, arg):
         "Dump vicinity graph of node: VICINITY_GRAPH <nid>"
-        node, _ = self._extract_tid(arg)
+        node, _arg = self._extract_node(arg)
+        if node is None:
+            print((f"ERR: Node '{_arg}' not found.\n"
+                   "To get a list of available nodes type NODES."))
+            return
+
         res = node.vicinity_graph()
-        res = self.sub_nid_tid(res)
+        res = self.sub_nid_name(res)
         print(res)
 
     def do_local_hashtable(self, arg):
         "Dump local hashtable of node: LOCAL_HASHTABLE <nid>"
-        node, _ = self._extract_tid(arg)
+        node, _arg = self._extract_node(arg)
+        if node is None:
+            print((f"ERR: Node '{_arg}' not found.\n"
+                   "To get a list of available nodes type NODES."))
+            return
+
         res = node.local_hashtable()
         print(res)
 
     def do_checkup(self, arg):
         "Check if nodes are up: CHECKUP [nid]"
-        # check all of no node is specified
+        # check all if no node is specified
         if arg == "":
             down_nodes = [n for n, _ in self.test.nodes() if not n.is_up()]
             if len(down_nodes) == 0:
@@ -366,7 +425,13 @@ class DebugShell(Cmd):
                     print(f"Node {n} is down.")
 
             return
-        node, _ = self._extract_tid(arg)
+
+        node, _arg = self._extract_node(arg)
+        if node is None:
+            print((f"ERR: Node '{_arg}' not found.\n"
+                   "To get a list of available nodes type NODES."))
+            return
+
         is_up = node.is_up()
         if is_up:
             print(f"Node {node} is up")
@@ -377,25 +442,35 @@ class DebugShell(Cmd):
         "Sets link (or all links of node) up or down: LINK <DOWN/UP> <nid_x> [nid_y]"
         # parse args
         mode, arg = arg.split(maxsplit=1)
-        x, arg = self._extract_tid(arg)
-        x = x.name
+        x, arg = self._extract_node(arg)
+        if x is None:
+            print((f"ERR: Node '{x}' not found.\n"
+                   "To get a list of available nodes type NODES."))
+            return
+
+        x_tid = self.test.tid(x)
         if arg is not None:
-            y, _arg = self._extract_tid(arg)
-            y = y.name
-            ys = list(y)
+            y, _arg = self._extract_node(arg)
+            if y is None:
+                print((f"ERR: Node '{_arg}' not found.\n"
+                       "To get a list of available nodes type NODES."))
+                return
+            ys_tid = list(self.test.tid(y))
         else:
             # all links from x
-            ys = [y for _x, y in self.test.topology.edges(x)]
-        mode = mode.lower()
+            ys_tid = [y_tid for _x, y_tid in self.test.topology.edges(x_tid)]
 
+        mode = mode.lower()
         if mode == "up":
-            for y in ys:
+            for y_tid in ys_tid:
+                y = self.test.topology.nodes[y_tid]["node"]
                 print(f"{x:>3} -✔- {y:>3} ...")
-                self.test.link(x, y).up()
+                self.test.link(x_tid, y_tid).up()
         elif mode == "down":
-            for y in ys:
+            for y_tid in ys_tid:
+                y = self.test.topology.nodes[y_tid]["node"]
                 print(f"{x:>3} -✗- {y:>3} ...")
-                self.test.link(x, y).down()
+                self.test.link(x_tid, y_tid).down()
         else:
             print(f"ERR: Unknown mode {mode}")
 
@@ -411,16 +486,31 @@ class DebugShell(Cmd):
         "List links in topology: LINKS [nid]"
         if arg == "":
             for x, y in self.test.topology.edges:
+                x = self.test.node(x)
+                y = self.test.node(y)
                 print(f"{x:>3} --- {y:>3}")
             return
 
-        node, _ = self._extract_tid(arg)
-        for x, y in self.test.topology.edges(node.name):
+        node, _arg = self._extract_node(arg)
+        if node is None:
+            print((f"ERR: Node '{_arg}' not found.\n"
+                   "To get a list of available nodes type NODES."))
+            return
+        tid = self.test.tid(node)
+
+        for x, y in self.test.topology.edges(tid):
+            x = self.test.node(x)
+            y = self.test.node(y)
             print(f"{x:>3} --- {y:>3}")
 
     def do_edges(self, arg):
         "Alias for LINKS: EDGES [nid]"
         self.do_links(arg)
+
+    def do_nodes(self, arg):
+        "List all nodes present in the topology: NODES"
+        for n, _ in self.test.nodes():
+            print(f"{n:>3}")
 
     def do_exit(self, arg):
         'Exit the debug shell'
