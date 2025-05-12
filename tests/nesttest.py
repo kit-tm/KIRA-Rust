@@ -206,57 +206,37 @@ class DebugShell(Cmd):
 
     def do_pingall(self, arg):
         "Ping all nodes: PINGALL [-f,--failed] [-v,--verbose]"
+
         # process flags
-        stop_event = threading.Event()
+        args = arg.split()
+        if "-f" in args or "--failed" in args:
+            failed = True
+        else:
+            failed = False
 
-        def pingall():
-            args = arg.split()
-            if "-f" in args or "--failed" in args:
-                failed = True
-            else:
-                failed = False
+        if "-v" in args or "--verbose" in args:
+            verbose = 2
+        else:
+            verbose = 0
 
-            if "-v" in args or "--verbose" in args:
-                verbose = 2
-            else:
-                verbose = 0
+        for x, _ in self.test.nodes():
+            for y, y_config in self.test.nodes():
+                if x != y:
+                    print(f'Pinging {x} -> {y} ...', end='\r')
+                    ip_y = y_config.ipv6
+                    ip_y = Address(ip_y)
+                    result = x.ping(ip_y, packets=1, verbose=verbose)
 
-            for x, _ in self.test.nodes():
-                for y, y_config in self.test.nodes():
-                    if stop_event.is_set():
-                        return
-                    if x != y:
-                        print(f'Pinging {x} -> {y} ...', end='\r')
-                        ip_y = y_config.ipv6
-                        ip_y = Address(ip_y)
-                        result = x.ping(ip_y, packets=1, verbose=verbose)
-
-                        if not verbose:
-                            if result:
-                                # overwrite line if failed
-                                end = '\r' if failed else '\n'
-                                print(f"Pinging {x} -> {y} ✓  ",
-                                      end=end, flush=True)
-                                continue
-                            else:
-                                print(
-                                    f"Pinging {x} -> {y} ✗          ", flush=True)
-
-        def stop_pingall(_sig, _stack):
-            print("Aborting pingall...")
-            stop_event.set()
-
-        # run as thread to be able to interrupt
-        thread = threading.Thread(target=pingall)
-        # setup interrupt handler
-        orig_sigint = signal.getsignal(signal.SIGINT)
-        stop_event.clear()
-        signal.signal(signal.SIGINT, stop_pingall)
-        thread.start()
-        thread.join()
-
-        # restore original interrupt handler
-        signal.signal(signal.SIGINT, orig_sigint)
+                    if not verbose:
+                        if result:
+                            # overwrite line if failed
+                            end = '\r' if failed else '\n'
+                            print(f"Pinging {x} -> {y} ✓  ",
+                                  end=end, flush=True)
+                            continue
+                        else:
+                            print(
+                                f"Pinging {x} -> {y} ✗          ", flush=True)
 
     def do_exec(self, arg):
         "Execute arbitrary command in the network namespace of node: EXECUTE <nid> <cmd>"
