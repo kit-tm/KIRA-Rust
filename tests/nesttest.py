@@ -81,6 +81,45 @@ class KIRANode(Node):
         res = json.loads(res)
         return "node-id" in res
 
+    def ping(self, destination_address: Address, preload: int = 1, packets: int = 5, verbose: int = 2, timeout: int = 1):
+        # overwrite ping to support timeout
+        dst_addr = destination_address.get_addr(with_subnet=False)
+        if verbose not in [0, 1, 2]:
+            raise ValueError(
+                f"Verbose parameter value is {
+                    verbose}. It should be 0, 1 or 2."
+            )
+
+        if verbose == 2:
+            print()
+            print(
+                f"=== PING from {self.name} to "
+                f"{destination_address.get_addr(with_subnet=False)} ==="
+            )
+            print()
+
+        p = self.exec(
+            f"ping -l {preload} -c {packets} -W {timeout} {dst_addr}",
+            logfile=sys.stdout if verbose else PIPE,
+        )
+        status = p.wait() == 0
+
+        if verbose == 1:
+            print()
+            if status is True:
+                print(
+                    f"SUCCESS : === PING from {self.name} to "
+                    f"{dst_addr} ==="
+                )
+            elif status is False:
+                print(
+                    f"FAILURE: === PING from {self.name} to "
+                    f"{dst_addr} ==="
+                )
+            print()
+
+        return status
+
     def __format__(self, fmt):
         return f"{self.name:{fmt}}"
 
