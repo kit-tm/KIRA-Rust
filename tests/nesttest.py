@@ -182,10 +182,11 @@ class DebugShell(Cmd):
             ipv6 = node_cfg.ipv6
             short_nid = nid[:8]
             tid = node.name
+            replacement = f"${tid}$"
 
-            yield nid, str(tid)
-            yield short_nid, str(tid)
-            yield ipv6, str(tid)
+            yield nid, f"{replacement:<{len(nid)}}"
+            yield short_nid, f"{replacement:<{len(short_nid)}}"
+            yield ipv6, f"{replacement:<{len(ipv6)}}"
 
     def _compile_re(self):
         self._replacement_map = dict(self._construct_replacement_map())
