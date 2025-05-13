@@ -139,7 +139,7 @@ class KIRANode(Node):
             p = self.exec(cmd, logfile=PIPE)
             stdout, _ = p.communicate()
             if p.returncode != 0:
-                #print(f"IPv6Address {ip} unknown to node {self}")
+                # print(f"IPv6Address {ip} unknown to node {self}")
                 return None
             stdout = stdout.decode("utf-8")
 
@@ -152,7 +152,7 @@ class KIRANode(Node):
                 assert next_ip in PATH_IP or next_ip in NODE_IP
                 return next_ip
             else:
-                #print(f"IPv6Address {ip} unknown to node {self}, parsing failed.")
+                # print(f"IPv6Address {ip} unknown to node {self}, parsing failed.")
                 return None
         elif ip in NODE_IP:
             # lookup ip route
@@ -160,7 +160,7 @@ class KIRANode(Node):
             p = self.exec(cmd, logfile=PIPE)
             stdout, _ = p.communicate()
             if p.returncode != 0:
-                #print(f"IPv6Address {ip} unknown to node {self}")
+                # print(f"IPv6Address {ip} unknown to node {self}")
                 return None
             stdout = stdout.decode("utf-8")
 
@@ -183,10 +183,10 @@ class KIRANode(Node):
             # OPTION 3: physical neighbor
             if "dst" in result and ip in IPv6Network(result["dst"]):
                 return ip
-            #print(f"Unexpected route for {ip} on node {self}: {result}")
+            # print(f"Unexpected route for {ip} on node {self}: {result}")
             return None
         else:
-            #print(f"Unexpected IPv6Address {ip} is neither Path- nor Node-IP")
+            # print(f"Unexpected IPv6Address {ip} is neither Path- nor Node-IP")
             return None
 
     def next_hop(self, ip: IPv6Address) -> IPv6Address | None:
@@ -202,7 +202,7 @@ class KIRANode(Node):
         p = self.exec(cmd, logfile=PIPE)
         stdout, _ = p.communicate()
         if p.returncode != 0:
-            #print(f"IPv6Address {ip} unknown to node {self}")
+            # print(f"IPv6Address {ip} unknown to node {self}")
             return None
         stdout = stdout.decode("utf-8")
 
@@ -217,7 +217,7 @@ class KIRANode(Node):
             return ip
 
         # OPTION 2: Forward VIA next hop
-        if "gateway" in result: # gateway == via :/
+        if "gateway" in result:  # gateway == via :/
             gateway = IPv6Address(result["gateway"])
             if gateway in NODE_IP:
                 return gateway
@@ -225,11 +225,11 @@ class KIRANode(Node):
             assert gateway.is_link_local
             dev = result.get("dev")
 
-            cmd = f"ip -6 -j route show"
+            cmd = "ip -6 -j route show"
             p = self.exec(cmd, logfile=PIPE)
             stdout, _ = p.communicate()
             if p.returncode != 0:
-                #print(f"IPv6Address {ip} unknown to node {self}")
+                # print(f"IPv6Address {ip} unknown to node {self}")
                 return None
             # parse output
             stdout = stdout.decode("utf-8")
@@ -255,7 +255,7 @@ class KIRANode(Node):
             assert ip in NODE_IP
             return ip
 
-        #print(f"Unexpected route for {ip} on node {self}: {result}")
+        # print(f"Unexpected route for {ip} on node {self}: {result}")
         return None
 
     def __format__(self, fmt):
@@ -263,6 +263,7 @@ class KIRANode(Node):
 
 
 class KIRALink:
+    _is_up: bool
     _interface_x: Interface
     _interface_y: Interface
 
@@ -270,13 +271,21 @@ class KIRALink:
         self._interface_x = inteface_x
         self._interface_y = interface_y
 
-    def down(self):
+        # just to be sure
+        self.up()
+
+    def down(self) -> None:
+        self._is_up = False
         self._interface_x.set_mode("DOWN")
         self._interface_y.set_mode("DOWN")
 
-    def up(self):
+    def up(self) -> None:
+        self._is_up = True
         self._interface_x.set_mode("UP")
         self._interface_y.set_mode("UP")
+
+    def is_up(self) -> bool:
+        return self._is_up
 
 
 class NestTest[T]:  # T = tid type, usually int or str
@@ -358,6 +367,9 @@ class NestTest[T]:  # T = tid type, usually int or str
     def link(self, x_tid: T, y_tid: T) -> KIRALink:
         return self.topology.edges[x_tid, y_tid]["link"]
 
+    def links(self, of: T | None) -> Iterator[tuple[T, T, KIRALink]]:
+        return (t for t in self.topology.edges(of, data="link"))
+
     def traceroute(self, x_tid: T, y_tid: T, maxhops: int = 10, verbose: bool = False) -> bool:
         current_hop = self.node(x_tid)
         current_ip = IPv6Address(self.topology.nodes[x_tid]["config"].ipv6)
@@ -387,9 +399,11 @@ class NestTest[T]:  # T = tid type, usually int or str
                 assert prev_outer_ip in PATH_IP or outer_ip in PATH_IP
                 if verbose:
                     if prev_outer_ip in PATH_IP and outer_ip in PATH_IP:
-                        print(f"{current_hop:<3} : SWAP Path-ID : {prev_outer_ip} --> {outer_ip}")
+                        print(
+                            f"{current_hop:<3} : SWAP Path-ID : {prev_outer_ip} --> {outer_ip}")
                     elif prev_outer_ip in PATH_IP:
-                        print(f"{current_hop:<3} : POP  Path-ID : {prev_outer_ip} --> {outer_ip}")
+                        print(
+                            f"{current_hop:<3} : POP  Path-ID : {prev_outer_ip} --> {outer_ip}")
                     elif outer_ip in PATH_IP:
                         print(f"{current_hop:<3} : PUSH Path-ID : {outer_ip}")
 
@@ -412,12 +426,12 @@ class NestTest[T]:  # T = tid type, usually int or str
         return True
 
 
-class DebugShell(Cmd):
+class DebugShell[T](Cmd):
     intro = "Welcome to the debug shell of nesttest.  Type help or ? to list commands.\n"
     prompt = '(debug)'
     file = None
 
-    test: NestTest
+    test: NestTest[T]
 
     def __init__(self, test: NestTest):
         super().__init__()
@@ -643,7 +657,7 @@ class DebugShell(Cmd):
             print((f"ERR: Node '{ip}' not found.\n"
                    "To get a list of available nodes type NODES."))
             return
-        
+
         next = node.next_ip(IPv6Address(ip))
         print()
         print(next)
@@ -654,7 +668,7 @@ class DebugShell(Cmd):
             print((f"ERR: Node '{ip}' not found.\n"
                    "To get a list of available nodes type NODES."))
             return
-        
+
         next = node.next_hop(IPv6Address(ip))
         print()
         print(next)
@@ -741,24 +755,23 @@ class DebugShell(Cmd):
 
     def do_links(self, arg):
         "List links in topology: LINKS [nid]"
+
         if arg == "":
-            for x, y in self.test.topology.edges:
-                x = self.test.node(x)
-                y = self.test.node(y)
-                print(f"{x:>3} --- {y:>3}")
-            return
+            tid = None
+        else:
+            node, _arg = self._extract_node(arg)
+            if node is None:
+                print((f"ERR: Node '{_arg}' not found.\n"
+                       "To get a list of available nodes type NODES."))
+                return
+            tid = self.test.tid(node)
 
-        node, _arg = self._extract_node(arg)
-        if node is None:
-            print((f"ERR: Node '{_arg}' not found.\n"
-                   "To get a list of available nodes type NODES."))
-            return
-        tid = self.test.tid(node)
-
-        for x, y in self.test.topology.edges(tid):
+        for x, y, link in self.test.links(tid):
             x = self.test.node(x)
             y = self.test.node(y)
-            print(f"{x:>3} --- {y:>3}")
+            up_indicator = "-" if link.is_up() else "✗"
+            print(f"{x:>3} -{up_indicator}- {y:>3}")
+        return
 
     def do_edges(self, arg):
         "Alias for LINKS: EDGES [nid]"
