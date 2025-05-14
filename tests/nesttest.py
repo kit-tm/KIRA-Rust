@@ -370,7 +370,18 @@ class NestTest[T]:  # T = tid type, usually int or str
     def links(self, of: T | None) -> Iterator[tuple[T, T, KIRALink]]:
         return (t for t in self.topology.edges(of, data="link"))
 
-    def traceroute(self, x_tid: T, y_tid: T, maxhops: int = 30, verbose: bool = False) -> bool:
+    def _describe_hop_action(current_hop: KIRANode, from_addr: IPv6Address, to_addr: IPv6Address) -> str:
+        assert from_addr in PATH_IP or to_addr in PATH_IP
+
+        # print action that lead to label change
+        if from_addr in PATH_IP and to_addr in PATH_IP:
+            return f"{current_hop:<3} : SWAP Path-ID : {from_addr} --> {to_addr}"
+        elif from_addr in PATH_IP:
+            return f"{current_hop:<3} : POP  Path-ID : {from_addr} --> {to_addr}"
+        elif to_addr in PATH_IP:
+            return f"{current_hop:<3} : PUSH Path-ID : {to_addr}"
+
+    def traceroute(self, x_tid: T, y_tid: T, maxhops: int = 10, verbose: bool = False) -> bool:
         current_hop = self.node(x_tid)
         current_ip = IPv6Address(self.topology.nodes[x_tid]["config"].ipv6)
 
@@ -393,6 +404,7 @@ class NestTest[T]:  # T = tid type, usually int or str
             # label change
             if prev_outer_ip != outer_ip:
                 # pop label
+                # done automagically by nftables
                 if outer_ip == current_ip:
                     outer_ip = dst_ip
 
@@ -401,14 +413,9 @@ class NestTest[T]:  # T = tid type, usually int or str
 
                 # print action that lead to label change
                 if verbose:
-                    if prev_outer_ip in PATH_IP and outer_ip in PATH_IP:
-                        print(
-                            f"{current_hop:<3} : SWAP Path-ID : {prev_outer_ip} --> {outer_ip}")
-                    elif prev_outer_ip in PATH_IP:
-                        print(
-                            f"{current_hop:<3} : POP  Path-ID : {prev_outer_ip} --> {outer_ip}")
-                    elif outer_ip in PATH_IP:
-                        print(f"{current_hop:<3} : PUSH Path-ID : {outer_ip}")
+                    descr = NestTest._describe_hop_action(
+                        current_hop, prev_outer_ip, outer_ip)
+                    print(descr)
 
             next_ip = current_hop.next_hop(outer_ip)
             next_hop = self.node_by_ip(next_ip)
