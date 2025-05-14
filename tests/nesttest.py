@@ -370,7 +370,7 @@ class NestTest[T]:  # T = tid type, usually int or str
     def links(self, of: T | None) -> Iterator[tuple[T, T, KIRALink]]:
         return (t for t in self.topology.edges(of, data="link"))
 
-    def traceroute(self, x_tid: T, y_tid: T, maxhops: int = 10, verbose: bool = False) -> bool:
+    def traceroute(self, x_tid: T, y_tid: T, maxhops: int = 30, verbose: bool = False) -> bool:
         current_hop = self.node(x_tid)
         current_ip = IPv6Address(self.topology.nodes[x_tid]["config"].ipv6)
 
@@ -382,7 +382,7 @@ class NestTest[T]:  # T = tid type, usually int or str
             print(f"Tracerouting from {current_hop} to {dst_ip}({dst_hop}):")
 
         hc = 0
-        while hc <= maxhops and (current_ip != dst_ip or outer_ip != dst_ip):
+        while hc <= maxhops:
             prev_outer_ip = outer_ip
             outer_ip = current_hop.next_ip(outer_ip)
             if outer_ip is None:
@@ -390,13 +390,16 @@ class NestTest[T]:  # T = tid type, usually int or str
                     print(f"{current_hop:<3} : ERR unknown  : {prev_outer_ip}")
                 return False
 
+            # label change
             if prev_outer_ip != outer_ip:
                 # pop label
                 if outer_ip == current_ip:
                     outer_ip = dst_ip
 
-                # don't change destination!
+                # don't change intended destination!
                 assert prev_outer_ip in PATH_IP or outer_ip in PATH_IP
+
+                # print action that lead to label change
                 if verbose:
                     if prev_outer_ip in PATH_IP and outer_ip in PATH_IP:
                         print(
@@ -410,20 +413,24 @@ class NestTest[T]:  # T = tid type, usually int or str
             next_ip = current_hop.next_hop(outer_ip)
             next_hop = self.node_by_ip(next_ip)
 
-            if verbose:
-                print(f"{current_hop:<3} : FORWARD to {next_hop}")
+            if current_hop != next_hop:
+                hc += 1
+                if verbose:
+                    print(f"{current_hop:<3} : FORWARD to {next_hop}")
 
             current_hop = next_hop
             current_ip = next_ip
-            hc += 1
 
-        if hc > maxhops:
-            if verbose:
-                print(f"{current_hop:<3} : HLIMIT = {maxhops} reache")
-            return False
+            # packet reached destination hop unencapsulated
+            if current_ip == dst_ip and outer_ip == dst_ip:
+                if verbose:
+                    print(f"{current_hop:<3} : ACK")
+                return True
+
+        # maxhop limit reached
         if verbose:
-            print(f"{current_hop:<3} : ACK")
-        return True
+            print(f"{current_hop:<3} : HLIMIT = {maxhops} reached")
+        return False
 
 
 class DebugShell[T](Cmd):
