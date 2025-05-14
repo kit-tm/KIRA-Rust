@@ -6,7 +6,9 @@ import sys
 
 def main(args):
     G = nx.readwrite.read_gml(args.test_gml)
-    nx.draw_networkx(G, node_size=500, font_color='w')
+
+    pos = nx.kamada_kawai_layout(G)
+    nx.draw_networkx(G, pos=pos, font_color='w')
     plt.savefig(sys.stdout.buffer, transparent=True, dpi=200)
 
 
