@@ -7,6 +7,7 @@ from subprocess import Popen, PIPE
 from typing import Optional, Iterator
 import json
 import base64
+from hashlib import sha1
 from ipaddress import IPv6Address, IPv6Network, AddressValueError
 
 import networkx as nx
@@ -258,8 +259,49 @@ class KIRANode(Node):
         # print(f"Unexpected route for {ip} on node {self}: {result}")
         return None
 
+    def paths(self) -> Iterator[Iterator[bytes]]:
+        """Returns an iterator over all paths (node-id sequence) known by the node.
+
+        Usually all paths known by the node are paths in the RoutingTable.
+        """
+        routing_table = self.routing_table()
+        # join lines
+
+        # find all paths
+        r_path = re.compile(
+            r'Path\s+{\s+ids:\s+\[([\s\w(:),]+)\]', flags=re.MULTILINE)
+        r_nid = re.compile(r'NodeId\(([\w]+)\),')
+
+        for path_match in r_path.finditer(routing_table):
+            path_str = path_match.group(1)
+            hops = (bytes.fromhex(nid_match.group(1))
+                    for nid_match in r_nid.finditer(path_str))
+            yield hops
+
+    def path_id(path: Iterator[bytes]) -> bytes:
+        """Calculate the Path-ID from a path of NodeIds."""
+        path_id = sha1(b''.join(path)).digest()[:14]
+        return path_id
+
+    def path(self, ip: IPv6Address) -> Iterator[bytes] | None:
+        """Translate a Path-IP address (fcaa::/16) into
+        its corresponding path of Node-IPs.
+        """
+        assert ip in PATH_IP
+
+        paths = self.paths()
+        for path in paths:
+            path = list(path)
+            path_id = KIRANode.path_id(path)
+            path_ip = IPv6Address(bytes.fromhex('fcaa') + path_id)
+            if ip == path_ip:
+                return path
+
     def __format__(self, fmt):
         return f"{self.name:{fmt}}"
+
+    def __str__(self):
+        return self.__format__("")
 
 
 class KIRALink:
@@ -370,24 +412,45 @@ class NestTest[T]:  # T = tid type, usually int or str
     def links(self, of: T | None) -> Iterator[tuple[T, T, KIRALink]]:
         return (t for t in self.topology.edges(of, data="link"))
 
-    def _describe_hop_action(current_hop: KIRANode, from_addr: IPv6Address, to_addr: IPv6Address) -> str:
+    def _describe_hop_action(
+        self,
+        current_hop: KIRANode,
+        from_addr: IPv6Address,
+        to_addr: IPv6Address,
+        path: list[bytes] | None
+    ) -> str:
         assert from_addr in PATH_IP or to_addr in PATH_IP
+
+        if path is None:
+            path = "???"
+        else:
+            # transform path from seq(nid) into seq(tid)
+            path = (IPv6Address(bytes.fromhex("fc00") + hop) for hop in path)
+            path = ", ".join((str(self.node_by_ip(hop))
+                              for hop in path))
 
         # print action that lead to label change
         if from_addr in PATH_IP and to_addr in PATH_IP:
-            return f"{current_hop:<3} : SWAP Path-ID : {from_addr} --> {to_addr}"
+            return f"{current_hop:<3} : SWAP Path-ID : {from_addr} --> {to_addr} ({path})"
         elif from_addr in PATH_IP:
             return f"{current_hop:<3} : POP  Path-ID : {from_addr} --> {to_addr}"
         elif to_addr in PATH_IP:
-            return f"{current_hop:<3} : PUSH Path-ID : {to_addr}"
+            return f"{current_hop:<3} : PUSH Path-ID : {to_addr} ({path})"
 
-    def traceroute(self, x_tid: T, y_tid: T, maxhops: int = 10, verbose: bool = False) -> bool:
+    def traceroute(
+            self,
+            x_tid: T,
+            y_tid: T,
+            maxhops: int = 10,
+            verbose: bool = False
+    ) -> bool:
         current_hop = self.node(x_tid)
         current_ip = IPv6Address(self.topology.nodes[x_tid]["config"].ipv6)
 
         dst_hop = self.node(y_tid)
         dst_ip = IPv6Address(self.topology.nodes[y_tid]["config"].ipv6)
         outer_ip = dst_ip
+        current_path = None
 
         if verbose:
             print(f"Tracerouting from {current_hop} to {dst_ip}({dst_hop}):")
@@ -408,13 +471,22 @@ class NestTest[T]:  # T = tid type, usually int or str
                 if outer_ip == current_ip:
                     outer_ip = dst_ip
 
+                # lookup corresponding path on node
+                # that rerouted the packet (overlay hop)
+                if prev_outer_ip in NODE_IP and outer_ip in PATH_IP:
+                    current_path = current_hop.path(outer_ip)
+                    current_path = None if current_path is None else list(
+                        current_path)
+                elif current_path is not None:
+                    current_path = current_path[1:]
+
                 # don't change intended destination!
                 assert prev_outer_ip in PATH_IP or outer_ip in PATH_IP
 
                 # print action that lead to label change
                 if verbose:
-                    descr = NestTest._describe_hop_action(
-                        current_hop, prev_outer_ip, outer_ip)
+                    descr = self._describe_hop_action(
+                        current_hop, prev_outer_ip, outer_ip, current_path)
                     print(descr)
 
             next_ip = current_hop.next_hop(outer_ip)
@@ -686,6 +758,35 @@ class DebugShell[T](Cmd):
         next = node.next_hop(IPv6Address(ip))
         print()
         print(next)
+
+    def do_path(self, arg):
+        "Lookup Path-ID on the node: PATH <nid> [path-ip]"
+        node, ip = self._extract_node(arg)
+        if node is None:
+            print((f"ERR: Node '{ip}' not found.\n"
+                   "To get a list of available nodes type NODES."))
+            return
+
+        if ip is None:
+            paths = node.paths()
+        else:
+            try:
+                ip = IPv6Address(ip)
+                assert ip in PATH_IP
+
+                path = node.path(ip)
+                paths = [path]
+            except AddressValueError:
+                print(f"ERR: Path-IP {ip} is not a valid IPv6-address")
+                return
+
+        for path in paths:
+            path = list(path)
+            path_id = KIRANode.path_id(path)
+            path = ", ".join((str(self.test.node_by_ip(IPv6Address(bytes.fromhex("fc00") + hop)))
+                              for hop in path))
+            path_ip = IPv6Address(bytes.fromhex("fcaa") + path_id)
+            print(f"{path_ip} ==> {path}")
 
     def do_traceroute(self, arg):
         "Traceroute (all) forwarding path: TRACEROUTE [<nid_x> <nid_y>]"
