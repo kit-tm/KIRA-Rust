@@ -339,7 +339,7 @@ class NestTest[T]:  # T = tid type, usually int or str
             env_vars = os.environ.copy()
             env_vars["RUST_LOG_STYLE"] = "never"
             env_vars["NO_COLOR"] = "1"
-            env_vars["RUST_LOG"] = "info"
+            env_vars["RUST_LOG"] = env_vars.get("RUST_LOG", "info")
             env_vars["RUST_BACKTRACE"] = "1"
             with open(logfile, 'w') as f:
                 node.exec(f"./target/debug/kirad --root-id {node_id} --nftables-conf ./kirad/conf/nftables.conf",
