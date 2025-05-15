@@ -335,7 +335,7 @@ class NestTest[T]:  # T = tid type, usually int or str
         for node, config in self.nodes():
             node_id = config.node_id
 
-            logfile = f"n{node}.log"
+            logfile = f"{node}.log"
             env_vars = os.environ.copy()
             env_vars["RUST_LOG_STYLE"] = "never"
             env_vars["NO_COLOR"] = "1"
