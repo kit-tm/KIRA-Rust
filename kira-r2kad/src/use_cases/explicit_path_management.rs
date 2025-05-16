@@ -352,8 +352,6 @@ where
         log::trace!(target: "explicit_path_management", "Event {:?}", event);
         match (event, &self.state) {
             // ========== Contact Updates ==========
-            // FIXME don't send teardown if we are uncertain if other nodes use the path
-            // possible fix: rely solely on soft-state cleanup
             (UseCaseEvent::Contact(ContactEvent::New(contact)), _) => {
                 if contact.path().size() > self.config.vicinity_radius.get() {
                     self.send_setup_req(context, &contact);
@@ -441,7 +439,10 @@ where
                 assert!(unprocessed_hops > self.config.vicinity_radius.get());
 
                 // process current hop
-                self.teardown_path(context, req.clone());
+                // WARN: insufficient sign to teardown path, because
+                //       others may utilize the same path unknowingly.
+                //       Let softstate perform the garbage collection.
+                //self.teardown_path(context, req.clone());
                 let processed_hops = unprocessed_hops - 1;
 
                 // stop forwarding to vicinity
