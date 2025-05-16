@@ -251,7 +251,17 @@ class KIRANode(Node):
                         continue
             return next_hop
 
-        # OPTION 3: Physical neighbor
+        # OPTION 3: Overlay Hop -- (re)encapsulation on this node required
+        if "encap" in result:
+            assert ip in NODE_IP
+            # determine own ip
+            if "prefsrc" in result:
+                node_ip = IPv6Address(result["prefsrc"])
+                assert node_ip in NODE_IP
+                return node_ip
+            else:
+                return None
+        # OPTION 4: Physical neighbor
         if "dst" in result and IPv6Address(result["dst"]) == ip:
             assert ip in NODE_IP
             return ip
