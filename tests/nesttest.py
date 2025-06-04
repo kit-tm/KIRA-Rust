@@ -109,9 +109,7 @@ class KIRANode(Node):
         # overwrite ping to support timeout
         dst_addr = destination_address.get_addr(with_subnet=False)
         if verbose not in [0, 1, 2]:
-            raise ValueError(
-                f"Verbose parameter value is {verbose}. It should be 0, 1 or 2."
-            )
+            raise ValueError(f"Verbose parameter value is {verbose}. It should be 0, 1 or 2.")
 
         if verbose == 2:
             print()
@@ -293,10 +291,7 @@ class KIRANode(Node):
 
         for path_match in r_path.finditer(routing_table):
             path_str = path_match.group(1)
-            hops = (
-                bytes.fromhex(nid_match.group(1))
-                for nid_match in r_nid.finditer(path_str)
-            )
+            hops = (bytes.fromhex(nid_match.group(1)) for nid_match in r_nid.finditer(path_str))
             yield hops
 
     @staticmethod
@@ -425,10 +420,7 @@ class NestTest[T]:  # T = tid type, usually int or str
                 return data["node"]
 
     def nodes(self) -> Iterator[tuple[KIRANode, NodeConfig]]:
-        return (
-            (ndata["node"], ndata["config"])
-            for _, ndata in self.topology.nodes(data=True)
-        )
+        return ((ndata["node"], ndata["config"]) for _, ndata in self.topology.nodes(data=True))
 
     def link(self, x_tid: T, y_tid: T) -> KIRALink:
         return self.topology.edges[x_tid, y_tid]["link"]
@@ -454,9 +446,7 @@ class NestTest[T]:  # T = tid type, usually int or str
 
         # print action that lead to label change
         if from_addr in PATH_IP and to_addr in PATH_IP:
-            return (
-                f"{current_hop:<3} : SWAP Path-ID : {from_addr} --> {to_addr} ({path})"
-            )
+            return f"{current_hop:<3} : SWAP Path-ID : {from_addr} --> {to_addr} ({path})"
         elif from_addr in PATH_IP:
             return f"{current_hop:<3} : POP  Path-ID : {from_addr} --> {to_addr}"
         elif to_addr in PATH_IP:
@@ -464,9 +454,7 @@ class NestTest[T]:  # T = tid type, usually int or str
         else:
             return "??? Unkown Action ???"
 
-    def traceroute(
-        self, x_tid: T, y_tid: T, maxhops: int = 10, verbose: bool = False
-    ) -> bool:
+    def traceroute(self, x_tid: T, y_tid: T, maxhops: int = 10, verbose: bool = False) -> bool:
         current_hop = self.node(x_tid)
         current_ip = IPv6Address(self.topology.nodes[x_tid]["config"].ipv6)
 
@@ -518,9 +506,7 @@ class NestTest[T]:  # T = tid type, usually int or str
                 return False
             next_hop = self.node_by_ip(next_ip)
             if next_hop is None:
-                print(
-                    f"{current_hop:<3} : ERR : Can't determine next hop based on IPv6: {next_ip}"
-                )
+                print(f"{current_hop:<3} : ERR : Can't determine next hop based on IPv6: {next_ip}")
                 return False
 
             if current_hop != next_hop:
@@ -544,9 +530,7 @@ class NestTest[T]:  # T = tid type, usually int or str
 
     def vicinity(self, node: KIRANode) -> set[KIRANode]:
         tid = self.name_tid_mapping[node.name]
-        paths = nx.single_source_shortest_path(
-            self.topology, tid, cutoff=VICINITY_RADIUS
-        )
+        paths = nx.single_source_shortest_path(self.topology, tid, cutoff=VICINITY_RADIUS)
         reachable_nodes = {self.node(reachable) for reachable in paths.keys()}
         return reachable_nodes
 
@@ -569,9 +553,7 @@ class NestTest[T]:  # T = tid type, usually int or str
 
 
 class DebugShell[T](Cmd):
-    intro = (
-        "Welcome to the debug shell of nesttest.  Type help or ? to list commands.\n"
-    )
+    intro = "Welcome to the debug shell of nesttest.  Type help or ? to list commands.\n"
     prompt = "(debug)"
     file = None
 
@@ -673,12 +655,7 @@ class DebugShell[T](Cmd):
         "Execute arbitrary command in the network namespace of node: EXEC <nid> <cmd>"
         node, cmd = self._extract_node(arg)
         if node is None:
-            print(
-                (
-                    f"ERR: Node '{cmd}' not found.\n"
-                    "To get a list of available nodes type NODES."
-                )
-            )
+            print((f"ERR: Node '{cmd}' not found.\nTo get a list of available nodes type NODES."))
             return
         if cmd is None:
             print("Provide a command to execute: EXECUTE <nid> <cmd>")
@@ -692,12 +669,7 @@ class DebugShell[T](Cmd):
         "Issue arbitrary API call to node: API <nid> <rest_path>"
         node, path = self._extract_node(arg)
         if node is None:
-            print(
-                (
-                    f"ERR: Node '{path}' not found.\n"
-                    "To get a list of available nodes type NODES."
-                )
-            )
+            print((f"ERR: Node '{path}' not found.\nTo get a list of available nodes type NODES."))
             return
         if path is None:
             print("Provide an API-Path: API <nid> <rest_path>")
@@ -715,10 +687,7 @@ class DebugShell[T](Cmd):
         node, key_data = self._extract_node(arg)
         if node is None:
             print(
-                (
-                    f"ERR: Node '{key_data}' not found.\n"
-                    "To get a list of available nodes type NODES."
-                )
+                (f"ERR: Node '{key_data}' not found.\nTo get a list of available nodes type NODES.")
             )
             return
         if key_data is None:
@@ -736,12 +705,7 @@ class DebugShell[T](Cmd):
         "Obtain value of a key in the DHT: FETCH <nid> <key>"
         node, key = self._extract_node(arg)
         if node is None:
-            print(
-                (
-                    f"ERR: Node '{key}' not found.\n"
-                    "To get a list of available nodes type NODES."
-                )
-            )
+            print((f"ERR: Node '{key}' not found.\nTo get a list of available nodes type NODES."))
             return
         if key is None:
             print("Provide a key to fetch: FETCH <nid> <key>")
@@ -762,12 +726,7 @@ class DebugShell[T](Cmd):
         "Dumps routing table of node: ROUTING_TABLE <nid>"
         node, _arg = self._extract_node(arg)
         if node is None:
-            print(
-                (
-                    f"ERR: Node '{_arg}' not found.\n"
-                    "To get a list of available nodes type NODES."
-                )
-            )
+            print((f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."))
             return
 
         res = node.routing_table()
@@ -781,12 +740,7 @@ class DebugShell[T](Cmd):
         "Dump physical neighbor table of node: PN_TABLE <nid>"
         node, _arg = self._extract_node(arg)
         if node is None:
-            print(
-                (
-                    f"ERR: Node '{_arg}' not found.\n"
-                    "To get a list of available nodes type NODES."
-                )
-            )
+            print((f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."))
             return
 
         res = node.pn_table()
@@ -800,12 +754,7 @@ class DebugShell[T](Cmd):
         "Dump vicinity graph of node: VICINITY_GRAPH <nid>"
         node, _arg = self._extract_node(arg)
         if node is None:
-            print(
-                (
-                    f"ERR: Node '{_arg}' not found.\n"
-                    "To get a list of available nodes type NODES."
-                )
-            )
+            print((f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."))
             return
 
         res = node.vicinity_graph()
@@ -819,12 +768,7 @@ class DebugShell[T](Cmd):
         "Dump local hashtable of node: LOCAL_HASHTABLE <nid>"
         node, _arg = self._extract_node(arg)
         if node is None:
-            print(
-                (
-                    f"ERR: Node '{_arg}' not found.\n"
-                    "To get a list of available nodes type NODES."
-                )
-            )
+            print((f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."))
             return
 
         res = node.local_hashtable()
@@ -848,12 +792,7 @@ class DebugShell[T](Cmd):
 
         node, _arg = self._extract_node(arg)
         if node is None:
-            print(
-                (
-                    f"ERR: Node '{_arg}' not found.\n"
-                    "To get a list of available nodes type NODES."
-                )
-            )
+            print((f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."))
             return
 
         is_up = node.is_up()
@@ -865,12 +804,7 @@ class DebugShell[T](Cmd):
     def do_next_ip(self, arg):
         node, ip = self._extract_node(arg)
         if node is None:
-            print(
-                (
-                    f"ERR: Node '{ip}' not found.\n"
-                    "To get a list of available nodes type NODES."
-                )
-            )
+            print((f"ERR: Node '{ip}' not found.\nTo get a list of available nodes type NODES."))
             return
 
         next = node.next_ip(IPv6Address(ip))
@@ -880,12 +814,7 @@ class DebugShell[T](Cmd):
     def do_next_hop(self, arg):
         node, ip = self._extract_node(arg)
         if node is None:
-            print(
-                (
-                    f"ERR: Node '{ip}' not found.\n"
-                    "To get a list of available nodes type NODES."
-                )
-            )
+            print((f"ERR: Node '{ip}' not found.\nTo get a list of available nodes type NODES."))
             return
 
         next = node.next_hop(IPv6Address(ip))
@@ -896,12 +825,7 @@ class DebugShell[T](Cmd):
         "Lookup Path-ID on the node: PATH <nid> [path-ip]"
         node, ip = self._extract_node(arg)
         if node is None:
-            print(
-                (
-                    f"ERR: Node '{ip}' not found.\n"
-                    "To get a list of available nodes type NODES."
-                )
-            )
+            print((f"ERR: Node '{ip}' not found.\nTo get a list of available nodes type NODES."))
             return
 
         if ip is None:
@@ -951,12 +875,7 @@ class DebugShell[T](Cmd):
 
         x, arg = self._extract_node(arg)
         if x is None:
-            print(
-                (
-                    f"ERR: Node '{x}' not found.\n"
-                    "To get a list of available nodes type NODES."
-                )
-            )
+            print((f"ERR: Node '{x}' not found.\nTo get a list of available nodes type NODES."))
             return
         if arg is None:
             print("Destination not found. Usage: TRACEROUTE <nid_x> <nid_y>")
@@ -964,12 +883,7 @@ class DebugShell[T](Cmd):
 
         y, _arg = self._extract_node(arg)
         if y is None:
-            print(
-                (
-                    f"ERR: Node '{_arg}' not found.\n"
-                    "To get a list of available nodes type NODES."
-                )
-            )
+            print((f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."))
             return
         x_tid = self.test.tid(x)
         assert x_tid is not None
@@ -985,12 +899,7 @@ class DebugShell[T](Cmd):
         mode, arg = arg.split(maxsplit=1)
         x, arg = self._extract_node(arg)
         if x is None:
-            print(
-                (
-                    f"ERR: Node '{x}' not found.\n"
-                    "To get a list of available nodes type NODES."
-                )
-            )
+            print((f"ERR: Node '{x}' not found.\nTo get a list of available nodes type NODES."))
             return
 
         x_tid = self.test.tid(x)
@@ -999,10 +908,7 @@ class DebugShell[T](Cmd):
             y, _arg = self._extract_node(arg)
             if y is None:
                 print(
-                    (
-                        f"ERR: Node '{_arg}' not found.\n"
-                        "To get a list of available nodes type NODES."
-                    )
+                    (f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES.")
                 )
                 return
             y_tid = self.test.tid(y)
@@ -1043,10 +949,7 @@ class DebugShell[T](Cmd):
             node, _arg = self._extract_node(arg)
             if node is None:
                 print(
-                    (
-                        f"ERR: Node '{_arg}' not found.\n"
-                        "To get a list of available nodes type NODES."
-                    )
+                    (f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES.")
                 )
                 return
             tid = self.test.tid(node)
@@ -1071,12 +974,7 @@ class DebugShell[T](Cmd):
         "Get vicinity of <nid>: VICINITY <nid>"
         node, _arg = self._extract_node(arg)
         if node is None:
-            print(
-                (
-                    f"ERR: Node '{_arg}' not found.\n"
-                    "To get a list of available nodes type NODES."
-                )
-            )
+            print((f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."))
             return
 
         vicinity = self.test.vicinity(node)
@@ -1095,10 +993,7 @@ class DebugShell[T](Cmd):
             node, _arg = self._extract_node(arg)
             if node is None:
                 print(
-                    (
-                        f"ERR: Node '{_arg}' not found.\n"
-                        "To get a list of available nodes type NODES."
-                    )
+                    (f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES.")
                 )
                 return
             nodes = iter([node])
@@ -1112,6 +1007,16 @@ class DebugShell[T](Cmd):
                 print(f"{node:<3} does not know the following nodes:")
                 for unknown in unknown_vicinity:
                     print(f"{unknown:<3}")
+
+    def do_netns(self, arg):
+        "Get network namespace name of node <nid>: NETNS [nid]"
+        node, _arg = self._extract_node(arg)
+        if node is None:
+            print((f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."))
+            return
+
+        netns_name = node.id
+        print(f"netnsname: {netns_name}")
 
     def do_exit(self, arg):
         "Exit the debug shell"
