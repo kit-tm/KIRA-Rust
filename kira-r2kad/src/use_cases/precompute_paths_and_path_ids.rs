@@ -97,9 +97,10 @@ where
             }
             let out_path = out_path.unwrap();
 
-            // FIXME don't install longer paths than vicinity radius
+            // FIXME: don't install longer paths than vicinity radius
             if out_path.size() > self.config.vicinity_radius {
                 tracing::warn!(
+                    target: "precompute_paths_and_path_ids",
                     "Skipping path {} with size {} as it exceeds vicinity radius {}",
                     out_path,
                     out_path.size(),
