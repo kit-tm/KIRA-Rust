@@ -15,6 +15,7 @@ use kira_forwarding::tables::native_tables::NativeFwdTables;
 
 use signal_hook::consts::{SIGHUP, SIGINT, SIGKILL, SIGPIPE, SIGQUIT, SIGTERM};
 use signal_hook_tokio::Signals;
+use tracing_subscriber::fmt::format::json;
 
 #[cfg(feature = "small_buckets")]
 const BUCKET_SIZE: usize = 3;
@@ -55,6 +56,10 @@ struct Args {
     #[cfg(feature = "tokio-console")]
     #[cfg_attr(feature = "tokio-console", clap(short, long))]
     tokio_console: bool,
+
+    /// Output structured JSON log instead
+    #[clap(long, env = "RUST_JSON")]
+    json: bool,
 }
 
 #[tokio::main]
@@ -70,32 +75,40 @@ async fn main() {
             Layer,
         };
 
-        #[cfg(feature = "tokio-console")]
-        let console_layer = console_subscriber::spawn().with_filter(
-            // enable required targets for console layer
-            Targets::new()
-                .with_target("tokio", Level::TRACE)
-                .with_target("runtime", Level::TRACE)
-                .with_default(LevelFilter::OFF),
-        );
         // disable noisy netlink_proto debug messages
         // https://github.com/rust-netlink/netlink-proto/issues/19
         let netlink_proto_filter = filter_fn(|metadata| {
             !metadata.target().starts_with("netlink_proto") || metadata.level() != &Level::DEBUG
         });
-        let fmt_layer = tracing_subscriber::fmt::layer()
-            .compact()
-            .with_filter(EnvFilter::from_default_env().and(netlink_proto_filter));
+        // default output layer always present
+        let reg = tracing_subscriber::registry().with(
+            if args.json {
+                tracing_subscriber::fmt::layer()
+                    .json()
+                    .flatten_event(true)
+                    .boxed()
+            } else {
+                tracing_subscriber::fmt::layer().compact().boxed()
+            }
+            .with_filter(EnvFilter::from_default_env().and(netlink_proto_filter.clone())),
+        );
 
-        let reg = tracing_subscriber::registry().with(fmt_layer);
         #[cfg(feature = "tokio-console")]
-        if args.tokio_console {
-            reg.with(console_layer).init()
+        let reg = reg.with(if args.tokio_console {
+            Some(
+                console_subscriber::spawn().with_filter(
+                    // enable required targets for console layer
+                    Targets::new()
+                        .with_target("tokio", Level::TRACE)
+                        .with_target("runtime", Level::TRACE)
+                        .with_default(LevelFilter::OFF),
+                ),
+            )
         } else {
-            reg.init()
-        }
-        #[cfg(not(feature = "tokio-console"))]
-        reg.init()
+            None
+        });
+
+        reg.init();
     }
 
     let root_id: NodeId = args.root_id.unwrap_or_else(NodeId::random);
