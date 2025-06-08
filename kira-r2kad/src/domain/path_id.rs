@@ -40,8 +40,10 @@ impl PathId {
     pub fn from_sha1<'a, I: IntoIterator<Item = &'a NodeId>>(path: I) -> Self {
         // To log all hashed paths for debugging purposes uncomment the code line
         //let _path_str = format!("{:?}", path);
+        let path = path.into_iter().collect::<Vec<_>>();
+        let path_str = format!("{path:?}");
         let result = Self::from_digest(sha1::Sha1::new(), path);
-        // log::debug!(target: "path_id", "Path {:?} -> {:?}", _path_str, &result);
+        log::debug!(target: "path_id", "Path {:?} -> {:?}", path_str, &result);
         result
     }
 

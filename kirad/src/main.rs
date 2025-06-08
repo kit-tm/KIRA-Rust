@@ -15,7 +15,6 @@ use kira_forwarding::tables::native_tables::NativeFwdTables;
 
 use signal_hook::consts::{SIGHUP, SIGINT, SIGKILL, SIGPIPE, SIGQUIT, SIGTERM};
 use signal_hook_tokio::Signals;
-use tracing_subscriber::fmt::format::json;
 
 #[cfg(feature = "small_buckets")]
 const BUCKET_SIZE: usize = 3;
@@ -54,17 +53,43 @@ struct Args {
     ///
     /// This will enable the [console_subscriber] layer
     #[cfg(feature = "tokio-console")]
-    #[cfg_attr(feature = "tokio-console", clap(short, long))]
+    #[cfg_attr(feature = "tokio-console", clap(long))]
     tokio_console: bool,
 
     /// Output structured JSON log instead
     #[clap(long, env = "RUST_JSON")]
     json: bool,
+
+    /// Enable [OpenTelemetry] trace exports.
+    ///
+    /// This allows you to view traces with [Jaeger].
+    /// or send it to an intermediate collector supporting OTLP collection.
+    /// In the future this will also publish metrics and logs using OTLP.
+    ///
+    /// Currently traces only span the local node, so no distributed tracing
+    /// is currently implemented.
+    ///
+    /// # Configuration
+    ///
+    /// To configure the OTLP exporter you can use environment variables
+    /// which are explained in further detail at [OTLP Exporter Configuration].
+    /// The data is always exported using gRPC.
+    ///
+    /// To change the endpoint you can use `OTEL_EXPORTER_OTLP_ENDPOINT`.
+    ///
+    /// [OpenTelemetry]: (https://opentelemetry.io/docs/what-is-opentelemetry/)
+    /// [Jaeger]: (https://www.jaegertracing.io/)
+    /// [OTLP Exporter Configuration]: (https://opentelemetry.io/docs/languages/sdk-configuration/otlp-exporter/)
+    #[cfg(feature = "otel")]
+    #[cfg_attr(feature = "otel", clap(long, env = "RUST_OTEL"))]
+    open_telemetry: bool,
 }
 
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
+    let root_id: NodeId = args.root_id.unwrap_or_else(NodeId::random);
+
     // Setup tracing environment
     {
         use tracing::Level;
@@ -80,6 +105,8 @@ async fn main() {
         let netlink_proto_filter = filter_fn(|metadata| {
             !metadata.target().starts_with("netlink_proto") || metadata.level() != &Level::DEBUG
         });
+
+        let env_filter = EnvFilter::from_default_env().and(netlink_proto_filter.clone());
         // default output layer always present
         let reg = tracing_subscriber::registry().with(
             if args.json {
@@ -90,7 +117,7 @@ async fn main() {
             } else {
                 tracing_subscriber::fmt::layer().compact().boxed()
             }
-            .with_filter(EnvFilter::from_default_env().and(netlink_proto_filter.clone())),
+            .with_filter(env_filter),
         );
 
         #[cfg(feature = "tokio-console")]
@@ -108,10 +135,46 @@ async fn main() {
             None
         });
 
+        #[cfg(feature = "otel")]
+        let reg = reg.with(if args.open_telemetry {
+            use opentelemetry::{trace::TracerProvider, KeyValue};
+            use opentelemetry_sdk::{resource::Resource, trace::SdkTracerProvider};
+            use opentelemetry_semantic_conventions::{attribute::SERVICE_VERSION, SCHEMA_URL};
+
+            let resource = Resource::builder()
+                .with_service_name(env!("CARGO_PKG_NAME"))
+                .with_schema_url(
+                    [
+                        KeyValue::new("kira.node-id", format!("{root_id}")),
+                        KeyValue::new(SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
+                    ],
+                    SCHEMA_URL,
+                )
+                .build();
+            let exporter = opentelemetry_otlp::SpanExporter::builder()
+                .with_tonic()
+                .build()
+                .unwrap();
+
+            let tracer_provider = SdkTracerProvider::builder()
+                .with_resource(resource)
+                .with_batch_exporter(exporter)
+                .build();
+            let tracer = tracer_provider.tracer("kirad");
+            let env_filter = EnvFilter::from_default_env().and(netlink_proto_filter.clone());
+
+            Some(
+                tracing_opentelemetry::layer()
+                    .with_tracer(tracer)
+                    .with_filter(env_filter),
+            )
+        } else {
+            None
+        });
+
         reg.init();
     }
 
-    let root_id: NodeId = args.root_id.unwrap_or_else(NodeId::random);
     tracing::info!(%root_id, "Starting node...");
 
     let excluded_interfaces = args.excluded_interfaces.map_or_else(
