@@ -107,6 +107,14 @@ async fn main() {
         });
 
         let env_filter = EnvFilter::from_default_env().and(netlink_proto_filter.clone());
+        #[cfg(feature = "otel")]
+        let env_filter = if args.open_telemetry {
+            // disabling debug and tracing logging if open telemetry export is active
+            env_filter.and(LevelFilter::INFO).boxed()
+        } else {
+            env_filter.boxed()
+        };
+
         // default output layer always present
         let reg = tracing_subscriber::registry().with(
             if args.json {
@@ -120,6 +128,7 @@ async fn main() {
             .with_filter(env_filter),
         );
 
+        // logging to tokio-console
         #[cfg(feature = "tokio-console")]
         let reg = reg.with(if args.tokio_console {
             Some(
@@ -135,6 +144,7 @@ async fn main() {
             None
         });
 
+        // open telemetry export layer
         #[cfg(feature = "otel")]
         let reg = reg.with(if args.open_telemetry {
             use opentelemetry::{trace::TracerProvider, KeyValue};
