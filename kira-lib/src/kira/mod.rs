@@ -19,6 +19,9 @@ use std::time::Instant;
 use channels::{R2KadInputChannels, R2KadOutputChannels};
 use futures::StreamExt;
 use tokio::sync::mpsc;
+use tokio::task::yield_now;
+use tokio::time;
+use tracing::{debug_span, info_span, instrument, Instrument};
 
 use kira_forwarding::tables::{handle_r2kad_request, AsyncNodeIdTable, AsyncPathIdTable};
 use kira_r2kad::context::UseCaseContext;
@@ -30,9 +33,6 @@ use kira_r2kad::{
 
 pub use kira_forwarding::AsyncForwardingTables;
 pub use kira_r2kad::r2kad::R2Kad;
-use tokio::task::yield_now;
-use tokio::time;
-use tracing::{debug_span, info_span, Instrument};
 
 #[cfg(feature = "api")]
 use crate::api;
@@ -206,7 +206,7 @@ where
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::UnderlayNeighborTable, BUCKET_SIZE>,
 {
     /// Starts the R²/KAD routing protocol instance.
-    #[tracing::instrument(target = "kira", name = "kira_loop", skip_all)]
+    #[instrument(target = "kira", name = "kira_loop", skip_all)]
     pub async fn start(mut self) {
         let Self {
             ref mut r2kad,
