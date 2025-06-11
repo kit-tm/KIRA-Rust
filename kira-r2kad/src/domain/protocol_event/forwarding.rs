@@ -74,6 +74,16 @@ impl NodeIdEntry {
             NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry { destination, .. }) => destination,
         }
     }
+
+    /// [PathId] that is used as temporary destination on encapsulation.
+    pub fn out_path_id(&self) -> Option<&PathId> {
+        match self {
+            NodeIdEntry::Forward(_) => None,
+            NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry { out_path_id, .. }) => {
+                Some(out_path_id)
+            }
+        }
+    }
 }
 
 /// An entry in the NodeIdTable for forwarding packets to a underlay neighbor.
@@ -109,10 +119,19 @@ pub enum PathIdEntry {
 }
 
 impl PathIdEntry {
+    /// Expected [PathId] destination on ingress.
     pub fn in_path_id(&self) -> &PathId {
         match self {
             PathIdEntry::Forward(PathIdForwardingEntry { in_path_id, .. }) => in_path_id,
             PathIdEntry::Decapsulate(PathIdDecapsulationEntry { in_path_id, .. }) => in_path_id,
+        }
+    }
+
+    /// [PathId] that is used as temporary destination on encapsulation.
+    pub fn out_path_id(&self) -> Option<&PathId> {
+        match self {
+            PathIdEntry::Forward(PathIdForwardingEntry { out_path_id, .. }) => Some(out_path_id),
+            PathIdEntry::Decapsulate(_) => None,
         }
     }
 }

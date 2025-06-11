@@ -12,6 +12,7 @@ use futures::channel::mpsc::UnboundedReceiver;
 use futures::StreamExt;
 use netlink_packet_route::RouteNetlinkMessage;
 use netlink_proto::ConnectionHandle;
+use tracing::{field, Level, Span};
 
 use crate::domain::{
     DecapsulationDestination, NodeIdEncapsulationEntry, NodeIdForwardingEntry,
@@ -98,9 +99,9 @@ where
 {
     type Error = error::FwdTableError;
 
-    #[tracing::instrument(level = "trace", target = "native_fwd_table")]
+    #[tracing::instrument(level = Level::TRACE, target = "native_fwd_table", fields(destination = %entry.destination(), out_path_id=field::Empty))]
     async fn create(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
-        log::debug!(target: "native_fwd_table", "CREATE {:?}", entry);
+        _ne_record_out_path_id(&entry);
 
         let destination = entry.destination();
         if self.node_id_table.contains_key(destination) {
@@ -111,9 +112,9 @@ where
         AsyncNodeIdTable::create_or_update(self, entry).await
     }
 
-    #[tracing::instrument(level = "trace", target = "native_fwd_table")]
+    #[tracing::instrument(level = Level::TRACE, target = "native_fwd_table", fields(destination = %entry.destination()))]
     async fn update(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
-        log::debug!(target: "native_fwd_table", "UPDATE {:?}", entry);
+        _ne_record_out_path_id(&entry);
 
         let destination = entry.destination();
         if !self.node_id_table.contains_key(destination) {
@@ -124,44 +125,10 @@ where
         AsyncNodeIdTable::create_or_update(self, entry).await
     }
 
-    #[tracing::instrument(level = "trace", target = "native_fwd_table")]
-    async fn remove(&mut self, node_id: &NodeIdSubnet) -> Result<Option<NodeIdEntry>, Self::Error> {
-        if let Some(removed) = self.node_id_table.remove(node_id) {
-            match &removed {
-                NodeIdEntry::Forward(NodeIdForwardingEntry { next_hop, .. }) => {
-                    // only delete routes to subnets and not our neighbors
-                    if node_id.ipv6_subnet_prefix_length() != 128 {
-                        log::trace!(target: "native_fwd_table", "Trying to delete neighbor route {} dst {:?}", node_id, next_hop);
-                        let interface_id = *self
-                            .interface_id_table
-                            .get(next_hop)
-                            .expect("interface id of underlay neighbor should be known");
-                        let (node_ip, prefix) = node_id.to_ipv6_subnet();
-                        self.netlink
-                            .delete_neighbor_route(&node_ip, prefix, interface_id)
-                            .await
-                            .unwrap();
-                    }
-                }
-                NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry { out_path_id, .. }) => {
-                    log::trace!(target: "native_fwd_table", "Trying to delete encap route {} dst {:?}", node_id, out_path_id);
-                    self.netlink
-                        .delete_encap_route(node_id, out_path_id)
-                        .await
-                        .unwrap();
-
-                    // FIXME: delete via routes
-                }
-            }
-
-            Ok(Some(removed))
-        } else {
-            Ok(None)
-        }
-    }
-
-    #[tracing::instrument(level = "trace", target = "native_fwd_table")]
+    #[tracing::instrument(level = Level::TRACE, target = "native_fwd_table", fields(destination = %entry.destination(), out_path_id=field::Empty))]
     async fn create_or_update(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
+        _ne_record_out_path_id(&entry);
+
         let destination = entry.destination().clone();
         let prefix_length = destination.ipv6_subnet_prefix_length();
 
@@ -245,6 +212,53 @@ where
 
         Ok(())
     }
+
+    #[tracing::instrument(level = Level::TRACE, target = "native_fwd_table", skip(node_id), fields(destination=%node_id, out_path_id=field::Empty))]
+    async fn remove(&mut self, node_id: &NodeIdSubnet) -> Result<Option<NodeIdEntry>, Self::Error> {
+        if let Some(removed) = self.node_id_table.remove(node_id) {
+            match &removed {
+                NodeIdEntry::Forward(NodeIdForwardingEntry { next_hop, .. }) => {
+                    // only delete routes to subnets and not our neighbors
+                    if node_id.ipv6_subnet_prefix_length() != 128 {
+                        log::trace!(target: "native_fwd_table", "Trying to delete neighbor route {} dst {:?}", node_id, next_hop);
+                        let interface_id = *self
+                            .interface_id_table
+                            .get(next_hop)
+                            .expect("interface id of underlay neighbor should be known");
+                        let (node_ip, prefix) = node_id.to_ipv6_subnet();
+                        self.netlink
+                            .delete_neighbor_route(&node_ip, prefix, interface_id)
+                            .await
+                            .unwrap();
+                    }
+                }
+                NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry { out_path_id, .. }) => {
+                    log::trace!(target: "native_fwd_table", "Trying to delete encap route {} dst {:?}", node_id, out_path_id);
+                    self.netlink
+                        .delete_encap_route(node_id, out_path_id)
+                        .await
+                        .unwrap();
+
+                    // FIXME: delete via routes
+                }
+            }
+
+            Ok(Some(removed))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+fn _ne_record_out_path_id(entry: &NodeIdEntry) {
+    let span = Span::current();
+    if span.is_disabled() {
+        return;
+    }
+
+    if let Some(out_path_id) = entry.out_path_id() {
+        span.record("out_path_id", format!("{}", out_path_id));
+    }
 }
 
 impl<I> AsyncPathIdTable for NativeFwdTables<I>
@@ -254,9 +268,9 @@ where
 {
     type Error = error::FwdTableError;
 
-    #[tracing::instrument(level = "trace", target = "native_fwd_table")]
+    #[tracing::instrument(level = Level::TRACE, target = "native_fwd_table", fields(in_path_id = %entry.in_path_id(), out_path_id=field::Empty))]
     async fn create(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
-        log::debug!(target: "native_fwd_table", "PathIdTable CREATE {:?}", entry);
+        _pe_record_out_path_id(&entry);
 
         let in_path_id = entry.in_path_id();
         if self.path_id_table.contains_key(in_path_id) {
@@ -266,9 +280,9 @@ where
         AsyncPathIdTable::create_or_update(self, entry).await
     }
 
-    #[tracing::instrument(level = "trace", target = "native_fwd_table")]
+    #[tracing::instrument(level = Level::TRACE, target = "native_fwd_table", fields(in_path_id = %entry.in_path_id(), out_path_id=field::Empty))]
     async fn update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
-        log::trace!(target: "native_fwd_table", "PathIdTable UPDATE {:?}", entry);
+        _pe_record_out_path_id(&entry);
 
         let in_path_id = entry.in_path_id();
         if self.path_id_table.contains_key(in_path_id) {
@@ -278,8 +292,10 @@ where
         }
     }
 
-    #[tracing::instrument(level = "trace", target = "native_fwd_table")]
+    #[tracing::instrument(level = Level::TRACE, target = "native_fwd_table", fields(in_path_id = %entry.in_path_id(), out_path_id=field::Empty))]
     async fn create_or_update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
+        _pe_record_out_path_id(&entry);
+
         let in_path_id = entry.in_path_id();
         let (out_ip, via) = match &entry {
             PathIdEntry::Decapsulate(PathIdDecapsulationEntry {
@@ -339,9 +355,8 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(level = "trace", target = "native_fwd_table")]
+    #[tracing::instrument(level = Level::TRACE, target = "native_fwd_table", skip(path_id), fields(in_path_id=%path_id))]
     async fn remove(&mut self, path_id: &PathId) -> Result<Option<PathIdEntry>, Self::Error> {
-        log::trace!(target: "native_fwd_table", "PathIdTable REMOVE {:?} -> ?", path_id);
         if let Some(removed) = self.path_id_table.remove(path_id) {
             let in_path_ip = Ipv6Addr::from(path_id);
 
@@ -351,6 +366,17 @@ where
         } else {
             Ok(None)
         }
+    }
+}
+
+fn _pe_record_out_path_id(entry: &PathIdEntry) {
+    let span = Span::current();
+    if span.is_disabled() {
+        return;
+    }
+
+    if let Some(out_path_id) = entry.out_path_id() {
+        span.record("out_path_id", format!("{}", out_path_id));
     }
 }
 
