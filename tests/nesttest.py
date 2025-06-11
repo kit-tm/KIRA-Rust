@@ -8,13 +8,21 @@ from typing import Iterable, Iterator
 import json
 import base64
 from hashlib import sha1
-from ipaddress import IPv6Address, IPv6Network, AddressValueError
+from ipaddress import (
+    IPv4Address,
+    IPv4Network,
+    IPv6Address,
+    IPv6Network,
+    AddressValueError,
+)
 
+from nest import engine
+from nest.topology.interface.interface import create_veth_pair
 import networkx as nx
 from networkx import Graph
 
 import nest
-from nest.topology import Node, Address, Interface, connect
+from nest.topology import Node, Address, Interface, Switch, connect
 
 
 from common import NodeConfig
@@ -109,7 +117,9 @@ class KIRANode(Node):
         # overwrite ping to support timeout
         dst_addr = destination_address.get_addr(with_subnet=False)
         if verbose not in [0, 1, 2]:
-            raise ValueError(f"Verbose parameter value is {verbose}. It should be 0, 1 or 2.")
+            raise ValueError(
+                f"Verbose parameter value is {verbose}. It should be 0, 1 or 2."
+            )
 
         if verbose == 2:
             print()
@@ -291,7 +301,10 @@ class KIRANode(Node):
 
         for path_match in r_path.finditer(routing_table):
             path_str = path_match.group(1)
-            hops = (bytes.fromhex(nid_match.group(1)) for nid_match in r_nid.finditer(path_str))
+            hops = (
+                bytes.fromhex(nid_match.group(1))
+                for nid_match in r_nid.finditer(path_str)
+            )
             yield hops
 
     @staticmethod
@@ -348,6 +361,8 @@ class KIRALink:
 
 
 class NestTest[T]:  # T = tid type, usually int or str
+    _otel_ip: IPv4Network = IPv4Network("10.42.0.0/24")
+
     """
     Nest Test
     ===========
@@ -360,9 +375,15 @@ class NestTest[T]:  # T = tid type, usually int or str
         The configuration for the test.
     """
 
-    def __init__(self, config: Graph):
+    def __init__(self, config: Graph, otel_ip: IPv4Network | None = None):
+        if otel_ip is not None:
+            self._otel_ip: IPv4Network = otel_ip
+
         self.topology: Graph = config
-        self.name_tid_mapping: dict[str, T] = dict()
+        self.name_tid_mapping: dict[str, T] = {}
+        self._otel_node: Node | None = None  # lazily initialized as needed
+        self._otel_ips: Iterable[IPv4Address] = self._otel_ip.hosts()
+        next(self._otel_ips)  # skip IP for host
 
         nest.logging.info("Setting up the topology ...")
 
@@ -390,6 +411,54 @@ class NestTest[T]:  # T = tid type, usually int or str
         nest.logging.info("Starting daemons ...")
         for node, cfg in self.nodes():
             node_id = cfg.node_id
+            args: list[str] = []
+
+            if cfg.otel:
+                args.append("--open-telemetry")
+                otel = self.otel_node
+                if_otel, _ = connect(node, otel, f"{node}notel", f"oteln{node}")
+
+                # disable automatic IPv6 address
+                # don't gain KIRA connectivity via switch
+                Popen(
+                    [
+                        "ip",
+                        "netns",
+                        "exec",
+                        if_otel.node_id,
+                        "ip",
+                        "link",
+                        "set",
+                        "dev",
+                        if_otel.id,
+                        "addrgenmode",
+                        "none",
+                    ]
+                )
+                if_otel.set_mode("DOWN")
+                if_otel.set_mode("UP")
+
+                node_otel_ip = next(self._otel_ips)
+                assert node_otel_ip is not None, (
+                    f"Run out of IPs in {self._otel_ip} to assign to OTel interfaces"
+                )
+                if_otel.set_address(
+                    f"{node_otel_ip.exploded}/{self._otel_ip.prefixlen}"
+                )
+                Popen(
+                    [
+                        "ip",
+                        "netns",
+                        "exec",
+                        if_otel.node_id,
+                        "ip",
+                        "route",
+                        "add",
+                        "default",
+                        "dev",
+                        if_otel.id,
+                    ]
+                )
 
             logfile = f"{node}.log"
             env_vars = os.environ.copy()
@@ -397,18 +466,53 @@ class NestTest[T]:  # T = tid type, usually int or str
             env_vars["NO_COLOR"] = "1"
             env_vars["RUST_LOG"] = env_vars.get("RUST_LOG", "info")
             env_vars["RUST_BACKTRACE"] = "1"
+            arg: str = " ".join(args)
             with open(logfile, "w") as f:
                 node.exec(
-                    f"./target/debug/kirad --root-id {node_id} --nftables-conf ./kirad/conf/nftables.conf",
+                    f"./target/debug/kirad --root-id {node_id} --nftables-conf ./kirad/conf/nftables.conf {arg}",
                     logfile=f,
                     env_vars=env_vars,
                 )
+
+    @property
+    def otel_node(self):
+        if self._otel_node is None:
+            if all(
+                env not in os.environ
+                for env in [
+                    "OTEL_EXPORTER_OTLP_ENDPOINT",
+                    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+                ]
+            ):
+                print(
+                    "WARN: You haven't set any OTEL_EXPORTER_OTLP*_ENDPOINT environment variable. OpenTelemetry probably won't work."
+                )
+
+            self._otel_node = Switch("OpenTelemetry Collector")
+            assert self._otel_node is not None
+            host, otel = create_veth_pair("otel", "otels")
+
+            # move otel interface to otel_node
+            self._otel_node._add_interface(otel)
+            otel.set_mode("UP")
+
+            # but leave host interface in default ns for connection
+            # since it's not connected to a node we need to invoke `ip` ourselves
+            host_ip = (
+                f"{next(self._otel_ip.hosts()).exploded}/{self._otel_ip.prefixlen}"
+            )
+            host = host.id
+
+            Popen(["ip", "address", "add", "dev", host, host_ip])
+            Popen(["ip", "link", "set", "dev", host, "up"])
+
+        return self._otel_node
 
     def tid(self, node: KIRANode) -> T | None:
         name = node.name
         return self.name_tid_mapping.get(name)
 
-    def node(self, tid) -> KIRANode:
+    def node(self, tid: T) -> KIRANode:
         return self.topology.nodes[tid]["node"]
 
     def node_by_ip(self, ip: IPv6Address) -> KIRANode | None:
@@ -420,7 +524,10 @@ class NestTest[T]:  # T = tid type, usually int or str
                 return data["node"]
 
     def nodes(self) -> Iterator[tuple[KIRANode, NodeConfig]]:
-        return ((ndata["node"], ndata["config"]) for _, ndata in self.topology.nodes(data=True))
+        return (
+            (ndata["node"], ndata["config"])
+            for _, ndata in self.topology.nodes(data=True)
+        )
 
     def link(self, x_tid: T, y_tid: T) -> KIRALink:
         return self.topology.edges[x_tid, y_tid]["link"]
@@ -446,7 +553,9 @@ class NestTest[T]:  # T = tid type, usually int or str
 
         # print action that lead to label change
         if from_addr in PATH_IP and to_addr in PATH_IP:
-            return f"{current_hop:<3} : SWAP Path-ID : {from_addr} --> {to_addr} ({path})"
+            return (
+                f"{current_hop:<3} : SWAP Path-ID : {from_addr} --> {to_addr} ({path})"
+            )
         elif from_addr in PATH_IP:
             return f"{current_hop:<3} : POP  Path-ID : {from_addr} --> {to_addr}"
         elif to_addr in PATH_IP:
@@ -454,7 +563,9 @@ class NestTest[T]:  # T = tid type, usually int or str
         else:
             return "??? Unkown Action ???"
 
-    def traceroute(self, x_tid: T, y_tid: T, maxhops: int = 10, verbose: bool = False) -> bool:
+    def traceroute(
+        self, x_tid: T, y_tid: T, maxhops: int = 10, verbose: bool = False
+    ) -> bool:
         current_hop = self.node(x_tid)
         current_ip = IPv6Address(self.topology.nodes[x_tid]["config"].ipv6)
 
@@ -506,7 +617,9 @@ class NestTest[T]:  # T = tid type, usually int or str
                 return False
             next_hop = self.node_by_ip(next_ip)
             if next_hop is None:
-                print(f"{current_hop:<3} : ERR : Can't determine next hop based on IPv6: {next_ip}")
+                print(
+                    f"{current_hop:<3} : ERR : Can't determine next hop based on IPv6: {next_ip}"
+                )
                 return False
 
             if current_hop != next_hop:
@@ -530,7 +643,9 @@ class NestTest[T]:  # T = tid type, usually int or str
 
     def vicinity(self, node: KIRANode) -> set[KIRANode]:
         tid = self.name_tid_mapping[node.name]
-        paths = nx.single_source_shortest_path(self.topology, tid, cutoff=VICINITY_RADIUS)
+        paths = nx.single_source_shortest_path(
+            self.topology, tid, cutoff=VICINITY_RADIUS
+        )
         reachable_nodes = {self.node(reachable) for reachable in paths.keys()}
         return reachable_nodes
 
@@ -553,7 +668,9 @@ class NestTest[T]:  # T = tid type, usually int or str
 
 
 class DebugShell[T](Cmd):
-    intro = "Welcome to the debug shell of nesttest.  Type help or ? to list commands.\n"
+    intro = (
+        "Welcome to the debug shell of nesttest.  Type help or ? to list commands.\n"
+    )
     prompt = "(debug)"
     file = None
 
@@ -655,7 +772,11 @@ class DebugShell[T](Cmd):
         "Execute arbitrary command in the network namespace of node: EXEC <nid> <cmd>"
         node, cmd = self._extract_node(arg)
         if node is None:
-            print((f"ERR: Node '{cmd}' not found.\nTo get a list of available nodes type NODES."))
+            print(
+                (
+                    f"ERR: Node '{cmd}' not found.\nTo get a list of available nodes type NODES."
+                )
+            )
             return
         if cmd is None:
             print("Provide a command to execute: EXECUTE <nid> <cmd>")
@@ -669,7 +790,11 @@ class DebugShell[T](Cmd):
         "Issue arbitrary API call to node: API <nid> <rest_path>"
         node, path = self._extract_node(arg)
         if node is None:
-            print((f"ERR: Node '{path}' not found.\nTo get a list of available nodes type NODES."))
+            print(
+                (
+                    f"ERR: Node '{path}' not found.\nTo get a list of available nodes type NODES."
+                )
+            )
             return
         if path is None:
             print("Provide an API-Path: API <nid> <rest_path>")
@@ -687,7 +812,9 @@ class DebugShell[T](Cmd):
         node, key_data = self._extract_node(arg)
         if node is None:
             print(
-                (f"ERR: Node '{key_data}' not found.\nTo get a list of available nodes type NODES.")
+                (
+                    f"ERR: Node '{key_data}' not found.\nTo get a list of available nodes type NODES."
+                )
             )
             return
         if key_data is None:
@@ -705,7 +832,11 @@ class DebugShell[T](Cmd):
         "Obtain value of a key in the DHT: FETCH <nid> <key>"
         node, key = self._extract_node(arg)
         if node is None:
-            print((f"ERR: Node '{key}' not found.\nTo get a list of available nodes type NODES."))
+            print(
+                (
+                    f"ERR: Node '{key}' not found.\nTo get a list of available nodes type NODES."
+                )
+            )
             return
         if key is None:
             print("Provide a key to fetch: FETCH <nid> <key>")
@@ -726,7 +857,11 @@ class DebugShell[T](Cmd):
         "Dumps routing table of node: ROUTING_TABLE <nid>"
         node, _arg = self._extract_node(arg)
         if node is None:
-            print((f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."))
+            print(
+                (
+                    f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
+                )
+            )
             return
 
         res = node.routing_table()
@@ -740,7 +875,11 @@ class DebugShell[T](Cmd):
         "Dump physical neighbor table of node: PN_TABLE <nid>"
         node, _arg = self._extract_node(arg)
         if node is None:
-            print((f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."))
+            print(
+                (
+                    f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
+                )
+            )
             return
 
         res = node.pn_table()
@@ -754,7 +893,11 @@ class DebugShell[T](Cmd):
         "Dump vicinity graph of node: VICINITY_GRAPH <nid>"
         node, _arg = self._extract_node(arg)
         if node is None:
-            print((f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."))
+            print(
+                (
+                    f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
+                )
+            )
             return
 
         res = node.vicinity_graph()
@@ -768,7 +911,11 @@ class DebugShell[T](Cmd):
         "Dump local hashtable of node: LOCAL_HASHTABLE <nid>"
         node, _arg = self._extract_node(arg)
         if node is None:
-            print((f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."))
+            print(
+                (
+                    f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
+                )
+            )
             return
 
         res = node.local_hashtable()
@@ -792,7 +939,11 @@ class DebugShell[T](Cmd):
 
         node, _arg = self._extract_node(arg)
         if node is None:
-            print((f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."))
+            print(
+                (
+                    f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
+                )
+            )
             return
 
         is_up = node.is_up()
@@ -804,7 +955,11 @@ class DebugShell[T](Cmd):
     def do_next_ip(self, arg):
         node, ip = self._extract_node(arg)
         if node is None:
-            print((f"ERR: Node '{ip}' not found.\nTo get a list of available nodes type NODES."))
+            print(
+                (
+                    f"ERR: Node '{ip}' not found.\nTo get a list of available nodes type NODES."
+                )
+            )
             return
 
         next = node.next_ip(IPv6Address(ip))
@@ -814,7 +969,11 @@ class DebugShell[T](Cmd):
     def do_next_hop(self, arg):
         node, ip = self._extract_node(arg)
         if node is None:
-            print((f"ERR: Node '{ip}' not found.\nTo get a list of available nodes type NODES."))
+            print(
+                (
+                    f"ERR: Node '{ip}' not found.\nTo get a list of available nodes type NODES."
+                )
+            )
             return
 
         next = node.next_hop(IPv6Address(ip))
@@ -825,7 +984,11 @@ class DebugShell[T](Cmd):
         "Lookup Path-ID on the node: PATH <nid> [path-ip]"
         node, ip = self._extract_node(arg)
         if node is None:
-            print((f"ERR: Node '{ip}' not found.\nTo get a list of available nodes type NODES."))
+            print(
+                (
+                    f"ERR: Node '{ip}' not found.\nTo get a list of available nodes type NODES."
+                )
+            )
             return
 
         if ip is None:
@@ -875,7 +1038,11 @@ class DebugShell[T](Cmd):
 
         x, arg = self._extract_node(arg)
         if x is None:
-            print((f"ERR: Node '{x}' not found.\nTo get a list of available nodes type NODES."))
+            print(
+                (
+                    f"ERR: Node '{x}' not found.\nTo get a list of available nodes type NODES."
+                )
+            )
             return
         if arg is None:
             print("Destination not found. Usage: TRACEROUTE <nid_x> <nid_y>")
@@ -883,7 +1050,11 @@ class DebugShell[T](Cmd):
 
         y, _arg = self._extract_node(arg)
         if y is None:
-            print((f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."))
+            print(
+                (
+                    f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
+                )
+            )
             return
         x_tid = self.test.tid(x)
         assert x_tid is not None
@@ -899,7 +1070,11 @@ class DebugShell[T](Cmd):
         mode, arg = arg.split(maxsplit=1)
         x, arg = self._extract_node(arg)
         if x is None:
-            print((f"ERR: Node '{x}' not found.\nTo get a list of available nodes type NODES."))
+            print(
+                (
+                    f"ERR: Node '{x}' not found.\nTo get a list of available nodes type NODES."
+                )
+            )
             return
 
         x_tid = self.test.tid(x)
@@ -908,7 +1083,9 @@ class DebugShell[T](Cmd):
             y, _arg = self._extract_node(arg)
             if y is None:
                 print(
-                    (f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES.")
+                    (
+                        f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
+                    )
                 )
                 return
             y_tid = self.test.tid(y)
@@ -949,7 +1126,9 @@ class DebugShell[T](Cmd):
             node, _arg = self._extract_node(arg)
             if node is None:
                 print(
-                    (f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES.")
+                    (
+                        f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
+                    )
                 )
                 return
             tid = self.test.tid(node)
@@ -974,7 +1153,11 @@ class DebugShell[T](Cmd):
         "Get vicinity of <nid>: VICINITY <nid>"
         node, _arg = self._extract_node(arg)
         if node is None:
-            print((f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."))
+            print(
+                (
+                    f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
+                )
+            )
             return
 
         vicinity = self.test.vicinity(node)
@@ -993,7 +1176,9 @@ class DebugShell[T](Cmd):
             node, _arg = self._extract_node(arg)
             if node is None:
                 print(
-                    (f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES.")
+                    (
+                        f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
+                    )
                 )
                 return
             nodes = iter([node])
@@ -1012,7 +1197,11 @@ class DebugShell[T](Cmd):
         "Get network namespace name of node <nid>: NETNS [nid]"
         node, _arg = self._extract_node(arg)
         if node is None:
-            print((f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."))
+            print(
+                (
+                    f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
+                )
+            )
             return
 
         netns_name = node.id
@@ -1059,7 +1248,12 @@ def main(args):
     G = nx.readwrite.read_gml(args.test_gml)
 
     for node in G.nodes:
-        G.nodes[node]["config"] = NodeConfig(**G.nodes[node]["config"])
+        cfg = NodeConfig(**G.nodes[node]["config"])
+        # enable otel for all nodes
+        if args.otel:
+            cfg.otel = True
+
+        G.nodes[node]["config"] = cfg
 
     # Create and run the test
     test = NestTest(G)
@@ -1069,5 +1263,10 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Nest Test Script")
     parser.add_argument("test_gml", type=str, help="The gml file")
+    parser.add_argument(
+        "--otel",
+        action="store_true",
+        help="Enable open telemetry exports on all nodes",
+    )
     args = parser.parse_args()
     main(args)
