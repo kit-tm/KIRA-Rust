@@ -102,12 +102,8 @@ where
     async fn create(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
         log::debug!(target: "native_fwd_table", "CREATE {:?}", entry);
 
-        let destination = match entry {
-            NodeIdEntry::Forward(ref entry) => entry.destination.clone(),
-            NodeIdEntry::Encapsulate(ref entry) => entry.destination.clone(),
-        };
-
-        if self.node_id_table.contains_key(&destination) {
+        let destination = entry.destination();
+        if self.node_id_table.contains_key(destination) {
             //return Err(error::FwdTableError::EntryAlreadyExists(destination.to_string()));
             log::error!(target: "native_fwd_table", "entry already exists {:?}", entry);
         }
@@ -119,12 +115,8 @@ where
     async fn update(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
         log::debug!(target: "native_fwd_table", "UPDATE {:?}", entry);
 
-        let destination = match entry {
-            NodeIdEntry::Forward(ref entry) => entry.destination.clone(),
-            NodeIdEntry::Encapsulate(ref entry) => entry.destination.clone(),
-        };
-
-        if !self.node_id_table.contains_key(&destination) {
+        let destination = entry.destination();
+        if !self.node_id_table.contains_key(destination) {
             //return Err(error::FwdTableError::EntryMissing(destination.to_string()));
             log::error!(target: "native_fwd_table", "entry missing {:?}", entry);
         }
@@ -170,10 +162,7 @@ where
 
     #[tracing::instrument(level = "trace", target = "native_fwd_table")]
     async fn create_or_update(&mut self, entry: NodeIdEntry) -> Result<(), Self::Error> {
-        let destination = match entry {
-            NodeIdEntry::Forward(ref entry) => entry.destination.clone(),
-            NodeIdEntry::Encapsulate(ref entry) => entry.destination.clone(),
-        };
+        let destination = entry.destination().clone();
         let prefix_length = destination.ipv6_subnet_prefix_length();
 
         if self.node_id_table.get(&destination) == Some(&entry) {
@@ -269,12 +258,8 @@ where
     async fn create(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
         log::debug!(target: "native_fwd_table", "PathIdTable CREATE {:?}", entry);
 
-        let in_path_id = match entry {
-            PathIdEntry::Decapsulate(ref entry) => entry.in_path_id.clone(),
-            PathIdEntry::Forward(ref entry) => entry.in_path_id.clone(),
-        };
-
-        if self.path_id_table.contains_key(&in_path_id) {
+        let in_path_id = entry.in_path_id();
+        if self.path_id_table.contains_key(in_path_id) {
             return Err(error::FwdTableError::EntryAlreadyExists(entry.to_string()));
         }
 
@@ -285,12 +270,8 @@ where
     async fn update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
         log::trace!(target: "native_fwd_table", "PathIdTable UPDATE {:?}", entry);
 
-        let in_path_id = match entry {
-            PathIdEntry::Decapsulate(ref entry) => entry.in_path_id.clone(),
-            PathIdEntry::Forward(ref entry) => entry.in_path_id.clone(),
-        };
-
-        if self.path_id_table.contains_key(&in_path_id) {
+        let in_path_id = entry.in_path_id();
+        if self.path_id_table.contains_key(in_path_id) {
             AsyncPathIdTable::create_or_update(self, entry).await
         } else {
             Err(error::FwdTableError::EntryMissing(entry.to_string()))
@@ -299,10 +280,7 @@ where
 
     #[tracing::instrument(level = "trace", target = "native_fwd_table")]
     async fn create_or_update(&mut self, entry: PathIdEntry) -> Result<(), Self::Error> {
-        let in_path_id = match entry {
-            PathIdEntry::Decapsulate(ref entry) => entry.in_path_id.clone(),
-            PathIdEntry::Forward(ref entry) => entry.in_path_id.clone(),
-        };
+        let in_path_id = entry.in_path_id();
         let (out_ip, via) = match &entry {
             PathIdEntry::Decapsulate(PathIdDecapsulationEntry {
                 next_hop: DecapsulationDestination::UnderlayNeighbor(ulnid),
@@ -335,9 +313,9 @@ where
                 (out_path_id.into(), Some((next_hop, out_path_id.clone())))
             }
         };
-        let in_ip = Ipv6Addr::from(&in_path_id);
+        let in_ip = Ipv6Addr::from(in_path_id);
 
-        if let Some(old_entry) = self.path_id_table.get_mut(&in_path_id) {
+        if let Some(old_entry) = self.path_id_table.get_mut(in_path_id) {
             if old_entry == &entry {
                 return Ok(());
             }
@@ -348,7 +326,7 @@ where
             log::trace!(target: "native_fwd_table", "Trying to insert entry into forwardmap: {:?}", entry);
 
             platform::add_forwarding_rule(in_ip, out_ip).unwrap();
-            self.path_id_table.insert(in_path_id, entry);
+            self.path_id_table.insert(in_path_id.clone(), entry);
         }
 
         if let Some((next_hop, out_path_id)) = via {
