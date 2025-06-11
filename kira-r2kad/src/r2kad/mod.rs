@@ -8,6 +8,7 @@ use std::{
     sync::Arc,
     time::Instant,
 };
+use tracing::{field, instrument, Level, Span};
 
 mod pipeline;
 pub(crate) mod runtime;
@@ -239,6 +240,7 @@ where
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::UnderlayNeighborTable, BUCKET_SIZE>,
 {
     /// Startup the protocol instance.
+    #[instrument(level = Level::DEBUG, target = "r2kad", skip_all)]
     pub fn startup(&mut self, now: Instant) -> Result<()> {
         log::trace!(target: "r2kad", "startup instance");
         self.context.runtime().set_current_time(now);
@@ -247,9 +249,8 @@ where
     }
 
     /// Process received [Input] event.
+    #[instrument(level = Level::DEBUG, name = "handle_r2kad", target = "r2kad", skip_all, fields(reason = ?received_event))]
     pub fn handle_input(&mut self, received_event: Input, now: Instant) -> Result<()> {
-        log::trace!(target: "r2kad", "handle input: {:?}", received_event);
-
         // just to be save we check for due timers
         self.handle_timeout(now)?;
 
@@ -271,14 +272,20 @@ where
     ///
     /// The next time this method has to be called can be obtained
     /// with [poll_timeout](Self::poll_timeout).
+    #[instrument(level = Level::DEBUG, name = "handle_r2kad", target = "r2kad", skip_all, fields(reason = field::Empty))]
     pub fn handle_timeout(&mut self, now: Instant) -> Result<()> {
-        log::trace!(target: "r2kad", "handle timeout");
-
         self.context.runtime().set_current_time(now);
 
+        let mut reason = true;
         // process timer events first
         while let Some(due_timer) = self.context.runtime().next_timer() {
             log::trace!(target: "r2kad", "handle timer: {:?}", due_timer);
+
+            // "first" timer as reason
+            if reason {
+                Span::current().record("reason", format!("{}", due_timer));
+                reason = false;
+            }
 
             let timer_event = crate::use_cases::UseCaseEvent::Timer(due_timer);
             self.pipeline.process_event(&self.context, timer_event)?;
