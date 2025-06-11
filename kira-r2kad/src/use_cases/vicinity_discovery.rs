@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::ops::Deref;
 use std::time::Duration;
+use tracing::{instrument, Level};
 
 use derive_more::derive::{Display, Error};
 use rand::Rng;
@@ -28,8 +29,8 @@ use crate::use_cases::{
 ///
 /// - Contacts with a distance **<= 3** hops (*path length <= 4*) are in the vicinity.
 /// - Contacts with a distance **< 3** hops (*path length < 4*) receive QueryRouteReqs.
-///     Except the underlay neighbors with a distance of 0 hops (*path length == 1*) with
-///     which the following messages are exchanged: *PNHello, PNDiscReq, PNDiscRsp*.
+///   Except the underlay neighbors with a distance of 0 hops (*path length == 1*) with
+///   which the following messages are exchanged: *PNHello, PNDiscReq, PNDiscRsp*.
 pub const VICINITY_RADIUS: usize = 2;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -468,6 +469,16 @@ where
     type Error = VDError;
     type Value = ();
 
+    #[instrument(
+        level = Level::TRACE,
+        target = "vicinity_discovery",
+        "vicinity_discovery",
+        skip(self, context),
+        fields(
+            state = ?self.state,
+            config = ?self.config
+        )
+    )]
     fn handle_event(&mut self, context: &C, event: UseCaseEvent) -> Result<(), Self::Error> {
         match (event.clone(), &mut self.state) {
             // ========== Vicinity Discovery - Query Route ==========

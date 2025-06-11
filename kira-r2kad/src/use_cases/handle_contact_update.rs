@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::ops::Deref;
+use tracing::{instrument, Level};
 
 use crate::domain::{
     Contact, ContactState, NodeId, NotVia, RoutingTable, UNTable, UnderlayNeighborId,
@@ -113,6 +114,15 @@ where
     type Error = NeverError;
     type Value = ();
 
+    #[instrument(
+        level = Level::TRACE,
+        target = "handle_contact_update",
+        "handle_contact_update",
+        skip(self, context),
+        fields(
+            config = ?self.config
+        )
+    )]
     fn handle_event(
         &mut self,
         context: &C,

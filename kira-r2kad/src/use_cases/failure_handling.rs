@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::ops::Deref;
+use tracing::{instrument, Level};
 
 use derive_more::derive::{Display, Error};
 
@@ -28,7 +29,7 @@ use crate::utils::{BackoffMap, ExponentialBackoff};
 /// - Overlay neighbors to notify via `UpdateRouteReq`: 3.
 /// - Number of Bits grouped for calculation of closeness for overlay neighbors: 1 Bit.
 /// - Intervall used for calculation of random timeout: `[0.5 t, 1.5 t]`, t = 500ms (overlay neighbor),
-///     t = 1s (underlay neighbor), t = 2s (andernfalls).
+///   t = 1s (underlay neighbor), t = 2s (andernfalls).
 /// - Max retries for exponential backoff: 5.
 #[derive(Debug)]
 pub struct FailureHandlingConfig {
@@ -360,6 +361,16 @@ where
     type Error = FailureHandlingError;
     type Value = ();
 
+    #[instrument(
+        level = Level::TRACE,
+        target = "failure_handling",
+        "failure_handling",
+        skip(self, context),
+        fields(
+            state = ?self.state,
+            config = ?self.config
+        )
+    )]
     fn handle_event(
         &mut self,
         context: &C,

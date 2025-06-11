@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::marker::PhantomData;
 use std::ops::Deref;
+use tracing::{instrument, Level};
 
 use crate::domain::protocol_event::forwarding::{
     DecapsulationDestination, NodeIdEncapsulationEntry, NodeIdEntry, NodeIdForwardingEntry,
@@ -301,6 +302,16 @@ where
     type Error = DeriveFwdEntriesError;
     type Value = ();
 
+    #[instrument(
+        level = Level::TRACE,
+        target = "derive_fwd_table_entries",
+        "derive_fwd_table_entries",
+        skip(self, context),
+        fields(
+            state = ?self.state,
+            config = ?self.config
+        )
+    )]
     fn handle_event(
         &mut self,
         context: &C,

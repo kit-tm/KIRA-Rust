@@ -4,6 +4,7 @@ use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::ops::Deref;
 use std::time::Instant;
+use tracing::{instrument, Level};
 
 use crate::domain::{
     node_id, GroupingError, NodeId, RoutingTable, UNTable, UnderlayNeighborId,
@@ -140,6 +141,16 @@ where
     type Error = InjectMessageError;
     type Value = ();
 
+    #[instrument(
+        level = Level::TRACE,
+        target = "inject_messages",
+        "inject_messages",
+        skip(self, context),
+        fields(
+            state = ?self.state,
+            config = ?self.config
+        )
+    )]
     fn handle_event(
         &mut self,
         context: &C,

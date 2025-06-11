@@ -4,6 +4,7 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Arc;
+use tracing::{instrument, Level};
 
 use crate::domain::{
     dht, Contact, ContactState, NodeId, RoutingTable, UNTable, UnderlayNeighborId,
@@ -285,6 +286,16 @@ where
     type Error = NeverError;
     type Value = ();
 
+    #[instrument(
+        level = Level::TRACE,
+        target = "distributed_hash_table",
+        "distributed_hash_table",
+        skip(self, context),
+        fields(
+            state = ?self.state,
+            config = ?self.config
+        )
+    )]
     fn handle_event(
         &mut self,
         context: &C,

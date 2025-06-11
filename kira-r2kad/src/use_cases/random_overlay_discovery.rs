@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use std::num::{NonZeroU64, NonZeroUsize};
 use std::ops::Deref;
 use std::time::Duration;
+use tracing::{instrument, Level};
 
 use derive_more::derive::{Display, Error};
 
@@ -158,6 +159,16 @@ where
     type Error = RODError;
     type Value = ();
 
+    #[instrument(
+        level = Level::TRACE,
+        target = "random_overlay_discovery",
+        "random_overlay_discovery",
+        skip(self, context),
+        fields(
+            state = ?self.state,
+            config = ?self.config
+        )
+    )]
     fn handle_event(&mut self, context: &C, event: UseCaseEvent) -> Result<(), Self::Error> {
         if let (UseCaseEvent::Timer(event_id), RODState::Running(timer_id)) =
             (event, &mut self.state)

@@ -4,6 +4,7 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::time::Instant;
+use tracing::{instrument, Level};
 
 use crate::domain::{dht, NodeId, RoutingTable, UNTable, UnderlayNeighborId};
 use crate::use_cases::{
@@ -166,6 +167,16 @@ where
     type Error = InjectMessageError;
     type Value = ();
 
+    #[instrument(
+        level = Level::TRACE,
+        target = "distributed_hash_table_injector",
+        "distributed_hash_table_injector",
+        skip(self, context),
+        fields(
+            state = ?self.state,
+            config = ?self.config
+        )
+    )]
     fn handle_event(
         &mut self,
         context: &Self::Context,

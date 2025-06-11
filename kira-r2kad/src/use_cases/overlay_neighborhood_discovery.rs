@@ -4,6 +4,7 @@ use std::marker::PhantomData;
 use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::ops::Deref;
 use std::time::Duration;
+use tracing::{instrument, Level};
 
 use derive_more::Display;
 
@@ -313,6 +314,16 @@ where
 
     /// As this reacts to Errors, changes to the RoutingTable must occur before delegating
     /// the event to this method.
+    #[instrument(
+        level = Level::TRACE,
+        target = "overlay_neighborhood_discovery",
+        "overlay_neighborhood_discovery",
+        skip(self, context),
+        fields(
+            state = ?self.state,
+            config = ?self.config
+        )
+    )]
     fn handle_event(
         &mut self,
         context: &C,

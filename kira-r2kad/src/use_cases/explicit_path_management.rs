@@ -6,6 +6,7 @@ use std::ops::Deref;
 use std::time::{Duration, Instant};
 
 use derive_more::derive::{Display, Error};
+use tracing::{instrument, Level};
 
 use crate::domain::protocol_event::forwarding::{
     DecapsulationDestination, PathIdDecapsulationEntry, PathIdEntry, PathIdForwardingEntry,
@@ -66,7 +67,7 @@ impl Default for EPMConfig {
 /// This includes:
 ///
 /// - Periodic PathSetup to keep the soft state in intermediate systems alive (only for paths
-///     outside of vicinity).
+///   outside of vicinity).
 /// - PathTeardown for contacts that are removed from or invalidated in the routing table.
 /// - Handling of incoming PathSetup and PathTeardowns.
 /// - Periodic cleanup and removal of old entries in the forwarding table.
@@ -267,6 +268,7 @@ where
         }
     }
 
+    #[allow(dead_code)]
     fn teardown_path(&mut self, context: &C, req: ReqRspMessage<PathTeardownReqData>) {
         let entries = match &mut self.state {
             EPMState::Running {
@@ -344,12 +346,21 @@ where
     type Error = EPMError;
     type Value = HandlingResult;
 
+    #[instrument(
+        level = Level::TRACE,
+        target = "explicit_path_management",
+        "explicit_path_management",
+        skip(self, context),
+        fields(
+            state = ?self.state,
+            config = ?self.config
+        )
+    )]
     fn handle_event(
         &mut self,
         context: &C,
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
-        log::trace!(target: "explicit_path_management", "Event {:?}", event);
         match (event, &self.state) {
             // ========== Contact Updates ==========
             (UseCaseEvent::Contact(ContactEvent::New(contact)), _) => {

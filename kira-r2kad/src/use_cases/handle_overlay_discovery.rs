@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::ops::Deref;
+use tracing::{instrument, Level};
 
 use crate::domain::{
     node_id, Contact, GroupingError, NodeId, NotVia, RoutingTable, StateSeqNr, UNTable,
@@ -118,6 +119,15 @@ where
     type Error = NeverError;
     type Value = ();
 
+    #[instrument(
+        level = Level::TRACE,
+        target = "handle_overlay_discovery",
+        "handle_overlay_discovery",
+        skip(self, context),
+        fields(
+            config = ?self.config
+        )
+    )]
     fn handle_event(
         &mut self,
         context: &C,
@@ -131,7 +141,11 @@ where
             let number_of_neighbors = match usize::try_from(req.data.neighborhood.get()) {
                 Ok(value) => value,
                 Err(e) => {
-                    log::warn!("FindNodeReq requested more contacts as host architecture can address: {}. Returning max value", e);
+                    log::warn!(
+                        target: "handle_overlay_discovery",
+                        "FindNodeReq requested more contacts as host architecture can address: {}. Returning max value",
+                        e
+                    );
                     usize::MAX
                 }
             };
@@ -207,6 +221,7 @@ where
                 ),
                 (false, _, true, _) => {
                     log::warn!(
+                        target: "handle_overlay_discovery",
                         "Received FindNodeReq with 'exact=false' with us as target: {:?}",
                         req
                     );

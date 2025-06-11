@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use tracing::{instrument, Level};
 
 use derive_more::derive::{Display, Error};
 use tokio::sync::mpsc::error::SendError;
@@ -41,6 +42,12 @@ where
 
     type Value = ();
 
+    #[instrument(
+        level = Level::TRACE,
+        target = "handle_api",
+        "handle_api",
+        skip(self, context),
+    )]
     fn handle_event(
         &mut self,
         context: &C,

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::time::Duration;
+use tracing::{instrument, Level};
 
 use crate::domain::{
     Contact, ContactState, NodeId, RoutingTable, UNTable, UnderlayNeighborId, DEFAULT_BUCKET_SIZE,
@@ -303,6 +304,16 @@ where
     type Error = NeverError;
     type Value = ();
 
+    #[instrument(
+        level = Level::TRACE,
+        target = "path_probing",
+        "path_probing",
+        skip(self, context),
+        fields(
+            state = ?self.state,
+            config = ?self.config
+        )
+    )]
     fn handle_event(
         &mut self,
         context: &C,

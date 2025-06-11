@@ -78,7 +78,7 @@ pub struct R2KadOutputChannels {
 /// Aggregates all [input channels](R2KadInputChannels) into one [InputSender].
 ///
 /// The [InputSender] can then be used to drive the progress of the routing protocol.
-#[tracing::instrument(target = "kira")]
+#[tracing::instrument(target = "kira", skip_all)]
 pub(super) async fn input_fan_in(input_channels: &mut R2KadInputChannels) -> Option<Input> {
     let input = tokio::select! {
         biased; // poll in order
@@ -101,7 +101,7 @@ pub(super) async fn input_fan_in(input_channels: &mut R2KadInputChannels) -> Opt
 /// channels](R2KadOutputChannels).
 ///
 /// The [OutputReceiver] can be used to listen to output of the routing protocol.
-#[tracing::instrument(target = "kira")]
+#[tracing::instrument(target = "kira", skip(output_channels))]
 pub(super) async fn output_fan_out(
     output: Output,
     output_channels: &mut R2KadOutputChannels,

@@ -13,6 +13,7 @@ pub mod channels;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::ops::Deref;
+use std::sync::Mutex;
 use std::time::Instant;
 
 use channels::{R2KadInputChannels, R2KadOutputChannels};
@@ -31,6 +32,7 @@ pub use kira_forwarding::AsyncForwardingTables;
 pub use kira_r2kad::r2kad::R2Kad;
 use tokio::task::yield_now;
 use tokio::time;
+use tracing::{debug_span, info_span, Instrument};
 
 #[cfg(feature = "api")]
 use crate::api;
@@ -204,7 +206,7 @@ where
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::UnderlayNeighborTable, BUCKET_SIZE>,
 {
     /// Starts the R²/KAD routing protocol instance.
-    #[tracing::instrument(target = "kira", skip_all)]
+    #[tracing::instrument(target = "kira", name = "kira_loop", skip_all)]
     pub async fn start(mut self) {
         let Self {
             ref mut r2kad,
@@ -213,8 +215,10 @@ where
             ..
         } = self;
 
-        log::trace!(target: "kira",  "Startup protocol instance");
+        let span = Mutex::new(info_span!(target: "kira", "startup_r2kad"));
         {
+            let _startup = span.lock().unwrap();
+            let _startup = _startup.enter();
             let now = Instant::now();
             if let Err(e) = r2kad.startup(now) {
                 log::error!(target: "kira", "Error on startup of R²/KAD: {}", e);
@@ -224,15 +228,21 @@ where
 
         loop {
             // process output firstly to capture startup output
-            while let Some(output) = r2kad.poll_output() {
-                if channels::output_fan_out(output, tx_channels)
-                    .await
-                    .is_none()
-                {
-                    log::debug!(target: "kira", "Stopping KIRA as output channel is closed");
-                    return;
+            let collect_output =
+                info_span!(target: "kira", parent: span.lock().unwrap().deref(), "collect_output");
+            async {
+                while let Some(output) = r2kad.poll_output() {
+                    if channels::output_fan_out(output, tx_channels)
+                        .await
+                        .is_none()
+                    {
+                        log::debug!(target: "kira", "Stopping KIRA as output channel is closed");
+                        return;
+                    }
                 }
             }
+            .instrument(collect_output)
+            .await;
 
             yield_now().await;
 
@@ -246,7 +256,10 @@ where
                     log::info!(target: "kira", "Fan in channel closed and no timers left");
                     return;
                 };
-                log::trace!(target: "kira", "Process input: {:?}", input);
+                *span.lock().unwrap() = debug_span!(target: "kira", "process_input", ?input);
+                let span = span.lock().unwrap();
+                let _process_input = span.enter();
+
                 let now = Instant::now();
                 if let Err(e) = r2kad.handle_input(input, now) {
                     log::error!(target: "kira", "Error handle_timeout: {}", e);
@@ -262,18 +275,24 @@ where
                 biased; // poll in order since we check timers on handling input regardlessly
 
                 Some(input) = channels::input_fan_in(rx_channels) => {
-                    log::trace!(target: "kira", "Process input: {:?}", input);
+                    *span.lock().unwrap() = debug_span!(target: "kira", "process_input", ?input);
+                    let span = span.lock().unwrap();
+                    let _process_input = span.enter();
+
                     let now = Instant::now();
                     if let Err(e) = r2kad.handle_input(input, now) {
-                        log::error!(target: "kira", "Error handle_input: {}", e);
+                        tracing::error!(target: "kira", error=%e, "Error on handle_input");
                         return;
                     }
                 }
                 _ = time::sleep_until(timer_due.into()) => {
-                    log::trace!(target: "kira", "Process timeout");
+                    *span.lock().unwrap() = debug_span!(target: "kira", "process_timeout");
+                    let span = span.lock().unwrap();
+                    let _process_timeout = span.enter();
+
                     let now = Instant::now();
                     if let Err(e) = r2kad.handle_timeout(now) {
-                        log::error!(target: "kira", "Error handle_timeout: {}", e);
+                        tracing::error!(target: "kira", error=%e, "Error on handle_timeout");
                         return;
                     }
                 }

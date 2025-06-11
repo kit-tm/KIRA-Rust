@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
+use tracing::{instrument, Level};
 
 use crate::domain::{
     Contact, ContactState, InsertionStrategy, InsertionStrategyResult, Link, NodeId, NotVia, Path,
@@ -488,6 +489,13 @@ where
     type Error = NeverError;
     type Value = HandlingResult;
 
+    #[instrument(
+        level = Level::TRACE,
+        target = "forward_protocol_message",
+        "forward_protocol_message",
+        skip(self, context),
+        fields(state = ?self.state)
+    )]
     fn handle_event(
         &mut self,
         context: &C,

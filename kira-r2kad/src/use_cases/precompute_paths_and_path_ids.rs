@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::time::Duration;
+use tracing::{instrument, Level};
 
 use crate::domain::protocol_event::forwarding::{
     PathIdEntry, PathIdForwardingEntry, PathIdTableUpdate,
@@ -173,13 +174,27 @@ where
     type Error = NeverError;
     type Value = ();
 
+    #[instrument(
+        level = Level::TRACE,
+        target = "precompute_paths_and_path_ids",
+        "precompute_paths_and_path_ids",
+        skip(self, context),
+        fields(
+            state = ?self.state,
+            config = ?self.config
+        )
+    )]
     fn handle_event(
         &mut self,
         context: &C,
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
         if let UseCaseEvent::Message(ProtocolMessage::PNDiscReq(ref rtable_data), _) = event {
-            tracing::trace!(source_route = ?rtable_data.source_route, "Received PNDiscReq");
+            tracing::trace!(
+                target: "precompute_paths_and_path_ids",
+                source_route = ?rtable_data.source_route,
+                "Received PNDiscReq"
+            );
         }
         match event {
             UseCaseEvent::Message(ProtocolMessage::PNDiscReq(rtable_data), _)

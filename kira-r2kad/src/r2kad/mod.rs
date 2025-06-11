@@ -249,7 +249,7 @@ where
     }
 
     /// Process received [Input] event.
-    #[instrument(level = Level::DEBUG, name = "handle_r2kad", target = "r2kad", skip_all, fields(reason = ?received_event))]
+    #[instrument(level = Level::DEBUG, target = "r2kad", skip_all, fields(reason = ?received_event))]
     pub fn handle_input(&mut self, received_event: Input, now: Instant) -> Result<()> {
         // just to be save we check for due timers
         self.handle_timeout(now)?;
@@ -272,7 +272,7 @@ where
     ///
     /// The next time this method has to be called can be obtained
     /// with [poll_timeout](Self::poll_timeout).
-    #[instrument(level = Level::DEBUG, name = "handle_r2kad", target = "r2kad", skip_all, fields(reason = field::Empty))]
+    #[instrument(level = Level::DEBUG, target = "r2kad", skip_all, fields(reason = field::Empty))]
     pub fn handle_timeout(&mut self, now: Instant) -> Result<()> {
         self.context.runtime().set_current_time(now);
 
