@@ -410,7 +410,7 @@ pub enum PrecomputeState {
     },
     Error,
 }
-
+#[allow(dead_code)]
 impl PrecomputeState {
     fn resync_queue(&self) -> Option<&HashMap<NodeId, StateSeqNr>> {
         match self {

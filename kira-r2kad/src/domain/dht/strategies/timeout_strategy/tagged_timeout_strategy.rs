@@ -11,6 +11,7 @@ pub struct TaggedValue<V> {
     tagged: bool,
 }
 
+#[allow(dead_code)]
 impl<V> TaggedValue<V> {
     /// Creates a new instance of `Self` with the specified value.
     ///

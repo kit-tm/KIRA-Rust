@@ -256,7 +256,7 @@ fn responses<R: IntoResponse + Display>(
         .into_iter()
         .map(|e| (e.to_string(), e.into_response().status()))
         // group status codes so we can display all alternatives that throw same status code
-        .group_by(|(_, status)| status.clone());
+        .chunk_by(|(_, status)| status.clone());
     let iter = binding.into_iter().map(|(status_code, e)| {
         (
             status_code.to_string(),
