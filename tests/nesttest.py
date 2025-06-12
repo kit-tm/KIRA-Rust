@@ -469,7 +469,7 @@ class NestTest[T]:  # T = tid type, usually int or str
             arg: str = " ".join(args)
             with open(logfile, "w") as f:
                 node.exec(
-                    f"./target/debug/kirad --root-id {node_id} --nftables-conf ./kirad/conf/nftables.conf {arg}",
+                    f"./target/debug/kirad --root-id {node_id} --nftables-conf ./kirad/conf/nftables.conf {arg} && exit",
                     logfile=f,
                     env_vars=env_vars,
                 )
@@ -1210,6 +1210,19 @@ class DebugShell[T](Cmd):
     def do_exit(self, arg):
         "Exit the debug shell"
         print("Exiting...")
+        # Kill all processes in the network namespaces to make sure everything is cleaned up
+        for node, _ in self.test.nodes():
+            netns_name = node.id
+            p = Popen(f"ip netns pids {netns_name}", shell=True, stdout=PIPE)
+            stdout, _ = p.communicate()
+            if p.returncode == 0 and stdout:
+                pids = stdout.decode().strip().split()
+                if pids:
+                    kill_cmd = f"kill {' '.join(pids)}"
+                    killer = Popen(f"ip netns exec {netns_name} {kill_cmd}", shell=True).communicate()
+                    
+        # TODO still partially broken, python processes are not killed for some reason
+        
         self.close()
         return True
 
