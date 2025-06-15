@@ -24,12 +24,13 @@
 
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{Receiver, Sender};
+use tracing::Span;
 
 use kira_forwarding::domain::r2kad::ForwardingTablesUpdate;
 use kira_r2kad::domain::protocol_event::DebugEvent;
 use kira_r2kad::domain::{UnderlayNeighborDestination, UnderlayNeighborId, UnderlayNeighborUpdate};
 use kira_r2kad::messaging::ProtocolMessage;
-use kira_r2kad::{Input, Output};
+pub use kira_r2kad::{Input, Output};
 
 /// [Receiver] of [ProtocolMessages](ProtocolMessage) and the source [UnderlayNeighborId].
 ///
@@ -52,11 +53,11 @@ pub type UnderlayReceiver = Receiver<UnderlayNeighborUpdate>;
 ///
 /// See [crate::io::sender] for implementations of message senders.
 /// This [Sender] is used in [R2KadOutputChannels] for processing [Output::SendProtocolMessage] events.
-pub type MessageSender = Sender<(ProtocolMessage, UnderlayNeighborDestination)>;
+pub type MessageSender = Sender<(ProtocolMessage, UnderlayNeighborDestination, Span)>;
 /// [Sender] of [ForwardingTablesUpdates](ForwardingTablesUpdate).
 ///
 /// This [Sender] is used in [R2KadOutputChannels] for processing [Output::UpdateForwardingTables] events.
-pub type ForwardingSender = Sender<ForwardingTablesUpdate>;
+pub type ForwardingSender = Sender<(ForwardingTablesUpdate, Span)>;
 
 /// Instance input channels.
 #[derive(Debug)]
@@ -101,28 +102,33 @@ pub(super) async fn input_fan_in(input_channels: &mut R2KadInputChannels) -> Opt
 /// channels](R2KadOutputChannels).
 ///
 /// The [OutputReceiver] can be used to listen to output of the routing protocol.
-#[tracing::instrument(target = "kira", skip(output_channels))]
 pub(super) async fn output_fan_out(
     output: Output,
     output_channels: &mut R2KadOutputChannels,
 ) -> Option<()> {
+    let kira_span = Span::current();
     match output {
-        Output::SendProtocolMessage(pm, ulnid) => {
-            if output_channels.protocol.send((pm, ulnid)).await.is_err() {
-                log::error!(target: "kira", "protocol sending channel closed");
+        kira_r2kad::Output::SendProtocolMessage(pm, ulnid) => {
+            if output_channels
+                .protocol
+                .send((pm, ulnid, kira_span))
+                .await
+                .is_err()
+            {
+                tracing::error!(target: "kira", "protocol sending channel closed");
                 return None;
             }
         }
-        Output::UpdateForwardingTables(update) => {
+        kira_r2kad::Output::UpdateForwardingTables(update) => {
             let Some(ref forwarding) = output_channels.forwarding else {
-                log::trace!(target: "kira", "Ignoring forwarding tables update: {}", update);
+                tracing::trace!(target: "kira", "Ignoring forwarding tables update: {}", update);
                 return Some(());
             };
-            if let Err(SendError(update)) = forwarding.send(update).await {
-                log::error!(
+            if let Err(SendError((update, _))) = forwarding.send((update, kira_span)).await {
+                tracing::error!(
                     target: "kira",
-                    "forwarding tables update can't be delivered because channel is closed: {}",
-                    update
+                    ?update,
+                    "forwarding tables update can't be delivered because channel is closed",
                 );
                 let _ = output_channels.forwarding.take();
                 return None;

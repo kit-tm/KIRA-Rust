@@ -43,7 +43,7 @@ impl PathId {
         let path = path.into_iter().collect::<Vec<_>>();
         let path_str = format!("{path:?}");
         let result = Self::from_digest(sha1::Sha1::new(), path);
-        log::debug!(target: "path_id", "Path {:?} -> {:?}", path_str, &result);
+        tracing::trace!(target: "path_id", path=path_str, path_id=format!("{:X}",result));
         result
     }
 
@@ -100,7 +100,7 @@ impl LowerHex for PathId {
         match (f.precision(), f.alternate()) {
             (Some(precision), _) => write!(f, "{}", &hex::encode(self)[..precision]),
             (None, true) => write!(f, "{}", &hex::encode(self)[..SHORT_OUTPUT_LENGTH]),
-            (None, false) => write!(f, "{}", hex::encode(self)),
+            (None, false) => write!(f, "{}", &hex::encode(self)[..28]),
         }
     }
 }
@@ -110,7 +110,7 @@ impl UpperHex for PathId {
         match (f.precision(), f.alternate()) {
             (Some(precision), _) => write!(f, "{}", &hex::encode_upper(self)[..precision]),
             (None, true) => write!(f, "{}", &hex::encode_upper(self)[..SHORT_OUTPUT_LENGTH]),
-            (None, false) => write!(f, "{}", hex::encode_upper(self)),
+            (None, false) => write!(f, "{}", &hex::encode_upper(self)[..28]),
         }
     }
 }

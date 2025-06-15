@@ -257,7 +257,7 @@ fn _ne_record_out_path_id(entry: &NodeIdEntry) {
     }
 
     if let Some(out_path_id) = entry.out_path_id() {
-        span.record("out_path_id", format!("{}", out_path_id));
+        span.record("out_path_id", format!("{:X}", out_path_id));
     }
 }
 
@@ -376,7 +376,7 @@ fn _pe_record_out_path_id(entry: &PathIdEntry) {
     }
 
     if let Some(out_path_id) = entry.out_path_id() {
-        span.record("out_path_id", format!("{}", out_path_id));
+        span.record("out_path_id", format!("{:X}", out_path_id));
     }
 }
 

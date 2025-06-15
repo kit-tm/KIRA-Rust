@@ -21,7 +21,7 @@ use futures::StreamExt;
 use tokio::sync::mpsc;
 use tokio::task::yield_now;
 use tokio::time;
-use tracing::{debug_span, info_span, instrument, Instrument};
+use tracing::{debug_span, info_span, instrument, Instrument, Level};
 
 use kira_forwarding::tables::{handle_r2kad_request, AsyncNodeIdTable, AsyncPathIdTable};
 use kira_r2kad::context::UseCaseContext;
@@ -88,10 +88,10 @@ where
         tokio::task::Builder::new()
             .name("KIRA: Fowarding Tables Channel").spawn(async move {
             loop {
-                let Some(req) = fwtables_rx.recv().await else {
+                let Some((req, kira_span)) = fwtables_rx.recv().await else {
                     break;
                 };
-                if let Err(e) = handle_r2kad_request(&mut forwarding_tables, req).await {
+                if let Err(e) = handle_r2kad_request(&mut forwarding_tables, req).instrument(kira_span).await {
                     log::error!(target: "forwarding_tables", "Handling an ForwardingTablesUpdate failed: {}", e);
                 }
             }
@@ -148,8 +148,8 @@ where
 
         let (pm_sender_tx, mut pm_sender_rx) = mpsc::channel(100);
         tokio::task::Builder::new().name("KIRA: Protocol Message Sender channel").spawn(async move {
-            while let Some((msg, dest)) = pm_sender_rx.recv().await {
-                match pm_sender.send_message(msg, dest).await {
+            while let Some((msg, dest, kira_span)) = pm_sender_rx.recv().await {
+                match pm_sender.send_message(msg, dest).instrument(kira_span).await {
                     Ok(()) => {}
                     Err(SenderError::Closed) => {
                         log::debug!(target: "kira", "Protocol message sender closed: {}", SenderError::Closed);
@@ -206,7 +206,7 @@ where
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::UnderlayNeighborTable, BUCKET_SIZE>,
 {
     /// Starts the R²/KAD routing protocol instance.
-    #[instrument(target = "kira", name = "kira_loop", skip_all)]
+    #[instrument(level = Level::TRACE, target = "kira", name = "kira_loop", skip_all)]
     pub async fn start(mut self) {
         let Self {
             ref mut r2kad,
@@ -232,7 +232,9 @@ where
                 info_span!(target: "kira", parent: span.lock().unwrap().deref(), "collect_output");
             async {
                 while let Some(output) = r2kad.poll_output() {
+                    let output_processing = debug_span!(target: "kira", "process_output", ?output);
                     if channels::output_fan_out(output, tx_channels)
+                        .instrument(output_processing)
                         .await
                         .is_none()
                     {

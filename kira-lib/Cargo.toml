@@ -19,6 +19,8 @@ udp-tokio = ["tokio/net"]
 format-mp = ["rmp-serde", "serde"]
 # json (de)serialization support [debug]
 format-json = ["serde_json", "serde"]
+# traces over all components
+distributed-tracing = []
 
 [lib]
 name = "kira_lib"
@@ -45,7 +47,7 @@ netlink-proto = { workspace = true }
 rtnetlink = { workspace = true }
 # REST server backend
 axum = { version = "0.7.5", features = ["json"], optional = true }
-serde = { workspace = true, optional = true}
+serde = { workspace = true, optional = true }
 rmp-serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 hex = { workspace = true, optional = true }
