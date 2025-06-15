@@ -225,9 +225,8 @@ where
                             .interface_id_table
                             .get(next_hop)
                             .expect("interface id of underlay neighbor should be known");
-                        let (node_ip, prefix) = node_id.to_ipv6_subnet();
                         self.netlink
-                            .delete_neighbor_route(&node_ip, prefix, interface_id)
+                            .delete_neighbor_route(node_id, interface_id)
                             .await
                             .unwrap();
                     }

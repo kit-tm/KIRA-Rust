@@ -91,7 +91,7 @@ impl ForwardingRtNetlink {
     ///
     /// This rule is used for realizing an [Encapsulate NodeIdEntry](crate::tables::NodeIdEntry::Encapsulate).
     /// An existing rule is overwritten.
-    #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink")]
+    #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink", skip_all, fields(%node_id, out_path_id=%path_id))]
     pub async fn replace_encap_route(
         &mut self,
         node_id: &NodeIdSubnet,
@@ -143,7 +143,7 @@ impl ForwardingRtNetlink {
     }
 
     /// Stops encapsulating packets with destination `node_id`.
-    #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink")]
+    #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink", skip_all, fields(%node_id, out_path_id=%path_id))]
     pub async fn delete_encap_route(
         &mut self,
         node_id: &NodeIdSubnet,
@@ -202,7 +202,7 @@ impl ForwardingRtNetlink {
     /// to realize A [Forward PathIdEntry](crate::tables::PathIdEntry::Forward).
     /// An existing rule is overwritten.
 
-    #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink")]
+    #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink", skip_all, fields(%path_id, ?next_hop))]
     // TODO: figure out where route should get deleted
     pub async fn replace_via_route(
         &mut self,
@@ -243,7 +243,7 @@ impl ForwardingRtNetlink {
     /// Forwards packets with destination `ip` to interface with name `interface_name` unchanged.
     ///
     /// This is used to realize [Forward NodeIdEntry](crate::tables::NodeIdEntry::Forward).
-    #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink")]
+    #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink", skip_all, fields(%node_id, interface=%interface_id))]
     pub async fn replace_neighbor_route(
         &mut self,
         node_id: &NodeIdSubnet,
@@ -284,26 +284,27 @@ impl ForwardingRtNetlink {
     }
 
     /// Deletes a [neighbor route](replace_neighbor_route).
-    #[tracing::instrument]
+    #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink", skip_all, fields(%node_id, interface=%interface_id))]
     pub async fn delete_neighbor_route(
         &mut self,
-        ip: &Ipv6Addr,
-        prefix: u8,
+        node_id: &NodeIdSubnet,
         interface_id: InterfaceId,
     ) -> Result<()> {
+        let (node_ip, prefix_length) = node_id.to_ipv6_subnet();
+
         let mut nl_hdr = NetlinkHeader::default();
         nl_hdr.flags = NLM_F_REQUEST | NLM_F_ACK;
 
         let mut rt_msg = RouteMessage::default();
         rt_msg.header = RouteHeader {
             address_family: AddressFamily::Inet6,
-            destination_prefix_length: prefix,
+            destination_prefix_length: prefix_length,
             protocol: RouteProtocol::Static,
             ..rt_msg.header
         };
         rt_msg
             .attributes
-            .push(RouteAttribute::Destination(RouteAddress::Inet6(*ip)));
+            .push(RouteAttribute::Destination(RouteAddress::Inet6(node_ip)));
         rt_msg
             .attributes
             .push(RouteAttribute::Oif(interface_id.into()));
@@ -318,7 +319,7 @@ impl ForwardingRtNetlink {
             }
         }
 
-        log::debug!(target: "native_fwd_table::netlink", "route deleted: {} dev {}", ip, interface_id);
+        log::debug!(target: "native_fwd_table::netlink", "route deleted: {} dev {}", node_id, interface_id);
 
         Ok(())
     }
@@ -367,7 +368,7 @@ impl ForwardingRtNetlink {
     ///
     /// This method consumes the struct because other methods rely on the interface
     /// to be present.
-    #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink")]
+    #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink", skip_all)]
     pub async fn delete_encap_interface(self) -> Result<()> {
         let mut nl_hdr = NetlinkHeader::default();
         nl_hdr.flags = NLM_F_REQUEST | NLM_F_ACK;
@@ -398,7 +399,7 @@ impl ForwardingRtNetlink {
 /// IPv6 packets using [GRE](https://datatracker.ietf.org/doc/rfc7676/).
 ///
 /// This interface is fully managed by the Nftables component.
-#[tracing::instrument(level = "trace", target = "native_fwd_table::netlink")]
+#[tracing::instrument(level = "trace", target = "native_fwd_table::netlink", skip(handle))]
 pub async fn create_encap_interface(
     handle: &ConnectionHandle<RouteNetlinkMessage>,
     if_name: &str,
