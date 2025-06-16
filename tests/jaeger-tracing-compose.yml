@@ -1,0 +1,46 @@
+services:
+  opensearch:
+    image: opensearchproject/opensearch:2
+    container_name: opensearch
+    environment:
+      - discovery.type=single-node
+      - plugins.security.disabled=true
+      - http.host=0.0.0.0
+      - transport.host=127.0.0.1
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD='iNw.bQ9S'
+      #- OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+      #- bootstrap.memory_lock=true
+    #ulimits:
+    #  memlock:
+    #    soft: -1
+    #    hard: -1
+    ports:
+      - "9200:9200"
+    networks:
+      - jaeger-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+
+  jaeger:
+    image: jaegertracing/jaeger:2.7.0
+    container_name: jaeger
+    command: ["--config=/etc/jaeger/jaeger-config.yaml"]
+    volumes:
+      - ${PWD}/tests/jaeger-config.yaml:/etc/jaeger/jaeger-config.yaml
+    ports:
+      - "4317:4317"  # OTLP gRPC
+      - "4318:4318"  # OTLP HTTP
+      - "16686:16686"  # Jaeger UI
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    networks:
+      - jaeger-net
+
+networks:
+  jaeger-net:
+    driver: bridge
