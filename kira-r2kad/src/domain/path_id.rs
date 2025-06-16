@@ -3,6 +3,7 @@ use std::net::Ipv6Addr;
 use std::str::FromStr;
 
 use digest::Digest;
+use tracing::Level;
 
 use crate::domain::NodeId;
 
@@ -38,13 +39,15 @@ impl PathId {
 
 impl PathId {
     pub fn from_sha1<'a, I: IntoIterator<Item = &'a NodeId>>(path: I) -> Self {
-        // To log all hashed paths for debugging purposes uncomment the code line
-        //let _path_str = format!("{:?}", path);
-        let path = path.into_iter().collect::<Vec<_>>();
-        let path_str = format!("{path:?}");
-        let result = Self::from_digest(sha1::Sha1::new(), path);
-        tracing::trace!(target: "path_id", path=path_str, path_id=format!("{:X}",result));
-        result
+        if tracing::enabled!(target: "path_id", Level::TRACE) {
+            let path = path.into_iter().collect::<Vec<_>>();
+            let path_str = format!("{path:?}");
+            let result = Self::from_digest(sha1::Sha1::new(), path);
+            tracing::trace!(target: "path_id", path=path_str, path_id=format!("{:X}",result), "Calulated path_id");
+            result
+        } else {
+            Self::from_digest(sha1::Sha1::new(), path)
+        }
     }
 
     #[cfg(feature = "sha2")]
