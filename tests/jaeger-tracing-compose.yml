@@ -8,12 +8,12 @@ services:
       - http.host=0.0.0.0
       - transport.host=127.0.0.1
       - OPENSEARCH_INITIAL_ADMIN_PASSWORD='iNw.bQ9S'
-      #- OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
-      #- bootstrap.memory_lock=true
-    #ulimits:
-    #  memlock:
-    #    soft: -1
-    #    hard: -1
+      - OPENSEARCH_JAVA_OPTS=-Xms1G -Xmx1G
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
     ports:
       - "9200:9200"
     networks:
