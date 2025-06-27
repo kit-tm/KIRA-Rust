@@ -31,7 +31,7 @@ use crate::use_cases::{
 /// - Contacts with a distance **< 3** hops (*path length < 4*) receive QueryRouteReqs.
 ///   Except the underlay neighbors with a distance of 0 hops (*path length == 1*) with
 ///   which the following messages are exchanged: *PNHello, PNDiscReq, PNDiscRsp*.
-pub const VICINITY_RADIUS: usize = 2;
+pub const VICINITY_RADIUS: usize = 3;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub struct VicinityDiscoveryConfig {
@@ -195,7 +195,10 @@ where
 
     fn restricted_send_query_route_req(context: &C, contact: Contact) -> Result<(), VDError> {
         // Underlay Neighbors and Nodes outside of the Vicinity are not included
-        if contact.is_pn() || contact.path().size() > VICINITY_RADIUS {
+        //
+        // NOTE: Crucially Nodes _on_ the Vicinity Radius are also excluded
+        //       because we discover them using their neighbors inside the Vicinity
+        if contact.is_pn() || contact.path().size() >= VICINITY_RADIUS {
             log::trace!(target: "vicinity_discovery", "Ignoring contact update: underlay neighbor or not in vicinity radius");
             return Ok(());
         }
