@@ -130,6 +130,16 @@ impl IntoIterator for &VicinityGraph {
     type IntoIter = std::vec::IntoIter<Path>;
 
     fn into_iter(self) -> Self::IntoIter {
+        // FIXME: Implement Iter instead to avoid allocating a (even to large) Vec
+        // FIXME: This function only calculates paths with length <= 3
+        //        which results in failing if the VICINITY_RADIUS is set to something
+        //        other than 3!
+        //
+        // Fix draft:
+        //  - create VicinityPaths struct
+        //  - VicinityGraph: fn paths(&self, radius: usize) -> VicinityPaths<'_>
+        //  - implement Iter for VicinityPaths with fixes
+
         let mut paths = Vec::with_capacity(self.neighbors.len() * self.neighbors.len());
         for (neigh1_id, neigh1_entry) in self.neighbors.iter() {
             if !neigh1_entry.valid || neigh1_id == &self.root_id {
