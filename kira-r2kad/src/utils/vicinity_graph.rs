@@ -28,7 +28,7 @@ pub struct VicinityGraph {
 impl VicinityGraph {
     pub fn new(root_id: NodeId) -> Self {
         let mut neighbors = HashMap::default();
-        neighbors.insert(root_id.clone(), Entry::new(HashSet::default()));
+        neighbors.insert(root_id, Entry::new(HashSet::default()));
         Self { root_id, neighbors }
     }
 
@@ -45,7 +45,7 @@ impl VicinityGraph {
         // Ensure bidirectional links
         for neighbor in &underlay_neighbors {
             if let Some(neighbors_of_neighbor) = self.neighbors.get_mut(neighbor) {
-                neighbors_of_neighbor.neighbors.insert(node.clone());
+                neighbors_of_neighbor.neighbors.insert(node);
             }
         }
         self.neighbors
