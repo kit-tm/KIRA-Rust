@@ -19,10 +19,20 @@ use crate::use_cases::{
 };
 
 /// Configuration for [DeriveFwdTableEntries] use case.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct DeriveFwdTableEntriesConfig {
     /// Hashing algorithm to use.
     pub hasher: Hasher,
+    pub vicinity_radius: usize,
+}
+
+impl Default for DeriveFwdTableEntriesConfig {
+    fn default() -> Self {
+        Self {
+            hasher: Hasher::default(),
+            vicinity_radius: 3,
+        }
+    }
 }
 
 /// Use case to derive forwarding table entries.
@@ -206,6 +216,12 @@ where
     C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     fn remove_path_id_entry(&self, context: &C, contact: Contact) {
+        if contact.path().size() < self.config.vicinity_radius {
+            // Paths must be present even if the Node isn't in the RoutingTable
+            // PrecomputePathIds will handle deletion if Node moves out of Vicinity
+            return;
+        }
+
         let in_path_id = self.config.hasher.hash(contact.path());
         context
             .runtime()
@@ -217,6 +233,10 @@ where
         context: &C,
         contact: Contact,
     ) -> Result<(), DeriveFwdEntriesError> {
+        if contact.path().size() < self.config.vicinity_radius {
+            // Path in Vicinity is already precomputed and set up by PrecomputePathIds
+            return Ok(());
+        }
         let entry = self.derive_path_id_entry(context, contact)?;
         context
             .runtime()
@@ -232,6 +252,21 @@ where
         old_entry: Contact,
         new_entry: Contact,
     ) -> Result<(), DeriveFwdEntriesError> {
+        if new_entry.path().size() < self.config.vicinity_radius {
+            // Path in Vicinity is already precomputed and set up by PrecomputePathIds
+
+            // Cleanup previous employed path
+            self.remove_path_id_entry(context, old_entry);
+            return Ok(());
+        }
+
+        if old_entry.path().size() < self.config.vicinity_radius
+            && old_entry.state() == &ContactState::Valid
+        {
+            // Don't overwrite Path in Vicinity managed by PrecomputePathIds
+            return Ok(());
+        }
+
         if old_entry.path() != new_entry.path() {
             let entry = self.derive_path_id_entry(context, new_entry)?;
             context
@@ -445,6 +480,7 @@ mod tests {
 
         let config = DeriveFwdTableEntriesConfig {
             hasher: Hasher::Sha1,
+            vicinity_radius: 3,
         };
         let mut use_case = DeriveFwdTableEntries::new(config);
         assert!(use_case.start(&sync_context).is_ok(), "starting failed");
@@ -550,6 +586,7 @@ mod tests {
 
         let config = DeriveFwdTableEntriesConfig {
             hasher: Hasher::Sha1,
+            vicinity_radius: 3,
         };
         let mut use_case = DeriveFwdTableEntries::new(config);
         assert!(use_case.start(&sync_context).is_ok(), "starting failed");
@@ -633,6 +670,7 @@ mod tests {
 
         let config = DeriveFwdTableEntriesConfig {
             hasher: Hasher::Sha1,
+            vicinity_radius: 3,
         };
         let mut use_case = DeriveFwdTableEntries::new(config);
         assert!(use_case.start(&sync_context).is_ok(), "starting failed");
@@ -751,6 +789,7 @@ mod tests {
 
         let config = DeriveFwdTableEntriesConfig {
             hasher: Hasher::Sha1,
+            vicinity_radius: 3,
         };
         let mut use_case = DeriveFwdTableEntries::new(config);
         assert!(use_case.start(&sync_context).is_ok(), "starting failed");

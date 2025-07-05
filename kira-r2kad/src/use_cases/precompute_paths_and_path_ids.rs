@@ -7,10 +7,7 @@ use tracing::{instrument, Level};
 use crate::domain::protocol_event::forwarding::{
     PathIdEntry, PathIdForwardingEntry, PathIdTableUpdate,
 };
-use crate::domain::{
-    ContactState, EmptyPathError, Hasher, NodeId, Path, RoutingTable, StateSeqNr,
-    UnderlayNeighborId,
-};
+use crate::domain::{ContactState, Hasher, NodeId, RoutingTable, StateSeqNr, UnderlayNeighborId};
 use crate::messaging::ProtocolMessage;
 use crate::use_cases::{
     ContactEvent, EventHandler, NeverError, TimerId, UseCase, UseCaseContext, UseCaseEvent,
@@ -90,25 +87,15 @@ where
 
         let mut entries = HashSet::new();
         for in_path in graph {
-            let out_path =
-                Result::<Path, EmptyPathError>::from_iter(in_path.clone().into_iter().skip(1));
-            if out_path.is_err() {
+            debug_assert!(
+                in_path.size() <= self.config.vicinity_radius,
+                "VicinityGraph should only generate Paths inside the Vicinity-Radius"
+            );
+
+            let Ok(out_path) = in_path.clone().into_iter().skip(1).collect() else {
                 log::warn!(target: "precompute_paths_and_path_ids", "VicinityGraph generated path of size 1");
                 continue;
-            }
-            let out_path = out_path.unwrap();
-
-            // FIXME: don't install longer paths than vicinity radius
-            if out_path.size() > self.config.vicinity_radius {
-                tracing::warn!(
-                    target: "precompute_paths_and_path_ids",
-                    "Skipping path {} with size {} as it exceeds vicinity radius {}",
-                    out_path,
-                    out_path.size(),
-                    self.config.vicinity_radius
-                );
-                continue;
-            }
+            };
 
             let Some(ulnid) = context.un_table().get(out_path.first()).cloned() else {
                 log::warn!(target: "precompute_paths_and_path_ids", "VicinityGraph generated path over invalid neighbor {:?}", out_path.first());
@@ -280,10 +267,6 @@ where
                     log::debug!(target: "precompute_paths_and_path_ids", "Updated underlay neighbors of {} to {:?}", source, underlay_neighbors_of_source);
 
                     self.vicinity_changed = true;
-
-                    if self.config.update_interval.is_none() {
-                        self.precompute_paths_and_ids(context);
-                    }
                 }
             }
             UseCaseEvent::Contact(ContactEvent::Removed(contact)) => {
@@ -292,9 +275,6 @@ where
                     return Ok(());
                 }
                 self.vicinity_changed |= self.vicinity_graph.remove(contact.id()).is_some();
-                if self.config.update_interval.is_none() {
-                    self.precompute_paths_and_ids(context);
-                }
             }
             UseCaseEvent::Contact(ContactEvent::New(contact)) => {
                 // only add underlay neighbors
@@ -309,10 +289,6 @@ where
                 self.vicinity_graph
                     .add(*context.root_id(), HashSet::from([*contact.id()]));
                 self.vicinity_changed = true;
-
-                if self.config.update_interval.is_none() {
-                    self.precompute_paths_and_ids(context);
-                }
             }
             UseCaseEvent::Contact(ContactEvent::Updated { old, new }) => {
                 if old.path().size() <= self.config.vicinity_radius
@@ -321,19 +297,16 @@ where
                     // Contact was changed to out of vicinity
                     self.vicinity_graph.remove(new.id());
                     self.vicinity_changed = true;
-                    return Ok(());
                 }
                 // Contact changed to inside vicinity will be handled by vicinity discovery
-
-                if old.state() == &ContactState::Valid && new.state() != &ContactState::Valid {
+                else if old.state() == &ContactState::Valid && new.state() != &ContactState::Valid
+                {
                     let changed = self.vicinity_graph.invalidate(new.id());
                     self.vicinity_changed = changed;
-                    return Ok(());
-                }
-                if old.state() != &ContactState::Valid && new.state() == &ContactState::Valid {
+                } else if old.state() != &ContactState::Valid && new.state() == &ContactState::Valid
+                {
                     let changed = self.vicinity_graph.validate(new.id());
                     self.vicinity_changed = changed;
-                    return Ok(());
                 }
             }
             UseCaseEvent::Timer(timer_id) => {
@@ -344,6 +317,7 @@ where
                     if timer_id == own_id {
                         self.precompute_paths_and_ids(context);
                     }
+                    return Ok(());
                 }
             }
             UseCaseEvent::API(ApiEvent::VicinityGraph(sender)) => {
@@ -367,6 +341,10 @@ where
                 }
             }
             _ => {}
+        }
+
+        if self.config.update_interval.is_none() {
+            self.precompute_paths_and_ids(context);
         }
 
         Ok(())
