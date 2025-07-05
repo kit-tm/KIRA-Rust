@@ -333,6 +333,12 @@ class KIRANode(Node):
     def __str__(self):
         return self.__format__("")
 
+    def __eq__(self, other):
+        return self.name == other.name
+
+    def __hash__(self):
+        return hash(self.name)
+
 
 class KIRALink:
     _is_up: bool
@@ -469,7 +475,7 @@ class NestTest[T]:  # T = tid type, usually int or str
             arg: str = " ".join(args)
             with open(logfile, "w") as f:
                 node.exec(
-                    f"./target/debug/kirad --root-id {node_id} --nftables-conf ./kirad/conf/nftables.conf {arg}",
+                    f"./target/debug/kirad --root-id {node_id} --nftables-conf ./kirad/conf/nftables.conf {arg} && exit",
                     logfile=f,
                     env_vars=env_vars,
                 )
@@ -644,27 +650,53 @@ class NestTest[T]:  # T = tid type, usually int or str
     def vicinity(self, node: KIRANode) -> set[KIRANode]:
         tid = self.name_tid_mapping[node.name]
         paths = nx.single_source_shortest_path(
-            self.topology, tid, cutoff=VICINITY_RADIUS
+            self.topology,
+            tid,
+            # asking for neighbors inside of nodes _inside_ the vicinity
+            # but not adding them to vicinity graph if on the edge
+            cutoff=VICINITY_RADIUS - 1,
         )
         reachable_nodes = {self.node(reachable) for reachable in paths.keys()}
         return reachable_nodes
 
-    def unknown_vicinity(self, node: KIRANode) -> Iterator[KIRANode]:
-        vicinity = self.vicinity(node)
-
-        known_vicinity_raw = node.vicinity_graph()
-        if known_vicinity_raw is None:
-            return set()
-        node_id_re = re.compile(r"NodeId\((\w+)\)")
-        matches = node_id_re.finditer(known_vicinity_raw)
+    def known_vicinity(self, node: KIRANode) -> Iterator[KIRANode] | None:
+        # parsing vicinity graph of Node
+        vicinity_raw = node.vicinity_graph()
+        if vicinity_raw is None:
+            return None
+        node_id_re = re.compile(r"NodeId\((\w+)\): Entry")
+        matches = node_id_re.finditer(vicinity_raw)
 
         for match in matches:
             nid = bytes.fromhex(match.group(1))
             nip = IPv6Address(bytes.fromhex("fc00") + nid)
             n = self.node_by_ip(nip)
 
-            if n is not None and n not in vicinity:
-                yield node
+            if n is None:
+                print("WAR: Node-IP in vicinity of {self} unknown: {nip}")
+            else:
+                yield n
+
+    def additional_vicinity(self, node: KIRANode) -> Iterator[KIRANode] | None:
+        vicinity = self.vicinity(node)
+        kvicinity = self.known_vicinity(node)
+        if kvicinity is None:
+            return None
+
+        for known in kvicinity:
+            if known not in vicinity:
+                yield known
+
+    def unknown_vicinity(self, node: KIRANode) -> Iterator[KIRANode] | None:
+        vicinity = self.vicinity(node)
+        kvicinity = self.known_vicinity(node)
+        if kvicinity is None:
+            return None
+
+        kvicinity = list(kvicinity)
+        for n in vicinity:
+            if n not in kvicinity:
+                yield n
 
 
 class DebugShell[T](Cmd):
@@ -773,9 +805,7 @@ class DebugShell[T](Cmd):
         node, cmd = self._extract_node(arg)
         if node is None:
             print(
-                (
-                    f"ERR: Node '{cmd}' not found.\nTo get a list of available nodes type NODES."
-                )
+                f"ERR: Node '{cmd}' not found.\nTo get a list of available nodes type NODES."
             )
             return
         if cmd is None:
@@ -791,9 +821,7 @@ class DebugShell[T](Cmd):
         node, path = self._extract_node(arg)
         if node is None:
             print(
-                (
-                    f"ERR: Node '{path}' not found.\nTo get a list of available nodes type NODES."
-                )
+                f"ERR: Node '{path}' not found.\nTo get a list of available nodes type NODES."
             )
             return
         if path is None:
@@ -812,9 +840,7 @@ class DebugShell[T](Cmd):
         node, key_data = self._extract_node(arg)
         if node is None:
             print(
-                (
-                    f"ERR: Node '{key_data}' not found.\nTo get a list of available nodes type NODES."
-                )
+                f"ERR: Node '{key_data}' not found.\nTo get a list of available nodes type NODES."
             )
             return
         if key_data is None:
@@ -833,9 +859,7 @@ class DebugShell[T](Cmd):
         node, key = self._extract_node(arg)
         if node is None:
             print(
-                (
-                    f"ERR: Node '{key}' not found.\nTo get a list of available nodes type NODES."
-                )
+                f"ERR: Node '{key}' not found.\nTo get a list of available nodes type NODES."
             )
             return
         if key is None:
@@ -858,9 +882,7 @@ class DebugShell[T](Cmd):
         node, _arg = self._extract_node(arg)
         if node is None:
             print(
-                (
-                    f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
-                )
+                f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
             )
             return
 
@@ -876,9 +898,7 @@ class DebugShell[T](Cmd):
         node, _arg = self._extract_node(arg)
         if node is None:
             print(
-                (
-                    f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
-                )
+                f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
             )
             return
 
@@ -894,9 +914,7 @@ class DebugShell[T](Cmd):
         node, _arg = self._extract_node(arg)
         if node is None:
             print(
-                (
-                    f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
-                )
+                f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
             )
             return
 
@@ -912,9 +930,7 @@ class DebugShell[T](Cmd):
         node, _arg = self._extract_node(arg)
         if node is None:
             print(
-                (
-                    f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
-                )
+                f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
             )
             return
 
@@ -940,9 +956,7 @@ class DebugShell[T](Cmd):
         node, _arg = self._extract_node(arg)
         if node is None:
             print(
-                (
-                    f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
-                )
+                f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
             )
             return
 
@@ -956,9 +970,7 @@ class DebugShell[T](Cmd):
         node, ip = self._extract_node(arg)
         if node is None:
             print(
-                (
-                    f"ERR: Node '{ip}' not found.\nTo get a list of available nodes type NODES."
-                )
+                f"ERR: Node '{ip}' not found.\nTo get a list of available nodes type NODES."
             )
             return
 
@@ -970,9 +982,7 @@ class DebugShell[T](Cmd):
         node, ip = self._extract_node(arg)
         if node is None:
             print(
-                (
-                    f"ERR: Node '{ip}' not found.\nTo get a list of available nodes type NODES."
-                )
+                f"ERR: Node '{ip}' not found.\nTo get a list of available nodes type NODES."
             )
             return
 
@@ -985,9 +995,7 @@ class DebugShell[T](Cmd):
         node, ip = self._extract_node(arg)
         if node is None:
             print(
-                (
-                    f"ERR: Node '{ip}' not found.\nTo get a list of available nodes type NODES."
-                )
+                f"ERR: Node '{ip}' not found.\nTo get a list of available nodes type NODES."
             )
             return
 
@@ -1039,9 +1047,7 @@ class DebugShell[T](Cmd):
         x, arg = self._extract_node(arg)
         if x is None:
             print(
-                (
-                    f"ERR: Node '{x}' not found.\nTo get a list of available nodes type NODES."
-                )
+                f"ERR: Node '{x}' not found.\nTo get a list of available nodes type NODES."
             )
             return
         if arg is None:
@@ -1051,9 +1057,7 @@ class DebugShell[T](Cmd):
         y, _arg = self._extract_node(arg)
         if y is None:
             print(
-                (
-                    f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
-                )
+                f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
             )
             return
         x_tid = self.test.tid(x)
@@ -1071,9 +1075,7 @@ class DebugShell[T](Cmd):
         x, arg = self._extract_node(arg)
         if x is None:
             print(
-                (
-                    f"ERR: Node '{x}' not found.\nTo get a list of available nodes type NODES."
-                )
+                f"ERR: Node '{x}' not found.\nTo get a list of available nodes type NODES."
             )
             return
 
@@ -1083,9 +1085,7 @@ class DebugShell[T](Cmd):
             y, _arg = self._extract_node(arg)
             if y is None:
                 print(
-                    (
-                        f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
-                    )
+                    f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
                 )
                 return
             y_tid = self.test.tid(y)
@@ -1126,9 +1126,7 @@ class DebugShell[T](Cmd):
             node, _arg = self._extract_node(arg)
             if node is None:
                 print(
-                    (
-                        f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
-                    )
+                    f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
                 )
                 return
             tid = self.test.tid(node)
@@ -1154,19 +1152,45 @@ class DebugShell[T](Cmd):
         node, _arg = self._extract_node(arg)
         if node is None:
             print(
-                (
-                    f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
-                )
+                f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
             )
             return
 
         vicinity = self.test.vicinity(node)
+        print("Vicinity:")
+        for v in vicinity:
+            print(f"{v:>3}")
         print()
-        print(vicinity)
 
-        unknown_vicinity = list(self.test.unknown_vicinity(node))
-        print()
-        print(unknown_vicinity)
+        known_vicinity = self.test.known_vicinity(node)
+        print("Known Vicinity:")
+        if known_vicinity is None:
+            print("ERR: determining known vicinity.")
+        else:
+            for v in known_vicinity:
+                print(f"{v:>3}")
+            print()
+
+        unknown_vicinity = self.test.unknown_vicinity(node)
+        if unknown_vicinity is not None:
+            unknown_vicinity = list(unknown_vicinity)
+            if len(unknown_vicinity) != 0:
+                print("Unknown Vicinity:")
+                for unknown in unknown_vicinity:
+                    print(f"{unknown:>3}")
+                print()
+        else:
+            print("ERR: checking on (un)known vicinity of the node.")
+
+        additional_vicinity = self.test.additional_vicinity(node)
+        if additional_vicinity is not None:
+            additional_vicinity = list(additional_vicinity)
+            if len(additional_vicinity) != 0:
+                print("Additional Vicinity:")
+                for additional in additional_vicinity:
+                    print(f"{additional:>3}")
+        else:
+            print("ERR: checking on additional vicinity of the node.")
 
     def do_checkvicinity(self, arg):
         "Check if whole vicinity is known by <nid>: CHECKVICINITY [nid]"
@@ -1176,15 +1200,20 @@ class DebugShell[T](Cmd):
             node, _arg = self._extract_node(arg)
             if node is None:
                 print(
-                    (
-                        f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
-                    )
+                    f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
                 )
                 return
             nodes = iter([node])
 
         for node in nodes:
-            unknown_vicinity = list(self.test.unknown_vicinity(node))
+            # FIXME: Check for presence of all paths
+            # FIXME: Check for evidence in nftables that all paths are setup
+
+            unknown_vicinity = self.test.unknown_vicinity(node)
+            if unknown_vicinity is None:
+                print(f"{node:<3} ERR determining known vicinity.")
+                return
+            unknown_vicinity = list(unknown_vicinity)
 
             if len(unknown_vicinity) == 0:
                 print(f"{node:<3} discovered its vicinity completely")
@@ -1192,6 +1221,17 @@ class DebugShell[T](Cmd):
                 print(f"{node:<3} does not know the following nodes:")
                 for unknown in unknown_vicinity:
                     print(f"{unknown:<3}")
+
+            additional_vicinity = self.test.additional_vicinity(node)
+            if additional_vicinity is None:
+                print(f"{node:<3} ERR determining known vicinity.")
+                return
+            additional_vicinity = list(additional_vicinity)
+
+            if len(additional_vicinity) != 0:
+                print(f"{node:<3} discovered additional nodes in its vicinity")
+                for additional in additional_vicinity:
+                    print(f"{additional:<3}")
 
     def do_netns(self, arg):
         "Get network namespace name of node <nid>: NETNS [nid]"
@@ -1210,6 +1250,21 @@ class DebugShell[T](Cmd):
     def do_exit(self, arg):
         "Exit the debug shell"
         print("Exiting...")
+        # Kill all processes in the network namespaces to make sure everything is cleaned up
+        for node, _ in self.test.nodes():
+            netns_name = node.id
+            p = Popen(f"ip netns pids {netns_name}", shell=True, stdout=PIPE)
+            stdout, _ = p.communicate()
+            if p.returncode == 0 and stdout:
+                pids = stdout.decode().strip().split()
+                if pids:
+                    kill_cmd = f"kill {' '.join(pids)}"
+                    killer = Popen(
+                        f"ip netns exec {netns_name} {kill_cmd}", shell=True
+                    ).communicate()
+
+        # TODO still partially broken, python processes are not killed for some reason
+
         self.close()
         return True
 
