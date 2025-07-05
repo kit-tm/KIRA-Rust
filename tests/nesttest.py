@@ -664,7 +664,7 @@ class NestTest[T]:  # T = tid type, usually int or str
         vicinity_raw = node.vicinity_graph()
         if vicinity_raw is None:
             return None
-        node_id_re = re.compile(r"NodeId\((\w+)\): Entry")
+        node_id_re = re.compile(r"NodeId\((\w+)\)")
         matches = node_id_re.finditer(vicinity_raw)
 
         for match in matches:
@@ -1216,22 +1216,26 @@ class DebugShell[T](Cmd):
             unknown_vicinity = list(unknown_vicinity)
 
             if len(unknown_vicinity) == 0:
-                print(f"{node:<3} discovered its vicinity completely")
+                print(f"{node:<3} discovered its vicinity completely", end="")
             else:
                 print(f"{node:<3} does not know the following nodes:")
                 for unknown in unknown_vicinity:
-                    print(f"{unknown:<3}")
+                    print(f"  - {unknown:<3}")
 
             additional_vicinity = self.test.additional_vicinity(node)
             if additional_vicinity is None:
                 print(f"{node:<3} ERR determining known vicinity.")
                 return
-            additional_vicinity = list(additional_vicinity)
 
-            if len(additional_vicinity) != 0:
-                print(f"{node:<3} discovered additional nodes in its vicinity")
-                for additional in additional_vicinity:
-                    print(f"{additional:<3}")
+            try:
+                next(additional_vicinity)
+                if len(unknown_vicinity) == 0:
+                    print()
+            except StopIteration:
+                if len(unknown_vicinity) == 0:
+                    print(" (with additional nodes)")
+                else:
+                    print(f"{node:<3} discovered additional nodes in its vicinity")
 
     def do_netns(self, arg):
         "Get network namespace name of node <nid>: NETNS [nid]"
