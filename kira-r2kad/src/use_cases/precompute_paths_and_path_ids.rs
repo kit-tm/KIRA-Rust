@@ -37,7 +37,7 @@ pub struct PrecomputePathIdsConfig {
 impl Default for PrecomputePathIdsConfig {
     fn default() -> Self {
         Self {
-            vicinity_radius: 3,
+            vicinity_radius: 2,
             update_interval: None,
             hasher: Hasher::default(),
         }
