@@ -334,7 +334,7 @@ class KIRANode(Node):
         return self.__format__("")
 
     def __eq__(self, other):
-        return self.name == other.name
+        return other is KIRANode and self.name == other.name
 
     def __hash__(self):
         return hash(self.name)
@@ -647,19 +647,83 @@ class NestTest[T]:  # T = tid type, usually int or str
             print(f"{current_hop:<3} : HLIMIT = {maxhops} reached")
         return False
 
-    def vicinity(self, node: KIRANode) -> set[KIRANode]:
+    def vicinity_hc(self, node: KIRANode) -> dict[KIRANode, int]:
         tid = self.name_tid_mapping[node.name]
         paths = nx.single_source_shortest_path(
             self.topology,
             tid,
             # asking for neighbors inside of nodes _inside_ the vicinity
             # but not adding them to vicinity graph if on the edge
-            cutoff=VICINITY_RADIUS - 1,
+            cutoff=VICINITY_RADIUS,
         )
-        reachable_nodes = {self.node(reachable) for reachable in paths.keys()}
-        return reachable_nodes
+        return {
+            self.node(n): len(path) - 1  # hopcount excludes ourselves
+            for n, path in paths.items()
+            if self.node(n) is not None
+        }
 
-    def known_vicinity(self, node: KIRANode) -> Iterator[KIRANode] | None:
+    def vicinity(self, node: KIRANode) -> Iterator[KIRANode]:
+        return self.vicinity_hc(node).keys().__iter__()
+
+    def vicinity_edges(self, node: KIRANode) -> Iterator[tuple[KIRANode, KIRANode]]:
+        vicinity = self.vicinity_hc(node)
+
+        for u, v in self.topology.edges():
+            u = self.node(u)
+            v = self.node(v)
+            uhc = vicinity.get(u)
+            vhc = vicinity.get(v)
+            if (
+                uhc is not None
+                and vhc is not None
+                and uhc < VICINITY_RADIUS
+                and vhc < VICINITY_RADIUS
+            ):
+                yield (u, v)
+
+    def discovered_vicinity(self, node: KIRANode) -> Iterator[KIRANode] | None:
+        # parsing vicinity graph of Node
+        vicinity_raw = node.vicinity_graph()
+        if vicinity_raw is None:
+            return None
+
+        nid_re = re.compile(r"NodeId\((\w+)\)")
+        entry_re = re.compile(
+            r"NodeId\((\w+)\): Entry \{[^}]*?neighbors: \{([^}]*)\}",
+            re.DOTALL,  # match newline
+        )
+        vicinity_edge = {
+            n for n, hc in self.vicinity_hc(node).items() if hc == VICINITY_RADIUS
+        }
+
+        for match in entry_re.finditer(vicinity_raw):
+            nid = bytes.fromhex(match.group(1))
+            nip = IPv6Address(bytes.fromhex("fc00") + nid)
+            n = self.node_by_ip(nip)
+            if n is None:
+                print(f"WAR: Node-IP in vicinity of {self} unknown: {nip}")
+                continue
+            yield n
+
+            # inside vicinity
+            neighbors = match.group(2)
+            neighbor_ids = nid_re.findall(neighbors)
+            for kid in neighbor_ids:
+                kid = bytes.fromhex(kid)
+                kip = IPv6Address(bytes.fromhex("fc00") + kid)
+                k = self.node_by_ip(kip)
+                if k is None:
+                    print(f"WAR: Node-IP in vicinity of {self} unknown: {kip}")
+                    continue
+
+                # edge of vicinity will only be saved in vicinity graph by other neighbors
+                # since we don't save their neighbor
+                if k in vicinity_edge:
+                    yield k
+
+    def known_vicinity_edges(
+        self, node: KIRANode
+    ) -> Iterator[tuple[KIRANode, KIRANode]] | None:
         # parsing vicinity graph of Node
         vicinity_raw = node.vicinity_graph()
         if vicinity_raw is None:
@@ -667,36 +731,77 @@ class NestTest[T]:  # T = tid type, usually int or str
         node_id_re = re.compile(r"NodeId\((\w+)\)")
         matches = node_id_re.finditer(vicinity_raw)
 
-        for match in matches:
-            nid = bytes.fromhex(match.group(1))
-            nip = IPv6Address(bytes.fromhex("fc00") + nid)
-            n = self.node_by_ip(nip)
+        # Parse neighbor relationships
+        entry_re = re.compile(
+            r"NodeId\((\w+)\): Entry \{[^}]*?neighbors: \{([^}]*)\}",
+            re.DOTALL,  # match newline
+        )
+        for match in entry_re.finditer(vicinity_raw):
+            vid = bytes.fromhex(match.group(1))
+            vip = IPv6Address(bytes.fromhex("fc00") + vid)
+            v = self.node_by_ip(vip)
+            if v is None:
+                print(f"WAR: Node-IP in vicinity of {self} unknown: {vip}")
+                continue
+            neighbors = match.group(2)
+            neighbor_ids = node_id_re.findall(neighbors)
 
-            if n is None:
-                print("WAR: Node-IP in vicinity of {self} unknown: {nip}")
-            else:
-                yield n
+            for uid in neighbor_ids:
+                uid = bytes.fromhex(uid)
+                uip = IPv6Address(bytes.fromhex("fc00") + uid)
+                u = self.node_by_ip(uip)
+                if u is None:
+                    print(f"WAR: Node-IP in vicinity of {self} unknown: {uip}")
+                    continue
+
+                yield (v, u)
 
     def additional_vicinity(self, node: KIRANode) -> Iterator[KIRANode] | None:
         vicinity = self.vicinity(node)
-        kvicinity = self.known_vicinity(node)
-        if kvicinity is None:
+        kvicinity = self.discovered_vicinity(node)
+        if kvicinity is None or vicinity is None:
             return None
+        vicinity = set(vicinity)
 
         for known in kvicinity:
             if known not in vicinity:
                 yield known
 
+    def additional_vicinity_edges(
+        self, node: KIRANode
+    ) -> Iterator[tuple[KIRANode, KIRANode]] | None:
+        vicinity = self.vicinity_edges(node)
+        kvicinity = self.known_vicinity_edges(node)
+        if kvicinity is None:
+            return None
+
+        for u, v in kvicinity:
+            if (u, v) not in vicinity and (v, u) not in vicinity:
+                yield (u, v)
+
     def unknown_vicinity(self, node: KIRANode) -> Iterator[KIRANode] | None:
         vicinity = self.vicinity(node)
-        kvicinity = self.known_vicinity(node)
+        kvicinity = self.discovered_vicinity(node)
+        if kvicinity is None or vicinity is None:
+            return None
+        kvicinity = set(kvicinity)
+
+        for n in vicinity:
+            if n not in kvicinity:
+                yield n
+
+    def unknown_vicinity_edges(
+        self, node: KIRANode
+    ) -> Iterator[tuple[KIRANode, KIRANode]] | None:
+        vicinity = self.vicinity_edges(node)
+        kvicinity = self.known_vicinity_edges(node)
         if kvicinity is None:
             return None
 
         kvicinity = list(kvicinity)
-        for n in vicinity:
-            if n not in kvicinity:
-                yield n
+        for u, v in vicinity:
+            if (u, v) not in kvicinity and (v, u) not in kvicinity:
+                yield (u, v)
 
 
 class DebugShell[T](Cmd):
@@ -1156,41 +1261,72 @@ class DebugShell[T](Cmd):
             )
             return
 
+        # sort topo-ids like `k17` in expected order
+        def _srt(n):
+            match = re.match(r"([a-zA-Z]+)(\d+)", n.name)
+            if match:
+                alpha, num = match.groups()
+                return (alpha, int(num))
+            return (n, 0)
+
+        def _sorted(iter: Iterable[KIRANode]) -> Iterable[KIRANode]:
+            return sorted(iter, key=_srt)
+
+        # nodes
         vicinity = self.test.vicinity(node)
         print("Vicinity:")
-        for v in vicinity:
+        for v in _sorted(vicinity):
             print(f"{v:>3}")
         print()
 
-        known_vicinity = self.test.known_vicinity(node)
-        print("Known Vicinity:")
-        if known_vicinity is None:
-            print("ERR: determining known vicinity.")
-        else:
-            for v in known_vicinity:
-                print(f"{v:>3}")
-            print()
-
         unknown_vicinity = self.test.unknown_vicinity(node)
         if unknown_vicinity is not None:
-            unknown_vicinity = list(unknown_vicinity)
+            unknown_vicinity = set(unknown_vicinity)
             if len(unknown_vicinity) != 0:
+                dvicinity = self.test.discovered_vicinity(node)
+                print("Discovered Vicinity:")
+                if dvicinity is None:
+                    print("ERR: determining known vicinity.")
+                else:
+                    for v in _sorted(set(dvicinity)):
+                        print(f"{v:>3}")
+                    print()
+
                 print("Unknown Vicinity:")
-                for unknown in unknown_vicinity:
+                for unknown in _sorted(unknown_vicinity):
                     print(f"{unknown:>3}")
                 print()
+            else:
+                print("All vicinity nodes where discoverd.")
         else:
             print("ERR: checking on (un)known vicinity of the node.")
 
         additional_vicinity = self.test.additional_vicinity(node)
         if additional_vicinity is not None:
-            additional_vicinity = list(additional_vicinity)
+            additional_vicinity = set(additional_vicinity)
             if len(additional_vicinity) != 0:
                 print("Additional Vicinity:")
-                for additional in additional_vicinity:
+                for additional in _sorted(additional_vicinity):
                     print(f"{additional:>3}")
+                print()
+            else:
+                print("No unexpected nodes in the vicinity.")
         else:
             print("ERR: checking on additional vicinity of the node.")
+
+        # edges
+        unknown_vicinity = self.test.unknown_vicinity_edges(node)
+        if unknown_vicinity is not None:
+            unknown_vicinity = set(unknown_vicinity)
+            if len(unknown_vicinity) != 0:
+                print("Unknown Vicinity Edges:")
+                for u, v in unknown_vicinity:
+                    print(f"{u:>3} -?- {v:>3}")
+                print()
+            else:
+                print("All edges in the vicinity where discovered.")
+        else:
+            print("ERR: checking on (un)known vicinity of the node.")
 
     def do_checkvicinity(self, arg):
         "Check if whole vicinity is known by <nid>: CHECKVICINITY [nid]"
@@ -1205,22 +1341,33 @@ class DebugShell[T](Cmd):
                 return
             nodes = iter([node])
 
+        fail = False
+
+        print("Node: v e a")
         for node in nodes:
-            # FIXME: Check for presence of all paths
-            # FIXME: Check for evidence in nftables that all paths are setup
+            # TODO:Check for evidence in nftables that all paths are setup
+            # TODO:Check if all discovered neighbors of a vicinity node match
 
             unknown_vicinity = self.test.unknown_vicinity(node)
             if unknown_vicinity is None:
                 print(f"{node:<3} ERR determining known vicinity.")
                 return
-            unknown_vicinity = list(unknown_vicinity)
-
-            if len(unknown_vicinity) == 0:
-                print(f"{node:<3} discovered its vicinity completely", end="")
-            else:
-                print(f"{node:<3} does not know the following nodes:")
-                for unknown in unknown_vicinity:
-                    print(f"  - {unknown:<3}")
+            try:
+                next(unknown_vicinity)
+                unknown_vicinity = True
+                fail = True
+            except StopIteration:
+                unknown_vicinity = False
+            unknown_edges = self.test.unknown_vicinity_edges(node)
+            if unknown_edges is None:
+                print(f"{node:<3} ERR determining known vicinity edges.")
+                return
+            try:
+                next(unknown_edges)
+                unknown_edges = True
+                fail = True
+            except StopIteration:
+                unknown_edges = False
 
             additional_vicinity = self.test.additional_vicinity(node)
             if additional_vicinity is None:
@@ -1229,13 +1376,31 @@ class DebugShell[T](Cmd):
 
             try:
                 next(additional_vicinity)
-                if len(unknown_vicinity) == 0:
-                    print()
+                additional_vicinity = True
+                fail = True
             except StopIteration:
-                if len(unknown_vicinity) == 0:
-                    print(" (with additional nodes)")
+                additional_vicinity = False
+
+            def _print_bool(b: bool) -> None:
+                if b:
+                    print("✗ ", end="")
                 else:
-                    print(f"{node:<3} discovered additional nodes in its vicinity")
+                    print("✔ ", end="")
+
+            print(f"{node:<3} : ", end="")
+            _print_bool(unknown_vicinity)
+            _print_bool(unknown_edges)
+            _print_bool(additional_vicinity)
+            print()
+
+        print()
+        print("v = Nodes")
+        print("e = Edges")
+        print("a = Additional Nodes")
+
+        if fail:
+            print()
+            print("To further investigate failures type: VICINITY <nid>")
 
     def do_netns(self, arg):
         "Get network namespace name of node <nid>: NETNS [nid]"
