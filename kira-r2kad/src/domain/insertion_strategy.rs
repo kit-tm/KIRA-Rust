@@ -96,7 +96,7 @@ where
         // contact is newer, better or fixes a contact
 
         // replace invalid existing data
-        // FIXME check whether the supposed new path actually avoids all broken links
+        // FIXME: check whether the supposed new path actually avoids all broken links
         // -> `src/routing/r2kademlia/KadRoutingTable.cc:299`
         if existing.state() == &ContactState::Invalid && contact.state() == &ContactState::Valid {
             log::trace!(target: "routing_table", "Updated path: Invalid path was replaced [{:?}]", contact);
@@ -104,10 +104,10 @@ where
             return InsertionStrategyResult::Updated;
         }
 
-        // dont replace path with longer path if ssn is same
+        // don't replace path with longer path if ssn is same
         if existing.state_seq_nr() == contact.state_seq_nr()
-            // todo support option to specify replace behaviour on equal length (called `enableSinglePathDiversity`)
-            // todo use hash to prevent path flapping
+            // TODO: support option to specify replace behaviour on equal length (called `enableSinglePathDiversity`)
+            // TODO: use hash to prevent path flapping
             && contact.path().size() >= /* > */ existing.path().size()
         {
             log::trace!(
@@ -127,21 +127,21 @@ where
                     contact.id()
                 );
 
-                // WARNING this will update the SSN even if the InsertionStrategyResult is Dropped
-                // be sure to notify other UseCases with UseCaseEvent::Resync
-                // TODO figure out if skipping the update of the SSN causes trouble
-                // this would keep the routing-table in a more sensible state
-                // this would maybe cause delayed UpdateRouteReq,
+                // WARN: This will update the SSN even if the InsertionStrategyResult is Dropped
+                //  be sure to notify other UseCases with UseCaseEvent::Resync
+                // TODO: figure out if skipping the update of the SSN causes trouble
+                //  this would keep the routing-table in a more sensible state
+                //  this would maybe cause delayed UpdateRouteReq,
 
                 existing.set_last_seen_now();
                 *existing.state_seq_nr_mut() = contact.state_seq_nr().clone();
                 InsertionStrategyResult::Dropped
             } else {
-                // FIXME dont accept longer path to potential PN
-                // this potentially also requires to rework the PathSimplifier,
-                // since it just assumes working PN and replaces with existing short path
-                // todo schedule recheck PN if in vicinityDiscoveryRadius
-                // todo schedule pathcheck for shorter path if offered path is longer
+                // FIXME: Don't accept longer path to potential PN
+                //   this potentially also requires to rework the PathSimplifier,
+                //   since it just assumes working PN and replaces with existing short path
+                // TODO: schedule recheck PN if in vicinityDiscoveryRadius
+                // TODO: schedule pathcheck for shorter path if offered path is longer
                 // -> src/routing/r2kademlia/KadRoutingTable.cc:315
                 log::trace!(
                     target: "routing_table",
