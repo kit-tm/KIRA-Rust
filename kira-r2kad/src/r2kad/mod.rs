@@ -21,7 +21,7 @@ use crate::{
     context::ContextConfig,
     domain::{
         observable_routing_table::ObservableRoutingTable,
-        unlimited_pn_routing_table::UnlimitedPNRoutingTable, FlatRoutingTable, InMemoryPNTable,
+        unlimited_pn_routing_table::UnlimitedUNRoutingTable, FlatRoutingTable, InMemoryPNTable,
         InOrderCycleRemover, InsertionStrategy, NodeId, PNSStrategy, RoutingTable,
         ShortestFirstPathSimplifier, UNTable, UnderlayNeighborId,
     },
@@ -65,11 +65,11 @@ impl<C, const BUCKET_SIZE: usize> Builder<C, BUCKET_SIZE> {
 impl<C, const BUCKET_SIZE: usize> Builder<C, BUCKET_SIZE>
 where
     C: UseCaseContext<
-        RoutingTable = ObservableRoutingTable<UnlimitedPNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
+        RoutingTable = ObservableRoutingTable<UnlimitedUNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
         UnderlayNeighborTable = InMemoryPNTable,
         Runtime = Arc<R2KadRuntime>,
         InsertionStrategy = PNSStrategy<
-            ObservableRoutingTable<UnlimitedPNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
+            ObservableRoutingTable<UnlimitedUNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
             InOrderCycleRemover,
             ShortestFirstPathSimplifier,
             BUCKET_SIZE,
@@ -81,7 +81,7 @@ where
         let runtime = Arc::new(R2KadRuntime::with_startup_time(self.current_time));
         let pipeline = R2KadPipeline::new(self.pipeline_config, &root_id);
 
-        let mut routing_table = ObservableRoutingTable::from(UnlimitedPNRoutingTable::from(
+        let mut routing_table = ObservableRoutingTable::from(UnlimitedUNRoutingTable::from(
             FlatRoutingTable::new(root_id).expect("FlatRoutingTable parameters should be valid"),
         ));
 

@@ -23,24 +23,24 @@ use crate::domain::{
 /// Calling [`bucket_iter`](UnlimitedPNRoutingTable::bucket_iter) will **not** yield
 /// any underlay neighbors.
 #[derive(Debug)]
-pub struct UnlimitedPNRoutingTable<const BUCKET_SIZE: usize, const ACC: usize> {
-    pn_contacts: HashMap<NodeId, Contact>,
+pub struct UnlimitedUNRoutingTable<const BUCKET_SIZE: usize, const ACC: usize> {
+    un_contacts: HashMap<NodeId, Contact>,
     inner: FlatRoutingTable<BUCKET_SIZE, ACC>,
 }
 
 impl<const BUCKET_SIZE: usize, const ACC: usize> From<FlatRoutingTable<BUCKET_SIZE, ACC>>
-    for UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>
+    for UnlimitedUNRoutingTable<BUCKET_SIZE, ACC>
 {
     fn from(routing_table: FlatRoutingTable<BUCKET_SIZE, ACC>) -> Self {
         Self {
-            pn_contacts: Default::default(),
+            un_contacts: Default::default(),
             inner: routing_table,
         }
     }
 }
 
 impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZE>
-    for UnlimitedPNRoutingTable<BUCKET_SIZE, ACC>
+    for UnlimitedUNRoutingTable<BUCKET_SIZE, ACC>
 {
     type ContactWriteGuard = &'a mut Contact;
     type BucketWriteGuard = &'a mut Bucket<BUCKET_SIZE>;
@@ -51,20 +51,21 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
     }
 
     fn len(&self) -> usize {
-        self.pn_contacts.len() + self.inner.len()
+        self.un_contacts.len() + self.inner.len()
     }
 
     fn is_empty(&self) -> bool {
-        self.pn_contacts.is_empty() && self.inner.is_empty()
+        self.un_contacts.is_empty() && self.inner.is_empty()
     }
 
     fn add(&mut self, contact: Contact) -> Result<(), AddError> {
         // Add to underlay neighbors if possible
         if contact.is_pn() {
-            if self.pn_contacts.contains_key(contact.id()) {
+            if self.un_contacts.contains_key(contact.id()) {
                 return Err(AddError::AlreadyExists(contact.into_id()));
             }
-            self.pn_contacts.insert(*contact.id(), contact);
+            _ = self.inner.remove(contact.id());
+            self.un_contacts.insert(*contact.id(), contact);
             return Ok(());
         }
 
@@ -73,13 +74,13 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
     }
 
     fn remove(&mut self, id: &NodeId) -> Option<Contact> {
-        self.pn_contacts
+        self.un_contacts
             .remove(id)
             .or_else(|| self.inner.remove(id))
     }
 
     fn replace(&mut self, id: &NodeId, with: Contact) -> Result<Contact, ReplacementError> {
-        if let Some(contact) = self.pn_contacts.insert(*id, with.clone()) {
+        if let Some(contact) = self.un_contacts.insert(*id, with.clone()) {
             return Ok(contact);
         }
 
@@ -87,7 +88,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
     }
 
     fn contact(&self, id: &NodeId) -> Option<&Contact> {
-        self.pn_contacts.get(id).or_else(|| self.inner.contact(id))
+        self.un_contacts.get(id).or_else(|| self.inner.contact(id))
     }
 
     fn random_id(&self) -> Option<&NodeId> {
@@ -99,13 +100,13 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
     }
 
     fn contact_mut(&'a mut self, id: &NodeId) -> Option<Self::ContactWriteGuard> {
-        self.pn_contacts
+        self.un_contacts
             .get_mut(id)
             .or_else(|| self.inner.contact_mut(id))
     }
 
     fn contains(&self, id: &NodeId) -> bool {
-        self.pn_contacts.contains_key(id) || self.inner.contains(id)
+        self.un_contacts.contains_key(id) || self.inner.contains(id)
     }
 
     fn split_bucket(&mut self, id: &NodeId) -> Result<usize, BucketSplitError> {
@@ -129,7 +130,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         let mut closest = self.inner.closest(to, n, shared_prefix_grouping)?;
 
         // For every neighbor find the place to insert it if possible
-        for (id, contact) in &self.pn_contacts {
+        for (id, contact) in &self.un_contacts {
             if contact.state() != &ContactState::Valid {
                 continue;
             }
@@ -167,11 +168,11 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
     }
 
     fn iter(&self) -> impl Iterator<Item = &Contact> {
-        self.pn_contacts.values().chain(self.inner.iter())
+        self.un_contacts.values().chain(self.inner.iter())
     }
 
     fn iter_mut(&'a mut self) -> impl Iterator<Item = Self::ContactWriteGuard> {
-        self.pn_contacts.values_mut().chain(self.inner.iter_mut())
+        self.un_contacts.values_mut().chain(self.inner.iter_mut())
     }
 
     fn bucket_iter(&'a self) -> Self::BucketIter {
@@ -197,17 +198,17 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::unlimited_pn_routing_table::UnlimitedPNRoutingTable;
+    use crate::domain::unlimited_pn_routing_table::UnlimitedUNRoutingTable;
     use crate::domain::{
         Contact, ContactState, FlatRoutingTable, NodeId, Path, RoutingTable, StateSeqNr,
     };
 
     #[test]
-    fn yield_physical_neighbors() {
+    fn yield_underlay_neighbors() {
         let invalid_contact = Contact::new(Path::from([NodeId::with_msb(4)]), StateSeqNr::from(0));
 
         let mut routing_table =
-            UnlimitedPNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+            UnlimitedUNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
 
         let contacts = vec![
             invalid_contact,
@@ -266,7 +267,7 @@ mod tests {
         ];
 
         let mut routing_table =
-            UnlimitedPNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+            UnlimitedUNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
         routing_table
             .extend(false, contacts.clone())
             .expect("failed to insert all contact");
@@ -308,7 +309,7 @@ mod tests {
         ];
 
         let mut routing_table =
-            UnlimitedPNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+            UnlimitedUNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
         routing_table
             .extend(false, contacts.clone())
             .expect("failed to insert all contact");
@@ -336,7 +337,7 @@ mod tests {
         ];
 
         let mut routing_table =
-            UnlimitedPNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+            UnlimitedUNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
         routing_table
             .extend(false, contacts.clone())
             .expect("failed to insert all contact");
@@ -369,7 +370,7 @@ mod tests {
         let contacts = vec![invalid_neighbor, invalid_contact];
 
         let mut routing_table =
-            UnlimitedPNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+            UnlimitedUNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
         routing_table
             .extend(false, contacts.clone())
             .expect("failed to insert all contact");
