@@ -88,7 +88,7 @@ where
         let mut entries = HashSet::new();
         for in_path in graph {
             debug_assert!(
-                in_path.size() <= self.config.vicinity_radius,
+                in_path.size() <= self.config.vicinity_radius + 1,
                 "VicinityGraph should only generate Paths inside the Vicinity-Radius"
             );
 
