@@ -1,10 +1,11 @@
 import argparse
+from dataclasses import dataclass
 import os
 from cmd import Cmd
 import sys
 import re
 from subprocess import Popen, PIPE
-from typing import Iterable, Iterator
+from typing import Iterable, Iterator, Union
 import json
 import base64
 from hashlib import sha1
@@ -287,7 +288,7 @@ class KIRANode(Node):
         # print(f"Unexpected route for {ip} on node {self}: {result}")
         return None
 
-    def paths(self) -> Iterator[Iterator[bytes]] | None:
+    def paths_rt(self) -> Iterator[Iterator[bytes]] | None:
         """Returns an iterator over all paths (node-id sequence) known by the node.
 
         Usually all paths known by the node are paths in the RoutingTable.
@@ -322,7 +323,7 @@ class KIRANode(Node):
         """
         assert ip in PATH_IP
 
-        paths = self.paths()
+        paths = self.paths_rt()
         if paths is None:
             return None
 
@@ -370,6 +371,27 @@ class KIRALink:
 
     def is_up(self) -> bool:
         return self._is_up
+
+
+@dataclass
+class NodeIdFwdEntry:
+    node: KIRANode
+    path: list[KIRANode]
+    path_id: bytes
+
+
+@dataclass
+class UnderlayNeighborFwdEntry:
+    node: KIRANode
+
+
+@dataclass
+class PathIdFwdEntry:
+    path: list[KIRANode]
+    path_id: bytes
+
+
+FwdEntry = Union[NodeIdFwdEntry, UnderlayNeighborFwdEntry, PathIdFwdEntry]
 
 
 class NestTest[T]:  # T = tid type, usually int or str
@@ -531,8 +553,15 @@ class NestTest[T]:  # T = tid type, usually int or str
         assert ip in NODE_IP
         for _, data in self.topology.nodes(data=True):
             config = data["config"]
-            n_ip = IPv6Address(config.ipv6)
-            if n_ip == ip:
+            nip = IPv6Address(config.ipv6)
+            if nip == ip:
+                return data["node"]
+
+    def node_by_id(self, id: bytes) -> KIRANode | None:
+        for _, data in self.topology.nodes(data=True):
+            config: NodeConfig = data["config"]
+            nid = bytes.fromhex(config.node_id)
+            if nid == id:
                 return data["node"]
 
     def nodes(self) -> Iterator[tuple[KIRANode, NodeConfig]]:
@@ -577,7 +606,7 @@ class NestTest[T]:  # T = tid type, usually int or str
         elif to_addr in PATH_IP:
             return f"{current_hop:<3} : PUSH Path-ID : {to_addr} ({path})"
         else:
-            return "??? Unkown Action ???"
+            return "??? Unknown Action ???"
 
     def traceroute(
         self, x_tid: T, y_tid: T, maxhops: int = 10, verbose: bool = False
@@ -807,6 +836,7 @@ class NestTest[T]:  # T = tid type, usually int or str
         vicinity_paths = self.vicinity_paths(node)
         if vicinity_paths is None:
             return None
+        # WARN: adjust if node.paths() gets changed
 
         for path in vicinity_paths:
             in_path = path
@@ -826,6 +856,39 @@ class NestTest[T]:  # T = tid type, usually int or str
                 yield ([self.node(tid) for tid in in_path], in_path_id)
             if node.next_hop(out_path_ip) is None and len(out_path) > 1:
                 yield ([self.node(tid) for tid in out_path], out_path_id)
+
+    def missing_pathsetups_rt(self, node: KIRANode) -> Iterator[FwdEntry] | None:
+        rt_paths = node.paths_rt()
+        if rt_paths is None:
+            return None
+
+        for path in rt_paths:
+            path = list(path)
+            if len(path) == 0:
+                continue
+
+            dest = path[-1]
+            ulneighbor = len(path) == 1
+            dest_ip = IPv6Address(bytes.fromhex("fc00") + dest)
+            next_ip = node.next_ip(dest_ip)
+
+            out_path = path
+            out_path_id = KIRANode.path_id(out_path)
+            out_path_ip = IPv6Address(bytes.fromhex("fcaa") + out_path_id)
+
+            if ulneighbor:
+                # underlay neighbors don't need encapsulation routes
+                if next_ip is None:
+                    dest = self.node_by_id(dest)
+                    yield UnderlayNeighborFwdEntry(dest)
+            else:
+                if next_ip != out_path_ip:
+                    dest = self.node_by_id(dest)
+                    out_path = [self.node_by_id(nid) for nid in out_path]
+                    yield NodeIdFwdEntry(dest, out_path, out_path_id)
+                if node.next_hop(out_path_ip) is None:
+                    out_path = [self.node_by_id(nid) for nid in out_path]
+                    yield PathIdFwdEntry(out_path, out_path_id)
 
 
 class DebugShell[T](Cmd):
@@ -1129,7 +1192,7 @@ class DebugShell[T](Cmd):
             return
 
         if ip is None:
-            paths = node.paths()
+            paths = node.paths_rt()
         else:
             try:
                 ip = IPv6Address(ip)
@@ -1316,7 +1379,7 @@ class DebugShell[T](Cmd):
                         print(f"{v:>3}")
                     print()
 
-                print("Unknown Vicinity:")
+                print("Missing Nodes in the Vicinity Graph:")
                 for unknown in _sorted(unknowns):
                     print(f"{unknown:>3}")
             else:
@@ -1346,9 +1409,35 @@ class DebugShell[T](Cmd):
                 for path, pid in missing_paths:
                     pid = pid.hex()
                     path = ", ".join(str(n) for n in path)
-                    print(f"{pid} ({path})")
+                    print(f"  - {pid} ({path})")
             else:
                 print("All paths inside the vicinity are setup.")
+        else:
+            print("ERR: checking on missing path setups.")
+        print()
+
+        missing_fwd_entries = self.test.missing_pathsetups_rt(node)
+        if missing_fwd_entries is not None:
+            missing_fwd_entries = list(missing_fwd_entries)
+            if len(missing_fwd_entries) != 0:
+                print("Missing paths or nodes setups of Contacts in the Routing Table:")
+                for entry in missing_fwd_entries:
+                    print("  - ", end="")
+                    match entry:
+                        case UnderlayNeighborFwdEntry(n):
+                            print(f"{n} -> fe80::/64")
+                        case NodeIdFwdEntry(n, path, pid):
+                            pid = pid.hex()
+                            path = ", ".join(str(n) for n in path)
+
+                            print(f"{n} -> {pid} ({path})")
+                        case PathIdFwdEntry(path, pid):
+                            pid = pid.hex()
+                            path = ", ".join(str(n) for n in path)
+
+                            print(f"{pid} ({path}) -> fc00::/112 ")
+            else:
+                print("All paths and nodes of Contacts in the Routing Table are setup.")
         else:
             print("ERR: checking on missing path setups.")
         print()
@@ -1381,7 +1470,7 @@ class DebugShell[T](Cmd):
 
         fail = False
 
-        print("Node: v e p a")
+        print("Node: v e p r a")
         for node in nodes:
             # TODO:Check for evidence in nftables that all paths are setup
             # TODO:Check if all discovered neighbors of a vicinity node match
@@ -1418,6 +1507,17 @@ class DebugShell[T](Cmd):
             except StopIteration:
                 missing_pathsetups = False
 
+            missing_pathsetups_rt = self.test.missing_pathsetups_rt(node)
+            if missing_pathsetups_rt is None:
+                print(f"{node:<3} ERR determining paths setup.")
+                return
+            try:
+                next(missing_pathsetups_rt)
+                missing_pathsetups_rt = True
+                fail = True
+            except StopIteration:
+                missing_pathsetups_rt = False
+
             additional_vicinity = self.test.additional_vicinity(node)
             if additional_vicinity is None:
                 print(f"{node:<3} ERR determining known vicinity.")
@@ -1439,6 +1539,7 @@ class DebugShell[T](Cmd):
             _print_bool(unknown_vicinity)
             _print_bool(unknown_edges)
             _print_bool(missing_pathsetups)
+            _print_bool(missing_pathsetups_rt)
             _print_bool(additional_vicinity)
             print()
 
@@ -1446,6 +1547,7 @@ class DebugShell[T](Cmd):
         print("v = Vicinity-Nodes with SSN in Vicinty Graph")
         print("e = Edges inside the vicinity radius")
         print("p = Paths inside the vicinity radius setup (nftables)")
+        print("r = Paths of Contacts inside the Routing Table setup")
         print("a = Additional Nodes in Vicinity Graph")
 
         if fail:
