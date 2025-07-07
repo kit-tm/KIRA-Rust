@@ -374,7 +374,7 @@ class KIRALink:
 
 
 @dataclass
-class NodeIdFwdEntry:
+class NodeIdEncapEntry:
     node: KIRANode
     path: list[KIRANode]
     path_id: bytes
@@ -391,7 +391,17 @@ class PathIdFwdEntry:
     path_id: bytes
 
 
-FwdEntry = Union[NodeIdFwdEntry, UnderlayNeighborFwdEntry, PathIdFwdEntry]
+@dataclass
+class PathIdEncapEntry:
+    in_path: list[KIRANode]
+    in_path_id: bytes
+    out_path: list[KIRANode]
+    out_path_id: bytes
+
+
+FwdEntry = Union[
+    NodeIdEncapEntry, UnderlayNeighborFwdEntry, PathIdFwdEntry, PathIdEncapEntry
+]
 
 
 class NestTest[T]:  # T = tid type, usually int or str
@@ -830,9 +840,7 @@ class NestTest[T]:  # T = tid type, usually int or str
             for path in paths:
                 yield path
 
-    def missing_pathsetups(
-        self, node: KIRANode
-    ) -> Iterator[tuple[list[KIRANode], bytes]] | None:
+    def missing_pathsetups(self, node: KIRANode) -> Iterator[FwdEntry] | None:
         vicinity_paths = self.vicinity_paths(node)
         if vicinity_paths is None:
             return None
@@ -852,10 +860,12 @@ class NestTest[T]:  # T = tid type, usually int or str
             in_path_ip = IPv6Address(bytes.fromhex("fcaa") + in_path_id)
             out_path_ip = IPv6Address(bytes.fromhex("fcaa") + out_path_id)
 
+            out_path = [self.node(tid) for tid in out_path]
             if node.next_ip(in_path_ip) is None:
-                yield ([self.node(tid) for tid in in_path], in_path_id)
+                in_path = [self.node(tid) for tid in in_path]
+                yield PathIdEncapEntry(in_path, in_path_id, out_path, out_path_id)
             if node.next_hop(out_path_ip) is None and len(out_path) > 1:
-                yield ([self.node(tid) for tid in out_path], out_path_id)
+                yield PathIdFwdEntry(out_path, out_path_id)
 
     def missing_pathsetups_rt(self, node: KIRANode) -> Iterator[FwdEntry] | None:
         rt_paths = node.paths_rt()
@@ -885,7 +895,7 @@ class NestTest[T]:  # T = tid type, usually int or str
                 if next_ip != out_path_ip:
                     dest = self.node_by_id(dest)
                     out_path = [self.node_by_id(nid) for nid in out_path]
-                    yield NodeIdFwdEntry(dest, out_path, out_path_id)
+                    yield NodeIdEncapEntry(dest, out_path, out_path_id)
                 if node.next_hop(out_path_ip) is None:
                     out_path = [self.node_by_id(nid) for nid in out_path]
                     yield PathIdFwdEntry(out_path, out_path_id)
@@ -1401,15 +1411,36 @@ class DebugShell[T](Cmd):
             print("ERR: checking on (un)known vicinity of the node.")
         print()
 
-        missing_paths = self.test.missing_pathsetups(node)
-        if missing_paths is not None:
-            missing_paths = list(missing_paths)
-            if len(missing_paths) != 0:
-                print("Missing path setups:")
-                for path, pid in missing_paths:
+        def _print_fwd_entry(entry: FwdEntry) -> None:
+            match entry:
+                case UnderlayNeighborFwdEntry(n):
+                    print(f"{n} -> fe80::/64")
+                case NodeIdEncapEntry(n, path, pid):
                     pid = pid.hex()
                     path = ", ".join(str(n) for n in path)
-                    print(f"  - {pid} ({path})")
+
+                    print(f"{n} -> {pid} ({path})")
+                case PathIdFwdEntry(path, pid):
+                    pid = pid.hex()
+                    path = ", ".join(str(n) for n in path)
+
+                    print(f"{pid} -> fc00::/112                   [ {path} ]")
+                case PathIdEncapEntry(in_path, ipid, out_path, opid):
+                    ipid = ipid.hex()
+                    in_path = ", ".join(str(n) for n in in_path)
+                    opid = opid.hex()
+                    out_path = ", ".join(str(n) for n in out_path)
+
+                    print(f"{ipid} -> {opid} [ {in_path} -> {out_path} ] ")
+
+        missing_entries = self.test.missing_pathsetups(node)
+        if missing_entries is not None:
+            missing_entries = list(missing_entries)
+            if len(missing_entries) != 0:
+                print("Missing path setups:")
+                for entry in missing_entries:
+                    print("  - ", end="")
+                    _print_fwd_entry(entry)
             else:
                 print("All paths inside the vicinity are setup.")
         else:
@@ -1423,19 +1454,8 @@ class DebugShell[T](Cmd):
                 print("Missing paths or nodes setups of Contacts in the Routing Table:")
                 for entry in missing_fwd_entries:
                     print("  - ", end="")
-                    match entry:
-                        case UnderlayNeighborFwdEntry(n):
-                            print(f"{n} -> fe80::/64")
-                        case NodeIdFwdEntry(n, path, pid):
-                            pid = pid.hex()
-                            path = ", ".join(str(n) for n in path)
+                    _print_fwd_entry(entry)
 
-                            print(f"{n} -> {pid} ({path})")
-                        case PathIdFwdEntry(path, pid):
-                            pid = pid.hex()
-                            path = ", ".join(str(n) for n in path)
-
-                            print(f"{pid} ({path}) -> fc00::/112 ")
             else:
                 print("All paths and nodes of Contacts in the Routing Table are setup.")
         else:
