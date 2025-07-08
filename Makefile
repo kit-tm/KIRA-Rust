@@ -56,6 +56,15 @@ integration-test:
 test:
 	cargo test
 
+jaeger:
+	docker compose -f tests/jaeger-tracing-compose.yml up --wait
+
+jaeger-clean:
+	docker compose -f tests/jaeger-tracing-compose.yml down -v
+
+clean-logs: jaeger-clean
+	find -type f -name "k*.log" -delete
+
 build-image-supervisord:
 	docker build -t kira -f docker/Dockerfile.supervisord .
 

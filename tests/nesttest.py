@@ -1007,6 +1007,18 @@ class DebugShell[T](Cmd):
         res = self.sub_nid_name(res)
         print(res)
 
+    def do_node_id(self, arg):
+        "Obtain Node-Id: NODE_ID <nid>"
+        node, _arg = self._extract_node(arg)
+        if node is None:
+            print(f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES.")
+            return
+
+        tid = self.test.tid(node)
+        assert tid is not None
+        res = self.test.node_id(tid)
+        print(res.hex())
+
     def do_store(self, arg):
         "Store a key-value pair in the DHT: STORE <nid> <key> <value>"
         node, key_data = self._extract_node(arg)
