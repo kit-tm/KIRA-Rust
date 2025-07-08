@@ -80,11 +80,14 @@ where
     C::Runtime: UseCaseRuntime,
     C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
+    #[instrument(
+        level = Level::TRACE,
+        target = "precompute_paths_and_path_ids",
+        skip(self, context),
+        fields(?graph),
+        ret
+    )]
     fn gen_entries_from_graph(&self, context: &C, graph: &VicinityGraph) -> HashSet<PathIdEntry> {
-        if !graph.neighbors.is_empty() {
-            log::trace!(target: "precompute_paths_and_path_ids", "{:?}", graph);
-        }
-
         let mut entries = HashSet::new();
         for in_path in graph {
             debug_assert!(
@@ -93,12 +96,12 @@ where
             );
 
             let Ok(out_path) = in_path.clone().into_iter().skip(1).collect() else {
-                log::warn!(target: "precompute_paths_and_path_ids", "VicinityGraph generated path of size 1");
+                tracing::warn!(target: "precompute_paths_and_path_ids", "VicinityGraph generated path of size 1");
                 continue;
             };
 
             let Some(ulnid) = context.uln_table().get(out_path.first()).cloned() else {
-                log::warn!(target: "precompute_paths_and_path_ids", "VicinityGraph generated path over invalid neighbor {:?}", out_path.first());
+                tracing::warn!(target: "precompute_paths_and_path_ids", underlay_neighbor = ?out_path.first(), "VicinityGraph generated path over invalid underlay neighbor");
                 continue;
             };
 
@@ -112,6 +115,11 @@ where
         entries
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        target = "precompute_paths_and_path_ids",
+        skip_all,
+    )]
     fn precompute_paths_and_ids(&mut self, context: &C) {
         if !self.vicinity_changed {
             return;
@@ -119,7 +127,6 @@ where
 
         let mut old_entries = self.gen_entries_from_graph(context, &self.old_graph);
         let mut new_entries = self.gen_entries_from_graph(context, &self.vicinity_graph);
-        log::trace!(target: "precompute_paths_and_path_ids", "Calculated paths: {:?}", new_entries);
         // Remove intersection
         for new_entry in new_entries.clone() {
             if old_entries.remove(&new_entry) {
@@ -128,7 +135,7 @@ where
         }
         // Now in old_entries only the removed paths are present
         // and in new_entries only the newly added paths are present
-        log::debug!(target: "precompute_paths_and_path_ids", "New paths: {:?}", new_entries);
+        tracing::debug!(target: "precompute_paths_and_path_ids", ?new_entries, ?old_entries, "changes of paths in the vicinity");
         for old_entry in old_entries {
             let old_in_path_id = match old_entry {
                 PathIdEntry::Forward(entry) => entry.in_path_id,
@@ -176,13 +183,6 @@ where
         context: &C,
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
-        if let UseCaseEvent::Message(ProtocolMessage::ULNDiscReq(ref rtable_data), _) = event {
-            tracing::trace!(
-                target: "precompute_paths_and_path_ids",
-                source_route = ?rtable_data.source_route,
-                "Received ULNDiscReq"
-            );
-        }
         match event {
             UseCaseEvent::Message(ProtocolMessage::ULNDiscReq(rtable_data), _)
             | UseCaseEvent::Message(ProtocolMessage::ULNDiscRsp(rtable_data), _)
@@ -195,7 +195,7 @@ where
                 let source = *rtable_data.source();
                 let source_ssn = rtable_data.source_state_seq_nr;
 
-                log::trace!(target: "precompute_paths_and_path_ids", "{} has rtable data: {:?}", source, rtable_data.data);
+                tracing::trace!(target: "precompute_paths_and_path_ids", %source, neighbors=?rtable_data.data, "underlay information updates");
 
                 if self.vicinity_graph.contains(&source) {
                     // check if we received more recent data by sent ssn
@@ -207,7 +207,7 @@ where
                             let expected_ssn = entry.get();
                             // nothing new about the neighbor
                             if &source_ssn < expected_ssn {
-                                log::trace!(target: "precompute_paths_and_path_ids", "Ignoring underlay neighbor update of {} as we expected newer data: {:?}", source, rtable_data.data);
+                                tracing::trace!(target: "precompute_paths_and_path_ids", %source, "Ignoring underlay neighbor update as we expected newer data");
                                 return Ok(());
                             }
 
@@ -229,7 +229,7 @@ where
                         if let Some(rt_contact) = context.routing_table().contact(&source) {
                             // nothing new about the neighbor
                             if &source_ssn <= rt_contact.state_seq_nr() {
-                                log::trace!(target: "precompute_paths_and_path_ids", "Ignoring underlay neighbor update of {} without any new data: {:?}", source, rtable_data.data);
+                                tracing::trace!(target: "precompute_paths_and_path_ids", %source, "Ignoring underlay neighbor update without any new data");
                                 return Ok(());
                             }
                         }
@@ -239,17 +239,21 @@ where
                     if let Some(rt_contact) = context.routing_table().contact(&source) {
                         // `<` ok, since we add the node only once for the first time
                         if &source_ssn < rt_contact.state_seq_nr() {
-                            log::trace!(target: "precompute_paths_and_path_ids", "Not adding new node {} to vicinity graph, because its underlay neighbor data is outdated: {:?}", source, rtable_data.data);
+                            tracing::trace!(
+                                target: "precompute_paths_and_path_ids",
+                                %source,
+                                %source_ssn,
+                                rt_ssn=%rt_contact.state_seq_nr(),
+                                "Not adding new node to vicinity graph, because its underlay neighbor data is outdated"
+                            );
+
                             // not adding node itself to allow checking this bootstrapping condition again
                             return Ok(());
                         }
-                    } else {
-                        // TODO if we don't have a contact this should probably error out
-                        log::error!(target: "precompute_paths_and_path_ids", "No contact for node {}, not adding to vicinity graph", source);
-                        log::debug!(target: "precompute_paths_and_path_ids", "Routing table: {:?}", context.routing_table().iter().collect::<Vec<_>>());
-                        log::debug!(target: "precompute_paths_and_path_ids", "Underlay neighbor table: {:?}", context.uln_table().iter().collect::<Vec<_>>());
-                        log::debug!(target: "precompute_paths_and_path_ids", "Vicinity graph: {:?}", self.vicinity_graph);
                     }
+
+                    // NOTE: It's not a failure if the contact isn't in the routing table.
+                    //   That's why we have the vicinity graph in the first place.
                 }
 
                 // update underlay neighbors of source
@@ -264,7 +268,12 @@ where
                     .vicinity_graph
                     .insert(source, underlay_neighbors_of_source.clone());
                 if previous.is_none() || previous.as_ref() != Some(&underlay_neighbors_of_source) {
-                    log::debug!(target: "precompute_paths_and_path_ids", "Updated underlay neighbors of {} to {:?}", source, underlay_neighbors_of_source);
+                    tracing::debug!(
+                        target: "precompute_paths_and_path_ids",
+                        %source,
+                        neighbors=?underlay_neighbors_of_source,
+                        "Updated underlay neighbors"
+                    );
 
                     self.vicinity_changed = true;
                 }
@@ -279,7 +288,7 @@ where
             UseCaseEvent::Contact(ContactEvent::New(contact)) => {
                 // only add underlay neighbors
                 if !contact.is_uln() {
-                    tracing::trace!(target: "precompute_paths_and_path_ids", "Not adding non-underlay neighbor contact: {:?}", contact);
+                    tracing::trace!(target: "precompute_paths_and_path_ids", %contact, "Not adding non-underlay neighbor contact");
                     return Ok(());
                 }
 
@@ -329,15 +338,23 @@ where
                     // only update expected_ssn, if greater
                     if let Some(previous_expected_ssn) = resync_queue.get_mut(&node_id) {
                         if *previous_expected_ssn < expected_ssn {
-                            log::trace!(target: "precompute_paths_and_path_ids", "Update expected state sequence number of node {}: {}", node_id, expected_ssn);
+                            tracing::trace!(
+                                target: "precompute_paths_and_path_ids",
+                                node=%node_id,
+                                %expected_ssn,
+                                %previous_expected_ssn,
+                                "Update expected state sequence number of node"
+                            );
                             *previous_expected_ssn = expected_ssn;
                         }
                     } else {
-                        log::trace!(target: "precompute_paths_and_path_ids", "Add node to resynchronisation queue: {}", node_id);
+                        tracing::trace!(target: "precompute_paths_and_path_ids", node=%node_id, "Add node to resynchronisation queue");
                         resync_queue.insert(node_id, expected_ssn);
                     }
+
+                    tracing::trace!(target: "precompute_paths_and_path_ids", ?resync_queue, "Changes in Resync Queue");
                 } else {
-                    log::warn!(target: "precompute_paths_and_path_ids", "Not responding to ResyncNode event in this state: {:?}", self.state);
+                    tracing::warn!(target: "precompute_paths_and_path_ids", "Not responding to ResyncNode event in this state");
                 }
             }
             _ => {}
