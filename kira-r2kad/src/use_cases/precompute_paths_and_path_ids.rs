@@ -97,7 +97,7 @@ where
                 continue;
             };
 
-            let Some(ulnid) = context.un_table().get(out_path.first()).cloned() else {
+            let Some(ulnid) = context.uln_table().get(out_path.first()).cloned() else {
                 log::warn!(target: "precompute_paths_and_path_ids", "VicinityGraph generated path over invalid neighbor {:?}", out_path.first());
                 continue;
             };
@@ -176,16 +176,16 @@ where
         context: &C,
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
-        if let UseCaseEvent::Message(ProtocolMessage::PNDiscReq(ref rtable_data), _) = event {
+        if let UseCaseEvent::Message(ProtocolMessage::ULNDiscReq(ref rtable_data), _) = event {
             tracing::trace!(
                 target: "precompute_paths_and_path_ids",
                 source_route = ?rtable_data.source_route,
-                "Received PNDiscReq"
+                "Received ULNDiscReq"
             );
         }
         match event {
-            UseCaseEvent::Message(ProtocolMessage::PNDiscReq(rtable_data), _)
-            | UseCaseEvent::Message(ProtocolMessage::PNDiscRsp(rtable_data), _)
+            UseCaseEvent::Message(ProtocolMessage::ULNDiscReq(rtable_data), _)
+            | UseCaseEvent::Message(ProtocolMessage::ULNDiscRsp(rtable_data), _)
             | UseCaseEvent::Message(ProtocolMessage::QueryRouteRsp(rtable_data), _) => {
                 // Skip everything not in configured vicinity radius
                 if rtable_data.source_route.size() > self.config.vicinity_radius {
@@ -247,7 +247,7 @@ where
                         // TODO if we don't have a contact this should probably error out
                         log::error!(target: "precompute_paths_and_path_ids", "No contact for node {}, not adding to vicinity graph", source);
                         log::debug!(target: "precompute_paths_and_path_ids", "Routing table: {:?}", context.routing_table().iter().collect::<Vec<_>>());
-                        log::debug!(target: "precompute_paths_and_path_ids", "Underlay neighbor table: {:?}", context.un_table().iter().collect::<Vec<_>>());
+                        log::debug!(target: "precompute_paths_and_path_ids", "Underlay neighbor table: {:?}", context.uln_table().iter().collect::<Vec<_>>());
                         log::debug!(target: "precompute_paths_and_path_ids", "Vicinity graph: {:?}", self.vicinity_graph);
                     }
                 }
@@ -278,7 +278,7 @@ where
             }
             UseCaseEvent::Contact(ContactEvent::New(contact)) => {
                 // only add underlay neighbors
-                if !contact.is_pn() {
+                if !contact.is_uln() {
                     tracing::trace!(target: "precompute_paths_and_path_ids", "Not adding non-underlay neighbor contact: {:?}", contact);
                     return Ok(());
                 }

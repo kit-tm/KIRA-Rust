@@ -64,7 +64,7 @@ pub async fn start_http_server(api_config: ApiConfig) {
         .route("/dht/store", post(store_dht_data))
         .route("/dht/fetch", get(fetch_dht_data))
         .route("/dht/_dev/local-hashtable", get(dump_local_hashtable))
-        .route("/_dev/pn-table", get(dump_un_table))
+        .route("/_dev/uln-table", get(dump_un_table))
         .route("/_dev/routing-table", get(dump_routing_table))
         .route("/_dev/vicinity-graph", get(dump_vicinity_graph))
         .with_state(api_state);
@@ -325,7 +325,7 @@ async fn dump_local_hashtable(
 async fn dump_un_table(State(state): State<crate::api::ApiState>) -> Result<String, Json<DHTErr>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
 
-    let event = ApiEvent::PNTable(tx);
+    let event = ApiEvent::ULNTable(tx);
 
     state
         .sender

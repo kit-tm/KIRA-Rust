@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
-use crate::domain::unlimited_pn_routing_table::UnlimitedUNRoutingTable;
+use crate::domain::unlimited_uln_routing_table::UnlimitedULNRoutingTable;
 use crate::domain::{
     AddError, Bucket, BucketSplitError, Contact, FlatRoutingTable, GroupingError, NodeId,
     ReplacementError, RoutingTable, SharedPrefix,
@@ -130,7 +130,7 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> NonObservableRoutingTable<'_, B
 }
 
 impl<const BUCKET_SIZE: usize, const ACC: usize> NonObservableRoutingTable<'_, BUCKET_SIZE>
-    for UnlimitedUNRoutingTable<BUCKET_SIZE, ACC>
+    for UnlimitedULNRoutingTable<BUCKET_SIZE, ACC>
 {
 }
 

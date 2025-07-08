@@ -21,9 +21,9 @@ use crate::{
     context::ContextConfig,
     domain::{
         observable_routing_table::ObservableRoutingTable,
-        unlimited_pn_routing_table::UnlimitedUNRoutingTable, FlatRoutingTable, InMemoryPNTable,
-        InOrderCycleRemover, InsertionStrategy, NodeId, PNSStrategy, RoutingTable,
-        ShortestFirstPathSimplifier, UNTable, UnderlayNeighborId,
+        unlimited_uln_routing_table::UnlimitedULNRoutingTable, FlatRoutingTable, InMemoryULNTable,
+        InOrderCycleRemover, InsertionStrategy, NodeId, RoutingTable, ShortestFirstPathSimplifier,
+        ULNTable, UNSStrategy, UnderlayNeighborId,
     },
     r2kad::pipeline::{R2KadPipelineConfig, UseCaseStartupError, UseCaseStateError},
     runtime::UseCaseRuntime,
@@ -65,11 +65,14 @@ impl<C, const BUCKET_SIZE: usize> Builder<C, BUCKET_SIZE> {
 impl<C, const BUCKET_SIZE: usize> Builder<C, BUCKET_SIZE>
 where
     C: UseCaseContext<
-        RoutingTable = ObservableRoutingTable<UnlimitedUNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
-        UnderlayNeighborTable = InMemoryPNTable,
+        RoutingTable = ObservableRoutingTable<
+            UnlimitedULNRoutingTable<BUCKET_SIZE, 1>,
+            BUCKET_SIZE,
+        >,
+        UnderlayNeighborTable = InMemoryULNTable,
         Runtime = Arc<R2KadRuntime>,
-        InsertionStrategy = PNSStrategy<
-            ObservableRoutingTable<UnlimitedUNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
+        InsertionStrategy = UNSStrategy<
+            ObservableRoutingTable<UnlimitedULNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
             InOrderCycleRemover,
             ShortestFirstPathSimplifier,
             BUCKET_SIZE,
@@ -81,7 +84,7 @@ where
         let runtime = Arc::new(R2KadRuntime::with_startup_time(self.current_time));
         let pipeline = R2KadPipeline::new(self.pipeline_config, &root_id);
 
-        let mut routing_table = ObservableRoutingTable::from(UnlimitedUNRoutingTable::from(
+        let mut routing_table = ObservableRoutingTable::from(UnlimitedULNRoutingTable::from(
             FlatRoutingTable::new(root_id).expect("FlatRoutingTable parameters should be valid"),
         ));
 
@@ -103,14 +106,14 @@ where
         }
         routing_table.add_observer(|event| log::trace!(target: "routing_table", "{}", event));
 
-        let insertion_strategy = PNSStrategy::new(InOrderCycleRemover, ShortestFirstPathSimplifier);
+        let insertion_strategy = UNSStrategy::new(InOrderCycleRemover, ShortestFirstPathSimplifier);
 
         let context = C::new(ContextConfig {
             root_id,
             routing_table,
             runtime,
             insertion_strategy,
-            uln_table: InMemoryPNTable::new(),
+            uln_table: InMemoryULNTable::new(),
             not_via: HashSet::default(),
         });
 
@@ -235,7 +238,7 @@ where
     C: UseCaseContext,
     C::Runtime: Deref<Target = R2KadRuntime>,
     C::UnderlayNeighborTable:
-        UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + std::fmt::Debug,
+        ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + std::fmt::Debug,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + std::fmt::Debug,
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::UnderlayNeighborTable, BUCKET_SIZE>,
 {

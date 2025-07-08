@@ -20,16 +20,16 @@ use crate::domain::{
 ///
 /// # Important
 ///
-/// Calling [`bucket_iter`](UnlimitedPNRoutingTable::bucket_iter) will **not** yield
+/// Calling [`bucket_iter`](UnlimitedULNRoutingTable::bucket_iter) will **not** yield
 /// any underlay neighbors.
 #[derive(Debug)]
-pub struct UnlimitedUNRoutingTable<const BUCKET_SIZE: usize, const ACC: usize> {
+pub struct UnlimitedULNRoutingTable<const BUCKET_SIZE: usize, const ACC: usize> {
     un_contacts: HashMap<NodeId, Contact>,
     inner: FlatRoutingTable<BUCKET_SIZE, ACC>,
 }
 
 impl<const BUCKET_SIZE: usize, const ACC: usize> From<FlatRoutingTable<BUCKET_SIZE, ACC>>
-    for UnlimitedUNRoutingTable<BUCKET_SIZE, ACC>
+    for UnlimitedULNRoutingTable<BUCKET_SIZE, ACC>
 {
     fn from(routing_table: FlatRoutingTable<BUCKET_SIZE, ACC>) -> Self {
         Self {
@@ -40,7 +40,7 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> From<FlatRoutingTable<BUCKET_SI
 }
 
 impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZE>
-    for UnlimitedUNRoutingTable<BUCKET_SIZE, ACC>
+    for UnlimitedULNRoutingTable<BUCKET_SIZE, ACC>
 {
     type ContactWriteGuard = &'a mut Contact;
     type BucketWriteGuard = &'a mut Bucket<BUCKET_SIZE>;
@@ -60,7 +60,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
 
     fn add(&mut self, contact: Contact) -> Result<(), AddError> {
         // Add to underlay neighbors if possible
-        if contact.is_pn() {
+        if contact.is_uln() {
             if self.un_contacts.contains_key(contact.id()) {
                 return Err(AddError::AlreadyExists(contact.into_id()));
             }
@@ -198,7 +198,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::unlimited_pn_routing_table::UnlimitedUNRoutingTable;
+    use crate::domain::unlimited_uln_routing_table::UnlimitedULNRoutingTable;
     use crate::domain::{
         Contact, ContactState, FlatRoutingTable, NodeId, Path, RoutingTable, StateSeqNr,
     };
@@ -208,7 +208,7 @@ mod tests {
         let invalid_contact = Contact::new(Path::from([NodeId::with_msb(4)]), StateSeqNr::from(0));
 
         let mut routing_table =
-            UnlimitedUNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
 
         let contacts = vec![
             invalid_contact,
@@ -267,7 +267,7 @@ mod tests {
         ];
 
         let mut routing_table =
-            UnlimitedUNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
         routing_table
             .extend(false, contacts.clone())
             .expect("failed to insert all contact");
@@ -309,7 +309,7 @@ mod tests {
         ];
 
         let mut routing_table =
-            UnlimitedUNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
         routing_table
             .extend(false, contacts.clone())
             .expect("failed to insert all contact");
@@ -337,7 +337,7 @@ mod tests {
         ];
 
         let mut routing_table =
-            UnlimitedUNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
         routing_table
             .extend(false, contacts.clone())
             .expect("failed to insert all contact");
@@ -370,7 +370,7 @@ mod tests {
         let contacts = vec![invalid_neighbor, invalid_contact];
 
         let mut routing_table =
-            UnlimitedUNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
         routing_table
             .extend(false, contacts.clone())
             .expect("failed to insert all contact");

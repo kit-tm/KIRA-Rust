@@ -40,9 +40,9 @@ impl Nonce {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum ProtocolMessage {
-    Hello(HelloMessage),
-    PNDiscReq(ReqRspMessage<RTableData>),
-    PNDiscRsp(ReqRspMessage<RTableData>),
+    ULNHello(HelloMessage),
+    ULNDiscReq(ReqRspMessage<RTableData>),
+    ULNDiscRsp(ReqRspMessage<RTableData>),
     QueryRouteReq(ReqRspMessage<QueryRouteReqData>),
     QueryRouteRsp(ReqRspMessage<RTableData>),
     FindNodeReq(ReqRspMessage<FindNodeReqData>),
@@ -63,9 +63,9 @@ pub enum ProtocolMessage {
 impl ProtocolMessage {
     pub fn source_route_mut(&mut self) -> Option<&mut SourceRoute> {
         match self {
-            Self::Hello(_) => None,
-            Self::PNDiscReq(req) => Some(&mut req.source_route),
-            Self::PNDiscRsp(req) => Some(&mut req.source_route),
+            Self::ULNHello(_) => None,
+            Self::ULNDiscReq(req) => Some(&mut req.source_route),
+            Self::ULNDiscRsp(req) => Some(&mut req.source_route),
             Self::QueryRouteReq(req) => Some(&mut req.source_route),
             Self::QueryRouteRsp(req) => Some(&mut req.source_route),
             Self::FindNodeReq(req) => Some(&mut req.source_route),
@@ -85,9 +85,9 @@ impl ProtocolMessage {
 
     pub fn source_route(&self) -> Option<&SourceRoute> {
         match self {
-            Self::Hello(_) => None,
-            Self::PNDiscReq(req) => Some(&req.source_route),
-            Self::PNDiscRsp(req) => Some(&req.source_route),
+            Self::ULNHello(_) => None,
+            Self::ULNDiscReq(req) => Some(&req.source_route),
+            Self::ULNDiscRsp(req) => Some(&req.source_route),
             Self::QueryRouteReq(req) => Some(&req.source_route),
             Self::QueryRouteRsp(req) => Some(&req.source_route),
             Self::FindNodeReq(req) => Some(&req.source_route),
@@ -108,9 +108,9 @@ impl ProtocolMessage {
     /// Next hop overlay nodes [NodeId].
     pub fn destination(&self) -> Option<&NodeId> {
         match self {
-            Self::Hello(_) => None,
-            Self::PNDiscReq(req) => Some(req.destination()),
-            Self::PNDiscRsp(req) => Some(req.destination()),
+            Self::ULNHello(_) => None,
+            Self::ULNDiscReq(req) => Some(req.destination()),
+            Self::ULNDiscRsp(req) => Some(req.destination()),
             Self::QueryRouteReq(req) => Some(req.destination()),
             Self::QueryRouteRsp(req) => Some(req.destination()),
             Self::FindNodeReq(req) => Some(req.destination()),
@@ -130,9 +130,9 @@ impl ProtocolMessage {
 
     pub fn nonce(&self) -> Option<&Nonce> {
         match self {
-            Self::Hello(_) => None,
-            Self::PNDiscReq(req) => Some(&req.nonce),
-            Self::PNDiscRsp(req) => Some(&req.nonce),
+            Self::ULNHello(_) => None,
+            Self::ULNDiscReq(req) => Some(&req.nonce),
+            Self::ULNDiscRsp(req) => Some(&req.nonce),
             Self::QueryRouteReq(req) => Some(&req.nonce),
             Self::QueryRouteRsp(req) => Some(&req.nonce),
             Self::FindNodeReq(req) => Some(&req.nonce),
@@ -152,9 +152,9 @@ impl ProtocolMessage {
 
     pub fn source(&self) -> &NodeId {
         match self {
-            Self::Hello(req) => &req.source,
-            Self::PNDiscReq(req) => req.source(),
-            Self::PNDiscRsp(req) => req.source(),
+            Self::ULNHello(req) => &req.source,
+            Self::ULNDiscReq(req) => req.source(),
+            Self::ULNDiscRsp(req) => req.source(),
             Self::QueryRouteReq(req) => req.source(),
             Self::QueryRouteRsp(req) => req.source(),
             Self::FindNodeReq(req) => req.source(),
@@ -182,9 +182,9 @@ impl ProtocolMessage {
 
     pub fn source_state_seq_nr(&self) -> &StateSeqNr {
         match self {
-            Self::Hello(req) => &req.source_state_seq_nr,
-            Self::PNDiscReq(req) => &req.source_state_seq_nr,
-            Self::PNDiscRsp(req) => &req.source_state_seq_nr,
+            Self::ULNHello(req) => &req.source_state_seq_nr,
+            Self::ULNDiscReq(req) => &req.source_state_seq_nr,
+            Self::ULNDiscRsp(req) => &req.source_state_seq_nr,
             Self::QueryRouteReq(req) => &req.source_state_seq_nr,
             Self::QueryRouteRsp(req) => &req.source_state_seq_nr,
             Self::FindNodeReq(req) => &req.source_state_seq_nr,
@@ -204,9 +204,9 @@ impl ProtocolMessage {
 
     pub fn not_via(&self) -> Option<&HashSet<NotVia>> {
         match self {
-            Self::Hello(_) => None,
-            Self::PNDiscReq(req) => Some(&req.not_via),
-            Self::PNDiscRsp(req) => Some(&req.not_via),
+            Self::ULNHello(_) => None,
+            Self::ULNDiscReq(req) => Some(&req.not_via),
+            Self::ULNDiscRsp(req) => Some(&req.not_via),
             Self::QueryRouteReq(req) => Some(&req.not_via),
             Self::QueryRouteRsp(req) => Some(&req.not_via),
             Self::FindNodeReq(req) => Some(&req.not_via),
@@ -236,7 +236,7 @@ impl ProtocolMessage {
 
     /// Current hop of the message.
     ///
-    /// Is only [Option::None] if the message has no source route (PNHello).
+    /// Is only [Option::None] if the message has no source route (ULNHello).
     pub fn current_hop(&self) -> Option<&NodeId> {
         self.source_route().map(|sr| sr.current_hop())
     }
@@ -248,7 +248,7 @@ impl ProtocolMessage {
     }
 }
 
-/// Data struct representing the PNHello protocol message only exchanged
+/// Data struct representing the ULNHello protocol message only exchanged
 /// between underlay neighbors.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -259,7 +259,7 @@ pub struct HelloMessage {
 
 impl From<HelloMessage> for ProtocolMessage {
     fn from(message: HelloMessage) -> Self {
-        Self::Hello(message)
+        Self::ULNHello(message)
     }
 }
 

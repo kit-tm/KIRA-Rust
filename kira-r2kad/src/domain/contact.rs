@@ -107,7 +107,7 @@ impl Contact {
     }
 
     /// Returns if the [Contact] represents a underlay neighbor.
-    pub fn is_pn(&self) -> bool {
+    pub fn is_uln(&self) -> bool {
         // FIXME: Invariant is, that path doesn't contain the own node_id. whole_path Method is for that.
         self.path.size() == 1
     }

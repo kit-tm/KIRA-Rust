@@ -7,22 +7,22 @@ use crate::use_cases::UseCaseContext;
 
 /// Implements a [UseCaseContext] which can only be used in a single threaded synchronous environment.
 #[derive(Debug)]
-pub struct SyncContext<RT, RU, IS, PN> {
+pub struct SyncContext<RT, RU, IS, UN> {
     root_id: NodeId,
     routing_table: RefCell<RT>,
     insertion_strategy: RefCell<IS>,
-    un_table: RefCell<PN>,
+    un_table: RefCell<UN>,
     runtime: RU,
     not_via: RefCell<HashSet<NotVia>>,
 }
 
-impl<RT, RU, IS, PN> UseCaseContext for SyncContext<RT, RU, IS, PN> {
+impl<RT, RU, IS, UN> UseCaseContext for SyncContext<RT, RU, IS, UN> {
     type RoutingTable = RT;
     type Runtime = RU;
     type InsertionStrategy = IS;
-    type UnderlayNeighborTable = PN;
+    type UnderlayNeighborTable = UN;
 
-    fn new(config: ContextConfig<RT, RU, IS, PN>) -> Self {
+    fn new(config: ContextConfig<RT, RU, IS, UN>) -> Self {
         Self {
             root_id: config.root_id,
             routing_table: RefCell::new(config.routing_table),
@@ -49,11 +49,11 @@ impl<RT, RU, IS, PN> UseCaseContext for SyncContext<RT, RU, IS, PN> {
         self.insertion_strategy.borrow_mut()
     }
 
-    fn un_table(&self) -> Ref<'_, Self::UnderlayNeighborTable> {
+    fn uln_table(&self) -> Ref<'_, Self::UnderlayNeighborTable> {
         self.un_table.borrow()
     }
 
-    fn un_table_mut(&self) -> RefMut<'_, Self::UnderlayNeighborTable> {
+    fn uln_table_mut(&self) -> RefMut<'_, Self::UnderlayNeighborTable> {
         self.un_table.borrow_mut()
     }
 

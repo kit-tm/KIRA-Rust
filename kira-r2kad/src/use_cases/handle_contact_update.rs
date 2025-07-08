@@ -5,7 +5,7 @@ use std::ops::Deref;
 use tracing::{instrument, Level};
 
 use crate::domain::{
-    Contact, ContactState, NodeId, NotVia, RoutingTable, UNTable, UnderlayNeighborId,
+    Contact, ContactState, NodeId, NotVia, RoutingTable, ULNTable, UnderlayNeighborId,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{RouteUpdate, UpdateRouteReq};
@@ -67,7 +67,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     fn send_update(&self, context: &C, updates: HashMap<Contact, RouteUpdate>) {
         let overlay_neighbors = context
@@ -81,7 +81,7 @@ where
 
         for (_, contact) in overlay_neighbors {
             let message = UpdateRouteReq {
-                source_state_seq_nr: *context.un_table().state_seq_nr(),
+                source_state_seq_nr: *context.uln_table().state_seq_nr(),
                 not_via: context.not_via().clone(),
                 contact_actions: updates.clone(),
                 source_route: SourceRoute::new(*context.root_id(), contact.path().clone()),
@@ -89,7 +89,7 @@ where
 
             context
                 .runtime()
-                .send_message(message, context.un_table().deref());
+                .send_message(message, context.uln_table().deref());
         }
     }
 
@@ -108,7 +108,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = NeverError;
@@ -131,8 +131,8 @@ where
         match event {
             UseCaseEvent::Contact(ContactEvent::Removed(contact)) => {
                 // only send update if underlay neighbor got removed
-                // this doesn't happen in reality since we use the UnlimitedPNRoutingTable
-                if contact.is_pn() {
+                // this doesn't happen in reality since we use the UnlimitedULNRoutingTable
+                if contact.is_uln() {
                     let mut updates = HashMap::new();
                     updates.insert(contact.clone(), RouteUpdate::Removed);
 
@@ -148,7 +148,7 @@ where
 
                 self.invalidate_all_affected_contacts(context, &contact);
 
-                if context.un_table_mut().remove(contact.id()).is_some() {
+                if context.uln_table_mut().remove(contact.id()).is_some() {
                     log::trace!(target: "handle_contact_update", "removed {} from underlay neighbors", contact.id());
                 }
             }

@@ -8,7 +8,7 @@ use tracing::{instrument, Level};
 
 use derive_more::Display;
 
-use crate::domain::{node_id, GroupingError, NodeId, RoutingTable, UNTable, UnderlayNeighborId};
+use crate::domain::{node_id, GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{FindNodeReqData, Nonce, ProtocolMessage, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
@@ -151,7 +151,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
-    C::UnderlayNeighborTable: UNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     /// Sets a new timer accordingly and sends a new FindNodeReq
     /// if exponential backoff allows it.
@@ -192,7 +193,7 @@ where
         *latest = Some(nonce.clone());
 
         // No need for discovery if isolated
-        if context.un_table().is_empty() {
+        if context.uln_table().is_empty() {
             log::warn!(target: "overlay_neighborhood_discovery",
                 "No underlay neighbors present; Node is isolated"
             );
@@ -217,7 +218,7 @@ where
                 target: "overlay_neighborhood_discovery",
                 "Underlay neighbors are present, but no contacts; Assuming isolation due to invalid neighbors. RT: {:?}, NT: {:?}",
                 *context.routing_table(),
-                *context.un_table()
+                *context.uln_table()
             );
             return Err(ONDError::NeighborInconsistency);
         }
@@ -227,7 +228,7 @@ where
 
         // Get the interface of the next underlay neighbor to route this request through
         let neighbor = route_to_closest_on.current_hop();
-        let interface = context.un_table().get(neighbor).cloned();
+        let interface = context.uln_table().get(neighbor).cloned();
         if interface.is_none() {
             log::error!(
                 target: "overlay_neighborhood_discovery",
@@ -240,7 +241,7 @@ where
 
         let request = ReqRspMessage {
             nonce,
-            source_state_seq_nr: *context.un_table().state_seq_nr(),
+            source_state_seq_nr: *context.uln_table().state_seq_nr(),
             data: FindNodeReqData {
                 exact: false,
                 neighborhood: self.config.overlay_neighborhood_size,
@@ -258,7 +259,7 @@ where
 
         context
             .runtime()
-            .send_message(request, context.un_table().deref());
+            .send_message(request, context.uln_table().deref());
 
         // Start next backoff timer
         *timer_id = context.runtime().register_timer(next_backoff);
@@ -269,7 +270,7 @@ where
 
 #[derive(Debug, Eq, PartialEq, Clone, Display)]
 pub enum ONDError {
-    #[display("Missing contact in routing or pn table; Is the node isolated?")]
+    #[display("Missing contact in routing or ulntable; Is the node isolated?")]
     NeighborInconsistency,
 }
 
@@ -279,7 +280,8 @@ where
     C::Runtime: UseCaseRuntime,
     // Isn't used yet, but provides information for the compiler to derive the BUCKET_SIZE from RT
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
-    C::UnderlayNeighborTable: UNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = ONDState;
 
@@ -306,7 +308,8 @@ where
     C::Runtime: UseCaseRuntime,
     // Isn't used yet, but provides information for the compiler to derive the BUCKET_SIZE from RT
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
-    C::UnderlayNeighborTable: UNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = ONDError;

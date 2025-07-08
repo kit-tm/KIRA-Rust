@@ -1,5 +1,5 @@
 use crate::domain::simplifier::PathSimplifier;
-use crate::domain::{ContactState, Path, RoutingTable, UNTable};
+use crate::domain::{ContactState, Path, RoutingTable, ULNTable};
 
 #[derive(Debug)]
 pub struct ShortestFirstPathSimplifier;
@@ -7,14 +7,14 @@ pub struct ShortestFirstPathSimplifier;
 impl PathSimplifier for ShortestFirstPathSimplifier {
     /// Simplifies the [Path] by replacing parts of it with known
     /// shorter [Path]s.
-    fn simplify<RT, PN, const BUCKET_SIZE: usize>(
+    fn simplify<RT, UN, const BUCKET_SIZE: usize>(
         &mut self,
         routing_table: &RT,
-        un_table: &PN,
+        uln_table: &UN,
         path: &mut Path,
     ) where
         for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
-        PN: UNTable,
+        UN: ULNTable,
     {
         // Already a underlay neighbor, can't be shortened
         if path.size() <= 1 {
@@ -31,7 +31,7 @@ impl PathSimplifier for ShortestFirstPathSimplifier {
             let dest_id = path[dest_index];
 
             // Replace if target is a underlay neighbor
-            if un_table.contains(&dest_id) {
+            if uln_table.contains(&dest_id) {
                 path.replace_interval(0, dest_index, [dest_id]);
                 // Breaking, as the remaining path to check is replaced by the underlay neighbors path
                 break;

@@ -5,7 +5,7 @@ use derive_more::derive::{Display, Error};
 use tracing::{span, Level};
 
 use crate::context::UseCaseContext;
-use crate::domain::{InsertionStrategy, NodeId, RoutingTable, UNTable, UnderlayNeighborId};
+use crate::domain::{InsertionStrategy, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::handle_api::HandleApi;
 use crate::use_cases::handle_contact_update::HandleContactUpdate;
@@ -128,7 +128,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     C::UnderlayNeighborTable:
-        UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + std::fmt::Debug,
+        ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + std::fmt::Debug,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + std::fmt::Debug,
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::UnderlayNeighborTable, BUCKET_SIZE>,
 {

@@ -141,19 +141,19 @@ where
     ) -> Result<NodeIdEntry, DeriveFwdEntriesError> {
         let next_hop = *contact.path().first();
         let next_hop = context
-            .un_table()
+            .uln_table()
             .get(&next_hop)
             .copied()
-            .ok_or(DeriveFwdEntriesError::NeighborNotInPNTable(next_hop))?;
+            .ok_or(DeriveFwdEntriesError::NeighborNotInULNTable(next_hop))?;
 
-        if context.un_table().contains_key(contact.id()) && !contact.is_pn() {
+        if context.uln_table().contains_key(contact.id()) && !contact.is_uln() {
             log::warn!(target: "derive_fwd_table_entries", 
-                "Contact {:?} is not a underlay neighbor but listed in PNTable -> may overwrite previous route unintentionally!", 
+                "Contact {:?} is not a underlay neighbor but listed in ULNTable -> may overwrite previous route unintentionally!", 
                 contact);
-            return Err(DeriveFwdEntriesError::NonPNInPNTable(contact.clone()));
+            return Err(DeriveFwdEntriesError::NonUNInULNTable(contact.clone()));
         }
 
-        if contact.is_pn() {
+        if contact.is_uln() {
             Ok(NodeIdEntry::Forward(NodeIdForwardingEntry {
                 destination: NodeIdSubnet::new(*contact.id()),
                 next_hop,
@@ -187,12 +187,12 @@ where
 
             let next_hop = *closest.path().first();
             let next_hop = context
-                .un_table()
+                .uln_table()
                 .get(&next_hop)
                 .copied()
-                .ok_or(DeriveFwdEntriesError::NeighborNotInPNTable(next_hop))?;
+                .ok_or(DeriveFwdEntriesError::NeighborNotInULNTable(next_hop))?;
 
-            if closest.is_pn() {
+            if closest.is_uln() {
                 return Ok(Some(NodeIdEntry::Forward(NodeIdForwardingEntry {
                     destination: subnet,
                     next_hop,
@@ -296,7 +296,7 @@ where
         // locally generated packets, the following line can be uncommented to allow
         // enabling early decapsulation.
 
-        // if contact.id() == context.root_id() || contact.is_pn() {
+        // if contact.id() == context.root_id() || contact.is_uln() {
         if contact.id() == context.root_id() {
             let result = PathIdEntry::Decapsulate(PathIdDecapsulationEntry {
                 in_path_id,
@@ -308,10 +308,10 @@ where
         } else {
             let next_hop = *contact.path().first();
             let next_hop = context
-                .un_table()
+                .uln_table()
                 .get(&next_hop)
                 .copied()
-                .ok_or(DeriveFwdEntriesError::NeighborNotInPNTable(next_hop))?;
+                .ok_or(DeriveFwdEntriesError::NeighborNotInULNTable(next_hop))?;
             let out_path_id = self.config.hasher.hash(contact.path());
 
             let result = PathIdEntry::Forward(PathIdForwardingEntry {
@@ -424,10 +424,10 @@ where
 
 #[derive(Debug, Display)]
 pub enum DeriveFwdEntriesError {
-    #[display("Neighbor listed in contacts path not in PNTable: {_0}")]
-    NeighborNotInPNTable(NodeId),
-    #[display("Contact is not a underlay neighbor but listed in PNTable: {_0}")]
-    NonPNInPNTable(Contact),
+    #[display("Neighbor listed in contacts path not in ULNTable: {_0}")]
+    NeighborNotInULNTable(NodeId),
+    #[display("Contact is not a underlay neighbor but listed in ULNTable: {_0}")]
+    NonUNInULNTable(Contact),
 }
 impl Error for DeriveFwdEntriesError {}
 

@@ -46,13 +46,13 @@ pub trait UseCaseRuntime {
     fn send_message<P: Into<ProtocolMessage>>(
         &self,
         protocol_message: P,
-        pntable: &impl Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+        ulntable: &impl Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     ) {
         let protocol_message: ProtocolMessage = protocol_message.into();
-        // WARNING: also broadcasting to neighbors not present in the pntable
+        // WARNING: also broadcasting to neighbors not present in the ulntable
         let underlay_dest = protocol_message
             .current_hop()
-            .and_then(|next_hop| pntable.get(next_hop))
+            .and_then(|next_hop| ulntable.get(next_hop))
             .copied()
             .into();
 

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt::Debug, ops::Deref};
 
 use crate::{
-    domain::{NodeId, Path, RoutingTable, UNTable, UnderlayNeighborId},
+    domain::{NodeId, Path, RoutingTable, ULNTable, UnderlayNeighborId},
     messaging::{
         dht::{DefaultLHTInput, FetchReqData, StoreReqData},
         source_route::SourceRoute,
@@ -31,7 +31,7 @@ pub(crate) fn construct_req_rsp_msg<C, T, const BUCKET_SIZE: usize>(
 where
     C: UseCaseContext,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: UNTable,
+    C::UnderlayNeighborTable: ULNTable,
     T: Debug,
 {
     // todo support other shared_prefix_grouping via config
@@ -52,7 +52,7 @@ where
     let source_route = SourceRoute::new(*context.root_id(), path);
 
     ReqRspMessage {
-        source_state_seq_nr: *context.un_table().state_seq_nr(),
+        source_state_seq_nr: *context.uln_table().state_seq_nr(),
         not_via: context.not_via().clone(),
         data,
         nonce,
@@ -68,7 +68,7 @@ pub(crate) fn send_store_req<C, const BUCKET_SIZE: usize>(
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     let message = construct_req_rsp_msg(context, nonce, &data.handle.clone(), data);
 
@@ -87,7 +87,7 @@ pub(crate) fn send_store_req<C, const BUCKET_SIZE: usize>(
 
     context
         .runtime()
-        .send_message(message, context.un_table().deref());
+        .send_message(message, context.uln_table().deref());
 }
 
 pub(crate) fn send_fetch_req<C, const BUCKET_SIZE: usize>(
@@ -99,7 +99,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     let message = construct_req_rsp_msg(context, nonce, &data.handle.clone(), data);
 
@@ -119,6 +119,6 @@ where
 
     context
         .runtime()
-        .send_message(message, context.un_table().deref());
+        .send_message(message, context.uln_table().deref());
     Ok(())
 }

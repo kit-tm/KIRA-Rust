@@ -6,7 +6,7 @@ use std::ops::Deref;
 use std::time::Instant;
 use tracing::{instrument, Level};
 
-use crate::domain::{dht, NodeId, RoutingTable, UNTable, UnderlayNeighborId};
+use crate::domain::{dht, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
 use crate::use_cases::{
     EventHandler, FetchInjectData, InjectionMessageData, OneshotInjectMessageCallback,
     StoreInjectData, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime, UseCaseState,
@@ -161,7 +161,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = InjectMessageError;
@@ -267,7 +267,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = DHTInjectorState;
 

@@ -1,18 +1,18 @@
 use crate::domain::{NodeId, StateSeqNr, UnderlayNeighborId};
-pub use in_memory_underlay_neighbor_table::InMemoryPNTable;
+pub use in_memory_underlay_neighbor_table::InMemoryULNTable;
 
 mod in_memory_underlay_neighbor_table;
 
-/// A [UNTable] models the underlay neighbor table.
+/// A [ULNTable] models the underlay neighbor table.
 ///
 /// ## Invariants
 ///
-/// * The output of [`state_seq_nr`][Self::state_seq_nr] should change every time the [UNTable] is mutated.
-pub trait UNTable {
+/// * The output of [`state_seq_nr`][Self::state_seq_nr] should change every time the [ULNTable] is mutated.
+pub trait ULNTable {
     /// Adds a Mapping to the table returning the [UnderlayNeighborId] previously mapped to the [NodeId].
     fn insert(&mut self, id: NodeId, ulnid: UnderlayNeighborId) -> Option<UnderlayNeighborId>;
 
-    /// Returns if a Mapping for the [NodeId] is present in the [UNTable].
+    /// Returns if a Mapping for the [NodeId] is present in the [ULNTable].
     fn contains(&self, id: &NodeId) -> bool;
 
     /// Returns the state sequence number.
@@ -31,7 +31,7 @@ mod tests {
 
     use super::*;
 
-    pub fn ssn_on_insert<P: UNTable>(mut table: P) {
+    pub fn ssn_on_insert<P: ULNTable>(mut table: P) {
         let id = NodeId::zero();
         let neighbor = NonZeroUsize::new(42).unwrap().into();
 
@@ -45,7 +45,7 @@ mod tests {
         )
     }
 
-    pub fn ssn_on_remove<P: UNTable>(mut table: P) {
+    pub fn ssn_on_remove<P: ULNTable>(mut table: P) {
         let id = NodeId::zero();
         let neighbor = NonZeroUsize::new(42).unwrap().into();
 
@@ -61,7 +61,7 @@ mod tests {
         )
     }
 
-    pub fn ssn_on_fake_remove<P: UNTable>(mut table: P) {
+    pub fn ssn_on_fake_remove<P: ULNTable>(mut table: P) {
         let id = NodeId::zero();
 
         let before_ssn = *table.state_seq_nr();

@@ -5,7 +5,7 @@ use std::ops::Deref;
 use tracing::{instrument, Level};
 
 use crate::domain::{
-    node_id, Contact, GroupingError, NodeId, NotVia, RoutingTable, StateSeqNr, UNTable,
+    node_id, Contact, GroupingError, NodeId, NotVia, RoutingTable, StateSeqNr, ULNTable,
     UnderlayNeighborId, DEFAULT_BUCKET_SIZE,
 };
 use crate::messaging::source_route::SourceRoute;
@@ -113,7 +113,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = NeverError;
@@ -188,7 +188,7 @@ where
                     self.build_find_node_rsp(
                         context.not_via().clone(),
                         req.clone(),
-                        *context.un_table().state_seq_nr(),
+                        *context.uln_table().state_seq_nr(),
                         closest,
                     )
                 }
@@ -210,14 +210,14 @@ where
                         self.build_error(
                             context.not_via().clone(),
                             req.clone(),
-                            *context.un_table().state_seq_nr(),
+                            *context.uln_table().state_seq_nr(),
                         )
                     }
                 }
                 (true, _, false, None) => self.build_error(
                     context.not_via().clone(),
                     req.clone(),
-                    *context.un_table().state_seq_nr(),
+                    *context.uln_table().state_seq_nr(),
                 ),
                 (false, _, true, _) => {
                     log::warn!(
@@ -247,7 +247,7 @@ where
                         self.build_find_node_rsp(
                             context.not_via().clone(),
                             req.clone(),
-                            *context.un_table().state_seq_nr(),
+                            *context.uln_table().state_seq_nr(),
                             closest,
                         )
                     }
@@ -255,14 +255,14 @@ where
                 (false, _, false, None) => self.build_find_node_rsp(
                     context.not_via().clone(),
                     req.clone(),
-                    *context.un_table().state_seq_nr(),
+                    *context.uln_table().state_seq_nr(),
                     Vec::with_capacity(0),
                 ),
             };
 
             context
                 .runtime()
-                .send_message(outgoing_message, context.un_table().deref());
+                .send_message(outgoing_message, context.uln_table().deref());
         }
 
         Ok(())

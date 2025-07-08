@@ -7,7 +7,7 @@ use std::time::Instant;
 use tracing::{instrument, Level};
 
 use crate::domain::{
-    node_id, GroupingError, NodeId, RoutingTable, UNTable, UnderlayNeighborId,
+    node_id, GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId,
     UnderlayNeighborSource,
 };
 use crate::messaging::source_route::SourceRoute;
@@ -135,7 +135,7 @@ where
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     TS: InjectionResultSender,
-    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = InjectMessageError;
@@ -197,7 +197,7 @@ where
 
                 let message = ProtocolMessage::FindNodeReq(ReqRspMessage {
                     nonce: nonce.clone(),
-                    source_state_seq_nr: *context.un_table().state_seq_nr(),
+                    source_state_seq_nr: *context.uln_table().state_seq_nr(),
                     data,
                     not_via: context.not_via().clone(),
                     source_route,
@@ -205,7 +205,7 @@ where
 
                 context
                     .runtime()
-                    .send_message(message, context.un_table().deref());
+                    .send_message(message, context.uln_table().deref());
 
                 self.nonces.insert(nonce, Instant::now());
             }
@@ -236,7 +236,7 @@ where
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     TS: InjectionResultSender,
-    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = ReactiveUseCaseState;
 

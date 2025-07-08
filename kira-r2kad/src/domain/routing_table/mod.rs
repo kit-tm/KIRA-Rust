@@ -7,7 +7,7 @@ pub mod flat_routing_table;
 pub mod observable_routing_table;
 #[cfg(test)]
 pub mod single_bucket;
-pub mod unlimited_pn_routing_table;
+pub mod unlimited_uln_routing_table;
 
 #[derive(Debug, Eq, PartialEq, Display, Error)]
 pub enum AddError {
@@ -54,7 +54,7 @@ impl From<BucketSplitError> for InsertionError {
 /// As some RoutingTable implementation may handle underlay neighbors in a different way
 /// the caller has to be careful when using [RoutingTable::bucket] and [RoutingTable::bucket_mut].
 /// In structures like
-/// [UnlimitedPNRoutingTable](crate::domain::routing_table::unlimited_pn_routing_table::UnlimitedPNRoutingTable) the Neighbors
+/// [UnlimitedULNRoutingTable](crate::domain::routing_table::unlimited_uln_routing_table::UnlimitedULNRoutingTable) the Neighbors
 /// may not be included in the buckets.
 ///
 /// As mostly accessing the buckets directly only happens if Insertion fails, this will ne problem.

@@ -57,8 +57,8 @@ where
             UseCaseEvent::API(super::ApiEvent::RoutingTable(sender)) => {
                 sender.send(format!("{:#?}", *context.routing_table()))?;
             }
-            UseCaseEvent::API(super::ApiEvent::PNTable(sender)) => {
-                sender.send(format!("{:#?}", *context.un_table()))?;
+            UseCaseEvent::API(super::ApiEvent::ULNTable(sender)) => {
+                sender.send(format!("{:#?}", *context.uln_table()))?;
             }
             _ => {}
         }

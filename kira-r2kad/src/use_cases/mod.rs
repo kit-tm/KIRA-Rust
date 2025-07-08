@@ -89,7 +89,7 @@ impl PartialEq for InjectionMessageData {
 #[derive(Debug, Clone)]
 pub enum ApiEvent {
     LocalHashTable(mpsc::UnboundedSender<Result<Vec<(NodeId, DefaultLHTOutput)>, FetchErr>>),
-    PNTable(mpsc::UnboundedSender<String>),
+    ULNTable(mpsc::UnboundedSender<String>),
     RoutingTable(mpsc::UnboundedSender<String>),
     VicinityGraph(mpsc::UnboundedSender<String>),
 }
@@ -102,8 +102,8 @@ impl PartialEq for ApiEvent {
                     return sender.same_channel(other_sender);
                 }
             }
-            ApiEvent::PNTable(sender) => {
-                if let ApiEvent::PNTable(other_sender) = other {
+            ApiEvent::ULNTable(sender) => {
+                if let ApiEvent::ULNTable(other_sender) = other {
                     return sender.same_channel(other_sender);
                 }
             }

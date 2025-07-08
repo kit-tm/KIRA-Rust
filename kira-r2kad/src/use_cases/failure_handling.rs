@@ -7,7 +7,7 @@ use tracing::{instrument, Level};
 use derive_more::derive::{Display, Error};
 
 use crate::domain::{
-    Contact, ContactState, Link, NodeId, NotVia, RoutingTable, UNTable, UnderlayNeighborId,
+    Contact, ContactState, Link, NodeId, NotVia, RoutingTable, ULNTable, UnderlayNeighborId,
     UnderlayNeighborUpdate,
 };
 use crate::messaging::source_route::SourceRoute;
@@ -84,7 +84,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     /// Remove all NotVia Data which is related to the contact
     fn remove_notvia_mentioning(&self, context: &C, contact_id: &NodeId) {
@@ -105,7 +105,7 @@ where
     }
 
     fn get_distance_to(&self, context: &C, id: &NodeId) -> Distance {
-        if context.un_table().contains(id) {
+        if context.uln_table().contains(id) {
             return Distance::UnderlayNeighbor;
         }
 
@@ -143,7 +143,7 @@ where
         updates.insert(contact.clone(), RouteUpdate::Updated);
         for (_, closest_overlay_neighbor) in closest {
             let update_route_message = UpdateRouteReq {
-                source_state_seq_nr: *context.un_table().state_seq_nr(),
+                source_state_seq_nr: *context.uln_table().state_seq_nr(),
                 not_via: context.not_via().clone(),
                 contact_actions: updates.clone(),
                 source_route: SourceRoute::new(
@@ -154,7 +154,7 @@ where
 
             context
                 .runtime()
-                .send_message(update_route_message, context.un_table().deref());
+                .send_message(update_route_message, context.uln_table().deref());
         }
 
         let closest = context
@@ -207,7 +207,7 @@ where
 
         let find_node_request = ReqRspMessage {
             nonce,
-            source_state_seq_nr: *context.un_table().state_seq_nr(),
+            source_state_seq_nr: *context.uln_table().state_seq_nr(),
             data: FindNodeReqData {
                 exact: true,
                 neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
@@ -219,7 +219,7 @@ where
 
         context
             .runtime()
-            .send_message(find_node_request, context.un_table().deref());
+            .send_message(find_node_request, context.uln_table().deref());
 
         log::trace!(target: "failure_handling", "Sent rediscovery find node for {} to {} [retry {} of {}]", contact.id(), closest_contact.id(), exponential_backoff.current_retries, exponential_backoff.max_retries);
 
@@ -243,7 +243,7 @@ where
             None => {
                 log::debug!(target: "failure_handling", "No closest contacts found. Assuming isolation.");
                 context.routing_table_mut().remove(node_id);
-                context.un_table_mut().remove(node_id);
+                context.uln_table_mut().remove(node_id);
                 self.rediscoveries.remove(node_id);
                 return Ok(());
             }
@@ -257,7 +257,7 @@ where
         let next_duration = backoff.unwrap().next();
         if next_duration.is_none() {
             log::debug!(target: "failure_handling", "Rediscovery of {} failed. Removing from routing table", node_id);
-            context.un_table_mut().remove(node_id);
+            context.uln_table_mut().remove(node_id);
             context.routing_table_mut().remove(node_id);
             self.remove_notvia_mentioning(context, node_id);
             self.rediscoveries.remove(node_id);
@@ -294,7 +294,7 @@ where
         };
         let find_node_request = ReqRspMessage {
             nonce,
-            source_state_seq_nr: *context.un_table().state_seq_nr(),
+            source_state_seq_nr: *context.uln_table().state_seq_nr(),
             data: FindNodeReqData {
                 exact: true,
                 neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
@@ -306,7 +306,7 @@ where
 
         context
             .runtime()
-            .send_message(find_node_request, context.un_table().deref());
+            .send_message(find_node_request, context.uln_table().deref());
 
         // Just some logging, if logging is disabled this will be eliminated through dead code elimination
         if let Some(exponential_backoff) = self.rediscoveries.get(node_id) {
@@ -322,7 +322,7 @@ where
         let mut not_via = context.not_via_mut();
 
         let affected_neighbors = context
-            .un_table()
+            .uln_table()
             .iter()
             .filter_map(|(id, via)| if via == &ulnid { Some(*id) } else { None })
             .collect::<HashSet<_>>();
@@ -345,7 +345,7 @@ where
         }
 
         for neighbor in affected_neighbors.iter() {
-            context.un_table_mut().remove(neighbor);
+            context.uln_table_mut().remove(neighbor);
         }
     }
 }
@@ -355,7 +355,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = FailureHandlingError;
@@ -440,7 +440,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = ReactiveUseCaseState;
 

@@ -49,9 +49,9 @@ pub trait UseCaseContext {
 
     fn routing_table_insertion_strategy(&self) -> RefMut<'_, Self::InsertionStrategy>;
 
-    fn un_table(&self) -> Ref<'_, Self::UnderlayNeighborTable>;
+    fn uln_table(&self) -> Ref<'_, Self::UnderlayNeighborTable>;
 
-    fn un_table_mut(&self) -> RefMut<'_, Self::UnderlayNeighborTable>;
+    fn uln_table_mut(&self) -> RefMut<'_, Self::UnderlayNeighborTable>;
 
     fn runtime(&self) -> &Self::Runtime;
 

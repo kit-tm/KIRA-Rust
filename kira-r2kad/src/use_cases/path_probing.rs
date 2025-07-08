@@ -5,7 +5,7 @@ use std::time::Duration;
 use tracing::{instrument, Level};
 
 use crate::domain::{
-    Contact, ContactState, NodeId, RoutingTable, UNTable, UnderlayNeighborId, DEFAULT_BUCKET_SIZE,
+    Contact, ContactState, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, DEFAULT_BUCKET_SIZE,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{Nonce, ProbeReqData, ProbeRspData, ProtocolMessage, ReqRspMessage};
@@ -88,7 +88,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     // Send ProbeReqs to two oldest valid contacts per bucket
     fn send_probe_reqs(&mut self, context: &C) {
@@ -100,7 +100,7 @@ where
                     contact.last_seen().to_age_duration() >= self.config.probe_age &&
                         contact.state() == &ContactState::Valid &&
                         // should never be the case
-                        !contact.is_pn()
+                        !contact.is_uln()
                 })
                 .collect();
 
@@ -136,14 +136,14 @@ where
         route.push_front(*context.root_id());
         let message = ReqRspMessage {
             nonce: nonce.clone(),
-            source_state_seq_nr: *context.un_table().state_seq_nr(),
+            source_state_seq_nr: *context.uln_table().state_seq_nr(),
             data: ProbeReqData,
             not_via: context.not_via().clone(),
             source_route: route,
         };
         context
             .runtime()
-            .send_message(message, context.un_table().deref());
+            .send_message(message, context.uln_table().deref());
 
         let timeout_timer = context
             .runtime()
@@ -229,14 +229,14 @@ where
         let source = *req.source();
         let message = ReqRspMessage {
             nonce: req.nonce,
-            source_state_seq_nr: *context.un_table().state_seq_nr(),
+            source_state_seq_nr: *context.uln_table().state_seq_nr(),
             data: ProbeRspData,
             not_via: context.not_via().clone(),
             source_route: SourceRoute::from_reversed(req.source_route),
         };
         context
             .runtime()
-            .send_message(message, context.un_table().deref());
+            .send_message(message, context.uln_table().deref());
 
         log::trace!(target: "path_probing", "Sent probe rsp to {}", source);
     }
@@ -270,7 +270,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type State = PathProbingState;
 
@@ -298,7 +298,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     type Context = C;
     type Error = NeverError;

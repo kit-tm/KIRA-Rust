@@ -27,7 +27,7 @@ use kira_forwarding::tables::{handle_r2kad_request, AsyncNodeIdTable, AsyncPathI
 use kira_r2kad::context::UseCaseContext;
 use kira_r2kad::runtime::UseCaseRuntime;
 use kira_r2kad::{
-    domain::{InsertionStrategy, NodeId, RoutingTable, UNTable, UnderlayNeighborId},
+    domain::{InsertionStrategy, NodeId, RoutingTable, ULNTable, UnderlayNeighborId},
     runtime::R2KadRuntime,
 };
 
@@ -201,7 +201,7 @@ where
     C::Runtime: Deref<Target = R2KadRuntime>,
     C::Runtime: UseCaseRuntime,
     C::UnderlayNeighborTable:
-        UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + std::fmt::Debug,
+        ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + std::fmt::Debug,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + std::fmt::Debug,
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::UnderlayNeighborTable, BUCKET_SIZE>,
 {

@@ -42,7 +42,7 @@ fn hello_response() {
         while let Some(output) = r2kad.poll_output() {
             // maybe we still fire some timers first and not only perceive a response to the request
             if matches!(output, Output::SendProtocolMessage(
-            ProtocolMessage::PNDiscReq(..),
+            ProtocolMessage::ULNDiscReq(..),
             UnderlayNeighborDestination::UnderlayNeighbor(neighbor_dest),
         ) if neighbor_dest == neighbor_id)
             {
@@ -53,16 +53,16 @@ fn hello_response() {
 
         assert!(
             expected_response,
-            "send direct PNDiscReq to originating neighbor",
+            "send direct ULNDiscReq to originating neighbor",
         );
     }
 
     // clear left over output
     while let Some(_out) = r2kad.poll_output() {}
 
-    // pn_disc_rsp
+    // uln_disc_rsp
     {
-        let pn_disc_rsp = ReqRspMessage {
+        let uln_disc_rsp = ReqRspMessage {
             nonce: Nonce::random(),
             source_state_seq_nr: StateSeqNr::from(1),
             data: RTableData {
@@ -71,11 +71,11 @@ fn hello_response() {
             not_via: Default::default(),
             source_route: SourceRoute::new(neighbor, Path::from(us)),
         };
-        let pn_disc_rsp = ProtocolMessage::PNDiscRsp(pn_disc_rsp);
+        let uln_disc_rsp = ProtocolMessage::ULNDiscRsp(uln_disc_rsp);
 
         r2kad
-            .handle_input(Input::Message(pn_disc_rsp, neighbor_id), Instant::now())
-            .expect("successfully handle PNDiscRsp from neighbor");
+            .handle_input(Input::Message(uln_disc_rsp, neighbor_id), Instant::now())
+            .expect("successfully handle ULNDiscRsp from neighbor");
 
         let mut expected_response = false;
         while let Some(output) = r2kad.poll_output() {
@@ -97,19 +97,19 @@ fn hello_response() {
     }
 }
 #[test]
-fn pn_disc_req_response() {
+fn uln_disc_req_response() {
     let us = NodeId::one();
 
     let neighbor = NodeId::zero();
     let neighbor_id = UnderlayNeighborId::try_from(1).unwrap();
-    let pn_disc_req = ReqRspMessage {
+    let uln_disc_req = ReqRspMessage {
         nonce: Nonce::random(),
         source_state_seq_nr: StateSeqNr::from(1),
         data: RTableData { contacts: vec![] },
         not_via: Default::default(),
         source_route: SourceRoute::new(neighbor, Path::from(us)),
     };
-    let pn_disc_req = ProtocolMessage::PNDiscReq(pn_disc_req);
+    let uln_disc_req = ProtocolMessage::ULNDiscReq(uln_disc_req);
 
     let mut r2kad = R2Kad::<SyncContext<_, _, _, _>, 20>::builder()
         .root_id(us)
@@ -120,18 +120,18 @@ fn pn_disc_req_response() {
     while let Some(_out) = r2kad.poll_output() {}
 
     r2kad
-        .handle_input(Input::Message(pn_disc_req, neighbor_id), Instant::now())
+        .handle_input(Input::Message(uln_disc_req, neighbor_id), Instant::now())
         .expect("successfully handle HelloMessage from neighbor");
 
     let mut discovery_dest = None;
     while let Some(output) = r2kad.poll_output() {
-        if let Output::SendProtocolMessage(ProtocolMessage::PNDiscRsp(..), dest) = output {
+        if let Output::SendProtocolMessage(ProtocolMessage::ULNDiscRsp(..), dest) = output {
             discovery_dest = Some(dest);
             break;
         }
     }
 
-    let discovery_dest = discovery_dest.expect("send PNDiscRsp to neighbor");
+    let discovery_dest = discovery_dest.expect("send UNDiscRsp to neighbor");
 
     assert!(
         matches!(discovery_dest, UnderlayNeighborDestination::UnderlayNeighbor(neighbor_dest) if neighbor_dest == neighbor_id),

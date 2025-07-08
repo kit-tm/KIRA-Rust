@@ -5,6 +5,7 @@ import docker
 from docker.models.networks import Network
 
 from typing import Optional, TypeVar
+
 Self = TypeVar("Self", bound="KIRANode")
 
 
@@ -62,26 +63,26 @@ class KIRANode(object):
         # try to retrieve nid from logs
         if match is None:
             logs = self.logs()
-            match = re.search(r'Using id (.+)', logs)
+            match = re.search(r"Using id (.+)", logs)
             if match is None:
                 logger.error(
-                    f"Unable to retrieve node-id from {self._name} using the existing logs")
+                    f"Unable to retrieve node-id from {self._name} using the existing logs"
+                )
                 return None
 
         nid = match.group(1)
         return bytes.fromhex(nid)
 
-    def create(self, img: str, nid: bytes = None, force: bool = False, privileged = False):
+    def create(self, img: str, nid: bytes = None, force: bool = False, privileged=False):
         if self._container is not None:
             if not force:
-                logger.warn(
-                    "Node already has a container connected. Not recreating.")
+                logger.warn("Node already has a container connected. Not recreating.")
                 return
             self.prune()
 
         environment = []
         # rust log from system enviroment
-        log_level = os.environ.get('RUST_LOG', 'debug')
+        log_level = os.environ.get("RUST_LOG", "debug")
         environment.append(f"RUST_LOG={log_level}")
         if nid is not None:
             nid = nid[:14]
@@ -89,16 +90,18 @@ class KIRANode(object):
         # TODO set API port
 
         self._container = self._client.containers.create(
-            image=img, name=self._name,
+            image=img,
+            name=self._name,
             detach=True,
             privileged=privileged,
             cap_add=["NET_ADMIN"],
             sysctls={
-                'net.ipv6.conf.default.disable_ipv6': 0,
-                'net.ipv6.conf.eth0.disable_ipv6': 1,  # disable host-interface
-                'net.ipv6.conf.all.forwarding': 1
+                "net.ipv6.conf.default.disable_ipv6": 0,
+                "net.ipv6.conf.eth0.disable_ipv6": 1,  # disable host-interface
+                "net.ipv6.conf.all.forwarding": 1,
             },
-            environment=environment)
+            environment=environment,
+        )
         self._nid = nid
         self._name = self._container.name
 
@@ -107,8 +110,7 @@ class KIRANode(object):
 
     def connect_with(self, other: Self, id: str, nw: Optional[Network] = None) -> Network:
         if self._container is None or other._container is None:
-            logger.error(
-                "Unable to create network between nodes without containers!")
+            logger.error("Unable to create network between nodes without containers!")
             return None
 
         fresh = False
@@ -119,9 +121,10 @@ class KIRANode(object):
                 driver="bridge",
                 options={
                     "com.docker.network.bridge.name": id,
-                    "com.docker.network.container_iface_prefix": "r2edge"
+                    "com.docker.network.container_iface_prefix": "r2edge",
                 },
-                enable_ipv6=True)
+                enable_ipv6=True,
+            )
 
         try:
             nw.connect(self._container)
@@ -145,8 +148,8 @@ class KIRANode(object):
         path = "_dev/routing-table"
         return self.api_call(path)
 
-    def pn_table(self) -> str:
-        path = "_dev/pn-table"
+    def uln_table(self) -> str:
+        path = "_dev/uln-table"
         return self.api_call(path)
 
     def vicinity_graph(self) -> str:

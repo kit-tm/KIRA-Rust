@@ -5,7 +5,7 @@ use crate::domain::{
     AddError, Contact, ContactState, InsertionError, NodeId, PathCycleRemover, RoutingTable,
 };
 
-use super::{PathSimplifier, UNTable};
+use super::{PathSimplifier, ULNTable};
 
 /// Signals if a change to the [Path](crate::domain::path::Path) of a contact happened.
 ///
@@ -22,12 +22,12 @@ pub enum InsertionStrategyResult {
 ///
 /// The actions performed with the [Contact] are limited to the [InsertionStrategyResult].
 ///
-/// The Algorithm can use the [UNTable] but is not allowed to insert into it.
+/// The Algorithm can use the [ULNTable] but is not allowed to insert into it.
 /// This will be handled where the Hello-Messages are handled explicitly.
 ///
 /// Also [NotVia](crate::domain::NotVia) Data is not handled by the [InsertionStrategy] as it
 /// represents logic of the routing-daemon itself and not the domain.
-pub trait InsertionStrategy<RT, PN, const BUCKET_SIZE: usize>
+pub trait InsertionStrategy<RT, UN, const BUCKET_SIZE: usize>
 where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
 {
@@ -38,18 +38,18 @@ where
         &mut self,
         contact: Contact,
         routing_table: &mut RT,
-        un_table: &PN,
+        un_table: &UN,
     ) -> InsertionStrategyResult;
 }
 
 #[derive(Debug, Default)]
-pub struct PNSStrategy<RT, CR, PS, const BUCKET_SIZE: usize> {
+pub struct UNSStrategy<RT, CR, PS, const BUCKET_SIZE: usize> {
     _pd: PhantomData<RT>,
     path_cycle_remover: CR,
     path_simplifier: PS,
 }
 
-impl<RT, CR, PS, const BUCKET_SIZE: usize> PNSStrategy<RT, CR, PS, BUCKET_SIZE> {
+impl<RT, CR, PS, const BUCKET_SIZE: usize> UNSStrategy<RT, CR, PS, BUCKET_SIZE> {
     pub fn new(path_cycle_remover: CR, path_simplifier: PS) -> Self {
         Self {
             _pd: PhantomData,
@@ -59,7 +59,7 @@ impl<RT, CR, PS, const BUCKET_SIZE: usize> PNSStrategy<RT, CR, PS, BUCKET_SIZE> 
     }
 }
 
-impl<RT, CR, PS, const BUCKET_SIZE: usize> PNSStrategy<RT, CR, PS, BUCKET_SIZE>
+impl<RT, CR, PS, const BUCKET_SIZE: usize> UNSStrategy<RT, CR, PS, BUCKET_SIZE>
 where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
 {
@@ -137,10 +137,10 @@ where
                 *existing.state_seq_nr_mut() = contact.state_seq_nr().clone();
                 InsertionStrategyResult::Dropped
             } else {
-                // FIXME: Don't accept longer path to potential PN
+                // FIXME: Don't accept longer path to potential UN
                 //   this potentially also requires to rework the PathSimplifier,
-                //   since it just assumes working PN and replaces with existing short path
-                // TODO: schedule recheck PN if in vicinityDiscoveryRadius
+                //   since it just assumes working UN and replaces with existing short path
+                // TODO: schedule recheck UN if in vicinityDiscoveryRadius
                 // TODO: schedule pathcheck for shorter path if offered path is longer
                 // -> src/routing/r2kademlia/KadRoutingTable.cc:315
                 log::trace!(
@@ -201,11 +201,11 @@ where
     }
 }
 
-impl<RT, PN, CR, PS, const BUCKET_SIZE: usize> InsertionStrategy<RT, PN, BUCKET_SIZE>
-    for PNSStrategy<RT, CR, PS, BUCKET_SIZE>
+impl<RT, UN, CR, PS, const BUCKET_SIZE: usize> InsertionStrategy<RT, UN, BUCKET_SIZE>
+    for UNSStrategy<RT, CR, PS, BUCKET_SIZE>
 where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
-    PN: UNTable,
+    UN: ULNTable,
     CR: PathCycleRemover,
     PS: PathSimplifier,
 {
@@ -213,7 +213,7 @@ where
         &mut self,
         mut contact: Contact,
         routing_table: &mut RT,
-        un_table: &PN,
+        un_table: &UN,
     ) -> InsertionStrategyResult {
         // Ignore paths to us
         if contact.id() == routing_table.root() {
@@ -290,7 +290,7 @@ impl From<InsertionStrategyResult> for TestInsertionStrategy {
     }
 }
 
-impl<RT, PN, const BUCKET_SIZE: usize> InsertionStrategy<RT, PN, BUCKET_SIZE>
+impl<RT, UN, const BUCKET_SIZE: usize> InsertionStrategy<RT, UN, BUCKET_SIZE>
     for TestInsertionStrategy
 where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
@@ -299,7 +299,7 @@ where
         &mut self,
         contact: Contact,
         routing_table: &mut RT,
-        _un_table: &PN,
+        _un_table: &UN,
     ) -> InsertionStrategyResult {
         let result = routing_table.insert(contact);
         if let Err(e) = result {

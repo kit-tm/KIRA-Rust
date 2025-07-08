@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tracing::{instrument, Level};
 
 use crate::domain::{
-    dht, Contact, ContactState, NodeId, RoutingTable, UNTable, UnderlayNeighborId,
+    dht, Contact, ContactState, NodeId, RoutingTable, ULNTable, UnderlayNeighborId,
 };
 use crate::messaging::dht::{
     DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchReqData, FetchRspData, StoreReqData,
@@ -168,7 +168,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     H: LocalHashTable<
             NodeId,
             DefaultLHTInput,
@@ -184,7 +184,7 @@ where
 
         let rsp = ReqRspMessage {
             nonce: req.nonce,
-            source_state_seq_nr: *context.un_table().state_seq_nr(),
+            source_state_seq_nr: *context.uln_table().state_seq_nr(),
             data: StoreRspData { status: res },
             not_via: context.not_via().clone(),
             source_route,
@@ -202,7 +202,7 @@ where
 
         context
             .runtime()
-            .send_message(message, context.un_table().deref());
+            .send_message(message, context.uln_table().deref());
     }
 
     fn send_fetch_rsp(&mut self, context: &C, req: ReqRspMessage<FetchReqData>) {
@@ -211,7 +211,7 @@ where
 
         let rsp = ReqRspMessage {
             nonce: req.nonce,
-            source_state_seq_nr: *context.un_table().state_seq_nr(),
+            source_state_seq_nr: *context.uln_table().state_seq_nr(),
             data: FetchRspData { data: fetch_res },
             not_via: context.not_via().clone(),
             source_route,
@@ -229,7 +229,7 @@ where
 
         context
             .runtime()
-            .send_message(message, context.un_table().deref());
+            .send_message(message, context.uln_table().deref());
     }
 
     fn republish_to_contact_if_closer(&mut self, context: &C, contact: Contact) {
@@ -272,7 +272,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     H: LocalHashTable<
             NodeId,
             DefaultLHTInput,
@@ -345,7 +345,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: UNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     H: LocalHashTable<
             NodeId,
             DefaultLHTInput,

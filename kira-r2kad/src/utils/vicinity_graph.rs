@@ -161,8 +161,8 @@ impl IntoIterator for &VicinityGraph {
 
 impl Extend<(NodeId, HashSet<NodeId>)> for VicinityGraph {
     fn extend<T: IntoIterator<Item = (NodeId, HashSet<NodeId>)>>(&mut self, iter: T) {
-        for (id, pns) in iter {
-            self.insert(id, pns);
+        for (id, ulns) in iter {
+            self.insert(id, ulns);
         }
     }
 }
