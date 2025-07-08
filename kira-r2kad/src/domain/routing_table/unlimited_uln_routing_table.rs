@@ -32,6 +32,8 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> From<FlatRoutingTable<BUCKET_SI
     for UnlimitedULNRoutingTable<BUCKET_SIZE, ACC>
 {
     fn from(routing_table: FlatRoutingTable<BUCKET_SIZE, ACC>) -> Self {
+        assert!(routing_table.is_empty(), "FlatRoutingTable should be empty");
+
         Self {
             un_contacts: Default::default(),
             inner: routing_table,
@@ -382,6 +384,45 @@ mod tests {
             closest.is_empty(),
             "Returned closest contacts: {:#?}",
             closest
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn inner_must_be_empty() {
+        let uln = Contact::new(Path::from([NodeId::with_msb(2)]), StateSeqNr::from(0));
+
+        let mut inner = FlatRoutingTable::default(NodeId::zero());
+        if inner.insert(uln).is_err() {
+            return;
+        }
+
+        // the newly created UnlimitedULNRoutingTable wouldn't move the existing uln
+        // expect a panic
+
+        let _ = UnlimitedULNRoutingTable::from(inner);
+    }
+    #[test]
+    fn delete_uln_from_inner_on_promotion() {
+        let mut routing_table =
+            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+
+        // node to be promoted to an underlay neighbor shortly
+        let node = NodeId::with_msb(2);
+        let contact = Contact::new(Path::from([NodeId::with_msb(3), node]), StateSeqNr::from(0));
+
+        let contact_promoted_to_uln = Contact::new(Path::from([node]), StateSeqNr::from(0));
+
+        routing_table
+            .insert(contact)
+            .expect("failed to insert contact");
+
+        routing_table
+            .insert(contact_promoted_to_uln)
+            .expect("failed to insert contact");
+        assert!(
+            !routing_table.inner.contains(&node),
+            "promoted underlay neighbor should not be present in inner RT"
         );
     }
 }
