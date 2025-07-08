@@ -37,7 +37,7 @@ pub struct PrecomputePathIdsConfig {
 impl Default for PrecomputePathIdsConfig {
     fn default() -> Self {
         Self {
-            vicinity_radius: 2,
+            vicinity_radius: 3,
             update_interval: None,
             hasher: Hasher::default(),
         }
@@ -88,7 +88,7 @@ where
         let mut entries = HashSet::new();
         for in_path in graph {
             debug_assert!(
-                in_path.size() <= self.config.vicinity_radius + 1,
+                in_path.size() <= self.config.vicinity_radius,
                 "VicinityGraph should only generate Paths inside the Vicinity-Radius"
             );
 
@@ -188,7 +188,7 @@ where
             | UseCaseEvent::Message(ProtocolMessage::ULNDiscRsp(rtable_data), _)
             | UseCaseEvent::Message(ProtocolMessage::QueryRouteRsp(rtable_data), _) => {
                 // Skip everything not in configured vicinity radius
-                if rtable_data.source_route.size() > self.config.vicinity_radius {
+                if rtable_data.source_route.size() >= self.config.vicinity_radius {
                     return Ok(());
                 }
 
@@ -271,7 +271,7 @@ where
             }
             UseCaseEvent::Contact(ContactEvent::Removed(contact)) => {
                 // Skip everything not in configured vicinity radius
-                if contact.path().size() > self.config.vicinity_radius {
+                if contact.path().size() >= self.config.vicinity_radius {
                     return Ok(());
                 }
                 self.vicinity_changed |= self.vicinity_graph.remove(contact.id()).is_some();
@@ -291,8 +291,8 @@ where
                 self.vicinity_changed = true;
             }
             UseCaseEvent::Contact(ContactEvent::Updated { old, new }) => {
-                if old.path().size() <= self.config.vicinity_radius
-                    && new.path().size() > self.config.vicinity_radius
+                if old.path().size() < self.config.vicinity_radius
+                    && new.path().size() >= self.config.vicinity_radius
                 {
                     // Contact was changed to out of vicinity
                     self.vicinity_graph.remove(new.id());
