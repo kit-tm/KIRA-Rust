@@ -602,7 +602,7 @@ class NestTest[T]:  # T = tid type, usually int or str
         else:
             return "??? Unknown Action ???"
 
-    def traceroute(self, x_tid: T, y_tid: T, maxhops: int = 10, verbose: bool = False) -> bool:
+    def traceroute(self, x_tid: T, y_tid: T, maxhops: int = 50, verbose: bool = False) -> bool:
         current_hop = self.node(x_tid)
         current_ip = IPv6Address(self.topology.nodes[x_tid]["config"].ipv6)
 
