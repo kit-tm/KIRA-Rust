@@ -487,6 +487,14 @@ where
         )
     )]
     fn handle_event(&mut self, context: &C, event: UseCaseEvent) -> Result<(), Self::Error> {
+        // FIXME:It doesn't suffice to send QueryRouteReqs solely on Contact-Events.
+        //   Not all Nodes in the Vicinity have to be Contacts in the RT.
+        //   This is the main reason we manage a separat VicinityGraph.
+        //
+        //   Outline:
+        //     - merge VicinityDiscovery and PrecomputePathIds
+        //     - remove ResyncNode-UseCase-Event
+        //     - send QueryRouteReqs to newly discovered neighbors of VicinityGraph nodes
         match (event.clone(), &mut self.state) {
             // ========== Vicinity Discovery - Query Route ==========
             (

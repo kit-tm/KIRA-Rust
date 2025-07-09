@@ -295,6 +295,7 @@ where
                 // other neighbors in the vicinity are added
                 // as they are discovered in `RTableData` of ProtocolMessages
 
+                // FIXME: Add underlay neighbors as true node of VicinityGraph
                 self.vicinity_graph
                     .add(*context.root_id(), HashSet::from([*contact.id()]));
                 self.vicinity_changed = true;
