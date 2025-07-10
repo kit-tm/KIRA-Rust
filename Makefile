@@ -69,9 +69,12 @@ build-image-supervisord:
 	docker build -t kira -f docker/Dockerfile.supervisord .
 
 build-image-small-k:
-	docker build -t kira-small-k -f docker/Dockerfile.small-k .
+	docker build -t kira-small-k -f docker/Dockerfile.supervisord --build-arg FEATURES="small_buckets,api" .
 
-build-images: build-image-supervisord build-image-small-k
+build-image-dns-dht:
+	docker build -t kira-dns-dht examples/dns-4in6-tunnel-example/base
+
+build-images: build-image-supervisord build-image-small-k build-image-dns-dht
 
 build-debian-x86:
 	cross build --target x86_64-unknown-linux-musl --release
