@@ -22,9 +22,6 @@ use super::ApiEvent;
 pub struct PrecomputePathIdsConfig {
     /// Radius of the underlay neighborhood to precompute paths and
     /// [PathIds](crate::domain::PathId) for.
-    ///
-    /// Its assumed, that all contacts in this radius are also included in the
-    /// [RoutingTable].
     pub vicinity_radius: usize,
     /// Interval in which the precomputation will take place.
     ///
