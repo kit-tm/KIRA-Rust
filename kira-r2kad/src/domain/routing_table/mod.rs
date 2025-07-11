@@ -238,7 +238,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         }
 
         // check if lowest bucket
-        // todo do this more efficiently
+        // TODO: do this more efficiently
         let lowest = self.closest(self.root(), 1, shared_prefix_grouping)?;
         if lowest
             .first()
@@ -255,11 +255,11 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
             .take_while(|(prefix, _)| prefix.length == nearest_prefix.length)
             .map(|(_, contact)| contact)
             .min_by(|ca, cb| ca.path().size().cmp(&cb.path().size()));
-        // todo select by xor if all path lengths (size) are the same
+        // TODO: select by xor if all path lengths (size) are the same
 
         Ok(next_hop.cloned())
-        // todo test send to self if 1) isolated or 2) root closer than closest routing table entry
-        // todo test if edge case lowest bucket (only XOR based) is covered
+        // TODO: test send to self if 1) isolated or 2) root closer than closest routing table entry
+        // TODO: test if edge case lowest bucket (only XOR based) is covered
     }
 
     /// Iterator over all [Contact]s in the [RoutingTable].

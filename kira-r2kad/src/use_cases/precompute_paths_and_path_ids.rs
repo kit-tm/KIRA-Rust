@@ -331,7 +331,7 @@ where
                 let _ = sender.send(format!("{:#?}", self.vicinity_graph));
             }
             UseCaseEvent::ResyncNode(node_id, expected_ssn) => {
-                // TODO deduplicate state "shared" with Vicinity Discovery
+                // TODO: deduplicate state "shared" with Vicinity Discovery
                 if let Some(resync_queue) = self.state.resync_queue_mut() {
                     // only update expected_ssn, if greater
                     if let Some(previous_expected_ssn) = resync_queue.get_mut(&node_id) {

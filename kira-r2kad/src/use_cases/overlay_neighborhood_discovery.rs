@@ -380,9 +380,9 @@ where
                     self.send_next_request(context)?;
                 }
             }
-            // todo send FindNodeReq if new Contact inserted in last bucket of RoutingTable: src/routing/r2kademlia/R2KademliaPolicyHandlers.cc:204
-            // todo randomly probe for new nodes: src/routing/r2kademlia/R2KademliaPeriodicTasks.cc:349
-            // todo randomly probe for new path to contact with a FindeNodeVia src/routing/r2kademlia/R2KademliaPeriodicTasks.cc:321
+            // TODO: send FindNodeReq if new Contact inserted in last bucket of RoutingTable: src/routing/r2kademlia/R2KademliaPolicyHandlers.cc:204
+            // TODO: randomly probe for new nodes: src/routing/r2kademlia/R2KademliaPeriodicTasks.cc:349
+            // TODO: randomly probe for new path to contact with a FindeNodeVia src/routing/r2kademlia/R2KademliaPeriodicTasks.cc:321
             _ => {}
         }
 

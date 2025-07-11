@@ -37,7 +37,7 @@ pub use crate::runtime::UseCaseRuntime;
 ///
 /// This callback channel is usually used if a [ReqRspMessage](super::messaging::ReqRspMessage) is injected
 /// into the network return the respective response message.
-pub type OneshotInjectMessageCallback = mpsc::UnboundedSender<InjectionResult>; // todo change back to oneshot after we figured out how to eliminate the need of deriving clone
+pub type OneshotInjectMessageCallback = mpsc::UnboundedSender<InjectionResult>; // TODO: change back to oneshot after we figured out how to eliminate the need of deriving clone
 
 /// Enumeration representing all events a [UseCase] can handle.
 #[derive(Debug, Clone, PartialEq)]

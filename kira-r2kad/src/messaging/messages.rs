@@ -51,7 +51,7 @@ pub enum ProtocolMessage {
     ProbeRsp(ReqRspMessage<ProbeRspData>),
     PathSetupReq(ReqRspMessage<PathSetupReqData>),
     PathTeardownReq(ReqRspMessage<PathTeardownReqData>),
-    // todo add Rsp for Setup and Teardown and handle them accordingly
+    // TODO: add Rsp for Setup and Teardown and handle them accordingly
     UpdateRouteReq(UpdateRouteReq),
     Error(ReqRspMessage<ErrorData>),
     StoreReq(ReqRspMessage<StoreReqData<DefaultLHTInput>>),
@@ -224,7 +224,7 @@ impl ProtocolMessage {
         }
     }
 
-    // todo write documentation how to use
+    // TODO: write documentation how to use
     // and why other "overlay" messages are not listed here
     pub fn overlay_destination(&self) -> Option<&NodeId> {
         match self {

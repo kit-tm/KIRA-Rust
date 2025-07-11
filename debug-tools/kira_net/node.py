@@ -14,7 +14,9 @@ logger = logging.getLogger(__name__)
 
 
 class KIRANode(object):
-    def __init__(self, client=docker.from_env(), name: str = None, api_port: int = 8080):
+    def __init__(
+        self, client=docker.from_env(), name: str = None, api_port: int = 8080
+    ):
         self._client = client
 
         self._name = name
@@ -73,7 +75,9 @@ class KIRANode(object):
         nid = match.group(1)
         return bytes.fromhex(nid)
 
-    def create(self, img: str, nid: bytes = None, force: bool = False, privileged=False):
+    def create(
+        self, img: str, nid: bytes = None, force: bool = False, privileged=False
+    ):
         if self._container is not None:
             if not force:
                 logger.warn("Node already has a container connected. Not recreating.")
@@ -87,7 +91,7 @@ class KIRANode(object):
         if nid is not None:
             nid = nid[:14]
             environment.append(f"NODE_ID={nid.hex()}")
-        # TODO set API port
+        # TODO: set API port
 
         self._container = self._client.containers.create(
             image=img,
@@ -108,7 +112,9 @@ class KIRANode(object):
     def start(self):
         self._container.start()
 
-    def connect_with(self, other: Self, id: str, nw: Optional[Network] = None) -> Network:
+    def connect_with(
+        self, other: Self, id: str, nw: Optional[Network] = None
+    ) -> Network:
         if self._container is None or other._container is None:
             logger.error("Unable to create network between nodes without containers!")
             return None

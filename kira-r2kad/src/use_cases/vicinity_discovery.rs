@@ -657,7 +657,7 @@ where
                 let mut max_retries_reached =
                     Vec::with_capacity(std::cmp::max(self.config.resynch_count, 10));
 
-                // TODO refresh nodes in the lowest bucket first
+                // TODO: refresh nodes in the lowest bucket first
                 for (nid, (_, current_tries)) in
                     resync_queue.iter_mut().take(self.config.resynch_count)
                 {
@@ -673,7 +673,7 @@ where
                     }
                 }
 
-                // FIXME this needs to be synced somehow to precompute_paths_and_path_ids
+                // FIXME: this needs to be synced somehow to precompute_paths_and_path_ids
                 for nid_max_retries_reached in max_retries_reached {
                     resync_queue.remove(&nid_max_retries_reached);
                 }
@@ -701,7 +701,7 @@ where
                 let source_ssn = &payload.source_state_seq_nr;
                 let source_id = *payload.source();
 
-                // TODO figure out if this actually works with a cloned source_id
+                // TODO: figure out if this actually works with a cloned source_id
                 if let std::collections::hash_map::Entry::Occupied(entry) =
                     resync_queue.entry(source_id)
                 {

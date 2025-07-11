@@ -81,7 +81,7 @@ impl UdpSender {
                 interface_id.into(),
             ));
 
-            // FIXME investigate if we can mitigate sending to unready interfaces
+            // FIXME: investigate if we can mitigate sending to unready interfaces
             // currently only experienced in Containernet on startup
             // probably caused by interface going down in between refreshing and sending
             if let Err(e) = self

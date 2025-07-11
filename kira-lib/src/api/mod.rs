@@ -182,7 +182,7 @@ async fn store_dht_data(
     Query(mut params): Query<HashMap<String, String>>,
     body: Bytes,
 ) -> Result<domain::dht::StoreOK, DHTErr> {
-    // todo factor out essentials to reduce code duplication
+    // TODO: factor out essentials to reduce code duplication
     let args = crate::api::domain::dht::StoreArgs {
         handle: extract_dht_handle(&mut params)?,
         restore: params
@@ -222,7 +222,7 @@ async fn store_dht_data(
     }
 }
 
-// todo dont use JSON for DHTOutput
+// TODO: dont use JSON for DHTOutput
 /// Fetch a value stored in the DHT under some key.
 #[cfg_attr(feature = "swagger_doc", utoipa::path(
     get,
@@ -319,8 +319,8 @@ async fn dump_local_hashtable(
     Ok(Json(domain::dht::LocalHashTable(local_ht)))
 }
 
-// todo Swagger doc
-// todo create generic ApiErr
+// TODO: Swagger doc
+// TODO: create generic ApiErr
 
 async fn dump_un_table(State(state): State<crate::api::ApiState>) -> Result<String, Json<DHTErr>> {
     let (tx, mut rx) = mpsc::unbounded_channel();

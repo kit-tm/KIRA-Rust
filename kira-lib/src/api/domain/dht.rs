@@ -201,7 +201,7 @@ impl Display for DHTErr {
 impl IntoResponse for DHTErr {
     fn into_response(self) -> Response {
         let status = match self {
-            // todo overthink status codes
+            // TODO: overthink status codes
             Self::FormatError(_) => http::StatusCode::BAD_REQUEST,
             Self::SendError => http::StatusCode::INTERNAL_SERVER_ERROR,
             Self::Isolated => http::StatusCode::SERVICE_UNAVAILABLE,

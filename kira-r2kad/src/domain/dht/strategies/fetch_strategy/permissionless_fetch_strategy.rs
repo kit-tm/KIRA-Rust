@@ -14,7 +14,7 @@ use crate::use_cases::distributed_hash_table::HashTableData;
 pub struct PermissionlessFetchStrategy {}
 
 impl FetchStrategy for PermissionlessFetchStrategy {
-    // todo use more abstract data types
+    // TODO: use more abstract data types
     type Handle = NodeId;
     type Composite = HashMap<NodeId, HashTableData>;
     type OutputData = DefaultLHTOutput;

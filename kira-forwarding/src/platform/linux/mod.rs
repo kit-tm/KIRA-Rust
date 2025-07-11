@@ -65,7 +65,7 @@ pub fn add_forwarding_rule(from: Ipv6Addr, to: Ipv6Addr) -> Result<(), String> {
 ///
 /// See [add_forwarding_rule] for more details.
 pub fn update_forwarding_rule(from: Ipv6Addr, to: Ipv6Addr) -> Result<(), String> {
-    // TODO make this (and the other nft operations) atomic with: printf <config> | nft -f -
+    // TODO: make this (and the other nft operations) atomic with: printf <config> | nft -f -
     delete_forwarding_rule(from)?;
     add_forwarding_rule(from, to)
 }

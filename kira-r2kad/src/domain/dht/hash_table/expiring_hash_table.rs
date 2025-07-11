@@ -63,8 +63,8 @@ where
     }
 }
 
-// todo maybe we can even remove the concrete HashSet
-// todo can we put this into a separate strategy we can test?
+// TODO: maybe we can even remove the concrete HashSet
+// TODO: can we put this into a separate strategy we can test?
 impl<H, D, IS, FS, TS> Expiring for ExpiringHashTable<H, HashSet<D>, IS, FS, TS>
 where
     TS: TimeoutStrategy<Context = H, Expirable = D>,

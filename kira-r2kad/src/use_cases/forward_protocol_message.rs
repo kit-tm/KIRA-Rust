@@ -120,7 +120,7 @@ where
         }
 
         // Inform other UseCases about newer SSN
-        // TODO make more efficient by using the insertion strategy to return existing contact
+        // TODO: make more efficient by using the insertion strategy to return existing contact
         if let Some(contact_in_rt) = context.routing_table_mut().contact(contact.id()) {
             if contact_in_rt.state_seq_nr() < contact.state_seq_nr() {
                 let expected_ssn = *contact.state_seq_nr();
@@ -261,7 +261,7 @@ where
                 RouteUpdate::Updated => {
                     // If the saved contact is via the node which updated -> Update Path of contact
                     // Other Paths are updated while operating
-                    // todo check if comment actually true
+                    // TODO: check if comment actually true
                     let mut old_contact = routing_table.contact_mut(updated_contact.id()).unwrap();
                     if old_contact.path().size() > new_path.size()
                         && old_contact.path().contains(source_id)
@@ -318,7 +318,7 @@ where
             ProtocolMessage::StoreReq(_)
             | ProtocolMessage::StoreRsp(_)
             | ProtocolMessage::FetchReq(_)
-            | ProtocolMessage::FetchRsp(_) => {} // todo maybe we need to extract stuff here
+            | ProtocolMessage::FetchRsp(_) => {} // TODO: maybe we need to extract stuff here
         }
     }
 
@@ -388,7 +388,7 @@ where
             );
 
             // Overlay Routing
-            // todo add unit tests
+            // TODO: add unit tests
             // fixme isolated error if only a single node is used
             // fixme remove cycles in SourceRoute on the way back?
             // fixme respect NotVia? [lib/src/use_cases/handle_overlay_discovery.rs:141]
@@ -399,7 +399,7 @@ where
                 return HandlingResult::NotHandled;
             }
 
-            // todo support other shared_prefix_grouping via config
+            // TODO: support other shared_prefix_grouping via config
             let closest_node = context
                 .routing_table()
                 .next_hop(overlay_destination, 20, 1)
@@ -502,7 +502,7 @@ where
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
         if let UseCaseEvent::Message(message, ulnid) = event {
-            // todo make more efficient pls
+            // TODO: make more efficient pls
             if let UnderlayNeighborSource::UnderlayNeighbor(ulnid) = ulnid {
                 self.extract_message_info(context, message.clone(), ulnid);
             }

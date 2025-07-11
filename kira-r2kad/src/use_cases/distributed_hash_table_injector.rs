@@ -18,8 +18,8 @@ use crate::use_cases::distributed_hash_table_injector::DHTInjectorState::Running
 use crate::use_cases::inject_messages::errors::InjectMessageError;
 use crate::use_cases::inject_messages::InjectionResult;
 
-// todo what would be a sensible value here?
-// todo random offsets for periodic restore AND collection of the hash table?
+// TODO: what would be a sensible value here?
+// TODO: random offsets for periodic restore AND collection of the hash table?
 /// Default number of seconds between two attempts to restore an existing value.
 pub const DEFAULT_PERIODIC_RESTORE: Duration = Duration::from_secs(60 * 60);
 
@@ -248,7 +248,7 @@ where
             (UseCaseEvent::Timer(id), Running(our_id)) => {
                 if &id == our_id {
                     for data in self.restore_data.iter() {
-                        // todo make this more efficient
+                        // TODO: make this more efficient
                         // 1.) calculate source routes only once for every handle
                         // 2.) pack all data to that node into a single request
                         dht::send_store_req(context, Nonce::random(), data.clone());

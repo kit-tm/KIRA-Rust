@@ -234,7 +234,7 @@ where
 
     fn republish_to_contact_if_closer(&mut self, context: &C, contact: Contact) {
         for handle in self.hash_table.handles() {
-            // TODO support different shared_prefix_len via config
+            // TODO: support different shared_prefix_len via config
             let contact_prefix = contact
                 .id()
                 .shared_prefix_len(handle, 1)
@@ -254,8 +254,8 @@ where
                 .peek(handle)
                 .expect("Fetching existing handle failed");
 
-            // TODO make this more efficient by just sending one big request
-            // TODO make it configurable to delete the value after a successful store
+            // TODO: make this more efficient by just sending one big request
+            // TODO: make it configurable to delete the value after a successful store
             for data in entry {
                 let data = StoreReqData {
                     handle: *handle,
@@ -325,7 +325,7 @@ where
                 }
             }
             // ========== API Calls ==========
-            // TODO move hash table in context and add extra DHTApi UseCase for this event handler
+            // TODO: move hash table in context and add extra DHTApi UseCase for this event handler
             (UseCaseEvent::API(ApiEvent::LocalHashTable(callback)), _) => {
                 let table_dump = self.hash_table.fetch_all();
 

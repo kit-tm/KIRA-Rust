@@ -108,7 +108,7 @@ where
             // put oldest to the front
             considered_contacts.reverse();
 
-            // todo make configurable
+            // TODO: make configurable
             considered_contacts
                 .iter()
                 .take(2)

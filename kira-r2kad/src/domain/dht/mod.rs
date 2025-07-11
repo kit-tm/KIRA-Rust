@@ -34,7 +34,7 @@ where
     C::UnderlayNeighborTable: ULNTable,
     T: Debug,
 {
-    // todo support other shared_prefix_grouping via config
+    // TODO: support other shared_prefix_grouping via config
     let closest_node = context
         .routing_table()
         .next_hop(overlay_destination, 20, 1)
