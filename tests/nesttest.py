@@ -879,7 +879,7 @@ class NestTest[T]:  # T = tid type, usually int or str
 
 class DebugShell[T](Cmd):
     intro = "Welcome to the debug shell of nesttest.  Type help or ? to list commands.\n"
-    prompt = "(debug)"
+    prompt = "ntest> "
     file = None
 
     test: NestTest[T]
