@@ -9,6 +9,7 @@ use derive_more::derive::{Display, Error};
 use rand::Rng;
 
 use crate::domain::UnderlayNeighborDestination::{Broadcast, Multicast, UnderlayNeighbor};
+use crate::domain::VICINITY_RADIUS;
 use crate::domain::{
     node_id, Contact, ContactState, InterfaceId, NodeId, Path, RoutingTable, StateSeqNr, ULNTable,
     UnderlayNeighborId, UnderlayNeighborSource, UnderlayNeighborUpdate, DEFAULT_BUCKET_SIZE,
@@ -22,16 +23,6 @@ use crate::use_cases::{
     ContactEvent, EventHandler, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime,
     UseCaseState,
 };
-
-/// Radius of the neighborhood considered as vicinity.
-///
-/// A radius of **3** means:
-///
-/// - Contacts with a distance **<= 3** hops (*path length <= 4*) are in the vicinity.
-/// - Contacts with a distance **< 3** hops (*path length < 4*) receive QueryRouteReqs.
-///   Except the underlay neighbors with a distance of 0 hops (*path length == 1*) with
-///   which the following messages are exchanged: *ULNHello, ULNDiscReq, ULNDiscRsp*.
-pub const VICINITY_RADIUS: usize = 3;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub struct VicinityDiscoveryConfig {

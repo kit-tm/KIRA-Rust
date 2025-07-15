@@ -7,38 +7,27 @@ use tracing::{instrument, Level};
 use crate::domain::protocol_event::forwarding::{
     PathIdEntry, PathIdForwardingEntry, PathIdTableUpdate,
 };
-use crate::domain::{ContactState, Hasher, NodeId, RoutingTable, StateSeqNr, UnderlayNeighborId};
+use crate::domain::{
+    ContactState, Hasher, NodeId, RoutingTable, StateSeqNr, UnderlayNeighborId, VicinityGraph,
+    VICINITY_RADIUS,
+};
 use crate::messaging::ProtocolMessage;
 use crate::use_cases::{
     ContactEvent, EventHandler, NeverError, TimerId, UseCase, UseCaseContext, UseCaseEvent,
     UseCaseRuntime, UseCaseState,
 };
-use crate::utils::vicinity_graph::VicinityGraph;
 
 use super::ApiEvent;
 
 /// Configuration for [UseCase] [PrecomputePathIds].
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PrecomputePathIdsConfig {
-    /// Radius of the underlay neighborhood to precompute paths and
-    /// [PathIds](crate::domain::PathId) for.
-    pub vicinity_radius: usize,
     /// Interval in which the precomputation will take place.
     ///
     /// If [None] is passed the precomputation will happen on every change.
     pub update_interval: Option<Duration>,
     /// Hasher to use for generation of [PathIds](crate::domain::PathId) from [Path]s.
     pub hasher: Hasher,
-}
-
-impl Default for PrecomputePathIdsConfig {
-    fn default() -> Self {
-        Self {
-            vicinity_radius: 3,
-            update_interval: None,
-            hasher: Hasher::default(),
-        }
-    }
 }
 
 /// [UseCase] implementation representing the Precomputation of [Path]s and
@@ -88,7 +77,7 @@ where
         let mut entries = HashSet::new();
         for in_path in graph {
             debug_assert!(
-                in_path.size() <= self.config.vicinity_radius,
+                in_path.size() <= VICINITY_RADIUS,
                 "VicinityGraph should only generate Paths inside the Vicinity-Radius"
             );
 
@@ -185,7 +174,7 @@ where
             | UseCaseEvent::Message(ProtocolMessage::ULNDiscRsp(rtable_data), _)
             | UseCaseEvent::Message(ProtocolMessage::QueryRouteRsp(rtable_data), _) => {
                 // Skip everything not in configured vicinity radius
-                if rtable_data.source_route.size() >= self.config.vicinity_radius {
+                if rtable_data.source_route.size() >= VICINITY_RADIUS {
                     return Ok(());
                 }
 
@@ -277,7 +266,7 @@ where
             }
             UseCaseEvent::Contact(ContactEvent::Removed(contact)) => {
                 // Skip everything not in configured vicinity radius
-                if contact.path().size() >= self.config.vicinity_radius {
+                if contact.path().size() >= VICINITY_RADIUS {
                     return Ok(());
                 }
                 self.vicinity_changed |= self.vicinity_graph.remove(contact.id()).is_some();
@@ -298,9 +287,7 @@ where
                 self.vicinity_changed = true;
             }
             UseCaseEvent::Contact(ContactEvent::Updated { old, new }) => {
-                if old.path().size() < self.config.vicinity_radius
-                    && new.path().size() >= self.config.vicinity_radius
-                {
+                if old.path().size() < VICINITY_RADIUS && new.path().size() >= VICINITY_RADIUS {
                     // Contact was changed to out of vicinity
                     self.vicinity_graph.remove(new.id());
                     self.vicinity_changed = true;

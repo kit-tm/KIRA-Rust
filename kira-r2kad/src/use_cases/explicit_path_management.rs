@@ -1,7 +1,6 @@
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
-use std::num::NonZeroUsize;
 use std::ops::Deref;
 use std::time::{Duration, Instant};
 
@@ -14,7 +13,7 @@ use crate::domain::protocol_event::forwarding::{
 };
 use crate::domain::{
     Contact, ContactState, EmptyPathError, Hasher, NodeId, Path, PathId, RoutingTable, ULNTable,
-    UnderlayNeighborId,
+    UnderlayNeighborId, VICINITY_RADIUS,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -38,13 +37,6 @@ pub struct EPMConfig {
     /// If [None] is passed no active refresh is performed.
     /// Still this use case uses ProbeReq sent out by to refresh its paths.
     pub refresh_interval: Option<Duration>,
-    /// Exclusive Vicinity radius from which to create PathSetupReq messages.
-    ///
-    /// # Example
-    ///
-    /// If the `vicinity_radius` is 3 then only for contacts with path size of at least 4 will
-    /// yield a PathSetupReq.
-    pub vicinity_radius: NonZeroUsize,
     /// Hasher to use for derivation of [PathIDs](crate::domain::path_id::PathId) from [Path]s.
     pub hasher: Hasher,
 }
@@ -55,7 +47,6 @@ impl Default for EPMConfig {
             max_age: Duration::from_secs(60),
             cleanup_interval: Duration::from_secs(60),
             refresh_interval: Some(Duration::from_secs(20)),
-            vicinity_radius: NonZeroUsize::new(3).unwrap(),
             hasher: Hasher::default(),
         }
     }
@@ -179,9 +170,7 @@ where
     fn perform_refresh(&mut self, context: &C) {
         for contact in context.routing_table().iter() {
             // dont probe invalid or vicinity contacts
-            if contact.state() != &ContactState::Valid
-                || contact.path().size() <= self.config.vicinity_radius.get()
-            {
+            if contact.state() != &ContactState::Valid || contact.path().size() <= VICINITY_RADIUS {
                 continue;
             }
 
@@ -364,7 +353,7 @@ where
         match (event, &self.state) {
             // ========== Contact Updates ==========
             (UseCaseEvent::Contact(ContactEvent::New(contact)), _) => {
-                if contact.path().size() > self.config.vicinity_radius.get() {
+                if contact.path().size() > VICINITY_RADIUS {
                     self.send_setup_req(context, &contact);
                 }
             }
@@ -372,8 +361,8 @@ where
                 match (
                     new.state(),
                     old.state(),
-                    new.path().size() > self.config.vicinity_radius.get(),
-                    old.path().size() > self.config.vicinity_radius.get(),
+                    new.path().size() > VICINITY_RADIUS,
+                    old.path().size() > VICINITY_RADIUS,
                 ) {
                     (&ContactState::Valid, &ContactState::Invalid, true, _) => {
                         // Contact gets valid and is out of vicinity
@@ -399,7 +388,7 @@ where
                 }
             }
             (UseCaseEvent::Contact(ContactEvent::Removed(contact)), _) => {
-                if contact.path().size() > self.config.vicinity_radius.get() {
+                if contact.path().size() > VICINITY_RADIUS {
                     self.send_teardown_req(context, &contact);
                 }
             }
@@ -426,14 +415,14 @@ where
                 EPMState::Running { .. },
             ) => {
                 let unprocessed_hops = req.source_route.remaining_path().size();
-                assert!(unprocessed_hops > self.config.vicinity_radius.get());
+                assert!(unprocessed_hops > VICINITY_RADIUS);
 
                 // process current hop
                 self.register_path(context, req.source_route.clone());
                 let processed_hops = unprocessed_hops - 1;
 
                 // vicinity already has paths precomputed => stop forwarding to vicinity
-                if processed_hops <= self.config.vicinity_radius.get() {
+                if processed_hops <= VICINITY_RADIUS {
                     log::trace!(
                         target: "explicit_path_management",
                         "Stop forwarding PathSetupReq inside our vicinity: {:?}",
@@ -447,7 +436,7 @@ where
                 EPMState::Running { .. },
             ) => {
                 let unprocessed_hops = req.source_route.remaining_path().size();
-                assert!(unprocessed_hops > self.config.vicinity_radius.get());
+                assert!(unprocessed_hops > VICINITY_RADIUS);
 
                 // process current hop
                 // WARN: insufficient sign to teardown path, because
@@ -457,7 +446,7 @@ where
                 let processed_hops = unprocessed_hops - 1;
 
                 // stop forwarding to vicinity
-                if processed_hops <= self.config.vicinity_radius.get() {
+                if processed_hops <= VICINITY_RADIUS {
                     log::trace!(
                         target: "explicit_path_management",
                         "Stop forwarding PathTeardownReq inside our vicinity: {:?}",
@@ -472,7 +461,7 @@ where
             ) => {
                 let unprocessed_hops = req.source_route.remaining_path().size();
                 // not need to keep paths fresh inside our precomputed vicinity
-                if unprocessed_hops <= self.config.vicinity_radius.get() {
+                if unprocessed_hops <= VICINITY_RADIUS {
                     // allow destination to respond
                     return Ok(HandlingResult::NotHandled);
                 }

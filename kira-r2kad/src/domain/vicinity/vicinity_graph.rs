@@ -1,8 +1,10 @@
+//! Definition of the [VicinityGraph].
 use std::collections::{HashMap, HashSet};
 
 use crate::domain::{NodeId, Path};
 
 #[derive(Debug, Eq, PartialEq, Clone)]
+/// An [Entry] of the [VicinityGraph].
 pub struct Entry {
     valid: bool,
     neighbors: HashSet<NodeId>,
@@ -21,11 +23,12 @@ impl Entry {
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct VicinityGraph {
     root_id: NodeId,
-    // All underlay neighbors of a Node and the node itself
+    /// All nodes in the vicinity.
     pub neighbors: HashMap<NodeId, Entry>,
 }
 
 impl VicinityGraph {
+    /// Create a new VicinityGraph.
     pub fn new(root_id: NodeId) -> Self {
         let mut neighbors = HashMap::default();
         neighbors.insert(root_id, Entry::new(HashSet::default()));
@@ -171,8 +174,8 @@ impl Extend<(NodeId, HashSet<NodeId>)> for VicinityGraph {
 mod tests {
     use std::collections::HashSet;
 
+    use super::*;
     use crate::domain::{NodeId, Path};
-    use crate::utils::vicinity_graph::VicinityGraph;
 
     #[test]
     fn calculates_all_paths_in_3_hop_vicinity() {

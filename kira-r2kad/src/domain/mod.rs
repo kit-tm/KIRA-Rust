@@ -17,6 +17,7 @@ pub use routing_table::*;
 pub use state_seq_nr::*;
 pub use underlay::*;
 pub use underlay_neighbor_table::*;
+pub use vicinity::*;
 
 pub mod bucket;
 pub mod contact;
@@ -31,6 +32,7 @@ pub mod routing_table;
 pub mod state_seq_nr;
 pub mod underlay;
 pub mod underlay_neighbor_table;
+pub mod vicinity;
 
 /// A underlay connection between two nodes.
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Display)]
