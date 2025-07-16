@@ -58,8 +58,10 @@ Some of the above tasks require some dependencies to be installed to run them.
 Here are the instructions to install them.
 
 - [docker](https://docs.docker.com/get-docker/): To run benchmarks and build docker images. 
-  Additionaly one has to configure the docker daemon to enable ipv6: [like instructed here](https://docs.docker.com/config/daemon/ipv6/).
+  Additionaly one has to [configure the docker daemon to support IPv6](https://docs.docker.com/config/daemon/ipv6/).
 - [Rust](https://www.rust-lang.org/) 
+- _Userspace_ utilities of [nftables](https://wiki.nftables.org/wiki-nftables/index.php/Main_Page#Installing_nftables).
+  Specifically the daemon must have access to the `nft` utility.
 
 ## Running on physical hosts
 

@@ -9,8 +9,16 @@ pub mod netlink;
 ///
 /// If the command fails the captured error message is returned as [Err].
 pub fn load_nft_config<S: AsRef<OsStr>>(path: S) -> Result<(), String> {
-    let output = Command::new("nft").arg("-f").arg(path).output().unwrap();
-    match output.status.code().expect("failed to execute nft command") {
+    let output = Command::new("nft")
+        .arg("-f")
+        .arg(path)
+        .output()
+        .expect("failed to execute nft command");
+    match output
+        .status
+        .code()
+        .expect("nft command externally terminated")
+    {
         0 => {
             log::debug!(target: "linux", "Loaded nftables successfully");
             Ok(())
