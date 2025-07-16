@@ -22,7 +22,7 @@ authors = [
   "Paul Seehofer <paul.seehofer@kit.edu>",
 ]
 homepage = "https://gitlab.kit.edu/kit/tm/telematics/kira/kira-rust"
-edition = "2021"
+edition = "2024"
 
 # All dependencies are well picked and although just a few have versions 1.x
 # they are considered stable enough to use in production by the Rust Community.
