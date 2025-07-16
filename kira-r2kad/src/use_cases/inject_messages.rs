@@ -4,11 +4,11 @@ use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::ops::Deref;
 use std::time::Instant;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::domain::{
-    node_id, GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId,
-    UnderlayNeighborSource,
+    GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, UnderlayNeighborSource,
+    node_id,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{Nonce, ProtocolMessage, ReqRspMessage};
@@ -25,29 +25,6 @@ pub trait InjectionResultSender: Clone {
     type Error: Error;
 
     fn send_result(&self, result: InjectionResult) -> Result<(), Self::Error>;
-}
-
-#[cfg(feature = "tokio")]
-mod tokio_extension {
-    use tokio::sync::{broadcast, mpsc};
-
-    use crate::use_cases::inject_messages::{InjectionResult, InjectionResultSender};
-
-    impl InjectionResultSender for mpsc::Sender<InjectionResult> {
-        type Error = mpsc::error::SendError<InjectionResult>;
-
-        fn send_result(&self, result: InjectionResult) -> Result<(), Self::Error> {
-            self.blocking_send(result)
-        }
-    }
-
-    impl InjectionResultSender for broadcast::Sender<InjectionResult> {
-        type Error = broadcast::error::SendError<InjectionResult>;
-
-        fn send_result(&self, result: InjectionResult) -> Result<(), Self::Error> {
-            self.send(result).map(|_| ())
-        }
-    }
 }
 
 mod std_extension {
@@ -176,7 +153,7 @@ where
                         .injection_result_sender
                         .send_result(InjectionResult::Isolated)
                     {
-                        log::error!(target: "inject_messages", "failed to send inject result: {}", e);
+                        log::error!(target: "inject_messages", "failed to send inject result: {e}");
                         return Err(InjectMessageError::SendResultFailed);
                     }
                     return Err(InjectMessageError::Isolated);
@@ -217,7 +194,7 @@ where
                         .injection_result_sender
                         .send_result(InjectionResult::Answered((message.clone(), interface)))
                     {
-                        log::error!(target: "inject_messages", "Sending answered result failed: {}", e);
+                        log::error!(target: "inject_messages", "Sending answered result failed: {e}");
                         return Err(InjectMessageError::SendResultFailed);
                     }
                     log::trace!(target: "inject_messages", "Received response for nonce {:?} after {:?}", message.nonce(), elapsed);
