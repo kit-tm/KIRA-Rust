@@ -52,7 +52,7 @@ services:
     container_name: jaeger
     command: ["--config=/etc/jaeger/jaeger-config.yaml"]
     volumes:
-      - ${PWD}/tests/jaeger-config.yaml:/etc/jaeger/jaeger-config.yaml
+      - ${PWD}/tests/jaeger/jaeger-config.yaml:/etc/jaeger/jaeger-config.yaml
     ports:
       - "4317:4317"  # OTLP gRPC
       - "4318:4318"  # OTLP HTTP
