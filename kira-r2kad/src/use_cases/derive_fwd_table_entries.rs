@@ -232,20 +232,41 @@ where
                 self.remove_node_id_entry(context, contact.id())?;
             }
             UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {
-                if &ContactState::Valid != new.state() && &ContactState::Valid == old.state() {
-                    log::debug!(target: "derive_fwd_table_entries", "Contact {new:?} changed to invalid state");
-                    // if changed to invalid state => remove
-                    self.remove_node_id_entry(context, new.id())?;
-                } else if new.state() == &ContactState::Valid && old.state() != &ContactState::Valid
-                {
-                    // If changed back to valid state => create new
-                    self.create_node_id_entry(context, new.clone())?;
-                } else if new.state() == &ContactState::Valid
-                    && old.state() == &ContactState::Valid
-                    && new.path() != old.path()
-                {
-                    // If both are valid => Just update existing entry
-                    self.update_node_id_entry(context, new.clone())?;
+                match (new.state(), old.state()) {
+                    (ContactState::Invalid, ContactState::Valid) => {
+                        tracing::debug!(
+                            target: "derive_fwd_table_entries",
+                            ?new, ?old,
+                            "Contact changed to invalid state"
+                        );
+                        self.remove_node_id_entry(context, new.id())?;
+                        self.remove_node_id_entry(context, old.id())?;
+                    }
+                    (ContactState::Valid, ContactState::Invalid) => {
+                        tracing::debug!(
+                            target: "derive_fwd_table_entries",
+                            ?new, ?old,
+                            "Contact changed to valid state"
+                        );
+                        self.create_node_id_entry(context, new)?;
+                    }
+                    (ContactState::Valid, ContactState::Valid) if new.path() != old.path() => {
+                        tracing::debug!(
+                            target: "derive_fwd_table_entries",
+                            ?new, ?old,
+                            "Contact changed path"
+                        );
+                        if new.id() == old.id() {
+                            // just a simple path change to the same destination
+                            self.update_node_id_entry(context, new)?;
+                        } else {
+                            // Contact got substituted for another destination
+                            // probably due to proximity neighbor selection
+                            self.remove_node_id_entry(context, old.id())?;
+                            self.create_node_id_entry(context, new)?;
+                        }
+                    }
+                    _ => {}
                 }
             }
             UseCaseEvent::Contact(ContactEvent::BucketUpdated(bucket)) => {
