@@ -1,33 +1,29 @@
 import argparse
-from dataclasses import dataclass
-import os
-from cmd import Cmd
-import sys
-import re
-from subprocess import Popen, PIPE
-from typing import Iterable, Iterator, Union
-import json
 import base64
+import json
+import os
+import re
+import sys
+from cmd import Cmd
+from dataclasses import dataclass
 from hashlib import sha1
 from ipaddress import (
+    AddressValueError,
     IPv4Address,
     IPv4Network,
     IPv6Address,
     IPv6Network,
-    AddressValueError,
 )
-
-from nest import engine
-from nest.topology.interface.interface import create_veth_pair
-import networkx as nx
-from networkx import Graph
+from itertools import chain
+from subprocess import PIPE, Popen
+from typing import Iterable, Iterator, Union
 
 import nest
-from nest.topology import Node, Address, Interface, Switch, connect
-
-
+import networkx as nx
 from common import NodeConfig
-
+from nest.topology import Address, Interface, Node, Switch, connect
+from nest.topology.interface.interface import create_veth_pair
+from networkx import Graph
 
 PATH_IP: IPv6Network = IPv6Network("fcaa::/16")
 NODE_IP: IPv6Network = IPv6Network("fc00::/16")
@@ -98,6 +94,14 @@ class KIRANode(Node):
     def local_hashtable(self) -> str | None:
         path = "dht/_dev/local-hashtable"
         return self.api_call(path)
+
+    def root_id(self) -> bytes | None:
+        path = "node-id"
+        res = self.api_call(path)
+        if res is None:
+            return None
+        res = json.loads(res)
+        return bytes.fromhex(res.get("node-id"))
 
     def is_up(self) -> bool:
         path = "node-id"
@@ -293,10 +297,7 @@ class KIRANode(Node):
         return None
 
     def paths_rt(self) -> Iterator[Iterator[bytes]] | None:
-        """Returns an iterator over all paths (node-id sequence) known by the node.
-
-        Usually all paths known by the node are paths in the RoutingTable.
-        """
+        """Returns an iterator over all paths (node-id sequence) known by the node."""
         # FIXME:Consider Vicinity Paths
         routing_table = self.routing_table()
         if routing_table is None:
@@ -312,6 +313,32 @@ class KIRANode(Node):
             hops = (bytes.fromhex(nid_match.group(1)) for nid_match in r_nid.finditer(path_str))
             yield hops
 
+    def paths_vicinity(self) -> Iterator[list[bytes]] | None:
+        # parsing vicinity graph of Node
+        root_id = self.root_id()
+        vicinity_raw = self.vicinity_graph()
+        if vicinity_raw is None or root_id is None:
+            return None
+        node_id_re = re.compile(r"NodeId\((\w+)\)")
+
+        # Parse neighbor relationships
+        vicinity_graph = Graph()
+        entry_re = re.compile(
+            r"NodeId\((\w+)\): Entry \{[^}]*?neighbors: \{([^}]*)\}",
+            re.DOTALL,  # match newline
+        )
+        for match in entry_re.finditer(vicinity_raw):
+            vid = bytes.fromhex(match.group(1))
+            neighbors = match.group(2)
+            neighbor_ids = node_id_re.findall(neighbors)
+
+            for uid in neighbor_ids:
+                uid = bytes.fromhex(uid)
+                vicinity_graph.add_edge(vid, uid)
+
+        for v in vicinity_graph.nodes:
+            yield from nx.all_simple_paths(vicinity_graph, root_id, v, cutoff=VICINITY_RADIUS)
+
     @staticmethod
     def path_id(path: Iterable[bytes]) -> bytes:
         """Calculate the Path-ID from a path of NodeIds."""
@@ -324,9 +351,15 @@ class KIRANode(Node):
         """
         assert ip in PATH_IP
 
-        paths = self.paths_rt()
-        if paths is None:
+        # usually a path used is in some routing table
+        # but just to be sure we check the vicinity too
+        paths_rt = self.paths_rt()
+        if paths_rt is None:
             return None
+        paths_vicinity = self.paths_vicinity()
+        if paths_vicinity is None:
+            return None
+        paths = chain(paths_rt, paths_vicinity)
 
         for path in paths:
             path = list(path)
@@ -819,8 +852,7 @@ class NestTest[T]:  # T = tid type, usually int or str
             assert v is not None
 
             paths = nx.all_simple_paths(self.topology, n, v, cutoff=VICINITY_RADIUS)
-            for path in paths:
-                yield path
+            yield from paths
 
     def missing_pathsetups(self, node: KIRANode) -> Iterator[FwdEntry] | None:
         vicinity_paths = self.vicinity_paths(node)
@@ -910,7 +942,7 @@ class DebugShell[T](Cmd):
 
     def _compile_re(self):
         self._replacement_map = dict(self._construct_replacement_map())
-        replace_re = "|".join(re.escape(nid) for nid in self._replacement_map.keys())
+        replace_re = "|".join(re.escape(nid) for nid in self._replacement_map)
         ignore_case = f"(?i:{replace_re})"
         self._replace_re = re.compile(ignore_case)
 
@@ -955,15 +987,9 @@ class DebugShell[T](Cmd):
 
         # process flags
         args = arg.split()
-        if "-f" in args or "--failed" in args:
-            failed = True
-        else:
-            failed = False
+        failed = "-f" in args or "--failed" in args
 
-        if "-v" in args or "--verbose" in args:
-            verbose = 2
-        else:
-            verbose = 0
+        verbose = 2 if "-v" in args or "--verbose" in args else 0
 
         for x, _ in self.test.nodes():
             for y, y_config in self.test.nodes():
@@ -1173,6 +1199,8 @@ class DebugShell[T](Cmd):
 
         if ip is None:
             paths = node.paths_rt()
+            if paths is None:
+                return
         else:
             try:
                 ip = IPv6Address(ip)
