@@ -1,18 +1,17 @@
+use std::collections::HashMap;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
-use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::time::{Duration, Instant};
 
 use derive_more::derive::{Display, Error};
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::domain::protocol_event::forwarding::{
-    DecapsulationDestination, PathIdDecapsulationEntry, PathIdEntry, PathIdForwardingEntry,
-    PathIdTableUpdate,
+    PathIdEntry, PathIdForwardingEntry, PathIdTableUpdate,
 };
 use crate::domain::{
-    Contact, ContactState, EmptyPathError, Hasher, NodeId, Path, PathId, RoutingTable, ULNTable,
+    Contact, ContactState, Hasher, NodeId, Path, PathId, RoutingTable, ULNTable,
     UnderlayNeighborId, VICINITY_RADIUS,
 };
 use crate::messaging::source_route::SourceRoute;
@@ -179,80 +178,53 @@ where
     }
 
     fn register_path(&mut self, context: &C, source_route: SourceRoute) {
-        let entries;
-        let local_entries;
-        match &mut self.state {
-            EPMState::Running {
-                externally_added_paths,
-                local_paths,
-                ..
-            } => {
-                entries = externally_added_paths;
-                local_entries = local_paths;
-            }
-            _ => {
-                log::warn!(target: "explicit_path_management", "Tried to register foreign path while not initialized");
-                return;
-            }
+        let EPMState::Running {
+            ref mut externally_added_paths,
+            ..
+        } = self.state
+        else {
+            log::warn!(target: "explicit_path_management", "Tried to register foreign path while not initialized");
+            return;
         };
 
         let in_path = source_route.remaining_path();
-        let out_path =
-            Result::<Path, EmptyPathError>::from_iter(in_path.clone().into_iter().skip(1))
-                .map(Some)
-                .unwrap_or_else(|_| None);
+        debug_assert!(in_path.size() > VICINITY_RADIUS);
+        let out_path = Result::<Path, _>::from_iter(in_path.clone().into_iter().skip(1))
+            .expect("should contain path >= {VICINITY_RADIUS}");
 
         let in_path_id = self.config.hasher.hash(&in_path);
 
-        match out_path {
-            Some(out_path) => {
-                let next_hop = match context.uln_table().get(out_path.first()).cloned() {
-                    Some(next_hop) => next_hop,
-                    None => {
-                        log::error!(target: "explicit_path_management", "Received PathSetupRequest for invalid underlay neighbor {}; Ignoring", out_path.first());
-                        return;
-                    }
-                };
-                let out_path_id = self.config.hasher.hash(&out_path);
-                let entry = PathIdEntry::Forward(PathIdForwardingEntry {
-                    in_path_id: in_path_id.clone(),
-                    out_path_id,
-                    next_hop,
-                });
-
-                match entries.entry(in_path_id) {
-                    Occupied(mut occupied_entry) => {
-                        context
-                            .runtime()
-                            .update_fwd_tables(PathIdTableUpdate::Update(entry));
-                        occupied_entry.get_mut().last_seen = Instant::now();
-                    }
-                    Vacant(vacant_entry) => {
-                        context
-                            .runtime()
-                            .update_fwd_tables(PathIdTableUpdate::CreateOrUpdate(entry.clone()));
-
-                        vacant_entry.insert(Entry {
-                            path_id_entry: entry,
-                            via: next_hop,
-                            last_seen: Instant::now(),
-                        });
-                    }
-                }
-            }
+        let next_hop = match context.uln_table().get(out_path.first()).cloned() {
+            Some(next_hop) => next_hop,
             None => {
-                if !local_entries.contains(&in_path_id) {
-                    let entry = PathIdEntry::Decapsulate(PathIdDecapsulationEntry {
-                        in_path_id: in_path_id.clone(),
-                        next_hop: DecapsulationDestination::Local,
-                    });
-                    context
-                        .runtime()
-                        .update_fwd_tables(PathIdTableUpdate::CreateOrUpdate(entry));
-                    local_entries.insert(in_path_id);
-                } else {
-                    // NOTE: local entries are never updated to avoid useless updates to the underlying nftables map
-                }
+                log::error!(target: "explicit_path_management", "Received PathSetupRequest for invalid underlay neighbor {}; Ignoring", out_path.first());
+                return;
+            }
+        };
+        let out_path_id = self.config.hasher.hash(&out_path);
+        let entry = PathIdEntry::Forward(PathIdForwardingEntry {
+            in_path_id: in_path_id.clone(),
+            out_path_id,
+            next_hop,
+        });
+
+        match externally_added_paths.entry(in_path_id) {
+            Occupied(mut occupied_entry) => {
+                context
+                    .runtime()
+                    .update_fwd_tables(PathIdTableUpdate::Update(entry));
+                occupied_entry.get_mut().last_seen = Instant::now(); // FIXME: Set to current runtime time
+            }
+            Vacant(vacant_entry) => {
+                context
+                    .runtime()
+                    .update_fwd_tables(PathIdTableUpdate::Create(entry.clone()));
+
+                vacant_entry.insert(Entry {
+                    path_id_entry: entry,
+                    via: next_hop,
+                    last_seen: Instant::now(), // FIXME: Set to current runtime time
+                });
             }
         }
     }
@@ -364,27 +336,46 @@ where
                     new.path().size() > VICINITY_RADIUS,
                     old.path().size() > VICINITY_RADIUS,
                 ) {
-                    (&ContactState::Valid, &ContactState::Invalid, true, _) => {
-                        // Contact gets valid and is out of vicinity
+                    (ContactState::Valid, ContactState::Invalid, true, _) => {
+                        // Contacts becomes valid
                         self.send_setup_req(context, &new);
                     }
-                    (&ContactState::Invalid, &ContactState::Valid, true, true) => {
-                        // Contact gets invalid and is out of vicinity
-                        // The old path was out of vicinity too
-                        self.send_teardown_req(context, &old);
-                        if old.path() != new.path() {
-                            self.send_teardown_req(context, &new);
-                        }
-                    }
-                    (&ContactState::Valid, &ContactState::Valid, true, false) => {
+                    (ContactState::Valid, ContactState::Valid, true, false) => {
                         // Contacts path changes from in vicinity to out of vicinity
                         self.send_setup_req(context, &new);
                     }
-                    (&ContactState::Valid, &ContactState::Valid, false, true) => {
+                    (ContactState::Valid, ContactState::Valid, true, true)
+                        if old.path() != new.path() =>
+                    {
+                        // path changes outside the vicinity
+                        self.send_setup_req(context, &new);
+                        self.send_teardown_req(context, &old);
+                    }
+                    (ContactState::Valid, &ContactState::Valid, false, true) => {
                         // Contacts path changed from out of vicinity to inside vicinity
                         self.send_teardown_req(context, &old);
                     }
-                    _ => {}
+                    (
+                        ContactState::Invalid,
+                        ContactState::Valid,
+                        new_outside_vicinity,
+                        old_outside_vicinity,
+                    ) => {
+                        // Contact gets invalid
+                        if new_outside_vicinity {
+                            self.send_teardown_req(context, &old);
+                        }
+                        if old_outside_vicinity && old.path() != new.path() {
+                            self.send_teardown_req(context, &new);
+                        }
+                    }
+                    _ => {
+                        // Ignored Cases:
+                        // 1. Contact changes while being invalid
+                        // 2. Contact changes inside vicinity
+                        // 3. Contact changes outside vicinity without path change
+                        // 4. Contact gets valid inside vincity
+                    }
                 }
             }
             (UseCaseEvent::Contact(ContactEvent::Removed(contact)), _) => {
@@ -414,7 +405,7 @@ where
                 UseCaseEvent::Message(ProtocolMessage::PathSetupReq(req), _),
                 EPMState::Running { .. },
             ) => {
-                let unprocessed_hops = req.source_route.remaining_path().size();
+                let unprocessed_hops = req.source_route.remaining_path().size(); // X, [A], B, C, D -> 4
                 assert!(unprocessed_hops > VICINITY_RADIUS);
 
                 // process current hop
@@ -441,6 +432,7 @@ where
                 // WARN: insufficient sign to teardown path, because
                 //       others may utilize the same path unknowingly.
                 //       Let softstate perform the garbage collection.
+
                 //self.teardown_path(context, req.clone());
                 let processed_hops = unprocessed_hops - 1;
 
@@ -509,7 +501,6 @@ where
             refresh_timer: refresh_timer_id,
             cleanup_timer: cleanup_timer_id,
             externally_added_paths: HashMap::default(),
-            local_paths: HashSet::default(),
         };
 
         Ok(())
@@ -537,7 +528,6 @@ pub enum EPMState {
         refresh_timer: Option<TimerId>,
         cleanup_timer: TimerId,
         externally_added_paths: HashMap<PathId, Entry>,
-        local_paths: HashSet<PathId>,
     },
     /// The [UseCase] reached an unrecoverable error state.
     Error,

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::marker::PhantomData;
 use std::ops::Deref;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::domain::protocol_event::forwarding::{
     DecapsulationDestination, NodeIdEncapsulationEntry, NodeIdEntry, NodeIdForwardingEntry,
@@ -224,6 +224,7 @@ where
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
         match event {
+            // FIXME: create NodeId entry on receiving PathSetupRsp
             UseCaseEvent::Contact(ContactEvent::New(contact)) => {
                 self.create_node_id_entry(context, contact.clone())?;
             }
@@ -301,14 +302,14 @@ impl Error for DeriveFwdEntriesError {}
 mod tests {
     use std::collections::HashSet;
 
+    use crate::Output;
     use crate::context::ContextConfig;
     use crate::context::SyncContext;
+    use crate::domain::SIZE;
+    use crate::domain::StateSeqNr;
     use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::StateSeqNr;
-    use crate::domain::SIZE;
     use crate::runtime::testing::TestingUseCaseRuntime;
-    use crate::Output;
 
     use super::*;
 
@@ -407,7 +408,9 @@ mod tests {
                 }
             });
             if let Some(path_id_update) = path_id_update {
-                panic!("No path id updates for already setup paths inside the vicinity: {path_id_update}");
+                panic!(
+                    "No path id updates for already setup paths inside the vicinity: {path_id_update}"
+                );
             }
 
             let fwd_updates = output
