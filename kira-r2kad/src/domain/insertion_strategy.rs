@@ -77,7 +77,7 @@ where
             "Returned contact has to have same id"
         );
         if contact.state() != &ContactState::Valid {
-            log::trace!(target: "routing_table", "Dropped path: Invalid [{:?}]", contact);
+            log::trace!(target: "routing_table", "Dropped path: Invalid [{contact:?}]");
             return InsertionStrategyResult::Dropped;
         }
 
@@ -99,7 +99,7 @@ where
         // FIXME: check whether the supposed new path actually avoids all broken links
         // -> `src/routing/r2kademlia/KadRoutingTable.cc:299`
         if existing.state() == &ContactState::Invalid && contact.state() == &ContactState::Valid {
-            log::trace!(target: "routing_table", "Updated path: Invalid path was replaced [{:?}]", contact);
+            log::trace!(target: "routing_table", "Updated path: Invalid path was replaced [{contact:?}]");
             *existing = contact;
             return InsertionStrategyResult::Updated;
         }
@@ -112,8 +112,7 @@ where
         {
             log::trace!(
                 target: "routing_table",
-                "Not updating contacts path because it is longer [{:?}]",
-                contact
+                "Not updating contacts path because it is longer [{contact:?}]"
             );
             return InsertionStrategyResult::Dropped;
         }
@@ -134,7 +133,7 @@ where
                 //  this would maybe cause delayed UpdateRouteReq,
 
                 existing.set_last_seen_now();
-                *existing.state_seq_nr_mut() = contact.state_seq_nr().clone();
+                *existing.state_seq_nr_mut() = *contact.state_seq_nr();
                 InsertionStrategyResult::Dropped
             } else {
                 // FIXME: Don't accept longer path to potential UN
@@ -145,8 +144,7 @@ where
                 // -> src/routing/r2kademlia/KadRoutingTable.cc:315
                 log::trace!(
                     target: "routing_table",
-                    "Updated contact [{:?}]",
-                    contact
+                    "Updated contact [{contact:?}]"
                 );
                 existing.set_last_seen_now();
                 *existing = contact.clone();
@@ -237,8 +235,7 @@ where
         if !un_table.contains(contact.path().first()) {
             log::warn!(
                 target: "routing_table",
-                "Dropping contact info: first element not a underlay neighbor [{}]",
-                contact
+                "Dropping contact info: first element not a underlay neighbor [{contact}]"
             );
             return InsertionStrategyResult::Dropped;
         }
@@ -303,7 +300,7 @@ where
     ) -> InsertionStrategyResult {
         let result = routing_table.insert(contact);
         if let Err(e) = result {
-            log::warn!(target: "routing_table", "Failed to insert contact into routing table: {}", e);
+            log::warn!(target: "routing_table", "Failed to insert contact into routing table: {e}");
         }
 
         self.0.clone()

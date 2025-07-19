@@ -86,15 +86,13 @@ mod tests {
 
         assert!(
             result.is_err(),
-            "Fetching data from empty set returned an Ok result: {:?}",
-            result
+            "Fetching data from empty set returned an Ok result: {result:?}"
         );
 
         let result = result.unwrap_err();
         assert!(
             matches!(result, FetchErr::NotFoundErr),
-            "Didn't return NotFoundErr as result: {:?}",
-            result
+            "Didn't return NotFoundErr as result: {result:?}"
         );
     }
 
@@ -112,14 +110,13 @@ mod tests {
 
         let result = strategy.fetch(&handle, &mut composite);
 
-        assert!(result.is_ok(), "Fetching data failed: {:?}", result);
+        assert!(result.is_ok(), "Fetching data failed: {result:?}");
 
         let result = result.unwrap();
         assert_eq!(
             result,
             vec![existing_data.clone()],
-            "Didn't return right value : {:?}",
-            result
+            "Didn't return right value : {result:?}"
         );
     }
 }

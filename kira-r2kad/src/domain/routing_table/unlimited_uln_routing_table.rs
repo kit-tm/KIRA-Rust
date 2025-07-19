@@ -282,8 +282,7 @@ mod tests {
         let (_, contact) = first.unwrap();
         assert_eq!(
             contact, &contacts[2],
-            "Returned strange order of closest contacts: {:#?}",
-            closest
+            "Returned strange order of closest contacts: {closest:#?}"
         );
     }
 
@@ -324,8 +323,7 @@ mod tests {
         let (_, contact) = first.unwrap();
         assert_eq!(
             contact, &contacts[1],
-            "Returned strange order of closest contacts: {:#?}",
-            closest
+            "Returned strange order of closest contacts: {closest:#?}"
         );
     }
 
@@ -352,8 +350,7 @@ mod tests {
         let (_, contact) = first.unwrap();
         assert_eq!(
             contact, &contacts[2],
-            "Returned strange order of closest contacts: {:#?}",
-            closest
+            "Returned strange order of closest contacts: {closest:#?}"
         );
     }
 
@@ -378,12 +375,11 @@ mod tests {
             .expect("failed to insert all contact");
 
         let closest = routing_table.closest(&NodeId::zero(), 20, 1);
-        assert!(closest.is_ok(), "Returned error: {:?}", closest);
+        assert!(closest.is_ok(), "Returned error: {closest:?}");
         let closest = closest.unwrap();
         assert!(
             closest.is_empty(),
-            "Returned closest contacts: {:#?}",
-            closest
+            "Returned closest contacts: {closest:#?}"
         );
     }
 

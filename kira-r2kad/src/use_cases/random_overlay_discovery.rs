@@ -93,8 +93,7 @@ where
         if interface.is_none() {
             log::error!(
                 target: "random_overlay_discovery",
-                "Contacts path contains invalid neighbor: {}",
-                closest_path
+                "Contacts path contains invalid neighbor: {closest_path}"
             );
             self.state = RODState::Error;
             return Err(RODError::InvalidNeighbor);
@@ -114,7 +113,7 @@ where
             not_via: context.not_via().clone(),
             source_route: route,
         };
-        log::trace!(target: "random_overlay_discovery", "Sending message {:?}", message);
+        log::trace!(target: "random_overlay_discovery", "Sending message {message:?}");
 
         context
             .runtime()

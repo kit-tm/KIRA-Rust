@@ -121,7 +121,7 @@ impl<C, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCKET_SIZE> {
         callback: OneshotInjectMessageCallback,
     ) -> Result<(), InjectMessageError> {
         callback.send(result).map_err(|e| {
-            log::error!(target: "distributed_hash_table_injector", "failed to send inject result: {:#?}", e);
+            log::error!(target: "distributed_hash_table_injector", "failed to send inject result: {e:#?}");
 
             InjectMessageError::SendResultFailed
         })

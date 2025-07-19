@@ -143,8 +143,7 @@ where
                 Err(e) => {
                     log::warn!(
                         target: "handle_overlay_discovery",
-                        "FindNodeReq requested more contacts as host architecture can address: {}. Returning max value",
-                        e
+                        "FindNodeReq requested more contacts as host architecture can address: {e}. Returning max value"
                     );
                     usize::MAX
                 }
@@ -222,8 +221,7 @@ where
                 (false, _, true, _) => {
                     log::warn!(
                         target: "handle_overlay_discovery",
-                        "Received FindNodeReq with 'exact=false' with us as target: {:?}",
-                        req
+                        "Received FindNodeReq with 'exact=false' with us as target: {req:?}"
                     );
                     return Ok(());
                 }

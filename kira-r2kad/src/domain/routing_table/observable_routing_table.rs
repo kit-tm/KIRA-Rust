@@ -51,11 +51,11 @@ pub enum RoutingTableEvent<const BUCKET_SIZE: usize> {
 impl<const BUCKET_SIZE: usize> Display for RoutingTableEvent<BUCKET_SIZE> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NewContact(contact) => write!(f, "NewContact [{}]", contact),
-            Self::RemovedContact(contact) => write!(f, "RemovedContact [{}]", contact),
-            Self::UpdatedContact { old, new } => write!(f, "UpdatedContact [{} => {}]", old, new),
-            Self::NewBucket(bucket) => write!(f, "NewBucket [{}]", bucket),
-            Self::UpdatedBucket(bucket) => write!(f, "UpdatedBucket to [{}]", bucket),
+            Self::NewContact(contact) => write!(f, "NewContact [{contact}]"),
+            Self::RemovedContact(contact) => write!(f, "RemovedContact [{contact}]"),
+            Self::UpdatedContact { old, new } => write!(f, "UpdatedContact [{old} => {new}]"),
+            Self::NewBucket(bucket) => write!(f, "NewBucket [{bucket}]"),
+            Self::UpdatedBucket(bucket) => write!(f, "UpdatedBucket to [{bucket}]"),
         }
     }
 }
@@ -483,8 +483,7 @@ mod tests {
         let add_result = observable.add(contact.clone());
         assert!(
             add_result.is_ok(),
-            "Adding should be ok in empty routing table but was: {:?}",
-            add_result
+            "Adding should be ok in empty routing table but was: {add_result:?}"
         );
         assert!((events.read().unwrap()).contains(&RoutingTableEvent::NewContact(contact)));
     }
@@ -566,8 +565,7 @@ mod tests {
                     new: updated_contact,
                     old: contact,
                 }),
-            "{:?}",
-            events
+            "{events:?}"
         );
     }
 }

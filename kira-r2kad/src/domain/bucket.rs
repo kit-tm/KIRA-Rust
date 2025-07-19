@@ -203,7 +203,7 @@ impl<const SIZE: usize> Display for Bucket<SIZE> {
             .map(|contact| contact.to_string())
             .collect::<Vec<_>>()
             .join(", ");
-        write!(f, "Bucket [{}]", contacts)
+        write!(f, "Bucket [{contacts}]")
     }
 }
 
@@ -320,9 +320,11 @@ mod tests {
 
         let mut other = Bucket::<2>::new();
 
-        assert!(bucket
-            .split(&mut other, |contact| contact.id() == second_contact.id())
-            .is_ok());
+        assert!(
+            bucket
+                .split(&mut other, |contact| contact.id() == second_contact.id())
+                .is_ok()
+        );
 
         assert_eq!(bucket.len(), 1);
         assert!(bucket.contains(contact.id()));

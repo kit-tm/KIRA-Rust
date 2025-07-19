@@ -184,7 +184,7 @@ pub enum ApiFormatErr {
 impl Display for DHTErr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::FormatError(e) => write!(f, "Format Error: {}", e),
+            Self::FormatError(e) => write!(f, "Format Error: {e}"),
             Self::SendError => write!(f, "Error sending request."),
             Self::Isolated => write!(f, "Node is isolated."),
             Self::ReceiveError => write!(f, "Receive Error."),
@@ -225,7 +225,7 @@ impl Display for ApiFormatErr {
                 if missing.len() == 1 {
                     write!(f, "Missing request parameter: {}", missing[0])
                 } else {
-                    write!(f, "Missing request parameters: {:?}", missing)
+                    write!(f, "Missing request parameters: {missing:?}")
                 }
             }
             Self::AmbiguousParams => write!(f, "Conflicting parameters provided. Parameters were passed that are mutually exclusive.")
@@ -256,7 +256,7 @@ fn responses<R: IntoResponse + Display>(
         .into_iter()
         .map(|e| (e.to_string(), e.into_response().status()))
         // group status codes so we can display all alternatives that throw same status code
-        .chunk_by(|(_, status)| status.clone());
+        .chunk_by(|(_, status)| *status);
     let iter = binding.into_iter().map(|(status_code, e)| {
         (
             status_code.to_string(),

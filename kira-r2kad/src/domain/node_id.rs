@@ -478,7 +478,7 @@ impl UpperHex for NodeId {
 
 impl Debug for NodeId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NodeId({:X})", self)
+        write!(f, "NodeId({self:X})")
     }
 }
 
@@ -512,8 +512,8 @@ mod tests {
         let raw = "0123456789ABCDEF0123456789AB";
         let id = NodeId::from_str(raw)?;
         assert_eq!(id.size(), node_id::SIZE);
-        assert_eq!(format!("{:X}", id), raw);
-        assert_eq!(format!("{:x}", id), raw.to_lowercase());
+        assert_eq!(format!("{id:X}"), raw);
+        assert_eq!(format!("{id:x}"), raw.to_lowercase());
 
         // Invalid bit length -> Has to be multiple of 8
         assert!(NodeId::from_str("0123456789ABCDEF0123456789A").is_err());

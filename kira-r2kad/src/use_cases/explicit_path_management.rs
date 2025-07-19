@@ -425,8 +425,7 @@ where
                 if processed_hops <= VICINITY_RADIUS {
                     log::trace!(
                         target: "explicit_path_management",
-                        "Stop forwarding PathSetupReq inside our vicinity: {:?}",
-                        req
+                        "Stop forwarding PathSetupReq inside our vicinity: {req:?}"
                     );
                     return Ok(HandlingResult::Handled);
                 }
@@ -449,8 +448,7 @@ where
                 if processed_hops <= VICINITY_RADIUS {
                     log::trace!(
                         target: "explicit_path_management",
-                        "Stop forwarding PathTeardownReq inside our vicinity: {:?}",
-                        req
+                        "Stop forwarding PathTeardownReq inside our vicinity: {req:?}"
                     );
                     return Ok(HandlingResult::Handled);
                 }

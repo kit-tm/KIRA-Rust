@@ -277,7 +277,7 @@ async fn main() {
                     SIGPIPE => println!("Received SIGPIPE"),
                     SIGKILL => println!("Received SIGKILL"),
                     signal => {
-                        log::debug!("Received unsupported signal: {}", signal);
+                        log::debug!("Received unsupported signal: {signal}");
                         continue;
                     }
                 }

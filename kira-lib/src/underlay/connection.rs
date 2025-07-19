@@ -105,13 +105,13 @@ impl UnderlayObserverConnection {
             );
 
             // Send the request
-            log::debug!(target: "underlay_observer::connection", "Sending initial request: {:?}", msg);
+            log::debug!(target: "underlay_observer::connection", "Sending initial request: {msg:?}");
             let request = rt_handle.request(msg, SocketAddr::new(0, 0));
             let mut response = request.expect("request should complete succesfully");
 
             // Relay all the messages received in response
             while let Some(message) = response.next().await {
-                log::trace!(target: "underlay_observer::connection", "processing initial message: {:?}", message);
+                log::trace!(target: "underlay_observer::connection", "processing initial message: {message:?}");
                 init_tx.send(message).await.unwrap();
             }
         }).unwrap();
@@ -163,7 +163,7 @@ impl UnderlayObserverConnection {
                     Poll::Ready(Some(message)) => {
                         match message.payload {
                             NetlinkPayload::Error(err_message) => {
-                                log::error!(target: "underlay_observer::connection", "received an error message: {:?}", err_message);
+                                log::error!(target: "underlay_observer::connection", "received an error message: {err_message:?}");
                             }
                             NetlinkPayload::InnerMessage(RouteNetlinkMessage::NewLink(message)) => {
                                 let _span = trace_span!(target: "underlay_observer::connection", "processing netlink message", ?message).entered();
@@ -176,11 +176,11 @@ impl UnderlayObserverConnection {
                                 let interface_id: NonZeroU32 = interface_id.try_into().unwrap();
                                 let interface_id = InterfaceId::from(interface_id);
                                 if self.excluded_interfaces.contains(&interface_id) {
-                                    log::debug!(target: "underlay_observer::connection", "ignoring excluded interface: {:?}", interface_id);
+                                    log::debug!(target: "underlay_observer::connection", "ignoring excluded interface: {interface_id:?}");
                                     continue;
                                 }
 
-                                log::trace!(target: "underlay_observer::connection", "processing information about link: {:?}", interface_id);
+                                log::trace!(target: "underlay_observer::connection", "processing information about link: {interface_id:?}");
 
                                 let mut mac_addr = None;
                                 let mut broadcast_addr = None;
@@ -201,7 +201,7 @@ impl UnderlayObserverConnection {
                                         // TODO: LinkAttribute::Mode(mode) => todo!(target: "underlay_observer::connection", "Handle link mode"),
                                         LinkAttribute::Carrier(1) => {}
                                         LinkAttribute::Carrier(carrier) => {
-                                            log::warn!(target: "underlay_observer::connection", "Ignoring carrier {} != 1", carrier)
+                                            log::warn!(target: "underlay_observer::connection", "Ignoring carrier {carrier} != 1")
                                         }
                                         LinkAttribute::ProtoDown(0) => {
                                             proto_down = false;
@@ -223,7 +223,7 @@ impl UnderlayObserverConnection {
                                                     }
                                                 })
                                             else {
-                                                log::debug!(target: "underlay_observer::connection", "ignoring interface not providing any IPv6 support: {:}", interface_id);
+                                                log::debug!(target: "underlay_observer::connection", "ignoring interface not providing any IPv6 support: {interface_id:}");
                                                 continue 'poll_messages;
                                             };
 
@@ -236,12 +236,12 @@ impl UnderlayObserverConnection {
                                                     }
                                                 })
                                             else {
-                                                log::debug!(target: "underlay_observer::connection", "ignoring interface not providing any IPv6 support: {:}", interface_id);
+                                                log::debug!(target: "underlay_observer::connection", "ignoring interface not providing any IPv6 support: {interface_id:}");
                                                 continue 'poll_messages;
                                             };
 
                                             if conf.disable_ipv6 != 0 {
-                                                log::debug!(target: "underlay_observer::connection", "ignoring interface not providing any IPv6 support: {:}", interface_id);
+                                                log::debug!(target: "underlay_observer::connection", "ignoring interface not providing any IPv6 support: {interface_id:}");
                                                 continue 'poll_messages;
                                             }
                                         }
@@ -266,7 +266,7 @@ impl UnderlayObserverConnection {
                                         broadcast_addr
                                             .expect("MAC address should be supplied by rtnetlink"),
                                     );
-                                    log::debug!(target: "underlay_observer::connection", "Interface up: {:?}", interface);
+                                    log::debug!(target: "underlay_observer::connection", "Interface up: {interface:?}");
 
                                     if !self.information_base.interface_up(interface) {
                                         // don't generate InterfaceUp if interface is already known to be up
@@ -288,7 +288,7 @@ impl UnderlayObserverConnection {
                                 } else {
                                     // register interface as down
                                     // and generate respective updates for interface __and__ effected neighbors
-                                    log::debug!(target: "underlay_observer::connection", "Interface down: {}", interface_id);
+                                    log::debug!(target: "underlay_observer::connection", "Interface down: {interface_id}");
 
                                     let Some(affected) =
                                         self.information_base.interface_down(&interface_id)

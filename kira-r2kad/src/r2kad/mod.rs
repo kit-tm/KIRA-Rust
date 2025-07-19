@@ -104,7 +104,7 @@ where
                 runtime.broadcast_event(contact_event);
             });
         }
-        routing_table.add_observer(|event| log::trace!(target: "routing_table", "{}", event));
+        routing_table.add_observer(|event| log::trace!(target: "routing_table", "{event}"));
 
         let insertion_strategy = UNSStrategy::new(InOrderCycleRemover, ShortestFirstPathSimplifier);
 
@@ -282,11 +282,11 @@ where
         let mut reason = true;
         // process timer events first
         while let Some(due_timer) = self.context.runtime().next_timer() {
-            log::trace!(target: "r2kad", "handle timer: {:?}", due_timer);
+            log::trace!(target: "r2kad", "handle timer: {due_timer:?}");
 
             // "first" timer as reason
             if reason {
-                Span::current().record("reason", format!("{}", due_timer));
+                Span::current().record("reason", format!("{due_timer}"));
                 reason = false;
             }
 
@@ -300,7 +300,7 @@ where
 
         // consume __all__ events generated inside the runtime
         while let Some(event) = self.context.runtime().next_event() {
-            log::trace!(target: "r2kad", "handle follow up event: {:?}", event);
+            log::trace!(target: "r2kad", "handle follow up event: {event:?}");
             self.pipeline.process_event(&self.context, event)?;
         }
 

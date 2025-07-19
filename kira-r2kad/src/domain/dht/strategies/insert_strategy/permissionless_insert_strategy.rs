@@ -59,13 +59,12 @@ mod tests {
 
         let result = strategy.insert(handle, data, &mut composite);
 
-        assert!(result.is_ok(), "Insertion of new data failed: {:?}", result);
+        assert!(result.is_ok(), "Insertion of new data failed: {result:?}");
 
         let result = result.unwrap();
         assert!(
             matches!(result, StoreOK::Created),
-            "Didn't return Created as result: {:?}",
-            result
+            "Didn't return Created as result: {result:?}"
         );
     }
 
@@ -81,13 +80,12 @@ mod tests {
 
         let result = strategy.insert(handle, data, &mut composite);
 
-        assert!(result.is_ok(), "Insertion of new data failed: {:?}", result);
+        assert!(result.is_ok(), "Insertion of new data failed: {result:?}");
 
         let result = result.unwrap();
         assert!(
             matches!(result, StoreOK::Inserted),
-            "Didn't return Inserted as result: {:?}",
-            result
+            "Didn't return Inserted as result: {result:?}"
         );
     }
 
@@ -103,13 +101,12 @@ mod tests {
 
         let result = strategy.insert(handle, data, &mut composite);
 
-        assert!(result.is_ok(), "Insertion of new data failed: {:?}", result);
+        assert!(result.is_ok(), "Insertion of new data failed: {result:?}");
 
         let result = result.unwrap();
         assert!(
             matches!(result, StoreOK::Updated),
-            "Didn't return Updated as result: {:?}",
-            result
+            "Didn't return Updated as result: {result:?}"
         );
     }
 }

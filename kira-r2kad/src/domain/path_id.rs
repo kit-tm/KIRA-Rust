@@ -126,6 +126,6 @@ impl Display for PathId {
 
 impl Debug for PathId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "PathId({:X})", self)
+        write!(f, "PathId({self:X})")
     }
 }

@@ -16,7 +16,7 @@ pub struct NodeId {
 impl From<kira_r2kad::domain::NodeId> for NodeId {
     fn from(value: kira_r2kad::domain::NodeId) -> Self {
         NodeId {
-            node_id: format!("{}", value),
+            node_id: format!("{value}"),
         }
     }
 }

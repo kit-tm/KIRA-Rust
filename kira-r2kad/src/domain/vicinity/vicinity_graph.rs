@@ -456,9 +456,7 @@ mod tests {
         }
         assert!(
             not_generated.is_empty() && paths.is_empty(),
-            "Not generated paths: {:#?}; Additionally generated paths: {:#?}",
-            not_generated,
-            paths
+            "Not generated paths: {not_generated:#?}; Additionally generated paths: {paths:#?}"
         );
     }
 
@@ -505,9 +503,7 @@ mod tests {
         }
         assert!(
             not_generated.is_empty() && paths.is_empty(),
-            "Not generated paths: {:#?}; Additionally generated paths: {:#?}",
-            not_generated,
-            paths
+            "Not generated paths: {not_generated:#?}; Additionally generated paths: {paths:#?}"
         );
     }
 
@@ -562,9 +558,7 @@ mod tests {
         }
         assert!(
             not_generated.is_empty() && paths.is_empty(),
-            "Not generated paths: {:#?}; Additionally generated paths: {:#?}",
-            not_generated,
-            paths
+            "Not generated paths: {not_generated:#?}; Additionally generated paths: {paths:#?}"
         );
     }
 }

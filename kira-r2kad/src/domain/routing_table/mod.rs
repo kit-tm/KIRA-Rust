@@ -197,7 +197,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         n: usize,
         shared_prefix_grouping: usize,
     ) -> Result<Option<Contact>, GroupingError> {
-        log::trace!(target: "routing_table", "Calculating next hop to {}", to);
+        log::trace!(target: "routing_table", "Calculating next hop to {to}");
 
         let closest = self.closest(to, n, shared_prefix_grouping)?;
         let (nearest_prefix, next_hop) = match closest.first() {

@@ -91,7 +91,7 @@ where
         context.not_via_mut().retain(|not_via| match not_via {
             NotVia::Link(link) => link.first() != contact_id && link.second() != contact_id,
         });
-        log::trace!(target: "failure_handling", "Removed not via data mentioning {}", contact_id);
+        log::trace!(target: "failure_handling", "Removed not via data mentioning {contact_id}");
     }
 
     fn invalidate_containing_contacts(&self, context: &C, id: &NodeId) {
@@ -256,7 +256,7 @@ where
         );
         let next_duration = backoff.unwrap().next();
         if next_duration.is_none() {
-            log::debug!(target: "failure_handling", "Rediscovery of {} failed. Removing from routing table", node_id);
+            log::debug!(target: "failure_handling", "Rediscovery of {node_id} failed. Removing from routing table");
             context.uln_table_mut().remove(node_id);
             context.routing_table_mut().remove(node_id);
             self.remove_notvia_mentioning(context, node_id);
@@ -327,7 +327,7 @@ where
             .filter_map(|(id, via)| if via == &ulnid { Some(*id) } else { None })
             .collect::<HashSet<_>>();
 
-        log::trace!(target: "failure_handling", "These neighbors are affected by interfaces {:?} down: {:?}", ulnid, affected_neighbors);
+        log::trace!(target: "failure_handling", "These neighbors are affected by interfaces {ulnid:?} down: {affected_neighbors:?}");
 
         not_via.extend(
             affected_neighbors
@@ -417,7 +417,7 @@ where
                     context
                         .not_via_mut()
                         .insert(NotVia::Link(failed_link.clone()));
-                    log::trace!(target: "failure_handling", "added failed link {:?} to NotVia data", failed_link);
+                    log::trace!(target: "failure_handling", "added failed link {failed_link:?} to NotVia data");
                 }
             }
             UseCaseEvent::Timer(id) => {

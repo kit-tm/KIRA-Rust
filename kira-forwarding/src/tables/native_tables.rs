@@ -65,7 +65,7 @@ impl<I> NativeFwdTables<I> {
                 while let Some(update) = underlay_updates.next().await {
                     if let UnderlayNeighborUpdate::InterfaceUp(id) = update {
                         if let Err(e) = netlink.attach_node_id_ip(&root_id, id).await {
-                            log::error!(target: "native_fwd_table", "Attaching to interface {:?} faile: {}", id, e);
+                            log::error!(target: "native_fwd_table", "Attaching to interface {id:?} faile: {e}");
                         }
                     }
                 }
@@ -106,7 +106,7 @@ where
         let destination = entry.destination();
         if self.node_id_table.contains_key(destination) {
             //return Err(error::FwdTableError::EntryAlreadyExists(destination.to_string()));
-            log::error!(target: "native_fwd_table", "entry already exists {:?}", entry);
+            log::error!(target: "native_fwd_table", "entry already exists {entry:?}");
         }
 
         AsyncNodeIdTable::create_or_update(self, entry).await
@@ -119,7 +119,7 @@ where
         let destination = entry.destination();
         if !self.node_id_table.contains_key(destination) {
             //return Err(error::FwdTableError::EntryMissing(destination.to_string()));
-            log::error!(target: "native_fwd_table", "entry missing {:?}", entry);
+            log::error!(target: "native_fwd_table", "entry missing {entry:?}");
         }
 
         AsyncNodeIdTable::create_or_update(self, entry).await
@@ -140,7 +140,7 @@ where
         // Because of how the routing table works, there can only be one entry per prefix_len != 128 (not completely correct but works for now)
         // these subnet entries may change their destination when the routing table grows, so remove the old ones first
         if prefix_length != 128 {
-            log::debug!(target: "native_fwd_table", "Checking for prefix entry change {:?}", entry);
+            log::debug!(target: "native_fwd_table", "Checking for prefix entry change {entry:?}");
             if let Some(old_entry) = self
                 .node_id_table
                 .keys()
@@ -150,7 +150,7 @@ where
                 })
                 .cloned()
             {
-                log::debug!(target: "native_fwd_table", "Prefix entry changed from {} to {}", old_entry, entry);
+                log::debug!(target: "native_fwd_table", "Prefix entry changed from {old_entry} to {entry}");
                 AsyncNodeIdTable::remove(self, &old_entry).await?;
             }
         }
@@ -160,7 +160,7 @@ where
                 destination,
                 next_hop,
             }) => {
-                log::trace!(target: "native_fwd_table", "Trying to replace neighbor route {} dst {:?}", destination, next_hop);
+                log::trace!(target: "native_fwd_table", "Trying to replace neighbor route {destination} dst {next_hop:?}");
                 let out_interface = self
                     .underlay_information_provider
                     .get_information(next_hop)
@@ -179,7 +179,7 @@ where
                 out_path_id,
                 next_hop,
             }) => {
-                log::trace!(target: "native_fwd_table", "Trying to replace encap route {:?} dst {:?}", destination, out_path_id);
+                log::trace!(target: "native_fwd_table", "Trying to replace encap route {destination:?} dst {out_path_id:?}");
                 self.netlink
                     .replace_encap_route(destination, out_path_id)
                     .await
@@ -220,7 +220,7 @@ where
                 NodeIdEntry::Forward(NodeIdForwardingEntry { next_hop, .. }) => {
                     // only delete routes to subnets and not our neighbors
                     if node_id.ipv6_subnet_prefix_length() != 128 {
-                        log::trace!(target: "native_fwd_table", "Trying to delete neighbor route {} dst {:?}", node_id, next_hop);
+                        log::trace!(target: "native_fwd_table", "Trying to delete neighbor route {node_id} dst {next_hop:?}");
                         let interface_id = *self
                             .interface_id_table
                             .get(next_hop)
@@ -232,7 +232,7 @@ where
                     }
                 }
                 NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry { out_path_id, .. }) => {
-                    log::trace!(target: "native_fwd_table", "Trying to delete encap route {} dst {:?}", node_id, out_path_id);
+                    log::trace!(target: "native_fwd_table", "Trying to delete encap route {node_id} dst {out_path_id:?}");
                     self.netlink
                         .delete_encap_route(node_id, out_path_id)
                         .await
@@ -256,7 +256,7 @@ fn _ne_record_out_path_id(entry: &NodeIdEntry) {
     }
 
     if let Some(out_path_id) = entry.out_path_id() {
-        span.record("out_path_id", format!("{:X}", out_path_id));
+        span.record("out_path_id", format!("{out_path_id:X}"));
     }
 }
 
@@ -301,7 +301,7 @@ where
                 next_hop: DecapsulationDestination::UnderlayNeighbor(ulnid),
                 ..
             }) => {
-                log::error!(target: "native_fwd_table", "Penultimate hop popping is currently not supported by the native forwarding tables: {:?}", entry);
+                log::error!(target: "native_fwd_table", "Penultimate hop popping is currently not supported by the native forwarding tables: {entry:?}");
                 (
                     self.underlay_information_provider
                         .get_information(ulnid)
@@ -334,18 +334,18 @@ where
             if old_entry == &entry {
                 return Ok(());
             }
-            log::trace!(target: "native_fwd_table", "Trying to update entry in forwardmap from {:?} to {:?}", old_entry, entry);
+            log::trace!(target: "native_fwd_table", "Trying to update entry in forwardmap from {old_entry:?} to {entry:?}");
             *old_entry = entry;
             platform::update_forwarding_rule(in_ip, out_ip).unwrap();
         } else {
-            log::trace!(target: "native_fwd_table", "Trying to insert entry into forwardmap: {:?}", entry);
+            log::trace!(target: "native_fwd_table", "Trying to insert entry into forwardmap: {entry:?}");
 
             platform::add_forwarding_rule(in_ip, out_ip).unwrap();
             self.path_id_table.insert(in_path_id.clone(), entry);
         }
 
         if let Some((next_hop, out_path_id)) = via {
-            log::trace!(target: "native_fwd_table", "Trying to create via route: {:?} via {:?}", out_ip, next_hop);
+            log::trace!(target: "native_fwd_table", "Trying to create via route: {out_ip:?} via {next_hop:?}");
             self.netlink
                 .replace_via_route(&out_path_id, &next_hop)
                 .await
@@ -359,7 +359,7 @@ where
         if let Some(removed) = self.path_id_table.remove(path_id) {
             let in_path_ip = Ipv6Addr::from(path_id);
 
-            log::trace!(target: "native_fwd_table", "Trying to remove entry from forwardmap: {:?}", removed);
+            log::trace!(target: "native_fwd_table", "Trying to remove entry from forwardmap: {removed:?}");
             platform::delete_forwarding_rule(in_path_ip).unwrap();
             Ok(Some(removed))
         } else {
@@ -375,7 +375,7 @@ fn _pe_record_out_path_id(entry: &PathIdEntry) {
     }
 
     if let Some(out_path_id) = entry.out_path_id() {
-        span.record("out_path_id", format!("{:X}", out_path_id));
+        span.record("out_path_id", format!("{out_path_id:X}"));
     }
 }
 

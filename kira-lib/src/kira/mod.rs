@@ -92,7 +92,7 @@ where
                     break;
                 };
                 if let Err(e) = handle_r2kad_request(&mut forwarding_tables, req).instrument(kira_span).await {
-                    log::error!(target: "forwarding_tables", "Handling an ForwardingTablesUpdate failed: {}", e);
+                    log::error!(target: "forwarding_tables", "Handling an ForwardingTablesUpdate failed: {e}");
                 }
             }
         }).unwrap();
@@ -104,7 +104,7 @@ where
             .name("Underlay Observer channel")
             .spawn(async move {
                 while let Some(update) = underlay_updates.next().await {
-                    log::trace!(target: "underlay_observer::update", "Update: {:?}", update);
+                    log::trace!(target: "underlay_observer::update", "Update: {update:?}");
                     if underlay_tx.send(update).await.is_err() {
                         break;
                     }
@@ -139,7 +139,7 @@ where
                         break;
                     }
                     Err(other_error) => {
-                        log::error!(target: "kira", "Error on receiving protocol messages: {}", other_error)
+                        log::error!(target: "kira", "Error on receiving protocol messages: {other_error}")
                     }
                 }
             }
@@ -156,7 +156,7 @@ where
                         break;
                     }
                     Err(other_error) => {
-                        log::error!(target: "kira", "Sending protocol message failed: {}", other_error)
+                        log::error!(target: "kira", "Sending protocol message failed: {other_error}")
                     }
                 }
             }
@@ -221,7 +221,7 @@ where
             let _startup = _startup.enter();
             let now = Instant::now();
             if let Err(e) = r2kad.startup(now) {
-                log::error!(target: "kira", "Error on startup of R²/KAD: {}", e);
+                log::error!(target: "kira", "Error on startup of R²/KAD: {e}");
                 return;
             }
         }
@@ -264,7 +264,7 @@ where
 
                 let now = Instant::now();
                 if let Err(e) = r2kad.handle_input(input, now) {
-                    log::error!(target: "kira", "Error handle_timeout: {}", e);
+                    log::error!(target: "kira", "Error handle_timeout: {e}");
                     return;
                 }
 
@@ -272,7 +272,7 @@ where
             };
 
             //time::sleep(Duration::from_secs(2)).await;
-            log::trace!(target: "kira", "Waiting for new input events or timeout ({:?})", timer_due);
+            log::trace!(target: "kira", "Waiting for new input events or timeout ({timer_due:?})");
             tokio::select! {
                 biased; // poll in order since we check timers on handling input regardlessly
 

@@ -164,7 +164,7 @@ where
             requests_in_flight.remove(&nonce);
             probe_timers.retain(|_, v| v != &nonce);
 
-            log::trace!(target: "path_probing", "Removed message with nonce {:?} from tracked messages", nonce);
+            log::trace!(target: "path_probing", "Removed message with nonce {nonce:?} from tracked messages");
         }
     }
 
@@ -191,7 +191,7 @@ where
                     log::warn!(target: "path_probing", "Invalidated contact due of timer [path: {}]", contact.path());
                 }
                 None => {
-                    log::warn!(target: "path_probing", "Removed timeout for non existent contact {}", contacts_id)
+                    log::warn!(target: "path_probing", "Removed timeout for non existent contact {contacts_id}")
                 }
             };
         }
@@ -219,7 +219,7 @@ where
                     log::warn!(target: "path_probing", "Invalidated contact {} because ot segment failure", contact.id())
                 }
                 None => {
-                    log::warn!(target: "path_probing", "Removed timeout for non existent contact {}", contacts_id)
+                    log::warn!(target: "path_probing", "Removed timeout for non existent contact {contacts_id}")
                 }
             };
         }
@@ -238,7 +238,7 @@ where
             .runtime()
             .send_message(message, context.uln_table().deref());
 
-        log::trace!(target: "path_probing", "Sent probe rsp to {}", source);
+        log::trace!(target: "path_probing", "Sent probe rsp to {source}");
     }
 
     fn is_periodic_timer(&self, timer_id: &TimerId) -> bool {
@@ -340,7 +340,7 @@ where
 
                     self.remove_from_tracked_messages(nonce);
 
-                    log::trace!(target: "path_probing", "Probing {} was successful!", source);
+                    log::trace!(target: "path_probing", "Probing {source} was successful!");
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::Error(req), _) => {

@@ -77,7 +77,7 @@ mod tests {
         let mut expired_value = TimedValue::new("tested");
         expired_value.timestamp = Instant::now().sub(DEFAULT_TIMEOUT).sub(Duration::from_secs(42));
 
-        assert!(strategy.has_timed_out(&(), &expired_value), "Value hasn't expired: {:?}", expired_value);
+        assert!(strategy.has_timed_out(&(), &expired_value), "Value hasn't expired: {expired_value:?}");
     }
 
     #[test]
@@ -87,6 +87,6 @@ mod tests {
         let mut expired_value = TimedValue::new("tested");
         expired_value.timestamp = Instant::now().sub(DEFAULT_TIMEOUT / 2);
 
-        assert!(!strategy.has_timed_out(&(), &expired_value), "Value has expired: {:?}", expired_value);
+        assert!(!strategy.has_timed_out(&(), &expired_value), "Value has expired: {expired_value:?}");
     }
 }

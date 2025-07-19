@@ -211,7 +211,7 @@ async fn store_dht_data(
         .await
         .map(|received| received.ok_or(DHTErr::ReceiveError))
         .map_err(|_| DHTErr::Timeout)??;
-    log::trace!(target: "api_backend", "Received injection result [{:?}]", injection_result);
+    log::trace!(target: "api_backend", "Received injection result [{injection_result:?}]");
 
     match injection_result {
         InjectionResult::Answered((ProtocolMessage::StoreRsp(payload), _)) => {
@@ -265,7 +265,7 @@ async fn fetch_dht_data(
         .await
         .map(|received| received.ok_or(DHTErr::ReceiveError))
         .map_err(|_| DHTErr::Timeout)??;
-    log::trace!(target: "api_backend", "Received injection result [{:?}]", injection_result);
+    log::trace!(target: "api_backend", "Received injection result [{injection_result:?}]");
 
     match injection_result {
         InjectionResult::Answered((ProtocolMessage::FetchRsp(payload), _)) => {

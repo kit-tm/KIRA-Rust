@@ -226,7 +226,7 @@ where
             source_route: route,
         };
 
-        log::trace!(target: "vicinity_discovery", "Sending message {:?}", request);
+        log::trace!(target: "vicinity_discovery", "Sending message {request:?}");
 
         context
             .runtime()
@@ -252,14 +252,14 @@ where
                             .contact(id)
                             .cloned()
                             .ok_or_else(|| {
-                                log::error!(target: "vicinity_discovery", "No contact found for underlay neighbor {}", id);
+                                log::error!(target: "vicinity_discovery", "No contact found for underlay neighbor {id}");
                                 VDError::NeighborInconsistency
                             }))
                     })
                     .filter_map(|(id, result)| match result {
                         Ok(contact) => Some(contact),
                         Err(_) => {
-                            log::warn!(target: "vicinity_discovery", "No contact for uln {} found", id);
+                            log::warn!(target: "vicinity_discovery", "No contact for uln {id} found");
                             None
                         }
                     })
@@ -276,7 +276,7 @@ where
             source_route: SourceRoute::from_reversed(request.source_route),
         });
 
-        log::trace!(target: "vicinity_discovery", "Sending: {:?}", message);
+        log::trace!(target: "vicinity_discovery", "Sending: {message:?}");
 
         context
             .runtime()
@@ -294,13 +294,13 @@ where
 
     fn broadcast_hello(&self, context: &C) {
         let message = self.construct_hello(context);
-        log::trace!(target: "vicinity_discovery", "Broadcasting message {:?}", message);
+        log::trace!(target: "vicinity_discovery", "Broadcasting message {message:?}");
         context.runtime().send_message_via(message, Broadcast);
     }
 
     fn broadcast_interface_hello(&self, context: &C, interface: InterfaceId) {
         let message = self.construct_hello(context);
-        log::trace!(target: "vicinity_discovery", "Sending message {:?} to {:?}", message, interface);
+        log::trace!(target: "vicinity_discovery", "Sending message {message:?} to {interface:?}");
         context
             .runtime()
             .send_message_via(message, Multicast(interface));
@@ -308,7 +308,7 @@ where
 
     fn send_hello(&self, context: &C, ulnid: UnderlayNeighborId) {
         let message = self.construct_hello(context);
-        log::trace!(target: "vicinity_discovery", "Sending message {:?} to {:?}", message, ulnid);
+        log::trace!(target: "vicinity_discovery", "Sending message {message:?} to {ulnid:?}");
         context
             .runtime()
             .send_message_via(message, UnderlayNeighbor(ulnid));
@@ -340,8 +340,7 @@ where
 
         log::trace!(
             target: "vicinity_discovery",
-            "Sending message: {:?}",
-            message
+            "Sending message: {message:?}"
         );
 
         context
@@ -370,8 +369,7 @@ where
 
         log::trace!(
             target: "vicinity_discovery",
-            "Sending message: {:?}",
-            message
+            "Sending message: {message:?}"
         );
 
         context
@@ -394,7 +392,7 @@ where
             for uln_id in neighbors {
                 let contact = rt_lock.contact(uln_id).cloned();
                 if contact.is_none() {
-                    log::error!(target: "vicinity_discovery", "No contact found for underlay neighbor {}", uln_id);
+                    log::error!(target: "vicinity_discovery", "No contact found for underlay neighbor {uln_id}");
                     return Err(VDError::NeighborInconsistency);
                 }
                 contacts.push(contact.unwrap());
@@ -410,7 +408,7 @@ where
             source_route: SourceRoute::from_reversed(req.source_route),
         });
 
-        log::trace!(target: "vicinity_discovery", "Sending: {:?}", response);
+        log::trace!(target: "vicinity_discovery", "Sending: {response:?}");
 
         context
             .runtime()
@@ -569,7 +567,7 @@ where
                         self.config.heuristic_calculation_bits,
                     )
                 {
-                    log::trace!(target: "vicinity_discovery", "Not responding to Hello from {}", source);
+                    log::trace!(target: "vicinity_discovery", "Not responding to Hello from {source}");
                     return Ok(());
                 }
 
@@ -580,7 +578,7 @@ where
                         if let Some((expected_ssn, _)) = resync_queue.get(&source) {
                             // nothing new about the neighbor
                             if &source_state_seq_nr < expected_ssn {
-                                log::trace!(target: "vicinity_discovery", "Not responding to Hello from unchanged underlay neighbor {} as we received an unexpected state sequence number", source);
+                                log::trace!(target: "vicinity_discovery", "Not responding to Hello from unchanged underlay neighbor {source} as we received an unexpected state sequence number");
                                 return Ok(());
                             }
                         }
@@ -588,12 +586,12 @@ where
                         // check rt contact for expected ssn
                         let rt = context.routing_table();
                         let Some(contact) = rt.contact(&source) else {
-                            log::error!(target: "vicinity_discovery", "No contact found for underlay neighbor {}", source);
+                            log::error!(target: "vicinity_discovery", "No contact found for underlay neighbor {source}");
                             return Err(VDError::NeighborInconsistency);
                         };
 
                         if &source_state_seq_nr <= contact.state_seq_nr() {
-                            log::trace!(target: "vicinity_discovery", "Not responding to Hello from unchanged underlay neighbor {}", source);
+                            log::trace!(target: "vicinity_discovery", "Not responding to Hello from unchanged underlay neighbor {source}");
                             return Ok(());
                         }
                     }
@@ -629,11 +627,11 @@ where
                 // only update expected_ssn, if greater
                 if let Some((previous_expected_ssn, _)) = resync_queue.get_mut(&node_id) {
                     if *previous_expected_ssn < expected_ssn {
-                        log::trace!(target: "vicinity_discovery", "Update expected state sequence number of node {}: {}", node_id, expected_ssn);
+                        log::trace!(target: "vicinity_discovery", "Update expected state sequence number of node {node_id}: {expected_ssn}");
                         *previous_expected_ssn = expected_ssn;
                     }
                 } else {
-                    log::trace!(target: "vicinity_discovery", "Add node to resynchronisation queue: {}", node_id);
+                    log::trace!(target: "vicinity_discovery", "Add node to resynchronisation queue: {node_id}");
                     resync_queue.insert(node_id, (expected_ssn, 0));
                 }
             }
@@ -699,12 +697,12 @@ where
                     let (expected_ssn, _) = entry.get();
                     if source_ssn >= expected_ssn {
                         entry.remove();
-                        log::debug!(target: "vicinity_discovery", "No longer trying to resynchronise with node {}", source_id);
+                        log::debug!(target: "vicinity_discovery", "No longer trying to resynchronise with node {source_id}");
                     } else {
-                        log::trace!(target: "vicinity_discovery", "Not received expected state sequence number ({}) of node {}: {}", expected_ssn, source_id, source_ssn);
+                        log::trace!(target: "vicinity_discovery", "Not received expected state sequence number ({expected_ssn}) of node {source_id}: {source_ssn}");
                     }
                 } else {
-                    log::trace!(target: "vicinity_discovery", "Not expecting any state sequence number from {}", source_id);
+                    log::trace!(target: "vicinity_discovery", "Not expecting any state sequence number from {source_id}");
                 }
             }
             _ => {}

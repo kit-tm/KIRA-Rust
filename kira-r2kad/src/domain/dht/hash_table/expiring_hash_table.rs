@@ -123,8 +123,7 @@ mod tests {
         let expired_data = expired_data.unwrap();
         assert_eq!(
             expired_data, &data,
-            "Some data was expired: {:?}",
-            expired_data
+            "Some data was expired: {expired_data:?}"
         );
     }
 

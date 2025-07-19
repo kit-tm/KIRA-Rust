@@ -232,8 +232,7 @@ where
         if interface.is_none() {
             log::error!(
                 target: "overlay_neighborhood_discovery",
-                "Contact is valid but its path goes through an invalid neighbor. Contact: {}, neighbor: {}",
-                contact, neighbor
+                "Contact is valid but its path goes through an invalid neighbor. Contact: {contact}, neighbor: {neighbor}"
             );
             self.state = ONDState::Error;
             return Err(ONDError::NeighborInconsistency);
@@ -253,8 +252,7 @@ where
 
         log::trace!(
             target: "overlay_neighborhood_discovery",
-            "Sending message {:?}",
-            request
+            "Sending message {request:?}"
         );
 
         context
@@ -373,8 +371,7 @@ where
                 if latest == &Some(nonce) {
                     log::warn!(
                         target: "overlay_neighborhood_discovery",
-                        "Received error response for latest FindNodeReq: {:?}",
-                        data
+                        "Received error response for latest FindNodeReq: {data:?}"
                     );
 
                     self.send_next_request(context)?;

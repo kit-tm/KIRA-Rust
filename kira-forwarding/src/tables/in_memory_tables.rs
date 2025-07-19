@@ -45,7 +45,7 @@ impl AsyncNodeIdTable for InMemoryFwdTables {
             return Err(error::FwdTableError::EntryAlreadyExists);
         }
 
-        log::trace!(target: "in_memory_fwd_table", "Created {:?}", entry);
+        log::trace!(target: "in_memory_fwd_table", "Created {entry:?}");
 
         self.node_id_table.insert(destination, entry);
 
@@ -58,7 +58,7 @@ impl AsyncNodeIdTable for InMemoryFwdTables {
             NodeIdEntry::Encapsulate(ref entry) => entry.destination.clone(),
         };
         if let Some(old_entry) = self.node_id_table.get_mut(&destination) {
-            log::trace!(target: "in_memory_fwd_table", "Updated old: {:?}, new: {:?}", old_entry, entry);
+            log::trace!(target: "in_memory_fwd_table", "Updated old: {old_entry:?}, new: {entry:?}");
             *old_entry = entry;
             Ok(())
         } else {
@@ -68,7 +68,7 @@ impl AsyncNodeIdTable for InMemoryFwdTables {
 
     async fn remove(&mut self, node_id: &NodeIdSubnet) -> Result<Option<NodeIdEntry>, Self::Error> {
         if let Some(removed) = self.node_id_table.remove(node_id) {
-            log::trace!(target: "in_memory_fwd_table", "Removed {:?}", removed);
+            log::trace!(target: "in_memory_fwd_table", "Removed {removed:?}");
             Ok(Some(removed))
         } else {
             Ok(None)
@@ -102,7 +102,7 @@ impl AsyncPathIdTable for InMemoryFwdTables {
             return Err(error::FwdTableError::EntryAlreadyExists);
         }
 
-        log::trace!(target: "in_memory_fwd_table", "Created {:?}", entry);
+        log::trace!(target: "in_memory_fwd_table", "Created {entry:?}");
 
         self.path_id_table.insert(in_path_id, entry);
 
@@ -116,7 +116,7 @@ impl AsyncPathIdTable for InMemoryFwdTables {
         };
 
         if let Some(old_entry) = self.path_id_table.get_mut(&in_path_id) {
-            log::trace!(target: "in_memory_fwd_table", "Updated old: {:?}, new: {:?}", old_entry, entry);
+            log::trace!(target: "in_memory_fwd_table", "Updated old: {old_entry:?}, new: {entry:?}");
             *old_entry = entry;
             Ok(())
         } else {
@@ -126,7 +126,7 @@ impl AsyncPathIdTable for InMemoryFwdTables {
 
     async fn remove(&mut self, path_id: &PathId) -> Result<Option<PathIdEntry>, Self::Error> {
         if let Some(removed) = self.path_id_table.remove(path_id) {
-            log::trace!(target: "in_memory_fwd_table", "Removed {:?}", removed);
+            log::trace!(target: "in_memory_fwd_table", "Removed {removed:?}");
             Ok(Some(removed))
         } else {
             Ok(None)

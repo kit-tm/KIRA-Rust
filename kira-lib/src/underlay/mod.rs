@@ -65,7 +65,7 @@ impl UnderlayInformationBase {
         ulnid: &UnderlayNeighborId,
     ) -> Option<UnderlayNeighborInformation> {
         let Some(neighbor) = self.neighbors.get(ulnid) else {
-            log::warn!(target: "underlay_observer::information_base", "neighbor id is unknown: {:?}", ulnid);
+            log::warn!(target: "underlay_observer::information_base", "neighbor id is unknown: {ulnid:?}");
             return None;
         };
         let interface = self
@@ -74,7 +74,7 @@ impl UnderlayInformationBase {
             .expect("interface should be up as enforced by register_neighbor");
 
         let info = neighbor.information(interface);
-        log::trace!(target: "underlay_observer::information_base", "get_information {}: {:?}", ulnid, info);
+        log::trace!(target: "underlay_observer::information_base", "get_information {ulnid}: {info:?}");
         Some(info)
     }
 
@@ -140,7 +140,7 @@ impl UnderlayInformationBase {
     ) -> Option<impl Iterator<Item = UnderlayNeighborId>> {
         let interface = self.interfaces.remove(interface_id)?;
 
-        log::debug!(target: "underlay_observer::information_base", "Downing all neighbors of interface: {}", interface_id);
+        log::debug!(target: "underlay_observer::information_base", "Downing all neighbors of interface: {interface_id}");
         for ulnid in interface.neighbors() {
             let _ = self.unregister_neighbor(ulnid);
         }
@@ -149,7 +149,7 @@ impl UnderlayInformationBase {
     }
 
     pub fn interface_up(&mut self, interface: Interface) -> bool {
-        log::debug!(target: "underlay_observer::information_base", "Interface is up: {:?}", interface);
+        log::debug!(target: "underlay_observer::information_base", "Interface is up: {interface:?}");
         match self.interfaces.entry(interface.interface_id) {
             Entry::Occupied(mut entry) => {
                 if interface.src_mac != entry.get().src_mac

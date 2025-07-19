@@ -72,7 +72,7 @@ impl UdpSender {
             .get_available()
             .await
             .map_err(|_| SenderError::Closed)?;
-        log::trace!(target: "message_sender", "Broadcasting to {:?}", indices);
+        log::trace!(target: "message_sender", "Broadcasting to {indices:?}");
         for interface_id in indices {
             let dest = SocketAddr::V6(SocketAddrV6::new(
                 ALL_KIRA_NODES,
@@ -90,7 +90,7 @@ impl UdpSender {
                 .await
                 .map_err(SenderError::SendError)
             {
-                log::error!(target: "message_sender", "Multicast to interface {} failed unexpectedly: {} (addr: {})", interface_id, e, ALL_KIRA_NODES);
+                log::error!(target: "message_sender", "Multicast to interface {interface_id} failed unexpectedly: {e} (addr: {ALL_KIRA_NODES})");
             }
         }
         Ok(())
@@ -142,7 +142,7 @@ impl AsyncProtocolMessageSender for UdpSender {
         self.format.serialize(&mut buffer, &message)?;
 
         if let Some(receiver_addr) = self.get_receiver_addr(destination).await {
-            log::trace!( target: "message_sender", "Sending ProtocolMessage to {}", receiver_addr);
+            log::trace!( target: "message_sender", "Sending ProtocolMessage to {receiver_addr}");
 
             self.socket
                 .send_to(&buffer[..buffer.len()], receiver_addr)

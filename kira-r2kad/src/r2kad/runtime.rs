@@ -142,7 +142,7 @@ impl R2KadRuntime {
         let timer = Timer { due, id };
 
         self.timers.write().unwrap().push(timer);
-        log::trace!("registered timer: {:?} ({:?})", timer, duration);
+        log::trace!("registered timer: {timer:?} ({duration:?})");
     }
 
     fn send_output(&self, output: Output) {

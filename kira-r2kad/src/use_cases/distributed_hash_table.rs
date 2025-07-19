@@ -190,7 +190,7 @@ where
             source_route,
         };
 
-        log::trace!(target: "distributed_hash_table", "Sending message: {:?}", rsp);
+        log::trace!(target: "distributed_hash_table", "Sending message: {rsp:?}");
 
         let message = ProtocolMessage::StoreRsp(rsp);
         if message.destination().unwrap() == context.root_id() {
@@ -217,7 +217,7 @@ where
             source_route,
         };
 
-        log::trace!(target: "distributed_hash_table", "Sending message: {:?}", rsp);
+        log::trace!(target: "distributed_hash_table", "Sending message: {rsp:?}");
 
         let message = ProtocolMessage::FetchRsp(rsp);
         if message.destination().unwrap() == context.root_id() {
@@ -330,7 +330,7 @@ where
                 let table_dump = self.hash_table.fetch_all();
 
                 if let Err(e) = callback.send(table_dump) {
-                    log::error!(target: "distributed_hash_table", "Failed to send local hash table: {:?}", e);
+                    log::error!(target: "distributed_hash_table", "Failed to send local hash table: {e:?}");
                 }
             }
             _ => {}

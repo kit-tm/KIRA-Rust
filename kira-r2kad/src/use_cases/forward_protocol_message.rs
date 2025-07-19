@@ -90,13 +90,10 @@ where
                     // Not allowed to happen as lock is held
                     log::warn!(
                         target: "un_table",
-                        "Overwritten ulnid mapping for '{}' from '{}' to '{}' but checked before",
-                        neighbor_id,
-                        ulnid,
-                        replaced
+                        "Overwritten ulnid mapping for '{neighbor_id}' from '{ulnid}' to '{replaced}' but checked before"
                     );
                 } else {
-                    log::debug!(target: "un_table", "Inserted neighbor '{}' at ulnid '{}'", neighbor_id, ulnid);
+                    log::debug!(target: "un_table", "Inserted neighbor '{neighbor_id}' at ulnid '{ulnid}'");
                 }
             }
         }
@@ -115,7 +112,7 @@ where
         if let Some(not_via) = context.not_via().iter().find(|not_via| match not_via {
             NotVia::Link(link) => contact.path().contains_link(link),
         }) {
-            log::trace!(target: "forward_protocol_message", "Skipping contact as contains invalid not-via data {}; {}", not_via, contact);
+            log::trace!(target: "forward_protocol_message", "Skipping contact as contains invalid not-via data {not_via}; {contact}");
             return;
         }
 
@@ -131,7 +128,7 @@ where
             }
         }
 
-        log::trace!(target: "forward_protocol_message", "Attempting to insert {}", contact);
+        log::trace!(target: "forward_protocol_message", "Attempting to insert {contact}");
 
         let result = context.routing_table_insertion_strategy().insert(
             contact.clone(),
@@ -383,8 +380,7 @@ where
 
             log::debug!(
                 target: "forward_protocol_message",
-                "Searching next overlay hop for message [{:?}]",
-                message
+                "Searching next overlay hop for message [{message:?}]"
             );
 
             // Overlay Routing
@@ -409,8 +405,7 @@ where
             if closest_node.is_none() {
                 log::debug!(
                     target: "forward_protocol_message",
-                    "Final destination of overlay message is us [{:?}]",
-                    message
+                    "Final destination of overlay message is us [{message:?}]"
                 );
                 return HandlingResult::NotHandled;
             }
@@ -423,7 +418,7 @@ where
             }
             next_hop = message.source_route().and_then(SourceRoute::next_hop);
 
-            log::trace!(target: "forward_protocol_message", "Forwarding overlay message to next hop [{:?}]", message);
+            log::trace!(target: "forward_protocol_message", "Forwarding overlay message to next hop [{message:?}]");
         }
         let next_hop = next_hop.unwrap();
 
@@ -450,7 +445,7 @@ where
         if let Some(route) = message.source_route_mut() {
             route.advance();
         }
-        log::trace!(target: "forward_protocol_message", "Forwarding message {:?}", message);
+        log::trace!(target: "forward_protocol_message", "Forwarding message {message:?}");
         context
             .runtime()
             .send_message(message, context.uln_table().deref());

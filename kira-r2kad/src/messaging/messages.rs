@@ -437,7 +437,7 @@ impl From<ReqRspMessage<FindNodeReqData>> for ProtocolMessage {
 ///
 /// - `DeadEnd`: The source is the node which answered
 /// - `SegmentFailure(Link)`: The source is the destination of the request and the node which
-///     answered is the first element in the transmitted link.
+///   answered is the first element in the transmitted link.
 ///
 /// In any case the returned error message contains the node which answered and the node which was
 /// the destination of the request.

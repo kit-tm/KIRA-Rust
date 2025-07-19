@@ -66,7 +66,7 @@ where
 
         // FIXME: check if entry was present before
 
-        log::trace!(target: "derive_fwd_table_entries", "Removed entry {:?}", entry);
+        log::trace!(target: "derive_fwd_table_entries", "Removed entry {entry:?}");
 
         if let Some(prefix_entry) = self.derive_prefix_entry(context, node_id)? {
             context
@@ -137,8 +137,7 @@ where
 
         if context.uln_table().contains_key(contact.id()) && !contact.is_uln() {
             log::warn!(target: "derive_fwd_table_entries", 
-                "Contact {:?} is not a underlay neighbor but listed in ULNTable -> may overwrite previous route unintentionally!", 
-                contact);
+                "Contact {contact:?} is not a underlay neighbor but listed in ULNTable -> may overwrite previous route unintentionally!");
             return Err(DeriveFwdEntriesError::NonUNInULNTable(contact.clone()));
         }
 
@@ -233,7 +232,7 @@ where
             }
             UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {
                 if &ContactState::Valid != new.state() && &ContactState::Valid == old.state() {
-                    log::debug!(target: "derive_fwd_table_entries", "Contact {:?} changed to invalid state", new);
+                    log::debug!(target: "derive_fwd_table_entries", "Contact {new:?} changed to invalid state");
                     // if changed to invalid state => remove
                     self.remove_node_id_entry(context, new.id())?;
                 } else if new.state() == &ContactState::Valid && old.state() != &ContactState::Valid
@@ -361,8 +360,7 @@ mod tests {
             let handle_result = use_case.handle_event(&sync_context, event);
             assert!(
                 handle_result.is_ok(),
-                "Error handling event: {:?}",
-                handle_result
+                "Error handling event: {handle_result:?}"
             );
 
             let output: Vec<_> = sync_context.runtime().output().collect();
@@ -467,8 +465,7 @@ mod tests {
             let handle_result = use_case.handle_event(&sync_context, event);
             assert!(
                 handle_result.is_ok(),
-                "Error handling event: {:?}",
-                handle_result
+                "Error handling event: {handle_result:?}"
             );
 
             let output: Vec<_> = sync_context.runtime().output().collect();
@@ -574,8 +571,7 @@ mod tests {
             let handle_result = use_case.handle_event(&sync_context, event);
             assert!(
                 handle_result.is_ok(),
-                "Error handling event: {:?}",
-                handle_result
+                "Error handling event: {handle_result:?}"
             );
 
             let output: Vec<_> = sync_context.runtime().output().collect();
@@ -693,8 +689,7 @@ mod tests {
             let handle_result = use_case.handle_event(&sync_context, event);
             assert!(
                 handle_result.is_ok(),
-                "Error handling event: {:?}",
-                handle_result
+                "Error handling event: {handle_result:?}"
             );
 
             let output: Vec<_> = sync_context.runtime().output().collect();

@@ -136,51 +136,51 @@ where
         // Initialize the Use Cases
 
         if let Err(e) = self.forward_message.start(context) {
-            log::error!("Failed to start forwarding UseCase: {}", e);
+            log::error!("Failed to start forwarding UseCase: {e}");
             return Err(UseCaseStartupError);
         }
 
         if let Err(e) = self.random_probing.start(context) {
-            log::error!("Failed to start Random Probing UseCase: {}", e);
+            log::error!("Failed to start Random Probing UseCase: {e}");
             return Err(UseCaseStartupError);
         }
 
         if let Err(e) = self.on_disc.start(context) {
-            log::error!("Failed to start overlay neighbor discovery UseCase: {}", e);
+            log::error!("Failed to start overlay neighbor discovery UseCase: {e}");
             return Err(UseCaseStartupError);
         }
 
         if let Err(e) = self.vicinity_disc.start(context) {
-            log::error!("Failed to start overlay neighbor discovery UseCase: {}", e);
+            log::error!("Failed to start overlay neighbor discovery UseCase: {e}");
             return Err(UseCaseStartupError);
         }
 
         if let Err(e) = self.path_probing.start(context) {
-            log::error!("Failed to start path probing UseCase: {}", e);
+            log::error!("Failed to start path probing UseCase: {e}");
             return Err(UseCaseStartupError);
         }
 
         if let Err(e) = self.derive_forwarding_tables.start(context) {
-            log::error!("Failed to start path probing UseCase: {}", e);
+            log::error!("Failed to start path probing UseCase: {e}");
             return Err(UseCaseStartupError);
         }
 
         if let Err(e) = self.failure_handling.start(context) {
-            log::error!("Failed to start failure handling UseCase: {}", e);
+            log::error!("Failed to start failure handling UseCase: {e}");
             return Err(UseCaseStartupError);
         }
 
         if let Err(e) = self.precomputation.start(context) {
-            log::error!("Failed to start precomputation: {}", e);
+            log::error!("Failed to start precomputation: {e}");
             return Err(UseCaseStartupError);
         }
 
         if let Err(e) = self.explicit_path_management.start(context) {
-            log::error!("Failed to start explicit path management: {}", e);
+            log::error!("Failed to start explicit path management: {e}");
         }
 
         if let Err(e) = self.distributed_hash_table.start(context) {
-            log::error!("Failed to start distributed hash table UseCase: {}", e);
+            log::error!("Failed to start distributed hash table UseCase: {e}");
             return Err(UseCaseStartupError);
         }
 
@@ -191,8 +191,7 @@ where
 
         if let Err(e) = self.distributed_hash_table_injector.start(context) {
             log::error!(
-                "Failed to start distributed hash table injector UseCase: {}",
-                e
+                "Failed to start distributed hash table injector UseCase: {e}"
             );
             return Err(UseCaseStartupError);
         }
@@ -240,8 +239,7 @@ where
             .handle_event(context, event.clone())
         {
             Err(e) => log::error!(
-                "Explicit path management returned error handling message: {}",
-                e
+                "Explicit path management returned error handling message: {e}"
             ),
             Ok(HandlingResult::Handled) => return Ok(()), /* Skip delegation to other use cases, since path-setup/-teardown is complete */
             Ok(HandlingResult::NotHandled) => { /* Delegate event to use cases */ }
@@ -250,43 +248,41 @@ where
         // Some precomputation to perform actions and delegate which are common tasks
         match self.forward_message.handle_event(context, event.clone()) {
             Err(e) => log::error!(
-                "Forwarding protocol message returned error handling message: {}",
-                e
+                "Forwarding protocol message returned error handling message: {e}"
             ),
             Ok(HandlingResult::Handled) => return Ok(()), /* Skip delegation to other use cases */
             Ok(HandlingResult::NotHandled) => { /* Delegate event to use cases  */ }
         }
         if let Err(e) = self.overlay_disc.handle_event(context, event.clone()) {
-            log::error!("Handling overlay discovery failed: {}", e);
+            log::error!("Handling overlay discovery failed: {e}");
         }
         if let Err(e) = self.contact_update.handle_event(context, event.clone()) {
-            log::error!("Handling contact update failed: {}", e);
+            log::error!("Handling contact update failed: {e}");
         }
 
         // Actual use cases
         if let Err(e) = self.failure_handling.handle_event(context, event.clone()) {
-            log::error!("Failure handling returned error handling message: {}", e);
+            log::error!("Failure handling returned error handling message: {e}");
         }
         if let Err(e) = self.random_probing.handle_event(context, event.clone()) {
-            log::error!("Random Probing returned error handling message: {}", e);
+            log::error!("Random Probing returned error handling message: {e}");
         }
         if let Err(e) = self.on_disc.handle_event(context, event.clone()) {
             log::error!(
-                "Overlay Neighborhood Discovery returned error handling message: {}",
-                e
+                "Overlay Neighborhood Discovery returned error handling message: {e}"
             );
         }
         if let Err(e) = self.vicinity_disc.handle_event(context, event.clone()) {
-            log::error!("Vicinity Discovery returned error handling message: {}", e);
+            log::error!("Vicinity Discovery returned error handling message: {e}");
         }
         if let Err(e) = self.path_probing.handle_event(context, event.clone()) {
-            log::error!("Path Probing returned error handling message: {}", e);
+            log::error!("Path Probing returned error handling message: {e}");
         }
         if let Err(e) = self
             .derive_forwarding_tables
             .handle_event(context, event.clone())
         {
-            log::error!("DeriveFwdEntries returned error handling message: {}", e);
+            log::error!("DeriveFwdEntries returned error handling message: {e}");
         }
         if self
             .precomputation
@@ -300,8 +296,7 @@ where
             .handle_event(context, event.clone())
         {
             log::error!(
-                "Distributed Hash Table returned error handling message: {}",
-                e
+                "Distributed Hash Table returned error handling message: {e}"
             );
         }
         //if let Some(Err(e)) = self
@@ -316,13 +311,12 @@ where
             .handle_event(context, event.clone())
         {
             log::error!(
-                "Injecting DHT Messages returned error handling message: {}",
-                e
+                "Injecting DHT Messages returned error handling message: {e}"
             );
         }
 
         if let Err(e) = self.handle_api.handle_event(context, event.clone()) {
-            log::error!("Handling API request returned error: {}", e);
+            log::error!("Handling API request returned error: {e}");
         }
 
         // Check States as returning an error doesn't show an unrecoverable error

@@ -70,7 +70,7 @@ impl UdpReceiver {
         let udp_socket =
             UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?;
         if let Err(err) = udp_socket.join_multicast_v6(&ALL_KIRA_NODES, 0) {
-            log::trace!(target: "message_receiver", "Error joining multicast group: {:?}", err);
+            log::trace!(target: "message_receiver", "Error joining multicast group: {err:?}");
         }
 
         let socket = Arc::new(udp_socket);
@@ -106,7 +106,7 @@ impl UdpReceiver {
         let deserialized = match self.format.deserialize(buffer) {
             Ok(message) => message,
             Err(e) => {
-                log::trace!(target: "message_receiver", "Received invalid serialized message: {}", e);
+                log::trace!(target: "message_receiver", "Received invalid serialized message: {e}");
                 return None;
             }
         };
@@ -130,13 +130,13 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
             let (received_bytes, received_from) = match socket.recv_from(buffer.deref_mut()).await {
                 Ok(received) => received,
                 Err(e) => {
-                    log::error!(target: "message_receiver", "Failed to receive data from socket: {}", e);
+                    log::error!(target: "message_receiver", "Failed to receive data from socket: {e}");
                     return Some(Err(RecvError::IoError(Box::new(e))));
                 }
             };
             let received_from = match received_from {
                 SocketAddr::V6(addr) => addr,
-                addr => panic!("Received Non-IPv6 Packet from {}", addr),
+                addr => panic!("Received Non-IPv6 Packet from {addr}"),
             };
 
             // FIXME: ignore scope_id 0 (probably caused by ipv6 attached to lo)
@@ -169,14 +169,14 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
             {
                 Ok(ulnid) => ulnid,
                 Err(UnderlayObserverHandleError::SenderClosed(e)) => {
-                    log::error!(target: "message_receiver", "underlay handle sender closed: {}", e);
+                    log::error!(target: "message_receiver", "underlay handle sender closed: {e}");
                     // fatal error if we can't query underlay observer anymore
                     return Some(Err(RecvError::Closed));
                 }
                 Err(UnderlayObserverHandleError::InterfaceDown(
                     UnderlayNeighborInterfaceDownError(id),
                 )) => {
-                    log::warn!(target: "message_receiver", "interface ({}) down before able to determine underlay neighbor id of received message: {:?}", id, message);
+                    log::warn!(target: "message_receiver", "interface ({id}) down before able to determine underlay neighbor id of received message: {message:?}");
 
                     let mut ids = HashSet::with_capacity(1);
                     ids.insert(id);

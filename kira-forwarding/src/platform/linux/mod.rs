@@ -25,7 +25,7 @@ pub fn load_nft_config<S: AsRef<OsStr>>(path: S) -> Result<(), String> {
         }
         _status => {
             let error_message = String::from_utf8_lossy(&output.stderr);
-            log::error!(target: "linux", "Loaded nftables config with status code {:?} and error message {:?}", _status, error_message);
+            log::error!(target: "linux", "Loaded nftables config with status code {_status:?} and error message {error_message:?}");
             Err(error_message.to_string())
         }
     }
@@ -44,7 +44,7 @@ pub fn add_forwarding_rule(from: Ipv6Addr, to: Ipv6Addr) -> Result<(), String> {
             "ip6",
             "kira",
             "forwardmap",
-            &format!("{{\"{}\" : \"{}\"}}", from_addr, to_addr),
+            &format!("{{\"{from_addr}\" : \"{to_addr}\"}}"),
         ])
         .output()
         .expect("failed to execute nft command");
@@ -57,13 +57,17 @@ pub fn add_forwarding_rule(from: Ipv6Addr, to: Ipv6Addr) -> Result<(), String> {
         .expect("nft command externally terminated")
     {
         0 => {
-            log::trace!(target: "linux", "command \"nft add element ip6 kira forwardmap {}\" succeeded",
-            format!("{{\"{}\" : \"{}\"}}", from_addr, to_addr));
+            log::trace!(
+                target: "linux",
+                "command \"nft add element ip6 kira forwardmap {{\"{from_addr}\" : \"{to_addr}\"}}\" succeeded"
+            );
             Ok(())
         }
         _status => {
-            log::error!(target: "linux", "command \"nft add element ip6 kira forwardmap {}\" failed with status code {} and error message {}",
-            format!("{{\"{}\" : \"{}\"}}", from_addr, to_addr), _status, errror_message);
+            log::error!(
+                target: "linux",
+                "command \"nft add element ip6 kira forwardmap {{\"{from_addr}\" : \"{to_addr}\"}}\" failed with status code {_status} and error message {errror_message}",
+            );
             Err(errror_message.to_string())
         }
     }
@@ -88,7 +92,7 @@ pub fn delete_forwarding_rule(from: Ipv6Addr) -> Result<(), String> {
             "ip6",
             "kira",
             "forwardmap",
-            &format!("{{\"{}\"}}", from_addr),
+            &format!("{{\"{from_addr}\"}}"),
         ])
         .output()
         .expect("failed to execute nft command");
@@ -101,12 +105,14 @@ pub fn delete_forwarding_rule(from: Ipv6Addr) -> Result<(), String> {
         .expect("nft command externally terminated")
     {
         0 => {
-            log::trace!(target: "linux", "command \"nft delete element ip6 kira forwardmap {}\" succeeded", format!("{{\"{}\"}}", from_addr));
+            log::trace!(target: "linux", "command \"nft delete element ip6 kira forwardmap {{\"{from_addr}\"}}\" succeeded");
             Ok(())
         }
         _status => {
-            log::error!(target: "linux", "command \"nft delete element ip6 kira forwardmap {}\" failed with status code {} and error message {}", 
-            format!("{{\"{}\"}}", from_addr), _status, errror_message);
+            log::error!(
+                target: "linux",
+                "command \"nft delete element ip6 kira forwardmap {{\"{from_addr}\"}}\" failed with status code {_status} and error message {errror_message}",
+            );
             Err(errror_message.to_string())
         }
     }

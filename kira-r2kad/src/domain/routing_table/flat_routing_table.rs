@@ -171,7 +171,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         }
 
         let bucket_index = self.get_bucket_index(id);
-        log::trace!(target: "flat_routing_table", "splitting bucket with index {}", bucket_index);
+        log::trace!(target: "flat_routing_table", "splitting bucket with index {bucket_index}");
         log::trace!(target: "flat_routing_table", "before: {:?}", self.buckets);
         if bucket_index != self.buckets.len() - 1 {
             return Err(BucketSplitError::Unsplittable);
@@ -187,7 +187,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
 
         for contact in bucket {
             if let Err(e) = self.add(contact) {
-                panic!("Error inserting after splitting last bucket: {}", e);
+                panic!("Error inserting after splitting last bucket: {e}");
             }
         }
         log::trace!(target: "flat_routing_table", "after: {:?}", self.buckets);
@@ -568,7 +568,7 @@ mod routing_tests {
                 .is_ok(),
             "bucket with prefix 01 should have space"
         );
-        println!("{:#?}", table);
+        println!("{table:#?}");
 
         assert_eq!(
             table.buckets.len(),
