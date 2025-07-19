@@ -103,6 +103,9 @@ class KIRANode(Node):
         res = json.loads(res)
         return bytes.fromhex(res.get("node-id"))
 
+    def node_id(self) -> bytes | None:
+        return self.root_id()
+
     def is_up(self) -> bool:
         path = "node-id"
         res = self.api_call(path)
@@ -1339,7 +1342,9 @@ class DebugShell[T](Cmd):
     def do_nodes(self, arg):
         "List all nodes present in the topology: NODES"
         for n, _ in self.test.nodes():
-            print(f"{n:>3}")
+            nid = n.node_id()
+            nid = nid.hex().upper() if nid else "???"
+            print(f"{n:>3} {nid}")
 
     def do_vicinity(self, arg):
         "Get vicinity of <nid>: VICINITY <nid>"
