@@ -738,19 +738,23 @@ class NestTest[T]:  # T = tid type, usually int or str
 
     def vicinity_edges(self, node: KIRANode) -> Iterator[tuple[KIRANode, KIRANode]]:
         vicinity = self.vicinity_hc(node)
+        vicinity[node] = 0
 
         for u, v in self.topology.edges():
             u = self.node(u)
             v = self.node(v)
             uhc = vicinity.get(u)
             vhc = vicinity.get(v)
-            if (
-                uhc is not None
-                and vhc is not None
-                and uhc < VICINITY_RADIUS
-                and vhc < VICINITY_RADIUS
-            ):
-                yield (u, v)
+            if uhc is None or vhc is None:
+                continue
+            assert uhc <= VICINITY_RADIUS
+            assert vhc <= VICINITY_RADIUS
+
+            # no links between edge nodes
+            if uhc == VICINITY_RADIUS and vhc == VICINITY_RADIUS:
+                continue
+
+            yield (u, v)
 
     def discovered_vicinity(self, node: KIRANode) -> Iterator[KIRANode] | None:
         # parsing vicinity graph of Node
@@ -1600,11 +1604,11 @@ class DebugShell[T](Cmd):
         self.close()
         return True
 
-    def cmdloop(self):
+    def cmdloop(self, intro: Any | None = None) -> None:
         try:
-            super().cmdloop()
+            super().cmdloop(intro)
         except KeyboardInterrupt:
-            return self.do_exit(None)
+            self.do_exit(None)
 
     # ----- record and playback -----
 
