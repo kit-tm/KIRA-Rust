@@ -1,5 +1,6 @@
 import argparse
 import base64
+import io
 import json
 import os
 import re
@@ -16,14 +17,18 @@ from ipaddress import (
 )
 from itertools import chain
 from subprocess import PIPE, Popen
-from typing import Iterable, Iterator, Union
+from typing import Any, Iterable, Iterator, Union
 
+import matplotlib.pyplot as plt
 import nest
 import networkx as nx
+import networkx
 from common import NodeConfig
 from nest.topology import Address, Interface, Node, Switch, connect
 from nest.topology.interface.interface import create_veth_pair
 from networkx import Graph
+from term_image.image import AutoImage, BaseImage
+from PIL import Image
 
 PATH_IP: IPv6Network = IPv6Network("fcaa::/16")
 NODE_IP: IPv6Network = IPv6Network("fc00::/16")
@@ -37,7 +42,7 @@ class KIRANode(Node):
 
         self._api_port = 8080
 
-    def exec(self, cmd: str, env_vars=None, logfile=None) -> Popen:
+    def exec(self, cmd: str, env_vars: dict | None = None, logfile=None) -> Popen:
         """
         Execute a command in the node's namespace.
         """
@@ -463,6 +468,8 @@ class NestTest[T]:  # T = tid type, usually int or str
         self._otel_node: Node | None = None  # lazily initialized as needed
         self._otel_ips: Iterable[IPv4Address] = self._otel_ip.hosts()
         next(self._otel_ips)  # skip IP for host
+
+        self._pos = networkx.kamada_kawai_layout(self.topology)
 
         nest.logging.info("Setting up the topology ...")
 
@@ -921,17 +928,44 @@ class NestTest[T]:  # T = tid type, usually int or str
                     out_path = [self.node_by_id(nid) for nid in out_path]
                     yield PathIdFwdEntry(out_path, out_path_id)
 
+    def topology_image(self, dpi: int = 200) -> io.BytesIO:
+        nx.draw_networkx(self.topology, pos=self._pos, font_color="w")
+
+        buffer = io.BytesIO()
+        plt.savefig(buffer, format="png", transparent=True, dpi=dpi)
+        return buffer
+
+    def vicinity_image(self, node: KIRANode, dpi: int = 200) -> io.BytesIO:
+        vicinity = [self.tid(n) for n in self.vicinity(node)]
+        vicinity_edges = [(self.tid(u), self.tid(v)) for u, v in self.vicinity_edges(node)]
+        root = self.tid(node)
+
+        # draw other parts with their defaults first
+        nx.draw_networkx(self.topology, pos=self._pos, font_color="w")
+
+        # draw the vicinity
+        nx.draw_networkx_nodes(
+            self.topology, pos=self._pos, nodelist=vicinity, node_color="#8cb63c"
+        )
+        nx.draw_networkx_nodes(self.topology, pos=self._pos, nodelist=[root], node_color="#a22223")
+        nx.draw_networkx_edges(
+            self.topology, pos=self._pos, edgelist=vicinity_edges, edge_color="#8cb63c", width=2
+        )
+
+        buffer = io.BytesIO()
+        plt.savefig(buffer, format="png", transparent=True, dpi=dpi)
+        return buffer
+
 
 class DebugShell[T](Cmd):
     intro = "Welcome to the debug shell of nesttest.  Type help or ? to list commands.\n"
     prompt = "ntest> "
     file = None
 
-    test: NestTest[T]
-
     def __init__(self, test: NestTest):
         super().__init__()
-        self.test = test
+        self.test: NestTest[T] = test
+        self.current_image: BaseImage | None = None
 
         self._compile_re()
 
@@ -1369,6 +1403,12 @@ class DebugShell[T](Cmd):
             return sorted(iter, key=_srt)
 
         # nodes
+        buffer = self.test.vicinity_image(node, dpi=100)
+        img = Image.open(buffer)
+        self.current_image = AutoImage(img)
+        self.current_image.set_size(height=20)
+        self.current_image.draw(h_align="left", v_align="top", pad_height=1)
+
         vicinity = self.test.vicinity(node)
         print("Vicinity:")
         for v in _sorted(vicinity):
@@ -1488,6 +1528,12 @@ class DebugShell[T](Cmd):
             nodes = iter([node])
 
         fail = False
+
+        buffer = self.test.topology_image(dpi=100)
+        img = Image.open(buffer)
+        self.current_image = AutoImage(img)
+        self.current_image.set_size(height=20)
+        self.current_image.draw(h_align="left", v_align="top", pad_height=1)
 
         print("Node: v e p r a")
         for node in nodes:
@@ -1622,10 +1668,19 @@ class DebugShell[T](Cmd):
         with open(arg) as f:
             self.cmdqueue.extend(f.read().splitlines())
 
+    def do_show_graph(self, arg):
+        "Show the current graph of the topology: SHOW_GRAPH"
+
+        buffer = self.test.topology_image(dpi=400)
+        img = Image.open(buffer)
+        self.current_image = AutoImage(img)
+        self.current_image.draw()
+
     def precmd(self, line):
         line = line.lower()
         if self.file and "playback" not in line:
             print(line, file=self.file)
+        self.current_image = None
         return line
 
     def close(self):
