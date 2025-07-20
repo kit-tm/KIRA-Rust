@@ -35,6 +35,17 @@ NODE_IP: IPv6Network = IPv6Network("fc00::/16")
 
 VICINITY_RADIUS: int = 2
 
+COLOR_VICINITY_NODE = "#8CB63C"  # kit-maygreen
+COLOR_CONTACT_NODE = "#4664AA"  # kit-blue
+COLOR_ROOT_NODE = "#009682"  # kit-green
+COLOR_VICINITY_EDGE = "#8CB63C"  # kit-maygreen
+
+COLOR_MISSING_VICINITY_NODE = "#A22223"  # kit-red
+COLOR_MISSING_VICINITY_EDGE = "#A22223"  # kit-red
+
+COLOR_MISSING_VICINITY_PATH = "#DF9B1B"  # kit-orange
+COLOR_MISSING_CONTACT_PATH = "#A3107C"  # kit-purple
+
 
 class KIRANode(Node):
     def __init__(self, *args, **kwargs):
@@ -42,7 +53,7 @@ class KIRANode(Node):
 
         self._api_port = 8080
 
-    def exec(self, cmd: str, env_vars: dict | None = None, logfile=None) -> Popen:
+    def exec(self, cmd: str, env_vars: dict | None = None, logfile: Any = None) -> Popen:
         """
         Execute a command in the node's namespace.
         """
@@ -321,6 +332,14 @@ class KIRANode(Node):
             hops = (bytes.fromhex(nid_match.group(1)) for nid_match in r_nid.finditer(path_str))
             yield hops
 
+    def contacts(self) -> Iterator[bytes] | None:
+        """Returns an interator over all contacts in the routing table."""
+        paths_rt = self.paths_rt()
+        if paths_rt is None:
+            return None
+
+        yield from (last for _, last in paths_rt)
+
     def paths_vicinity(self) -> Iterator[list[bytes]] | None:
         # parsing vicinity graph of Node
         root_id = self.root_id()
@@ -376,13 +395,13 @@ class KIRANode(Node):
             if ip == path_ip:
                 return path
 
-    def __format__(self, fmt):
+    def __format__(self, fmt: str):
         return f"{self.name:{fmt}}"
 
     def __str__(self):
         return self.__format__("")
 
-    def __eq__(self, other):
+    def __eq__(self, other: Any):
         return other is KIRANode and self.name == other.name
 
     def __hash__(self):
@@ -597,20 +616,20 @@ class NestTest[T]:  # T = tid type, usually int or str
     def node(self, tid: T) -> KIRANode:
         return self.topology.nodes[tid]["node"]
 
-    def node_by_ip(self, ip: IPv6Address) -> KIRANode | None:
+    def node_by_ip(self, ip: IPv6Address) -> T | None:
         assert ip in NODE_IP
-        for _, data in self.topology.nodes(data=True):
-            config = data["config"]
+        for n, config in self.topology.nodes(data="config"):
+            assert type(config) is NodeConfig
             nip = IPv6Address(config.ipv6)
             if nip == ip:
-                return data["node"]
+                return n
 
-    def node_by_id(self, id: bytes) -> KIRANode | None:
-        for _, data in self.topology.nodes(data=True):
-            config: NodeConfig = data["config"]
+    def node_by_id(self, nid: bytes) -> T | None:
+        for n, config in self.topology.nodes(data="config"):
+            assert type(config) is NodeConfig
             nid = bytes.fromhex(config.node_id)
-            if nid == id:
-                return data["node"]
+            if nid == nid:
+                return n
 
     def nodes(self) -> Iterator[tuple[KIRANode, NodeConfig]]:
         return ((ndata["node"], ndata["config"]) for _, ndata in self.topology.nodes(data=True))
@@ -625,6 +644,22 @@ class NestTest[T]:  # T = tid type, usually int or str
     def links(self, of: T | None) -> Iterator[tuple[T, T, KIRALink]]:
         return (t for t in self.topology.edges(of, data="link"))
 
+    def _display_node(self, node: KIRANode | T | None) -> str:
+        match node:
+            case KIRANode():
+                return str(node)
+            case None:
+                return "???"
+            case tid:
+                node = self.node(tid)
+                return str(node) if node else "???"
+
+    def _display_path(self, path: list[bytes] | None) -> str:
+        if path is None:
+            return "???"
+        else:
+            return ", ".join(self._display_node(self.node_by_id(hop)) for hop in path)
+
     def _describe_hop_action(
         self,
         current_hop: KIRANode,
@@ -634,20 +669,15 @@ class NestTest[T]:  # T = tid type, usually int or str
     ) -> str:
         assert from_addr in PATH_IP or to_addr in PATH_IP
 
-        if path is None:
-            path = "???"
-        else:
-            # transform path from seq(nid) into seq(tid)
-            path = (IPv6Address(bytes.fromhex("fc00") + hop) for hop in path)
-            path = ", ".join((str(self.node_by_ip(hop)) for hop in path))
+        path_str = self._display_path(path)
 
         # print action that lead to label change
         if from_addr in PATH_IP and to_addr in PATH_IP:
-            return f"{current_hop:<3} : SWAP Path-ID : {from_addr} --> {to_addr} ({path})"
+            return f"{current_hop:<3} : SWAP Path-ID : {from_addr} --> {to_addr} ({path_str})"
         elif from_addr in PATH_IP:
             return f"{current_hop:<3} : POP  Path-ID : {from_addr} --> {to_addr}"
         elif to_addr in PATH_IP:
-            return f"{current_hop:<3} : PUSH Path-ID : {to_addr} ({path})"
+            return f"{current_hop:<3} : PUSH Path-ID : {to_addr} ({path_str})"
         else:
             return "??? Unknown Action ???"
 
@@ -705,6 +735,7 @@ class NestTest[T]:  # T = tid type, usually int or str
             if next_hop is None:
                 print(f"{current_hop:<3} : ERR : Can't determine next hop based on IPv6: {next_ip}")
                 return False
+            next_hop = self.node(next_hop)
 
             if current_hop != next_hop:
                 hc += 1
@@ -725,7 +756,7 @@ class NestTest[T]:  # T = tid type, usually int or str
             print(f"{current_hop:<3} : HLIMIT = {maxhops} reached")
         return False
 
-    def vicinity_hc(self, node: KIRANode) -> dict[KIRANode, int]:
+    def vicinity_hc(self, node: KIRANode) -> dict[T, int]:
         tid = self.name_tid_mapping[node.name]
         paths = nx.single_source_shortest_path(
             self.topology,
@@ -735,21 +766,24 @@ class NestTest[T]:  # T = tid type, usually int or str
             cutoff=VICINITY_RADIUS,
         )
         return {
-            self.node(n): len(path) - 1  # hopcount excludes ourselves
+            n: len(path) - 1  # hopcount excludes ourselves
             for n, path in paths.items()
-            if self.node(n) is not None and len(path) > 1
+            if len(path) > 1
         }
 
-    def vicinity(self, node: KIRANode) -> Iterator[KIRANode]:
+    def vicinity(self, node: KIRANode) -> Iterator[T]:
         return self.vicinity_hc(node).keys().__iter__()
 
-    def vicinity_edges(self, node: KIRANode) -> Iterator[tuple[KIRANode, KIRANode]]:
+    def vicinity_edges(self, node: KIRANode) -> Iterator[tuple[T, T]]:
         vicinity = self.vicinity_hc(node)
-        vicinity[node] = 0
+
+        # edges from root are part of the vicinity edges
+        # although root is not part of the vicinity itself
+        root = self.tid(node)
+        assert root is not None
+        vicinity[root] = 0
 
         for u, v in self.topology.edges():
-            u = self.node(u)
-            v = self.node(v)
             uhc = vicinity.get(u)
             vhc = vicinity.get(v)
             if uhc is None or vhc is None:
@@ -763,7 +797,7 @@ class NestTest[T]:  # T = tid type, usually int or str
 
             yield (u, v)
 
-    def discovered_vicinity(self, node: KIRANode) -> Iterator[KIRANode] | None:
+    def discovered_vicinity(self, node: KIRANode) -> Iterator[T] | None:
         # parsing vicinity graph of Node
         vicinity_raw = node.vicinity_graph()
         if vicinity_raw is None:
@@ -780,7 +814,7 @@ class NestTest[T]:  # T = tid type, usually int or str
                 continue
             yield n
 
-    def known_vicinity_edges(self, node: KIRANode) -> Iterator[tuple[KIRANode, KIRANode]] | None:
+    def known_vicinity_edges(self, node: KIRANode) -> Iterator[tuple[T, T]] | None:
         # parsing vicinity graph of Node
         vicinity_raw = node.vicinity_graph()
         if vicinity_raw is None:
@@ -812,7 +846,7 @@ class NestTest[T]:  # T = tid type, usually int or str
 
                 yield (v, u)
 
-    def additional_vicinity(self, node: KIRANode) -> Iterator[KIRANode] | None:
+    def additional_vicinity(self, node: KIRANode) -> Iterator[T] | None:
         vicinity = self.vicinity(node)
         kvicinity = self.discovered_vicinity(node)
         if kvicinity is None or vicinity is None:
@@ -823,9 +857,7 @@ class NestTest[T]:  # T = tid type, usually int or str
             if known not in vicinity:
                 yield known
 
-    def additional_vicinity_edges(
-        self, node: KIRANode
-    ) -> Iterator[tuple[KIRANode, KIRANode]] | None:
+    def additional_vicinity_edges(self, node: KIRANode) -> Iterator[tuple[T, T]] | None:
         vicinity = self.vicinity_edges(node)
         kvicinity = self.known_vicinity_edges(node)
         if kvicinity is None:
@@ -835,7 +867,7 @@ class NestTest[T]:  # T = tid type, usually int or str
             if (u, v) not in vicinity and (v, u) not in vicinity:
                 yield (u, v)
 
-    def unknown_vicinity(self, node: KIRANode) -> Iterator[KIRANode] | None:
+    def unknown_vicinity(self, node: KIRANode) -> Iterator[T] | None:
         vicinity = self.vicinity(node)
         kvicinity = self.discovered_vicinity(node)
         if kvicinity is None or vicinity is None:
@@ -846,7 +878,7 @@ class NestTest[T]:  # T = tid type, usually int or str
             if n not in kvicinity:
                 yield n
 
-    def unknown_vicinity_edges(self, node: KIRANode) -> Iterator[tuple[KIRANode, KIRANode]] | None:
+    def unknown_vicinity_edges(self, node: KIRANode) -> Iterator[tuple[T, T]] | None:
         vicinity = self.vicinity_edges(node)
         kvicinity = self.known_vicinity_edges(node)
         if kvicinity is None:
@@ -862,9 +894,6 @@ class NestTest[T]:  # T = tid type, usually int or str
         assert n is not None
 
         for v in self.vicinity(node):
-            v = self.tid(v)
-            assert v is not None
-
             paths = nx.all_simple_paths(self.topology, n, v, cutoff=VICINITY_RADIUS)
             yield from paths
 
@@ -918,26 +947,41 @@ class NestTest[T]:  # T = tid type, usually int or str
                 # underlay neighbors don't need encapsulation routes
                 if next_ip is None:
                     dest = self.node_by_id(dest)
+                    assert dest is not None
+                    dest = self.node(dest)
                     yield UnderlayNeighborFwdEntry(dest)
             else:
                 if next_ip != out_path_ip:
                     dest = self.node_by_id(dest)
-                    out_path = [self.node_by_id(nid) for nid in out_path]
-                    yield NodeIdEncapEntry(dest, out_path, out_path_id)
+                    assert dest is not None
+                    dest = self.node(dest)
+                    out_path_tid = list(map(self.node_by_id, out_path))
+                    for t in out_path:
+                        if t is None:
+                            print("ERR: Undefined Node found in outpath")
+                            return
+                    out_path_n = list(map(self.node, out_path_tid))
+                    yield NodeIdEncapEntry(dest, out_path_n, out_path_id)
                 if node.next_hop(out_path_ip) is None:
-                    out_path = [self.node_by_id(nid) for nid in out_path]
-                    yield PathIdFwdEntry(out_path, out_path_id)
+                    out_path_tid = list(map(self.node_by_id, out_path))
+                    for t in out_path:
+                        if t is None:
+                            print("ERR: Undefined Node found in outpath")
+                            return
+                    out_path_n = list(map(self.node, out_path_tid))
+                    yield PathIdFwdEntry(out_path_n, out_path_id)
 
     def topology_image(self, dpi: int = 200) -> io.BytesIO:
         nx.draw_networkx(self.topology, pos=self._pos, font_color="w")
 
         buffer = io.BytesIO()
         plt.savefig(buffer, format="png", transparent=True, dpi=dpi)
+        plt.clf()
         return buffer
 
     def vicinity_image(self, node: KIRANode, dpi: int = 200) -> io.BytesIO:
-        vicinity = [self.tid(n) for n in self.vicinity(node)]
-        vicinity_edges = [(self.tid(u), self.tid(v)) for u, v in self.vicinity_edges(node)]
+        vicinity = list(self.vicinity(node))
+        vicinity_edges = list(self.vicinity_edges(node))
         root = self.tid(node)
 
         # draw other parts with their defaults first
@@ -945,15 +989,68 @@ class NestTest[T]:  # T = tid type, usually int or str
 
         # draw the vicinity
         nx.draw_networkx_nodes(
-            self.topology, pos=self._pos, nodelist=vicinity, node_color="#8cb63c"
+            self.topology, pos=self._pos, nodelist=vicinity, node_color=COLOR_VICINITY_NODE
         )
-        nx.draw_networkx_nodes(self.topology, pos=self._pos, nodelist=[root], node_color="#a22223")
+        nx.draw_networkx_nodes(
+            self.topology, pos=self._pos, nodelist=[root], node_color=COLOR_ROOT_NODE
+        )
         nx.draw_networkx_edges(
-            self.topology, pos=self._pos, edgelist=vicinity_edges, edge_color="#8cb63c", width=2
+            self.topology,
+            pos=self._pos,
+            edgelist=vicinity_edges,
+            edge_color=COLOR_VICINITY_EDGE,
+            width=2,
         )
 
         buffer = io.BytesIO()
         plt.savefig(buffer, format="png", transparent=True, dpi=dpi)
+        plt.clf()
+        return buffer
+
+    def vicinity_status_image(self, node: KIRANode, dpi: int = 200) -> io.BytesIO:
+        vicinity = list(self.discovered_vicinity(node))
+        missing_vicinity = list(self.unknown_vicinity(node))
+        edges = list(self.known_vicinity_edges(node))
+        missing_edges = list(self.unknown_vicinity_edges(node))
+        root = self.tid(node)
+
+        # draw other parts with their defaults first
+        nx.draw_networkx(self.topology, pos=self._pos, font_color="w")
+
+        # draw the vicinity
+        nx.draw_networkx_nodes(
+            self.topology,
+            pos=self._pos,
+            nodelist=vicinity,
+            node_color=COLOR_VICINITY_NODE,
+        )
+        nx.draw_networkx_nodes(
+            self.topology,
+            pos=self._pos,
+            nodelist=missing_vicinity,
+            node_color=COLOR_MISSING_VICINITY_NODE,
+        )
+        nx.draw_networkx_nodes(
+            self.topology, pos=self._pos, nodelist=[root], node_color=COLOR_ROOT_NODE
+        )
+        nx.draw_networkx_edges(
+            self.topology,
+            pos=self._pos,
+            edgelist=edges,
+            edge_color=COLOR_VICINITY_EDGE,
+            width=2,
+        )
+        nx.draw_networkx_edges(
+            self.topology,
+            pos=self._pos,
+            edgelist=missing_edges,
+            edge_color=COLOR_MISSING_VICINITY_EDGE,
+            width=2,
+        )
+
+        buffer = io.BytesIO()
+        plt.savefig(buffer, format="png", transparent=True, dpi=dpi)
+        plt.clf()
         return buffer
 
 
@@ -965,7 +1062,6 @@ class DebugShell[T](Cmd):
     def __init__(self, test: NestTest):
         super().__init__()
         self.test: NestTest[T] = test
-        self.current_image: BaseImage | None = None
 
         self._compile_re()
 
@@ -1023,7 +1119,7 @@ class DebugShell[T](Cmd):
         node = self.test.node(tid)
         return (node, scmd)
 
-    def do_pingall(self, arg):
+    def do_pingall(self, arg: str):
         "Ping all nodes: PINGALL [-f,--failed] [-v,--verbose]"
 
         # process flags
@@ -1049,7 +1145,7 @@ class DebugShell[T](Cmd):
                         else:
                             print(f"Pinging {x:>3} --> {y:>3} ✗   ", flush=True)
 
-    def do_exec(self, arg):
+    def do_exec(self, arg: str):
         "Execute arbitrary command in the network namespace of node: EXEC <nid> <cmd>"
         node, cmd = self._extract_node(arg)
         if node is None:
@@ -1063,7 +1159,7 @@ class DebugShell[T](Cmd):
         p.wait()
         print()
 
-    def do_api(self, arg):
+    def do_api(self, arg: str):
         "Issue arbitrary API call to node: API <nid> <rest_path>"
         node, path = self._extract_node(arg)
         if node is None:
@@ -1080,7 +1176,7 @@ class DebugShell[T](Cmd):
         res = self.sub_nid_name(res)
         print(res)
 
-    def do_node_id(self, arg):
+    def do_node_id(self, arg: str):
         "Obtain Node-Id: NODE_ID <nid>"
         node, _arg = self._extract_node(arg)
         if node is None:
@@ -1092,7 +1188,7 @@ class DebugShell[T](Cmd):
         res = self.test.node_id(tid)
         print(res.hex())
 
-    def do_store(self, arg):
+    def do_store(self, arg: str):
         "Store a key-value pair in the DHT: STORE <nid> <key> <value>"
         node, key_data = self._extract_node(arg)
         if node is None:
@@ -1111,7 +1207,7 @@ class DebugShell[T](Cmd):
         key, data = key_data
         print(node.store(key, data))
 
-    def do_fetch(self, arg):
+    def do_fetch(self, arg: str):
         "Obtain value of a key in the DHT: FETCH <nid> <key>"
         node, key = self._extract_node(arg)
         if node is None:
@@ -1132,7 +1228,7 @@ class DebugShell[T](Cmd):
                 print(f"    {value},")
             print("]")
 
-    def do_routing_table(self, arg):
+    def do_routing_table(self, arg: str):
         "Dumps routing table of node: ROUTING_TABLE <nid>"
         node, _arg = self._extract_node(arg)
         if node is None:
@@ -1146,7 +1242,7 @@ class DebugShell[T](Cmd):
         res = self.sub_nid_name(res)
         print(res)
 
-    def do_uln_table(self, arg):
+    def do_uln_table(self, arg: str):
         "Dump physical neighbor table of node: ULN_TABLE <nid>"
         node, _arg = self._extract_node(arg)
         if node is None:
@@ -1160,7 +1256,7 @@ class DebugShell[T](Cmd):
         res = self.sub_nid_name(res)
         print(res)
 
-    def do_vicinity_graph(self, arg):
+    def do_vicinity_graph(self, arg: str):
         "Dump vicinity graph of node: VICINITY_GRAPH <nid>"
         node, _arg = self._extract_node(arg)
         if node is None:
@@ -1174,7 +1270,7 @@ class DebugShell[T](Cmd):
         res = self.sub_nid_name(res)
         print(res)
 
-    def do_local_hashtable(self, arg):
+    def do_local_hashtable(self, arg: str):
         "Dump local hashtable of node: LOCAL_HASHTABLE <nid>"
         node, _arg = self._extract_node(arg)
         if node is None:
@@ -1187,7 +1283,7 @@ class DebugShell[T](Cmd):
             return
         print(res)
 
-    def do_checkup(self, arg):
+    def do_checkup(self, arg: str):
         "Check if nodes are up: CHECKUP [nid]"
         # check all if no node is specified
         if arg == "":
@@ -1211,27 +1307,27 @@ class DebugShell[T](Cmd):
         else:
             print(f"Node {node} is not up")
 
-    def do_next_ip(self, arg):
+    def do_next_ip(self, arg: str):
         node, ip = self._extract_node(arg)
         if node is None:
             print(f"ERR: Node '{ip}' not found.\nTo get a list of available nodes type NODES.")
             return
 
-        next = node.next_ip(IPv6Address(ip))
+        next_ip = node.next_ip(IPv6Address(ip))
         print()
-        print(next)
+        print(next_ip)
 
-    def do_next_hop(self, arg):
+    def do_next_hop(self, arg: str):
         node, ip = self._extract_node(arg)
         if node is None:
             print(f"ERR: Node '{ip}' not found.\nTo get a list of available nodes type NODES.")
             return
 
-        next = node.next_hop(IPv6Address(ip))
+        next_hop = node.next_hop(IPv6Address(ip))
         print()
-        print(next)
+        print(next_hop)
 
-    def do_path(self, arg):
+    def do_path(self, arg: str):
         "Lookup Path-ID on the node: PATH <nid> [path-ip]"
         node, ip = self._extract_node(arg)
         if node is None:
@@ -1259,16 +1355,11 @@ class DebugShell[T](Cmd):
         for path in paths:
             path = list(path)
             path_id = KIRANode.path_id(path)
-            path = ", ".join(
-                (
-                    str(self.test.node_by_ip(IPv6Address(bytes.fromhex("fc00") + hop)))
-                    for hop in path
-                )
-            )
+            path = self.test._display_path(path)
             path_ip = IPv6Address(bytes.fromhex("fcaa") + path_id)
             print(f"{path_ip} ==> {path}")
 
-    def do_traceroute(self, arg):
+    def do_traceroute(self, arg: str):
         "Traceroute (all) forwarding path: TRACEROUTE [<nid_x> <nid_y>]"
 
         # trace __all__ paths
@@ -1285,17 +1376,17 @@ class DebugShell[T](Cmd):
 
             return
 
-        x, arg = self._extract_node(arg)
+        x, argv = self._extract_node(arg)
         if x is None:
             print(f"ERR: Node '{x}' not found.\nTo get a list of available nodes type NODES.")
             return
-        if arg is None:
+        if argv is None:
             print("Destination not found. Usage: TRACEROUTE <nid_x> <nid_y>")
             return
 
-        y, _arg = self._extract_node(arg)
+        y, argv = self._extract_node(argv)
         if y is None:
-            print(f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES.")
+            print(f"ERR: Node '{argv}' not found.\nTo get a list of available nodes type NODES.")
             return
         x_tid = self.test.tid(x)
         assert x_tid is not None
@@ -1304,23 +1395,23 @@ class DebugShell[T](Cmd):
 
         self.test.traceroute(x_tid, y_tid, verbose=True)
 
-    def do_link(self, arg):
+    def do_link(self, arg: str):
         "Sets link (or all links of node) up or down: LINK <DOWN/UP> <nid_x> [nid_y]"
 
         # parse args
-        mode, arg = arg.split(maxsplit=1)
-        x, arg = self._extract_node(arg)
+        mode, argv = arg.split(maxsplit=1)
+        x, argv = self._extract_node(argv)
         if x is None:
             print(f"ERR: Node '{x}' not found.\nTo get a list of available nodes type NODES.")
             return
 
         x_tid = self.test.tid(x)
         assert x_tid is not None
-        if arg is not None:
-            y, _arg = self._extract_node(arg)
+        if argv is not None:
+            y, argv = self._extract_node(argv)
             if y is None:
                 print(
-                    f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
+                    f"ERR: Node '{argv}' not found.\nTo get a list of available nodes type NODES."
                 )
                 return
             y_tid = self.test.tid(y)
@@ -1328,7 +1419,7 @@ class DebugShell[T](Cmd):
             ys_tid = [y_tid]
         else:
             # all links from x
-            ys_tid = [y_tid for _x, y_tid in self.test.topology.edges(x_tid)]
+            ys_tid = [y_tid for _, y_tid in self.test.topology.edges(x_tid)]
 
         mode = mode.lower()
         if mode == "up":
@@ -1344,15 +1435,15 @@ class DebugShell[T](Cmd):
         else:
             print(f"ERR: Unknown mode {mode}")
 
-    def do_down(self, arg):
+    def do_down(self, arg: str):
         "Alias for LINK DOWN <...>"
         self.do_link(f"DOWN {arg}")
 
-    def do_up(self, arg):
+    def do_up(self, arg: str):
         "Alias for LINK UP <...>"
         self.do_link(f"UP {arg}")
 
-    def do_links(self, arg):
+    def do_links(self, arg: str):
         "List links in topology: LINKS [nid]"
 
         if arg == "":
@@ -1373,18 +1464,18 @@ class DebugShell[T](Cmd):
             print(f"{x:>3} -{up_indicator}- {y:>3}")
         return
 
-    def do_edges(self, arg):
+    def do_edges(self, arg: str):
         "Alias for LINKS: EDGES [nid]"
         self.do_links(arg)
 
-    def do_nodes(self, arg):
+    def do_nodes(self, arg: str):
         "List all nodes present in the topology: NODES"
         for n, _ in self.test.nodes():
             nid = n.node_id()
             nid = nid.hex().upper() if nid else "???"
             print(f"{n:>3} {nid}")
 
-    def do_vicinity(self, arg):
+    def do_vicinity(self, arg: str):
         "Get vicinity of <nid>: VICINITY <nid>"
         node, _arg = self._extract_node(arg)
         if node is None:
@@ -1392,28 +1483,29 @@ class DebugShell[T](Cmd):
             return
 
         # sort topo-ids like `k17` in expected order
-        def _srt(n):
+        def _srt(n: KIRANode):
             match = re.match(r"([a-zA-Z]+)(\d+)", n.name)
             if match:
                 alpha, num = match.groups()
                 return (alpha, int(num))
             return (n, 0)
 
-        def _sorted(iter: Iterable[KIRANode]) -> Iterable[KIRANode]:
-            return sorted(iter, key=_srt)
+        def _sorted(iiter: Iterable[T]) -> Iterable[KIRANode]:
+            return sorted(map(self.test.node, iiter), key=_srt)
 
-        # nodes
-        buffer = self.test.vicinity_image(node, dpi=100)
+        print("Theoretical Vicinity:")
+        buffer = self.test.vicinity_image(node, dpi=300)
+        img = Image.open(buffer)
+        img = AutoImage(img)
+        img.set_size(height=20)
+        img.draw(h_align="left", v_align="top", pad_height=1)
+
+        print("Vicinity Status:")
+        buffer = self.test.vicinity_status_image(node, dpi=300)
         img = Image.open(buffer)
         self.current_image = AutoImage(img)
         self.current_image.set_size(height=20)
         self.current_image.draw(h_align="left", v_align="top", pad_height=1)
-
-        vicinity = self.test.vicinity(node)
-        print("Vicinity:")
-        for v in _sorted(vicinity):
-            print(f"{v:>3}")
-        print()
 
         unknowns = self.test.unknown_vicinity(node)
         if unknowns is not None:
@@ -1514,7 +1606,7 @@ class DebugShell[T](Cmd):
             print("ERR: checking on additional vicinity of the node.")
         print()
 
-    def do_checkvicinity(self, arg):
+    def do_checkvicinity(self, arg: str):
         "Check if whole vicinity is known by <nid>: CHECKVICINITY [nid]"
         if arg == "":
             nodes = (node for node, _ in self.test.nodes())
@@ -1619,7 +1711,7 @@ class DebugShell[T](Cmd):
             print()
             print("To further investigate failures type: VICINITY <nid>")
 
-    def do_netns(self, arg):
+    def do_netns(self, arg: str):
         "Get network namespace name of node <nid>: NETNS [nid]"
         node, _arg = self._extract_node(arg)
         if node is None:
@@ -1629,7 +1721,7 @@ class DebugShell[T](Cmd):
         netns_name = node.id
         print(f"netnsname: {netns_name}")
 
-    def do_exit(self, arg):
+    def do_exit(self, arg: str):
         "Exit the debug shell"
         print("Exiting...")
         # Kill all processes in the network namespaces to make sure everything is cleaned up
@@ -1654,21 +1746,21 @@ class DebugShell[T](Cmd):
         try:
             super().cmdloop(intro)
         except KeyboardInterrupt:
-            self.do_exit(None)
+            self.do_exit("")
 
     # ----- record and playback -----
 
-    def do_record(self, arg):
+    def do_record(self, arg: str):
         "Save future commands to filename:  RECORD rose.cmd"
-        self.file = open(arg, "w")
+        self.file = open(arg, "w")  # noqa: SIM115
 
-    def do_playback(self, arg):
+    def do_playback(self, arg: str):
         "Playback commands from a file:  PLAYBACK rose.cmd"
         self.close()
         with open(arg) as f:
             self.cmdqueue.extend(f.read().splitlines())
 
-    def do_show_graph(self, arg):
+    def do_show_graph(self, arg: str):
         "Show the current graph of the topology: SHOW_GRAPH"
 
         buffer = self.test.topology_image(dpi=400)
@@ -1676,7 +1768,7 @@ class DebugShell[T](Cmd):
         self.current_image = AutoImage(img)
         self.current_image.draw()
 
-    def precmd(self, line):
+    def precmd(self, line: str):
         line = line.lower()
         if self.file and "playback" not in line:
             print(line, file=self.file)
@@ -1689,7 +1781,7 @@ class DebugShell[T](Cmd):
             self.file = None
 
 
-def main(args):
+def main(args: Any):
     # Load the configuration from the GML file
     G = nx.readwrite.read_gml(args.test_gml)
 
