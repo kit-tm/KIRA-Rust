@@ -3,11 +3,11 @@ use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
+use crate::Output;
 use crate::domain::UnderlayNeighborDestination;
+use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::BroadcastableUseCaseEvent;
-use crate::Output;
 use crate::{
     messaging::ProtocolMessage,
     use_cases::{TimerId, UseCaseEvent},
@@ -199,6 +199,10 @@ impl UseCaseRuntime for R2KadRuntime {
         assert_eq!(pre_existing, None, "periodic timer should not pre exist");
 
         timer_id
+    }
+
+    fn current_time(&self) -> Instant {
+        *self.current_time.lock().unwrap()
     }
 
     /// Sends a [ProtocolMessage] to a different peer.

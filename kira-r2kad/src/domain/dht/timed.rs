@@ -1,6 +1,8 @@
 use std::hash::{Hash, Hasher};
 use std::time::Instant;
 
+// FIXME: Use Runtime time instead of Instant::now()
+
 /// A generic struct representing a value with an associated timestamp.
 ///
 /// # Fields

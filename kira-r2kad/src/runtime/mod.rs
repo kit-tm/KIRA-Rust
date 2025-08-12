@@ -2,7 +2,7 @@
 //!
 use std::collections::HashMap;
 use std::ops::Deref;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
 use crate::domain::{NodeId, UnderlayNeighborDestination, UnderlayNeighborId};
@@ -29,6 +29,9 @@ pub trait UseCaseRuntime {
     /// The returned TimerId has to be unique.
     /// It's an error for runtimes to return duplicate [TimerId]s.
     fn register_periodic_timer(&self, duration: Duration) -> TimerId;
+
+    /// Get the current time.
+    fn current_time(&self) -> Instant;
 
     /// Sends a [ProtocolMessage] to a different peer.
     ///
@@ -77,6 +80,10 @@ impl<UR: UseCaseRuntime, D: Deref<Target = UR>> UseCaseRuntime for D {
 
     fn register_periodic_timer(&self, duration: Duration) -> TimerId {
         self.deref().register_periodic_timer(duration)
+    }
+
+    fn current_time(&self) -> Instant {
+        self.deref().current_time()
     }
 
     fn send_message_via<P: Into<ProtocolMessage>>(

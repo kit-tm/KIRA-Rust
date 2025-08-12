@@ -1,15 +1,16 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::time::Duration;
+use std::time::Instant;
 
-use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
+use crate::Output;
 use crate::domain::UnderlayNeighborDestination;
+use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
 use crate::messaging::ProtocolMessage;
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::BroadcastableUseCaseEvent;
 use crate::use_cases::TimerId;
 use crate::use_cases::UseCaseEvent;
-use crate::Output;
 
 #[derive(Debug, Default)]
 pub struct TestingUseCaseRuntime {
@@ -58,6 +59,10 @@ impl UseCaseRuntime for TestingUseCaseRuntime {
     fn register_periodic_timer(&self, _duration: Duration) -> TimerId {
         *self.timers.borrow_mut() += 1;
         self.timer_id.into()
+    }
+
+    fn current_time(&self) -> Instant {
+        Instant::now()
     }
 
     fn send_message_via<P: Into<ProtocolMessage>>(

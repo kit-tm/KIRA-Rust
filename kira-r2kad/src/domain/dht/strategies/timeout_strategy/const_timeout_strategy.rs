@@ -1,13 +1,14 @@
+use super::TimeoutStrategy;
+use crate::domain::dht::TimedValue;
 use std::marker::PhantomData;
 use std::time::{Duration, Instant};
-use crate::domain::dht::TimedValue;
-use super::TimeoutStrategy;
+
+// FIXME: Use Runtime time instead of Instant::now()
 
 /// Default [Duration] of time after which a value is decided to be timed out.
 ///
 /// This value is used by [ConstTimeoutStrategy::default]
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60 * 60 * 24);
-
 
 /// Implementation of the [TimeoutStrategy] on which values run out after a given duration.
 ///
@@ -61,13 +62,16 @@ impl<C, D> TimeoutStrategy for ConstTimeoutStrategy<C, D> {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Sub;
-    use super::*;
     use super::super::TimeoutStrategy;
+    use super::*;
+    use std::ops::Sub;
 
     #[test]
     fn default_expire_duration() {
-        assert_eq!(ConstTimeoutStrategy::<(), ()>::default().expire_after, DEFAULT_TIMEOUT);
+        assert_eq!(
+            ConstTimeoutStrategy::<(), ()>::default().expire_after,
+            DEFAULT_TIMEOUT
+        );
     }
 
     #[test]
@@ -75,9 +79,14 @@ mod tests {
         let strategy = ConstTimeoutStrategy::default();
 
         let mut expired_value = TimedValue::new("tested");
-        expired_value.timestamp = Instant::now().sub(DEFAULT_TIMEOUT).sub(Duration::from_secs(42));
+        expired_value.timestamp = Instant::now()
+            .sub(DEFAULT_TIMEOUT)
+            .sub(Duration::from_secs(42));
 
-        assert!(strategy.has_timed_out(&(), &expired_value), "Value hasn't expired: {expired_value:?}");
+        assert!(
+            strategy.has_timed_out(&(), &expired_value),
+            "Value hasn't expired: {expired_value:?}"
+        );
     }
 
     #[test]
@@ -87,6 +96,10 @@ mod tests {
         let mut expired_value = TimedValue::new("tested");
         expired_value.timestamp = Instant::now().sub(DEFAULT_TIMEOUT / 2);
 
-        assert!(!strategy.has_timed_out(&(), &expired_value), "Value has expired: {expired_value:?}");
+        assert!(
+            !strategy.has_timed_out(&(), &expired_value),
+            "Value has expired: {expired_value:?}"
+        );
     }
 }
+

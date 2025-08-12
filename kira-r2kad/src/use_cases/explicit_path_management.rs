@@ -213,7 +213,7 @@ where
                 context
                     .runtime()
                     .update_fwd_tables(PathIdTableUpdate::Update(entry));
-                occupied_entry.get_mut().last_seen = Instant::now(); // FIXME: Set to current runtime time
+                occupied_entry.get_mut().last_seen = context.runtime().current_time();
             }
             Vacant(vacant_entry) => {
                 context
@@ -223,7 +223,7 @@ where
                 vacant_entry.insert(Entry {
                     path_id_entry: entry,
                     via: next_hop,
-                    last_seen: Instant::now(), // FIXME: Set to current runtime time
+                    last_seen: context.runtime().current_time(),
                 });
             }
         }

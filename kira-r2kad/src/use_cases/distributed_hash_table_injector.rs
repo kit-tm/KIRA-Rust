@@ -4,9 +4,9 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::time::Instant;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
-use crate::domain::{dht, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
+use crate::domain::{NodeId, RoutingTable, ULNTable, UnderlayNeighborId, dht};
 use crate::use_cases::{
     EventHandler, FetchInjectData, InjectionMessageData, OneshotInjectMessageCallback,
     StoreInjectData, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime, UseCaseState,
@@ -15,8 +15,8 @@ use crate::use_cases::{
 use crate::messaging::dht::{DefaultLHTInput, FetchReqData, StoreReqData};
 use crate::messaging::{Nonce, ProtocolMessage};
 use crate::use_cases::distributed_hash_table_injector::DHTInjectorState::Running;
-use crate::use_cases::inject_messages::errors::InjectMessageError;
 use crate::use_cases::inject_messages::InjectionResult;
+use crate::use_cases::inject_messages::errors::InjectMessageError;
 
 // TODO: what would be a sensible value here?
 // TODO: random offsets for periodic restore AND collection of the hash table?
@@ -203,7 +203,7 @@ where
 
                 dht::send_store_req(context, nonce.clone(), payload.clone());
                 self.nonces
-                    .insert(nonce.clone(), (Instant::now(), callback));
+                    .insert(nonce.clone(), (context.runtime().current_time(), callback));
                 if restore {
                     self.restore_data.push_back(payload);
                 }
@@ -222,8 +222,10 @@ where
                 if let Err(inject_err) = dht::send_fetch_req(context, nonce.clone(), payload) {
                     self.inform_injector_about_send_error(inject_err, &nonce, callback)?;
                 } else {
-                    self.nonces
-                        .insert(nonce.clone(), (Instant::now(), callback.clone()));
+                    self.nonces.insert(
+                        nonce.clone(),
+                        (context.runtime().current_time(), callback.clone()),
+                    );
                 }
             }
             (UseCaseEvent::Message(message, ulnid), _) => {

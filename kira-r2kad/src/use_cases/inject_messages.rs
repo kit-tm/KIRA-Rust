@@ -184,7 +184,7 @@ where
                     .runtime()
                     .send_message(message, context.uln_table().deref());
 
-                self.nonces.insert(nonce, Instant::now());
+                self.nonces.insert(nonce, context.runtime().current_time());
             }
             UseCaseEvent::Message(message, interface) => {
                 if let Some(Some(instant)) = message.nonce().map(|nonce| self.nonces.remove(nonce))
