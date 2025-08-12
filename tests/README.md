@@ -1,6 +1,7 @@
 # Running Tests
 
-This repository includes several scripts and tools to set up, run and debug test scenarios using docker containers.
+This repository includes several scripts and tools to set up, run and debug test scenarios
+using docker containers or just plain Linux network namespaces.
 
 ## Building Container Images
 
@@ -12,17 +13,18 @@ make build-images
 
 ## Running Tests
 
-Simple test scenarios can be set up with the test scripts provided here in the [tests](/tests/) directory. These scripts require a GML file that describes the network topology and the container images:
+Simple test scenarios can be set up with the test scripts provided here in the [tests](/tests/) directory.
+These scripts require a GML file that describes the network topology and the container images:
 
 ```sh
-python3 tests/test.py tests/minimal.gml
+python3 tests/test.py tests/topos/minimal.gml
 ```
 
 For additional features and a Containernet CLI use [tests/test2.py](/tests/test2.py)
 This will set up environment variables in the containers for debugging purposes, dump an `idmap.json` file for easier collection and processing of logs from the containers and provide a Containernet CLI:
 
 ```sh
-python3 tests/test2.py tests/minimal.gml
+python3 tests/test2.py tests/topos/minimal.gml
 ```
 
 ## Collecting and Processing Logs
@@ -39,7 +41,9 @@ This script also replaces all `node_ids` and their representations as IPv6 addre
 
 ## Further Debugging Options
 
-To attach to any running container for further debugging, use the `docker exec` command. The containers are named `mn.k*`, where `*` is the node number. For example, to get an interactive shell in node 1, run:
+To attach to any running container for further debugging, use the `docker exec` command.
+The containers are named `mn.k*`, where `*` is the node number.
+For example, to get an interactive shell in node 1, run:
 
 ```sh
 docker exec -it mn.k1 bash
