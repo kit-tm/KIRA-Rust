@@ -1,10 +1,30 @@
+image: rust:latest
+
 stages:
   - build
+  - test
+  - format-code
+  - lint-code
 
-rust-latest:
+build-code:
   stage: build
-  image: rust:latest
   script:
     - cargo build --verbose
-    - cargo test --verbose
+
+test-code:
+  stage: test
+  script:
+    - cargo test
+
+lint-code:
+  stage: lint
+  script:
+    - rustup component add clippy
+    - cargo clippy -- -D warnings
+    
+format-code:
+  stage: format
+  script:
+    - rustup component add rustfmt
+    - cargo fmt -- --check
 
