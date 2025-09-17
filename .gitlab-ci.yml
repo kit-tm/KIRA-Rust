@@ -17,13 +17,13 @@ test-code:
     - cargo test
 
 lint-code:
-  stage: lint
+  stage: lint-code
   script:
     - rustup component add clippy
     - cargo clippy -- -D warnings
     
 format-code:
-  stage: format
+  stage: format-code
   script:
     - rustup component add rustfmt
     - cargo fmt -- --check
