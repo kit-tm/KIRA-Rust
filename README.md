@@ -33,7 +33,7 @@ More specific information can be found in the respective folders and in the foll
 The majority of the KIRA routing daemon is written in Rust.
 To access the [rustdoc](https://doc.rust-lang.org/rustdoc/index.html) of the respective packages run
 ```shell
-make docs
+make doc
 ```
 
 ## Cloning the repository

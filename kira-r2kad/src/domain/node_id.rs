@@ -58,7 +58,7 @@ impl NodeId {
     /// This is equal to all bits in a [NodeId] == 1.
     pub const fn max_value() -> Self {
         Self {
-            bytes: [0b11111111; SIZE],
+            bytes: [0xff; SIZE],
         }
     }
 
