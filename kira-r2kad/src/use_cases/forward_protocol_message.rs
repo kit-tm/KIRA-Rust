@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::domain::{
     Contact, ContactState, InsertionStrategy, InsertionStrategyResult, Link, NodeId, NotVia, Path,
@@ -11,8 +11,8 @@ use crate::domain::{
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{ErrorData, ProtocolMessage, RTableData, ReqRspMessage, RouteUpdate};
 use crate::use_cases::{
-    BroadcastableUseCaseEvent, EventHandler, HandlingResult, NeverError, ReactiveUseCaseState,
-    UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime,
+    EventHandler, HandlingResult, NeverError, ReactiveUseCaseState, UseCase, UseCaseContext,
+    UseCaseEvent, UseCaseRuntime,
 };
 
 /// Extracts different kinds of information out of incoming [ProtocolMessage]s before
@@ -75,7 +75,13 @@ where
         ulnid: UnderlayNeighborId,
     ) -> Option<Contact> {
         let path = self.extract_path_to_source(message);
-        let contact = Contact::new(path.clone(), *message.source_state_seq_nr());
+        let ssn = message.source_state_seq_nr();
+        if ssn.is_reset() {
+            todo!("implement reset of StateSeqNr")
+        }
+
+        let ssn = ssn.value()?;
+        let contact = Contact::new(path.clone(), ssn);
 
         {
             let mut uln_table = context.uln_table_mut();
@@ -116,20 +122,7 @@ where
             return;
         }
 
-        // Inform other UseCases about newer SSN
-        // TODO: make more efficient by using the insertion strategy to return existing contact
-        if let Some(contact_in_rt) = context.routing_table_mut().contact(contact.id()) {
-            if contact_in_rt.state_seq_nr() < contact.state_seq_nr() {
-                let expected_ssn = *contact.state_seq_nr();
-                let event = BroadcastableUseCaseEvent::ResyncNode(*contact.id(), expected_ssn);
-
-                log::trace!(target: "forward_protocol_message", "Inform other UseCases about updated SSN of {}: {:?}", contact.id(), event);
-                context.runtime().broadcast_event(event);
-            }
-        }
-
         log::trace!(target: "forward_protocol_message", "Attempting to insert {contact}");
-
         let result = context.routing_table_insertion_strategy().insert(
             contact.clone(),
             context.routing_table_mut().deref_mut(),
@@ -194,7 +187,7 @@ where
         };
     }
 
-    // Extracts not_via data and applies them on the routing table
+    /// Extracts not_via data and applies them on the routing table.
     fn extract_not_via_data(
         &self,
         context: &C,
@@ -301,7 +294,7 @@ where
             }
             ProtocolMessage::Error(error_rsp) => self.extract_failed_contact(context, error_rsp),
             // These are already covered by source info extraction
-            // Explicitly listing to yield compile time errors as soon as chnages happen to ProtocolMessage enum
+            // Explicitly listing to yield compile time errors as soon as changes happen to ProtocolMessage enum
             ProtocolMessage::UpdateRouteReq(req) => {
                 self.handle_update_routes(context, req.source_route.source(), req.contact_actions);
             }
@@ -311,11 +304,11 @@ where
             | ProtocolMessage::ProbeReq(_)
             | ProtocolMessage::ProbeRsp(_)
             | ProtocolMessage::PathSetupReq(_)
-            | ProtocolMessage::PathTeardownReq(_) => {}
-            ProtocolMessage::StoreReq(_)
+            | ProtocolMessage::PathTeardownReq(_)
+            | ProtocolMessage::StoreReq(_)
             | ProtocolMessage::StoreRsp(_)
             | ProtocolMessage::FetchReq(_)
-            | ProtocolMessage::FetchRsp(_) => {} // TODO: maybe we need to extract stuff here
+            | ProtocolMessage::FetchRsp(_) => {}
         }
     }
 
@@ -335,8 +328,8 @@ where
         );
 
         let error_message = ReqRspMessage {
-            nonce: message.nonce().unwrap().clone(),
-            source_state_seq_nr: *context.uln_table().state_seq_nr(),
+            nonce: *message.nonce().unwrap(),
+            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
             data: ErrorData::SegmentFailure {
                 failed_link,
                 source: root_id,
@@ -350,6 +343,11 @@ where
             .send_message(error_message, context.uln_table().deref());
     }
 
+    /// Forwards the [ProtocolMessage] to the next hop.
+    ///
+    /// Returns if the message was forwarded.
+    /// This information is used to abort the processing of forwarded messages
+    /// by subsequent invoked [UseCases](UseCase).
     fn handle_forwarding(&self, context: &C, mut message: ProtocolMessage) -> HandlingResult {
         let source_route = message.source_route().cloned();
         if source_route.is_none() {

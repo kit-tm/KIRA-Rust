@@ -1,7 +1,7 @@
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{HashMap, hash_map::Entry};
 use std::ops::Deref;
 
-use crate::domain::{NodeId, StateSeqNr, ULNTable, UnderlayNeighborId};
+use crate::domain::{NodeId, SafeStateSeqNr, ULNTable, UnderlayNeighborId};
 
 /// A underlay neighbor table backed by a [HashMap].
 ///
@@ -9,7 +9,7 @@ use crate::domain::{NodeId, StateSeqNr, ULNTable, UnderlayNeighborId};
 /// to be updated every time the underlay neighbors change.
 #[derive(Debug)]
 pub struct InMemoryULNTable {
-    state_seq_nr: StateSeqNr,
+    state_seq_nr: SafeStateSeqNr,
     map: HashMap<NodeId, UnderlayNeighborId>,
 }
 
@@ -30,7 +30,8 @@ impl Deref for InMemoryULNTable {
 impl InMemoryULNTable {
     pub fn new() -> Self {
         Self {
-            state_seq_nr: StateSeqNr::from(0),
+            state_seq_nr: SafeStateSeqNr::try_from(1)
+                .expect("1 should be a safe state sequence number"),
             map: HashMap::new(),
         }
     }
@@ -40,7 +41,7 @@ impl InMemoryULNTable {
     }
 
     #[cfg(test)]
-    pub fn state_seq_nr_mut(&mut self) -> &mut StateSeqNr {
+    pub fn state_seq_nr_mut(&mut self) -> &mut SafeStateSeqNr {
         &mut self.state_seq_nr
     }
 }
@@ -62,7 +63,11 @@ impl ULNTable for InMemoryULNTable {
             }
         };
 
-        self.state_seq_nr += 1;
+        if let Some(new_ssn) = (self.state_seq_nr + 1).value() {
+            self.state_seq_nr = new_ssn;
+        } else {
+            todo!("implement reset of SafeStateSeqNr");
+        }
         result
     }
 
@@ -70,7 +75,7 @@ impl ULNTable for InMemoryULNTable {
         self.map.contains_key(id)
     }
 
-    fn state_seq_nr(&self) -> &StateSeqNr {
+    fn state_seq_nr(&self) -> &SafeStateSeqNr {
         &self.state_seq_nr
     }
 
@@ -78,7 +83,11 @@ impl ULNTable for InMemoryULNTable {
         let result = self.map.remove(id);
         // test if we actually removed something => update ssn
         if result.is_some() {
-            self.state_seq_nr += 1;
+            if let Some(new_ssn) = (self.state_seq_nr + 1).value() {
+                self.state_seq_nr = new_ssn;
+            } else {
+                todo!("implement reset of SafeStateSeqNr");
+            }
         }
 
         result

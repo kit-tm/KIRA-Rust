@@ -75,7 +75,10 @@ fn hello_response() {
             nonce: Nonce::random(),
             source_state_seq_nr: StateSeqNr::from(1),
             data: RTableData {
-                contacts: vec![Contact::new(Path::from(us), StateSeqNr::from(0))],
+                contacts: vec![Contact::new(
+                    Path::from(us),
+                    SafeStateSeqNr::try_from(1).unwrap(),
+                )],
             },
             not_via: Default::default(),
             source_route: SourceRoute::new(neighbor, Path::from(us)),
@@ -105,6 +108,7 @@ fn hello_response() {
         );
     }
 }
+
 #[test]
 fn uln_disc_req_response() {
     let us = NodeId::one();

@@ -253,7 +253,7 @@ impl<I> FusedIterator for IntoIter<I> {}
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::{Bucket, Contact, NodeId, Path, ReplacementError, StateSeqNr};
+    use crate::domain::{Bucket, Contact, NodeId, Path, ReplacementError, SafeStateSeqNr};
 
     #[test]
     fn insert_test() {
@@ -262,7 +262,10 @@ mod tests {
         assert!(bucket.is_empty());
         assert!(!bucket.is_full());
 
-        let contact = Contact::new(Path::from(NodeId::one()), StateSeqNr::from(0));
+        let contact = Contact::new(
+            Path::from(NodeId::one()),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
 
         assert!(bucket.insert(contact.clone()).is_ok());
 
@@ -273,7 +276,10 @@ mod tests {
 
         assert!(bucket.insert(contact.clone()).is_err());
 
-        let second_contact = Contact::new(Path::from(NodeId::with_lsb(2)), StateSeqNr::from(0));
+        let second_contact = Contact::new(
+            Path::from(NodeId::with_lsb(2)),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
 
         assert!(bucket.insert(second_contact.clone()).is_ok());
 
@@ -292,7 +298,10 @@ mod tests {
         assert!(bucket.is_empty());
         assert!(!bucket.is_full());
 
-        let contact = Contact::new(Path::from(NodeId::with_lsb(1)), StateSeqNr::from(0));
+        let contact = Contact::new(
+            Path::from(NodeId::with_lsb(1)),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
 
         assert!(matches!(
             bucket.replace(&NodeId::with_lsb(1), contact.clone()),
@@ -301,7 +310,10 @@ mod tests {
 
         assert!(bucket.insert(contact.clone()).is_ok());
 
-        let contact_two = Contact::new(Path::from(NodeId::with_lsb(2)), StateSeqNr::from(0));
+        let contact_two = Contact::new(
+            Path::from(NodeId::with_lsb(2)),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
 
         assert!(bucket.replace(contact.id(), contact_two.clone()).is_ok());
         assert_eq!(bucket.len(), 1);
@@ -312,10 +324,16 @@ mod tests {
     fn split() {
         let mut bucket = Bucket::<2>::new();
 
-        let contact = Contact::new(Path::from(NodeId::with_lsb(1)), StateSeqNr::from(0));
+        let contact = Contact::new(
+            Path::from(NodeId::with_lsb(1)),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
         assert!(bucket.insert(contact.clone()).is_ok());
 
-        let second_contact = Contact::new(Path::from(NodeId::with_lsb(2)), StateSeqNr::from(0));
+        let second_contact = Contact::new(
+            Path::from(NodeId::with_lsb(2)),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
         assert!(bucket.insert(second_contact.clone()).is_ok());
 
         let mut other = Bucket::<2>::new();

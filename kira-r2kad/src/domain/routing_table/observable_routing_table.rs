@@ -467,11 +467,16 @@ mod tests {
 
     use crate::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{Contact, ContactState, NodeId, Path, RoutingTable, StateSeqNr, Timestamp};
+    use crate::domain::{
+        Contact, ContactState, NodeId, Path, RoutingTable, SafeStateSeqNr, Timestamp,
+    };
 
     #[test]
     fn add_contact() {
-        let contact = Contact::new(Path::from(NodeId::with_msb(2)), StateSeqNr::from(1));
+        let contact = Contact::new(
+            Path::from(NodeId::with_msb(2)),
+            SafeStateSeqNr::try_from(2).unwrap(),
+        );
 
         let mut observable = ObservableRoutingTable::from(SingleBucketRT::<10>::new(NodeId::one()));
 
@@ -490,7 +495,10 @@ mod tests {
 
     #[test]
     fn remove_contact() {
-        let contact = Contact::new(Path::from(NodeId::with_msb(2)), StateSeqNr::from(1));
+        let contact = Contact::new(
+            Path::from(NodeId::with_msb(2)),
+            SafeStateSeqNr::try_from(2).unwrap(),
+        );
 
         let mut rt = SingleBucketRT::<10>::new(NodeId::one());
         assert!(rt.add(contact.clone()).is_ok());
@@ -509,7 +517,10 @@ mod tests {
 
     #[test]
     fn replace_contact() {
-        let contact = Contact::new(Path::from(NodeId::with_msb(2)), StateSeqNr::from(1));
+        let contact = Contact::new(
+            Path::from(NodeId::with_msb(2)),
+            SafeStateSeqNr::try_from(2).unwrap(),
+        );
 
         let mut rt = SingleBucketRT::<10>::new(NodeId::one());
         assert!(rt.add(contact.clone()).is_ok());
@@ -521,7 +532,10 @@ mod tests {
         let observable_events = Arc::clone(&events);
         observable.add_observer(move |event| observable_events.write().unwrap().push(event));
 
-        let new_contact = Contact::new(Path::from(NodeId::with_msb(3)), StateSeqNr::from(2));
+        let new_contact = Contact::new(
+            Path::from(NodeId::with_msb(3)),
+            SafeStateSeqNr::try_from(3).unwrap(),
+        );
 
         let add_result = observable.replace(contact.id(), new_contact.clone());
         assert!(add_result.is_ok());
@@ -531,7 +545,10 @@ mod tests {
 
     #[test]
     fn update_contact() {
-        let contact = Contact::new(Path::from(NodeId::with_msb(2)), StateSeqNr::from(1));
+        let contact = Contact::new(
+            Path::from(NodeId::with_msb(2)),
+            SafeStateSeqNr::try_from(2).unwrap(),
+        );
 
         let mut rt = SingleBucketRT::<10>::new(NodeId::one());
         assert!(rt.add(contact.clone()).is_ok());

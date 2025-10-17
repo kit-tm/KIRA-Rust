@@ -1,7 +1,8 @@
-use crate::domain::{NodeId, StateSeqNr, UnderlayNeighborId};
+use crate::domain::{NodeId, SafeStateSeqNr, UnderlayNeighborId};
+
 pub use in_memory_underlay_neighbor_table::InMemoryULNTable;
 
-mod in_memory_underlay_neighbor_table;
+pub mod in_memory_underlay_neighbor_table;
 
 /// A [ULNTable] models the underlay neighbor table.
 ///
@@ -19,7 +20,7 @@ pub trait ULNTable {
     ///
     /// The state sequence number represents the number of connectivity changes in the
     /// direct underlay neighborhood of a node.
-    fn state_seq_nr(&self) -> &StateSeqNr;
+    fn state_seq_nr(&self) -> &SafeStateSeqNr;
 
     /// Removed a Mapping from the table returning that UnderlayNeighborId the [NodeId] was mapped to.
     fn remove(&mut self, id: &NodeId) -> Option<UnderlayNeighborId>;

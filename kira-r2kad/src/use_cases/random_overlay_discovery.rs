@@ -3,11 +3,11 @@ use std::marker::PhantomData;
 use std::num::{NonZeroU64, NonZeroUsize};
 use std::ops::Deref;
 use std::time::Duration;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use derive_more::derive::{Display, Error};
 
-use crate::domain::{node_id, GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
+use crate::domain::{GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, node_id};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{FindNodeReqData, Nonce, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
@@ -104,7 +104,7 @@ where
 
         let message = ReqRspMessage {
             nonce: Nonce::random(),
-            source_state_seq_nr: *context.uln_table().state_seq_nr(),
+            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
             data: FindNodeReqData {
                 exact: false,
                 neighborhood: self.config.neighborhood_size,

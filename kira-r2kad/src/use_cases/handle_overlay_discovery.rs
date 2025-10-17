@@ -2,11 +2,11 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::ops::Deref;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::domain::{
-    node_id, Contact, GroupingError, NodeId, NotVia, RoutingTable, StateSeqNr, ULNTable,
-    UnderlayNeighborId, DEFAULT_BUCKET_SIZE,
+    Contact, DEFAULT_BUCKET_SIZE, GroupingError, NodeId, NotVia, RoutingTable, StateSeqNr,
+    ULNTable, UnderlayNeighborId, node_id,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{ErrorData, FindNodeReqData, ProtocolMessage, RTableData, ReqRspMessage};
@@ -187,7 +187,7 @@ where
                     self.build_find_node_rsp(
                         context.not_via().clone(),
                         req.clone(),
-                        *context.uln_table().state_seq_nr(),
+                        From::from(*context.uln_table().state_seq_nr()),
                         closest,
                     )
                 }
@@ -209,14 +209,14 @@ where
                         self.build_error(
                             context.not_via().clone(),
                             req.clone(),
-                            *context.uln_table().state_seq_nr(),
+                            From::from(*context.uln_table().state_seq_nr()),
                         )
                     }
                 }
                 (true, _, false, None) => self.build_error(
                     context.not_via().clone(),
                     req.clone(),
-                    *context.uln_table().state_seq_nr(),
+                    From::from(*context.uln_table().state_seq_nr()),
                 ),
                 (false, _, true, _) => {
                     log::warn!(
@@ -245,7 +245,7 @@ where
                         self.build_find_node_rsp(
                             context.not_via().clone(),
                             req.clone(),
-                            *context.uln_table().state_seq_nr(),
+                            From::from(*context.uln_table().state_seq_nr()),
                             closest,
                         )
                     }
@@ -253,7 +253,7 @@ where
                 (false, _, false, None) => self.build_find_node_rsp(
                     context.not_via().clone(),
                     req.clone(),
-                    *context.uln_table().state_seq_nr(),
+                    From::from(*context.uln_table().state_seq_nr()),
                     Vec::with_capacity(0),
                 ),
             };

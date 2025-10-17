@@ -5,8 +5,9 @@ use std::ops::IndexMut;
 use rand::Rng;
 
 use crate::domain::{
-    node_id, AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, ContactState,
-    GroupingError, NodeId, ReplacementError, RoutingTable, SharedPrefix, DEFAULT_BUCKET_SIZE,
+    AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, ContactState,
+    DEFAULT_BUCKET_SIZE, GroupingError, NodeId, ReplacementError, RoutingTable, SharedPrefix,
+    node_id,
 };
 
 pub const DEFAULT_ACCELERATION: usize = 1;
@@ -407,14 +408,17 @@ mod routing_tests {
     use std::error::Error;
 
     use crate::domain::{
-        AddError, Contact, FlatRoutingTable, NodeId, Path, RoutingTable, StateSeqNr,
+        AddError, Contact, FlatRoutingTable, NodeId, Path, RoutingTable, SafeStateSeqNr,
     };
 
     #[test]
     fn test_add() -> Result<(), Box<dyn Error>> {
         let mut table = FlatRoutingTable::<1, 1>::new(NodeId::zero())?;
 
-        let contact = Contact::new(Path::from(NodeId::one()), StateSeqNr::from(1));
+        let contact = Contact::new(
+            Path::from(NodeId::one()),
+            SafeStateSeqNr::try_from(2).unwrap(),
+        );
 
         assert_eq!(table.add(contact), Ok(()));
 
@@ -427,13 +431,13 @@ mod routing_tests {
 
         table.add(Contact::new(
             Path::from(NodeId::with_lsb(1)),
-            StateSeqNr::from(0),
+            SafeStateSeqNr::try_from(1).unwrap(),
         ))?;
 
         assert_eq!(
             table.add(Contact::new(
                 Path::from(NodeId::with_lsb(2)),
-                StateSeqNr::from(0),
+                SafeStateSeqNr::try_from(1).unwrap(),
             )),
             Err(AddError::NotAdded)
         );
@@ -447,7 +451,10 @@ mod routing_tests {
 
         let mut table = FlatRoutingTable::<1, 1>::new(NodeId::zero())?;
 
-        table.add(Contact::new(Path::from(NodeId::one()), StateSeqNr::from(0)))?;
+        table.add(Contact::new(
+            Path::from(NodeId::one()),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        ))?;
 
         assert_eq!(table.split_bucket(&NodeId::one()), Ok(0));
 
@@ -462,12 +469,12 @@ mod routing_tests {
 
         table.insert(Contact::new(
             Path::from(NodeId::with_lsb(0b00000001)),
-            StateSeqNr::from(0),
+            SafeStateSeqNr::try_from(1).unwrap(),
         ))?;
 
         table.insert(Contact::new(
             Path::from(NodeId::with_lsb(0b00000010)),
-            StateSeqNr::from(0),
+            SafeStateSeqNr::try_from(1).unwrap(),
         ))?;
         assert_eq!(
             table.num_buckets(),
@@ -477,14 +484,14 @@ mod routing_tests {
 
         table.insert(Contact::new(
             Path::from(NodeId::with_lsb(0b00010000)),
-            StateSeqNr::from(0),
+            SafeStateSeqNr::try_from(1).unwrap(),
         ))?;
 
         assert!(
             table
                 .insert(Contact::new(
                     Path::from(NodeId::with_lsb(0b00010111)),
-                    StateSeqNr::from(0),
+                    SafeStateSeqNr::try_from(1).unwrap(),
                 ))
                 .is_err(),
             "is in the same bucket as 00010000"
@@ -499,7 +506,7 @@ mod routing_tests {
 
         table.add(Contact::new(
             Path::from(NodeId::with_lsb(0b00000001)),
-            StateSeqNr::from(0),
+            SafeStateSeqNr::try_from(1).unwrap(),
         ))?;
         assert_eq!(table.buckets.len(), 1);
 
@@ -507,7 +514,7 @@ mod routing_tests {
             table
                 .add(Contact::new(
                     Path::from(NodeId::with_msb(0b11000000)),
-                    StateSeqNr::from(0),
+                    SafeStateSeqNr::try_from(1).unwrap(),
                 ))
                 .is_ok(),
             "no split required on bucket BUCKET_SIZE=2"
@@ -518,7 +525,7 @@ mod routing_tests {
         assert_eq!(
             table.add(Contact::new(
                 Path::from(NodeId::with_msb(0b10000000)),
-                StateSeqNr::from(0),
+                SafeStateSeqNr::try_from(1).unwrap(),
             )),
             Err(AddError::NotAdded),
             "split required because single bucket is full"
@@ -533,7 +540,7 @@ mod routing_tests {
             table
                 .add(Contact::new(
                     Path::from(NodeId::with_msb(0b10000000)),
-                    StateSeqNr::from(0),
+                    SafeStateSeqNr::try_from(1).unwrap(),
                 ))
                 .is_ok(),
             "bucket should have been created on split"
@@ -544,7 +551,7 @@ mod routing_tests {
             table
                 .add(Contact::new(
                     Path::from(NodeId::with_msb(0b10000001)),
-                    StateSeqNr::from(0),
+                    SafeStateSeqNr::try_from(1).unwrap(),
                 ))
                 .is_ok(),
             "bucket with prefix 10 should have space"
@@ -553,7 +560,7 @@ mod routing_tests {
             table
                 .add(Contact::new(
                     Path::from(NodeId::with_msb(0b00000011)),
-                    StateSeqNr::from(0),
+                    SafeStateSeqNr::try_from(1).unwrap(),
                 ))
                 .is_ok(),
             "bucket with prefix 00 should have space"
@@ -563,7 +570,7 @@ mod routing_tests {
             table
                 .add(Contact::new(
                     Path::from(NodeId::with_msb(0b01000000)),
-                    StateSeqNr::from(0),
+                    SafeStateSeqNr::try_from(1).unwrap(),
                 ))
                 .is_ok(),
             "bucket with prefix 01 should have space"

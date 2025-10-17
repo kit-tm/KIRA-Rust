@@ -2,13 +2,13 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::time::Duration;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::domain::protocol_event::forwarding::{
     PathIdEntry, PathIdForwardingEntry, PathIdTableUpdate,
 };
 use crate::domain::{
-    ContactState, Hasher, NodeId, RoutingTable, StateSeqNr, UnderlayNeighborId, VicinityGraph,
+    ContactState, Hasher, NodeId, RoutingTable, UnderlayNeighborId, VicinityGraph,
     VICINITY_RADIUS,
 };
 use crate::messaging::ProtocolMessage;

@@ -13,7 +13,7 @@ use std::fmt;
 
 /// Randomly generated number to uniquely identify a protocol message and its
 /// response.
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Nonce(u128);
 

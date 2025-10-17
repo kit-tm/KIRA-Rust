@@ -327,7 +327,7 @@ mod tests {
     use crate::context::ContextConfig;
     use crate::context::SyncContext;
     use crate::domain::SIZE;
-    use crate::domain::StateSeqNr;
+    use crate::domain::SafeStateSeqNr;
     use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::runtime::testing::TestingUseCaseRuntime;
@@ -337,6 +337,9 @@ mod tests {
     mod vicinity {
         //! Tests that DeriveFwdEntries will not change any paths inside the vicinity
 
+        use crate::domain::ConnectionId;
+        use crate::domain::InterfaceId;
+
         use super::*;
 
         #[test]
@@ -345,15 +348,26 @@ mod tests {
 
             let runtime = TestingUseCaseRuntime::default();
 
-            let ulnid = UnderlayNeighborId::try_from(1).unwrap();
+            let ulnid = {
+                let interface_id = InterfaceId::try_from(1).unwrap();
+                let conn_id = ConnectionId::from(0);
+
+                UnderlayNeighborId {
+                    interface_id,
+                    connection_id: conn_id,
+                }
+            };
             let root_id = NodeId::with_lsb(1);
             let neighbor_id = NodeId::with_lsb(2);
             let vicinity_contact_id = NodeId::with_lsb(3);
 
-            let neighbor = Contact::new(Path::from(neighbor_id), StateSeqNr::from(0));
+            let neighbor = Contact::new(
+                Path::from(neighbor_id),
+                SafeStateSeqNr::try_from(1).unwrap(),
+            );
             let vicinity_contact = Contact::new(
                 Path::from([neighbor_id, vicinity_contact_id]),
-                StateSeqNr::from(3),
+                SafeStateSeqNr::try_from(4).unwrap(),
             );
 
             let mut routing_table = SingleBucketRT::<20>::new(root_id);
@@ -457,11 +471,22 @@ mod tests {
 
             let runtime = TestingUseCaseRuntime::default();
 
-            let ulnid = UnderlayNeighborId::try_from(1).unwrap();
+            let ulnid = {
+                let interface_id = InterfaceId::try_from(1).unwrap();
+                let conn_id = ConnectionId::from(0);
+
+                UnderlayNeighborId {
+                    interface_id,
+                    connection_id: conn_id,
+                }
+            };
             let root_id = NodeId::with_lsb(1);
             let neighbor_id = NodeId::with_lsb(2);
 
-            let neighbor = Contact::new(Path::from(neighbor_id), StateSeqNr::from(0));
+            let neighbor = Contact::new(
+                Path::from(neighbor_id),
+                SafeStateSeqNr::try_from(1).unwrap(),
+            );
 
             let mut routing_table = SingleBucketRT::<20>::new(root_id);
             assert!(routing_table.insert(neighbor.clone()).is_ok());
@@ -558,15 +583,26 @@ mod tests {
 
             let runtime = TestingUseCaseRuntime::default();
 
-            let ulnid = UnderlayNeighborId::try_from(1).unwrap();
+            let ulnid = {
+                let interface_id = InterfaceId::try_from(1).unwrap();
+                let conn_id = ConnectionId::from(0);
+
+                UnderlayNeighborId {
+                    interface_id,
+                    connection_id: conn_id,
+                }
+            };
             let root_id = NodeId::with_lsb(1);
             let neighbor_id = NodeId::with_lsb(2);
             let vicinity_contact_id = NodeId::with_lsb(3);
 
-            let neighbor = Contact::new(Path::from(neighbor_id), StateSeqNr::from(0));
+            let neighbor = Contact::new(
+                Path::from(neighbor_id),
+                SafeStateSeqNr::try_from(1).unwrap(),
+            );
             let vicinity_contact = Contact::new(
                 Path::from([neighbor_id, vicinity_contact_id]),
-                StateSeqNr::from(3),
+                SafeStateSeqNr::try_from(4).unwrap(),
             );
 
             let mut routing_table = SingleBucketRT::<20>::new(root_id);
@@ -659,15 +695,26 @@ mod tests {
 
             let runtime = TestingUseCaseRuntime::default();
 
-            let ulnid = UnderlayNeighborId::try_from(1).unwrap();
+            let ulnid = {
+                let interface_id = InterfaceId::try_from(1).unwrap();
+                let conn_id = ConnectionId::from(0);
+
+                UnderlayNeighborId {
+                    interface_id,
+                    connection_id: conn_id,
+                }
+            };
             let root_id = NodeId::with_lsb(1);
             let neighbor_id = NodeId::with_lsb(2);
             let vicinity_contact_id = NodeId::with_lsb(3);
 
-            let neighbor = Contact::new(Path::from(neighbor_id), StateSeqNr::from(0));
+            let neighbor = Contact::new(
+                Path::from(neighbor_id),
+                SafeStateSeqNr::try_from(1).unwrap(),
+            );
             let vicinity_contact = Contact::new(
                 Path::from([neighbor_id, vicinity_contact_id]),
-                StateSeqNr::from(3),
+                SafeStateSeqNr::try_from(4).unwrap(),
             );
 
             let mut routing_table = SingleBucketRT::<20>::new(root_id);
@@ -699,7 +746,7 @@ mod tests {
                     NodeId::with_lsb(5),
                     vicinity_contact_id,
                 ]),
-                StateSeqNr::from(15),
+                SafeStateSeqNr::try_from(15).unwrap(),
             );
 
             let mut new_in_path = Path::from(root_id);

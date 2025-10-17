@@ -3,17 +3,18 @@ use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::ops::Deref;
 use std::time::Duration;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use derive_more::derive::{Display, Error};
 use rand::Rng;
 
 use crate::domain::UnderlayNeighborDestination::{Broadcast, Multicast, UnderlayNeighbor};
-use crate::domain::VICINITY_RADIUS;
 use crate::domain::{
-    node_id, Contact, ContactState, InterfaceId, NodeId, Path, RoutingTable, StateSeqNr, ULNTable,
-    UnderlayNeighborId, UnderlayNeighborSource, UnderlayNeighborUpdate, DEFAULT_BUCKET_SIZE,
+    Contact, ContactState, DEFAULT_BUCKET_SIZE, InterfaceId, NodeId, Path, RoutingTable,
+    StateSeqNr, ULNTable, UnderlayNeighborId, UnderlayNeighborSource, UnderlayNeighborUpdate,
+    node_id,
 };
+use crate::domain::{SafeStateSeqNr, VICINITY_RADIUS};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     HelloMessage, Nonce, ProtocolMessage, QueryRouteReqData, QueryRouteType, RTableData,
@@ -79,7 +80,7 @@ pub enum VDState {
     Running {
         last_timeout: Duration,
         hello_timer_id: TimerId,
-        last_ssn: StateSeqNr,
+        last_ssn: SafeStateSeqNr,
         resync_timer_id: TimerId,
         resync_queue: HashMap<NodeId, (StateSeqNr, usize)>,
     },
@@ -218,7 +219,7 @@ where
         // Request only underlay Neighborhood of that Node
         let request = ReqRspMessage {
             nonce: Nonce::random(),
-            source_state_seq_nr: *context.uln_table().state_seq_nr(),
+            source_state_seq_nr: StateSeqNr::from(*context.uln_table().state_seq_nr()),
             data: QueryRouteReqData {
                 query_type: QueryRouteType::UnderlayNeighbors,
             },
@@ -270,7 +271,7 @@ where
 
         let message = ProtocolMessage::QueryRouteRsp(ReqRspMessage {
             nonce: request.nonce,
-            source_state_seq_nr: *context.uln_table().state_seq_nr(),
+            source_state_seq_nr: StateSeqNr::from(*context.uln_table().state_seq_nr()),
             data: RTableData { contacts },
             not_via: context.not_via().clone(),
             source_route: SourceRoute::from_reversed(request.source_route),
@@ -288,7 +289,7 @@ where
     fn construct_hello(&self, context: &C) -> HelloMessage {
         HelloMessage {
             source: *context.root_id(),
-            source_state_seq_nr: *context.uln_table().state_seq_nr(),
+            source_state_seq_nr: StateSeqNr::from(*context.uln_table().state_seq_nr()),
         }
     }
 
@@ -329,7 +330,7 @@ where
 
         let message = ProtocolMessage::ULNDiscReq(ReqRspMessage {
             nonce: Nonce::random(),
-            source_state_seq_nr: *context.uln_table().state_seq_nr(),
+            source_state_seq_nr: StateSeqNr::from(*context.uln_table().state_seq_nr()),
             data: RTableData {
                 contacts: uln_contacts,
             },
@@ -358,7 +359,7 @@ where
 
         let message = ProtocolMessage::ULNDiscReq(ReqRspMessage {
             nonce: Nonce::random(),
-            source_state_seq_nr: *context.uln_table().state_seq_nr(),
+            source_state_seq_nr: StateSeqNr::from(*context.uln_table().state_seq_nr()),
             data: RTableData {
                 contacts: uln_contacts,
             },
@@ -402,7 +403,7 @@ where
 
         let response = ProtocolMessage::ULNDiscRsp(ReqRspMessage {
             nonce: req.nonce,
-            source_state_seq_nr: ssn,
+            source_state_seq_nr: StateSeqNr::from(ssn),
             data: RTableData { contacts },
             not_via: context.not_via().clone(),
             source_route: SourceRoute::from_reversed(req.source_route),
@@ -620,21 +621,6 @@ where
             }
             // reacting on InterfaceDown is done in the FailureHandling use-case
             // ========== Resynchronisation management ==========
-            (
-                UseCaseEvent::ResyncNode(node_id, expected_ssn),
-                VDState::Running { resync_queue, .. },
-            ) => {
-                // only update expected_ssn, if greater
-                if let Some((previous_expected_ssn, _)) = resync_queue.get_mut(&node_id) {
-                    if *previous_expected_ssn < expected_ssn {
-                        log::trace!(target: "vicinity_discovery", "Update expected state sequence number of node {node_id}: {expected_ssn}");
-                        *previous_expected_ssn = expected_ssn;
-                    }
-                } else {
-                    log::trace!(target: "vicinity_discovery", "Add node to resynchronisation queue: {node_id}");
-                    resync_queue.insert(node_id, (expected_ssn, 0));
-                }
-            }
             (
                 UseCaseEvent::Timer(timer_id),
                 VDState::Running {

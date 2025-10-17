@@ -82,6 +82,7 @@ where
         }
 
         // drop if received data is older than stored data
+        // FIXME: update if on direct contact (self-controlled Nonce) to catch wrap
         if contact.is_older_than(&existing) {
             log::trace!(
                 target: "routing_table",

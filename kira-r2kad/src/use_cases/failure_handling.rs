@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::ops::Deref;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use derive_more::derive::{Display, Error};
 
@@ -143,7 +143,7 @@ where
         updates.insert(contact.clone(), RouteUpdate::Updated);
         for (_, closest_overlay_neighbor) in closest {
             let update_route_message = UpdateRouteReq {
-                source_state_seq_nr: *context.uln_table().state_seq_nr(),
+                source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
                 not_via: context.not_via().clone(),
                 contact_actions: updates.clone(),
                 source_route: SourceRoute::new(
@@ -162,12 +162,9 @@ where
             .closest(contact.id(), 1, self.config.grouping_bits.get())
             .expect("invalid config");
 
-        let closest_contact = match closest.first().cloned() {
-            Some((_, closest)) => closest,
-            None => {
-                log::trace!(target: "failure_handling", "No closest contacts found. Assuming isolation.");
-                return Ok(());
-            }
+        let Some((_, closest_contact)) = closest.into_iter().next() else {
+            log::trace!(target: "failure_handling", "No closest contacts found. Assuming isolation.");
+            return Ok(());
         };
 
         // Add rediscovery state before sending find node in case of error
@@ -188,7 +185,7 @@ where
             let mut timer_id = context.runtime().register_timer(timer_duration);
 
             while let Err(e) = self.rediscoveries.insert(
-                (*contact.id(), timer_id, nonce.clone()),
+                (*contact.id(), timer_id, nonce),
                 exponential_backoff.clone(),
             ) {
                 match e {
@@ -207,7 +204,7 @@ where
 
         let find_node_request = ReqRspMessage {
             nonce,
-            source_state_seq_nr: *context.uln_table().state_seq_nr(),
+            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
             data: FindNodeReqData {
                 exact: true,
                 neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
@@ -278,10 +275,7 @@ where
         let nonce = {
             let mut nonce = Nonce::random();
 
-            while let Err(e) = self
-                .rediscoveries
-                .add_nonce_for_node(*node_id, nonce.clone())
-            {
+            while let Err(e) = self.rediscoveries.add_nonce_for_node(*node_id, nonce) {
                 match e {
                     AddNonceError::UnknownNode => {
                         panic!("handle_rediscovery_failure was called with unknown node")
@@ -294,7 +288,7 @@ where
         };
         let find_node_request = ReqRspMessage {
             nonce,
-            source_state_seq_nr: *context.uln_table().state_seq_nr(),
+            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
             data: FindNodeReqData {
                 exact: true,
                 neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),

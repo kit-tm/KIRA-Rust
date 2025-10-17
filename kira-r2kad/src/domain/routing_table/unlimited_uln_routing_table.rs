@@ -202,30 +202,36 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
 mod tests {
     use crate::domain::unlimited_uln_routing_table::UnlimitedULNRoutingTable;
     use crate::domain::{
-        Contact, ContactState, FlatRoutingTable, NodeId, Path, RoutingTable, StateSeqNr,
+        Contact, ContactState, FlatRoutingTable, NodeId, Path, RoutingTable, SafeStateSeqNr,
     };
 
     #[test]
     fn yield_underlay_neighbors() {
-        let invalid_contact = Contact::new(Path::from([NodeId::with_msb(4)]), StateSeqNr::from(0));
+        let invalid_contact = Contact::new(
+            Path::from([NodeId::with_msb(4)]),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
 
         let mut routing_table =
             UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
 
         let contacts = vec![
             invalid_contact,
-            Contact::new(Path::from([NodeId::with_msb(5)]), StateSeqNr::from(0)),
+            Contact::new(
+                Path::from([NodeId::with_msb(5)]),
+                SafeStateSeqNr::try_from(1).unwrap(),
+            ),
             Contact::new(
                 Path::from([NodeId::with_msb(4), NodeId::with_msb(1)]),
-                StateSeqNr::from(0),
+                SafeStateSeqNr::try_from(1).unwrap(),
             ),
             Contact::new(
                 Path::from([NodeId::with_msb(5), NodeId::with_msb(2)]),
-                StateSeqNr::from(0),
+                SafeStateSeqNr::try_from(1).unwrap(),
             ),
             Contact::new(
                 Path::from([NodeId::with_msb(4), NodeId::with_msb(3)]),
-                StateSeqNr::from(0),
+                SafeStateSeqNr::try_from(1).unwrap(),
             ),
         ];
 
@@ -247,24 +253,29 @@ mod tests {
     }
     #[test]
     fn get_closest_contact() {
-        let mut invalid_contact =
-            Contact::new(Path::from([NodeId::with_msb(4)]), StateSeqNr::from(0));
+        let mut invalid_contact = Contact::new(
+            Path::from([NodeId::with_msb(4)]),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
         *invalid_contact.state_mut() = ContactState::Invalid;
 
         let contacts = vec![
             invalid_contact,
-            Contact::new(Path::from([NodeId::with_msb(5)]), StateSeqNr::from(0)),
+            Contact::new(
+                Path::from([NodeId::with_msb(5)]),
+                SafeStateSeqNr::try_from(1).unwrap(),
+            ),
             Contact::new(
                 Path::from([NodeId::with_msb(4), NodeId::with_msb(1)]),
-                StateSeqNr::from(0),
+                SafeStateSeqNr::try_from(1).unwrap(),
             ),
             Contact::new(
                 Path::from([NodeId::with_msb(5), NodeId::with_msb(2)]),
-                StateSeqNr::from(0),
+                SafeStateSeqNr::try_from(1).unwrap(),
             ),
             Contact::new(
                 Path::from([NodeId::with_msb(4), NodeId::with_msb(3)]),
-                StateSeqNr::from(0),
+                SafeStateSeqNr::try_from(1).unwrap(),
             ),
         ];
 
@@ -288,24 +299,29 @@ mod tests {
 
     #[test]
     fn get_closest_neighbor() {
-        let mut invalid_contact =
-            Contact::new(Path::from([NodeId::with_msb(2)]), StateSeqNr::from(0));
+        let mut invalid_contact = Contact::new(
+            Path::from([NodeId::with_msb(2)]),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
         *invalid_contact.state_mut() = ContactState::Invalid;
 
         let contacts = vec![
             invalid_contact,
-            Contact::new(Path::from([NodeId::with_msb(3)]), StateSeqNr::from(0)),
+            Contact::new(
+                Path::from([NodeId::with_msb(3)]),
+                SafeStateSeqNr::try_from(1).unwrap(),
+            ),
             Contact::new(
                 Path::from([NodeId::with_msb(2), NodeId::with_msb(4)]),
-                StateSeqNr::from(0),
+                SafeStateSeqNr::try_from(1).unwrap(),
             ),
             Contact::new(
                 Path::from([NodeId::with_msb(3), NodeId::with_msb(5)]),
-                StateSeqNr::from(0),
+                SafeStateSeqNr::try_from(1).unwrap(),
             ),
             Contact::new(
                 Path::from([NodeId::with_msb(2), NodeId::with_msb(6)]),
-                StateSeqNr::from(0),
+                SafeStateSeqNr::try_from(1).unwrap(),
             ),
         ];
 
@@ -330,10 +346,22 @@ mod tests {
     #[test]
     fn get_closest_of_only_neighbors() {
         let contacts = vec![
-            Contact::new(Path::from([NodeId::with_msb(5)]), StateSeqNr::from(0)),
-            Contact::new(Path::from([NodeId::with_msb(6)]), StateSeqNr::from(0)),
-            Contact::new(Path::from([NodeId::with_msb(3)]), StateSeqNr::from(0)),
-            Contact::new(Path::from([NodeId::with_msb(4)]), StateSeqNr::from(0)),
+            Contact::new(
+                Path::from([NodeId::with_msb(5)]),
+                SafeStateSeqNr::try_from(1).unwrap(),
+            ),
+            Contact::new(
+                Path::from([NodeId::with_msb(6)]),
+                SafeStateSeqNr::try_from(1).unwrap(),
+            ),
+            Contact::new(
+                Path::from([NodeId::with_msb(3)]),
+                SafeStateSeqNr::try_from(1).unwrap(),
+            ),
+            Contact::new(
+                Path::from([NodeId::with_msb(4)]),
+                SafeStateSeqNr::try_from(1).unwrap(),
+            ),
         ];
 
         let mut routing_table =
@@ -356,13 +384,15 @@ mod tests {
 
     #[test]
     fn get_closest_in_empty() {
-        let mut invalid_neighbor =
-            Contact::new(Path::from([NodeId::with_msb(2)]), StateSeqNr::from(0));
+        let mut invalid_neighbor = Contact::new(
+            Path::from([NodeId::with_msb(2)]),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
         *invalid_neighbor.state_mut() = ContactState::Invalid;
 
         let mut invalid_contact = Contact::new(
             Path::from([NodeId::with_msb(2), NodeId::with_msb(4)]),
-            StateSeqNr::from(0),
+            SafeStateSeqNr::try_from(1).unwrap(),
         );
         *invalid_contact.state_mut() = ContactState::Invalid;
 
@@ -386,7 +416,10 @@ mod tests {
     #[test]
     #[should_panic]
     fn inner_must_be_empty() {
-        let uln = Contact::new(Path::from([NodeId::with_msb(2)]), StateSeqNr::from(0));
+        let uln = Contact::new(
+            Path::from([NodeId::with_msb(2)]),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
 
         let mut inner = FlatRoutingTable::default(NodeId::zero());
         if inner.insert(uln).is_err() {
@@ -405,9 +438,13 @@ mod tests {
 
         // node to be promoted to an underlay neighbor shortly
         let node = NodeId::with_msb(2);
-        let contact = Contact::new(Path::from([NodeId::with_msb(3), node]), StateSeqNr::from(0));
+        let contact = Contact::new(
+            Path::from([NodeId::with_msb(3), node]),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
 
-        let contact_promoted_to_uln = Contact::new(Path::from([node]), StateSeqNr::from(0));
+        let contact_promoted_to_uln =
+            Contact::new(Path::from([node]), SafeStateSeqNr::try_from(1).unwrap());
 
         routing_table
             .insert(contact)

@@ -4,23 +4,23 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Arc;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::domain::{
-    dht, Contact, ContactState, NodeId, RoutingTable, ULNTable, UnderlayNeighborId,
+    Contact, ContactState, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, dht,
 };
 use crate::messaging::dht::{
     DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchReqData, FetchRspData, StoreReqData,
     StoreResult, StoreRspData,
 };
 
-use crate::domain::dht::hash_table::expiring_hash_table::ExpiringHashTable;
+use crate::domain::dht::Expiring;
+use crate::domain::dht::TimedValue;
 use crate::domain::dht::hash_table::LocalHashTable;
+use crate::domain::dht::hash_table::expiring_hash_table::ExpiringHashTable;
 use crate::domain::dht::strategies::fetch_strategy::PermissionlessFetchStrategy;
 use crate::domain::dht::strategies::insert_strategy::PermissionlessInsertStrategy;
 use crate::domain::dht::strategies::timeout_strategy::ConstTimeoutStrategy;
-use crate::domain::dht::Expiring;
-use crate::domain::dht::TimedValue;
 
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{Nonce, ProtocolMessage, ReqRspMessage};
@@ -184,7 +184,7 @@ where
 
         let rsp = ReqRspMessage {
             nonce: req.nonce,
-            source_state_seq_nr: *context.uln_table().state_seq_nr(),
+            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
             data: StoreRspData { status: res },
             not_via: context.not_via().clone(),
             source_route,
@@ -211,7 +211,7 @@ where
 
         let rsp = ReqRspMessage {
             nonce: req.nonce,
-            source_state_seq_nr: *context.uln_table().state_seq_nr(),
+            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
             data: FetchRspData { data: fetch_res },
             not_via: context.not_via().clone(),
             source_route,

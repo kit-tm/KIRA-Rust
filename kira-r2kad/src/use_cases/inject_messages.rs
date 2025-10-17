@@ -173,8 +173,8 @@ where
                 });
 
                 let message = ProtocolMessage::FindNodeReq(ReqRspMessage {
-                    nonce: nonce.clone(),
-                    source_state_seq_nr: *context.uln_table().state_seq_nr(),
+                    nonce,
+                    source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
                     data,
                     not_via: context.not_via().clone(),
                     source_route,

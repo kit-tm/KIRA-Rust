@@ -4,11 +4,11 @@ use std::marker::PhantomData;
 use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::ops::Deref;
 use std::time::Duration;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use derive_more::Display;
 
-use crate::domain::{node_id, GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
+use crate::domain::{GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, node_id};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{FindNodeReqData, Nonce, ProtocolMessage, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
@@ -189,8 +189,8 @@ where
         let next_backoff = next_backoff.unwrap();
 
         let nonce = Nonce::random();
-        nonces.insert(nonce.clone());
-        *latest = Some(nonce.clone());
+        nonces.insert(nonce);
+        *latest = Some(nonce);
 
         // No need for discovery if isolated
         if context.uln_table().is_empty() {
@@ -240,7 +240,7 @@ where
 
         let request = ReqRspMessage {
             nonce,
-            source_state_seq_nr: *context.uln_table().state_seq_nr(),
+            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
             data: FindNodeReqData {
                 exact: false,
                 neighborhood: self.config.overlay_neighborhood_size,

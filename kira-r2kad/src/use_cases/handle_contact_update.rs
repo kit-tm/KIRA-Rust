@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::ops::Deref;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::domain::{
     Contact, ContactState, NodeId, NotVia, RoutingTable, ULNTable, UnderlayNeighborId,
@@ -81,7 +81,7 @@ where
 
         for (_, contact) in overlay_neighbors {
             let message = UpdateRouteReq {
-                source_state_seq_nr: *context.uln_table().state_seq_nr(),
+                source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
                 not_via: context.not_via().clone(),
                 contact_actions: updates.clone(),
                 source_route: SourceRoute::new(*context.root_id(), contact.path().clone()),
