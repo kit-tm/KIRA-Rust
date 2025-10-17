@@ -1,8 +1,10 @@
 use crate::domain::{NodeId, SafeStateSeqNr, UnderlayNeighborId};
 
 pub use in_memory_underlay_neighbor_table::InMemoryULNTable;
+pub use observable_underlay_neighbor_table::ObservableULNTable;
 
 pub mod in_memory_underlay_neighbor_table;
+pub mod observable_underlay_neighbor_table;
 
 /// A [ULNTable] models the underlay neighbor table.
 ///
