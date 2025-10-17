@@ -5,11 +5,11 @@ use std::num::NonZeroU32;
 use clap::Parser;
 use futures::StreamExt;
 
+use kira_lib::Kira;
 use kira_lib::format::ProtocolMessageFormat;
 use kira_lib::io::udp::async_channel;
 use kira_lib::underlay::observe_underlay;
-use kira_lib::Kira;
-use kira_r2kad::{context::SyncContext, domain::NodeId, R2Kad};
+use kira_r2kad::{R2Kad, context::SyncContext, domain::NodeId};
 
 use kira_forwarding::tables::native_tables::NativeFwdTables;
 
@@ -94,10 +94,10 @@ async fn main() {
     {
         use tracing::Level;
         use tracing_subscriber::{
-            filter::{filter_fn, EnvFilter, FilterExt, LevelFilter, Targets},
+            Layer,
+            filter::{EnvFilter, FilterExt, LevelFilter, Targets, filter_fn},
             layer::SubscriberExt,
             util::SubscriberInitExt,
-            Layer,
         };
 
         // disable noisy netlink_proto debug messages
@@ -147,9 +147,9 @@ async fn main() {
         // open telemetry export layer
         #[cfg(feature = "otel")]
         let reg = reg.with(if args.open_telemetry {
-            use opentelemetry::{trace::TracerProvider, KeyValue};
+            use opentelemetry::{KeyValue, trace::TracerProvider};
             use opentelemetry_sdk::{resource::Resource, trace::SdkTracerProvider};
-            use opentelemetry_semantic_conventions::{attribute::SERVICE_VERSION, SCHEMA_URL};
+            use opentelemetry_semantic_conventions::{SCHEMA_URL, attribute::SERVICE_VERSION};
 
             let resource = Resource::builder()
                 .with_service_name(env!("CARGO_PKG_NAME"))
@@ -252,7 +252,7 @@ async fn main() {
     let addr = pm_sender.local_addr().expect("failed to get bind addr");
     tracing::info!(socket_address = %addr, "Bound to socket");
 
-    let r2kad = R2Kad::<SyncContext<_, _, _, _>, BUCKET_SIZE>::builder()
+    let r2kad = R2Kad::<SyncContext<_, _, _, _, _>, BUCKET_SIZE>::builder()
         .root_id(root_id)
         .build();
 

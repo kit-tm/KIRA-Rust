@@ -383,6 +383,7 @@ mod tests {
                 insertion_strategy: (),
                 runtime,
                 not_via: HashSet::default(),
+                vicinity_graph: (),
             });
 
             let config = DeriveFwdTableEntriesConfig {
@@ -501,6 +502,7 @@ mod tests {
                 insertion_strategy: (),
                 runtime,
                 not_via: HashSet::default(),
+                vicinity_graph: (),
             });
 
             let config = DeriveFwdTableEntriesConfig {
@@ -618,6 +620,7 @@ mod tests {
                 insertion_strategy: (),
                 runtime,
                 not_via: HashSet::default(),
+                vicinity_graph: (),
             });
 
             let config = DeriveFwdTableEntriesConfig {
@@ -730,6 +733,7 @@ mod tests {
                 insertion_strategy: (),
                 runtime,
                 not_via: HashSet::default(),
+                vicinity_graph: (),
             });
 
             let config = DeriveFwdTableEntriesConfig {

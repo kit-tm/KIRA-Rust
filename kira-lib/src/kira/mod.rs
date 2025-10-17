@@ -11,6 +11,7 @@
 pub mod channels;
 
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Mutex;
@@ -18,12 +19,13 @@ use std::time::Instant;
 
 use channels::{R2KadInputChannels, R2KadOutputChannels};
 use futures::StreamExt;
+use kira_r2kad::domain::VicinityGraph;
 use tokio::sync::mpsc;
 use tokio::task::yield_now;
 use tokio::time;
-use tracing::{debug_span, info_span, instrument, Instrument, Level};
+use tracing::{Instrument, Level, debug_span, info_span, instrument};
 
-use kira_forwarding::tables::{handle_r2kad_request, AsyncNodeIdTable, AsyncPathIdTable};
+use kira_forwarding::tables::{AsyncNodeIdTable, AsyncPathIdTable, handle_r2kad_request};
 use kira_r2kad::context::UseCaseContext;
 use kira_r2kad::runtime::UseCaseRuntime;
 use kira_r2kad::{
@@ -36,10 +38,10 @@ pub use kira_r2kad::r2kad::R2Kad;
 
 #[cfg(feature = "api")]
 use crate::api;
-use crate::io::receiver::error::RecvError;
 use crate::io::receiver::AsyncProtocolMessageReceiver;
-use crate::io::sender::error::SenderError;
+use crate::io::receiver::error::RecvError;
 use crate::io::sender::AsyncProtocolMessageSender;
+use crate::io::sender::error::SenderError;
 use crate::underlay::UnderlayNeighborUpdatesRx;
 
 /// Main KIRA protocol instance.
@@ -80,8 +82,8 @@ where
         r2kad: R2Kad<C, BUCKET_SIZE>,
         mut forwarding_tables: FT,
         mut underlay_updates: UnderlayNeighborUpdatesRx,
-        mut pm_receiver: impl AsyncProtocolMessageReceiver + std::fmt::Debug + 'static,
-        mut pm_sender: impl AsyncProtocolMessageSender + std::fmt::Debug + 'static,
+        mut pm_receiver: impl AsyncProtocolMessageReceiver + Debug + 'static,
+        mut pm_sender: impl AsyncProtocolMessageSender + Debug + 'static,
     ) -> Self {
         // forwarding tables
         let (fwtables_tx, mut fwtables_rx) = mpsc::channel(100);
@@ -201,9 +203,10 @@ where
     C::Runtime: Deref<Target = R2KadRuntime>,
     C::Runtime: UseCaseRuntime,
     C::UnderlayNeighborTable:
-        ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + std::fmt::Debug,
-    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + std::fmt::Debug,
+        ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + Debug,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::UnderlayNeighborTable, BUCKET_SIZE>,
+    C::VicinityGraph: VicinityGraph + Debug,
 {
     /// Starts the R²/KAD routing protocol instance.
     #[instrument(level = Level::TRACE, target = "kira", name = "kira_loop", skip_all)]

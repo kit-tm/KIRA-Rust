@@ -26,7 +26,7 @@ fn hello_response() {
         }
     };
 
-    let mut r2kad = R2Kad::<SyncContext<_, _, _, _>, 20>::builder()
+    let mut r2kad = R2Kad::<SyncContext<_, _, _, _, _>, 20>::builder()
         .root_id(us)
         .build();
     r2kad.startup(Instant::now()).expect("successfull startup");
@@ -132,7 +132,7 @@ fn uln_disc_req_response() {
     };
     let uln_disc_req = ProtocolMessage::ULNDiscReq(uln_disc_req);
 
-    let mut r2kad = R2Kad::<SyncContext<_, _, _, _>, 20>::builder()
+    let mut r2kad = R2Kad::<SyncContext<_, _, _, _, _>, 20>::builder()
         .root_id(us)
         .build();
     r2kad.startup(Instant::now()).expect("successfull startup");

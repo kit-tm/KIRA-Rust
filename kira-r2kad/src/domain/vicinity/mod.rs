@@ -10,7 +10,7 @@ pub use vicinity_graph::VicinityGraph;
 /// - Nodes with a distance **<= 3** hops are known to the node.
 ///   The node _may_ decide to add them into their routing table[^uln] as contacts.
 /// - Nodes with a distance **< 3** hops are in the *vicinity*.
-/// - _All_ paths to nodes[^contacts] in the vicinity are computed and installed as Fast-Forwarding.
+/// - _All_ paths to nodes[^contacts] with **< 3** hops are computed and installed as Fast-Forwarding.
 /// - Nodes in the vicinity apart from underlay neighbors receive `QueryRouteReq`s.
 /// - Underlay neighbors with a distance of **1** hops with
 ///   which the following messages are exchanged: `ULNHello`, `ULNDiscReq`, `ULNDiscRsp`.

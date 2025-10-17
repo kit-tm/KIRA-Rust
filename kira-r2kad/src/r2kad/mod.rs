@@ -3,12 +3,13 @@
 use derive_more::derive::{Display, Error};
 use std::{
     collections::{HashMap, HashSet},
+    fmt::Debug,
     marker::PhantomData,
     ops::Deref,
     sync::Arc,
     time::Instant,
 };
-use tracing::{field, instrument, Level, Span};
+use tracing::{Level, Span, field, instrument};
 
 mod pipeline;
 pub(crate) mod runtime;
@@ -20,14 +21,20 @@ pub use crate::domain::protocol_event::{Input, Output};
 use crate::{
     context::ContextConfig,
     domain::{
+        FlatRoutingTable, InMemoryULNTable, InOrderCycleRemover, InsertionStrategy, NodeId,
+        ObservableULNTable, RoutingTable, ShortestFirstPathSimplifier, ULNTable, UNSStrategy,
+        UnderlayNeighborId, VicinityGraph,
         observable_routing_table::ObservableRoutingTable,
-        unlimited_uln_routing_table::UnlimitedULNRoutingTable, FlatRoutingTable, InMemoryULNTable,
-        InOrderCycleRemover, InsertionStrategy, NodeId, RoutingTable, ShortestFirstPathSimplifier,
-        ULNTable, UNSStrategy, UnderlayNeighborId,
+        observable_underlay_neighbor_table::ULNTableEvent,
+        unlimited_uln_routing_table::UnlimitedULNRoutingTable,
+        vicinity_graph::{
+            ObservableVicinityGraph, PetVicinityGraph,
+            observable_vicinity_graph::VicinityGraphEvent,
+        },
     },
     r2kad::pipeline::{R2KadPipelineConfig, UseCaseStartupError, UseCaseStateError},
     runtime::UseCaseRuntime,
-    use_cases::{ContactEvent, UseCaseContext},
+    use_cases::{ContactEvent, UseCaseContext, VicinityEvent},
 };
 use runtime::R2KadRuntime;
 
@@ -39,13 +46,6 @@ pub struct Builder<C, const BUCKET_SIZE: usize> {
 }
 
 impl<C, const BUCKET_SIZE: usize> Builder<C, BUCKET_SIZE> {
-    /// Enables heuristics.
-    // TODO: document what it actually means.
-    pub fn enable_heuristics(mut self) -> Self {
-        self.pipeline_config.heuristic_enabled = true;
-        self
-    }
-
     /// Sets the initial time of the runtime.
     pub fn current_time(mut self, now: Instant) -> Self {
         self.current_time = now;
@@ -65,30 +65,29 @@ impl<C, const BUCKET_SIZE: usize> Builder<C, BUCKET_SIZE> {
 impl<C, const BUCKET_SIZE: usize> Builder<C, BUCKET_SIZE>
 where
     C: UseCaseContext<
-        RoutingTable = ObservableRoutingTable<
-            UnlimitedULNRoutingTable<BUCKET_SIZE, 1>,
-            BUCKET_SIZE,
+            RoutingTable = ObservableRoutingTable<
+                UnlimitedULNRoutingTable<BUCKET_SIZE, 1>,
+                BUCKET_SIZE,
+            >,
+            UnderlayNeighborTable = ObservableULNTable<InMemoryULNTable>,
+            Runtime = Arc<R2KadRuntime>,
+            InsertionStrategy = UNSStrategy<
+                ObservableRoutingTable<UnlimitedULNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
+                InOrderCycleRemover,
+                ShortestFirstPathSimplifier,
+                BUCKET_SIZE,
+            >,
+            VicinityGraph = ObservableVicinityGraph<PetVicinityGraph>,
         >,
-        UnderlayNeighborTable = InMemoryULNTable,
-        Runtime = Arc<R2KadRuntime>,
-        InsertionStrategy = UNSStrategy<
-            ObservableRoutingTable<UnlimitedULNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
-            InOrderCycleRemover,
-            ShortestFirstPathSimplifier,
-            BUCKET_SIZE,
-        >,
-    >,
 {
     pub fn build(&self) -> R2Kad<C, BUCKET_SIZE> {
         let root_id = self.root_id.unwrap_or_else(NodeId::random);
         let runtime = Arc::new(R2KadRuntime::with_startup_time(self.current_time));
-        let pipeline = R2KadPipeline::new(self.pipeline_config, &root_id);
+        let pipeline = R2KadPipeline::new(self.pipeline_config);
 
         let mut routing_table = ObservableRoutingTable::from(UnlimitedULNRoutingTable::from(
             FlatRoutingTable::new(root_id).expect("FlatRoutingTable parameters should be valid"),
         ));
-
-        // Add observer which emits to runtime
         {
             // this is why Arc<R2KadRuntime> is required
             let runtime = runtime.clone();
@@ -106,6 +105,29 @@ where
         }
         routing_table.add_observer(|event| log::trace!(target: "routing_table", "{event}"));
 
+        let mut vicinity_graph = ObservableVicinityGraph::from(PetVicinityGraph::new(root_id));
+        {
+            let runtime = runtime.clone();
+            vicinity_graph.add_observer(move |event| {
+                let vicinity_event = match event {
+                    VicinityGraphEvent::Removed(node) => VicinityEvent::Removed(node),
+                };
+                runtime.broadcast_event(vicinity_event)
+            });
+        }
+        vicinity_graph.add_observer(|event| log::trace!(target: "vicinity_graph", "{event}"));
+
+        let mut uln_table = ObservableULNTable::<InMemoryULNTable>::default();
+        {
+            let runtime = runtime.clone();
+            uln_table.add_observer(move |event| {
+                let vicinity_event = match event {
+                    ULNTableEvent::SSNChanged => VicinityEvent::SSNChanged,
+                };
+                runtime.broadcast_event(vicinity_event)
+            });
+        }
+
         let insertion_strategy = UNSStrategy::new(InOrderCycleRemover, ShortestFirstPathSimplifier);
 
         let context = C::new(ContextConfig {
@@ -113,8 +135,9 @@ where
             routing_table,
             runtime,
             insertion_strategy,
-            uln_table: InMemoryULNTable::new(),
+            uln_table,
             not_via: HashSet::default(),
+            vicinity_graph,
         });
 
         R2Kad { context, pipeline }
@@ -217,13 +240,9 @@ impl<C: UseCaseContext, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE> {
 }
 
 impl<C: UseCaseContext, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE> {
+    /// Creates a new [R2Kad] instance with the default [R2KadPipeline] employed.
     pub fn new(context: C) -> Self {
-        let root = NodeId::random();
-        Self::with_root(root, context)
-    }
-
-    pub fn with_root(root: NodeId, context: C) -> Self {
-        let pipeline = R2KadPipeline::new(Default::default(), &root);
+        let pipeline = R2KadPipeline::default();
 
         Self { context, pipeline }
     }
@@ -238,9 +257,10 @@ where
     C: UseCaseContext,
     C::Runtime: Deref<Target = R2KadRuntime>,
     C::UnderlayNeighborTable:
-        ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + std::fmt::Debug,
-    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + std::fmt::Debug,
+        ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + Debug,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::UnderlayNeighborTable, BUCKET_SIZE>,
+    C::VicinityGraph: VicinityGraph + Debug,
 {
     /// Startup the protocol instance.
     #[instrument(level = Level::DEBUG, target = "r2kad", skip_all)]
