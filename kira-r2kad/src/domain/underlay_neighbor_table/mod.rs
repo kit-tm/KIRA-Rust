@@ -27,13 +27,22 @@ pub trait ULNTable {
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZeroUsize;
+    use crate::domain::ConnectionId;
+    use crate::domain::InterfaceId;
 
     use super::*;
 
     pub fn ssn_on_insert<P: ULNTable>(mut table: P) {
         let id = NodeId::zero();
-        let neighbor = NonZeroUsize::new(42).unwrap().into();
+        let neighbor = {
+            let interface_id = InterfaceId::try_from(42).unwrap();
+            let conn_id = ConnectionId::from(42);
+
+            UnderlayNeighborId {
+                interface_id,
+                connection_id: conn_id,
+            }
+        };
 
         let before_ssn = *table.state_seq_nr();
         table.insert(id, neighbor);
@@ -47,7 +56,15 @@ mod tests {
 
     pub fn ssn_on_remove<P: ULNTable>(mut table: P) {
         let id = NodeId::zero();
-        let neighbor = NonZeroUsize::new(42).unwrap().into();
+        let neighbor = {
+            let interface_id = InterfaceId::try_from(42).unwrap();
+            let conn_id = ConnectionId::from(42);
+
+            UnderlayNeighborId {
+                interface_id,
+                connection_id: conn_id,
+            }
+        };
 
         table.insert(id, neighbor);
 

@@ -2,16 +2,14 @@
 //!
 //! The main struct is the [UnderlayObserverHandle].
 
-use std::net::Ipv6Addr;
-
 use derive_more::derive::{Display, Error, From};
+use futures::SinkExt;
 use futures::channel::mpsc::{SendError, UnboundedSender};
 use futures::channel::oneshot;
-use futures::SinkExt;
 use kira_forwarding::underlay::{UnderlayInformationProvider, UnderlayNeighborInformation};
 
-use crate::domain::underlay::{InterfaceId, UnderlayNeighborId};
-use crate::underlay::UnderlayNeighborInterfaceDownError;
+use crate::domain::underlay::{InterfaceId, UnderlayNeighbor, UnderlayNeighborId};
+use crate::underlay::information_base::UnderlayNeighborInterfaceDownError;
 
 // docs
 #[allow(unused_imports)]
@@ -38,8 +36,7 @@ pub(super) enum UnderlayObserverHandleRequest {
         response: oneshot::Sender<Option<UnderlayNeighborInformation>>,
     },
     RegisterUnderlayNeighbor {
-        interface_id: InterfaceId,
-        ll_ipv6: Ipv6Addr,
+        neighbor: UnderlayNeighbor,
         response: oneshot::Sender<Result<UnderlayNeighborId, UnderlayNeighborInterfaceDownError>>,
     },
     UnregisterUnderlayNeighbor {
@@ -100,15 +97,13 @@ impl UnderlayObserverHandle {
     /// returns [UnderlayObserverHandleError::InterfaceDown].
     pub async fn register_neighbor(
         &mut self,
-        interface_id: InterfaceId,
-        ll_ipv6: Ipv6Addr,
+        neighbor: UnderlayNeighbor,
     ) -> Result<UnderlayNeighborId, UnderlayObserverHandleError> {
-        log::trace!(target: "underlay_observer::handle", "register_neighbor {ll_ipv6}%{interface_id}");
+        log::trace!(target: "underlay_observer::handle", "register_neighbor {}%{}", neighbor.ll_ipv6(), neighbor.interface_id());
         let (tx, rx) = oneshot::channel();
         self.tx
             .send(UnderlayObserverHandleRequest::RegisterUnderlayNeighbor {
-                interface_id,
-                ll_ipv6,
+                neighbor,
                 response: tx,
             })
             .await

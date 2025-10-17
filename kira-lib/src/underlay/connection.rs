@@ -9,25 +9,26 @@ use std::num::NonZeroU32;
 use std::pin::Pin;
 use std::task::Poll;
 
-use futures::channel::mpsc::{unbounded, UnboundedReceiver};
+use futures::channel::mpsc::{UnboundedReceiver, unbounded};
 use futures::{FutureExt, SinkExt, StreamExt};
 
 use netlink_packet_core::{
-    NetlinkHeader, NetlinkMessage, NetlinkPayload, NLM_F_DUMP, NLM_F_REQUEST,
+    NLM_F_DUMP, NLM_F_REQUEST, NetlinkHeader, NetlinkMessage, NetlinkPayload,
 };
 use netlink_packet_route::link::{AfSpecInet6, AfSpecUnspec, LinkMessage};
 use netlink_packet_route::{
-    link::{LinkAttribute, LinkLayerType, State},
     RouteNetlinkMessage,
+    link::{LinkAttribute, LinkLayerType, State},
 };
-use netlink_proto::sys::AsyncSocket;
-use netlink_proto::sys::SocketAddr;
 use netlink_proto::Connection;
 use netlink_proto::ConnectionHandle;
+use netlink_proto::sys::AsyncSocket;
+use netlink_proto::sys::SocketAddr;
 use rtnetlink::constants::RTMGRP_LINK;
 use tracing::{instrument, trace_span};
 
 use super::handle::UnderlayObserverHandleRequest;
+use super::information_base::UnderlayInformationBase;
 use super::*;
 use crate::domain::underlay::{Interface, InterfaceId, UnderlayNeighborUpdate};
 
@@ -363,14 +364,11 @@ impl UnderlayObserverConnection {
                     }
                     Poll::Ready(Some(
                         UnderlayObserverHandleRequest::RegisterUnderlayNeighbor {
-                            interface_id,
-                            ll_ipv6,
+                            neighbor,
                             response,
                         },
                     )) => {
-                        let reg_info = self
-                            .information_base
-                            .register_neighbor(interface_id, ll_ipv6);
+                        let reg_info = self.information_base.register_neighbor(neighbor);
                         // don't send UnderlayNeighborUpdate: no use for routing
                         let _ = response.send(reg_info);
                     }
