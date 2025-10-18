@@ -64,21 +64,11 @@ impl From<Interface> for InterfaceState {
 /// Manages all [underlay data](crate::domain::underlay).
 ///
 /// This struct is usually accessed by message parsing using the [UnderlayObserverHandle].
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct UnderlayInformationBase {
     neighbors: HashMap<UnderlayNeighborId, UnderlayNeighbor>,
     neighbor_ids: HashMap<UnderlayNeighbor, UnderlayNeighborId>,
     interfaces: HashMap<InterfaceId, InterfaceState>,
-}
-
-impl Default for UnderlayInformationBase {
-    fn default() -> Self {
-        Self {
-            neighbors: Default::default(),
-            neighbor_ids: Default::default(),
-            interfaces: Default::default(),
-        }
-    }
 }
 
 impl UnderlayInformationBase {
@@ -140,9 +130,7 @@ impl UnderlayInformationBase {
 
         log::debug!(
             target: "underlay_observer::information_base",
-            "underlay neighbor registered: {:?} -> {:?}",
-            ulnid,
-            neighbor,
+            "underlay neighbor registered: {ulnid:?} -> {neighbor:?}",
         );
 
         // increment underlay neighbor id

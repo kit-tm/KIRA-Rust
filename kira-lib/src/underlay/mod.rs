@@ -41,12 +41,12 @@ pub type UnderlayNeighborUpdatesRx = UnboundedReceiver<UnderlayNeighborUpdate>;
 /// use std::num::NonZeroUsize;
 ///
 /// use futures::StreamExt;
-/// use tokio::time::{sleep, Duration};
+/// use tokio::time::{sleep, Duration, timeout};
 ///
 /// use kira_lib::domain::underlay::{InterfaceId, UnderlayNeighbor, UnderlayNeighborId};
 /// use kira_lib::underlay::observe_underlay;
 ///
-/// #[tokio::main]
+/// #[tokio::main(flavor = "current_thread")]
 /// async fn main() {
 ///     let (conn, mut handle, mut updates, _) = observe_underlay(Default::default()).unwrap();
 ///
@@ -73,9 +73,13 @@ pub type UnderlayNeighborUpdatesRx = UnboundedReceiver<UnderlayNeighborUpdate>;
 ///         println!("Information on {ulnid:?}: {information:?}");
 ///     });
 ///
-///     while let Some(update) = updates.next().await {
-///         println!("Update: {update:?}");
-///     }
+///     // print updates for 10 seconds
+///     let output_loop = async move {
+///         while let Some(update) = updates.next().await {
+///             println!("Update: {update:?}");
+///         }
+///     };
+///     timeout(Duration::from_secs(10), output_loop).await;
 /// }
 /// ```
 pub fn observe_underlay(
