@@ -23,6 +23,8 @@ type UnderlayObserverHandleTx = UnboundedSender<UnderlayObserverHandleRequest>;
 ///
 /// The [UnderlayInformationBase] is managed by the [UnderlayObserverConnection].
 /// This struct is created using the [observe_underlay] function.
+///
+/// [UnderlayInformationBase]: super::information_base::UnderlayInformationBase
 #[derive(Debug, Clone)]
 pub struct UnderlayObserverHandle {
     tx: UnderlayObserverHandleTx,
@@ -93,8 +95,7 @@ impl UnderlayObserverHandle {
 
     /// Register a new [UnderlayNeighbor].
     ///
-    /// If the [Interface] identified by the supplied `interface_id` this function
-    /// returns [UnderlayObserverHandleError::InterfaceDown].
+    /// Returns [UnderlayObserverHandleError::InterfaceDown] if the neighbor's interface is currently down.
     pub async fn register_neighbor(
         &mut self,
         neighbor: UnderlayNeighbor,
@@ -132,7 +133,7 @@ impl UnderlayObserverHandle {
         Ok(())
     }
 
-    /// Get the [InterfaceIds](InterfaceId) of all [Interfaces](Interface) that are up.
+    /// Get the [InterfaceIds](InterfaceId) of all interfaces that are up.
     pub async fn get_available(
         &mut self,
     ) -> Result<Vec<InterfaceId>, UnderlayObserverSenderClosedError> {

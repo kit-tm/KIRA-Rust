@@ -4,7 +4,7 @@
 //! [UnderlayObserverConnection](crate::underlay::UnderlayObserverConnection)
 //! and accessed using an [UnderlayObserverHandle](crate::underlay::UnderlayObserverHandle).
 //! The data structure holding the information is the
-//! [UnderlayInformationBase](crate::underlay::UnderlayInformationBase)
+//! [UnderlayInformationBase](crate::underlay::information_base::UnderlayInformationBase)
 
 use std::net::Ipv6Addr;
 
