@@ -29,6 +29,10 @@ pub enum StateSeqNr {
 #[cfg_attr(feature = "serde", serde(into = "u32", try_from = "u32"))]
 pub struct SafeStateSeqNr(NonZeroU32); // NonZeroU32 for Niche Optimizations
 
+impl SafeStateSeqNr {
+    pub const MIN: Self = SafeStateSeqNr(const { NonZeroU32::MIN });
+}
+
 #[derive(Debug, Display, Error)]
 #[display("Value {_0} is not a valid state sequence number.")]
 pub struct InvalidStateSeqNrError(#[error(ignore)] u32);

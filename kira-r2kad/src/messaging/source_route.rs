@@ -143,6 +143,14 @@ impl SourceRoute {
         }
     }
 
+    /// Returns the already traveled hop count of the [SourceRoute].
+    ///
+    /// This doesn't include the current hop.
+    pub fn traveled_hop_count(&self) -> usize {
+        assert!(self.progress > 0 && self.progress < self.size());
+        self.progress
+    }
+
     /// Returns the remaining [Path] including the current hop.
     pub fn remaining_path(&self) -> Path {
         assert!(self.progress > 0 && self.progress < self.size());

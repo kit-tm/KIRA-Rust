@@ -1,10 +1,12 @@
 //! Definition of the [VicinityGraph].
 
+pub mod entry;
 pub mod observable_vicinity_graph;
-pub mod pet_vicinity_grah;
+pub mod pet_vicinity_graph;
 
+pub use entry::Entry;
 pub use observable_vicinity_graph::ObservableVicinityGraph;
-pub use pet_vicinity_grah::PetVicinityGraph;
+pub use pet_vicinity_graph::PetVicinityGraph;
 
 use crate::domain::{NodeId, Path, SafeStateSeqNr};
 use std::{error::Error, time::Instant};
@@ -12,90 +14,120 @@ use std::{error::Error, time::Instant};
 pub trait VicinityGraph {
     type Error: Error;
 
+    // FIXME: we need to store information about pending 3 hop syncs
+
+    //  === INDIVIDUAL NODES MANAGEMENT ===
+
+    /// Inserts a node into the [VicinityGraph].
+    ///
+    /// An error is returned if the node would make the [VicinityGraph] unconnected.
     fn insert(
         &mut self,
         node: NodeId,
-        neighbors: impl IntoIterator<Item = NodeId>,
-        ssn: SafeStateSeqNr,
-        last_seen: Instant,
+        discovered_via: &NodeId,
+        observed_ssn: SafeStateSeqNr,
     ) -> Result<(), Self::Error>;
 
-    /// Removes a `node` from the vicinity graph.
+    /// Updates the vicinity of the node.
     ///
-    /// This will keep the meta-data of the `node`.
+    /// A change of the nodes vicinity must leave the
+    /// node connected to the root of the [VicinityGraph]
+    /// otherwise an error is returned.
+    fn update_vicinity(
+        &mut self,
+        node: &NodeId,
+        neighbors: impl IntoIterator<Item = NodeId>,
+        vicinity_ssn: SafeStateSeqNr,
+    ) -> Result<(), Self::Error>;
+
+    /// Resets the known vicinity of a node.
+    ///
+    /// In contrast to [`update_vicinity`] this
+    /// function doesn't alter the actual stored vicinity information
+    /// but only resets the [`observed_ssn`] and the [`vicinity_ssn`].
+    ///
+    /// [`update_vicinity`]: VicinityGraph::update_vicinity
+    /// [`observed_ssn`]: VicinityGraph::observed_ssn
+    /// [`vicinity_ssn`]: VicinityGraph::vicinity_ssn
+    fn reset(&mut self, node: &NodeId);
+
+    /// Removes a `node` from the vicinity graph.
     ///
     /// Returns if the vicinity graph changed by the removal.
     fn remove(&mut self, node: &NodeId) -> bool;
 
-    /// Removes a node from the vicinity graph _and_ deletes its meta-data.
-    ///
-    /// Returns if the vicinity graph changed by the removal.
-    fn prune(&mut self, node: &NodeId) -> bool;
-
-    /// Remove all nodes that are outside the [VICINITY_RADIUS].
-    ///
-    /// This function will _not_ delete the associated Entry of a pruned node.
-    fn remove_radius(&mut self) -> bool;
-
-    // TODO: document
-    fn nodes(&self) -> impl Iterator<Item = &NodeId>;
-
-    /// Computes *all* paths from the root to it's vicinity nodes.
-    ///
-    /// The paths must not be longer then [VICINITY_RADIUS](super::VICINITY_RADIUS).
-    fn paths(&self) -> impl Iterator<Item = Path>;
-
-    /// Computes **all* paths from the root to the destination.
-    ///
-    /// The paths must not be longer then [VICINITY_RADIUS](super::VICINITY_RADIUS).
-    fn paths_to(&self, destination: NodeId) -> impl Iterator<Item = Path> {
-        self.paths()
-            .filter(move |path| path.first() == &destination)
-    }
-
     /// Updates the time a node was last seen.
-    ///
-    /// Returns if the time was updated.
-    fn update_last_seen(&mut self, node: &NodeId, now: Instant) -> bool;
+    fn update_last_seen(&mut self, node: &NodeId, now: Instant);
+
+    /// Updates the greatest observed state sequence number.
+    fn update_observed_ssn(&mut self, node: &NodeId, observed_ssn: SafeStateSeqNr);
+
+    //  === INDIVIDUAL NODES META-DATA QUERY ===
 
     /// Returns last time a contact with the `node` was made.
     fn last_seen(&self, node: &NodeId) -> Option<Instant>;
 
-    /// Updates the newest known [SafeStateSeqNr].
+    /// Greatest observed state sequence number.
     ///
-    /// Returns if the [SafeStateSeqNr] was newer than the previous known [SafeStateSeqNr].
-    ///
-    /// The newest known [SafeStateSeqNr] is used to determine if the [VicinityGraph]
-    /// has the newest state of the vicinity of said node saved.
-    /// The function *always* updates the last seen state.
-    fn update_ssn(&mut self, node: NodeId, ssn: SafeStateSeqNr, now: Instant) -> bool;
+    /// The observed state sequence number can decrease on direct contact to a node.
+    /// This is usually because of a reset initiated by the node caused by reaching
+    /// the maximum state sequence number.
+    fn observed_ssn(&self, node: &NodeId) -> Option<&SafeStateSeqNr>;
 
-    /// Return the state sequence number of the `node`.
+    /// Returns the current vicinity (neighborhood) of the node.
     ///
-    /// The vicinity state described with the returned state sequence number
-    /// is the last known state by the [VicinityGraph].
-    /// The state is also applied in the [VicinityGraph].
-    fn ssn_vicinity(&self, node: &NodeId) -> Option<SafeStateSeqNr>;
+    /// If the node doesn't exist an empty iterator is returned.
+    fn vicinity(&self, node: &NodeId) -> impl Iterator<Item = NodeId>;
 
-    /// Marks the `node` to be resynchronised.
+    /// State sequence number of the vicinity present in the [VicinityGraph].
     ///
-    /// Nodes not known previously will *not* be marked for resynchronisation.
-    /// *Any* vicinity information received by the `node` will complete the resync
-    /// unless a newer SSN was observed and updated.
-    /// See [`update_ssn`](VicinityGraph::update_ssn).
-    fn force_resync(&mut self, node: &NodeId);
+    /// The value can be [`None`] if the vicinity state of the node hasn't been acquired
+    /// either because a synchronisation is ongoing or because of a node reset initialised.
+    fn vicinity_ssn(&self, node: &NodeId) -> Option<&SafeStateSeqNr>;
 
-    /// Returns if the `node` must be resynced.
-    ///
-    /// Usually this is because vicinity information of a node is deemed outdated
-    /// and must be updated to the newest state.
-    /// A resync can also be forced using [`force_resync`](VicinityGraph::force_resync).
-    fn requires_resync(&self, node: &NodeId) -> bool;
+    /// Returns the distance of the node to the root of the [VicinityGraph] if present.
+    fn root_distance(&self, node: &NodeId) -> Option<usize>;
 
-    /// Lists all nodes that require resynchronisation.
+    //  === VICINITY GRAPH ACCESS ===
+
+    /// Only keeps nodes that are inside the vicinity radius.
     ///
-    /// See [`requires_resync`](VicinityGraph::requires_resync) why this would be the case
-    fn resync_nodes(&self) -> impl Iterator<Item = &NodeId> {
-        self.nodes().filter(|node| self.requires_resync(node))
+    /// Returns an iterator over all removed nodes.
+    ///
+    /// Nodes can only be [inserted](VicinityGraph::insert) if
+    /// they are in the vicinity radius but an update of its
+    /// vicinity could change it to outside of the vicinity.
+    fn retain_vicinity(&mut self) -> impl Iterator<Item = NodeId>;
+
+    // Returns a list of all nodes considered in the vicinity.
+    //
+    // The method can return nodes that where previously in the vicinity
+    // but moved outside the vicinity.
+    // If you want to ensure that only nodes inside the vicinity are returned
+    // call [`retain_radius`] first.
+    //
+    // [`retain_radius`]: VicinityGraph::retain_radius
+    fn nodes(&self) -> impl Iterator<Item = NodeId>;
+
+    /// Computes *all* paths from the root to it's vicinity nodes.
+    ///
+    /// The paths must inside the vicinity.
+    fn vicinity_paths(&self) -> impl Iterator<Item = Path>;
+
+    /// Computes **all* paths from the root to the destination.
+    ///
+    /// The paths must be inside the vicinity.
+    fn vicinity_paths_to(&self, destination: NodeId) -> impl Iterator<Item = Path> {
+        self.vicinity_paths()
+            .filter(move |path| path.first() == &destination)
+    }
+
+    /// Computes the shortest path from the root to the destination.
+    fn vicinity_path_to(&self, destination: NodeId) -> Option<Path> {
+        self.vicinity_paths_to(destination)
+            .min_by_key(|path| path.size())
     }
 }
+
+#[cfg(test)]
+pub mod test {}

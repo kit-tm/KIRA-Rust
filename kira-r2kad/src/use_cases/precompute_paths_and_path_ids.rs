@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::time::Duration;
@@ -8,16 +9,13 @@ use crate::domain::protocol_event::forwarding::{
     PathIdEntry, PathIdForwardingEntry, PathIdTableUpdate,
 };
 use crate::domain::{
-    ContactState, Hasher, NodeId, RoutingTable, UnderlayNeighborId, VicinityGraph,
-    VICINITY_RADIUS,
+    Contact, Hasher, NodeId, RoutingTable, UnderlayNeighborId, VICINITY_RADIUS, VicinityGraph,
 };
 use crate::messaging::ProtocolMessage;
 use crate::use_cases::{
-    ContactEvent, EventHandler, NeverError, TimerId, UseCase, UseCaseContext, UseCaseEvent,
-    UseCaseRuntime, UseCaseState,
+    EventHandler, NeverError, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime,
+    UseCaseState,
 };
-
-use super::ApiEvent;
 
 /// Configuration for [UseCase] [PrecomputePathIds].
 #[derive(Debug, Default)]
@@ -42,21 +40,25 @@ pub struct PrecomputePathIds<C, const BUCKET_SIZE: usize> {
     _pd: PhantomData<C>,
     state: PrecomputeState,
     config: PrecomputePathIdsConfig,
-    vicinity_graph: VicinityGraph,
-    old_graph: VicinityGraph,
     vicinity_changed: bool,
+    old_entries: HashSet<PathIdEntry>,
 }
 
 impl<C, const BUCKET_SIZE: usize> PrecomputePathIds<C, BUCKET_SIZE> {
-    pub fn new(root_id: NodeId, config: PrecomputePathIdsConfig) -> Self {
+    pub fn new(config: PrecomputePathIdsConfig) -> Self {
         Self {
             _pd: PhantomData,
             state: PrecomputeState::default(),
             config,
-            vicinity_graph: VicinityGraph::new(root_id),
-            old_graph: VicinityGraph::new(root_id),
             vicinity_changed: false,
+            old_entries: HashSet::new(),
         }
+    }
+}
+
+impl<C, const BUCKET_SIZE: usize> Default for PrecomputePathIds<C, BUCKET_SIZE> {
+    fn default() -> Self {
+        Self::new(Default::default())
     }
 }
 
@@ -65,6 +67,7 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::VicinityGraph: VicinityGraph + Debug,
 {
     #[instrument(
         level = Level::TRACE,
@@ -73,9 +76,13 @@ where
         fields(?graph),
         ret
     )]
-    fn gen_entries_from_graph(&self, context: &C, graph: &VicinityGraph) -> HashSet<PathIdEntry> {
+    fn gen_entries_from_graph(
+        &self,
+        context: &C,
+        graph: &C::VicinityGraph,
+    ) -> HashSet<PathIdEntry> {
         let mut entries = HashSet::new();
-        for in_path in graph {
+        for in_path in graph.vicinity_paths() {
             debug_assert!(
                 in_path.size() <= VICINITY_RADIUS,
                 "VicinityGraph should only generate Paths inside the Vicinity-Radius"
@@ -111,34 +118,25 @@ where
             return;
         }
 
-        let mut old_entries = self.gen_entries_from_graph(context, &self.old_graph);
-        let mut new_entries = self.gen_entries_from_graph(context, &self.vicinity_graph);
-        // Remove intersection
-        for new_entry in new_entries.clone() {
-            if old_entries.remove(&new_entry) {
-                new_entries.remove(&new_entry);
-            }
-        }
-        // Now in old_entries only the removed paths are present
-        // and in new_entries only the newly added paths are present
-        tracing::debug!(target: "precompute_paths_and_path_ids", ?new_entries, ?old_entries, "changes of paths in the vicinity");
-        for old_entry in old_entries {
-            let old_in_path_id = match old_entry {
-                PathIdEntry::Forward(entry) => entry.in_path_id,
-                PathIdEntry::Decapsulate(entry) => entry.in_path_id,
-            };
+        let graph_entries = self.gen_entries_from_graph(context, &context.vicinity_graph());
+        let new_entries = graph_entries.difference(&self.old_entries);
+        let deleted_entries = self.old_entries.difference(&graph_entries);
 
+        tracing::debug!(target: "precompute_paths_and_path_ids", ?new_entries, ?deleted_entries, "changes of paths in the vicinity");
+        for deleted_entry in deleted_entries {
             context
                 .runtime()
-                .update_fwd_tables(PathIdTableUpdate::Remove(old_in_path_id));
+                .update_fwd_tables(PathIdTableUpdate::Remove(
+                    deleted_entry.in_path_id().clone(),
+                ));
         }
         for new_entry in new_entries {
             context
                 .runtime()
-                .update_fwd_tables(PathIdTableUpdate::CreateOrUpdate(new_entry));
+                .update_fwd_tables(PathIdTableUpdate::CreateOrUpdate(new_entry.clone()));
         }
 
-        self.old_graph = self.vicinity_graph.clone();
+        self.old_entries = graph_entries;
         self.vicinity_changed = false;
     }
 }
@@ -149,6 +147,7 @@ where
     C::Runtime: UseCaseRuntime,
     C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::VicinityGraph: VicinityGraph + Debug,
 {
     type Context = C;
     type Error = NeverError;
@@ -173,139 +172,129 @@ where
             UseCaseEvent::Message(ProtocolMessage::ULNDiscReq(rtable_data), _)
             | UseCaseEvent::Message(ProtocolMessage::ULNDiscRsp(rtable_data), _)
             | UseCaseEvent::Message(ProtocolMessage::QueryRouteRsp(rtable_data), _) => {
-                // Skip everything not in configured vicinity radius
+                // Skip everything not in vicinity radius
                 if rtable_data.source_route.size() >= VICINITY_RADIUS {
+                    // shouldn't happen unless we falsely send requests outside our radius
+                    tracing::warn!(
+                        target: "precompute_paths_and_path_ids",
+                        source=%rtable_data.source(),
+                        source_route=?rtable_data.source_route,
+                        "received vicinity information from outside the vicinity"
+                    );
+
                     return Ok(());
                 }
 
                 let source = *rtable_data.source();
-                let source_ssn = rtable_data.source_state_seq_nr;
+                let Some(source_ssn) = rtable_data.source_state_seq_nr.value() else {
+                    // shouldn't happen because the ForwardProtocolMessages
+                    // use-case would short circuit and blocks us from receiving the message
+                    tracing::warn!(
+                        target: "precompute_paths_and_path_ids",
+                        %source,
+                        ssn=%rtable_data.source_state_seq_nr,
+                        "underlay information updates by a node with an invalid state sequence number"
+                    );
+                    return Ok(());
+                };
 
-                tracing::trace!(target: "precompute_paths_and_path_ids", %source, neighbors=?rtable_data.data, "underlay information updates");
+                let underlay_contacts = rtable_data.data.contacts;
+                tracing::trace!(target: "precompute_paths_and_path_ids",
+                    %source,
+                    neighbors=?underlay_contacts,
+                    "underlay information update"
+                );
 
-                if self.vicinity_graph.contains(&source) {
-                    // check if we received more recent data by sent ssn
-                    // first check by expected ssn
-                    let sync_requested = if let Some(resync_queue) = self.state.resync_queue_mut() {
-                        if let std::collections::hash_map::Entry::Occupied(entry) =
-                            resync_queue.entry(source)
-                        {
-                            let expected_ssn = entry.get();
-                            // nothing new about the neighbor
-                            if &source_ssn < expected_ssn {
-                                tracing::trace!(target: "precompute_paths_and_path_ids", %source, "Ignoring underlay neighbor update as we expected newer data");
-                                return Ok(());
-                            }
+                let mut vicinity_graph = context.vicinity_graph_mut();
+                // TODO: prohibit link deletions to underlay neighbors on 2hops
+                if let Err(err) = vicinity_graph.update_vicinity(
+                    &source,
+                    underlay_contacts.iter().map(Contact::id).copied(),
+                    source_ssn,
+                ) {
+                    // shouldn't happen unless neighbor in the receiving source route
+                    // was deleted before receiving the response
+                    // making this node isolated because the neighbor
+                    // isn't connected to the root anymore.
 
-                            // delete entry since we resynchronised successfully
-                            entry.remove();
+                    let present = vicinity_graph
+                        .nodes()
+                        .any(|vicinity_node| vicinity_node == source);
+                    tracing::warn!(
+                        target: "precompute_paths_and_path_ids",
+                        %source,
+                        err_msg=%err,
+                        neighbors=?underlay_contacts,
+                        %present,
+                        "Updating underlay information failed"
+                    );
+                    return Ok(());
+                }
+                self.vicinity_changed = true;
 
-                            true
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    };
-
-                    // if no expected ssn, check the routing table
-                    // this usually results in denial
-                    if !sync_requested {
-                        // look at the routing table to determine if more recent data
-                        if let Some(rt_contact) = context.routing_table().contact(&source) {
-                            // nothing new about the neighbor
-                            if &source_ssn <= rt_contact.state_seq_nr() {
-                                tracing::trace!(target: "precompute_paths_and_path_ids", %source, "Ignoring underlay neighbor update without any new data");
-                                return Ok(());
-                            }
-                        }
+                // don' track neighbors of 3 hops
+                // use root_distance over source-route hops because maybe
+                // we discovered a better path to source while the request was pending
+                if vicinity_graph
+                    .root_distance(&source)
+                    .expect("should be present in the vicinity graph")
+                    >= VICINITY_RADIUS
+                {
+                    if self.config.update_interval.is_none() {
+                        self.precompute_paths_and_ids(context);
                     }
-                } else {
-                    // look at the routing table to determine if more recent data
-                    if let Some(rt_contact) = context.routing_table().contact(&source) {
-                        // `<` ok, since we add the node only once for the first time
-                        if &source_ssn < rt_contact.state_seq_nr() {
+                    return Ok(());
+                }
+
+                // update observed_ssn for all underlay_contacts to initiate a (potential) (re)sync.
+                for contact in underlay_contacts.iter() {
+                    let nid = contact.id();
+                    let ssn = contact.state_seq_nr();
+
+                    // update observed_ssn if newer observed in rtable_data
+                    if let Some(observed_ssn) = vicinity_graph.observed_ssn(nid).copied() {
+                        if ssn > &observed_ssn {
+                            vicinity_graph.update_observed_ssn(nid, *ssn);
                             tracing::trace!(
                                 target: "precompute_paths_and_path_ids",
                                 %source,
-                                %source_ssn,
-                                rt_ssn=%rt_contact.state_seq_nr(),
-                                "Not adding new node to vicinity graph, because its underlay neighbor data is outdated"
+                                node=%nid,
+                                old_observed_ssn=%observed_ssn,
+                                new_observed_ssn=%ssn,
+                                "higher observed state sequence number of neighbor updated"
                             );
-
-                            // not adding node itself to allow checking this bootstrapping condition again
-                            return Ok(());
                         }
+                    } else {
+                        // untracked vicinity node: track observed_ssn => insert
+                        assert!(
+                            vicinity_graph.insert(*nid, &source, *ssn).is_ok(),
+                            "RTableData contacts should be connected to source inside vicinity"
+                        );
+                        tracing::trace!(
+                            target: "precompute_paths_and_path_ids",
+                            %source,
+                            node=%nid,
+                            observed_ssn=%ssn,
+                            "inserted new node into vicinity graph"
+                        );
+
+                        debug_assert!(
+                            vicinity_graph
+                                .root_distance(&nid)
+                                .is_some_and(|d| d <= VICINITY_RADIUS),
+                            "contacts of source inside vicinity should be part of the vicinity graph"
+                        )
                     }
-
-                    // NOTE: It's not a failure if the contact isn't in the routing table.
-                    //   That's why we have the vicinity graph in the first place.
                 }
 
-                // update underlay neighbors of source
-                let underlay_neighbors_of_source = rtable_data
-                    .data
-                    .contacts
-                    .into_iter()
-                    .map(|contact| *contact.id())
-                    .collect::<HashSet<_>>();
-
-                let previous = self
-                    .vicinity_graph
-                    .insert(source, underlay_neighbors_of_source.clone());
-                if previous.is_none() || previous.as_ref() != Some(&underlay_neighbors_of_source) {
-                    tracing::debug!(
-                        target: "precompute_paths_and_path_ids",
-                        %source,
-                        neighbors=?underlay_neighbors_of_source,
-                        "Updated underlay neighbors"
-                    );
-
-                    self.vicinity_changed = true;
-                }
-            }
-            UseCaseEvent::Contact(ContactEvent::Removed(contact)) => {
-                // Skip everything not in configured vicinity radius
-                if contact.path().size() >= VICINITY_RADIUS {
-                    return Ok(());
-                }
-                self.vicinity_changed |= self.vicinity_graph.remove(contact.id()).is_some();
-            }
-            UseCaseEvent::Contact(ContactEvent::New(contact)) => {
-                // only add underlay neighbors
-                if !contact.is_uln() {
-                    tracing::trace!(target: "precompute_paths_and_path_ids", %contact, "Not adding non-underlay neighbor contact");
-                    return Ok(());
-                }
-
-                // other neighbors in the vicinity are added
-                // as they are discovered in `RTableData` of ProtocolMessages
-
-                // FIXME: Add underlay neighbors as true node of VicinityGraph
-                self.vicinity_graph
-                    .add(*context.root_id(), HashSet::from([*contact.id()]));
-                self.vicinity_changed = true;
-            }
-            UseCaseEvent::Contact(ContactEvent::Updated { old, new }) => {
-                if old.path().size() < VICINITY_RADIUS && new.path().size() >= VICINITY_RADIUS {
-                    // Contact was changed to out of vicinity
-                    self.vicinity_graph.remove(new.id());
-                    self.vicinity_changed = true;
-                }
-                // Contact changed to inside vicinity will be handled by vicinity discovery
-                else if old.state() == &ContactState::Valid && new.state() != &ContactState::Valid
-                {
-                    let changed = self.vicinity_graph.invalidate(new.id());
-                    self.vicinity_changed = changed;
-                } else if old.state() != &ContactState::Valid && new.state() == &ContactState::Valid
-                {
-                    let changed = self.vicinity_graph.validate(new.id());
-                    self.vicinity_changed = changed;
+                if self.config.update_interval.is_none() {
+                    self.precompute_paths_and_ids(context);
                 }
             }
             UseCaseEvent::Timer(timer_id) => {
                 if let PrecomputeState::Waiting {
-                    timer_id: own_id, ..
+                    resync_timer: own_id,
+                    ..
                 } = self.state
                 {
                     if timer_id == own_id {
@@ -314,39 +303,7 @@ where
                     return Ok(());
                 }
             }
-            UseCaseEvent::API(ApiEvent::VicinityGraph(sender)) => {
-                let _ = sender.send(format!("{:#?}", self.vicinity_graph));
-            }
-            UseCaseEvent::ResyncNode(node_id, expected_ssn) => {
-                // TODO: deduplicate state "shared" with Vicinity Discovery
-                if let Some(resync_queue) = self.state.resync_queue_mut() {
-                    // only update expected_ssn, if greater
-                    if let Some(previous_expected_ssn) = resync_queue.get_mut(&node_id) {
-                        if *previous_expected_ssn < expected_ssn {
-                            tracing::trace!(
-                                target: "precompute_paths_and_path_ids",
-                                node=%node_id,
-                                %expected_ssn,
-                                %previous_expected_ssn,
-                                "Update expected state sequence number of node"
-                            );
-                            *previous_expected_ssn = expected_ssn;
-                        }
-                    } else {
-                        tracing::trace!(target: "precompute_paths_and_path_ids", node=%node_id, "Add node to resynchronisation queue");
-                        resync_queue.insert(node_id, expected_ssn);
-                    }
-
-                    tracing::trace!(target: "precompute_paths_and_path_ids", ?resync_queue, "Changes in Resync Queue");
-                } else {
-                    tracing::warn!(target: "precompute_paths_and_path_ids", "Not responding to ResyncNode event in this state");
-                }
-            }
             _ => {}
-        }
-
-        if self.config.update_interval.is_none() {
-            self.precompute_paths_and_ids(context);
         }
 
         Ok(())
@@ -359,6 +316,7 @@ where
     C::Runtime: UseCaseRuntime,
     C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::VicinityGraph: VicinityGraph + Debug,
 {
     type State = PrecomputeState;
 
@@ -366,8 +324,7 @@ where
         if let Some(duration) = self.config.update_interval {
             let timer_id = context.runtime().register_periodic_timer(duration);
             self.state = PrecomputeState::Waiting {
-                timer_id,
-                resync_queue: HashMap::default(),
+                resync_timer: timer_id,
             };
         }
 
@@ -379,42 +336,14 @@ where
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Default)]
 pub enum PrecomputeState {
-    Idle {
-        resync_queue: HashMap<NodeId, StateSeqNr>,
-    },
+    #[default]
+    Idle,
     Waiting {
-        timer_id: TimerId,
-        resync_queue: HashMap<NodeId, StateSeqNr>,
+        resync_timer: TimerId,
     },
     Error,
-}
-#[allow(dead_code)]
-impl PrecomputeState {
-    fn resync_queue(&self) -> Option<&HashMap<NodeId, StateSeqNr>> {
-        match self {
-            Self::Idle { resync_queue, .. } => Some(resync_queue),
-            Self::Waiting { resync_queue, .. } => Some(resync_queue),
-            _ => None,
-        }
-    }
-
-    fn resync_queue_mut(&mut self) -> Option<&mut HashMap<NodeId, StateSeqNr>> {
-        match self {
-            Self::Idle { resync_queue, .. } => Some(resync_queue),
-            Self::Waiting { resync_queue, .. } => Some(resync_queue),
-            _ => None,
-        }
-    }
-}
-
-impl Default for PrecomputeState {
-    fn default() -> Self {
-        Self::Idle {
-            resync_queue: HashMap::default(),
-        }
-    }
 }
 
 impl UseCaseState for PrecomputeState {

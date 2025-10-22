@@ -140,8 +140,6 @@ pub enum UnderlayNeighborUpdate {
     /// An interface has gone up.
     InterfaceUp(InterfaceId),
     /// An interface has gone down.
-    // NOTE: Routing daemon has no information which neighbor is reachable via which
-    //       interface, so this event currently is unused.
     InterfaceDown(InterfaceId),
     /// A new connection to an underlay neighbor was discovered.
     ///

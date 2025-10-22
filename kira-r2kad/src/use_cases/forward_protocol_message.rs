@@ -6,7 +6,8 @@ use tracing::{Level, instrument};
 
 use crate::domain::{
     Contact, ContactState, InsertionStrategy, InsertionStrategyResult, Link, NodeId, NotVia, Path,
-    RoutingTable, ULNTable, UnderlayNeighborId, UnderlayNeighborSource,
+    RoutingTable, StateSeqNr, ULNTable, UnderlayNeighborId, UnderlayNeighborSource,
+    VICINITY_RADIUS, VicinityGraph,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{ErrorData, ProtocolMessage, RTableData, ReqRspMessage, RouteUpdate};
@@ -50,6 +51,7 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::UnderlayNeighborTable, BUCKET_SIZE>,
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::VicinityGraph: VicinityGraph,
 {
     fn extract_path_to_source(&self, message: &ProtocolMessage) -> Path {
         let route = message
@@ -74,6 +76,11 @@ where
         message: &ProtocolMessage,
         ulnid: UnderlayNeighborId,
     ) -> Option<Contact> {
+        // insertion of underlay neighbors should only happen by ULNDiscReqRsp
+        if let ProtocolMessage::ULNHello(_) = message {
+            return None;
+        }
+
         let path = self.extract_path_to_source(message);
         let ssn = message.source_state_seq_nr();
         if ssn.is_reset() {
@@ -266,21 +273,82 @@ where
         }
     }
 
+    fn extract_vicinity_information(&self, context: &C, message: &ProtocolMessage) {
+        if message
+            .source_route()
+            .is_none_or(|s| s.traveled_hop_count() >= VICINITY_RADIUS)
+        {
+            return;
+        }
+
+        let source = message.source();
+        let ssn = message.source_state_seq_nr();
+        let ssn = match ssn {
+            StateSeqNr::Value(ssn) => ssn,
+            StateSeqNr::Invalid => {
+                tracing::warn!(
+                    target: "forward_protocol_message",
+                    %source,
+                    "Received message with invalid state sequence number."
+                );
+                // TODO: send error back to source to inform about mishap?
+                return;
+            }
+            StateSeqNr::Reset => {
+                // FIXME: prohibit multiple resets if outdated information
+                // or information not meant for the node reaches node
+                // probably necessitates guarding with pending request condition
+
+                tracing::trace!(
+                    target: "forward_protocol_message",
+                    %source,
+                    "Connection reset. Rediscoverying."
+                );
+                context.vicinity_graph_mut().reset(source);
+
+                // TODO: the reset must additionally be triggered for rediscovery with Contacts
+                // implement ContactState::Rediscovering
+                return;
+            }
+        };
+
+        // TODO: observed_ssn should be forcefully overwritten on receiving
+        //       a Rsp to a pending Req since the data is considered up-to-date.
+        // TODO: last_seen should be updated on receiving a Rsp to a pending Req.
+
+        let mut vicinity_graph = context.vicinity_graph_mut();
+
+        // only update observed_ssn if it's greater to prohibit unnecessary resyncs
+        if vicinity_graph
+            .observed_ssn(source)
+            .is_some_and(|observed_ssn| observed_ssn < ssn)
+        {
+            vicinity_graph.update_observed_ssn(source, *ssn);
+        }
+    }
+
+    /// Process meta-information of the received [ProtocolMessage].
+    ///
+    /// The processing happens at _every_ hop of the message.
+    /// Message-specific actions at the destinations are handled by specialized [UseCases](UseCase).
+    /// The information processed is:
+    ///
+    /// 1. [StateSeqNr](crate::domain::StateSeqNr) to note updates in the vicinity of the node.
+    /// 2. [NotVia] to invalidate all effected [Contacts](Contact).
+    /// 3. [Path] to the source of the message to update the [RoutingTable] and [ULNTable].
+    /// 4. [RTableData] to discover, improve of fix existing [Contacts](Contact) in the [RoutingTable].
     fn extract_message_info(
         &self,
         context: &C,
         message: ProtocolMessage,
         ulnid: UnderlayNeighborId,
     ) {
-        if let ProtocolMessage::ULNHello(_) = message {
-            return;
-        }
-
-        // invalidate contacts based on not-via information
         if let Some(not_via) = message.not_via() {
             self.extract_not_via_data(context, message.source(), not_via);
         }
 
+        // not in dedicated vicinity_discovery use case to extract on overheard messages
+        self.extract_vicinity_information(context, &message);
         let source_contact = self.extract_source_information(context, &message, ulnid);
 
         match message {
@@ -458,6 +526,7 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::UnderlayNeighborTable, BUCKET_SIZE>,
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::VicinityGraph: VicinityGraph,
 {
     type State = ReactiveUseCaseState;
 
@@ -477,6 +546,7 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::UnderlayNeighborTable, BUCKET_SIZE>,
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::VicinityGraph: VicinityGraph,
 {
     type Context = C;
     type Error = NeverError;

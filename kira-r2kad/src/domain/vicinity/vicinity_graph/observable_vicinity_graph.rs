@@ -1,4 +1,4 @@
-use std::{fmt::Debug, time::Instant};
+use std::{collections::HashSet, fmt::Debug, time::Instant};
 
 use derive_more::Display;
 
@@ -71,16 +71,31 @@ impl<V: VicinityGraph> VicinityGraph for ObservableVicinityGraph<V> {
     fn insert(
         &mut self,
         node: NodeId,
-        neighbors: impl IntoIterator<Item = NodeId>,
-        ssn: SafeStateSeqNr,
-        last_seen: Instant,
+        discovered_via: &NodeId,
+        observed_ssn: SafeStateSeqNr,
     ) -> Result<(), Self::Error> {
-        self.inner.insert(node, neighbors, ssn, last_seen)?;
+        self.inner.insert(node, discovered_via, observed_ssn)
+    }
 
-        // we don't generate VicinityGraph::Removed because we at most destroy links
-        // to the neighbors not present anymore in `neighbors`
+    fn update_vicinity(
+        &mut self,
+        node: &NodeId,
+        neighbors: impl IntoIterator<Item = NodeId>,
+        vicinity_ssn: SafeStateSeqNr,
+    ) -> Result<(), Self::Error> {
+        let nodes_before: HashSet<_> = self.vicinity(node).collect();
+        self.inner.update_vicinity(node, neighbors, vicinity_ssn)?;
+        let nodes_after: HashSet<_> = self.vicinity(node).collect();
+
+        for removed in nodes_after.difference(&nodes_before) {
+            self.emit(VicinityGraphEvent::Removed(*removed));
+        }
 
         Ok(())
+    }
+
+    fn reset(&mut self, node: &NodeId) {
+        self.inner.reset(node);
     }
 
     fn remove(&mut self, node: &NodeId) -> bool {
@@ -92,56 +107,56 @@ impl<V: VicinityGraph> VicinityGraph for ObservableVicinityGraph<V> {
         }
     }
 
-    fn prune(&mut self, node: &NodeId) -> bool {
-        if self.inner.prune(node) {
-            self.emit(VicinityGraphEvent::Removed(*node));
-            true
-        } else {
-            false
-        }
+    fn update_last_seen(&mut self, node: &NodeId, now: Instant) {
+        self.inner.update_last_seen(node, now);
     }
 
-    fn remove_radius(&mut self) -> bool {
-        // FIXME: generate VicinityGraphEvent::Removed
-        self.inner.remove_radius()
-    }
-
-    fn nodes(&self) -> impl Iterator<Item = &NodeId> {
-        self.inner.nodes()
-    }
-
-    fn paths(&self) -> impl Iterator<Item = Path> {
-        self.inner.paths()
-    }
-
-    fn paths_to(&self, destination: NodeId) -> impl Iterator<Item = Path> {
-        self.inner.paths_to(destination)
-    }
-
-    fn update_last_seen(&mut self, node: &NodeId, now: Instant) -> bool {
-        self.inner.update_last_seen(node, now)
+    fn update_observed_ssn(&mut self, node: &NodeId, observed_ssn: SafeStateSeqNr) {
+        self.inner.update_observed_ssn(node, observed_ssn);
     }
 
     fn last_seen(&self, node: &NodeId) -> Option<Instant> {
         self.inner.last_seen(node)
     }
 
-    fn update_ssn(&mut self, node: NodeId, ssn: SafeStateSeqNr, now: Instant) -> bool {
-        self.inner.update_ssn(node, ssn, now)
-    }
-    fn ssn_vicinity(&self, node: &NodeId) -> Option<SafeStateSeqNr> {
-        self.inner.ssn_vicinity(node)
+    fn observed_ssn(&self, node: &NodeId) -> Option<&SafeStateSeqNr> {
+        self.inner.observed_ssn(node)
     }
 
-    fn force_resync(&mut self, node: &NodeId) {
-        self.inner.force_resync(node);
+    fn vicinity(&self, node: &NodeId) -> impl Iterator<Item = NodeId> {
+        self.inner.vicinity(node)
     }
 
-    fn requires_resync(&self, node: &NodeId) -> bool {
-        self.inner.requires_resync(node)
+    fn vicinity_ssn(&self, node: &NodeId) -> Option<&SafeStateSeqNr> {
+        self.inner.vicinity_ssn(node)
     }
 
-    fn resync_nodes(&self) -> impl Iterator<Item = &NodeId> {
-        self.inner.resync_nodes()
+    fn root_distance(&self, node: &NodeId) -> Option<usize> {
+        self.inner.root_distance(node)
+    }
+
+    fn retain_vicinity(&mut self) -> impl Iterator<Item = NodeId> {
+        let removed_nodes: Vec<_> = self.inner.retain_vicinity().collect();
+        for removed in removed_nodes.iter() {
+            self.emit(VicinityGraphEvent::Removed(*removed));
+        }
+
+        removed_nodes.into_iter()
+    }
+
+    fn nodes(&self) -> impl Iterator<Item = NodeId> {
+        self.inner.nodes()
+    }
+
+    fn vicinity_paths(&self) -> impl Iterator<Item = Path> {
+        self.inner.vicinity_paths()
+    }
+
+    fn vicinity_paths_to(&self, destination: NodeId) -> impl Iterator<Item = Path> {
+        self.inner.vicinity_paths_to(destination)
+    }
+
+    fn vicinity_path_to(&self, destination: NodeId) -> Option<Path> {
+        self.inner.vicinity_path_to(destination)
     }
 }
