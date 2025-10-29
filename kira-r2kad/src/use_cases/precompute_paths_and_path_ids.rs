@@ -248,6 +248,7 @@ where
                     .expect("should be present in the vicinity graph")
                     >= VICINITY_RADIUS
                 {
+                    std::mem::drop(vicinity_graph);
                     if self.config.update_interval.is_none() {
                         self.precompute_paths_and_ids(context);
                     }
