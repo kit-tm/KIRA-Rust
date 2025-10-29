@@ -355,10 +355,16 @@ where
         underlay_destination: UnderlayNeighborId,
         nonce: Nonce,
     ) -> bool {
-        if !requires_sync(&destination, context.vicinity_graph().deref()) {
+        if context
+            .vicinity_graph()
+            .observed_ssn(&destination)
+            .is_some() // underlay neighbors are only added to the vicinity graph on ULNDiscReqRsp
+            && !requires_sync(&destination, context.vicinity_graph().deref())
+        {
             tracing::trace!(
                 target: "vicinity_discovery",
-                "Not responding to Hello from unchanged underlay neighbor {destination} as we received an unexpected state sequence number"
+                %destination,
+                "Not responding to Hello from unchanged underlay neighbor as we received an unexpected state sequence number"
             );
             return false;
         }

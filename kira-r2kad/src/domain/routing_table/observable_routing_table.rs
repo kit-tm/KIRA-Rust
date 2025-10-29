@@ -71,14 +71,20 @@ impl<const BUCKET_SIZE: usize> Display for RoutingTableEvent<BUCKET_SIZE> {
 /// A simple way to implement A [RoutingTableEvent] is by using a closure.
 ///
 /// ```rust
-/// # use kira_lib::domain::{Bucket, FlatRoutingTable, NodeId};
-/// # use kira_lib::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
+/// # use kira_r2kad::domain::{Bucket, Contact, FlatRoutingTable, Path, RoutingTable,
+/// # SafeStateSeqNr, NodeId};
+/// # use kira_r2kad::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
 /// let mut observable_rt = ObservableRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
 ///
 /// // A simple debug logger
 /// observable_rt.add_observer(|event| println!("{:?}", event));
 ///
-/// observable_rt.emit(RoutingTableEvent::NewBucket(Bucket::new()));
+/// let contact = Contact::new(
+///     Path::from(NodeId::with_msb(2)),
+///     SafeStateSeqNr::try_from(2).unwrap(),
+/// );
+/// let _ = observable_rt.add(contact);
+///
 /// ```
 pub trait RoutingTableObserver<const BUCKET_SIZE: usize>: Send {
     /// Notify the [RoutingTableObserver] about a [RoutingTableEvent].
@@ -539,8 +545,12 @@ mod tests {
 
         let add_result = observable.replace(contact.id(), new_contact.clone());
         assert!(add_result.is_ok());
-        assert!((events.read().unwrap()).contains(&RoutingTableEvent::RemovedContact(contact)));
-        assert!((events.read().unwrap()).contains(&RoutingTableEvent::NewContact(new_contact)));
+        assert!(
+            (events.read().unwrap()).contains(&RoutingTableEvent::UpdatedContact {
+                old: contact,
+                new: new_contact
+            })
+        );
     }
 
     #[test]

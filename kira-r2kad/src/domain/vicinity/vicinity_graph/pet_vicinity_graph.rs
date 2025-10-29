@@ -174,10 +174,10 @@ impl VicinityGraph for PetVicinityGraph {
     fn retain_vicinity(&mut self) -> impl Iterator<Item = NodeId> {
         let nodes: Vec<_> = self.nodes().collect(); // required to (rightfully) satisfy borrow checker
         nodes.into_iter().filter(|n| {
-            let outside =
-                self.root_distance(n)
-                    .expect("Vicinity node should have root distance") as usize
-                    > VICINITY_RADIUS;
+            let outside = self
+                .root_distance(n)
+                .expect("Vicinity node should have root distance")
+                > VICINITY_RADIUS;
             if outside {
                 assert!(
                     self.remove(n),

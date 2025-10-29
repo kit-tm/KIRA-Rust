@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::mem;
 use std::ops::Deref;
 use std::time::Duration;
 use tracing::{Level, instrument};
@@ -280,12 +281,13 @@ where
 
                         debug_assert!(
                             vicinity_graph
-                                .root_distance(&nid)
+                                .root_distance(nid)
                                 .is_some_and(|d| d <= VICINITY_RADIUS),
                             "contacts of source inside vicinity should be part of the vicinity graph"
                         )
                     }
                 }
+                mem::drop(vicinity_graph);
 
                 if self.config.update_interval.is_none() {
                     self.precompute_paths_and_ids(context);

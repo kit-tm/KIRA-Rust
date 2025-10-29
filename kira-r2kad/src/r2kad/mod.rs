@@ -182,14 +182,14 @@ pub type Result<T> = core::result::Result<T, R2KadError>;
 ///
 /// # Usage
 ///
-/// ```
+/// ```no_run
 /// use std::time::Instant;
 ///
-/// use kira_lib::context::SyncContext;
-/// use kira_lib::{Output, R2Kad};
+/// use kira_r2kad::context::SyncContext;
+/// use kira_r2kad::{Output, R2Kad};
 ///
 /// // create R²/KAD protocol instance with random NodeId
-/// let mut r2kad = R2Kad::<SyncContext<_, _, _, _>, 20>::builder().build();
+/// let mut r2kad = R2Kad::<SyncContext<_, _, _, _, _>, 20>::builder().build();
 ///
 /// // startup R²/KAD instance
 /// {
@@ -197,6 +197,11 @@ pub type Result<T> = core::result::Result<T, R2KadError>;
 ///     r2kad.startup(now).unwrap();
 /// }
 ///
+/// # tokio::runtime::Builder::new_multi_thread()
+/// #   .enable_all()
+/// #   .build()
+/// #   .unwrap()
+/// #   .block_on(async {
 /// loop {
 ///     // 1. Process protocol instance output
 ///     while let Some(output) = r2kad.poll_output() {
@@ -216,7 +221,9 @@ pub type Result<T> = core::result::Result<T, R2KadError>;
 ///     tokio::select! {
 ///         biased; // poll in order since we check timers on handling input regardlessly
 ///
-///         Some(input) = async move { todo!("Receive Input events like ProtocolMessages from remote peers")} => {
+///         Some(input) = async move {
+///           todo!("Receive Input events like ProtocolMessages from remote peers")
+///         } => {
 ///             let now = Instant::now();
 ///             r2kad.handle_input(input, now).unwrap();
 ///         }
@@ -226,6 +233,7 @@ pub type Result<T> = core::result::Result<T, R2KadError>;
 ///         }
 ///     }
 /// }
+/// # });
 /// ```
 #[derive(Debug)]
 pub struct R2Kad<C, const BUCKET_SIZE: usize> {

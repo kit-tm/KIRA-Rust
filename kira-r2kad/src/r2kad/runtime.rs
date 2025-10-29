@@ -155,18 +155,6 @@ impl UseCaseRuntime for R2KadRuntime {
     ///
     /// The returned TimerId is unique.
     ///
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// let runtime = UseCaseRuntime::default();
-    /// assert_eq!(runtime.next_event(Instance::now()), None);
-    ///
-    /// let timer_id = runtime.register_timer(Instant::now() + Duration::from_secs(5));
-    /// std::thread::sleep(5);
-    /// assert_eq!(runtime.next_event(Instance::now()), UseCaseEvent::Timer(timer_id));
-    /// ```
-    ///
     /// # Panics
     ///
     /// If called outside of an event loop or on overflow.

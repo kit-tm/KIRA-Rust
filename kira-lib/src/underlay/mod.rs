@@ -36,7 +36,7 @@ pub type UnderlayNeighborUpdatesRx = UnboundedReceiver<UnderlayNeighborUpdate>;
 /// This example shows how to listen to all [UnderlayNeighborUpdates][UnderlayNeighborUpdate]
 /// and register new [UnderlayNeighbors](crate::domain::underlay::UnderlayNeighbor) simultaneously.
 ///
-/// ```rust
+/// ```
 /// use std::net::Ipv6Addr;
 /// use std::num::NonZeroUsize;
 ///
