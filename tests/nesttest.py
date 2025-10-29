@@ -823,7 +823,7 @@ class NestTest[T]:  # T = tid type, usually int or str
 
         # Parse neighbor relationships
         entry_re = re.compile(
-            r"NodeId\((\w+)\): Entry \{[^}]*?neighbors: \{([^}]*)\}",
+            r"NodeId\((\w+)\): \[([^\]]*)\]",
             re.DOTALL,  # match newline
         )
         for match in entry_re.finditer(vicinity_raw):
