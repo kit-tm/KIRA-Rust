@@ -56,7 +56,6 @@ impl PetVicinityGraph {
         // and nodes that are not connected to contacted nodes
         if neighbors
             .iter()
-            // TODO: think about entries.get vs self.last_seen
             .any(|neighbor| neighbor == &self.root_id || self.entries.contains_key(neighbor))
         {
             Ok(neighbors)
@@ -189,7 +188,7 @@ impl VicinityGraph for PetVicinityGraph {
     }
 
     fn nodes(&self) -> impl Iterator<Item = NodeId> {
-        self.graph.nodes()
+        self.graph.nodes().filter(|node| node != &self.root_id)
     }
 
     fn vicinity_paths(&self) -> impl Iterator<Item = Path> {

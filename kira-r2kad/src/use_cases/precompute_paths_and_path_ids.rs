@@ -260,6 +260,11 @@ where
                     let nid = contact.id();
                     let ssn = contact.state_seq_nr();
 
+                    // don't track our ssn in the vicinity graph
+                    if nid == context.root_id() {
+                        continue;
+                    }
+
                     // update observed_ssn if newer observed in rtable_data
                     if let Some(observed_ssn) = vicinity_graph.observed_ssn(nid).copied() {
                         if ssn > &observed_ssn {
