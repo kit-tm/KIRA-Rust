@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
+use std::iter;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::Deref;
@@ -207,10 +208,16 @@ where
                 );
 
                 let mut vicinity_graph = context.vicinity_graph_mut();
+                let underlay_ids = underlay_contacts.iter().map(Contact::id).copied();
                 // TODO: prohibit link deletions to underlay neighbors on 2hops
                 if let Err(err) = vicinity_graph.update_vicinity(
                     &source,
-                    underlay_contacts.iter().map(Contact::id).copied(),
+                    // include us into neighbors on underlay neighbors
+                    // because of two way handshake we aren't a verified
+                    // underlay contact of source
+                    iter::once(*context.root_id())
+                        .filter(|_| rtable_data.source_route.size() == 1)
+                        .chain(underlay_ids),
                     source_ssn,
                 ) {
                     // shouldn't happen unless neighbor in the receiving source route

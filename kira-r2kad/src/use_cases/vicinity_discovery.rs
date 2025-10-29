@@ -785,7 +785,7 @@ where
                 let all_sync = uln_sync.chain(lowest_bucket_sync).chain(vicinity_sync);
 
                 for nid in all_sync {
-                    let new_sync = if let Some(underlay_neighbor) = context.uln_table().get(&nid) {
+                    let new_sync = if let Some(underlay_neighbor) = uln_table.get(&nid) {
                         self.init_new_uln_disc_req(context, nid, *underlay_neighbor)?
                     } else {
                         self.init_new_query_route_req(context, nid)?
