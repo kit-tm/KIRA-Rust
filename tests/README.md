@@ -86,3 +86,20 @@ To get the route to a specific node, use the `ip route get` command:
 ```sh
 ip route get $n2
 ```
+
+## Testing with NeST
+[NeST](https://gitlab.com/nitk-nest/nest) is more lightweight than using ContainerNet as it only uses Linux namespaces.
+Install NeST according to instructions or simply with
+
+``` sh
+pip install -r requirements.txt
+```
+
+You can start a test with 
+
+``` sh
+sudo python tests/nesttest.py tests/topos/minimal.gml
+```
+
+The test environment probably does not shut down cleanly,
+so you should check for remnants after quitting.
