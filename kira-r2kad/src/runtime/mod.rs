@@ -1,5 +1,5 @@
 //! Interface definition and implementation for use case interaction with a runtime.
-//!
+
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::time::{Duration, Instant};
@@ -63,10 +63,19 @@ pub trait UseCaseRuntime {
         ulntable: &impl Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     ) {
         let protocol_message: ProtocolMessage = protocol_message.into();
-        // WARNING: also broadcasting to neighbors not present in the ulntable
         let underlay_dest = protocol_message
             .current_hop()
-            .and_then(|next_hop| ulntable.get(next_hop))
+            .and_then(|next_hop| {
+                let uln_dest = ulntable.get(next_hop);
+                if uln_dest.is_none() {
+                    tracing::warn!(
+                        %next_hop,
+                        reason = "dest_next_hop_unknown",
+                        "Fallback to broadcast message delivery"
+                    );
+                }
+                uln_dest
+            })
             .copied()
             .into();
 
