@@ -175,8 +175,7 @@ impl VicinityGraph for PetVicinityGraph {
         nodes.into_iter().filter(|n| {
             let outside = self
                 .root_distance(n)
-                .expect("Vicinity node should have root distance")
-                > VICINITY_RADIUS;
+                .is_none_or(|rdistance| rdistance > VICINITY_RADIUS);
             if outside {
                 assert!(
                     self.remove(n),
