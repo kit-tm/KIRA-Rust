@@ -161,7 +161,7 @@ impl VicinityGraph for PetVicinityGraph {
     }
 
     fn root_distance(&self, node: &NodeId) -> Option<usize> {
-        if self.graph.neighbors(self.root_id).any(|uln| &uln == node) {
+        if self.graph.contains_edge(self.root_id, *node) {
             Some(1)
         } else {
             dijkstra(&self.graph, self.root_id, Some(*node), |_| 1)
@@ -171,11 +171,12 @@ impl VicinityGraph for PetVicinityGraph {
     }
 
     fn retain_vicinity(&mut self) -> impl Iterator<Item = NodeId> {
+        let distances = dijkstra(&self.graph, self.root_id, None, |_| 1);
         let nodes: Vec<_> = self.nodes().collect(); // required to (rightfully) satisfy borrow checker
-        nodes.into_iter().filter(|n| {
-            let outside = self
-                .root_distance(n)
-                .is_none_or(|rdistance| rdistance > VICINITY_RADIUS);
+        nodes.into_iter().filter(move |n| {
+            let outside = distances
+                .get(n)
+                .is_none_or(|rdistance| *rdistance > VICINITY_RADIUS);
             if outside {
                 assert!(
                     self.remove(n),
