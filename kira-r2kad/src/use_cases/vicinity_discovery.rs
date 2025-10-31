@@ -222,26 +222,33 @@ where
     C::VicinityGraph: VicinityGraph,
 {
     fn send_query_route_req(context: &C, path: Path, nonce: Nonce) -> Result<(), VDError> {
+        // Convert contacts path to source route
+        let source_route = SourceRoute::from(path);
+        let next_hop = source_route.current_hop(); // :)
+        let hop_count = source_route.size() - 1;
+
+        assert_eq!(
+            source_route.source(),
+            context.root_id(),
+            "SourceRoute of QueryRouteReq has to start at ourselves",
+        );
+
         // Crucially Nodes _on_ the Vicinity Radius are also excluded
         // because we discover them using their neighbors inside the Vicinity
         assert!(
-            path.size() < VICINITY_RADIUS,
+            hop_count < VICINITY_RADIUS,
             "shouldn't send QueryRouteReq outside the vicinity"
         );
         assert!(
-            path.size() > 1,
+            hop_count > 1,
             "shouldn't send QueryRouteReq to underlay neighbors"
         );
 
-        // Convert contacts path to source route
-        let mut source_route = SourceRoute::from(path.clone());
-        source_route.push_front(*context.root_id());
-
         // Get interface of route
-        let Some(underlay_neighbor) = context.uln_table().get(path.first()).cloned() else {
+        let Some(underlay_neighbor) = context.uln_table().get(next_hop).cloned() else {
             tracing::error!(
                 target: "vicinity_discovery",
-                ?path,
+                ?source_route,
                 reason = "neighbor_inconsistency",
                 "abort sending QueryRouteReq"
             );
@@ -884,7 +891,7 @@ where
                             let Some(path) = vg_lock.vicinity_path_to(nid) else {
                                 tracing::trace!(
                                     target: "vicinity_discovery",
-                                    %nid,
+                                    node = %nid,
                                     reason = "unreachable_vicinity",
                                     "remove from vicinity graph"
                                 );
@@ -894,7 +901,7 @@ where
                                 isolated_vicinity_nodes = true;
                                 continue;
                             };
-                            if path.size() == 1 {
+                            if path.size() == 2 {
                                 tracing::error!(
                                     target: "vicinity_discovery",
                                     node = %nid,
@@ -1066,7 +1073,7 @@ where
                                 vg_lock.remove(&destination);
                                 return Ok(());
                             };
-                            if path.size() == 1 {
+                            if path.size() == 2 {
                                 tracing::error!(
                                     target: "vicinity_discovery",
                                     node = %destination,

@@ -175,7 +175,7 @@ where
             | UseCaseEvent::Message(ProtocolMessage::ULNDiscRsp(rtable_data), _)
             | UseCaseEvent::Message(ProtocolMessage::QueryRouteRsp(rtable_data), _) => {
                 // Skip everything not in vicinity radius
-                if rtable_data.source_route.size() >= VICINITY_RADIUS {
+                if rtable_data.source_route.size() > VICINITY_RADIUS {
                     // shouldn't happen unless we falsely send requests outside our radius
                     tracing::warn!(
                         target: "precompute_paths_and_path_ids",
@@ -240,13 +240,13 @@ where
                 }
                 self.vicinity_changed = true;
 
-                // don' track neighbors of 3 hops
+                // don' track neighbors of 2 hops
                 // use root_distance over source-route hops because maybe
                 // we discovered a better path to source while the request was pending
                 if vicinity_graph
                     .root_distance(&source)
                     .expect("should be present in the vicinity graph")
-                    >= VICINITY_RADIUS
+                    >= const { VICINITY_RADIUS - 1 }
                 {
                     std::mem::drop(vicinity_graph);
                     if self.config.update_interval.is_none() {

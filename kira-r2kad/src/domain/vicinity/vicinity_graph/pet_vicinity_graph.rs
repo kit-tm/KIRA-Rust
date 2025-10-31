@@ -227,7 +227,7 @@ impl VicinityGraph for PetVicinityGraph {
             |_| 1,
             |_| 0,
         )?;
-        if path.len() >= VICINITY_RADIUS {
+        if path.len() > VICINITY_RADIUS {
             return None;
         }
 
