@@ -627,8 +627,7 @@ class NestTest[T]:  # T = tid type, usually int or str
     def node_by_id(self, nid: bytes) -> T | None:
         for n, config in self.topology.nodes(data="config"):
             assert type(config) is NodeConfig
-            nid = bytes.fromhex(config.node_id)
-            if nid == nid:
+            if nid == bytes.fromhex(config.node_id):
                 return n
 
     def nodes(self) -> Iterator[tuple[KIRANode, NodeConfig]]:
