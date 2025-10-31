@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::marker::PhantomData;
 use std::ops::Deref;
-use tracing::{Level, instrument};
+use tracing::{Level, field, instrument};
 
 use crate::domain::protocol_event::forwarding::{
     DecapsulationDestination, NodeIdEncapsulationEntry, NodeIdEntry, NodeIdForwardingEntry,
@@ -60,13 +60,12 @@ where
         node_id: &NodeId,
     ) -> Result<(), DeriveFwdEntriesError> {
         let entry = NodeIdSubnet::new(*node_id);
+        tracing::trace!(target: "derive_fwd_table_entries", %entry, "remove entry");
         context
             .runtime()
-            .update_fwd_tables(NodeIdTableUpdate::Remove(entry.clone()));
+            .update_fwd_tables(NodeIdTableUpdate::Remove(entry));
 
         // FIXME: check if entry was present before
-
-        log::trace!(target: "derive_fwd_table_entries", "Removed entry {entry:?}");
 
         if let Some(prefix_entry) = self.derive_prefix_entry(context, node_id)? {
             context
@@ -83,6 +82,7 @@ where
         contact: Contact,
     ) -> Result<(), DeriveFwdEntriesError> {
         let entry = self.derive_node_id_entry(context, &contact)?;
+        tracing::trace!(target: "derive_fwd_table_entries", %entry, "create entry");
         context
             .runtime()
             .update_fwd_tables(NodeIdTableUpdate::CreateOrUpdate(entry));
@@ -101,6 +101,7 @@ where
         new_entry: Contact,
     ) -> Result<(), DeriveFwdEntriesError> {
         let entry = self.derive_node_id_entry(context, &new_entry)?;
+        tracing::trace!(target: "derive_fwd_table_entries", %entry, "update entry");
         context
             .runtime()
             .update_fwd_tables(NodeIdTableUpdate::CreateOrUpdate(entry));
@@ -226,43 +227,130 @@ where
         match event {
             // FIXME: create NodeId entry on receiving PathSetupRsp
             UseCaseEvent::Contact(ContactEvent::New(contact)) => {
+                let _span = tracing::debug_span!(
+                    target: "derive_fwd_table_entries",
+                    "create_entry",
+                    reason = "contact_new",
+                    node = %contact.id(),
+                    kind = "NodeId",
+                )
+                .entered();
                 self.create_node_id_entry(context, contact.clone())?;
             }
             UseCaseEvent::Contact(ContactEvent::Removed(contact)) => {
+                let _span = tracing::debug_span!(
+                    target: "derive_fwd_table_entries",
+                    "remove_entry",
+                    reason = "contact_removed",
+                    node = %contact.id(),
+                    kind = "NodeId",
+                )
+                .entered();
                 self.remove_node_id_entry(context, contact.id())?;
             }
             UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {
+                let updated_span = tracing::debug_span!(
+                    target: "derive_fwd_table_entries",
+                    "process_contact_update",
+                    kind = field::Empty,
+                    ?new, ?old,
+                )
+                .entered();
+
                 match (new.state(), old.state()) {
-                    (ContactState::Invalid, ContactState::Valid) => {
-                        tracing::debug!(
+                    (ContactState::Invalid, ContactState::Valid) if new.id() == old.id() => {
+                        updated_span.record("kind", "contact_invalidation");
+
+                        let _span = tracing::debug_span!(
                             target: "derive_fwd_table_entries",
-                            ?new, ?old,
-                            "Contact changed to invalid state"
-                        );
+                            "remove_entry",
+                            reason = "contact_invalidated",
+                            node = %new.id(),
+                            kind = "NodeId",
+                        )
+                        .entered();
                         self.remove_node_id_entry(context, new.id())?;
+                    }
+                    (ContactState::Invalid, ContactState::Valid) => {
+                        updated_span.record("kind", "contact_invalidation_by_displacement");
+                        tracing::warn!(
+                            target: "derive_fwd_table_entries",
+                            new_destination = %new.id(),
+                            old_destination = %old.id(),
+                            "valid contact replaced by invalid but with different destination",
+                        );
+
+                        let _span = tracing::debug_span!(
+                            target: "derive_fwd_table_entries",
+                            "remove_entry",
+                            reason = "contact_invalid_displacer",
+                            node = %new.id(),
+                            kind = "NodeId",
+                        )
+                        .entered();
+                        self.remove_node_id_entry(context, new.id())?;
+
+                        let _span = tracing::debug_span!(
+                            target: "derive_fwd_table_entries",
+                            "remove_entry",
+                            reason = "contact_displaced",
+                            displacer = %new.id(),
+                            node = %old.id(),
+                            kind = "NodeId",
+                        )
+                        .entered();
                         self.remove_node_id_entry(context, old.id())?;
                     }
                     (ContactState::Valid, ContactState::Invalid) => {
-                        tracing::debug!(
+                        updated_span.record("kind", "contact_validation");
+
+                        let _span = tracing::debug_span!(
                             target: "derive_fwd_table_entries",
-                            ?new, ?old,
-                            "Contact changed to valid state"
-                        );
+                            "create_entry",
+                            reason = "contact_validated",
+                            node = %new.id(),
+                            kind = "NodeId",
+                        )
+                        .entered();
                         self.create_node_id_entry(context, new)?;
                     }
                     (ContactState::Valid, ContactState::Valid) if new.path() != old.path() => {
-                        tracing::debug!(
-                            target: "derive_fwd_table_entries",
-                            ?new, ?old,
-                            "Contact changed path"
-                        );
                         if new.id() == old.id() {
                             // just a simple path change to the same destination
+                            updated_span.record("kind", "path_change");
+
+                            let _span = tracing::debug_span!(
+                                target: "derive_fwd_table_entries",
+                                "update_entry",
+                                reason = "path_changed",
+                                node = %new.id(),
+                                kind = "NodeId",
+                            )
+                            .entered();
                             self.update_node_id_entry(context, new)?;
                         } else {
                             // Contact got substituted for another destination
                             // probably due to proximity neighbor selection
+                            updated_span.record("kind", "contact_displacement");
+
+                            let _span = tracing::debug_span!(
+                                target: "derive_fwd_table_entries",
+                                "remove_entry",
+                                reason = "contact_displaced",
+                                node = %old.id(),
+                                kind = "NodeId",
+                            )
+                            .entered();
                             self.remove_node_id_entry(context, old.id())?;
+
+                            let _span = tracing::debug_span!(
+                                target: "derive_fwd_table_entries",
+                                "create_entry",
+                                reason = "displaced_contact",
+                                node = %new.id(),
+                                kind = "NodeId",
+                            )
+                            .entered();
                             self.create_node_id_entry(context, new)?;
                         }
                     }
