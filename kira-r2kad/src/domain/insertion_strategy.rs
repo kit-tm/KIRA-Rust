@@ -244,11 +244,9 @@ where
         // remove cycles and simplify
         // Uses the Path containing the id of the contact
         // itself to include it in the process
-        let mut path = contact.path().clone();
-        self.path_cycle_remover.remove_cycles_in_place(&mut path);
-        self.path_simplifier
-            .simplify(routing_table, un_table, &mut path);
-        *contact.path_mut() = path;
+        let path = contact.path_mut();
+        self.path_cycle_remover.remove_cycles_in_place(path);
+        self.path_simplifier.simplify(routing_table, un_table, path);
 
         match routing_table.insert(contact.clone()) {
             Err(InsertionError::BucketSplit(_)) => {
