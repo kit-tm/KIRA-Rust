@@ -196,7 +196,6 @@ where
     RT: 'a + NonObservableRoutingTable<'a, BUCKET_SIZE>,
 {
     type ContactWriteGuard = ContactWriteGuard<'a, RT::ContactWriteGuard, BUCKET_SIZE>;
-    type BucketWriteGuard = BucketWriteGuard<'a, RT::BucketWriteGuard, BUCKET_SIZE>;
     type BucketIter = RT::BucketIter;
 
     fn root(&self) -> &NodeId {
@@ -272,17 +271,6 @@ where
         self.inner.bucket(of)
     }
 
-    fn bucket_mut(&'a mut self, of: &NodeId) -> Self::BucketWriteGuard {
-        let index = self.inner.get_bucket_index(of);
-        let bucket = self.inner.bucket_by_index_mut(index);
-        BucketWriteGuard {
-            observers: &self.observers,
-            original: Bucket::<BUCKET_SIZE>::clone(bucket.deref()),
-            index,
-            bucket,
-        }
-    }
-
     fn closest(
         &self,
         to: &NodeId,
@@ -306,16 +294,6 @@ where
 
     fn bucket_by_index(&self, index: usize) -> &Bucket<BUCKET_SIZE> {
         self.inner.bucket_by_index(index)
-    }
-
-    fn bucket_by_index_mut(&'a mut self, index: usize) -> Self::BucketWriteGuard {
-        let bucket = self.inner.bucket_by_index_mut(index);
-        BucketWriteGuard {
-            observers: &self.observers,
-            original: Bucket::<BUCKET_SIZE>::clone(bucket.deref()),
-            index,
-            bucket,
-        }
     }
 
     fn get_bucket_index(&self, of: &NodeId) -> usize {
@@ -407,62 +385,10 @@ where
             notify_all(
                 self.observers,
                 RoutingTableEvent::UpdatedContact {
-                    new: self.contact.deref().clone(),
+                    new: self.contact.clone(),
                     old: self.original.clone(),
                 },
             );
-        }
-    }
-}
-
-/// Resource Acquisition Is Initialization (RAII) type to provide observability of mutating a
-/// [Bucket].
-///
-/// Emits a [RoutingTableEvent::UpdatedBucket] on [Drop] only if the [Bucket] actually changed.
-/// As a smart pointer this type dereferences to the updated [Bucket].
-pub struct BucketWriteGuard<'a, B, const BUCKET_SIZE: usize>
-where
-    B: DerefMut<Target = Bucket<BUCKET_SIZE>>,
-{
-    observers: &'a [Box<dyn RoutingTableObserver<BUCKET_SIZE>>],
-    original: Bucket<BUCKET_SIZE>,
-    index: usize,
-    bucket: B,
-}
-
-impl<B, const BUCKET_SIZE: usize> Deref for BucketWriteGuard<'_, B, BUCKET_SIZE>
-where
-    B: DerefMut<Target = Bucket<BUCKET_SIZE>>,
-{
-    type Target = Bucket<BUCKET_SIZE>;
-
-    fn deref(&self) -> &Self::Target {
-        self.bucket.deref()
-    }
-}
-
-impl<B, const BUCKET_SIZE: usize> DerefMut for BucketWriteGuard<'_, B, BUCKET_SIZE>
-where
-    B: DerefMut<Target = Bucket<BUCKET_SIZE>>,
-{
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.bucket.deref_mut()
-    }
-}
-
-impl<B, const BUCKET_SIZE: usize> Drop for BucketWriteGuard<'_, B, BUCKET_SIZE>
-where
-    B: DerefMut<Target = Bucket<BUCKET_SIZE>>,
-{
-    fn drop(&mut self) {
-        if self
-            .bucket
-            .deref()
-            .iter()
-            .zip(self.original.iter())
-            .any(|(a, b)| a.path() != b.path())
-        {
-            notify_all(self.observers, RoutingTableEvent::UpdatedBucket(self.index))
         }
     }
 }

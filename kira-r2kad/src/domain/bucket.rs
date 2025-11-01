@@ -145,7 +145,7 @@ impl<const SIZE: usize> Bucket<SIZE> {
     /// Removes a [Contact] from the [Bucket] returning it if present.
     pub fn remove(&mut self, id: &NodeId) -> Option<Contact> {
         self.contacts.iter_mut().find_map(|contact| {
-            if contact.is_some() && contact.as_ref().unwrap().id() == id {
+            if matches!(contact, Some(contact) if contact.id() == id) {
                 contact.take()
             } else {
                 None

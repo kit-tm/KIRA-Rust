@@ -45,7 +45,6 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
     for UnlimitedULNRoutingTable<BUCKET_SIZE, ACC>
 {
     type ContactWriteGuard = &'a mut Contact;
-    type BucketWriteGuard = &'a mut Bucket<BUCKET_SIZE>;
     type BucketIter = std::slice::Iter<'a, Bucket<BUCKET_SIZE>>;
 
     fn root(&self) -> &NodeId {
@@ -119,10 +118,6 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         self.inner.bucket(of)
     }
 
-    fn bucket_mut(&'a mut self, of: &NodeId) -> Self::BucketWriteGuard {
-        self.inner.bucket_mut(of)
-    }
-
     fn closest(
         &self,
         to: &NodeId,
@@ -183,10 +178,6 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
 
     fn bucket_by_index(&self, index: usize) -> &Bucket<BUCKET_SIZE> {
         self.inner.bucket_by_index(index)
-    }
-
-    fn bucket_by_index_mut(&'a mut self, index: usize) -> Self::BucketWriteGuard {
-        self.inner.bucket_by_index_mut(index)
     }
 
     fn get_bucket_index(&self, of: &NodeId) -> usize {

@@ -103,13 +103,17 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
     pub fn num_contacts(&self) -> usize {
         self.buckets.iter().flat_map(|bucket| bucket.iter()).count()
     }
+
+    fn bucket_mut(&mut self, of: &NodeId) -> &mut Bucket<BUCKET_SIZE> {
+        let index = self.get_bucket_index(of);
+        self.buckets.index_mut(index)
+    }
 }
 
 impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZE>
     for FlatRoutingTable<BUCKET_SIZE, ACC>
 {
     type ContactWriteGuard = &'a mut Contact;
-    type BucketWriteGuard = &'a mut Bucket<BUCKET_SIZE>;
     type BucketIter = std::slice::Iter<'a, Bucket<BUCKET_SIZE>>;
 
     fn root(&self) -> &NodeId {
@@ -198,11 +202,6 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
     fn bucket(&self, of: &NodeId) -> &Bucket<BUCKET_SIZE> {
         let index = self.get_bucket_index(of);
         &self.buckets[index]
-    }
-
-    fn bucket_mut(&'a mut self, of: &NodeId) -> Self::BucketWriteGuard {
-        let index = self.get_bucket_index(of);
-        self.buckets.index_mut(index)
     }
 
     /// Collects the closest `n` contacts to the given node by iterating the buckets from
@@ -341,10 +340,6 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
 
     fn bucket_by_index(&self, index: usize) -> &Bucket<BUCKET_SIZE> {
         &self.buckets[index]
-    }
-
-    fn bucket_by_index_mut(&'a mut self, index: usize) -> Self::BucketWriteGuard {
-        self.buckets.index_mut(index)
     }
 
     /// Returns the index of the [Bucket] the id should be in related

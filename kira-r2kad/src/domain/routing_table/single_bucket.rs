@@ -37,7 +37,6 @@ impl<const BUCKET_SIZE: usize> SingleBucketRT<BUCKET_SIZE> {
 
 impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucketRT<BUCKET_SIZE> {
     type ContactWriteGuard = &'a mut Contact;
-    type BucketWriteGuard = &'a mut Bucket<BUCKET_SIZE>;
     type BucketIter = std::iter::Once<&'a Bucket<BUCKET_SIZE>>;
 
     fn root(&self) -> &NodeId {
@@ -97,11 +96,6 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
         &self.bucket
     }
 
-    /// Returns a mutable reference to the only [Bucket] in this [RoutingTable].
-    fn bucket_mut(&'a mut self, _of: &NodeId) -> Self::BucketWriteGuard {
-        &mut self.bucket
-    }
-
     fn closest(
         &self,
         to: &NodeId,
@@ -143,10 +137,6 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
 
     fn bucket_by_index(&self, index: usize) -> &Bucket<BUCKET_SIZE> {
         &self.bucket
-    }
-
-    fn bucket_by_index_mut(&'a mut self, index: usize) -> Self::BucketWriteGuard {
-        &mut self.bucket
     }
 
     fn get_bucket_index(&self, of: &NodeId) -> usize {

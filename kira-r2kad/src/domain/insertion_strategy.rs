@@ -1,5 +1,4 @@
-use std::fmt::Debug;
-use std::marker::PhantomData;
+use std::{fmt::Debug, marker::PhantomData, ops::Deref as _};
 
 use tracing::{Level, instrument};
 
@@ -161,7 +160,7 @@ where
 
     /// Check if the contact can replace an entry in the bucket it belongs to.
     fn replace_in_full_bucket(&self, contact: Contact, table: &mut RT) -> InsertionStrategyResult {
-        let mut bucket = table.bucket_mut(contact.id());
+        let bucket = table.bucket(contact.id());
         assert!(
             !bucket.is_empty(),
             "replace_in_full_bucket is called on empty bucket"
@@ -180,21 +179,30 @@ where
             "replace_in_full_bucket is called with invalid contact",
         );
 
+        // Drop contact with the longest path: Proximity Neighbor Selection (PNS)
+
         // Get the contact with the longest path but only if longer than new contact
         let replaceable = bucket
-            .iter_mut()
+            .iter()
             .filter(|c| c.path().size() > contact.path().size())
             .max_by_key(|c| c.path().size());
 
-        if let Some(replaceable) = replaceable {
-            let old_id = *replaceable.id();
-            *replaceable = contact;
-            log::debug!(
+        if let Some(replaceable) = replaceable.cloned() {
+            // obtain mut reference to replaceable contact
+            let mut replaceable_mut = table
+                .contact_mut(replaceable.id())
+                .expect("contact inside rt bucket");
+            *replaceable_mut = contact;
+
+            tracing::debug!(
                 target: "routing_table",
-                "Replaced {} with {}",
-                old_id, replaceable.id()
+                reason = "proximity_neighbor_selection",
+                old = %replaceable, // contains original contact
+                new = %replaceable_mut.deref(), // contains the new substitute
+                node = %replaceable_mut.id(),
+                "replaced contact in bucket",
             );
-            return InsertionStrategyResult::Replaced(old_id);
+            return InsertionStrategyResult::Replaced(*replaceable.id());
         }
 
         tracing::debug!(
@@ -234,6 +242,17 @@ where
         routing_table: &mut RT,
         un_table: &UN,
     ) -> InsertionStrategyResult {
+        if *contact.state() != ContactState::Valid {
+            tracing::trace!(
+                target: "routing_table",
+                state = %contact.state(),
+                reason = "invalid_state",
+                path = %contact.path(),
+                "dropping contact",
+            );
+            return InsertionStrategyResult::Dropped;
+        }
+
         // Ignore paths to us
         if contact.id() == routing_table.root() {
             tracing::trace!(
