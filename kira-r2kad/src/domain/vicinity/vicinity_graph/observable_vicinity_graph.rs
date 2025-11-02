@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt::Debug, time::Instant};
+use std::fmt::Debug;
 
 use derive_more::Display;
 
@@ -77,27 +77,6 @@ impl<V: VicinityGraph> VicinityGraph for ObservableVicinityGraph<V> {
         self.inner.insert(node, discovered_via, observed_ssn)
     }
 
-    fn update_vicinity(
-        &mut self,
-        node: &NodeId,
-        neighbors: impl IntoIterator<Item = NodeId>,
-        vicinity_ssn: SafeStateSeqNr,
-    ) -> Result<(), Self::Error> {
-        let nodes_before: HashSet<_> = self.vicinity(node).collect();
-        self.inner.update_vicinity(node, neighbors, vicinity_ssn)?;
-        let nodes_after: HashSet<_> = self.vicinity(node).collect();
-
-        for removed in nodes_after.difference(&nodes_before) {
-            self.emit(VicinityGraphEvent::Removed(*removed));
-        }
-
-        Ok(())
-    }
-
-    fn reset(&mut self, node: &NodeId) {
-        self.inner.reset(node);
-    }
-
     fn remove(&mut self, node: &NodeId) -> bool {
         if self.inner.remove(node) {
             self.emit(VicinityGraphEvent::Removed(*node));
@@ -107,32 +86,24 @@ impl<V: VicinityGraph> VicinityGraph for ObservableVicinityGraph<V> {
         }
     }
 
-    fn update_last_seen(&mut self, node: &NodeId, now: Instant) {
-        self.inner.update_last_seen(node, now);
+    fn entry(&self, node: &NodeId) -> Option<&super::Entry> {
+        self.inner.entry(node)
     }
 
-    fn update_observed_ssn(&mut self, node: &NodeId, observed_ssn: SafeStateSeqNr) {
-        self.inner.update_observed_ssn(node, observed_ssn);
-    }
-
-    fn last_seen(&self, node: &NodeId) -> Option<Instant> {
-        self.inner.last_seen(node)
-    }
-
-    fn observed_ssn(&self, node: &NodeId) -> Option<&SafeStateSeqNr> {
-        self.inner.observed_ssn(node)
+    fn entry_mut(&mut self, node: &NodeId) -> Option<&mut super::Entry> {
+        self.inner.entry_mut(node)
     }
 
     fn vicinity(&self, node: &NodeId) -> impl Iterator<Item = NodeId> {
         self.inner.vicinity(node)
     }
 
-    fn vicinity_ssn(&self, node: &NodeId) -> Option<&SafeStateSeqNr> {
-        self.inner.vicinity_ssn(node)
-    }
-
     fn root_distance(&self, node: &NodeId) -> Option<usize> {
         self.inner.root_distance(node)
+    }
+
+    fn remove_edge(&mut self, node_a: &NodeId, node_b: &NodeId) -> bool {
+        self.inner.remove_edge(node_a, node_b)
     }
 
     fn retain_vicinity(&mut self) -> impl Iterator<Item = NodeId> {

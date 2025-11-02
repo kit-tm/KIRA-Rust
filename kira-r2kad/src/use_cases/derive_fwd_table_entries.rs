@@ -118,6 +118,15 @@ where
         let rt = context.routing_table();
         let iter = rt.bucket_by_index(bucket_index).iter();
         for contact in iter {
+            let _span = tracing::debug_span!(
+                target: "derive_fwd_table_entries",
+                "update_entry",
+                bucket_index,
+                reason = "bucket_changed",
+                node = %contact.id(),
+                kind = "NodeId",
+            )
+            .entered();
             self.update_node_id_entry(context, contact.clone())?;
         }
 

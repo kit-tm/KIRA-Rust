@@ -6,7 +6,7 @@ use tracing::{Level, instrument};
 
 use crate::domain::{
     Contact, ContactState, InsertionStrategy, InsertionStrategyResult, Link, NodeId, NotVia, Path,
-    RoutingTable, StateSeqNr, ULNTable, UnderlayNeighborId, UnderlayNeighborSource,
+    RoutingTable, SafeStateSeqNr, StateSeqNr, ULNTable, UnderlayNeighborId, UnderlayNeighborSource,
     VICINITY_RADIUS, VicinityGraph,
 };
 use crate::messaging::source_route::SourceRoute;
@@ -299,12 +299,17 @@ where
                 // or information not meant for the node reaches node
                 // probably necessitates guarding with pending request condition
 
+                if let Some(entry) = context.vicinity_graph_mut().entry_mut(source) {
+                    entry.update_observed_ssn(SafeStateSeqNr::MIN);
+                    entry.forget_vicinity();
+                }
+
                 tracing::trace!(
                     target: "forward_protocol_message",
                     %source,
-                    "Connection reset. Rediscoverying."
+                    reason="connection_reset",
+                    "scheduled for resync"
                 );
-                context.vicinity_graph_mut().reset(source);
 
                 // TODO: the reset must additionally be triggered for rediscovery with Contacts
                 // implement ContactState::Rediscovering
@@ -316,14 +321,11 @@ where
         //       a Rsp to a pending Req since the data is considered up-to-date.
         // TODO: last_seen should be updated on receiving a Rsp to a pending Req.
 
-        let mut vicinity_graph = context.vicinity_graph_mut();
-
         // only update observed_ssn if it's greater to prohibit unnecessary resyncs
-        if vicinity_graph
-            .observed_ssn(source)
-            .is_some_and(|observed_ssn| observed_ssn < ssn)
-        {
-            vicinity_graph.update_observed_ssn(source, *ssn);
+        if let Some(entry) = context.vicinity_graph_mut().entry_mut(source) {
+            if entry.observed_ssn() < ssn {
+                entry.update_observed_ssn(*ssn);
+            }
         }
     }
 

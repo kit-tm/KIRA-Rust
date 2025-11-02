@@ -9,17 +9,16 @@ use tracing::{Level, field, instrument};
 
 use derive_more::derive::{Display, Error};
 
-use crate::domain::UnderlayNeighborDestination::{Broadcast, Multicast, UnderlayNeighbor};
-use crate::domain::VICINITY_RADIUS;
 use crate::domain::{
     Contact, DEFAULT_BUCKET_SIZE, InterfaceId, NodeId, Path, RoutingTable, SafeStateSeqNr,
-    StateSeqNr, ULNTable, UnderlayNeighborId, UnderlayNeighborSource, UnderlayNeighborUpdate,
+    StateSeqNr, ULNTable,
+    UnderlayNeighborDestination::{Broadcast, Multicast, UnderlayNeighbor},
+    UnderlayNeighborId, UnderlayNeighborSource, UnderlayNeighborUpdate, VICINITY_RADIUS,
     VicinityGraph, node_id,
 };
-use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     HelloMessage, Nonce, ProtocolMessage, QueryRouteReqData, QueryRouteType, RTableData,
-    ReqRspMessage,
+    ReqRspMessage, source_route::SourceRoute,
 };
 use crate::use_cases::{
     ApiEvent, EventHandler, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime,
@@ -167,15 +166,6 @@ fn deterministic_heuristic(self_id: &NodeId, other: &NodeId, num_bits: NonZeroUs
     }
 
     false
-}
-
-fn requires_sync(node: &NodeId, vicinity_graph: &impl VicinityGraph) -> bool {
-    debug_assert!(
-        vicinity_graph.observed_ssn(node) >= vicinity_graph.vicinity_ssn(node),
-        "observed ssn >= vicinity ssn"
-    );
-
-    vicinity_graph.vicinity_ssn(node) < vicinity_graph.observed_ssn(node)
 }
 
 impl<C, const BUCKET_SIZE: usize> VicinityDiscovery<C, BUCKET_SIZE> {
@@ -539,6 +529,193 @@ where
     }
 }
 
+// complex actions
+impl<C, const BUCKET_SIZE: usize> VicinityDiscovery<C, BUCKET_SIZE>
+where
+    C: UseCaseContext,
+    C::Runtime: UseCaseRuntime,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
+    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::VicinityGraph: VicinityGraph,
+{
+    fn schedule_syncs(&mut self, context: &C) -> Result<(), VDError> {
+        let VDState::Running { pending_reqs, .. } = &self.state else {
+            panic!("VicinityDiscovery should be running");
+        };
+
+        let pending_syncs = pending_reqs.len();
+        let max_pending_syncs = self.config.max_parallel_resync_count;
+        let mut remaining_sync_capacity = max_pending_syncs.saturating_sub(pending_reqs.len());
+        if remaining_sync_capacity == 0 {
+            tracing::trace!(
+                target: "vicinity_discovery",
+                pending_syncs, max_pending_syncs, remaining_sync_capacity,
+                reason = "pending_sync_capacity_exhausted",
+                "not scheduling additional syncs",
+            );
+            return Ok(());
+        }
+        tracing::trace!(
+            target: "vicinity_discovery",
+            pending_syncs, max_pending_syncs, remaining_sync_capacity,
+            reason = "pending_sync_capacity_available",
+            "scheduling additional syncs",
+        );
+
+        let _schedule_syncs_span = tracing::debug_span!(
+            target: "vicinity_discovery",
+            "schedule_syncs",
+        )
+        .entered();
+
+        let isolated_vicinity_nodes = {
+            let vg_lock = context.vicinity_graph();
+            let uln_lock = context.uln_table();
+
+            // sync priority is:
+            // 1. underlay neighbors
+            // 2. other nodes in the vicinity graph to sync
+
+            // construct iterator with the given priority
+            let uln_sync = uln_lock.keys().copied();
+            let vicinity_sync = vg_lock.deref().nodes();
+            let sync_canidates = uln_sync.chain(vicinity_sync);
+
+            let mut isolated_vicinity_nodes = false;
+            for sync_candidate in sync_canidates {
+                // can't check for pending reqs in loop
+                let new_sync = if let Some(underlay_neighbor) =
+                    uln_lock.get(&sync_candidate).copied()
+                {
+                    // check if sync is required
+                    let Some(entry) = vg_lock.entry(&sync_candidate) else {
+                        // don't sync with unknown underlay neighbors because we either about to receive a ULNHello or dead
+
+                        tracing::trace!(
+                            target: "vicinity_discovery",
+                            node = %sync_candidate,
+                            reason = "uln_unknown",
+                            expl = "waiting for ULNHello instead",
+                            "ignore sync candidate",
+                        );
+                        continue;
+                    };
+
+                    let vicinity_ssn = entry.vicinity_ssn();
+                    let observed_ssn = entry.observed_ssn();
+                    if vicinity_ssn == Some(observed_ssn) {
+                        tracing::trace!(
+                            target: "vicinity_discovery",
+                            node = %sync_candidate,
+                            vicinity_ssn = if let Some(vicinity_ssn) = vicinity_ssn { format!("{vicinity_ssn}") } else { "N/A".to_string() },
+                            %observed_ssn,
+                            reason = "no_news",
+                            "ignore sync candidate",
+                        );
+                        continue;
+                    }
+
+                    assert!(
+                        vicinity_ssn < Some(observed_ssn),
+                        "vicinity_ssn newer than observed_ssn"
+                    );
+
+                    self.init_new_uln_disc_req(context, sync_candidate, underlay_neighbor)?
+                } else {
+                    // check if sync is required
+                    let entry = vg_lock
+                        .entry(&sync_candidate)
+                        .expect("vicinity node without entry");
+                    let vicinity_ssn = entry.vicinity_ssn();
+                    let observed_ssn = entry.observed_ssn();
+                    if vicinity_ssn == Some(observed_ssn) {
+                        tracing::trace!(
+                            target: "vicinity_discovery",
+                            node = %sync_candidate,
+                            vicinity_ssn = if let Some(vicinity_ssn) = vicinity_ssn { format!("{vicinity_ssn}") } else { "N/A".to_string() },
+                            %observed_ssn,
+                            reason = "no_news",
+                            "ignore sync candidate",
+                        );
+                        continue;
+                    }
+
+                    assert!(
+                        vicinity_ssn < Some(observed_ssn),
+                        "vicinity_ssn newer than observed_ssn"
+                    );
+
+                    let Some(path) = vg_lock.vicinity_path_to(sync_candidate) else {
+                        tracing::trace!(
+                            target: "vicinity_discovery",
+                            node = %sync_candidate,
+                            reason = "unreachable_vicinity",
+                            "remove from vicinity graph"
+                        );
+
+                        // removal of node from the vicinity graph
+                        // can't happen here because we still hold the vg_lock
+                        isolated_vicinity_nodes = true;
+                        continue;
+                    };
+                    if path.size() == 2 {
+                        // probable causes:
+                        // 1. neighborhood update of node included us
+                        // 2. actual underlay neighbor not in uln_table
+
+                        tracing::error!(
+                            target: "vicinity_discovery",
+                            node = %sync_candidate,
+                            "underlay vicinity node not in uln_table"
+                        );
+                        return Err(VDError::NeighborInconsistency);
+                    }
+
+                    self.init_new_query_route_req(context, path)?
+                };
+                if !new_sync {
+                    tracing::trace!(
+                        target: "vicinity_discovery",
+                        node = %sync_candidate,
+                        reason = "pending_sync",
+                        "pass syncing with node",
+                    );
+                    continue;
+                }
+
+                tracing::debug!(
+                    target: "vicinity_discovery",
+                    pending_syncs = max_pending_syncs-remaining_sync_capacity, max_pending_syncs, remaining_sync_capacity,
+                    uln = uln_lock.contains(&sync_candidate),
+                    reason = "requires_sync",
+                    node = %sync_candidate,
+                    "initialized sync with node",
+                );
+
+                remaining_sync_capacity -= 1;
+                if remaining_sync_capacity == 0 {
+                    tracing::trace!(
+                        target: "vicinity_discovery",
+                        pending_syncs = max_pending_syncs-remaining_sync_capacity, max_pending_syncs, remaining_sync_capacity,
+                        reason = "pending_sync_capacity_exhausted",
+                        "stop scheduling nodes for sync",
+                    );
+                    break;
+                }
+            }
+
+            isolated_vicinity_nodes
+        };
+
+        if isolated_vicinity_nodes {
+            // collecting not required for pruning
+            let _ = context.vicinity_graph_mut().retain_vicinity();
+        }
+
+        Ok(())
+    }
+}
+
 impl<C, const BUCKET_SIZE: usize> UseCase for VicinityDiscovery<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
@@ -703,6 +880,7 @@ where
                     }
                 }
 
+                // only respond if news (newer SSN, reset, unknown neighbor...)
                 match observed_ssn {
                     StateSeqNr::Invalid => {
                         panic!("Invalid StateSeqNr reached VicinityDiscovery use-case")
@@ -718,15 +896,29 @@ where
                     }
                     StateSeqNr::Value(observed_ssn) => {
                         let vicinity_graph = context.vicinity_graph();
-                        let vicinity_ssn = vicinity_graph.vicinity_ssn(&source);
-                        if vicinity_ssn < Some(&observed_ssn) {
+                        if let Some(entry) = vicinity_graph.entry(&source) {
+                            let vicinity_ssn = entry.vicinity_ssn();
+                            if vicinity_ssn < Some(&observed_ssn) {
+                                tracing::debug!(
+                                    target: "vicinity_discovery",
+                                    %source,
+                                    deterministic_heuristic = "answer",
+                                    vicinity_ssn = if let Some(vicinity_ssn) = vicinity_ssn { format!("{vicinity_ssn}") } else { "N/A".to_string() },
+                                    %observed_ssn,
+                                    reason = "vicinity_outdated",
+                                    "init underlay neighbor discovery",
+                                );
+                            } else {
+                                return Ok(());
+                            }
+                        } else {
                             tracing::debug!(
                                 target: "vicinity_discovery",
                                 %source,
                                 deterministic_heuristic = "answer",
-                                vicinity_ssn = if let Some(vicinity_ssn) = vicinity_ssn { format!("{vicinity_ssn}") } else { "N/A".to_string()},
+                                vicinity_ssn = "N/A",
                                 %observed_ssn,
-                                reason = "vicinity_outdated",
+                                reason = "new",
                                 "init underlay neighbor discovery",
                             );
                         }
@@ -811,148 +1003,10 @@ where
             (
                 UseCaseEvent::Timer(timer_id),
                 VDState::Running {
-                    resync_timer_id,
-                    pending_reqs,
-                    ..
+                    resync_timer_id, ..
                 },
             ) if &timer_id == resync_timer_id => {
-                let pending_syncs = pending_reqs.len();
-                let max_pending_syncs = self.config.max_parallel_resync_count;
-                let mut remaining_sync_capacity =
-                    max_pending_syncs.saturating_sub(pending_reqs.len());
-                if remaining_sync_capacity == 0 {
-                    tracing::trace!(
-                        target: "vicinity_discovery",
-                        pending_syncs, max_pending_syncs, remaining_sync_capacity,
-                        reason = "pending_sync_capacity_exhausted",
-                        "not scheduling additional syncs",
-                    );
-                    return Ok(());
-                }
-                tracing::trace!(
-                    target: "vicinity_discovery",
-                    pending_syncs, max_pending_syncs, remaining_sync_capacity,
-                    reason = "pending_sync_capacity_available",
-                    "scheduling additional syncs",
-                );
-
-                let _schedule_syncs_span = tracing::debug_span!(
-                    target: "vicinity_discovery",
-                    "schedule_syncs",
-                )
-                .entered();
-
-                let isolated_vicinity_nodes = {
-                    let vg_lock = context.vicinity_graph();
-                    let rt_lock = context.routing_table();
-                    let uln_lock = context.uln_table();
-                    let lowest_bucket = rt_lock.bucket(context.root_id());
-
-                    // sync priority is:
-                    // 1. underlay neighbors
-                    // 2. nodes in the lowest bucket
-                    // 3. other nodes in the vicinity graph to sync
-
-                    // construct iterator with the given priority
-                    // contains duplicates
-
-                    let uln_sync = uln_lock
-                        .keys()
-                        // don't sync with unknown underlay neighbors because we either about to receive a ULNHello or dead
-                        .filter(|uln| requires_sync(uln, vg_lock.deref()))
-                        .copied();
-                    let lowest_bucket_sync = lowest_bucket
-                        .iter()
-                        .filter_map(|contact| {
-                            if requires_sync(contact.id(), vg_lock.deref()) {
-                                Some(contact.id())
-                            } else {
-                                None
-                            }
-                        })
-                        .copied();
-                    let vicinity_sync = vg_lock
-                        .deref()
-                        .nodes()
-                        .filter(|vicinity_node| requires_sync(vicinity_node, vg_lock.deref()));
-
-                    let all_sync = uln_sync.chain(lowest_bucket_sync).chain(vicinity_sync);
-
-                    let mut isolated_vicinity_nodes = false;
-                    for nid in all_sync {
-                        // init_new_* required since we can only access pending_reqs
-                        // in one location because of the borrow rules
-
-                        let new_sync = if let Some(underlay_neighbor) =
-                            context.uln_table().get(&nid).copied()
-                        {
-                            self.init_new_uln_disc_req(context, nid, underlay_neighbor)?
-                        } else {
-                            let Some(path) = vg_lock.vicinity_path_to(nid) else {
-                                tracing::trace!(
-                                    target: "vicinity_discovery",
-                                    node = %nid,
-                                    reason = "unreachable_vicinity",
-                                    "remove from vicinity graph"
-                                );
-
-                                // removal of node from the vicinity graph
-                                // can't happen here because we still hold the vg_lock
-                                isolated_vicinity_nodes = true;
-                                continue;
-                            };
-                            if path.size() == 2 {
-                                tracing::error!(
-                                    target: "vicinity_discovery",
-                                    node = %nid,
-                                    "underlay vicinity node not in uln_table"
-                                );
-                                return Err(VDError::NeighborInconsistency);
-                            }
-
-                            self.init_new_query_route_req(context, path)?
-                        };
-
-                        if !new_sync {
-                            tracing::trace!(
-                                target: "vicinity_discovery",
-                                node = %nid,
-                                reason = "pending_sync",
-                                "pass syncing with node",
-                            );
-                            continue;
-                        }
-
-                        tracing::debug!(
-                            target: "vicinity_discovery",
-                            pending_syncs = max_pending_syncs-remaining_sync_capacity, max_pending_syncs, remaining_sync_capacity,
-                            uln = uln_lock.contains(&nid),
-                            lowest_bucket = lowest_bucket.contains(&nid),
-                            reason = "requires_sync",
-                            node = %nid,
-                            "initialized sync with node",
-                        );
-
-                        remaining_sync_capacity -= 1;
-                        if remaining_sync_capacity == 0 {
-                            tracing::trace!(
-                                target: "vicinity_discovery",
-                                pending_syncs = max_pending_syncs-remaining_sync_capacity, max_pending_syncs, remaining_sync_capacity,
-                                reason = "pending_sync_capacity_exhausted",
-                                "stop scheduling nodes for sync",
-                            );
-                            break;
-                        }
-                    }
-
-                    isolated_vicinity_nodes
-                };
-
-                if isolated_vicinity_nodes {
-                    // collecting not required for pruning
-                    let _ = context.vicinity_graph_mut().retain_vicinity();
-                }
-
+                self.schedule_syncs(context)?;
                 self.set_next_resync_timeout(context);
                 Ok(())
             }

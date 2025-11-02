@@ -1,8 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
-use std::iter;
 use std::marker::PhantomData;
-use std::mem;
 use std::ops::Deref;
 use std::time::Duration;
 use tracing::{Level, instrument};
@@ -11,9 +9,10 @@ use crate::domain::protocol_event::forwarding::{
     PathIdEntry, PathIdForwardingEntry, PathIdTableUpdate,
 };
 use crate::domain::{
-    Contact, Hasher, NodeId, RoutingTable, UnderlayNeighborId, VICINITY_RADIUS, VicinityGraph,
+    Hasher, NodeId, RoutingTable, UnderlayNeighborId, VICINITY_RADIUS, VicinityGraph,
+    vicinity_graph,
 };
-use crate::messaging::ProtocolMessage;
+use crate::messaging::{ProtocolMessage, RTableData, ReqRspMessage};
 use crate::use_cases::{
     EventHandler, NeverError, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime,
     UseCaseState,
@@ -141,6 +140,176 @@ where
         self.old_entries = graph_entries;
         self.vicinity_changed = false;
     }
+
+    fn handle_vicinity_update(&mut self, context: &C, rtable_data: ReqRspMessage<RTableData>) {
+        let hop_count = rtable_data.source_route.size() - 1; // excluding ourselves
+
+        // Skip everything not inside vicinity radius
+        if hop_count >= VICINITY_RADIUS {
+            // shouldn't happen unless we falsely send requests outside our radius
+            tracing::warn!(
+                target: "precompute_paths_and_path_ids",
+                source = %rtable_data.source(),
+                source_route = ?rtable_data.source_route,
+                "received vicinity information from outside the vicinity"
+            );
+            return;
+        }
+
+        let source = *rtable_data.source();
+        let Some(source_ssn) = rtable_data.source_state_seq_nr.value() else {
+            // shouldn't happen because the ForwardProtocolMessages
+            // use-case would short circuit and blocks us from receiving the message
+            tracing::warn!(
+                target: "precompute_paths_and_path_ids",
+                %source,
+                ssn = %rtable_data.source_state_seq_nr,
+                "underlay information updates by a node with an invalid state sequence number"
+            );
+            return;
+        };
+
+        let source_neighbors = rtable_data.data.contacts;
+        tracing::trace!(
+            target: "precompute_paths_and_path_ids",
+            %source,
+            neighbors = ?source_neighbors,
+            "underlay information update"
+        );
+
+        let mut vicinity_graph = context.vicinity_graph_mut();
+
+        let underlay_neighbor = hop_count == 1;
+        let root_id = context.root_id();
+        if underlay_neighbor {
+            // underlay neighbors are only inserted after two way handshake so we do it here
+            // 2 hop neighbors are added via one of our underlay neighbors rtable
+            assert!(
+                vicinity_graph.insert(source, root_id, source_ssn).is_ok(),
+                "insertion of underlay neighbor into vicinity graph failed",
+            );
+            self.vicinity_changed = true;
+        }
+
+        // obtain vicinity graph entry
+        let Some(source_vicinity_entry) = vicinity_graph.entry_mut(&source) else {
+            if underlay_neighbor {
+                panic!(
+                    "vicinity graph entry of just inserted underlay neighbor can't be found: {source}"
+                );
+            }
+
+            // shouldn't happen but we can cope with it by just doing nothing
+            tracing::warn!(
+                target: "precompute_paths_and_path_ids",
+                node = %source,
+                "vicinity graph entry not found",
+            );
+            return;
+        };
+
+        // update vicinity graph entry
+        source_vicinity_entry.update_vicinity_ssn(source_ssn);
+        source_vicinity_entry.update_last_seen(context.runtime().current_time());
+
+        // inserting neighbors of source into our vicinity graph
+
+        if !underlay_neighbor {
+            // don't care about the source's neighbors on 2-hops because:
+            // - link to 1-hop: synced via periodic and urgent ULNHellos
+            // - link to another 2-hop: maybe interesting in the future
+            // - link to > = 3 hop: completely useless
+            return;
+        }
+
+        let mut old_source_neighbors: HashSet<_> = vicinity_graph.vicinity(&source).collect();
+        for source_neighbor in source_neighbors.iter() {
+            let nid = source_neighbor.id();
+            if nid == root_id {
+                old_source_neighbors.remove(nid);
+                continue;
+            }
+            let observed_ssn = *source_neighbor.state_seq_nr();
+
+            // only accept updates to us from our underlay neighbors
+            if nid != root_id || underlay_neighbor {
+                let old_observed_ssn = vicinity_graph
+                    .entry(nid)
+                    .map(vicinity_graph::Entry::observed_ssn);
+
+                // don't decrease observed_ssn because we aren't directly talking to nid
+                let observed_ssn = match old_observed_ssn {
+                    Some(old_observed_ssn) if old_observed_ssn < &observed_ssn => {
+                        tracing::trace!(
+                            target: "precompute_paths_and_path_ids",
+                            %source,
+                            node = %nid,
+                            %old_observed_ssn,
+                            new_observed_ssn = %observed_ssn,
+                            "observed higher state sequence number of vicinity node"
+                        );
+                        observed_ssn
+                    }
+                    None => {
+                        tracing::debug!(
+                            target: "precompute_paths_and_path_ids",
+                            %source,
+                            node = %nid,
+                            %observed_ssn,
+                            "insert new node into vicinity graph"
+                        );
+                        observed_ssn
+                    }
+                    Some(old_observed_ssn) => *old_observed_ssn, // old news
+                };
+
+                if let Err(err) = vicinity_graph.insert(*nid, &source, observed_ssn) {
+                    tracing::warn!(
+                        target: "precompute_paths_and_path_ids",
+                        %source,
+                        node = %nid,
+                        err_msg = %err,
+                        "inserting source neighbor into vicinity graph failed"
+                    );
+                    continue;
+                };
+
+                let new_link = old_source_neighbors.remove(nid);
+                if new_link {
+                    tracing::debug!(
+                        target: "precompute_paths_and_path_ids",
+                        %source,
+                        node = %nid,
+                        "added edge to vicinity graph"
+                    );
+                    self.vicinity_changed = true;
+                }
+            }
+        }
+
+        let removed_source_neighbors = old_source_neighbors;
+        for removed_source_neighbor in removed_source_neighbors.iter() {
+            assert!(
+                vicinity_graph.remove_edge(&source, removed_source_neighbor),
+                "removing edge of node's vicinity should change vicinity graph"
+            );
+
+            tracing::debug!(
+                target: "precompute_paths_and_path_ids",
+                %source,
+                node = %removed_source_neighbor,
+                "removed edge from vicinity graph"
+            );
+            self.vicinity_changed = true;
+        }
+
+        // clean up nodes moved outside the vicinity or got isolated
+        // because of the removal of links
+        if !removed_source_neighbors.is_empty() {
+            let _removed_nodes = vicinity_graph.retain_vicinity();
+            self.vicinity_changed = true;
+        }
+    }
 }
 
 impl<C, const BUCKET_SIZE: usize> EventHandler for PrecomputePathIds<C, BUCKET_SIZE>
@@ -174,133 +343,7 @@ where
             UseCaseEvent::Message(ProtocolMessage::ULNDiscReq(rtable_data), _)
             | UseCaseEvent::Message(ProtocolMessage::ULNDiscRsp(rtable_data), _)
             | UseCaseEvent::Message(ProtocolMessage::QueryRouteRsp(rtable_data), _) => {
-                // Skip everything not in vicinity radius
-                if rtable_data.source_route.size() > VICINITY_RADIUS {
-                    // shouldn't happen unless we falsely send requests outside our radius
-                    tracing::warn!(
-                        target: "precompute_paths_and_path_ids",
-                        source=%rtable_data.source(),
-                        source_route=?rtable_data.source_route,
-                        "received vicinity information from outside the vicinity"
-                    );
-
-                    return Ok(());
-                }
-
-                let source = *rtable_data.source();
-                let Some(source_ssn) = rtable_data.source_state_seq_nr.value() else {
-                    // shouldn't happen because the ForwardProtocolMessages
-                    // use-case would short circuit and blocks us from receiving the message
-                    tracing::warn!(
-                        target: "precompute_paths_and_path_ids",
-                        %source,
-                        ssn=%rtable_data.source_state_seq_nr,
-                        "underlay information updates by a node with an invalid state sequence number"
-                    );
-                    return Ok(());
-                };
-
-                let underlay_contacts = rtable_data.data.contacts;
-                tracing::trace!(target: "precompute_paths_and_path_ids",
-                    %source,
-                    neighbors=?underlay_contacts,
-                    "underlay information update"
-                );
-
-                let mut vicinity_graph = context.vicinity_graph_mut();
-                let underlay_ids = underlay_contacts.iter().map(Contact::id).copied();
-                // TODO: prohibit link deletions to underlay neighbors on 2hops
-                if let Err(err) = vicinity_graph.update_vicinity(
-                    &source,
-                    // include us into neighbors on underlay neighbors
-                    // because of two way handshake we aren't a verified
-                    // underlay contact of source
-                    iter::once(*context.root_id())
-                        .filter(|_| rtable_data.source_route.size() == 1)
-                        .chain(underlay_ids),
-                    source_ssn,
-                ) {
-                    // shouldn't happen unless neighbor in the receiving source route
-                    // was deleted before receiving the response
-                    // making this node isolated because the neighbor
-                    // isn't connected to the root anymore.
-
-                    let present = vicinity_graph
-                        .nodes()
-                        .any(|vicinity_node| vicinity_node == source);
-                    tracing::warn!(
-                        target: "precompute_paths_and_path_ids",
-                        %source,
-                        err_msg=%err,
-                        neighbors=?underlay_contacts,
-                        %present,
-                        "Updating underlay information failed"
-                    );
-                    return Ok(());
-                }
-                self.vicinity_changed = true;
-
-                // don' track neighbors of 2 hops
-                // use root_distance over source-route hops because maybe
-                // we discovered a better path to source while the request was pending
-                if vicinity_graph
-                    .root_distance(&source)
-                    .expect("should be present in the vicinity graph")
-                    >= const { VICINITY_RADIUS - 1 }
-                {
-                    std::mem::drop(vicinity_graph);
-                    if self.config.update_interval.is_none() {
-                        self.precompute_paths_and_ids(context);
-                    }
-                    return Ok(());
-                }
-
-                // update observed_ssn for all underlay_contacts to initiate a (potential) (re)sync.
-                for contact in underlay_contacts.iter() {
-                    let nid = contact.id();
-                    let ssn = contact.state_seq_nr();
-
-                    // don't track our ssn in the vicinity graph
-                    if nid == context.root_id() {
-                        continue;
-                    }
-
-                    // update observed_ssn if newer observed in rtable_data
-                    if let Some(observed_ssn) = vicinity_graph.observed_ssn(nid).copied() {
-                        if ssn > &observed_ssn {
-                            vicinity_graph.update_observed_ssn(nid, *ssn);
-                            tracing::trace!(
-                                target: "precompute_paths_and_path_ids",
-                                %source,
-                                node=%nid,
-                                old_observed_ssn=%observed_ssn,
-                                new_observed_ssn=%ssn,
-                                "higher observed state sequence number of neighbor updated"
-                            );
-                        }
-                    } else {
-                        // untracked vicinity node: track observed_ssn => insert
-                        assert!(
-                            vicinity_graph.insert(*nid, &source, *ssn).is_ok(),
-                            "RTableData contacts should be connected to source inside vicinity"
-                        );
-                        tracing::trace!(
-                            target: "precompute_paths_and_path_ids",
-                            %source,
-                            node=%nid,
-                            observed_ssn=%ssn,
-                            "inserted new node into vicinity graph"
-                        );
-
-                        debug_assert!(
-                            vicinity_graph
-                                .root_distance(nid)
-                                .is_some_and(|d| d <= VICINITY_RADIUS),
-                            "contacts of source inside vicinity should be part of the vicinity graph"
-                        )
-                    }
-                }
-                mem::drop(vicinity_graph);
+                self.handle_vicinity_update(context, rtable_data);
 
                 if self.config.update_interval.is_none() {
                     self.precompute_paths_and_ids(context);
@@ -318,6 +361,7 @@ where
                     return Ok(());
                 }
             }
+            // FIXME: react on external changes of the vicinity graph
             _ => {}
         }
 

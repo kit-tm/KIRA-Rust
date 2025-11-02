@@ -8,7 +8,7 @@ use derive_more::derive::{Display, Error};
 
 use crate::domain::{
     Contact, ContactState, Link, NodeId, NotVia, RoutingTable, ULNTable, UnderlayNeighborId,
-    UnderlayNeighborUpdate,
+    UnderlayNeighborUpdate, VicinityGraph,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -85,6 +85,7 @@ where
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::VicinityGraph: VicinityGraph,
 {
     /// Remove all NotVia Data which is related to the contact
     fn remove_notvia_mentioning(&self, context: &C, contact_id: &NodeId) {
@@ -338,9 +339,13 @@ where
             }
         }
 
+        let root_id = context.root_id();
+        let mut vg_lock = context.vicinity_graph_mut();
         for neighbor in affected_neighbors.iter() {
             context.uln_table_mut().remove(neighbor);
+            vg_lock.remove_edge(root_id, neighbor);
         }
+        let _ = vg_lock.retain_vicinity();
     }
 }
 
@@ -350,6 +355,7 @@ where
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::VicinityGraph: VicinityGraph,
 {
     type Context = C;
     type Error = FailureHandlingError;
@@ -435,6 +441,7 @@ where
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::VicinityGraph: VicinityGraph,
 {
     type State = ReactiveUseCaseState;
 

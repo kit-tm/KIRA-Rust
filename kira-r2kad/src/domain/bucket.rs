@@ -186,6 +186,13 @@ impl<const SIZE: usize> Bucket<SIZE> {
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Contact> {
         self.contacts.iter_mut().flatten()
     }
+
+    /// Returns an iterator over all contact slots in this bucket.
+    ///
+    /// A value of [None] indicates that the slot is unpopulated.
+    pub fn iter_slots(&self) -> impl Iterator<Item = &Option<Contact>> {
+        self.contacts.iter()
+    }
 }
 
 impl<const SIZE: usize> From<[Contact; SIZE]> for Bucket<SIZE> {

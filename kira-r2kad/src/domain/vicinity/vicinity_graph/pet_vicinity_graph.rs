@@ -1,6 +1,6 @@
 //! A [VicinityGraph] implementation supported by [petgraph].
 
-use std::{collections::HashMap, hash::RandomState, iter, time::Instant};
+use std::{collections::HashMap, hash::RandomState};
 
 use derive_more::derive::{Display, Error};
 use petgraph::{
@@ -23,13 +23,15 @@ pub struct PetVicinityGraph {
 #[derive(Debug, Display, Error)]
 #[cfg_attr(test, derive(PartialEq))]
 pub enum PetVicinityGraphError {
-    #[display("No neighbor of {node} inside the VicinityGraph: {neighbors:#?}")]
-    NeighborNotFound {
+    #[display("Neighbor nof {node} not in the VicinityGraph: {neighbor}")]
+    NeighborNotInVicinityGraph {
         #[error(ignore)]
         node: NodeId,
         #[error(ignore)]
-        neighbors: Vec<NodeId>,
+        neighbor: NodeId,
     },
+    #[display("Tried to insert root into the VicinityGraph")]
+    Root,
 }
 
 impl PetVicinityGraph {
@@ -46,23 +48,19 @@ impl PetVicinityGraph {
 }
 
 impl PetVicinityGraph {
-    fn valid_neighbors(
+    fn valid_neighbor(
         &self,
         node: &NodeId,
-        neighbors: impl IntoIterator<Item = NodeId>,
-    ) -> Result<Vec<NodeId>, PetVicinityGraphError> {
-        let neighbors: Vec<_> = neighbors.into_iter().collect();
+        neighbor: &NodeId,
+    ) -> Result<(), PetVicinityGraphError> {
         // guard against unconnected nodes
         // and nodes that are not connected to contacted nodes
-        if neighbors
-            .iter()
-            .any(|neighbor| neighbor == &self.root_id || self.entries.contains_key(neighbor))
-        {
-            Ok(neighbors)
+        if neighbor == &self.root_id || self.entries.contains_key(neighbor) {
+            Ok(())
         } else {
-            Err(PetVicinityGraphError::NeighborNotFound {
+            Err(PetVicinityGraphError::NeighborNotInVicinityGraph {
                 node: *node,
-                neighbors,
+                neighbor: *neighbor,
             })
         }
     }
@@ -80,42 +78,19 @@ impl VicinityGraph for PetVicinityGraph {
         discovered_via: &NodeId,
         observed_ssn: SafeStateSeqNr,
     ) -> Result<(), Self::Error> {
-        self.valid_neighbors(&node, iter::once(*discovered_via))?;
-
-        self.entries.insert(node, Entry::new(observed_ssn));
-
-        Ok(())
-    }
-
-    fn update_vicinity(
-        &mut self,
-        node: &NodeId,
-        neighbors: impl IntoIterator<Item = NodeId>,
-        vicinity_ssn: SafeStateSeqNr,
-    ) -> Result<(), Self::Error> {
-        let connected_neighbors = self.valid_neighbors(node, neighbors)?;
-
-        self.graph.remove_node(*node);
-        for neighbor in connected_neighbors {
-            self.graph.add_edge(*node, neighbor, ());
+        if node == self.root_id {
+            return Err(PetVicinityGraphError::Root);
         }
+        self.valid_neighbor(&node, discovered_via)?;
 
         self.entries
-            .entry(*node)
-            .and_modify(|entry| entry.update_vicinity_ssn(vicinity_ssn))
-            .or_insert_with(|| Entry::new(vicinity_ssn));
+            .entry(node)
+            .and_modify(|entry| entry.update_observed_ssn(observed_ssn))
+            .or_insert_with(|| Entry::new(observed_ssn));
+
+        self.graph.add_edge(node, *discovered_via, ());
 
         Ok(())
-    }
-
-    fn reset(&mut self, node: &NodeId) {
-        let Some(entry) = self.entries.get_mut(node) else {
-            return;
-        };
-
-        // expect at least the minimum ssn after a reset
-        entry.update_observed_ssn(SafeStateSeqNr::MIN);
-        entry.forget_vicinity();
     }
 
     fn remove(&mut self, node: &NodeId) -> bool {
@@ -130,34 +105,16 @@ impl VicinityGraph for PetVicinityGraph {
         entry_removed || graph_removed
     }
 
-    fn update_last_seen(&mut self, node: &NodeId, now: Instant) {
-        let Some(entry) = self.entries.get_mut(node) else {
-            return;
-        };
-        entry.update_last_seen(now);
+    fn entry(&self, node: &NodeId) -> Option<&Entry> {
+        self.entries.get(node)
     }
 
-    fn update_observed_ssn(&mut self, node: &NodeId, observed_ssn: SafeStateSeqNr) {
-        let Some(entry) = self.entries.get_mut(node) else {
-            return;
-        };
-        entry.update_observed_ssn(observed_ssn);
-    }
-
-    fn last_seen(&self, node: &NodeId) -> Option<Instant> {
-        self.entries.get(node).and_then(Entry::last_seen)
-    }
-
-    fn observed_ssn(&self, node: &NodeId) -> Option<&SafeStateSeqNr> {
-        self.entries.get(node).map(Entry::observed_ssn)
+    fn entry_mut(&mut self, node: &NodeId) -> Option<&mut Entry> {
+        self.entries.get_mut(node)
     }
 
     fn vicinity(&self, node: &NodeId) -> impl Iterator<Item = NodeId> {
         self.graph.neighbors(*node)
-    }
-
-    fn vicinity_ssn(&self, node: &NodeId) -> Option<&SafeStateSeqNr> {
-        self.entries.get(node).and_then(Entry::vicinity_ssn)
     }
 
     fn root_distance(&self, node: &NodeId) -> Option<usize> {
@@ -168,6 +125,10 @@ impl VicinityGraph for PetVicinityGraph {
                 .get(node)
                 .copied()
         }
+    }
+
+    fn remove_edge(&mut self, node_a: &NodeId, node_b: &NodeId) -> bool {
+        self.graph.remove_edge(*node_a, *node_b).is_some()
     }
 
     fn retain_vicinity(&mut self) -> impl Iterator<Item = NodeId> {
@@ -232,5 +193,122 @@ impl VicinityGraph for PetVicinityGraph {
         }
 
         path.try_into().ok()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::time::Instant;
+
+    use super::*;
+
+    #[test]
+    fn empty_graph() {
+        let root_id = NodeId::with_msb(1);
+        let graph = PetVicinityGraph::new(root_id);
+
+        assert_eq!(graph.entry(&root_id), None);
+
+        assert_eq!(
+            graph.nodes().collect::<Vec<_>>(),
+            vec![],
+            "no nodes in empty graph"
+        );
+
+        assert_eq!(
+            graph.vicinity_paths().collect::<Vec<_>>(),
+            vec![],
+            "no paths in empty graph"
+        );
+    }
+
+    #[test]
+    fn no_insertion_of_root_id() {
+        let root_id = NodeId::with_msb(1);
+        let mut graph = PetVicinityGraph::new(root_id);
+
+        assert!(
+            graph
+                .insert(root_id, &root_id, SafeStateSeqNr::try_from(1).unwrap())
+                .is_err(),
+            "root can't be inserted in the vicinity"
+        );
+    }
+
+    #[test]
+    fn insert_entry() {
+        let root_id = NodeId::with_msb(1);
+        let insert_node = NodeId::with_msb(2);
+        let insert_ssn = SafeStateSeqNr::try_from(1).unwrap();
+
+        let mut graph = PetVicinityGraph::new(root_id);
+
+        assert!(
+            graph.insert(insert_node, &root_id, insert_ssn).is_ok(),
+            "insert node via root"
+        );
+        assert!(
+            graph.graph.contains_edge(root_id, insert_node),
+            "contains edge to neighbor after insert"
+        );
+        assert_eq!(
+            graph.root_distance(&insert_node),
+            Some(1),
+            "inserted uln has distance 1 to root"
+        );
+
+        // check entry creation
+        let entry = graph.entry(&insert_node).expect("insertion creates entry");
+        assert_eq!(entry.observed_ssn(), &insert_ssn);
+        assert_eq!(entry.vicinity_ssn(), None);
+        assert_eq!(entry.last_seen(), None);
+    }
+
+    #[test]
+    fn update_via_insert() {
+        let root_id = NodeId::with_msb(1);
+        let insert_node = NodeId::with_msb(2);
+        let initial_ssn = SafeStateSeqNr::try_from(1).unwrap();
+        let updated_ssn = SafeStateSeqNr::try_from(2).unwrap();
+        let now = Instant::now();
+        let vicinity_ssn = initial_ssn;
+        let inital_entry = {
+            let mut initial_entry = Entry::new(initial_ssn);
+            initial_entry.update_last_seen(now);
+            initial_entry.update_vicinity_ssn(vicinity_ssn);
+            initial_entry
+        };
+
+        // prep graph with existing link to insert_node
+        let mut graph = PetVicinityGraph::new(root_id);
+        graph.graph.add_edge(root_id, insert_node, ());
+        graph.entries.insert(insert_node, inital_entry);
+
+        // same ssn should leave other data "unharmed"
+        {
+            assert!(
+                graph.insert(insert_node, &root_id, initial_ssn).is_ok(),
+                "insert same data again"
+            );
+
+            // check entry
+            let entry = graph.entry(&insert_node).expect("insertion creates entry");
+            assert_eq!(entry.observed_ssn(), &initial_ssn);
+            assert_eq!(entry.vicinity_ssn(), Some(&vicinity_ssn));
+            assert_eq!(entry.last_seen(), Some(now));
+        }
+
+        {
+            assert!(
+                graph.insert(insert_node, &root_id, updated_ssn).is_ok(),
+                "insert same data again"
+            );
+
+            // check entry
+            let entry = graph.entry(&insert_node).expect("insertion creates entry");
+            assert_eq!(entry.observed_ssn(), &updated_ssn);
+            assert_eq!(entry.vicinity_ssn(), Some(&vicinity_ssn));
+            assert_eq!(entry.last_seen(), Some(now));
+        }
     }
 }
