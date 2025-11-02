@@ -73,7 +73,7 @@ impl<V: VicinityGraph> VicinityGraph for ObservableVicinityGraph<V> {
         node: NodeId,
         discovered_via: &NodeId,
         observed_ssn: SafeStateSeqNr,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<bool, Self::Error> {
         self.inner.insert(node, discovered_via, observed_ssn)
     }
 

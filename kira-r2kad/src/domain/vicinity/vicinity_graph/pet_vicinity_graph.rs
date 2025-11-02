@@ -77,7 +77,7 @@ impl VicinityGraph for PetVicinityGraph {
         node: NodeId,
         discovered_via: &NodeId,
         observed_ssn: SafeStateSeqNr,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<bool, Self::Error> {
         if node == self.root_id {
             return Err(PetVicinityGraphError::Root);
         }
@@ -88,9 +88,8 @@ impl VicinityGraph for PetVicinityGraph {
             .and_modify(|entry| entry.update_observed_ssn(observed_ssn))
             .or_insert_with(|| Entry::new(observed_ssn));
 
-        self.graph.add_edge(node, *discovered_via, ());
-
-        Ok(())
+        let new_edge = self.graph.add_edge(node, *discovered_via, ()).is_none();
+        Ok(new_edge)
     }
 
     fn remove(&mut self, node: &NodeId) -> bool {
@@ -137,7 +136,7 @@ impl VicinityGraph for PetVicinityGraph {
         nodes.into_iter().filter(move |n| {
             let outside = distances
                 .get(n)
-                .is_none_or(|rdistance| *rdistance > VICINITY_RADIUS);
+                .is_none_or(|rdistance| *rdistance >= VICINITY_RADIUS);
             if outside {
                 assert!(
                     self.remove(n),
@@ -198,6 +197,7 @@ impl VicinityGraph for PetVicinityGraph {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashSet;
     use std::time::Instant;
 
     use super::*;
@@ -243,10 +243,9 @@ mod test {
 
         let mut graph = PetVicinityGraph::new(root_id);
 
-        assert!(
-            graph.insert(insert_node, &root_id, insert_ssn).is_ok(),
-            "insert node via root"
-        );
+        let insertion_res = graph.insert(insert_node, &root_id, insert_ssn);
+        assert!(insertion_res.is_ok(), "insert node via root");
+        assert!(insertion_res.unwrap(), "insert new edge");
         assert!(
             graph.graph.contains_edge(root_id, insert_node),
             "contains edge to neighbor after insert"
@@ -286,10 +285,9 @@ mod test {
 
         // same ssn should leave other data "unharmed"
         {
-            assert!(
-                graph.insert(insert_node, &root_id, initial_ssn).is_ok(),
-                "insert same data again"
-            );
+            let insertion_res = graph.insert(insert_node, &root_id, initial_ssn);
+            assert!(insertion_res.is_ok(), "insert same data again");
+            assert!(!insertion_res.unwrap(), "don't insert new edge");
 
             // check entry
             let entry = graph.entry(&insert_node).expect("insertion creates entry");
@@ -299,10 +297,9 @@ mod test {
         }
 
         {
-            assert!(
-                graph.insert(insert_node, &root_id, updated_ssn).is_ok(),
-                "insert same data again"
-            );
+            let insertion_res = graph.insert(insert_node, &root_id, updated_ssn);
+            assert!(insertion_res.is_ok(), "insert updated ssn");
+            assert!(!insertion_res.unwrap(), "don't insert new edge");
 
             // check entry
             let entry = graph.entry(&insert_node).expect("insertion creates entry");
@@ -310,5 +307,187 @@ mod test {
             assert_eq!(entry.vicinity_ssn(), Some(&vicinity_ssn));
             assert_eq!(entry.last_seen(), Some(now));
         }
+    }
+
+    #[test]
+    fn calculates_all_paths_in_2_hop_vicinity() {
+        /*
+        Topology:
+            /- 2 -\
+           1 - 3 - 4 - 5
+           |   |       |
+           \-- 6 -- 7 -/
+
+        Vicinity of N=1:
+            /- 2 -\
+           1 - 3 - 4
+           |   |
+           \-- 6 -- 7
+        */
+
+        // same ssn for all nodes for now
+        let ssn = SafeStateSeqNr::try_from(1).unwrap();
+        let n = [
+            NodeId::with_msb(1),
+            NodeId::with_msb(1),
+            NodeId::with_msb(2),
+            NodeId::with_msb(3),
+            NodeId::with_msb(4),
+            NodeId::with_msb(5),
+            NodeId::with_msb(6),
+            NodeId::with_msb(7),
+        ];
+        let root = n[0];
+
+        // build graph
+        let graph = {
+            let mut graph = PetVicinityGraph::new(root);
+            // 2
+            assert!(graph.insert(n[2], &n[1], ssn).is_ok());
+            assert!(graph.insert(n[4], &n[2], ssn).is_ok());
+
+            // 3
+            assert!(graph.insert(n[3], &n[1], ssn).is_ok());
+            assert!(graph.insert(n[4], &n[3], ssn).is_ok());
+            assert!(graph.insert(n[6], &n[3], ssn).is_ok());
+
+            // 6
+            assert!(graph.insert(n[6], &n[1], ssn).is_ok());
+            assert!(graph.insert(n[3], &n[6], ssn).is_ok());
+            assert!(graph.insert(n[7], &n[6], ssn).is_ok());
+
+            // 4
+            assert!(graph.insert(n[4], &n[3], ssn).is_ok());
+            assert!(graph.insert(n[2], &n[4], ssn).is_ok());
+            assert!(graph.insert(n[5], &n[4], ssn).is_ok());
+
+            // 7
+            assert!(graph.insert(n[7], &n[6], ssn).is_ok());
+            assert!(graph.insert(n[5], &n[7], ssn).is_ok());
+
+            graph
+        };
+
+        let mut paths = graph.vicinity_paths().collect::<HashSet<_>>();
+        let expected_paths = HashSet::from([
+            // All paths to 2
+            Path::from([NodeId::with_msb(1), NodeId::with_msb(2)]),
+            // All paths to 3
+            Path::from([NodeId::with_msb(1), NodeId::with_msb(3)]),
+            Path::from([
+                NodeId::with_msb(1),
+                NodeId::with_msb(6),
+                NodeId::with_msb(3),
+            ]),
+            // All paths to 4
+            Path::from([
+                NodeId::with_msb(1),
+                NodeId::with_msb(2),
+                NodeId::with_msb(4),
+            ]),
+            Path::from([
+                NodeId::with_msb(1),
+                NodeId::with_msb(3),
+                NodeId::with_msb(4),
+            ]),
+            // All paths to 5
+            // NONE
+            // All paths to 6
+            Path::from([NodeId::with_msb(1), NodeId::with_msb(6)]),
+            Path::from([
+                NodeId::with_msb(1),
+                NodeId::with_msb(3),
+                NodeId::with_msb(6),
+            ]),
+            // All paths to 7
+            Path::from([
+                NodeId::with_msb(1),
+                NodeId::with_msb(6),
+                NodeId::with_msb(7),
+            ]),
+        ]);
+        let mut not_generated = HashSet::new();
+        for path in expected_paths {
+            if !paths.remove(&path) {
+                not_generated.insert(path);
+            }
+        }
+        assert!(
+            not_generated.is_empty() && paths.is_empty(),
+            "Not generated paths: {not_generated:#?}; Additionally generated paths: {paths:#?}"
+        );
+    }
+
+    #[test]
+    fn retain_vicinity() {
+        /*
+        Topology:
+            /- 2 -\
+           1 - 3 - 4 - 5
+           |   |       |
+           \-- 6 -- 7 -/
+
+        Vicinity of N=1:
+            /- 2 -\
+           1 - 3 - 4
+           |   |
+           \-- 6 -- 7
+        */
+
+        // same ssn for all nodes for now
+        let ssn = SafeStateSeqNr::try_from(1).unwrap();
+        let n = [
+            NodeId::with_msb(1),
+            NodeId::with_msb(1),
+            NodeId::with_msb(2),
+            NodeId::with_msb(3),
+            NodeId::with_msb(4),
+            NodeId::with_msb(5),
+            NodeId::with_msb(6),
+            NodeId::with_msb(7),
+        ];
+        let root = n[0];
+
+        // build graph
+        let mut graph = PetVicinityGraph::new(root);
+        // 2
+        assert!(graph.insert(n[2], &n[1], ssn).is_ok());
+        assert!(graph.insert(n[4], &n[2], ssn).is_ok());
+
+        // 3
+        assert!(graph.insert(n[3], &n[1], ssn).is_ok());
+        assert!(graph.insert(n[4], &n[3], ssn).is_ok());
+        assert!(graph.insert(n[6], &n[3], ssn).is_ok());
+
+        // 6
+        assert!(graph.insert(n[6], &n[1], ssn).is_ok());
+        assert!(graph.insert(n[3], &n[6], ssn).is_ok());
+        assert!(graph.insert(n[7], &n[6], ssn).is_ok());
+
+        // 4
+        assert!(graph.insert(n[4], &n[3], ssn).is_ok());
+        assert!(graph.insert(n[2], &n[4], ssn).is_ok());
+        assert!(graph.insert(n[5], &n[4], ssn).is_ok());
+
+        // 7
+        assert!(graph.insert(n[7], &n[6], ssn).is_ok());
+        assert!(graph.insert(n[5], &n[7], ssn).is_ok());
+
+        let mut removed = false;
+        for removed_node in graph.retain_vicinity() {
+            if removed_node == n[5] {
+                removed = true;
+            } else {
+                panic!("retain removed unexpected node: {removed_node}");
+            }
+        }
+        if !removed {
+            panic!("not removed node outside vicinity: {}", n[5]);
+        }
+
+        assert!(
+            !graph.entries.contains_key(&n[5]),
+            "remove node entries on retain_vicinity"
+        );
     }
 }

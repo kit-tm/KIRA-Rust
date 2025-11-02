@@ -708,8 +708,14 @@ where
         };
 
         if isolated_vicinity_nodes {
-            // collecting not required for pruning
-            let _ = context.vicinity_graph_mut().retain_vicinity();
+            for removed_node in context.vicinity_graph_mut().retain_vicinity() {
+                tracing::debug!(
+                    target: "vicinity_discovery",
+                    node = %removed_node,
+                    reason = "outside_vicinity",
+                    "removed node from vicinity graph"
+                );
+            }
         }
 
         Ok(())
@@ -888,7 +894,7 @@ where
                     StateSeqNr::Reset => {
                         tracing::debug!(
                             target: "vicinity_discovery",
-                            %source,
+                            node = %source,
                             deterministic_heuristic = "answer",
                             reason = "ssn_reset",
                             "init underlay neighbor discovery",
@@ -901,7 +907,7 @@ where
                             if vicinity_ssn < Some(&observed_ssn) {
                                 tracing::debug!(
                                     target: "vicinity_discovery",
-                                    %source,
+                                    node = %source,
                                     deterministic_heuristic = "answer",
                                     vicinity_ssn = if let Some(vicinity_ssn) = vicinity_ssn { format!("{vicinity_ssn}") } else { "N/A".to_string() },
                                     %observed_ssn,
@@ -914,7 +920,7 @@ where
                         } else {
                             tracing::debug!(
                                 target: "vicinity_discovery",
-                                %source,
+                                node = %source,
                                 deterministic_heuristic = "answer",
                                 vicinity_ssn = "N/A",
                                 %observed_ssn,
@@ -1034,7 +1040,7 @@ where
                             // likely answered before timeout
                             tracing::trace!(
                                 target: "vicinity_discovery",
-                                %destination,
+                                node = %destination,
                                 "not repeating canceled request",
                             );
                             return Ok(());
@@ -1048,7 +1054,7 @@ where
                             target: "vicinity_discovery",
                             uln_discovery_max_retries,
                             timeouts,
-                            %destination,
+                            %destination, node = %destination,
                             timeout_ms = timeout.as_millis(),
                             "request timed out",
                         );
@@ -1058,15 +1064,23 @@ where
                                 target: "vicinity_discovery",
                                 uln_discovery_max_retries,
                                 timeouts,
-                                %destination,
+                                node = %destination,
                                 timeout_ms = timeout.as_millis(),
                                 reason = "uln_discovery_max_retries_reached",
-                                "remove stale vicinity node",
+                                "abort syncing with node",
                             );
                             entry.remove();
 
                             // remove from structures
-                            context.vicinity_graph_mut().remove(&destination);
+                            if context.vicinity_graph_mut().remove(&destination) {
+                                tracing::debug!(
+                                    target: "vicinity_discovery",
+                                    node = %destination,
+                                    reason = "sync_timeout",
+                                    "removed node from vicinity graph"
+                                );
+                            }
+
                             //context.uln_table_mut().remove(&destination);
                             //if let Some(mut contact) =
                             //    context.routing_table_mut().contact_mut(&destination)
@@ -1080,6 +1094,7 @@ where
                         let resend_req_span = tracing::debug_span!(
                             target: "vicinity_discovery",
                             "resend_request",
+                            node = %destination,
                             %destination,
                             reason = "request_timed_out",
                             timeout_ms = field::Empty, // new timeout
@@ -1112,19 +1127,20 @@ where
                             let Some(path) = vg_lock.vicinity_path_to(destination) else {
                                 tracing::trace!(
                                     target: "vicinity_discovery",
-                                    %destination,
+                                    ndoe = %destination,
                                     reason = "unreachable_vicinity",
-                                    "abort sending QueryRouteReq"
+                                    "abort syncing with node"
                                 );
                                 entry.remove();
 
-                                tracing::trace!(
-                                    target: "vicinity_discovery",
-                                    %destination,
-                                    reason = "unreachable_vicinity",
-                                    "remove from vicinity graph"
-                                );
-                                vg_lock.remove(&destination);
+                                if vg_lock.remove(&destination) {
+                                    tracing::debug!(
+                                        target: "vicinity_discovery",
+                                        node = %destination,
+                                        reason = "unreachable_vicinity",
+                                        "removed node from vicinity graph"
+                                    );
+                                }
                                 return Ok(());
                             };
                             if path.size() == 2 {

@@ -343,9 +343,24 @@ where
         let mut vg_lock = context.vicinity_graph_mut();
         for neighbor in affected_neighbors.iter() {
             context.uln_table_mut().remove(neighbor);
-            vg_lock.remove_edge(root_id, neighbor);
+            if vg_lock.remove_edge(root_id, neighbor) {
+                tracing::debug!(
+                    target: "failure_handling",
+                    node = %neighbor,
+                    %ulnid,
+                    reason = "uln_down",
+                    "removed node from vicinity graph"
+                );
+            }
         }
-        let _ = vg_lock.retain_vicinity();
+        for removed_node in vg_lock.retain_vicinity() {
+            tracing::debug!(
+                target: "failure_handling",
+                node = %removed_node,
+                reason = "outside_vicinity",
+                "removed node from vicinity graph"
+            );
+        }
     }
 }
 

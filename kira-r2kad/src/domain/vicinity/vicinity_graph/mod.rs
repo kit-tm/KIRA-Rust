@@ -18,14 +18,16 @@ pub trait VicinityGraph {
 
     /// Inserts a node as a neighbor of `discovered_via` into the [VicinityGraph].
     ///
-    /// If the node already exists the `observed_ssn` of the [Entry] is updated.
+    /// The function returns if a new edge and entry where created by the insertion.
+    ///
+    /// If the node already exists only the `observed_ssn` of the [Entry] is updated.
     /// An error is returned if the node would make the [VicinityGraph] unconnected.
     fn insert(
         &mut self,
         node: NodeId,
         discovered_via: &NodeId,
         observed_ssn: SafeStateSeqNr,
-    ) -> Result<(), Self::Error>;
+    ) -> Result<bool, Self::Error>;
 
     /// Removes a `node` from the vicinity graph.
     ///

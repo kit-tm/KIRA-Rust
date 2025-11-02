@@ -162,7 +162,7 @@ where
             // use-case would short circuit and blocks us from receiving the message
             tracing::warn!(
                 target: "precompute_paths_and_path_ids",
-                %source,
+                %source, node = %source,
                 ssn = %rtable_data.source_state_seq_nr,
                 "underlay information updates by a node with an invalid state sequence number"
             );
@@ -172,7 +172,7 @@ where
         let source_neighbors = rtable_data.data.contacts;
         tracing::trace!(
             target: "precompute_paths_and_path_ids",
-            %source,
+            %source, node = %source,
             neighbors = ?source_neighbors,
             "underlay information update"
         );
@@ -184,11 +184,19 @@ where
         if underlay_neighbor {
             // underlay neighbors are only inserted after two way handshake so we do it here
             // 2 hop neighbors are added via one of our underlay neighbors rtable
-            assert!(
-                vicinity_graph.insert(source, root_id, source_ssn).is_ok(),
-                "insertion of underlay neighbor into vicinity graph failed",
-            );
-            self.vicinity_changed = true;
+            // no need to check for observed_ssn downgrade because of Nonce (FIXME: Nonce matching)
+            let new_neighbor = vicinity_graph
+                .insert(source, root_id, source_ssn)
+                .expect("insertion of underlay neighbor into vicinity graph failed");
+
+            if new_neighbor {
+                tracing::debug!(
+                    target: "precompute_paths_and_path_ids",
+                    %source, node = %source,
+                    "added edge to underlay neighbor to vicinity graph"
+                );
+                self.vicinity_changed = true;
+            }
         }
 
         // obtain vicinity graph entry
@@ -209,6 +217,10 @@ where
         };
 
         // update vicinity graph entry
+        if !underlay_neighbor {
+            // no need to check for downgrade because Rsp: QueryRouteRsp
+            source_vicinity_entry.update_observed_ssn(source_ssn);
+        }
         source_vicinity_entry.update_vicinity_ssn(source_ssn);
         source_vicinity_entry.update_last_seen(context.runtime().current_time());
 
@@ -223,67 +235,67 @@ where
         }
 
         let mut old_source_neighbors: HashSet<_> = vicinity_graph.vicinity(&source).collect();
+        assert!(
+            old_source_neighbors.remove(root_id),
+            "inserted link to underlay neighbor"
+        );
+
         for source_neighbor in source_neighbors.iter() {
             let nid = source_neighbor.id();
+            let new_link = !old_source_neighbors.remove(nid);
+
+            // skip link to us since we already inserted it
             if nid == root_id {
-                old_source_neighbors.remove(nid);
                 continue;
             }
+
             let observed_ssn = *source_neighbor.state_seq_nr();
+            let old_observed_ssn = vicinity_graph
+                .entry(nid)
+                .map(vicinity_graph::Entry::observed_ssn);
 
-            // only accept updates to us from our underlay neighbors
-            if nid != root_id || underlay_neighbor {
-                let old_observed_ssn = vicinity_graph
-                    .entry(nid)
-                    .map(vicinity_graph::Entry::observed_ssn);
-
-                // don't decrease observed_ssn because we aren't directly talking to nid
-                let observed_ssn = match old_observed_ssn {
-                    Some(old_observed_ssn) if old_observed_ssn < &observed_ssn => {
-                        tracing::trace!(
-                            target: "precompute_paths_and_path_ids",
-                            %source,
-                            node = %nid,
-                            %old_observed_ssn,
-                            new_observed_ssn = %observed_ssn,
-                            "observed higher state sequence number of vicinity node"
-                        );
-                        observed_ssn
-                    }
-                    None => {
-                        tracing::debug!(
-                            target: "precompute_paths_and_path_ids",
-                            %source,
-                            node = %nid,
-                            %observed_ssn,
-                            "insert new node into vicinity graph"
-                        );
-                        observed_ssn
-                    }
-                    Some(old_observed_ssn) => *old_observed_ssn, // old news
-                };
-
-                if let Err(err) = vicinity_graph.insert(*nid, &source, observed_ssn) {
-                    tracing::warn!(
+            // don't decrease observed_ssn because we aren't directly talking to nid
+            let observed_ssn = match old_observed_ssn {
+                Some(old_observed_ssn) if old_observed_ssn < &observed_ssn => {
+                    tracing::trace!(
                         target: "precompute_paths_and_path_ids",
                         %source,
                         node = %nid,
-                        err_msg = %err,
-                        "inserting source neighbor into vicinity graph failed"
+                        %old_observed_ssn,
+                        new_observed_ssn = %observed_ssn,
+                        "observed higher state sequence number of vicinity node"
                     );
-                    continue;
-                };
-
-                let new_link = old_source_neighbors.remove(nid);
-                if new_link {
+                    observed_ssn
+                }
+                None => {
                     tracing::debug!(
                         target: "precompute_paths_and_path_ids",
                         %source,
                         node = %nid,
-                        "added edge to vicinity graph"
+                        %observed_ssn,
+                        "insert new node into vicinity graph"
                     );
-                    self.vicinity_changed = true;
+                    observed_ssn
                 }
+                Some(old_observed_ssn) => *old_observed_ssn, // old news
+            };
+
+            let inserted_new_link = vicinity_graph.insert(*nid, &source, observed_ssn).expect(
+                "inserting neighbor of underlay neighbor should leave the vicinity graph connected",
+            );
+
+            assert_eq!(
+                inserted_new_link, new_link,
+                "insert new link into vicinity graph"
+            );
+            if new_link {
+                tracing::debug!(
+                    target: "precompute_paths_and_path_ids",
+                    %source,
+                    node = %nid,
+                    "added edge to vicinity graph"
+                );
+                self.vicinity_changed = true;
             }
         }
 
@@ -306,7 +318,15 @@ where
         // clean up nodes moved outside the vicinity or got isolated
         // because of the removal of links
         if !removed_source_neighbors.is_empty() {
-            let _removed_nodes = vicinity_graph.retain_vicinity();
+            for removed_node in vicinity_graph.retain_vicinity() {
+                tracing::debug!(
+                    target: "precompute_paths_and_path_ids",
+                    %source,
+                    node = %removed_node,
+                    reason = "outside_vicinity",
+                    "removed node from vicinity graph"
+                );
+            }
             self.vicinity_changed = true;
         }
     }
