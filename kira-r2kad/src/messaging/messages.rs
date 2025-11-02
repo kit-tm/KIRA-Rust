@@ -4,6 +4,8 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::num::NonZeroU64;
 
+use derive_more::derive::Display;
+
 use crate::domain::{Contact, Link, NodeId, NotVia, StateSeqNr};
 use crate::messaging::dht::{
     DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreReqData, StoreRspData,
@@ -34,6 +36,29 @@ impl Nonce {
     pub fn random() -> Self {
         Self(rand::random())
     }
+}
+
+/// Enumeration containing all supported KIRA protocol messages kinds.
+#[derive(Debug, Display, PartialEq, Eq, Clone, Copy)]
+#[display("{_variant}")]
+pub enum ProtocolMessageKind {
+    ULNHello,
+    ULNDiscReq,
+    ULNDiscRsp,
+    QueryRouteReq,
+    QueryRouteRsp,
+    FindNodeReq,
+    FindNodeRsp,
+    ProbeReq,
+    ProbeRsp,
+    PathSetupReq,
+    PathTeardownReq,
+    UpdateRouteReq,
+    Error,
+    StoreReq,
+    StoreRsp,
+    FetchReq,
+    FetchRsp,
 }
 
 /// Enumeration containing all supported KIRA protocol messages.
@@ -245,6 +270,34 @@ impl ProtocolMessage {
         self.source_route()
             .map(|sr| sr.prev_hop())
             .unwrap_or_else(|| self.source())
+    }
+
+    pub fn kind(&self) -> ProtocolMessageKind {
+        match self {
+            Self::ULNHello(_) => ProtocolMessageKind::ULNHello,
+            Self::ULNDiscReq(_) => ProtocolMessageKind::ULNDiscReq,
+            Self::ULNDiscRsp(_) => ProtocolMessageKind::ULNDiscRsp,
+            Self::QueryRouteReq(_) => ProtocolMessageKind::QueryRouteReq,
+            Self::QueryRouteRsp(_) => ProtocolMessageKind::QueryRouteRsp,
+            Self::FindNodeReq(_) => ProtocolMessageKind::FindNodeReq,
+            Self::FindNodeRsp(_) => ProtocolMessageKind::FindNodeRsp,
+            Self::ProbeReq(_) => ProtocolMessageKind::ProbeReq,
+            Self::ProbeRsp(_) => ProtocolMessageKind::ProbeRsp,
+            Self::PathSetupReq(_) => ProtocolMessageKind::PathSetupReq,
+            Self::PathTeardownReq(_) => ProtocolMessageKind::PathTeardownReq,
+            Self::UpdateRouteReq(_) => ProtocolMessageKind::UpdateRouteReq,
+            Self::Error(_) => ProtocolMessageKind::Error,
+            Self::StoreReq(_) => ProtocolMessageKind::StoreReq,
+            Self::StoreRsp(_) => ProtocolMessageKind::StoreRsp,
+            Self::FetchReq(_) => ProtocolMessageKind::FetchReq,
+            Self::FetchRsp(_) => ProtocolMessageKind::FetchRsp,
+        }
+    }
+}
+
+impl From<&ProtocolMessage> for ProtocolMessageKind {
+    fn from(message: &ProtocolMessage) -> Self {
+        message.kind()
     }
 }
 

@@ -17,8 +17,8 @@ use crate::domain::{
     VicinityGraph, node_id,
 };
 use crate::messaging::{
-    HelloMessage, Nonce, ProtocolMessage, QueryRouteReqData, QueryRouteType, RTableData,
-    ReqRspMessage, source_route::SourceRoute,
+    HelloMessage, Nonce, ProtocolMessage, ProtocolMessageKind, QueryRouteReqData, QueryRouteType,
+    RTableData, ReqRspMessage, source_route::SourceRoute,
 };
 use crate::use_cases::{
     ApiEvent, EventHandler, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime,
@@ -41,6 +41,14 @@ pub struct VicinityDiscoveryConfig {
     pub uln_discovery_rsp_initial_max_wait_time: Duration,
     /// Maximum retries to complete an ULNDiscovery handshake with an underlay neighbor.
     pub uln_discovery_max_retries: usize,
+
+    /// Initial maximum wait-time to receive the dedicated QueryRouteRsp.
+    ///
+    /// The wait-time is doubled between consecutive tries until
+    /// [`query_route_discovery_max_retries`](Self::query_route_discovery_max_retries) is reached.
+    pub query_route_discovery_rsp_initial_max_wait_time: Duration,
+    /// Maximum retries to complete an QueryRoute handshake with a vicinity neighbor.
+    pub query_route_discovery_max_retries: usize,
 
     /// Number of bits for the deterministic heuristic to consider for deciding which node should
     /// respond to the ULNHello message.
@@ -66,6 +74,9 @@ impl Default for VicinityDiscoveryConfig {
             uln_discovery_rsp_initial_max_wait_time: Duration::from_millis(200),
             uln_discovery_max_retries: 2,
 
+            query_route_discovery_rsp_initial_max_wait_time: Duration::from_secs(3),
+            query_route_discovery_max_retries: 2,
+
             heuristic_calculation_bits: NonZeroUsize::new(32).unwrap(),
             heuristic_max_wait_time: Duration::from_secs(1),
             resync_timeout: Duration::from_millis(100),
@@ -90,6 +101,7 @@ pub struct InterfaceState {
 #[derive(Debug, Eq, PartialEq, Clone)]
 /// Information about the pending response to a request.
 pub struct RequestState {
+    kind: ProtocolMessageKind,
     timeouts: usize,
     timeout: Duration,
     expected_nonce: Nonce,
@@ -97,11 +109,8 @@ pub struct RequestState {
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum TimerHook {
-    /// Repeat a request to the node.
-    ///
-    /// A repeat is initialized after a timeout timer fired.
-    RepeatReq(NodeId),
-    /// Multicast a ULNHello on the interface.
+    TimeoutULNDiscReq(NodeId),
+    TimeoutQueryRouteReq(NodeId),
     SendInterfaceHello(InterfaceId),
 }
 
@@ -392,7 +401,9 @@ where
         context: &C,
         destination: NodeId,
         expected_nonce: Nonce,
+        expected_kind: ProtocolMessageKind,
         initial_timeout: Duration,
+        timeout_hook: TimerHook,
     ) {
         let VDState::Running {
             timer_hooks,
@@ -403,20 +414,28 @@ where
             panic!("VicinityDiscovery should be running");
         };
 
+        tracing::trace!(
+            target: "vicinity_discovery",
+            %destination,
+            %expected_nonce,
+            %expected_kind,
+            timeout_ms = initial_timeout.as_millis(),
+            "register pending request",
+        );
+
         pending_reqs.insert(
             destination,
             RequestState {
-                timeouts: 1,
+                kind: expected_kind,
+                timeouts: 0,
                 timeout: initial_timeout,
                 expected_nonce,
             },
         );
 
         // set timeout timer
-        let timeout_timer_id = context
-            .runtime()
-            .register_rand_timer(self.config.uln_min_interval);
-        timer_hooks.insert(timeout_timer_id, TimerHook::RepeatReq(destination));
+        let timeout_timer_id = context.runtime().register_rand_timer(initial_timeout);
+        timer_hooks.insert(timeout_timer_id, timeout_hook);
     }
 
     fn init_query_route_req(&mut self, context: &C, path: Path) -> Result<(), VDError> {
@@ -424,14 +443,14 @@ where
         let expected_nonce = Nonce::random();
         Self::send_query_route_req(context, path, expected_nonce)?;
 
-        let initial_timeout = self.config.uln_discovery_rsp_initial_max_wait_time;
-        tracing::trace!(
-            target: "vicinity_discovery",
-            %destination,
-            timeout_ms = initial_timeout.as_millis(),
-            "register pending QueryRouteReq",
+        self.register_pending_req(
+            context,
+            destination,
+            expected_nonce,
+            ProtocolMessageKind::QueryRouteRsp,
+            self.config.query_route_discovery_rsp_initial_max_wait_time,
+            TimerHook::TimeoutQueryRouteReq(destination),
         );
-        self.register_pending_req(context, destination, expected_nonce, initial_timeout);
 
         Ok(())
     }
@@ -445,14 +464,14 @@ where
         let expected_nonce = Nonce::random();
         Self::send_uln_disc_req(context, destination, underlay_neighbor, expected_nonce)?;
 
-        let initial_timeout = self.config.uln_discovery_rsp_initial_max_wait_time;
-        tracing::trace!(
-            target: "vicinity_discovery",
-            %destination,
-            timeout_ms = initial_timeout.as_millis(),
-            "register pending ULNDiscReq",
+        self.register_pending_req(
+            context,
+            destination,
+            expected_nonce,
+            ProtocolMessageKind::ULNDiscRsp,
+            self.config.uln_discovery_rsp_initial_max_wait_time,
+            TimerHook::TimeoutULNDiscReq(destination),
         );
-        self.register_pending_req(context, destination, expected_nonce, initial_timeout);
 
         Ok(())
     }
@@ -1034,7 +1053,7 @@ where
                 },
             ) => {
                 match timer_hooks.remove(timer_id) {
-                    Some(TimerHook::RepeatReq(destination)) => {
+                    Some(TimerHook::TimeoutULNDiscReq(destination)) => {
                         let hash_map::Entry::Occupied(mut entry) = pending_reqs.entry(destination)
                         else {
                             // likely answered before timeout
@@ -1047,7 +1066,7 @@ where
                         };
                         let uln_discovery_max_retries = self.config.uln_discovery_max_retries;
                         let req_state = entry.get_mut();
-                        let timeouts = req_state.timeouts;
+                        let timeouts = req_state.timeouts + 1;
                         let timeout = req_state.timeout;
 
                         tracing::trace!(
@@ -1091,6 +1110,26 @@ where
                             return Ok(());
                         }
 
+                        let Some(underlay_neighbor) =
+                            context.uln_table().get(&destination).copied()
+                        else {
+                            // e. g.: Link failure moves node outside the vicinity
+                            tracing::debug!(
+                                target: "vicinity_discovery",
+                                node = %destination,
+                                timeout_ms = timeout.as_millis(),
+                                reason = "no_uln_table_entry",
+                                "abort ULNDisc syncing with node",
+                            );
+                            entry.remove();
+
+                            // don't remove node from vicinity graph because it is
+                            // - connected via another node
+                            // - not in the vicinity graph in the first place (initial handshake)
+                            // - removed by FailureHandling because unconnected after link failure
+                            return Ok(());
+                        };
+
                         let resend_req_span = tracing::debug_span!(
                             target: "vicinity_discovery",
                             "resend_request",
@@ -1101,65 +1140,133 @@ where
                         )
                         .entered();
 
-                        // check if still inside the vicinity
-                        // e. g.: Link failure moves node outside the vicinity
-
                         // don't check vicinity_ssn < observed_ssn
                         // because update would finalize this request
+                        //
                         // (unless a different nonce that wasn't ignored was used)
                         //
                         // if in the future we have advanced means inferring
                         // the nodes vicinity we should probably check here
                         // to avoid unnecessary request repeats
 
-                        // underlay_neighbor => inside the vicinity
-                        if let Some(underlay_neighbor) =
-                            context.uln_table().get(&destination).copied()
-                        {
-                            Self::send_uln_disc_req(
-                                context,
-                                destination,
-                                underlay_neighbor,
-                                req_state.expected_nonce,
-                            )?;
-                        } else {
-                            let mut vg_lock = context.vicinity_graph_mut();
-                            let Some(path) = vg_lock.vicinity_path_to(destination) else {
-                                tracing::trace!(
-                                    target: "vicinity_discovery",
-                                    ndoe = %destination,
-                                    reason = "unreachable_vicinity",
-                                    "abort syncing with node"
-                                );
-                                entry.remove();
-
-                                if vg_lock.remove(&destination) {
-                                    tracing::debug!(
-                                        target: "vicinity_discovery",
-                                        node = %destination,
-                                        reason = "unreachable_vicinity",
-                                        "removed node from vicinity graph"
-                                    );
-                                }
-                                return Ok(());
-                            };
-                            if path.size() == 2 {
-                                tracing::error!(
-                                    target: "vicinity_discovery",
-                                    node = %destination,
-                                    "underlay vicinity node not in uln_table"
-                                );
-                                return Err(VDError::NeighborInconsistency);
-                            }
-
-                            Self::send_query_route_req(context, path, req_state.expected_nonce)?;
-                        }
+                        Self::send_uln_disc_req(
+                            context,
+                            destination,
+                            underlay_neighbor,
+                            req_state.expected_nonce,
+                        )?;
 
                         // register new timeout timer
                         let timeout = timeout * 2;
                         resend_req_span.record("timeout_ms", timeout.as_millis());
                         let timeout_timer_id = context.runtime().register_rand_timer(timeout);
-                        timer_hooks.insert(timeout_timer_id, TimerHook::RepeatReq(destination));
+                        timer_hooks
+                            .insert(timeout_timer_id, TimerHook::TimeoutULNDiscReq(destination));
+
+                        req_state.timeouts += 1;
+                        req_state.timeout = timeout;
+                    }
+                    Some(TimerHook::TimeoutQueryRouteReq(destination)) => {
+                        let hash_map::Entry::Occupied(mut entry) = pending_reqs.entry(destination)
+                        else {
+                            // likely answered before timeout
+                            tracing::trace!(
+                                target: "vicinity_discovery",
+                                node = %destination,
+                                "not repeating canceled request",
+                            );
+                            return Ok(());
+                        };
+                        let query_route_discovery_max_retries =
+                            self.config.query_route_discovery_max_retries;
+                        let req_state = entry.get_mut();
+                        let timeouts = req_state.timeouts + 1;
+                        let timeout = req_state.timeout;
+
+                        tracing::trace!(
+                            target: "vicinity_discovery",
+                            query_route_discovery_max_retries,
+                            timeouts,
+                            %destination, node = %destination,
+                            timeout_ms = timeout.as_millis(),
+                            "request timed out",
+                        );
+
+                        if timeouts > query_route_discovery_max_retries {
+                            tracing::debug!(
+                                target: "vicinity_discovery",
+                                query_route_discovery_max_retries,
+                                timeouts,
+                                node = %destination,
+                                timeout_ms = timeout.as_millis(),
+                                reason = "query_route_discovery_max_retries_reached",
+                                "abort QueryRoute syncing with node",
+                            );
+                            entry.remove();
+
+                            // don' remove 2-hop node from vicinity graph on timeout
+                            // because we should get the most updated information about our 2-hop
+                            // neighbors by our 1-hop neighbors (ULN) and should trust them more.
+
+                            // in the worst case the deletion will cause a missing
+                            // path in the vicinity graph that is never recovered
+                            // because the node didn't manage to respond in time once
+
+                            return Ok(());
+                        }
+
+                        let vg_lock = context.vicinity_graph();
+                        let Some(path) = vg_lock.vicinity_path_to(destination) else {
+                            tracing::debug!(
+                                target: "vicinity_discovery",
+                                node = %destination,
+                                reason = "unreachable_vicinity",
+                                "abort QueryRoute syncing with node"
+                            );
+                            entry.remove();
+                            return Ok(());
+                        };
+                        assert!(
+                            path.size() <= VICINITY_RADIUS,
+                            "vicinity graph generated path outside vicinity"
+                        );
+
+                        if path.size() == 2 {
+                            // probably because we since discovered it as a underlay neighbor
+                            //
+                            // Note:
+                            // we _only_ abort if its two way handshake is complete
+                            // and makes it into the vicinity graph.
+                            // Just consulting the uln_table won't suffice.
+                            tracing::debug!(
+                                target: "vicinity_discovery",
+                                node = %destination,
+                                reason = "underlay_neighbor",
+                                "abort QueryRoute syncing with node"
+                            );
+                            entry.remove();
+                            return Ok(());
+                        }
+
+                        let resend_req_span = tracing::debug_span!(
+                            target: "vicinity_discovery",
+                            "resend_request",
+                            node = %destination,
+                            %destination,
+                            reason = "request_timed_out",
+                            timeout_ms = field::Empty, // new timeout
+                        )
+                        .entered();
+
+                        Self::send_query_route_req(context, path, req_state.expected_nonce)?;
+                        // register new timeout timer
+                        let timeout = timeout * 2;
+                        resend_req_span.record("timeout_ms", timeout.as_millis());
+                        let timeout_timer_id = context.runtime().register_rand_timer(timeout);
+                        timer_hooks.insert(
+                            timeout_timer_id,
+                            TimerHook::TimeoutQueryRouteReq(destination),
+                        );
 
                         req_state.timeouts += 1;
                         req_state.timeout = timeout;
