@@ -62,15 +62,20 @@ impl Timestamp {
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[display("{_variant}")]
 pub enum ContactState {
-    Valid,
-    Invalid,
+    Valid, // has a validated active path
+    Invalid, // no valid path
+    Rediscovering, // no valid path, but trying to rediscvoery
+    Dead // contact not usable anymore (e.g., rediscovery failed finally)
 }
 
 /// A [Contact] as represented in the [RoutingTable](crate::domain::routing_table::RoutingTable).
+/// A contact contains the destination NodeId, state information, and paths leading to the contact
+/// The contact is Invalid if no valid paths are present
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[display("Contact [id: {}, age: {}, state_seq_nr: {state_seq_nr}, state: {state}, path: {path}]", self.id(), self.last_seen.to_age_duration())]
 pub struct Contact {
+    dest_id: NodeId,
     state: ContactState,
     last_seen: Timestamp,
     path: Path,
@@ -83,6 +88,7 @@ impl Contact {
     /// The given [Path] has to end with the [NodeId] of the Contact.
     pub fn new(path: Path, state_seq_nr: StateSeqNr) -> Self {
         Self {
+            dest_id: *path.last(),
             state: ContactState::Valid,
             last_seen: Timestamp::from(Utc::now()),
             path,
@@ -91,11 +97,11 @@ impl Contact {
     }
 
     pub fn id(&self) -> &NodeId {
-        self.path.last()
+        &self.dest_id
     }
 
     pub fn into_id(self) -> NodeId {
-        *self.path.last()
+        self.dest_id
     }
 
     pub fn state(&self) -> &ContactState {

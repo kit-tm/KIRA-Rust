@@ -87,6 +87,11 @@ impl NodeId {
         id
     }
 
+    pub const fn from_const(inner: [u8; SIZE]) -> Self
+    {
+        Self { bytes: inner }
+    }
+
     /// Checks if the [NodeId] is equal to the numerical value of 0;
     pub fn is_zero(&self) -> bool {
         self.bytes == [0u8; SIZE]
@@ -380,6 +385,7 @@ impl From<[u8; SIZE]> for NodeId {
         Self { bytes: inner }
     }
 }
+
 
 // ============ Conversions ==================
 

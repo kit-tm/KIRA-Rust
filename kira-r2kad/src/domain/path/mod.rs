@@ -10,6 +10,23 @@ pub mod cycle_remover;
 pub mod in_order_cycle_remover;
 pub mod shortest_first_path_simplifier;
 pub mod simplifier;
+pub mod pathcollection;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub enum PathState {
+    Undefined, // initial state, path state not yet defined
+    Valid,     // path is valid (has been validated)
+    Checking,  // path probably usable, but needs to be validated (e.g., for a proposed path)
+    Invalid    // path invalid (contains broken links)
+}
+
+
+impl Default for PathState {
+    fn default() -> Self {
+        PathState::Undefined
+    }
+}
 
 /// A Path of [NodeId]s.
 ///
@@ -17,13 +34,17 @@ pub mod simplifier;
 ///
 /// # Invariant
 ///
-/// A valid Path is not empty at any time.
+/// A valid Path is not empty at any time as it always contains the NodeId of the destination node at the end
 /// Therefore the methods panic or return errors when constructing empty [Path]s.
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Path {
     ids: Vec<NodeId>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    path_state: PathState,
 }
+
 
 /// Converts a Vector of [NodeId]s to a Path.
 ///
@@ -37,7 +58,7 @@ impl TryFrom<Vec<NodeId>> for Path {
             return Err(EmptyPathError);
         }
 
-        Ok(Self { ids: value })
+        Ok(Self { ids: value, path_state: Default::default() })
     }
 }
 
@@ -54,6 +75,7 @@ impl TryFrom<&[NodeId]> for Path {
 
         Ok(Self {
             ids: Vec::from(slice),
+            path_state: Default::default(),
         })
     }
 }
@@ -66,13 +88,16 @@ impl<const PATH_SIZE: usize> From<[NodeId; PATH_SIZE]> for Path {
         }
         Self {
             ids: Vec::from(raw),
+            path_state: Default::default(),
         }
     }
 }
 
 impl From<NodeId> for Path {
     fn from(raw: NodeId) -> Self {
-        Self { ids: vec![raw] }
+        Self { ids: vec![raw],
+               path_state: Default::default(),
+        }
     }
 }
 
@@ -90,7 +115,8 @@ impl FromIterator<NodeId> for Result<Path, EmptyPathError> {
             return Err(EmptyPathError);
         }
 
-        Ok(Path { ids: vec })
+        Ok(Path { ids: vec,
+                  path_state: Default::default(), })
     }
 }
 
@@ -116,7 +142,7 @@ impl Path {
             .iter()
             .zip(self.ids.iter().skip(1))
             .any(|(first, second)| {
-                (first == &link.0 && second == &link.1) || (first == &link.1 && second == &link.0)
+                (first == link.first() && second == link.second()) || (first == link.second() && second == link.first())
             })
     }
     /// Returns the first entry in the [Path].
@@ -125,7 +151,7 @@ impl Path {
             .first()
             .expect("Invalid state. Empty path constructed")
     }
-    /// Returns the first entry in the [Path].
+    /// Returns the second entry in the [Path].
     pub fn second(&self) -> Option<&NodeId> {
         self.ids.get(1)
     }
@@ -187,6 +213,21 @@ impl Path {
         }
 
         iter.next().is_none()
+    }
+
+    /// get path state
+    pub fn get_state(&self) -> &PathState {
+        &self.path_state
+    }
+
+    /// set path state
+    pub fn set_state(&mut self, new_state: PathState) {
+        if new_state == PathState::Undefined {
+            panic!("Path State MUST never be set to Undefined");
+        }
+        else {
+            self.path_state = new_state;
+        }
     }
 }
 

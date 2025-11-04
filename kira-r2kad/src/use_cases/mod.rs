@@ -152,7 +152,8 @@ pub enum ContactEvent {
 pub struct TimerId(usize);
 
 impl From<usize> for TimerId {
-    fn from(value: usize) -> Self {
+    fn
+        from(value: usize) -> Self {
         Self(value)
     }
 }

@@ -34,7 +34,8 @@ pub mod underlay;
 pub mod underlay_neighbor_table;
 pub mod vicinity;
 
-/// A underlay connection between two nodes.
+/// An underlay connection between two nodes.
+/// Note that this is undirected and links get ordered so that the smaller NodeId is put first
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[display("({_0}, {_1})")]
