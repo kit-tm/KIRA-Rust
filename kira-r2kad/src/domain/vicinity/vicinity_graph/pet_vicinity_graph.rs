@@ -152,8 +152,7 @@ impl VicinityGraph for PetVicinityGraph {
     }
 
     fn vicinity_paths(&self) -> impl Iterator<Item = Path> {
-        self.graph
-            .nodes()
+        self.nodes()
             .flat_map(|node| {
                 all_simple_paths::<_, _, RandomState>(
                     &self.graph,
