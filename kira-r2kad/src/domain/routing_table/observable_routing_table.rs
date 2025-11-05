@@ -1,6 +1,8 @@
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
+
+use derive_more::derive::Display;
 
 use crate::domain::unlimited_uln_routing_table::UnlimitedULNRoutingTable;
 use crate::domain::{
@@ -23,41 +25,29 @@ use crate::domain::{
 /// implementing [RoutingTable] and wrapped by [ObservableRoutingTable].
 /// Therefore [RoutingTableEvent::UpdatedBucket] is currently (2022.07.13) the only one
 /// triggered from the [ObservableRoutingTable].
-///
-/// # Explicitly emitting an event
-///
-/// To publish an event from explicitly one can use the [ObservableRoutingTable::emit] function.
-/// This can be handy when e.g. an
-/// [InsertionStrategy](crate::domain::insertion_strategy::InsertionStrategy) explicitly splits a
-/// bucket and filters out some contacts.
-/// The [InsertionStrategy](crate::domain::insertion_strategy::InsertionStrategy) can then emit
-/// multiple [RoutingTableEvent::RemovedContact] explicitly while otherwise the
-/// [ObservableRoutingTable] would only emit one [RoutingTableEvent::UpdatedBucket].
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Display)]
 pub enum RoutingTableEvent<const BUCKET_SIZE: usize> {
     /// The new [Contact] was added to the [RoutingTable].
+    #[display("NewContact [{_0}]")]
     NewContact(Contact),
     /// An existing [Contact] was updated.
+    #[display("UpdatedContact [{old} => {new}]")]
     UpdatedContact { new: Contact, old: Contact },
     /// A [Contact] was removed from the [RoutingTable].
+    #[display("RemovedContact [{_0}]")]
     RemovedContact(Contact),
     /// The [Bucket] at the given index was updated.
-    /// This event is only fire when a path of a [Contact] in the [Bucket] changed.
+    ///
+    /// This event is fired together with [NewBucket] after a split of a bucket.
+    /// In contrast to the contact events no contact in the routing table was
+    /// updated but only the bucket of contacts was changed.
+    ///
+    /// [NewBucket]: RoutingTableEvent::NewBucket
+    #[display("UpdatedBucket to [{_0}]")]
     UpdatedBucket(usize),
     /// A new [Bucket] was added at the given index.
+    #[display("NewBucket [{_0}]")]
     NewBucket(usize),
-}
-
-impl<const BUCKET_SIZE: usize> Display for RoutingTableEvent<BUCKET_SIZE> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NewContact(contact) => write!(f, "NewContact [{contact}]"),
-            Self::RemovedContact(contact) => write!(f, "RemovedContact [{contact}]"),
-            Self::UpdatedContact { old, new } => write!(f, "UpdatedContact [{old} => {new}]"),
-            Self::NewBucket(bucket) => write!(f, "NewBucket [{bucket}]"),
-            Self::UpdatedBucket(bucket) => write!(f, "UpdatedBucket to [{bucket}]"),
-        }
-    }
 }
 
 /// Observer for [RoutingTableEvent]s.
@@ -171,17 +161,6 @@ impl<RT, const BUCKET_SIZE: usize> ObservableRoutingTable<RT, BUCKET_SIZE> {
     /// Adds any type of [RoutingTableObserver] to the list of observers.
     pub fn add_observer<O: 'static + RoutingTableObserver<BUCKET_SIZE>>(&mut self, observer: O) {
         self.observers.push(Box::new(observer));
-    }
-
-    /// Explicitly emits a [RoutingTableEvent] to all observers of this [ObservableRoutingTable].
-    ///
-    /// This can be used to emit additional events to the ones automatically emitted.
-    /// E.g. when using [RoutingTable::bucket_mut] instead of [RoutingTable::remove]
-    /// to remove multiple contacts, [ObservableRoutingTable::emit] can be used to
-    /// explicitly emit [RoutingTableEvent::RemovedContact]-Events for every contact
-    /// removed.
-    pub fn emit(&self, event: RoutingTableEvent<BUCKET_SIZE>) {
-        self.notify_all(event);
     }
 
     // Eases the access to the utility function
