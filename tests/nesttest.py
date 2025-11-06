@@ -465,6 +465,7 @@ FwdEntry = Union[NodeIdEncapEntry, UnderlayNeighborFwdEntry, PathIdFwdEntry, Pat
 
 class NestTest[T]:  # T = tid type, usually int or str
     _otel_ip: IPv4Network = IPv4Network("10.42.0.0/24")
+    processes = [];
 
     """
     Nest Test
@@ -571,12 +572,12 @@ class NestTest[T]:  # T = tid type, usually int or str
             env_vars["RUST_BACKTRACE"] = "1"
             arg: str = " ".join(args)
             with open(logfile, "w") as f:
-                node.exec(
+                _p = node.exec(
                     f"./target/debug/kirad --root-id {node_id} --nftables-conf ./kirad/conf/nftables.conf {arg} && exit",
                     logfile=f,
                     env_vars=env_vars,
                 )
-
+                self.processes.append(_p)
     @property
     def otel_node(self):
         if self._otel_node is None:
@@ -1054,7 +1055,7 @@ class NestTest[T]:  # T = tid type, usually int or str
 
 
 class DebugShell[T](Cmd):
-    intro = "Welcome to the debug shell of nesttest.  Type help or ? to list commands.\n"
+    intro = "Welcome to the debug shell of nesttest.  Type help or ? to list commands, exit to quit.\n"
     prompt = "ntest> "
     file = None
 
@@ -1724,6 +1725,7 @@ class DebugShell[T](Cmd):
         "Exit the debug shell"
         print("Exiting...")
         # Kill all processes in the network namespaces to make sure everything is cleaned up
+
         for node, _ in self.test.nodes():
             netns_name = node.id
             p = Popen(f"ip netns pids {netns_name}", shell=True, stdout=PIPE)
@@ -1735,6 +1737,7 @@ class DebugShell[T](Cmd):
                     killer = Popen(
                         f"ip netns exec {netns_name} {kill_cmd}", shell=True
                     ).communicate()
+            print(f"pid={p.pid}")
 
         # TODO: still partially broken, python processes are not killed for some reason
 
