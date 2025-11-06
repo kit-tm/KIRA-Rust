@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
+use std::num::NonZeroU8;
 use std::ops::{Deref, DerefMut};
 
 use derive_more::derive::Display;
@@ -120,12 +121,12 @@ pub trait NonObservableRoutingTable<'a, const BUCKET_SIZE: usize>:
 {
 }
 
-impl<const BUCKET_SIZE: usize, const ACC: usize> NonObservableRoutingTable<'_, BUCKET_SIZE>
+impl<const BUCKET_SIZE: usize, const ACC: u8> NonObservableRoutingTable<'_, BUCKET_SIZE>
     for FlatRoutingTable<BUCKET_SIZE, ACC>
 {
 }
 
-impl<const BUCKET_SIZE: usize, const ACC: usize> NonObservableRoutingTable<'_, BUCKET_SIZE>
+impl<const BUCKET_SIZE: usize, const ACC: u8> NonObservableRoutingTable<'_, BUCKET_SIZE>
     for UnlimitedULNRoutingTable<BUCKET_SIZE, ACC>
 {
 }
@@ -254,7 +255,7 @@ where
         &self,
         to: &NodeId,
         n: usize,
-        shared_prefix_grouping: usize,
+        shared_prefix_grouping: NonZeroU8,
     ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError> {
         self.inner.closest(to, n, shared_prefix_grouping)
     }
@@ -279,7 +280,7 @@ where
         self.inner.get_bucket_index(of)
     }
 
-    fn get_bucket_prefix_length(&self, bucket_index: usize) -> usize {
+    fn get_bucket_prefix_length(&self, bucket_index: usize) -> u8 {
         self.inner.get_bucket_prefix_length(bucket_index)
     }
 }

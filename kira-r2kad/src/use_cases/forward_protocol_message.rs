@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::num::NonZeroU8;
 use std::ops::{Deref, DerefMut};
 use tracing::{Level, instrument};
 
@@ -466,7 +467,7 @@ where
             // TODO: support other shared_prefix_grouping via config
             let closest_node = context
                 .routing_table()
-                .next_hop(overlay_destination, 20, 1)
+                .next_hop(overlay_destination, 20, NonZeroU8::MIN)
                 .expect("Shared Prefix Grouping should be valid");
 
             // closest known overlay hop is us -> nothing to forward,

@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::num::{NonZeroU64, NonZeroUsize};
+use std::num::{NonZeroU8, NonZeroU64};
 use std::ops::Deref;
 use std::time::Duration;
 use tracing::{Level, instrument};
 
 use derive_more::derive::{Display, Error};
 
-use crate::domain::{GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, node_id};
+use crate::domain::{GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{FindNodeReqData, Nonce, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
@@ -19,7 +19,7 @@ use crate::use_cases::{
 pub struct RODConfig {
     pub timeout: Duration,
     pub neighborhood_size: NonZeroU64,
-    pub shared_prefix_grouping: NonZeroUsize,
+    pub shared_prefix_grouping: NonZeroU8,
 }
 
 impl Default for RODConfig {
@@ -28,7 +28,7 @@ impl Default for RODConfig {
             // Default: 2.5 Messages/s => 1000 ms / 2.5 = 400 ms
             timeout: Duration::from_millis(400),
             neighborhood_size: NonZeroU64::new(20).unwrap(),
-            shared_prefix_grouping: NonZeroUsize::new(1).unwrap(),
+            shared_prefix_grouping: NonZeroU8::new(1).unwrap(),
         }
     }
 }
@@ -43,10 +43,9 @@ pub struct RandomOverlayDiscovery<C, const BUCKET_SIZE: usize> {
 
 impl<C, const BUCKET_SIZE: usize> RandomOverlayDiscovery<C, BUCKET_SIZE> {
     pub fn new(config: RODConfig) -> Result<Self, GroupingError> {
-        if config.shared_prefix_grouping.get() > node_id::BIT_SIZE {
+        if config.shared_prefix_grouping.get() > NodeId::BITS {
             return Err(GroupingError::Invalid {
-                group_size: config.shared_prefix_grouping.get(),
-                id_size: node_id::BIT_SIZE,
+                group_size: config.shared_prefix_grouping,
             });
         }
 
@@ -70,11 +69,7 @@ where
 
         let closest_path = context
             .routing_table()
-            .closest(
-                &random_id,
-                BUCKET_SIZE,
-                self.config.shared_prefix_grouping.get(),
-            )
+            .closest(&random_id, BUCKET_SIZE, self.config.shared_prefix_grouping)
             .expect("grouping was checked on initialization")
             .first()
             .map(|(_, contact)| contact.path())

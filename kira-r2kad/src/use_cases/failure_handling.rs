@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
-use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
+use std::num::{NonZeroU8, NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::ops::Deref;
 use tracing::{Level, instrument};
 
@@ -36,7 +36,7 @@ pub struct FailureHandlingConfig {
     /// Number of overlay neighbors to notify about a node failure.
     pub failure_notification_radius: NonZeroUsize,
     /// Number of bits used for determining closest overlay neighbors.
-    pub grouping_bits: NonZeroUsize,
+    pub grouping_bits: NonZeroU8,
     /// Intervall used to generate random timeout durations based on distance to failing contact
     /// for exponential backoff.
     pub backoff_timeout_interval: RediscoveryTimeoutInterval,
@@ -48,7 +48,7 @@ impl Default for FailureHandlingConfig {
     fn default() -> Self {
         Self {
             failure_notification_radius: NonZeroUsize::new(3).unwrap(),
-            grouping_bits: NonZeroUsize::new(1).unwrap(),
+            grouping_bits: NonZeroU8::new(1).unwrap(),
             backoff_timeout_interval: RediscoveryTimeoutInterval::default(),
             backoff_max_retries: NonZeroU32::new(5).unwrap(),
         }
@@ -112,11 +112,7 @@ where
 
         let mut closest = context
             .routing_table()
-            .closest(
-                context.root_id(),
-                BUCKET_SIZE,
-                self.config.grouping_bits.get(),
-            )
+            .closest(context.root_id(), BUCKET_SIZE, self.config.grouping_bits)
             .expect("grouping should be valid");
         if closest.drain(..).any(|(_, contact)| contact.id() == id) {
             return Distance::OverlayNeighbor;
@@ -137,7 +133,7 @@ where
             .closest(
                 context.root_id(),
                 self.config.failure_notification_radius.get(),
-                self.config.grouping_bits.get(),
+                self.config.grouping_bits,
             )
             .expect("invalid config");
         let mut updates = HashMap::new();
@@ -160,7 +156,7 @@ where
 
         let closest = context
             .routing_table()
-            .closest(contact.id(), 1, self.config.grouping_bits.get())
+            .closest(contact.id(), 1, self.config.grouping_bits)
             .expect("invalid config");
 
         let Some((_, closest_contact)) = closest.into_iter().next() else {
@@ -233,7 +229,7 @@ where
     ) -> Result<(), FailureHandlingError> {
         let closest = context
             .routing_table()
-            .closest(node_id, 1, self.config.grouping_bits.get())
+            .closest(node_id, 1, self.config.grouping_bits)
             .expect("invalid config");
 
         let closest_contact = match closest.first().cloned() {

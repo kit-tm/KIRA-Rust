@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, num::NonZeroU8};
 
 use rand::Rng;
 
@@ -23,12 +23,12 @@ use crate::domain::{
 /// Calling [`bucket_iter`](UnlimitedULNRoutingTable::bucket_iter) will **not** yield
 /// any underlay neighbors.
 #[derive(Debug)]
-pub struct UnlimitedULNRoutingTable<const BUCKET_SIZE: usize, const ACC: usize> {
+pub struct UnlimitedULNRoutingTable<const BUCKET_SIZE: usize, const ACC: u8> {
     un_contacts: HashMap<NodeId, Contact>,
     inner: FlatRoutingTable<BUCKET_SIZE, ACC>,
 }
 
-impl<const BUCKET_SIZE: usize, const ACC: usize> From<FlatRoutingTable<BUCKET_SIZE, ACC>>
+impl<const BUCKET_SIZE: usize, const ACC: u8> From<FlatRoutingTable<BUCKET_SIZE, ACC>>
     for UnlimitedULNRoutingTable<BUCKET_SIZE, ACC>
 {
     fn from(routing_table: FlatRoutingTable<BUCKET_SIZE, ACC>) -> Self {
@@ -41,7 +41,7 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> From<FlatRoutingTable<BUCKET_SI
     }
 }
 
-impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZE>
+impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
     for UnlimitedULNRoutingTable<BUCKET_SIZE, ACC>
 {
     type ContactWriteGuard = &'a mut Contact;
@@ -122,7 +122,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         &self,
         to: &NodeId,
         n: usize,
-        shared_prefix_grouping: usize,
+        shared_prefix_grouping: NonZeroU8,
     ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError> {
         let mut closest = self.inner.closest(to, n, shared_prefix_grouping)?;
 
@@ -184,13 +184,15 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         self.inner.get_bucket_index(of)
     }
 
-    fn get_bucket_prefix_length(&self, bucket_index: usize) -> usize {
+    fn get_bucket_prefix_length(&self, bucket_index: usize) -> u8 {
         self.inner.get_bucket_prefix_length(bucket_index)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU8;
+
     use crate::domain::unlimited_uln_routing_table::UnlimitedULNRoutingTable;
     use crate::domain::{
         Contact, ContactState, FlatRoutingTable, NodeId, Path, RoutingTable, SafeStateSeqNr,
@@ -276,7 +278,7 @@ mod tests {
             .extend(false, contacts.clone())
             .expect("failed to insert all contact");
 
-        let closest = routing_table.closest(&NodeId::zero(), 20, 1);
+        let closest = routing_table.closest(&NodeId::zero(), 20, NonZeroU8::MIN);
         assert!(closest.is_ok(), "Returned None");
         let closest = closest.unwrap();
         let first = closest.first();
@@ -322,7 +324,7 @@ mod tests {
             .extend(false, contacts.clone())
             .expect("failed to insert all contact");
 
-        let closest = routing_table.closest(&NodeId::zero(), 1, 1);
+        let closest = routing_table.closest(&NodeId::zero(), 1, NonZeroU8::MIN);
         assert!(closest.is_ok(), "Returned None");
         let closest = closest.unwrap();
         let first = closest.first();
@@ -361,7 +363,7 @@ mod tests {
             .extend(false, contacts.clone())
             .expect("failed to insert all contact");
 
-        let closest = routing_table.closest(&NodeId::zero(), 1, 1);
+        let closest = routing_table.closest(&NodeId::zero(), 1, NonZeroU8::MIN);
         assert!(closest.is_ok(), "Returned None");
         let closest = closest.unwrap();
         let first = closest.first();
@@ -395,7 +397,7 @@ mod tests {
             .extend(false, contacts.clone())
             .expect("failed to insert all contact");
 
-        let closest = routing_table.closest(&NodeId::zero(), 20, 1);
+        let closest = routing_table.closest(&NodeId::zero(), 20, NonZeroU8::MIN);
         assert!(closest.is_ok(), "Returned error: {closest:?}");
         let closest = closest.unwrap();
         assert!(

@@ -2,7 +2,7 @@ use std::cmp::min;
 use std::collections::{HashMap, hash_map};
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::num::NonZeroUsize;
+use std::num::NonZeroU8;
 use std::ops::Deref;
 use std::time::Duration;
 use tracing::{Level, field, instrument};
@@ -14,7 +14,7 @@ use crate::domain::{
     StateSeqNr, ULNTable,
     UnderlayNeighborDestination::{Broadcast, Multicast, UnderlayNeighbor},
     UnderlayNeighborId, UnderlayNeighborSource, UnderlayNeighborUpdate, VICINITY_RADIUS,
-    VicinityGraph, node_id,
+    VicinityGraph,
 };
 use crate::messaging::{
     HelloMessage, Nonce, ProtocolMessage, ProtocolMessageKind, QueryRouteReqData, QueryRouteType,
@@ -52,7 +52,7 @@ pub struct VicinityDiscoveryConfig {
 
     /// Number of bits for the deterministic heuristic to consider for deciding which node should
     /// respond to the ULNHello message.
-    pub heuristic_calculation_bits: NonZeroUsize,
+    pub heuristic_calculation_bits: NonZeroU8,
     /// Maximum delay of synchronisation acceptable
     /// caused by not responding to an ULNHello because of the heuristic.
     pub heuristic_max_wait_time: Duration,
@@ -77,7 +77,7 @@ impl Default for VicinityDiscoveryConfig {
             query_route_discovery_rsp_initial_max_wait_time: Duration::from_secs(3),
             query_route_discovery_max_retries: 2,
 
-            heuristic_calculation_bits: NonZeroUsize::new(32).unwrap(),
+            heuristic_calculation_bits: NonZeroU8::new(32).unwrap(),
             heuristic_max_wait_time: Duration::from_secs(1),
             resync_timeout: Duration::from_millis(100),
             max_parallel_resync_count: 10, // TODO: determine sensible default
@@ -156,7 +156,7 @@ impl<C, const BUCKET_SIZE: usize> Default for VicinityDiscovery<C, BUCKET_SIZE> 
 }
 
 /// Returns if the node should answer to the other nodes ULNHello.
-fn deterministic_heuristic(self_id: &NodeId, other: &NodeId, num_bits: NonZeroUsize) -> bool {
+fn deterministic_heuristic(self_id: &NodeId, other: &NodeId, num_bits: NonZeroU8) -> bool {
     // Use deterministic heuristic to determine if we should respond to the Message
     // do not use full ID, otherwise large IDs will always "loose", use mod 2^{calculation_bits} comparison
     // small collision chance: but just in case, full nodeID will be a tie breaker
@@ -180,9 +180,9 @@ fn deterministic_heuristic(self_id: &NodeId, other: &NodeId, num_bits: NonZeroUs
 impl<C, const BUCKET_SIZE: usize> VicinityDiscovery<C, BUCKET_SIZE> {
     /// Create a new vicinity discovery use case in [VDState::Initialized].
     pub fn new(config: VicinityDiscoveryConfig) -> Self {
-        if node_id::BIT_SIZE < config.heuristic_calculation_bits.get() {
+        if NodeId::BITS < config.heuristic_calculation_bits.get() {
             panic!(
-                "Number of bits to use for the heuristic in VicinityDiscovery is greater than BIT_SIZE of NodeId."
+                "Number of bits to use for the heuristic in VicinityDiscovery is greater than BITS of NodeId."
             )
         }
         Self {
