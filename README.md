@@ -19,11 +19,22 @@ For a working example see [DNS-DHT-Example](./examples/dns-4in6-tunnel-example/)
 ## Structure
 
 - [KIRA Routing Daemon](kirad): Contains the crate representing the routing daemon executable.
-- [KIRA Library](kira-lib): Contains the different abstract modules, classes, traits to implement the routing
-  daemon.
+- [Sans-I/O R²/KAD](kira-r2kad): Contains the implementation of the routing protocol of KIRA R²/KAD.
+- [KIRA Library](kira-lib): Contains the different abstract modules, classes, traits
+  to implement a complete routing daemon.
+  Crucially this provides the i/o implementation of R²/KAD.
+- [KIRA Forwarding](kira-forwarding): Contains the traits and implementations of the fast forwarding layer of KIRA.
 - [Examples](examples): Contains minimal examples of running KIRA in an emulated network using [Containernet](https://containernet.github.io)
 
 More specific information can be found in the respective folders and in the following chapters.
+
+## Rustdoc
+
+The majority of the KIRA routing daemon is written in Rust.
+To access the [rustdoc](https://doc.rust-lang.org/rustdoc/index.html) of the respective packages run
+```shell
+make doc
+```
 
 ## Cloning the repository
 
@@ -47,8 +58,10 @@ Some of the above tasks require some dependencies to be installed to run them.
 Here are the instructions to install them.
 
 - [docker](https://docs.docker.com/get-docker/): To run benchmarks and build docker images. 
-  Additionaly one has to configure the docker daemon to enable ipv6: [like instructed here](https://docs.docker.com/config/daemon/ipv6/).
+  Additionaly one has to [configure the docker daemon to support IPv6](https://docs.docker.com/config/daemon/ipv6/).
 - [Rust](https://www.rust-lang.org/) 
+- _Userspace_ utilities of [nftables](https://wiki.nftables.org/wiki-nftables/index.php/Main_Page#Installing_nftables).
+  Specifically the daemon must have access to the `nft` utility.
 
 ## Running on physical hosts
 

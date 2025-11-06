@@ -6,6 +6,9 @@ target/
 log/
 *.profraw
 
+pkg/kirad@.service
+pkg/kirad.service
+
 # Log files
 *.log
 
