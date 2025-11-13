@@ -1,12 +1,11 @@
 use crate::api::domain::NodeId;
 use axum::http;
 use axum::response::{IntoResponse, Response};
-use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
 use hex::FromHexError;
 #[cfg(feature = "swagger_doc")]
 use itertools::Itertools;
-use kira_r2kad::domain::SIZE;
 use kira_r2kad::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, StoreErr};
 use kira_r2kad::use_cases::{FetchInjectData, StoreInjectData};
 use serde::Serialize;
@@ -35,9 +34,9 @@ impl TryFrom<Handle> for kira_r2kad::domain::NodeId {
             Handle::Key(key) => {
                 // calculating SHA256 hash
                 let hash = Sha256::digest(key.as_bytes());
-                let handle: [u8; SIZE] = hash
+                let handle: [u8; kira_r2kad::domain::NodeId::SIZE] = hash
                     .into_iter()
-                    .take(SIZE)
+                    .take(kira_r2kad::domain::NodeId::SIZE)
                     .collect::<Vec<u8>>()
                     .try_into()
                     .map_err(|_| {
@@ -45,7 +44,7 @@ impl TryFrom<Handle> for kira_r2kad::domain::NodeId {
                             target: "API",
                             "Length of hash result is to small to create NodeId: {} < {}",
                             hash.len(),
-                            SIZE,
+                            kira_r2kad::domain::NodeId::SIZE,
                         );
                         FromHexError::InvalidStringLength
                     })?;
@@ -228,7 +227,10 @@ impl Display for ApiFormatErr {
                     write!(f, "Missing request parameters: {missing:?}")
                 }
             }
-            Self::AmbiguousParams => write!(f, "Conflicting parameters provided. Parameters were passed that are mutually exclusive.")
+            Self::AmbiguousParams => write!(
+                f,
+                "Conflicting parameters provided. Parameters were passed that are mutually exclusive."
+            ),
         }
     }
 }
@@ -286,7 +288,7 @@ impl utoipa::IntoResponses for DHTErr {
             DHTErr::FormatError(ApiFormatErr::AmbiguousParams),
             DHTErr::FormatError(ApiFormatErr::HexFormatError),
             DHTErr::FormatError(ApiFormatErr::MissingParams(vec![
-                "missing_parameter".to_string()
+                "missing_parameter".to_string(),
             ])),
             DHTErr::FormatError(ApiFormatErr::MissingParams(vec![
                 "missing_parameter1".to_string(),

@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::num::NonZeroUsize;
+use std::num::NonZeroU8;
 use std::ops::IndexMut;
 
 use rand::Rng;
@@ -7,10 +7,9 @@ use rand::Rng;
 use crate::domain::{
     AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, ContactState,
     DEFAULT_BUCKET_SIZE, GroupingError, NodeId, ReplacementError, RoutingTable, SharedPrefix,
-    node_id,
 };
 
-pub const DEFAULT_ACCELERATION: usize = 1;
+pub const DEFAULT_ACCELERATION: u8 = 1;
 
 /// A [RoutingTable] implemented as flat array of [Bucket]s.
 ///
@@ -27,7 +26,7 @@ pub const DEFAULT_ACCELERATION: usize = 1;
 #[derive(Debug)]
 pub struct FlatRoutingTable<
     const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE,
-    const ACC: usize = DEFAULT_ACCELERATION,
+    const ACC: u8 = DEFAULT_ACCELERATION,
 > {
     buckets: Vec<Bucket<BUCKET_SIZE>>,
     root: NodeId,
@@ -43,7 +42,7 @@ impl FlatRoutingTable<DEFAULT_BUCKET_SIZE, DEFAULT_ACCELERATION> {
     }
 }
 
-impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, ACC> {
+impl<const BUCKET_SIZE: usize, const ACC: u8> FlatRoutingTable<BUCKET_SIZE, ACC> {
     /// Creates a [RoutingTable] with 0 capacity.
     pub fn new(root: NodeId) -> Result<Self, GroupingError> {
         Self::with_buckets(root, vec![Bucket::new()])
@@ -64,10 +63,9 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
         root: NodeId,
         buckets: Vec<Bucket<BUCKET_SIZE>>,
     ) -> Result<Self, GroupingError> {
-        if ACC > node_id::BIT_SIZE || ACC == 0 {
+        if ACC > NodeId::BITS || ACC == 0 {
             return Err(GroupingError::Invalid {
-                id_size: node_id::SIZE,
-                group_size: ACC,
+                group_size: NonZeroU8::try_from(ACC).unwrap_or(NonZeroU8::MAX),
             });
         }
         Ok(Self { buckets, root })
@@ -84,14 +82,14 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
 
     /// Returns a [NonZeroUsize] version of *ACC*. Workaround for using
     /// [NonZeroUsize] in const generics.
-    fn non_zero_acc() -> NonZeroUsize {
-        NonZeroUsize::new(ACC).expect("checked on initialization")
+    const fn non_zero_acc() -> NonZeroU8 {
+        NonZeroU8::new(ACC).expect("checked on initialization")
     }
 
     /// Returns the max number of buckets for a [RoutingTable] with the given
     /// `ID_SIZE` and `ACC`.
     pub const fn max_buckets() -> usize {
-        (node_id::BIT_SIZE / ACC) * Self::level_width()
+        ((NodeId::BITS / ACC) as usize) * Self::level_width()
     }
 
     /// Returns the number of present [Bucket]s.
@@ -110,7 +108,7 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
     }
 }
 
-impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZE>
+impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
     for FlatRoutingTable<BUCKET_SIZE, ACC>
 {
     type ContactWriteGuard = &'a mut Contact;
@@ -210,7 +208,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         &self,
         to: &NodeId,
         n: usize,
-        shared_prefix_grouping: usize,
+        shared_prefix_grouping: NonZeroU8,
     ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError> {
         // check for valid grouping first because we don't want unexpectetly panic inside iters
         to.shared_prefix_len(&self.root, shared_prefix_grouping)?;
@@ -350,28 +348,27 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
             length: prefix_len,
         } = self
             .root
-            .shared_prefix_len(of, ACC)
+            .shared_prefix_len(of, Self::non_zero_acc())
             .expect("grouping is checked on initialization");
 
         // bitindex is now the index of the LSB of the first non-zero digit in delta
         // Example: delta = 00 00 00 01 10 11 10; ACC=2
         // => prefix_len = 3, bit_index = 14 - 8 = 6
-        let bit_index = (node_id::BIT_SIZE).checked_sub((prefix_len + 1) * ACC);
-        let bit_index = match bit_index {
+        let bit_index = NodeId::BITS.checked_sub((prefix_len + 1) * ACC);
+        let Some(bit_index) = bit_index else {
             // This is the root key
-            None => return self.num_buckets() - 1, // Always at least one bucket present
-            Some(bit_index) => bit_index,
+            return self.num_buckets() - 1; // Always at least one bucket present
         };
 
         // Example: digit = 01
-        let digit = delta.bits(bit_index, Self::non_zero_acc()).unwrap();
+        let digit = delta.bits(bit_index, Self::non_zero_acc()).unwrap() as usize;
         assert_ne!(
             digit, 0,
             "bit_index is the LSB of the first non-zero digit, so digit must not be zero"
         );
 
         assert!(
-            bit_index + ACC >= node_id::BIT_SIZE
+            bit_index + ACC >= NodeId::BITS
                 || delta.bits(bit_index + ACC, Self::non_zero_acc()) == Ok(0)
         );
 
@@ -384,7 +381,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         // levelOffset = levelWidth - digit
         // index = levelBaseIndex + levelOffset
         // => index = (prefixLen+1) * levelWidth - digit
-        let level_id = prefix_len;
+        let level_id = prefix_len as usize;
         let level_base_index = level_id * Self::level_width();
         let level_offset = Self::level_width() - digit;
         let index = level_base_index + level_offset;
@@ -393,8 +390,8 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         index.min(self.num_buckets() - 1) // Always at least one bucket present
     }
 
-    fn get_bucket_prefix_length(&self, bucket_index: usize) -> usize {
-        ACC + ACC * (bucket_index / Self::level_width())
+    fn get_bucket_prefix_length(&self, bucket_index: usize) -> u8 {
+        ACC + ACC * ((bucket_index / Self::level_width()) as u8)
     }
 }
 

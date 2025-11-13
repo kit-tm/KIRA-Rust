@@ -2,6 +2,7 @@ use core::time::Duration;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::num::NonZeroU8;
 use std::ops::Deref;
 use std::sync::Arc;
 use tracing::{Level, instrument};
@@ -237,11 +238,11 @@ where
             // TODO: support different shared_prefix_len via config
             let contact_prefix = contact
                 .id()
-                .shared_prefix_len(handle, 1)
+                .shared_prefix_len(handle, NonZeroU8::MIN)
                 .expect("shared_prefix_len 1 failed");
             let root_prefix = context
                 .root_id()
-                .shared_prefix_len(handle, 1)
+                .shared_prefix_len(handle, NonZeroU8::MIN)
                 .expect("shared_prefix_len 1 failed");
 
             if contact_prefix > root_prefix {

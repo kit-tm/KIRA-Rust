@@ -14,7 +14,7 @@ use crate::domain::{
 };
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{
-    ContactEvent, EventHandler, ReactiveUseCaseState, UseCase, UseCaseContext, UseCaseEvent,
+    ContactEvent, EventHandler, UseCase, UseCaseContext, UseCaseEvent, UseCaseState,
 };
 
 /// Configuration for [DeriveFwdTableEntries] use case.
@@ -24,25 +24,44 @@ pub struct DeriveFwdTableEntriesConfig {
     pub hasher: Hasher,
 }
 
+#[derive(Debug, Default)]
+pub enum DeriveFwdTableEntriesState {
+    #[default]
+    /// [DeriveFwdTableEntries] is initialized.
+    Initialized,
+    Running {
+        bucket_prefix_entries: HashMap<usize, NodeIdSubnet>,
+    },
+    /// [DeriveFwdTableEntries] reached an unrecoverable error state.
+    Error,
+}
+
+impl UseCaseState for DeriveFwdTableEntriesState {
+    fn is_error(&self) -> bool {
+        matches!(self, Self::Initialized)
+    }
+}
+
 /// Use case to derive forwarding table entries.
 ///
 /// ## Invariants
 ///
 /// - For every [Contact] in the [RoutingTable] a [NodeIdEntry] exists.
 /// - For every [Contact] which is not a underlay neighbor a [PathIdEntry] exists.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct DeriveFwdTableEntries<C, const BUCKET_SIZE: usize> {
-    state: ReactiveUseCaseState,
-    _pd: PhantomData<C>,
+    state: DeriveFwdTableEntriesState,
     config: DeriveFwdTableEntriesConfig,
+
+    _pd: PhantomData<C>,
 }
 
 impl<C, const BUCKET_SIZE: usize> DeriveFwdTableEntries<C, BUCKET_SIZE> {
     pub fn new(config: DeriveFwdTableEntriesConfig) -> Self {
         Self {
-            state: ReactiveUseCaseState::Idle,
-            _pd: PhantomData,
+            state: DeriveFwdTableEntriesState::default(),
             config,
+            _pd: PhantomData,
         }
     }
 }
@@ -55,29 +74,51 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     fn remove_node_id_entry(
-        &self,
+        &mut self,
         context: &C,
         node_id: &NodeId,
     ) -> Result<(), DeriveFwdEntriesError> {
+        let DeriveFwdTableEntriesState::Running {
+            bucket_prefix_entries,
+        } = &mut self.state
+        else {
+            panic!("remove_node_id_entry called without running DeriveFwdTableEntries");
+        };
+
         let entry = NodeIdSubnet::new(*node_id);
         tracing::trace!(target: "derive_fwd_table_entries", %entry, "remove entry");
         context
             .runtime()
             .update_fwd_tables(NodeIdTableUpdate::Remove(entry));
 
-        // FIXME: check if entry was present before
+        let bucket_index = context.routing_table().get_bucket_index(node_id);
 
-        if let Some(prefix_entry) = self.derive_prefix_entry(context, node_id)? {
-            context
-                .runtime()
-                .update_fwd_tables(NodeIdTableUpdate::CreateOrUpdate(prefix_entry));
+        // If contact not used as bucket prefix entry was removed
+        // we don't need to recalculate the bucket prefix entry.
+        //
+        // The bucket prefix size doesn't change on contact removals.
+        // We don't merge buckets.
+        if bucket_prefix_entries
+            .get(&bucket_index)
+            .is_some_and(|prefix_entry| prefix_entry.node_id() != node_id)
+        {
+            return Ok(());
         }
+        let _span = tracing::debug_span!(
+            target: "derive_fwd_table_entries",
+            "update_bucket_entries",
+            bucket_index,
+            reason = "contact_removal",
+            kind = "NodeId",
+        )
+        .entered();
+        self.update_bucket(context, bucket_index)?;
 
         Ok(())
     }
 
     fn create_node_id_entry(
-        &self,
+        &mut self,
         context: &C,
         contact: Contact,
     ) -> Result<(), DeriveFwdEntriesError> {
@@ -87,48 +128,127 @@ where
             .runtime()
             .update_fwd_tables(NodeIdTableUpdate::CreateOrUpdate(entry));
 
-        if let Some(prefix_entry) = self.derive_prefix_entry(context, contact.id())? {
-            context
-                .runtime()
-                .update_fwd_tables(NodeIdTableUpdate::CreateOrUpdate(prefix_entry));
-        }
+        // new contact could have shortest path in bucket (PNS)
+        // or added to lowest bucket (XOR-metrics derived prefix entries).
+        let bucket_index = context.routing_table().get_bucket_index(contact.id());
+        let _span = tracing::debug_span!(
+            target: "derive_fwd_table_entries",
+            "update_bucket_entries",
+            bucket_index,
+            reason = "new_contact",
+            kind = "NodeId",
+        )
+        .entered();
+        self.update_bucket(context, bucket_index)?;
+
         Ok(())
     }
 
     fn update_node_id_entry(
-        &self,
+        &mut self,
         context: &C,
-        new_entry: Contact,
+        contact: Contact,
     ) -> Result<(), DeriveFwdEntriesError> {
-        let entry = self.derive_node_id_entry(context, &new_entry)?;
+        let entry = self.derive_node_id_entry(context, &contact)?;
         tracing::trace!(target: "derive_fwd_table_entries", %entry, "update entry");
         context
             .runtime()
             .update_fwd_tables(NodeIdTableUpdate::CreateOrUpdate(entry));
 
-        if let Some(prefix_entry) = self.derive_prefix_entry(context, new_entry.id())? {
-            context
-                .runtime()
-                .update_fwd_tables(NodeIdTableUpdate::CreateOrUpdate(prefix_entry));
-        }
+        // updated contact could have shortest path in bucket (PNS)
+        // or added to lowest bucket (XOR-metrics derived prefix entries).
+        let bucket_index = context.routing_table().get_bucket_index(contact.id());
+        let _span = tracing::debug_span!(
+            target: "derive_fwd_table_entries",
+            "update_bucket_entries",
+            bucket_index,
+            reason = "contact_update",
+            kind = "NodeId",
+        )
+        .entered();
+        self.update_bucket(context, bucket_index)?;
+
         Ok(())
     }
 
-    fn update_bucket(&self, context: &C, bucket_index: usize) -> Result<(), DeriveFwdEntriesError> {
+    fn update_bucket(
+        &mut self,
+        context: &C,
+        bucket_index: usize,
+    ) -> Result<(), DeriveFwdEntriesError> {
         let rt = context.routing_table();
-        let iter = rt.bucket_by_index(bucket_index).iter();
-        for contact in iter {
-            let _span = tracing::debug_span!(
+        let last_bucket_index = rt.get_bucket_index(context.root_id());
+
+        // Derive entries purely by XOR-metrics in last bucket for key-based routing
+        if bucket_index + 1 >= last_bucket_index {
+            // TODO: Derive bucket prefix entries by XOR-metrics for key-based routing
+        };
+
+        // derive one prefix entry of the bucket using proximity neighbor selection
+        let Some(prefix_entry) = self.derive_bucket_prefix_entry(context, bucket_index)? else {
+            let DeriveFwdTableEntriesState::Running {
+                bucket_prefix_entries,
+            } = &mut self.state
+            else {
+                panic!("update_bucket called without running DeriveFwdTableEntries");
+            };
+
+            // remove old entry of bucket
+            let Some(old_prefix) = bucket_prefix_entries.remove(&bucket_index) else {
+                return Ok(());
+            };
+
+            tracing::debug!(
                 target: "derive_fwd_table_entries",
-                "update_entry",
                 bucket_index,
-                reason = "bucket_changed",
-                node = %contact.id(),
+                reason = "bucket_empty",
                 kind = "NodeId",
-            )
-            .entered();
-            self.update_node_id_entry(context, contact.clone())?;
+                %old_prefix,
+                "remove entry",
+            );
+            context
+                .runtime()
+                .update_fwd_tables(NodeIdTableUpdate::Remove(old_prefix));
+
+            return Ok(());
+        };
+
+        let DeriveFwdTableEntriesState::Running {
+            bucket_prefix_entries,
+        } = &mut self.state
+        else {
+            panic!("update_bucket called without running DeriveFwdTableEntries");
+        };
+
+        let new_prefix = prefix_entry.destination();
+        // register new bucket prefix (NodeIdSubnet) and remove old one if changed
+        if let Some(old_prefix) = bucket_prefix_entries
+            .insert(bucket_index, prefix_entry.destination().clone())
+            .filter(|old_prefix| old_prefix != new_prefix)
+        {
+            tracing::debug!(
+                target: "derive_fwd_table_entries",
+                bucket_index,
+                reason = "bucket_prefix_changed",
+                kind = "NodeId",
+                %old_prefix, %new_prefix,
+                "remove entry",
+            );
+            context
+                .runtime()
+                .update_fwd_tables(NodeIdTableUpdate::Remove(old_prefix));
         }
+
+        tracing::debug!(
+            target: "derive_fwd_table_entries",
+            bucket_index,
+            kind = "NodeId",
+            entry = %prefix_entry,
+            "create entry",
+        );
+        context
+            .runtime()
+            .update_fwd_tables(NodeIdTableUpdate::CreateOrUpdate(prefix_entry));
 
         Ok(())
     }
@@ -165,45 +285,72 @@ where
         }
     }
 
-    fn derive_prefix_entry(
+    /// Derives one prefix entry of the bucket using proximity neighbor selection.
+    ///
+    /// If the bucket is empty [None] is returned
+    fn derive_bucket_prefix_entry(
         &self,
         context: &C,
-        node_id: &NodeId,
+        bucket_index: usize,
     ) -> Result<Option<NodeIdEntry>, DeriveFwdEntriesError> {
         let rt = context.routing_table();
-        let bucket_index = rt.get_bucket_index(node_id);
-        let iter = rt.bucket_by_index(bucket_index).iter();
+        let bucket = rt.bucket_by_index(bucket_index);
+        let iter = bucket.iter();
         let prefix_len = rt.get_bucket_prefix_length(bucket_index);
 
-        if let Some(closest) = iter
-            .filter(|c| c.id() != context.root_id())
-            .min_by_key(|c| c.path().size())
-        {
-            let subnet = NodeIdSubnet::try_new(closest.id().prefix(prefix_len), prefix_len)
-                .expect("should be valid prefix length");
-            log::trace!(target: "derive_fwd_table_entries", "derived prefix entry {:?} for contact {:?}", subnet, closest.path());
+        // Proximity Neighbor Selection:
+        // Select contact with shortest path in bucket as prefix entry
+        let Some(closest) = iter.min_by_key(|c| c.path().size()) else {
+            assert_eq!(
+                bucket.iter().count(),
+                0,
+                "no PNS of bucket indicates empty bucket"
+            );
 
-            let next_hop = *closest.path().first();
-            let next_hop = context
-                .uln_table()
-                .get(&next_hop)
-                .copied()
-                .ok_or(DeriveFwdEntriesError::NeighborNotInULNTable(next_hop))?;
+            tracing::trace!(
+                target: "derive_fwd_table_entries",
+                %bucket_index,
+                ?bucket,
+                reason = "empty_bucket",
+                "no prefix entry derived",
+            );
 
-            if closest.is_uln() {
-                return Ok(Some(NodeIdEntry::Forward(NodeIdForwardingEntry {
-                    destination: subnet,
-                    next_hop,
-                })));
-            } else {
-                return Ok(Some(NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry {
-                    destination: subnet,
-                    next_hop,
-                    out_path_id: self.config.hasher.hash(closest.path()),
-                })));
-            }
-        }
-        Ok(None)
+            return Ok(None);
+        };
+        assert_ne!(closest.id(), context.root_id(), "root in not-lowest bucket");
+
+        let subnet = NodeIdSubnet::try_new(closest.id().prefix(prefix_len), prefix_len)
+            .expect("should be valid prefix length");
+
+        let next_hop = *closest.path().first();
+        let next_hop = context
+            .uln_table()
+            .get(&next_hop)
+            .copied()
+            .ok_or(DeriveFwdEntriesError::NeighborNotInULNTable(next_hop))?;
+
+        let entry = if closest.is_uln() {
+            NodeIdEntry::Forward(NodeIdForwardingEntry {
+                destination: subnet,
+                next_hop,
+            })
+        } else {
+            NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry {
+                destination: subnet,
+                next_hop,
+                out_path_id: self.config.hasher.hash(closest.path()),
+            })
+        };
+
+        tracing::trace!(
+            target: "derive_fwd_table_entries",
+            %bucket_index,
+            ?bucket,
+            %entry,
+            "derived prefix entry"
+        );
+
+        Ok(Some(entry))
     }
 }
 
@@ -244,7 +391,7 @@ where
                     kind = "NodeId",
                 )
                 .entered();
-                self.create_node_id_entry(context, contact.clone())?;
+                self.create_node_id_entry(context, contact)?;
             }
             UseCaseEvent::Contact(ContactEvent::Removed(contact)) => {
                 let _span = tracing::debug_span!(
@@ -367,9 +514,25 @@ where
                 }
             }
             UseCaseEvent::Contact(ContactEvent::BucketUpdated(bucket)) => {
+                let _span = tracing::debug_span!(
+                    target: "derive_fwd_table_entries",
+                    "update_bucket_entries",
+                    bucket_index = bucket,
+                    reason = "bucket_changed",
+                    kind = "NodeId",
+                )
+                .entered();
                 self.update_bucket(context, bucket)?;
             }
             UseCaseEvent::Contact(ContactEvent::NewBucket(bucket)) => {
+                let _span = tracing::debug_span!(
+                    target: "derive_fwd_table_entries",
+                    "update_bucket_entries",
+                    bucket_index = bucket,
+                    reason = "new_bucket",
+                    kind = "NodeId",
+                )
+                .entered();
                 self.update_bucket(context, bucket)?;
             }
             _ => {}
@@ -386,7 +549,7 @@ where
     C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
-    type State = ReactiveUseCaseState;
+    type State = DeriveFwdTableEntriesState;
 
     fn start(&mut self, context: &C) -> Result<(), Self::Error> {
         let in_path = Path::from(*context.root_id());
@@ -395,6 +558,11 @@ where
             in_path_id,
             next_hop: DecapsulationDestination::Local,
         };
+
+        self.state = DeriveFwdTableEntriesState::Running {
+            bucket_prefix_entries: HashMap::with_capacity(2),
+        };
+
         context
             .runtime()
             .update_fwd_tables(PathIdTableUpdate::Create(PathIdEntry::Decapsulate(entry)));
@@ -423,7 +591,6 @@ mod tests {
     use crate::Output;
     use crate::context::ContextConfig;
     use crate::context::SyncContext;
-    use crate::domain::SIZE;
     use crate::domain::SafeStateSeqNr;
     use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
     use crate::domain::single_bucket::SingleBucketRT;
@@ -521,7 +688,7 @@ mod tests {
             assert_eq!(encap_entry.destination.node_id(), vicinity_contact.id());
             assert!(
                 encap_entry.destination.prefix_length() == 0
-                    || encap_entry.destination.prefix_length() == SIZE,
+                    || encap_entry.destination.prefix_length() == NodeId::BITS,
             );
             assert_eq!(encap_entry.next_hop, ulnid);
             assert_eq!(
@@ -639,7 +806,7 @@ mod tests {
             assert_eq!(fwd_entry.destination.node_id(), neighbor.id());
             assert!(
                 fwd_entry.destination.prefix_length() == 0
-                    || fwd_entry.destination.prefix_length() == SIZE,
+                    || fwd_entry.destination.prefix_length() == NodeId::BITS,
             );
             assert_eq!(fwd_entry.next_hop, ulnid);
 
@@ -888,7 +1055,7 @@ mod tests {
             assert_eq!(node_id_entry.destination.node_id(), new_contact.id());
             assert!(
                 node_id_entry.destination.prefix_length() == 0
-                    || node_id_entry.destination.prefix_length() == SIZE,
+                    || node_id_entry.destination.prefix_length() == NodeId::BITS,
             );
             assert_eq!(node_id_entry.next_hop, ulnid);
             assert_eq!(node_id_entry.out_path_id, new_out_path_id,);

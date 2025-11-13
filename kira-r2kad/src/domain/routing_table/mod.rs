@@ -1,5 +1,5 @@
 use derive_more::{Display, Error};
-use std::ops::DerefMut;
+use std::{num::NonZeroU8, ops::DerefMut};
 
 use crate::domain::{Bucket, Contact, GroupingError, NodeId, ReplacementError, SharedPrefix};
 
@@ -122,7 +122,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     fn get_bucket_index(&self, of: &NodeId) -> usize;
 
     /// Returns the fixed prefix length of the[Bucket] at the given index.
-    fn get_bucket_prefix_length(&self, bucket_index: usize) -> usize;
+    fn get_bucket_prefix_length(&self, bucket_index: usize) -> u8;
 
     /// Inserts a [Contact] into the table by splitting the [Bucket] until
     /// Insertion succeeds or splitting failed.
@@ -169,7 +169,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         &self,
         to: &NodeId,
         n: usize,
-        shared_prefix_grouping: usize,
+        shared_prefix_grouping: NonZeroU8,
     ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError>;
 
     /// Returns the next overlay hop to the given [NodeId]
@@ -185,7 +185,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         &self,
         to: &NodeId,
         n: usize,
-        shared_prefix_grouping: usize,
+        shared_prefix_grouping: NonZeroU8,
     ) -> Result<Option<Contact>, GroupingError> {
         log::trace!(target: "routing_table", "Calculating next hop to {to}");
 

@@ -2,6 +2,7 @@
 #![allow(unused_variables)]
 
 use std::cmp::Ordering;
+use std::num::NonZeroU8;
 
 use rand::Rng;
 
@@ -100,7 +101,7 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
         &self,
         to: &NodeId,
         n: usize,
-        shared_prefix_grouping: usize,
+        shared_prefix_grouping: NonZeroU8,
     ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError> {
         let mut result = Vec::with_capacity(n);
         for contact in self.bucket.iter().take(n) {
@@ -143,7 +144,7 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
         0
     }
 
-    fn get_bucket_prefix_length(&self, bucket_index: usize) -> usize {
+    fn get_bucket_prefix_length(&self, bucket_index: usize) -> u8 {
         0
     }
 }
