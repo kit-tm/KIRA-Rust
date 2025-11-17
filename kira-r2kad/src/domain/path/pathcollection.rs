@@ -69,11 +69,11 @@ mod tests
     use super::*;
     use crate::domain::{NodeId};
 
-    static NODE_ID_ONE: NodeId = NodeId::from_const([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
-    static NODE_ID_TWO: NodeId = NodeId::from_const([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
-    static NODE_ID_THREE: NodeId = NodeId::from_const([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]);
-    static NODE_ID_FOUR: NodeId = NodeId::from_const([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4]);
-    static NODE_ID_FIVE: NodeId = NodeId::from_const([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]);
+    static NODE_ID_ONE: NodeId = NodeId::from_const(1u128);
+    static NODE_ID_TWO: NodeId = NodeId::from_const(2u128);
+    static NODE_ID_THREE: NodeId = NodeId::from_const(3u128);
+    static NODE_ID_FOUR: NodeId = NodeId::from_const(4u128);
+    static NODE_ID_FIVE: NodeId = NodeId::from_const(5u128);
 
     #[test]
     fn test_new() {

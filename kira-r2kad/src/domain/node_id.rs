@@ -72,6 +72,11 @@ impl NodeId {
         }
     }
 
+    pub const fn from_const(inner: u128) -> Self
+    {
+        Self { node_id: inner }
+    }
+
     /// Creates a random [NodeId].
     /// The generated [NodeId] is guaranteed to not be equal to [NodeId::UNDEFINED] or [NodeId::ALL_NODES].
     pub fn random() -> Self {
@@ -97,11 +102,6 @@ impl NodeId {
         Self {
             node_id : u128::from(msb) << (NodeId::BITS - 8),
         }
-    }
-
-    pub const fn from_const(inner: [u8; SIZE]) -> Self
-    {
-        Self { bytes: inner }
     }
 
     /// Checks if the [NodeId] is equal to the numerical value of 0;
