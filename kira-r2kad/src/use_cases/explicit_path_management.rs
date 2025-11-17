@@ -96,7 +96,7 @@ where
         let source_route = SourceRoute::new(*context.root_id(), contact.path().clone());
         let message = ReqRspMessage {
             nonce: Nonce::random(),
-            source_state_seq_nr: *context.uln_table().state_seq_nr(),
+            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
             data: PathSetupReqData,
             not_via: context.not_via().clone(),
             source_route,
@@ -110,7 +110,7 @@ where
         let source_route = SourceRoute::new(*context.root_id(), contact.path().clone());
         let message = ReqRspMessage {
             nonce: Nonce::random(),
-            source_state_seq_nr: *context.uln_table().state_seq_nr(),
+            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
             data: ProbeReqData,
             not_via: context.not_via().clone(),
             source_route,
@@ -124,7 +124,7 @@ where
         let source_route = SourceRoute::new(*context.root_id(), contact.path().clone());
         let message = ReqRspMessage {
             nonce: Nonce::random(),
-            source_state_seq_nr: *context.uln_table().state_seq_nr(),
+            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
             data: PathTeardownReqData,
             not_via: context.not_via().clone(),
             source_route,

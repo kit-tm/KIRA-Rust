@@ -155,18 +155,6 @@ impl UseCaseRuntime for R2KadRuntime {
     ///
     /// The returned TimerId is unique.
     ///
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// let runtime = UseCaseRuntime::default();
-    /// assert_eq!(runtime.next_event(Instance::now()), None);
-    ///
-    /// let timer_id = runtime.register_timer(Instant::now() + Duration::from_secs(5));
-    /// std::thread::sleep(5);
-    /// assert_eq!(runtime.next_event(Instance::now()), UseCaseEvent::Timer(timer_id));
-    /// ```
-    ///
     /// # Panics
     ///
     /// If called outside of an event loop or on overflow.
@@ -231,6 +219,22 @@ impl UseCaseRuntime for R2KadRuntime {
             .write()
             .unwrap()
             .push_back(event.into().into());
+    }
+
+    fn timer_remaining_duration(&self, timer: &TimerId) -> Option<Duration> {
+        // WARN: This method runs in O(#timers).
+        // We should probably manage a HashMap in parallel of the BinaryHeap.
+        self.timers
+            .read()
+            .unwrap()
+            .iter()
+            .find_map(|Timer { due, id }| {
+                if id == timer {
+                    Some(*due - self.current_time())
+                } else {
+                    None
+                }
+            })
     }
 }
 

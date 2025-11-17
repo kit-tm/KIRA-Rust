@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::time::Duration;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::domain::{
-    Contact, ContactState, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, DEFAULT_BUCKET_SIZE,
+    Contact, ContactState, DEFAULT_BUCKET_SIZE, NodeId, RoutingTable, ULNTable, UnderlayNeighborId,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{Nonce, ProbeReqData, ProbeRspData, ProtocolMessage, ReqRspMessage};
@@ -135,8 +135,8 @@ where
         let mut route = SourceRoute::from(contact.path().clone());
         route.push_front(*context.root_id());
         let message = ReqRspMessage {
-            nonce: nonce.clone(),
-            source_state_seq_nr: *context.uln_table().state_seq_nr(),
+            nonce,
+            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
             data: ProbeReqData,
             not_via: context.not_via().clone(),
             source_route: route,
@@ -148,7 +148,7 @@ where
         let timeout_timer = context
             .runtime()
             .register_timer(self.config.request_timeout);
-        probe_timers.insert(timeout_timer, nonce.clone());
+        probe_timers.insert(timeout_timer, nonce);
         requests_in_flight.insert(nonce, *contact.id());
 
         log::trace!(target: "path_probing", "Sent probe to {}", contact.id());
@@ -229,7 +229,7 @@ where
         let source = *req.source();
         let message = ReqRspMessage {
             nonce: req.nonce,
-            source_state_seq_nr: *context.uln_table().state_seq_nr(),
+            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
             data: ProbeRspData,
             not_via: context.not_via().clone(),
             source_route: SourceRoute::from_reversed(req.source_route),

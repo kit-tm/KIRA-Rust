@@ -1,14 +1,14 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
+use std::num::{NonZeroU8, NonZeroU32, NonZeroU64};
 use std::ops::Deref;
 use std::time::Duration;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use derive_more::Display;
 
-use crate::domain::{node_id, GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
+use crate::domain::{GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{FindNodeReqData, Nonce, ProtocolMessage, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
@@ -40,7 +40,7 @@ pub struct ONDConfig {
     /// Defaults to *250ms*.
     pub backoff_starting_duration: Duration,
     /// Number of grouped bits used for calculating the shared prefix of two [NodeIds](crate::domain::NodeId).
-    pub shared_prefix_bits_grouping: NonZeroUsize,
+    pub shared_prefix_bits_grouping: NonZeroU8,
 }
 
 impl Default for ONDConfig {
@@ -52,7 +52,7 @@ impl Default for ONDConfig {
             backoff_base: NonZeroU32::new(2).unwrap(),
             backoff_max_retries: NonZeroU32::new(6).unwrap(),
             backoff_starting_duration: Duration::from_micros(250),
-            shared_prefix_bits_grouping: NonZeroUsize::new(1).unwrap(),
+            shared_prefix_bits_grouping: NonZeroU8::MIN,
         }
     }
 }
@@ -126,10 +126,9 @@ impl<C, const BUCKET_SIZE: usize> Default for OverlayNeighborhoodDiscovery<C, BU
 impl<C, const BUCKET_SIZE: usize> OverlayNeighborhoodDiscovery<C, BUCKET_SIZE> {
     /// Create a new [OverlayNeighborhoodDiscovery] from an [ONDConfig].
     pub fn new(config: ONDConfig) -> Result<Self, GroupingError> {
-        if config.shared_prefix_bits_grouping.get() > node_id::BIT_SIZE {
+        if config.shared_prefix_bits_grouping.get() > NodeId::BITS {
             return Err(GroupingError::Invalid {
-                group_size: config.shared_prefix_bits_grouping.get(),
-                id_size: node_id::BIT_SIZE,
+                group_size: config.shared_prefix_bits_grouping,
             });
         }
 
@@ -189,8 +188,8 @@ where
         let next_backoff = next_backoff.unwrap();
 
         let nonce = Nonce::random();
-        nonces.insert(nonce.clone());
-        *latest = Some(nonce.clone());
+        nonces.insert(nonce);
+        *latest = Some(nonce);
 
         // No need for discovery if isolated
         if context.uln_table().is_empty() {
@@ -206,7 +205,7 @@ where
             .closest(
                 context.root_id(),
                 1,
-                self.config.shared_prefix_bits_grouping.get(),
+                self.config.shared_prefix_bits_grouping,
             )
             .expect("config should have been checked before")
             .first()
@@ -240,7 +239,7 @@ where
 
         let request = ReqRspMessage {
             nonce,
-            source_state_seq_nr: *context.uln_table().state_seq_nr(),
+            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
             data: FindNodeReqData {
                 exact: false,
                 neighborhood: self.config.overlay_neighborhood_size,

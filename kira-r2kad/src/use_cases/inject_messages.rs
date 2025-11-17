@@ -1,14 +1,13 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::marker::PhantomData;
-use std::num::NonZeroUsize;
+use std::num::NonZeroU8;
 use std::ops::Deref;
 use std::time::Instant;
 use tracing::{Level, instrument};
 
 use crate::domain::{
     GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, UnderlayNeighborSource,
-    node_id,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{Nonce, ProtocolMessage, ReqRspMessage};
@@ -58,13 +57,13 @@ pub struct InjectMessagesConfig {
     /// Grouping to use.
     ///
     /// Will be used when a FindNodeReq is injected and the closest node needs to be found.
-    pub shared_prefix_grouping: NonZeroUsize,
+    pub shared_prefix_grouping: NonZeroU8,
 }
 
 impl Default for InjectMessagesConfig {
     fn default() -> Self {
         Self {
-            shared_prefix_grouping: NonZeroUsize::new(1).unwrap(),
+            shared_prefix_grouping: NonZeroU8::new(1).unwrap(),
         }
     }
 }
@@ -87,10 +86,9 @@ impl<C, TS, const BUCKET_SIZE: usize> InjectMessages<C, TS, BUCKET_SIZE> {
         config: InjectMessagesConfig,
         sender: TS,
     ) -> Result<InjectMessages<C, TS, BUCKET_SIZE>, GroupingError> {
-        if config.shared_prefix_grouping.get() > node_id::BIT_SIZE {
+        if config.shared_prefix_grouping.get() > NodeId::BITS {
             return Err(GroupingError::Invalid {
-                group_size: config.shared_prefix_grouping.get(),
-                id_size: node_id::BIT_SIZE,
+                group_size: config.shared_prefix_grouping,
             });
         }
 
@@ -139,7 +137,7 @@ where
 
                 let closest_route = context
                     .routing_table()
-                    .closest(&target, 20, self.config.shared_prefix_grouping.get())
+                    .closest(&target, 20, self.config.shared_prefix_grouping)
                     .expect("grouping has to be checked on init")
                     .first()
                     .map(|(_, contact)| {
@@ -173,8 +171,8 @@ where
                 });
 
                 let message = ProtocolMessage::FindNodeReq(ReqRspMessage {
-                    nonce: nonce.clone(),
-                    source_state_seq_nr: *context.uln_table().state_seq_nr(),
+                    nonce,
+                    source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
                     data,
                     not_via: context.not_via().clone(),
                     source_route,

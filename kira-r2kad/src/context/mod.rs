@@ -10,13 +10,14 @@ use crate::domain::{NodeId, NotVia};
 pub mod sync_context;
 
 /// Configuration Wrapper for all dependencies of a [UseCaseContext].
-pub struct ContextConfig<RT, RU, IS, UN> {
+pub struct ContextConfig<RT, RU, IS, UN, VG> {
     pub root_id: NodeId,
     pub routing_table: RT,
     pub runtime: RU,
     pub insertion_strategy: IS,
     pub uln_table: UN,
     pub not_via: HashSet<NotVia>,
+    pub vicinity_graph: VG,
 }
 
 /// Context a UseCase runs in.
@@ -31,6 +32,7 @@ pub trait UseCaseContext {
     type InsertionStrategy: Sized;
     type Runtime: Sized;
     type UnderlayNeighborTable: Sized;
+    type VicinityGraph: Sized;
 
     fn new(
         config: ContextConfig<
@@ -38,6 +40,7 @@ pub trait UseCaseContext {
             Self::Runtime,
             Self::InsertionStrategy,
             Self::UnderlayNeighborTable,
+            Self::VicinityGraph,
         >,
     ) -> Self;
 
@@ -58,4 +61,8 @@ pub trait UseCaseContext {
     fn not_via(&self) -> Ref<'_, HashSet<NotVia>>;
 
     fn not_via_mut(&self) -> RefMut<'_, HashSet<NotVia>>;
+
+    fn vicinity_graph(&self) -> Ref<'_, Self::VicinityGraph>;
+
+    fn vicinity_graph_mut(&self) -> RefMut<'_, Self::VicinityGraph>;
 }

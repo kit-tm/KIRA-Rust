@@ -1,7 +1,10 @@
 //! Definitions for the routing protocol to interact with the underlay network.
 
 use derive_more::derive::{Display, From};
-use std::num::{NonZeroU32, NonZeroUsize, TryFromIntError};
+use std::{
+    fmt::Display,
+    num::{NonZeroU32, TryFromIntError},
+};
 
 /// Represents a **connection** to an underlay neighbor.
 ///
@@ -26,24 +29,28 @@ use std::num::{NonZeroU32, NonZeroUsize, TryFromIntError};
 ///     Internet-layer or higher-layer tunnels.
 ///
 /// [1]: <https://datatracker.ietf.org/doc/rfc8200/>
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From)]
-#[display("{_0:o}")]
-pub struct UnderlayNeighborId(pub NonZeroUsize);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct UnderlayNeighborId {
+    pub interface_id: InterfaceId,
+    pub connection_id: ConnectionId,
+}
 
-impl TryFrom<usize> for UnderlayNeighborId {
-    type Error = TryFromIntError;
-
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        Ok(Self(value.try_into()?))
+impl Display for UnderlayNeighborId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let InterfaceId(ref interface_id) = self.interface_id;
+        write!(f, "{:X}{:X}", interface_id, self.connection_id.0)
     }
 }
+
+// TODO: document
+#[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Hash, From)]
+pub struct ConnectionId(pub u32);
 
 /// Network interface id.
 ///
 /// This is used in an [UnderlayNeighborUpdate] to inform the
 /// routing protocol about changes in the underlay.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From)]
-#[display("{_0}")]
 pub struct InterfaceId(pub NonZeroU32);
 
 impl From<InterfaceId> for u32 {
@@ -115,16 +122,6 @@ impl From<Option<UnderlayNeighborId>> for UnderlayNeighborDestination {
     }
 }
 
-impl From<usize> for UnderlayNeighborDestination {
-    fn from(value: usize) -> Self {
-        if value == 0 {
-            Self::Broadcast
-        } else {
-            UnderlayNeighborId::from(NonZeroUsize::new(value).unwrap()).into()
-        }
-    }
-}
-
 /// The origin of [ProtocolMessages](crate::messaging::ProtocolMessage).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From)]
 pub enum UnderlayNeighborSource {
@@ -143,8 +140,6 @@ pub enum UnderlayNeighborUpdate {
     /// An interface has gone up.
     InterfaceUp(InterfaceId),
     /// An interface has gone down.
-    // NOTE: Routing daemon has no information which neighbor is reachable via which
-    //       interface, so this event currently is unused.
     InterfaceDown(InterfaceId),
     /// A new connection to an underlay neighbor was discovered.
     ///

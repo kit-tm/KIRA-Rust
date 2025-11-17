@@ -102,7 +102,7 @@ impl BackoffMap {
         let node_id = self.nonce_to_id.remove(nonce)?;
         let removed_timers = self.remove_timer_for(&node_id)?;
         let mut removed_nonces = self.remove_nonces_for(&node_id);
-        removed_nonces.push(nonce.clone());
+        removed_nonces.push(*nonce);
         self.node_to_state
             .remove(&node_id)
             .map(|state| (state, removed_timers, removed_nonces))
@@ -138,11 +138,7 @@ impl BackoffMap {
     fn remove_timer_for(&mut self, id: &NodeId) -> Option<TimerId> {
         let timer = self.timer_to_node.iter().find_map(
             |(key, value)| {
-                if value == id {
-                    Some(*key)
-                } else {
-                    None
-                }
+                if value == id { Some(*key) } else { None }
             },
         );
         if let Some(timer_id) = &timer {
@@ -152,17 +148,15 @@ impl BackoffMap {
     }
 
     fn remove_nonces_for(&mut self, id: &NodeId) -> Vec<Nonce> {
-        let nonces = self
+        let nonces: Vec<_> = self
             .nonce_to_id
             .iter()
-            .filter_map(|(nonce, entry_id)| {
-                if entry_id == id {
-                    Some(nonce.clone())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
+            .filter_map(
+                |(nonce, entry_id)| {
+                    if entry_id == id { Some(*nonce) } else { None }
+                },
+            )
+            .collect();
         for nonce in &nonces {
             self.nonce_to_id.remove(nonce);
         }

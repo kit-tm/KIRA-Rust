@@ -19,7 +19,7 @@ netlink = [
 log = { workspace = true }
 # common domain layer
 kira-r2kad = { path = "../kira-r2kad", default-features = false }
-tokio = { workspace = true, default-features = false, features = ["sync"] }
+tokio = { workspace = true, features = ["sync"] }
 tracing = { workspace = true, features = ["attributes"] }
 derive_more = { workspace = true }
 netlink-proto = { workspace = true, optional = true }
@@ -27,4 +27,4 @@ netlink-packet-core = { workspace = true, optional = true }
 netlink-packet-route = { workspace = true, optional = true }
 netlink-packet-utils = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
-trait-variant = { workspace = true}
+trait-variant = { workspace = true }

@@ -23,7 +23,7 @@ pub enum ProtocolMessageFormat {
     #[cfg(feature = "format-mp")]
     /// [MessagePack](https://msgpack.org/) message format.
     ///
-    /// MessagePack is similar to [Json](Self::Json) but more compact and
+    /// MessagePack is similar to JSON but more compact and
     /// should be preferred unless readability is a concern.
     MessagePack,
     /// No message format enabled.

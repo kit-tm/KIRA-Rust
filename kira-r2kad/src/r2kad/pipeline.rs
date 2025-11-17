@@ -1,16 +1,22 @@
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::ops::Deref;
 
 use derive_more::derive::{Display, Error};
-use tracing::{span, Level};
+use tracing::{Level, span};
 
 use crate::context::UseCaseContext;
-use crate::domain::{InsertionStrategy, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
+use crate::domain::{
+    InsertionStrategy, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, VicinityGraph,
+};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::handle_api::HandleApi;
 use crate::use_cases::handle_contact_update::HandleContactUpdate;
 use crate::use_cases::handle_overlay_discovery::HandleOverlayDiscovery;
 use crate::use_cases::{
+    EventHandler,
+    UseCase,
+    UseCaseEvent,
     derive_fwd_table_entries::DeriveFwdTableEntries,
     distributed_hash_table::{DefaultExpiringHashTable, DistributedHashTable},
     distributed_hash_table_injector::DistributedHashTableInjector,
@@ -22,16 +28,12 @@ use crate::use_cases::{
     path_probing::PathProbing,
     precompute_paths_and_path_ids::PrecomputePathIds,
     random_overlay_discovery::RandomOverlayDiscovery,
-    vicinity_discovery::{VicinityDiscovery, VicinityDiscoveryConfig},
-    EventHandler,
-    UseCase,
-    UseCaseEvent,
+    vicinity_discovery::VicinityDiscovery,
 };
 use crate::use_cases::{HandlingResult, UseCaseState};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct R2KadPipelineConfig {
-    pub heuristic_enabled: bool,
     //pub benchmark_path: Option<BufWriter<File>>,
 }
 
@@ -57,7 +59,7 @@ pub struct R2KadPipeline<C, const BUCKET_SIZE: usize> {
 }
 
 impl<C, const BUCKET_SIZE: usize> R2KadPipeline<C, BUCKET_SIZE> {
-    pub fn new(config: R2KadPipelineConfig, root_id: &NodeId) -> Self {
+    pub fn new(_config: R2KadPipelineConfig) -> Self {
         let derive_forwarding_tables = DeriveFwdTableEntries::new(Default::default());
         let distributed_hash_table: DistributedHashTable<_, DefaultExpiringHashTable, BUCKET_SIZE> =
             DistributedHashTable::new(Default::default());
@@ -72,15 +74,10 @@ impl<C, const BUCKET_SIZE: usize> R2KadPipeline<C, BUCKET_SIZE> {
             .expect("default grouping should be valid");
         let on_disc = OverlayNeighborhoodDiscovery::<_, BUCKET_SIZE>::new(Default::default())
             .expect("default grouping should be valid");
-
-        let vicinity_config = VicinityDiscoveryConfig {
-            heuristic_enabled: config.heuristic_enabled,
-            ..Default::default()
-        };
-        let vicinity_disc = VicinityDiscovery::new(vicinity_config);
+        let vicinity_disc = VicinityDiscovery::default();
 
         let path_probing = PathProbing::new(Default::default());
-        let precomputation = PrecomputePathIds::new(*root_id, Default::default());
+        let precomputation = PrecomputePathIds::default();
 
         //let mut inject_messages = if let Some(injection_sender) = injection_sender.as_ref() {
         //    let mut inject_messages =
@@ -115,6 +112,12 @@ impl<C, const BUCKET_SIZE: usize> R2KadPipeline<C, BUCKET_SIZE> {
     }
 }
 
+impl<C, const BUCKET_SIZE: usize> Default for R2KadPipeline<C, BUCKET_SIZE> {
+    fn default() -> Self {
+        Self::new(Default::default())
+    }
+}
+
 #[derive(Debug, Display, Error)]
 #[display("Some use case is in error state")]
 pub struct UseCaseStateError;
@@ -131,6 +134,7 @@ where
         ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + std::fmt::Debug,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + std::fmt::Debug,
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::UnderlayNeighborTable, BUCKET_SIZE>,
+    C::VicinityGraph: VicinityGraph + Debug,
 {
     pub fn startup(&mut self, context: &C) -> Result<(), UseCaseStartupError> {
         // Initialize the Use Cases
@@ -190,9 +194,7 @@ where
         //    }
 
         if let Err(e) = self.distributed_hash_table_injector.start(context) {
-            log::error!(
-                "Failed to start distributed hash table injector UseCase: {e}"
-            );
+            log::error!("Failed to start distributed hash table injector UseCase: {e}");
             return Err(UseCaseStartupError);
         }
 
@@ -224,8 +226,8 @@ where
             UseCaseEvent::API(event) => {
                 span!(target: "r2kad", Level::DEBUG, "event", "type" = "API", details = ?event)
             }
-            UseCaseEvent::ResyncNode(node_id, ssn) => {
-                span!(target: "r2kad", Level::DEBUG, "event", "type" = "ResyncNode", %node_id, %ssn)
+            UseCaseEvent::Vicinity(event) => {
+                span!(target: "r2kad", Level::DEBUG, "event", "type" = "Vicinity", details = ?event)
             }
             UseCaseEvent::Timer(id) => {
                 span!(target: "r2kad", Level::DEBUG, "event", "type" = "Timer", %id)
@@ -238,18 +240,16 @@ where
             .explicit_path_management
             .handle_event(context, event.clone())
         {
-            Err(e) => log::error!(
-                "Explicit path management returned error handling message: {e}"
-            ),
+            Err(e) => log::error!("Explicit path management returned error handling message: {e}"),
             Ok(HandlingResult::Handled) => return Ok(()), /* Skip delegation to other use cases, since path-setup/-teardown is complete */
             Ok(HandlingResult::NotHandled) => { /* Delegate event to use cases */ }
         }
 
         // Some precomputation to perform actions and delegate which are common tasks
         match self.forward_message.handle_event(context, event.clone()) {
-            Err(e) => log::error!(
-                "Forwarding protocol message returned error handling message: {e}"
-            ),
+            Err(e) => {
+                log::error!("Forwarding protocol message returned error handling message: {e}")
+            }
             Ok(HandlingResult::Handled) => return Ok(()), /* Skip delegation to other use cases */
             Ok(HandlingResult::NotHandled) => { /* Delegate event to use cases  */ }
         }
@@ -268,9 +268,7 @@ where
             log::error!("Random Probing returned error handling message: {e}");
         }
         if let Err(e) = self.on_disc.handle_event(context, event.clone()) {
-            log::error!(
-                "Overlay Neighborhood Discovery returned error handling message: {e}"
-            );
+            log::error!("Overlay Neighborhood Discovery returned error handling message: {e}");
         }
         if let Err(e) = self.vicinity_disc.handle_event(context, event.clone()) {
             log::error!("Vicinity Discovery returned error handling message: {e}");
@@ -295,9 +293,7 @@ where
             .distributed_hash_table
             .handle_event(context, event.clone())
         {
-            log::error!(
-                "Distributed Hash Table returned error handling message: {e}"
-            );
+            log::error!("Distributed Hash Table returned error handling message: {e}");
         }
         //if let Some(Err(e)) = self
         //    .inject_messages
@@ -310,9 +306,7 @@ where
             .distributed_hash_table_injector
             .handle_event(context, event.clone())
         {
-            log::error!(
-                "Injecting DHT Messages returned error handling message: {e}"
-            );
+            log::error!("Injecting DHT Messages returned error handling message: {e}");
         }
 
         if let Err(e) = self.handle_api.handle_event(context, event.clone()) {

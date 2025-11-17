@@ -145,7 +145,7 @@ impl<const SIZE: usize> Bucket<SIZE> {
     /// Removes a [Contact] from the [Bucket] returning it if present.
     pub fn remove(&mut self, id: &NodeId) -> Option<Contact> {
         self.contacts.iter_mut().find_map(|contact| {
-            if contact.is_some() && contact.as_ref().unwrap().id() == id {
+            if matches!(contact, Some(contact) if contact.id() == id) {
                 contact.take()
             } else {
                 None
@@ -185,6 +185,13 @@ impl<const SIZE: usize> Bucket<SIZE> {
     /// Returns an mutable iterator over the contacts in this bucket.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Contact> {
         self.contacts.iter_mut().flatten()
+    }
+
+    /// Returns an iterator over all contact slots in this bucket.
+    ///
+    /// A value of [None] indicates that the slot is unpopulated.
+    pub fn iter_slots(&self) -> impl Iterator<Item = &Option<Contact>> {
+        self.contacts.iter()
     }
 }
 
@@ -253,7 +260,7 @@ impl<I> FusedIterator for IntoIter<I> {}
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::{Bucket, Contact, NodeId, Path, ReplacementError, StateSeqNr};
+    use crate::domain::{Bucket, Contact, NodeId, Path, ReplacementError, SafeStateSeqNr};
 
     #[test]
     fn insert_test() {
@@ -262,7 +269,10 @@ mod tests {
         assert!(bucket.is_empty());
         assert!(!bucket.is_full());
 
-        let contact = Contact::new(Path::from(NodeId::one()), StateSeqNr::from(0));
+        let contact = Contact::new(
+            Path::from(NodeId::one()),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
 
         assert!(bucket.insert(contact.clone()).is_ok());
 
@@ -273,7 +283,10 @@ mod tests {
 
         assert!(bucket.insert(contact.clone()).is_err());
 
-        let second_contact = Contact::new(Path::from(NodeId::with_lsb(2)), StateSeqNr::from(0));
+        let second_contact = Contact::new(
+            Path::from(NodeId::with_lsb(2)),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
 
         assert!(bucket.insert(second_contact.clone()).is_ok());
 
@@ -292,7 +305,10 @@ mod tests {
         assert!(bucket.is_empty());
         assert!(!bucket.is_full());
 
-        let contact = Contact::new(Path::from(NodeId::with_lsb(1)), StateSeqNr::from(0));
+        let contact = Contact::new(
+            Path::from(NodeId::with_lsb(1)),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
 
         assert!(matches!(
             bucket.replace(&NodeId::with_lsb(1), contact.clone()),
@@ -301,7 +317,10 @@ mod tests {
 
         assert!(bucket.insert(contact.clone()).is_ok());
 
-        let contact_two = Contact::new(Path::from(NodeId::with_lsb(2)), StateSeqNr::from(0));
+        let contact_two = Contact::new(
+            Path::from(NodeId::with_lsb(2)),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
 
         assert!(bucket.replace(contact.id(), contact_two.clone()).is_ok());
         assert_eq!(bucket.len(), 1);
@@ -312,10 +331,16 @@ mod tests {
     fn split() {
         let mut bucket = Bucket::<2>::new();
 
-        let contact = Contact::new(Path::from(NodeId::with_lsb(1)), StateSeqNr::from(0));
+        let contact = Contact::new(
+            Path::from(NodeId::with_lsb(1)),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
         assert!(bucket.insert(contact.clone()).is_ok());
 
-        let second_contact = Contact::new(Path::from(NodeId::with_lsb(2)), StateSeqNr::from(0));
+        let second_contact = Contact::new(
+            Path::from(NodeId::with_lsb(2)),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
         assert!(bucket.insert(second_contact.clone()).is_ok());
 
         let mut other = Bucket::<2>::new();

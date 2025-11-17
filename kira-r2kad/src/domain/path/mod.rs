@@ -303,24 +303,24 @@ mod tests {
     #[test]
     fn index_smoke_test() {
         let indexed = Path::from([
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
+            NodeId::from(0u128),
+            NodeId::from(1u128),
+            NodeId::from(2u128),
         ]);
 
         assert_eq!(
             &indexed[1..],
             [
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2])
+                NodeId::from(1u128),
+                NodeId::from(2u128)
             ]
         );
         assert_eq!(
             &indexed[..],
             [
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2])
+                NodeId::from(0u128),
+                NodeId::from(1u128),
+                NodeId::from(2u128)
             ]
         );
     }
@@ -328,25 +328,25 @@ mod tests {
     #[test]
     fn equality() {
         let path = Path::from([
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 14]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 13]),
+            NodeId::from(15u128),
+            NodeId::from(14u128),
+            NodeId::from(13u128),
         ]);
 
         assert_eq!(
             path,
             Path::from([
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 14]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 13]),
+                NodeId::from(15u128),
+                NodeId::from(14u128),
+                NodeId::from(13u128),
             ])
         );
         assert_ne!(
             path,
             Path::from([
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 13]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 14]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15]),
+                NodeId::from(13u128),
+                NodeId::from(14u128),
+                NodeId::from(15u128),
             ])
         )
     }
@@ -354,9 +354,9 @@ mod tests {
     #[test]
     fn reverse() {
         let path = Path::from([
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 14]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 13]),
+            NodeId::from(15u128),
+            NodeId::from(14u128),
+            NodeId::from(13u128),
         ]);
         let mut reversed = path.clone();
         reversed.reverse();
@@ -365,9 +365,9 @@ mod tests {
         assert_eq!(
             reversed,
             Path::from([
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 13]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 14]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15]),
+                NodeId::from(13u128),
+                NodeId::from(14u128),
+                NodeId::from(15u128),
             ])
         )
     }
@@ -375,11 +375,11 @@ mod tests {
     #[test]
     fn remove_in() {
         let mut path = Path::from([
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]),
+            NodeId::from(1u128),
+            NodeId::from(2u128),
+            NodeId::from(3u128),
+            NodeId::from(4u128),
+            NodeId::from(5u128),
         ]);
 
         path.remove_in(1, 3);
@@ -387,9 +387,9 @@ mod tests {
         assert_eq!(
             path,
             Path::from([
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]),
+                NodeId::from(1u128),
+                NodeId::from(4u128),
+                NodeId::from(5u128),
             ])
         );
 
@@ -398,8 +398,8 @@ mod tests {
         assert_eq!(
             path,
             Path::from([
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]),
+                NodeId::from(1u128),
+                NodeId::from(5u128),
             ])
         );
     }
@@ -407,12 +407,12 @@ mod tests {
     #[test]
     fn replace_interval() {
         let mut path = Path::from([
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6]),
+            NodeId::from(1u128),
+            NodeId::from(2u128),
+            NodeId::from(3u128),
+            NodeId::from(4u128),
+            NodeId::from(5u128),
+            NodeId::from(6u128),
         ]);
 
         path.replace_interval(1, 3, [NodeId::zero(), NodeId::one()]);
@@ -420,11 +420,11 @@ mod tests {
         assert_eq!(
             path,
             Path::from([
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6]),
+                NodeId::from(1u128),
+                NodeId::from(0u128),
+                NodeId::from(1u128),
+                NodeId::from(5u128),
+                NodeId::from(6u128),
             ])
         );
     }
@@ -432,12 +432,12 @@ mod tests {
     #[test]
     fn replace_interval_start() {
         let mut path = Path::from([
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6]),
+            NodeId::from(1u128),
+            NodeId::from(2u128),
+            NodeId::from(3u128),
+            NodeId::from(4u128),
+            NodeId::from(5u128),
+            NodeId::from(6u128),
         ]);
 
         path.replace_interval(0, 3, [NodeId::zero(), NodeId::one()]);
@@ -445,10 +445,10 @@ mod tests {
         assert_eq!(
             path,
             Path::from([
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6]),
+                NodeId::from(0u128),
+                NodeId::from(1u128),
+                NodeId::from(5u128),
+                NodeId::from(6u128),
             ])
         );
     }
@@ -456,12 +456,12 @@ mod tests {
     #[test]
     fn replace_interval_end() {
         let mut path = Path::from([
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6]),
+            NodeId::from(1u128),
+            NodeId::from(2u128),
+            NodeId::from(3u128),
+            NodeId::from(4u128),
+            NodeId::from(5u128),
+            NodeId::from(6u128),
         ]);
 
         path.replace_interval(3, 5, [NodeId::zero(), NodeId::one()]);
@@ -469,11 +469,11 @@ mod tests {
         assert_eq!(
             path,
             Path::from([
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+                NodeId::from(1u128),
+                NodeId::from(2u128),
+                NodeId::from(3u128),
+                NodeId::from(0u128),
+                NodeId::from(1u128),
             ])
         );
     }

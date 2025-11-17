@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use chrono::{DateTime, Duration, Utc};
 use derive_more::derive::Display;
 
-use crate::domain::{NodeId, Path, StateSeqNr};
+use crate::domain::{NodeId, Path, SafeStateSeqNr};
 
 /// Specifies in milliseconds the age of the routing information.
 ///
@@ -79,14 +79,14 @@ pub struct Contact {
     state: ContactState,
     last_seen: Timestamp,
     path: Path,
-    state_seq_nr: StateSeqNr,
+    state_seq_nr: SafeStateSeqNr,
 }
 
 impl Contact {
     /// Creates a new [Contact] with default values.
     ///
     /// The given [Path] has to end with the [NodeId] of the Contact.
-    pub fn new(path: Path, state_seq_nr: StateSeqNr) -> Self {
+    pub fn new(path: Path, state_seq_nr: SafeStateSeqNr) -> Self {
         Self {
             dest_id: *path.last(),
             state: ContactState::Valid,
@@ -169,11 +169,11 @@ impl Contact {
         &mut self.path
     }
 
-    pub fn state_seq_nr(&self) -> &StateSeqNr {
+    pub fn state_seq_nr(&self) -> &SafeStateSeqNr {
         &self.state_seq_nr
     }
 
-    pub fn state_seq_nr_mut(&mut self) -> &mut StateSeqNr {
+    pub fn state_seq_nr_mut(&mut self) -> &mut SafeStateSeqNr {
         &mut self.state_seq_nr
     }
 }

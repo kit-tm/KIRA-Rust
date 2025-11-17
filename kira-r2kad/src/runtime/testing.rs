@@ -87,4 +87,12 @@ impl UseCaseRuntime for TestingUseCaseRuntime {
     fn broadcast_event<B: Into<BroadcastableUseCaseEvent>>(&self, event: B) {
         self.broadcast.borrow_mut().push_back(event.into().into());
     }
+
+    fn timer_remaining_duration(&self, timer: &TimerId) -> Option<Duration> {
+        if timer == &self.timer_id.into() {
+            Some(Duration::ZERO)
+        } else {
+            None
+        }
+    }
 }

@@ -1,7 +1,10 @@
-use crate::domain::{NodeId, StateSeqNr, UnderlayNeighborId};
-pub use in_memory_underlay_neighbor_table::InMemoryULNTable;
+use crate::domain::{NodeId, SafeStateSeqNr, UnderlayNeighborId};
 
-mod in_memory_underlay_neighbor_table;
+pub use in_memory_underlay_neighbor_table::InMemoryULNTable;
+pub use observable_underlay_neighbor_table::ObservableULNTable;
+
+pub mod in_memory_underlay_neighbor_table;
+pub mod observable_underlay_neighbor_table;
 
 /// A [ULNTable] models the underlay neighbor table.
 ///
@@ -19,7 +22,7 @@ pub trait ULNTable {
     ///
     /// The state sequence number represents the number of connectivity changes in the
     /// direct underlay neighborhood of a node.
-    fn state_seq_nr(&self) -> &StateSeqNr;
+    fn state_seq_nr(&self) -> &SafeStateSeqNr;
 
     /// Removed a Mapping from the table returning that UnderlayNeighborId the [NodeId] was mapped to.
     fn remove(&mut self, id: &NodeId) -> Option<UnderlayNeighborId>;
@@ -27,13 +30,22 @@ pub trait ULNTable {
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZeroUsize;
+    use crate::domain::ConnectionId;
+    use crate::domain::InterfaceId;
 
     use super::*;
 
     pub fn ssn_on_insert<P: ULNTable>(mut table: P) {
         let id = NodeId::zero();
-        let neighbor = NonZeroUsize::new(42).unwrap().into();
+        let neighbor = {
+            let interface_id = InterfaceId::try_from(42).unwrap();
+            let conn_id = ConnectionId::from(42);
+
+            UnderlayNeighborId {
+                interface_id,
+                connection_id: conn_id,
+            }
+        };
 
         let before_ssn = *table.state_seq_nr();
         table.insert(id, neighbor);
@@ -47,7 +59,15 @@ mod tests {
 
     pub fn ssn_on_remove<P: ULNTable>(mut table: P) {
         let id = NodeId::zero();
-        let neighbor = NonZeroUsize::new(42).unwrap().into();
+        let neighbor = {
+            let interface_id = InterfaceId::try_from(42).unwrap();
+            let conn_id = ConnectionId::from(42);
+
+            UnderlayNeighborId {
+                interface_id,
+                connection_id: conn_id,
+            }
+        };
 
         table.insert(id, neighbor);
 

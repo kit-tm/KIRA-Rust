@@ -98,7 +98,7 @@ pub struct NodeIdForwardingEntry {
 
 /// An entry in the NodeIdTable for encapsulating packets to a contact.
 #[derive(Debug, Clone, Display, PartialEq, Eq, Hash)]
-#[display("{destination} => {next_hop} ({out_path_id}")]
+#[display("{destination} => {next_hop} ({out_path_id})")]
 pub struct NodeIdEncapsulationEntry {
     /// [NodeIdSubnet] of the contact this entry goes to.
     pub destination: NodeIdSubnet,

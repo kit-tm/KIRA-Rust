@@ -3,21 +3,31 @@
 use std::time::Instant;
 
 use kira_r2kad::domain::{
-    Contact, NodeId, Path, StateSeqNr, UnderlayNeighborDestination, UnderlayNeighborId,
+    ConnectionId, Contact, InterfaceId, NodeId, Path, SafeStateSeqNr, UnderlayNeighborDestination,
+    UnderlayNeighborId,
 };
 use kira_r2kad::messaging::source_route::SourceRoute;
 use kira_r2kad::messaging::{Nonce, ProtocolMessage, RTableData, ReqRspMessage};
-use kira_r2kad::{context::SyncContext, messaging::HelloMessage};
 use kira_r2kad::{Input, Output, R2Kad};
+use kira_r2kad::{context::SyncContext, messaging::HelloMessage};
 
-#[test]
+#[test_log::test]
 fn hello_response() {
-    let us = NodeId::one();
+    // important because deterministic_heuristic must be true to respond to Hello
+    let us = NodeId::zero();
+    let neighbor = NodeId::one();
 
-    let neighbor = NodeId::zero();
-    let neighbor_id = UnderlayNeighborId::try_from(1).unwrap();
+    let neighbor_id = {
+        let interface_id = InterfaceId::try_from(1).unwrap();
+        let conn_id = ConnectionId::from(0);
 
-    let mut r2kad = R2Kad::<SyncContext<_, _, _, _>, 20>::builder()
+        UnderlayNeighborId {
+            interface_id,
+            connection_id: conn_id,
+        }
+    };
+
+    let mut r2kad = R2Kad::<SyncContext<_, _, _, _, _>, 20>::builder()
         .root_id(us)
         .build();
     r2kad.startup(Instant::now()).expect("successfull startup");
@@ -29,7 +39,7 @@ fn hello_response() {
     {
         let hello_message = HelloMessage {
             source: neighbor,
-            source_state_seq_nr: StateSeqNr::from(0),
+            source_state_seq_nr: SafeStateSeqNr::MIN.into(),
         };
         r2kad
             .handle_input(
@@ -40,11 +50,12 @@ fn hello_response() {
 
         let mut expected_response = false;
         while let Some(output) = r2kad.poll_output() {
+            println!("{output:?}");
             // maybe we still fire some timers first and not only perceive a response to the request
             if matches!(output, Output::SendProtocolMessage(
-            ProtocolMessage::ULNDiscReq(..),
-            UnderlayNeighborDestination::UnderlayNeighbor(neighbor_dest),
-        ) if neighbor_dest == neighbor_id)
+                ProtocolMessage::ULNDiscReq(..),
+                UnderlayNeighborDestination::UnderlayNeighbor(neighbor_dest)
+            ) if neighbor_dest == neighbor_id)
             {
                 expected_response = true;
                 break;
@@ -64,9 +75,9 @@ fn hello_response() {
     {
         let uln_disc_rsp = ReqRspMessage {
             nonce: Nonce::random(),
-            source_state_seq_nr: StateSeqNr::from(1),
+            source_state_seq_nr: SafeStateSeqNr::MIN.into(),
             data: RTableData {
-                contacts: vec![Contact::new(Path::from(us), StateSeqNr::from(0))],
+                contacts: vec![Contact::new(Path::from(us), SafeStateSeqNr::MIN)],
             },
             not_via: Default::default(),
             source_route: SourceRoute::new(neighbor, Path::from(us)),
@@ -96,22 +107,31 @@ fn hello_response() {
         );
     }
 }
+
 #[test]
 fn uln_disc_req_response() {
     let us = NodeId::one();
 
     let neighbor = NodeId::zero();
-    let neighbor_id = UnderlayNeighborId::try_from(1).unwrap();
+    let neighbor_id = {
+        let interface_id = InterfaceId::try_from(1).unwrap();
+        let conn_id = ConnectionId::from(0);
+
+        UnderlayNeighborId {
+            interface_id,
+            connection_id: conn_id,
+        }
+    };
     let uln_disc_req = ReqRspMessage {
         nonce: Nonce::random(),
-        source_state_seq_nr: StateSeqNr::from(1),
+        source_state_seq_nr: SafeStateSeqNr::MIN.into(),
         data: RTableData { contacts: vec![] },
         not_via: Default::default(),
         source_route: SourceRoute::new(neighbor, Path::from(us)),
     };
     let uln_disc_req = ProtocolMessage::ULNDiscReq(uln_disc_req);
 
-    let mut r2kad = R2Kad::<SyncContext<_, _, _, _>, 20>::builder()
+    let mut r2kad = R2Kad::<SyncContext<_, _, _, _, _>, 20>::builder()
         .root_id(us)
         .build();
     r2kad.startup(Instant::now()).expect("successfull startup");
@@ -121,7 +141,7 @@ fn uln_disc_req_response() {
 
     r2kad
         .handle_input(Input::Message(uln_disc_req, neighbor_id), Instant::now())
-        .expect("successfully handle HelloMessage from neighbor");
+        .expect("successfully handle ULNDiscReq from neighbor");
 
     let mut discovery_dest = None;
     while let Some(output) = r2kad.poll_output() {

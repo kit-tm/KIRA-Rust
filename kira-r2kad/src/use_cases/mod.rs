@@ -6,7 +6,7 @@ use std::fmt::Debug;
 use std::ops::Deref;
 use tokio::sync::mpsc; // use tokio::sync::oneshot;
 
-use crate::domain::{Contact, NodeId, StateSeqNr, UnderlayNeighborSource, UnderlayNeighborUpdate};
+use crate::domain::{Contact, NodeId, UnderlayNeighborSource, UnderlayNeighborUpdate};
 use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr};
 use crate::messaging::messages::ProtocolMessage;
 use crate::messaging::{FindNodeReqData, Nonce};
@@ -45,7 +45,7 @@ pub enum UseCaseEvent {
     Message(ProtocolMessage, UnderlayNeighborSource),
     Timer(TimerId),
     Contact(ContactEvent),
-    ResyncNode(NodeId, StateSeqNr),
+    Vicinity(VicinityEvent),
     InjectMessage(Option<Nonce>, InjectionMessageData),
     UnderlayUpdate(UnderlayNeighborUpdate),
     API(ApiEvent),
@@ -148,6 +148,16 @@ pub enum ContactEvent {
     NewBucket(usize),
 }
 
+/// Events signaling changes in the vicinity of the node.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum VicinityEvent {
+    /// A node in the vicinity was considered stale.
+    Removed(NodeId),
+    /// The StateSeqNr of the running routing daemon changed because the
+    /// underlay vicinity changed.
+    SSNChanged,
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Display)]
 pub struct TimerId(usize);
 
@@ -173,7 +183,7 @@ impl Deref for TimerId {
 pub enum BroadcastableUseCaseEvent {
     Message(ProtocolMessage),
     Contact(ContactEvent),
-    ResyncNode(NodeId, StateSeqNr),
+    Vicinity(VicinityEvent),
 }
 
 impl From<BroadcastableUseCaseEvent> for UseCaseEvent {
@@ -185,8 +195,8 @@ impl From<BroadcastableUseCaseEvent> for UseCaseEvent {
             BroadcastableUseCaseEvent::Contact(contact_event) => {
                 UseCaseEvent::Contact(contact_event)
             }
-            BroadcastableUseCaseEvent::ResyncNode(node_id, state_seq_nr) => {
-                UseCaseEvent::ResyncNode(node_id, state_seq_nr)
+            BroadcastableUseCaseEvent::Vicinity(vicinity_event) => {
+                UseCaseEvent::Vicinity(vicinity_event)
             }
         }
     }

@@ -1,14 +1,14 @@
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
-use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
+use std::num::{NonZeroU8, NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::ops::Deref;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use derive_more::derive::{Display, Error};
 
 use crate::domain::{
     Contact, ContactState, Link, NodeId, NotVia, RoutingTable, ULNTable, UnderlayNeighborId,
-    UnderlayNeighborUpdate,
+    UnderlayNeighborUpdate, VicinityGraph,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -36,7 +36,7 @@ pub struct FailureHandlingConfig {
     /// Number of overlay neighbors to notify about a node failure.
     pub failure_notification_radius: NonZeroUsize,
     /// Number of bits used for determining closest overlay neighbors.
-    pub grouping_bits: NonZeroUsize,
+    pub grouping_bits: NonZeroU8,
     /// Intervall used to generate random timeout durations based on distance to failing contact
     /// for exponential backoff.
     pub backoff_timeout_interval: RediscoveryTimeoutInterval,
@@ -48,7 +48,7 @@ impl Default for FailureHandlingConfig {
     fn default() -> Self {
         Self {
             failure_notification_radius: NonZeroUsize::new(3).unwrap(),
-            grouping_bits: NonZeroUsize::new(1).unwrap(),
+            grouping_bits: NonZeroU8::new(1).unwrap(),
             backoff_timeout_interval: RediscoveryTimeoutInterval::default(),
             backoff_max_retries: NonZeroU32::new(5).unwrap(),
         }
@@ -85,6 +85,7 @@ where
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::VicinityGraph: VicinityGraph,
 {
     /// Remove all NotVia Data which is related to the contact
     fn remove_notvia_mentioning(&self, context: &C, contact_id: &NodeId) {
@@ -111,11 +112,7 @@ where
 
         let mut closest = context
             .routing_table()
-            .closest(
-                context.root_id(),
-                BUCKET_SIZE,
-                self.config.grouping_bits.get(),
-            )
+            .closest(context.root_id(), BUCKET_SIZE, self.config.grouping_bits)
             .expect("grouping should be valid");
         if closest.drain(..).any(|(_, contact)| contact.id() == id) {
             return Distance::OverlayNeighbor;
@@ -136,14 +133,14 @@ where
             .closest(
                 context.root_id(),
                 self.config.failure_notification_radius.get(),
-                self.config.grouping_bits.get(),
+                self.config.grouping_bits,
             )
             .expect("invalid config");
         let mut updates = HashMap::new();
         updates.insert(contact.clone(), RouteUpdate::Updated);
         for (_, closest_overlay_neighbor) in closest {
             let update_route_message = UpdateRouteReq {
-                source_state_seq_nr: *context.uln_table().state_seq_nr(),
+                source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
                 not_via: context.not_via().clone(),
                 contact_actions: updates.clone(),
                 source_route: SourceRoute::new(
@@ -159,15 +156,12 @@ where
 
         let closest = context
             .routing_table()
-            .closest(contact.id(), 1, self.config.grouping_bits.get())
+            .closest(contact.id(), 1, self.config.grouping_bits)
             .expect("invalid config");
 
-        let closest_contact = match closest.first().cloned() {
-            Some((_, closest)) => closest,
-            None => {
-                log::trace!(target: "failure_handling", "No closest contacts found. Assuming isolation.");
-                return Ok(());
-            }
+        let Some((_, closest_contact)) = closest.into_iter().next() else {
+            log::trace!(target: "failure_handling", "No closest contacts found. Assuming isolation.");
+            return Ok(());
         };
 
         // Add rediscovery state before sending find node in case of error
@@ -188,7 +182,7 @@ where
             let mut timer_id = context.runtime().register_timer(timer_duration);
 
             while let Err(e) = self.rediscoveries.insert(
-                (*contact.id(), timer_id, nonce.clone()),
+                (*contact.id(), timer_id, nonce),
                 exponential_backoff.clone(),
             ) {
                 match e {
@@ -207,7 +201,7 @@ where
 
         let find_node_request = ReqRspMessage {
             nonce,
-            source_state_seq_nr: *context.uln_table().state_seq_nr(),
+            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
             data: FindNodeReqData {
                 exact: true,
                 neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
@@ -235,7 +229,7 @@ where
     ) -> Result<(), FailureHandlingError> {
         let closest = context
             .routing_table()
-            .closest(node_id, 1, self.config.grouping_bits.get())
+            .closest(node_id, 1, self.config.grouping_bits)
             .expect("invalid config");
 
         let closest_contact = match closest.first().cloned() {
@@ -278,10 +272,7 @@ where
         let nonce = {
             let mut nonce = Nonce::random();
 
-            while let Err(e) = self
-                .rediscoveries
-                .add_nonce_for_node(*node_id, nonce.clone())
-            {
+            while let Err(e) = self.rediscoveries.add_nonce_for_node(*node_id, nonce) {
                 match e {
                     AddNonceError::UnknownNode => {
                         panic!("handle_rediscovery_failure was called with unknown node")
@@ -294,7 +285,7 @@ where
         };
         let find_node_request = ReqRspMessage {
             nonce,
-            source_state_seq_nr: *context.uln_table().state_seq_nr(),
+            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
             data: FindNodeReqData {
                 exact: true,
                 neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
@@ -344,8 +335,27 @@ where
             }
         }
 
+        let root_id = context.root_id();
+        let mut vg_lock = context.vicinity_graph_mut();
         for neighbor in affected_neighbors.iter() {
             context.uln_table_mut().remove(neighbor);
+            if vg_lock.remove_edge(root_id, neighbor) {
+                tracing::debug!(
+                    target: "failure_handling",
+                    node = %neighbor,
+                    %ulnid,
+                    reason = "uln_down",
+                    "removed node from vicinity graph"
+                );
+            }
+        }
+        for removed_node in vg_lock.retain_vicinity() {
+            tracing::debug!(
+                target: "failure_handling",
+                node = %removed_node,
+                reason = "outside_vicinity",
+                "removed node from vicinity graph"
+            );
         }
     }
 }
@@ -356,6 +366,7 @@ where
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::VicinityGraph: VicinityGraph,
 {
     type Context = C;
     type Error = FailureHandlingError;
@@ -441,6 +452,7 @@ where
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::VicinityGraph: VicinityGraph,
 {
     type State = ReactiveUseCaseState;
 
