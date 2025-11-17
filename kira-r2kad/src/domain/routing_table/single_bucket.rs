@@ -74,7 +74,7 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
 
     fn random_id(&self) -> Option<&NodeId> {
         let len = self.bucket.len();
-        let random = rand::thread_rng().gen_range(0..len);
+        let random = rand::rng().random_range(0..len);
         let mut iter = self.bucket.iter();
         iter.nth(random).map(|contact| contact.id())
     }

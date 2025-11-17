@@ -89,7 +89,7 @@ impl RediscoveryTimeoutInterval {
         if lower_bound == upper_bound {
             lower_bound
         } else {
-            rand::thread_rng().gen_range(lower_bound..upper_bound)
+            rand::rng().random_range(lower_bound..upper_bound)
         }
     }
 }

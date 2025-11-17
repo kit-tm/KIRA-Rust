@@ -3,7 +3,6 @@ use axum::http;
 use axum::response::{IntoResponse, Response};
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
-use hex::FromHexError;
 #[cfg(feature = "swagger_doc")]
 use itertools::Itertools;
 use kira_r2kad::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, StoreErr};
@@ -25,12 +24,21 @@ pub enum Handle {
     Key(String),
 }
 
+
+pub enum HandleConvError {
+    NodeIdStrToNodeId,
+    KeyTooShort,
+}
+
+
 impl TryFrom<Handle> for kira_r2kad::domain::NodeId {
-    type Error = FromHexError;
+    type Error = HandleConvError;
 
     fn try_from(value: Handle) -> Result<Self, Self::Error> {
         match value {
-            Handle::Handle(handle) => handle.try_into(),
+            Handle::Handle(handle) => { handle.try_into()
+                                                    .map_err(|_|{ log::error!(target: "API","NodeId: conversion error"); HandleConvError::NodeIdStrToNodeId})
+            }
             Handle::Key(key) => {
                 // calculating SHA256 hash
                 let hash = Sha256::digest(key.as_bytes());
@@ -46,7 +54,7 @@ impl TryFrom<Handle> for kira_r2kad::domain::NodeId {
                             hash.len(),
                             kira_r2kad::domain::NodeId::SIZE,
                         );
-                        FromHexError::InvalidStringLength
+                        HandleConvError::KeyTooShort
                     })?;
                 Ok(Self::from(handle))
             }
@@ -72,7 +80,7 @@ impl From<StoreInjectData<DefaultLHTInput>> for StoreArgs {
 }
 
 impl TryFrom<StoreArgs> for StoreInjectData<DefaultLHTInput> {
-    type Error = FromHexError;
+    type Error = HandleConvError;
 
     fn try_from(value: StoreArgs) -> Result<Self, Self::Error> {
         let handle = Handle::try_into(value.handle)?;
@@ -89,7 +97,7 @@ pub struct FetchArgs {
 }
 
 impl TryFrom<FetchArgs> for FetchInjectData {
-    type Error = FromHexError;
+    type Error = HandleConvError;
 
     fn try_from(value: FetchArgs) -> Result<Self, Self::Error> {
         let handle = value.handle.try_into()?;

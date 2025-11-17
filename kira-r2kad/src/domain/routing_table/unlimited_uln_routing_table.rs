@@ -96,7 +96,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
         if self.is_empty() {
             return None;
         }
-        let random = rand::thread_rng().gen_range(0..self.len());
+        let random = rand::rng().random_range(0..self.len());
         self.iter().nth(random).map(|contact| contact.id())
     }
 
