@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::domain::dht::strategies::insert_strategy::InsertionStrategy;
-use crate::domain::dht::TimedValue;
 use crate::domain::NodeId;
+use crate::domain::dht::TimedValue;
+use crate::domain::dht::strategies::insert_strategy::InsertionStrategy;
 use crate::messaging::dht::{DefaultLHTInput, StoreOK, StoreResult};
 use crate::use_cases::distributed_hash_table::HashTableData;
 
@@ -110,4 +110,3 @@ mod tests {
         );
     }
 }
-

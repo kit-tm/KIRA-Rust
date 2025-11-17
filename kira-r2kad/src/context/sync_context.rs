@@ -40,15 +40,15 @@ impl<RT, RU, IS, UN, VG> UseCaseContext for SyncContext<RT, RU, IS, UN, VG> {
         &self.root_id
     }
 
-    fn routing_table(&self) -> Ref<'_,RT> {
+    fn routing_table(&self) -> Ref<'_, RT> {
         self.routing_table.borrow()
     }
 
-    fn routing_table_mut(&self) -> RefMut<'_,RT> {
+    fn routing_table_mut(&self) -> RefMut<'_, RT> {
         self.routing_table.borrow_mut()
     }
 
-    fn routing_table_insertion_strategy(&self) -> RefMut<'_,IS> {
+    fn routing_table_insertion_strategy(&self) -> RefMut<'_, IS> {
         self.insertion_strategy.borrow_mut()
     }
 

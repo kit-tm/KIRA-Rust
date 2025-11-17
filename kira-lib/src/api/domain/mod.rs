@@ -1,5 +1,5 @@
-use std::num::ParseIntError;
 use serde::{Deserialize, Serialize};
+use std::num::ParseIntError;
 use std::str::FromStr;
 #[cfg(feature = "swagger_doc")]
 use utoipa::ToSchema;

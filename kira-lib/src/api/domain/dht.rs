@@ -24,21 +24,20 @@ pub enum Handle {
     Key(String),
 }
 
-
 pub enum HandleConvError {
     NodeIdStrToNodeId,
     KeyTooShort,
 }
-
 
 impl TryFrom<Handle> for kira_r2kad::domain::NodeId {
     type Error = HandleConvError;
 
     fn try_from(value: Handle) -> Result<Self, Self::Error> {
         match value {
-            Handle::Handle(handle) => { handle.try_into()
-                                                    .map_err(|_|{ log::error!(target: "API","NodeId: conversion error"); HandleConvError::NodeIdStrToNodeId})
-            }
+            Handle::Handle(handle) => handle.try_into().map_err(|_| {
+                log::error!(target: "API","NodeId: conversion error");
+                HandleConvError::NodeIdStrToNodeId
+            }),
             Handle::Key(key) => {
                 // calculating SHA256 hash
                 let hash = Sha256::digest(key.as_bytes());

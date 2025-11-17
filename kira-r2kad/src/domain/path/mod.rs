@@ -267,13 +267,7 @@ mod tests {
             NodeId::from(2u128),
         ]);
 
-        assert_eq!(
-            &indexed[1..],
-            [
-                NodeId::from(1u128),
-                NodeId::from(2u128)
-            ]
-        );
+        assert_eq!(&indexed[1..], [NodeId::from(1u128), NodeId::from(2u128)]);
         assert_eq!(
             &indexed[..],
             [
@@ -356,10 +350,7 @@ mod tests {
 
         assert_eq!(
             path,
-            Path::from([
-                NodeId::from(1u128),
-                NodeId::from(5u128),
-            ])
+            Path::from([NodeId::from(1u128), NodeId::from(5u128),])
         );
     }
 

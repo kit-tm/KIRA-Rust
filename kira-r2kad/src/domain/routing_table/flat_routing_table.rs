@@ -360,7 +360,12 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
             return self.num_buckets() - 1; // Always at least one bucket present
         };
 
-        debug_assert!(bit_index + Self::non_zero_acc().get() <= NodeId::BITS, "bit_index {}, acc: {}", bit_index, Self::non_zero_acc().get());
+        debug_assert!(
+            bit_index + Self::non_zero_acc().get() <= NodeId::BITS,
+            "bit_index {}, acc: {}",
+            bit_index,
+            Self::non_zero_acc().get()
+        );
         // Example: digit = 01
         let digit = delta.bits(bit_index, Self::non_zero_acc()).unwrap() as usize;
         debug_assert_ne!(
