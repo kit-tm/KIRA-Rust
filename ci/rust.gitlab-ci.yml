@@ -43,7 +43,6 @@ cargo_check:
   script:
     - cargo check --workspace --all-targets --all-features
  
-
 clippy_check:
   stage: check
   extends:
@@ -53,11 +52,7 @@ clippy_check:
   before_script:
     - rustup component add clippy
   script:
-    - cargo clippy --workspace --all-targets --all-features
-
-  variables:
-    RUSTFLAGS: "-Dwarnings" # fail on warnings
-  allow_failure: true
+    - cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 rustfmt_check:
   stage: check
@@ -70,10 +65,6 @@ rustfmt_check:
   script:
     - cargo fmt --all --check
 
-  variables:
-    RUSTFLAGS: "-Dwarnings"
-  allow_failure: true
-
 rustdoc_check:
   stage: check
   extends:
@@ -85,7 +76,6 @@ rustdoc_check:
 
   variables:
     RUSTDOCFLAGS: "-Dwarnings"
-  allow_failure: true
 
 rust-test:
   stage: test
