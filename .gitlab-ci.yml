@@ -4,6 +4,7 @@
     - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
       variables:
         RUSTDOCFLAGS: "-Dwarnings" # prohibit publishing of incomplete rustdoc
+      interruptible: false
 
 include:
   - local: 'ci/rust.gitlab-ci.yml'
@@ -12,6 +13,7 @@ stages:
   - check
   - test
   - build
+  - security
   - release
 
 # TODO: build and release docker containers on release

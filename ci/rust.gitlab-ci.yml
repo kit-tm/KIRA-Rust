@@ -6,27 +6,39 @@
     paths:
       - .cargo/ # cargo registry
       - target/ # build artifacts
+  interruptible: true
 
 # rust job that is run if rust code changed by a merge request
 .rust-ci-rules:
   extends: .semver_release_rule
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" # run this job on merge requests
+    # only run manually on Draft-MR
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TITLE =~ /^Draft:/
+      when: manual
+    # automatically run on MR and pushes
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
         - "**/*.rs"
         - "**/Cargo.toml"
         - "**/Cargo.lock"
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH # run this job on pushes to default branch
+    # automatically run on commit tags
+    - if: $CI_COMMIT_TAG
       changes:
-        - "**/*.rs"
-        - "**/Cargo.toml"
-        - "**/Cargo.lock"
-    - when: manual
-
+        paths:
+          - "**/*.rs"
+          - "**/Cargo.toml"
+          - "**/Cargo.lock"
+        compare_to: $CI_DEFAULT_BRANCH
+    # allows force-run if detection fails
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG
+      when: manual
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: manual
 stages:
   - check
   - test
   - build
+  - security
   - release
 
 # ==================== #
@@ -153,3 +165,17 @@ release:build:rustdoc:
       - "release_artifacts/docs"
     name: "rustdocs"
     expire_in: 1 day
+
+cargo_audit:
+  stage: security
+  extends:
+    - .rust-defaults
+    - .rust-ci-rules
+
+  before_script:
+    - cargo install cargo-audit --locked
+  script:
+    - cargo audit
+
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule" # scheduled nightly runs
