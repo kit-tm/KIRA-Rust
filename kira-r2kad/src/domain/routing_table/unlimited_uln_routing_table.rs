@@ -206,7 +206,7 @@ mod tests {
         );
 
         let mut routing_table =
-            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
 
         let contacts = vec![
             invalid_contact,
@@ -273,12 +273,12 @@ mod tests {
         ];
 
         let mut routing_table =
-            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
         routing_table
             .extend(false, contacts.clone())
             .expect("failed to insert all contact");
 
-        let closest = routing_table.closest(&NodeId::zero(), 20, NonZeroU8::MIN);
+        let closest = routing_table.closest(&NodeId::ZERO, 20, NonZeroU8::MIN);
         assert!(closest.is_ok(), "Returned None");
         let closest = closest.unwrap();
         let first = closest.first();
@@ -319,12 +319,12 @@ mod tests {
         ];
 
         let mut routing_table =
-            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
         routing_table
             .extend(false, contacts.clone())
             .expect("failed to insert all contact");
 
-        let closest = routing_table.closest(&NodeId::zero(), 1, NonZeroU8::MIN);
+        let closest = routing_table.closest(&NodeId::ZERO, 1, NonZeroU8::MIN);
         assert!(closest.is_ok(), "Returned None");
         let closest = closest.unwrap();
         let first = closest.first();
@@ -358,12 +358,12 @@ mod tests {
         ];
 
         let mut routing_table =
-            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
         routing_table
             .extend(false, contacts.clone())
             .expect("failed to insert all contact");
 
-        let closest = routing_table.closest(&NodeId::zero(), 1, NonZeroU8::MIN);
+        let closest = routing_table.closest(&NodeId::ZERO, 1, NonZeroU8::MIN);
         assert!(closest.is_ok(), "Returned None");
         let closest = closest.unwrap();
         let first = closest.first();
@@ -392,12 +392,12 @@ mod tests {
         let contacts = vec![invalid_neighbor, invalid_contact];
 
         let mut routing_table =
-            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
         routing_table
             .extend(false, contacts.clone())
             .expect("failed to insert all contact");
 
-        let closest = routing_table.closest(&NodeId::zero(), 20, NonZeroU8::MIN);
+        let closest = routing_table.closest(&NodeId::ZERO, 20, NonZeroU8::MIN);
         assert!(closest.is_ok(), "Returned error: {closest:?}");
         let closest = closest.unwrap();
         assert!(
@@ -414,7 +414,7 @@ mod tests {
             SafeStateSeqNr::try_from(1).unwrap(),
         );
 
-        let mut inner = FlatRoutingTable::default(NodeId::zero());
+        let mut inner = FlatRoutingTable::default(NodeId::ZERO);
         if inner.insert(uln).is_err() {
             return;
         }
@@ -427,7 +427,7 @@ mod tests {
     #[test]
     fn delete_uln_from_inner_on_promotion() {
         let mut routing_table =
-            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
 
         // node to be promoted to an underlay neighbor shortly
         let node = NodeId::with_msb(2);

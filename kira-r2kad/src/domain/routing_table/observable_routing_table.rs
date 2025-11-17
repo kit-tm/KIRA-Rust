@@ -65,7 +65,7 @@ pub enum RoutingTableEvent<const BUCKET_SIZE: usize> {
 /// # use kira_r2kad::domain::{Bucket, Contact, FlatRoutingTable, Path, RoutingTable,
 /// # SafeStateSeqNr, NodeId};
 /// # use kira_r2kad::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
-/// let mut observable_rt = ObservableRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+/// let mut observable_rt = ObservableRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
 ///
 /// // A simple debug logger
 /// observable_rt.add_observer(|event| println!("{:?}", event));
@@ -389,7 +389,7 @@ mod tests {
             SafeStateSeqNr::try_from(2).unwrap(),
         );
 
-        let mut observable = ObservableRoutingTable::from(SingleBucketRT::<10>::new(NodeId::one()));
+        let mut observable = ObservableRoutingTable::from(SingleBucketRT::<10>::new(NodeId::ONE));
 
         let events = Arc::new(RwLock::new(vec![]));
 
@@ -411,7 +411,7 @@ mod tests {
             SafeStateSeqNr::try_from(2).unwrap(),
         );
 
-        let mut rt = SingleBucketRT::<10>::new(NodeId::one());
+        let mut rt = SingleBucketRT::<10>::new(NodeId::ONE);
         assert!(rt.add(contact.clone()).is_ok());
 
         let mut observable = ObservableRoutingTable::from(rt);
@@ -433,7 +433,7 @@ mod tests {
             SafeStateSeqNr::try_from(2).unwrap(),
         );
 
-        let mut rt = SingleBucketRT::<10>::new(NodeId::one());
+        let mut rt = SingleBucketRT::<10>::new(NodeId::ONE);
         assert!(rt.add(contact.clone()).is_ok());
 
         let mut observable = ObservableRoutingTable::from(rt);
@@ -465,7 +465,7 @@ mod tests {
             SafeStateSeqNr::try_from(2).unwrap(),
         );
 
-        let mut rt = SingleBucketRT::<10>::new(NodeId::one());
+        let mut rt = SingleBucketRT::<10>::new(NodeId::ONE);
         assert!(rt.add(contact.clone()).is_ok());
 
         let mut observable = ObservableRoutingTable::from(rt);

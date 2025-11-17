@@ -270,7 +270,7 @@ mod tests {
         assert!(!bucket.is_full());
 
         let contact = Contact::new(
-            Path::from(NodeId::one()),
+            Path::from(NodeId::ONE),
             SafeStateSeqNr::try_from(1).unwrap(),
         );
 

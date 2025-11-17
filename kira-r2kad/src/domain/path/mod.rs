@@ -365,7 +365,7 @@ mod tests {
             NodeId::from(6u128),
         ]);
 
-        path.replace_interval(1, 3, [NodeId::zero(), NodeId::one()]);
+        path.replace_interval(1, 3, [NodeId::ZERO, NodeId::ONE]);
 
         assert_eq!(
             path,
@@ -390,7 +390,7 @@ mod tests {
             NodeId::from(6u128),
         ]);
 
-        path.replace_interval(0, 3, [NodeId::zero(), NodeId::one()]);
+        path.replace_interval(0, 3, [NodeId::ZERO, NodeId::ONE]);
 
         assert_eq!(
             path,
@@ -414,7 +414,7 @@ mod tests {
             NodeId::from(6u128),
         ]);
 
-        path.replace_interval(3, 5, [NodeId::zero(), NodeId::one()]);
+        path.replace_interval(3, 5, [NodeId::ZERO, NodeId::ONE]);
 
         assert_eq!(
             path,

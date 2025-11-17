@@ -80,7 +80,7 @@ mod tests {
     fn test_empty_fetch() {
         let strategy = PermissionlessFetchStrategy::default();
         let mut composite = HashMap::new();
-        let handle = NodeId::zero();
+        let handle = NodeId::ZERO;
 
         let result = strategy.fetch(&handle, &mut composite);
 
@@ -101,7 +101,7 @@ mod tests {
         let strategy = PermissionlessFetchStrategy::default();
         let mut composite = HashMap::new();
         let existing_data: HashTableSingle = Arc::new([1, 2, 3, 4]);
-        let handle = NodeId::zero();
+        let handle = NodeId::ZERO;
 
         composite.insert(
             handle,

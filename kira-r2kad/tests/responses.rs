@@ -14,8 +14,8 @@ use kira_r2kad::{context::SyncContext, messaging::HelloMessage};
 #[test_log::test]
 fn hello_response() {
     // important because deterministic_heuristic must be true to respond to Hello
-    let us = NodeId::zero();
-    let neighbor = NodeId::one();
+    let us = NodeId::ZERO;
+    let neighbor = NodeId::ONE;
 
     let neighbor_id = {
         let interface_id = InterfaceId::try_from(1).unwrap();
@@ -110,9 +110,9 @@ fn hello_response() {
 
 #[test]
 fn uln_disc_req_response() {
-    let us = NodeId::one();
+    let us = NodeId::ONE;
 
-    let neighbor = NodeId::zero();
+    let neighbor = NodeId::ZERO;
     let neighbor_id = {
         let interface_id = InterfaceId::try_from(1).unwrap();
         let conn_id = ConnectionId::from(0);
