@@ -27,7 +27,7 @@ use crate::tables::{
 use crate::underlay::{UnderlayInformationProvider, UnderlayNeighborInformation};
 use kira_r2kad::domain::UnderlayNeighborUpdate;
 
-/// Native linux [ForwardingTables] implementation backed by nftables and linux routing tables.
+/// Native linux [AsyncForwardingTables] implementation backed by nftables and linux routing tables.
 ///
 /// Also logs every change to the forwarding tables with log target `native_fwd_table`.
 #[derive(Debug)]

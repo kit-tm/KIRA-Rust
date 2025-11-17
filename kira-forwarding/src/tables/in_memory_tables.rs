@@ -1,4 +1,4 @@
-//! Dummy [ForwardingTables] implementation just storing the forwarding entries.
+//! Dummy [AsyncForwardingTables] implementation just storing the forwarding entries.
 //!
 //! The main struct is the [InMemoryFwdTables].
 
@@ -10,7 +10,7 @@ use crate::tables::{
     AsyncForwardingTables, AsyncNodeIdTable, AsyncPathIdTable, NodeIdEntry, PathIdEntry,
 };
 
-/// In-Memory [ForwardingTables] implementation backed by [HashMap]s.
+/// In-Memory [AsyncForwardingTables] implementation backed by [HashMap]s.
 ///
 /// The implementation *does not* provide any fast forwarding since it just stores all entries.
 /// Also logs every change to the forwarding tables with log target `in_memory_fwd_table`.
@@ -181,16 +181,24 @@ pub mod error {
     use derive_more::derive::{Display, Error};
 
     #[derive(Debug, Display, Error)]
-    /// Error for [InMemoryFwdTables](super::InMemoryFwdTables) used collectively
-    /// in the [NodeIdTable](super::super::NodeIdTable) and the [PathIdTable](super::super::PathIdTable) trait implementation.
+    /// Error for [InMemoryFwdTables] used collectively
+    /// in the [AyncNodeIdTable] and the [AsyncPathIdTable] trait implementation.
+    ///
+    /// [InMemoryFwdTables]: super::InMemoryFwdTables
+    /// [AyncNodeIdTable]: super::super::AsyncNodeIdTable
+    /// [AsyncPathIdTable]: super::super::AsyncPathIdTable
     pub enum FwdTableError {
         #[display("Entry  already exists")]
         /// If the exact entry is already contained in the [InMemoryFwdTables]
         /// and tried to added using the `create` methods this error is returned.
+        ///
+        /// [InMemoryFwdTables]: super::InMemoryFwdTables
         EntryAlreadyExists,
         #[display("Entry with id  doesn't exist")]
         /// Retrieving an entry with the given id was unsuccessful because
         /// the [InMemoryFwdTables] does not has any entry stored under the given id.
+        ///
+        /// [InMemoryFwdTables]: super::InMemoryFwdTables
         EntryMissing,
     }
 }

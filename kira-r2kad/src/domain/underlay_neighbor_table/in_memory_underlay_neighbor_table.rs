@@ -5,7 +5,7 @@ use crate::domain::{NodeId, SafeStateSeqNr, ULNTable, UnderlayNeighborId};
 
 /// A underlay neighbor table backed by a [HashMap].
 ///
-/// This wrapper limits the write access on the inner [HashMap] as the [StateSeqNr] has
+/// This wrapper limits the write access on the inner [HashMap] as the [SafeStateSeqNr] has
 /// to be updated every time the underlay neighbors change.
 #[derive(Debug)]
 pub struct InMemoryULNTable {

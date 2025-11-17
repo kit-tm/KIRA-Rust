@@ -123,7 +123,7 @@ impl Contact {
         self.cmp_actuality(other) == Ordering::Less
     }
 
-    /// Returns an [Ordering] based on the [StateSeqNr] and [Age] of the contacts.
+    /// Returns an [Ordering] based on the [SafeStateSeqNr] and [Age] of the contacts.
     ///
     /// - Greater: self has newer information.
     /// - Less: other has newer information.

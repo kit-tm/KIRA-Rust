@@ -248,7 +248,7 @@ impl<C: UseCaseContext, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE> {
 }
 
 impl<C: UseCaseContext, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE> {
-    /// Creates a new [R2Kad] instance with the default [R2KadPipeline] employed.
+    /// Creates a new [R2Kad] instance with the default use-case pipeline employed.
     pub fn new(context: C) -> Self {
         let pipeline = R2KadPipeline::default();
 

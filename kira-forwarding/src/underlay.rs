@@ -10,9 +10,9 @@ use crate::domain::{InterfaceId, UnderlayNeighborId};
 pub trait LocalUnderlayInformationProvider {
     /// Information provided by this provider.
     ///
-    /// The information is typically made up of [link-layer-specific information](MacLayerInformation)
-    /// but also contains the link-local IPv6-address of the node. See
-    /// [UnderlayNeighborInformation] for further info on the provided information.
+    /// The information is typically made up of link-layer-specific information
+    /// but also contains the link-local IPv6-address of the node.
+    /// See [UnderlayNeighborInformation] for further info on the provided information.
     type Information;
 
     /// Error type returned if acquiring information for an [UnderlayNeighborId] failed.
@@ -33,7 +33,7 @@ pub type EthAddr = [u8; 6];
 /// All information known by KIRA about an underlay neighbor.
 ///
 /// This information is used by the fast forwarding layer and the [io-part](../../kira_lib/io/index.html) of R²/KAD.
-/// You can obtain this struct using [UnderlayObserverHandle::get_information](kira_lib::underlay::handle::UnderlayObserverHandle::get_information)
+/// You can obtain this struct using [UnderlayObserverHandle::get_information](../../kira_lib/underlay/handle/struct.UnderlayObserverHandle.html#method.get_information)
 #[derive(Debug, Clone)]
 pub struct UnderlayNeighborInformation {
     /// Id of the interface under which the neighbor can be reached.

@@ -59,7 +59,7 @@ pub struct FetchReqData {
     pub handle: NodeId,
 }
 
-/// Errors that may occur on a [FetchReq] protocol message.
+/// Errors that may occur on a FetchReq protocol message.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum FetchErr {

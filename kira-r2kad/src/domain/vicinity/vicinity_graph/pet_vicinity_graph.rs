@@ -19,7 +19,7 @@ pub struct PetVicinityGraph {
     entries: HashMap<NodeId, Entry>, // meta-data
 }
 
-/// Errors that can happen on [VicinityGraph::insert] or [VicinityGraph::add]
+/// Errors that can happen on [VicinityGraph::insert].
 #[derive(Debug, Display, Error)]
 #[cfg_attr(test, derive(PartialEq))]
 pub enum PetVicinityGraphError {

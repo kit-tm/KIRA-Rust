@@ -25,17 +25,23 @@ pub struct PrecomputePathIdsConfig {
     ///
     /// If [None] is passed the precomputation will happen on every change.
     pub update_interval: Option<Duration>,
-    /// Hasher to use for generation of [PathIds](crate::domain::PathId) from [Path]s.
+    /// Hasher to use for generation of [PathIds] from [Paths].
+    ///
+    /// [PathIds]: crate::domain::PathId
+    /// [Paths]: crate::domain::Path
     pub hasher: Hasher,
 }
 
-/// [UseCase] implementation representing the Precomputation of [Path]s and
-/// [PathIds](crate::domain::PathId) for all nodes in a configurable vicinity.
+/// [UseCase] implementation representing the Precomputation of [Paths] and
+/// [PathIds] for all nodes in a configurable vicinity.
 ///
 /// This also removes all entries it generates if they're not valid anymore.
 ///
 /// Based on its [PrecomputePathIdsConfig] the precomputation happens on every change or in a
 /// periodic interval.
+///
+/// [PathIds]: crate::domain::PathId
+/// [Paths]: crate::domain::Path
 #[derive(Debug)]
 pub struct PrecomputePathIds<C, const BUCKET_SIZE: usize> {
     _pd: PhantomData<C>,
