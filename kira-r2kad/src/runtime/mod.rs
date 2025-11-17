@@ -31,8 +31,8 @@ pub trait UseCaseRuntime {
     fn register_periodic_timer(&self, duration: Duration) -> TimerId;
 
     fn register_rand_timer(&self, duration: Duration) -> TimerId {
-        let mut rng = rand::thread_rng();
-        let factor = rng.gen_range(0.5..=1.5);
+        let mut rng = rand::rng();
+        let factor = rng.random_range(0.5..=1.5);
         self.register_timer(duration.mul_f64(factor))
     }
 

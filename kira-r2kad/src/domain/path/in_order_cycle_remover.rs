@@ -51,11 +51,11 @@ mod tests {
     #[test]
     fn path_simplify() {
         let mut path = Path::from([
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]),
+            NodeId::from(1u128),
+            NodeId::from(2u128),
+            NodeId::from(3u128),
+            NodeId::from(2u128),
+            NodeId::from(5u128),
         ]);
 
         InOrderCycleRemover.remove_cycles_in_place(&mut path);
@@ -63,9 +63,9 @@ mod tests {
         assert_eq!(
             path,
             Path::from([
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]),
+                NodeId::from(1u128),
+                NodeId::from(2u128),
+                NodeId::from(5u128),
             ])
         );
     }
@@ -73,11 +73,11 @@ mod tests {
     #[test]
     fn path_simplify_start() {
         let mut path = Path::from([
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]),
+            NodeId::from(1u128),
+            NodeId::from(2u128),
+            NodeId::from(1u128),
+            NodeId::from(4u128),
+            NodeId::from(5u128),
         ]);
 
         InOrderCycleRemover.remove_cycles_in_place(&mut path);
@@ -85,9 +85,9 @@ mod tests {
         assert_eq!(
             path,
             Path::from([
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]),
+                NodeId::from(1u128),
+                NodeId::from(4u128),
+                NodeId::from(5u128),
             ])
         );
     }
@@ -95,11 +95,11 @@ mod tests {
     #[test]
     fn path_simplify_end() {
         let mut path = Path::from([
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
+            NodeId::from(1u128),
+            NodeId::from(2u128),
+            NodeId::from(3u128),
+            NodeId::from(4u128),
+            NodeId::from(3u128),
         ]);
 
         InOrderCycleRemover.remove_cycles_in_place(&mut path);
@@ -107,9 +107,9 @@ mod tests {
         assert_eq!(
             path,
             Path::from([
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
+                NodeId::from(1u128),
+                NodeId::from(2u128),
+                NodeId::from(3u128),
             ])
         );
     }
@@ -117,12 +117,12 @@ mod tests {
     #[test]
     fn path_simplify_multiple() {
         let mut path = Path::from([
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
+            NodeId::from(1u128),
+            NodeId::from(2u128),
+            NodeId::from(1u128),
+            NodeId::from(3u128),
+            NodeId::from(4u128),
+            NodeId::from(3u128),
         ]);
 
         InOrderCycleRemover.remove_cycles_in_place(&mut path);
@@ -130,8 +130,8 @@ mod tests {
         assert_eq!(
             path,
             Path::from([
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-                NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
+                NodeId::from(1u128),
+                NodeId::from(3u128),
             ])
         );
     }

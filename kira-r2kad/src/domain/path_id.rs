@@ -31,7 +31,8 @@ impl PathId {
         path: I,
     ) -> Self {
         for id in path {
-            hasher.update(id.as_ref());
+            let id_in_bytes : [u8;NodeId::SIZE] = id.to_be_bytes();
+            hasher.update(&id_in_bytes);
         }
         Self::from(hasher.finalize().to_vec())
     }

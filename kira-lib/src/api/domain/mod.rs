@@ -1,4 +1,4 @@
-use hex::FromHexError;
+use std::num::ParseIntError;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 #[cfg(feature = "swagger_doc")]
@@ -22,7 +22,7 @@ impl From<kira_r2kad::domain::NodeId> for NodeId {
 }
 
 impl TryFrom<NodeId> for kira_r2kad::domain::NodeId {
-    type Error = FromHexError;
+    type Error = ParseIntError;
 
     fn try_from(value: NodeId) -> Result<Self, Self::Error> {
         Self::from_str(value.node_id.as_str())

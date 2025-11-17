@@ -1,12 +1,12 @@
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter, LowerHex, UpperHex};
 use std::net::Ipv6Addr;
-use std::num::NonZeroU8;
+use std::num::{NonZeroU8};
 use std::ops::BitXor;
 use std::str::FromStr;
+use rand::Rng;
 
 use derive_more::derive::{Display, Error};
-use hex::FromHexError;
 
 /// A NodeId with default SIZE of 112 Bits (14 Byte) as default value as proposed in the design paper.
 ///
@@ -19,9 +19,7 @@ use hex::FromHexError;
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[display("{self:X}")]
 pub struct NodeId {
-    // Sorted from MSB to LSB (Big Endian representation)
-    #[cfg_attr(feature = "serde", serde(with = "serde_big_array::BigArray"))]
-    bytes: [u8; NodeId::SIZE],
+    node_id: u128,
 }
 
 // ============ Initializers ============
@@ -31,80 +29,99 @@ impl NodeId {
     /// The byte size of a [NodeId].
     ///
     /// The length of the [NodeId] is a global parameter not to be
-    /// altered between nodes unlike the bucket size (**k**).
+    /// altered among nodes unlike the bucket size (**k**).
     pub const SIZE: usize = 14;
     /// The size of a [NodeId] in bits.
     pub const BITS: u8 = 112;
     /// Length in Characters of the short output format for [NodeId]s.
-    const SHORT_OUTPUT_LENGTH: usize = 8;
+    /// const SHORT_OUTPUT_LENGTH: usize = 8;
+    /// Maximum value and mask to set the highest 16 bit to 0
+    const MAX: u128 = 0x0000ffff_ffffffff_ffffffff_ffffffff;
+    /// undefined is all zeros
+    const UNDEFINED_UVAL: u128 = 0u128;
+    /// undefined is all zeros
+    const ALL_NODES_UVAL: u128 = NodeId::MAX;
 
     /// Creating a [NodeId] with the numerical value of 0.
     pub const fn zero() -> Self {
         Self {
-            bytes: [0u8; Self::SIZE],
+            node_id : 0u128,
+        }
+    }
+
+    /// Creating a [NodeId] with the undefined value.
+    pub const fn undefined() -> Self {
+        Self {
+            node_id : Self::UNDEFINED_UVAL,
         }
     }
 
     /// Creating a [NodeId] with the numerical value of 1.
     ///
-    /// # Panics
-    ///
-    /// Panics if the SIZE is 0.
     pub const fn one() -> Self {
-        let mut inner = [0u8; Self::SIZE];
-        inner[Self::SIZE - 1] = 1u8;
-        Self { bytes: inner }
+        Self {
+            node_id : 1u128,
+        }
     }
 
     /// Returns the maximum representable [NodeId] for the given Byte size.
     /// This is equal to all bits in a [NodeId] == 1.
     pub const fn max_value() -> Self {
         Self {
-            bytes: [0xff; Self::SIZE],
+            node_id : Self::MAX
         }
     }
 
     /// Creates a random [NodeId].
-    /// The generated [NodeId] is guaranteed to not be equal to [NodeId::one] or [NodeId::zero].
+    /// The generated [NodeId] is guaranteed to not be equal to [NodeId::UNDEFINED] or [NodeId::ALL_NODES].
     pub fn random() -> Self {
-        let mut inner = [0u8; Self::SIZE];
-        let mut rng = rand::thread_rng();
-        while inner == Self::one().bytes || inner == Self::zero().bytes {
-            rand::Rng::fill(&mut rng, &mut inner[..Self::SIZE]);
+        let mut inner = 0u128;
+        let mut myrng = rand::rng();
+        while inner == Self::UNDEFINED_UVAL || inner == Self::ALL_NODES_UVAL {
+            inner = myrng.random::<u128>();
         }
-        Self { bytes: inner }
+        Self {
+            node_id : inner & Self::MAX
+        }
     }
 
     /// Creates an all zeroed-out id with the LSB set to the given value.
     pub fn with_lsb(lsb: u8) -> Self {
-        let mut id = Self::zero();
-        id.bytes[Self::SIZE - 1] = lsb;
-        id
+        Self {
+            node_id : u128::from(lsb),
+        }
     }
 
-    /// Creates an all zeroed-out id with the LSB set to the given value.
+    /// Creates an all zeroed-out id with the MSB set to the given value.
     pub fn with_msb(msb: u8) -> Self {
-        let mut id = Self::zero();
-        id.bytes[0] = msb;
-        id
+        Self {
+            node_id : u128::from(msb) << (NodeId::BITS - 8),
+        }
     }
 
     /// Checks if the [NodeId] is equal to the numerical value of 0;
     #[cfg(test)]
     fn is_zero(&self) -> bool {
-        self.bytes == [0u8; Self::SIZE]
+        self.node_id == 0u128
     }
 
     /// Checks if the [NodeId] is equal to the numerical value of 1;
     #[cfg(test)]
     fn is_one(&self) -> bool {
-        self.bytes[..(Self::SIZE - 1)] == [0u8; Self::SIZE][..Self::SIZE - 1]
-            && self.bytes[Self::SIZE - 1] == 1u8
+        self.node_id == 1u128
     }
 
-    /// Returns the byte size of the [NodeId].
-    pub const fn size(&self) -> usize {
-        self.bytes.len()
+    pub fn leading_zeros(&self) -> u8 {
+        const IGNORE_BITS : u32 = u128::BITS - (NodeId::BITS as u32);
+        // this is carried out on the full u128!
+        let mut lz =self.node_id.leading_zeros();
+        if lz >= IGNORE_BITS {
+            lz -= IGNORE_BITS;
+            lz.try_into().unwrap()
+        }
+        else {
+            panic!("NodeId internal error: leading zeros value invalid ({})",lz);
+        }
     }
 
     /// Returns the shared prefix length in number of bits
@@ -113,20 +130,19 @@ impl NodeId {
             .expect("group size of one is always valid")
     }
 
-    /// Returns the shared prefix length in number of groups of bits.
+    /// Returns the shared prefix length in number of groups of bits that match
     ///
     /// # Notes
     ///
-    /// The RoutingSim implementation uses another algorithm which uses [GMP](https://gmplib.org)
-    /// and works with limbs.
     /// This algorithm uses basic operations for computing the shared prefix.
-    /// As this function is used every time a package arrives optimizing it may be
+    /// As this function is used every time a packet arrives optimizing it may be
     /// worth the effort.
     pub fn shared_prefix_len(
         &self,
         other: &Self,
         bits_per_group: NonZeroU8,
     ) -> Result<SharedPrefix, GroupingError> {
+
         if bits_per_group.get() > Self::BITS {
             return Err(GroupingError::Invalid {
                 group_size: bits_per_group,
@@ -143,47 +159,25 @@ impl NodeId {
             });
         }
 
-        let mut byte_index = 0;
-        let mut not_zero_byte = None;
-        for i in xor.bytes {
-            match i {
-                0 => byte_index += 1,
-                i => {
-                    not_zero_byte = Some(i);
-                    break;
-                }
-            }
-        }
-        let mut in_byte_index = 0;
-        if let Some(mut not_zero_byte) = not_zero_byte {
-            while not_zero_byte != 0 {
-                in_byte_index += 1;
-                not_zero_byte >>= 1;
-            }
-            in_byte_index = 8 - in_byte_index;
-        }
-        let bit_index = byte_index * 8 + in_byte_index;
-
         Ok(SharedPrefix {
-            length: bit_index / bits_per_group,
             xor,
+            length: xor.leading_zeros() / bits_per_group,
         })
     }
 
     /// Returns the bit at the index starting from LSB. Returns either 0 or 1.
     pub fn bit(&self, bit_index: u8) -> Result<u8, BitIndexOutOfBounds> {
-        let byte = (bit_index / 8) as usize;
-        if byte > Self::SIZE {
+        if bit_index >= Self::BITS {
             return Err(BitIndexOutOfBounds);
         }
-        let byte_offset = bit_index % 8;
 
-        let byte = Self::SIZE - 1 - byte;
-        let byte_offset = 8 - byte_offset;
-
-        let byte = self.bytes[byte];
-
-        Ok((byte << (byte_offset - 1)) >> 7)
+        let result = self.node_id & (1u128 << bit_index);
+        if result == 0 {
+            Ok(0)
+        }
+        else {
+            Ok(1)
+        }
     }
 
     /// Returns a number representing the bits from an inclusive position from LSB to MSB.
@@ -192,47 +186,40 @@ impl NodeId {
         from_bit_index: u8,
         num_bits: NonZeroU8,
     ) -> Result<u128, BitIndexOutOfBounds> {
+
         let num_bits = num_bits.get();
         if from_bit_index + num_bits > Self::BITS {
             return Err(BitIndexOutOfBounds);
         }
 
-        let mut result = 0u128;
+        // create bit mask with zeros right and left
+        let mut mask = Self::MAX >> from_bit_index;
+        mask <<= from_bit_index;
+        mask <<= u128::BITS - (from_bit_index + num_bits) as u32;
+        mask >>= u128::BITS - (from_bit_index + num_bits) as u32;
 
-        for index in 0..num_bits {
-            result <<= 1;
-            result |= self.bit(from_bit_index + (num_bits - 1 - index))? as u128;
-        }
-
-        Ok(result)
+        Ok((self.node_id & mask) >> from_bit_index)
     }
 
     /// Returns the prefix of the given length with the rest set to 0
     pub fn prefix(&self, prefix_len: u8) -> Self {
-        let mut new_bytes = self.bytes;
-        let full_bytes = prefix_len / 8;
-        let partial_bits = prefix_len % 8;
+        let mut mask = Self::MAX >> (Self::BITS - prefix_len) as u128;
+        mask <<= (Self::BITS - prefix_len) as u128;
 
-        if partial_bits > 0 && full_bytes < (Self::SIZE as u8) {
-            let mask = 0xFFu8 << (8 - partial_bits);
-            new_bytes[full_bytes as usize] &= mask;
-        }
+        log::trace!(target: "node_id", "prefix with length {} of {:?} is {:?}", prefix_len, self, NodeId { node_id : self.node_id & mask });
 
-        let start_zeroing_index = if partial_bits > 0 {
-            full_bytes + 1
-        } else {
-            full_bytes
-        } as usize;
+        NodeId { node_id : self.node_id & mask }
+    }
 
-        for byte in new_bytes.iter_mut().skip(start_zeroing_index) {
-            *byte = 0;
-        }
-
-        log::trace!(target: "node_id", "prefix with length {} of {:?} is {:?}", prefix_len, self, NodeId { bytes: new_bytes });
-
-        NodeId { bytes: new_bytes }
+    // outputs array of bytes in network byte order
+    pub fn to_be_bytes(&self) -> [u8;NodeId::SIZE] {
+        let mut output = [0u8;NodeId::SIZE];
+        output.copy_from_slice(&self.node_id.to_be_bytes()[2..]);
+        output
     }
 }
+
+
 
 #[derive(Debug, Eq, PartialEq, Display, Error)]
 #[display("Bit Index out of bounds")]
@@ -379,26 +366,71 @@ pub enum GroupingError {
     Invalid { group_size: NonZeroU8 },
 }
 
-/// Creates a [NodeId] from a byte array. The resulting [NodeId] has the same size as the given array.
-impl From<[u8; NodeId::SIZE]> for NodeId {
-    fn from(inner: [u8; NodeId::SIZE]) -> Self {
-        Self { bytes: inner }
+// /// Creates a [NodeId] from a byte array. The resulting [NodeId] has the same size as the given array.
+// impl From<[u8; NodeId::SIZE]> for NodeId {
+//     fn from(inner: [u8; NodeId::SIZE]) -> Self {
+//         Self { bytes: inner }
+//     }
+// }
+
+impl Default for NodeId {
+    fn default() -> Self {
+        Self::undefined()
     }
 }
 
 // ============ Conversions ==================
 
-impl AsRef<[u8]> for NodeId {
-    fn as_ref(&self) -> &[u8] {
-        self.bytes.as_ref()
+impl AsRef<u128> for NodeId {
+    fn as_ref(&self) -> &u128 {
+        &self.node_id
     }
 }
 
-impl From<NodeId> for [u8; NodeId::SIZE] {
-    fn from(id: NodeId) -> Self {
-        id.bytes
+
+// impl AsRef<[u8]> for NodeId {
+//     fn as_ref(&self) -> &[u8] {
+//         self.node_id.to_be_bytes().as_ref()
+//     }
+// }
+
+
+impl From<[u8; NodeId::SIZE]> for NodeId {
+    fn from(bytearray: [u8; NodeId::SIZE]) -> Self {
+        let mut u = [0u8; 16];
+        u[2..].clone_from_slice(&bytearray);
+        let v = u128::from_be_bytes(u);
+        Self {
+            node_id : v,
+        }
     }
 }
+
+
+/// convert to NodeId from u128
+/// panics if u128 is longer than Self::BITS
+impl From<u128> for NodeId {
+    fn from(id: u128) -> Self {
+        if (!Self::MAX & id) == 0 {
+            Self {
+                node_id : id & Self::MAX
+            }
+        }
+        else {
+            panic!("u128 should only contain {} bits",Self::BITS);
+        }
+    }
+}
+
+
+impl From<NodeId> for u128 {
+    fn from(id: NodeId) -> Self {
+        id.node_id & Self::MAX
+    }
+}
+
+
+
 
 // ============ Operations ============
 
@@ -406,18 +438,7 @@ impl BitXor for NodeId {
     type Output = NodeId;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
-        if self == NodeId::zero() {
-            return rhs;
-        }
-        if rhs == NodeId::zero() {
-            return self;
-        }
-
-        let mut result = [0u8; NodeId::SIZE];
-        for (i, item) in result.iter_mut().enumerate() {
-            *item = self.bytes[i] ^ rhs.bytes[i];
-        }
-        NodeId { bytes: result }
+        NodeId { node_id: self.node_id ^ rhs.node_id }
     }
 }
 
@@ -430,32 +451,27 @@ impl BitXor for &NodeId {
 }
 
 impl FromStr for NodeId {
-    type Err = FromHexError;
+    type Err = std::num::ParseIntError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut inner = [0u8; NodeId::SIZE];
-        hex::decode_to_slice(s, &mut inner)?;
-        Ok(Self { bytes: inner })
+        let hex_str = s.trim().to_lowercase();
+        match u128::from_str_radix(&hex_str, 16) {
+            Ok(value) => Ok(NodeId::from(value)),
+            Err(e) => Err(e),
+        }
     }
 }
 
+
 impl PartialOrd for NodeId {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+        <u128 as PartialOrd>::partial_cmp(&self.node_id, &other.node_id)
     }
 }
 
 impl Ord for NodeId {
     fn cmp(&self, other: &Self) -> Ordering {
-        for (own_byte, other_byte) in self.bytes.iter().zip(other.bytes.iter()) {
-            match own_byte.cmp(other_byte) {
-                Ordering::Greater => return Ordering::Greater,
-                Ordering::Less => return Ordering::Less,
-                _ => continue,
-            }
-        }
-
-        Ordering::Equal
+        <u128 as Ord>::cmp(&self.node_id, &other.node_id)
     }
 }
 
@@ -463,41 +479,28 @@ impl Ord for NodeId {
 
 impl LowerHex for NodeId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match (f.precision(), f.alternate()) {
-            (Some(precision), _) => write!(f, "{}", &hex::encode(self)[..precision]),
-            (None, true) => write!(f, "{}", &hex::encode(self)[..NodeId::SHORT_OUTPUT_LENGTH]),
-            (None, false) => write!(f, "{}", hex::encode(self)),
-        }
+       <u128 as LowerHex>::fmt(&self.node_id,f)
     }
 }
 
 impl UpperHex for NodeId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match (f.precision(), f.alternate()) {
-            (Some(precision), _) => write!(f, "{}", &hex::encode_upper(self)[..precision]),
-            (None, true) => write!(
-                f,
-                "{}",
-                &hex::encode_upper(self)[..NodeId::SHORT_OUTPUT_LENGTH]
-            ),
-            (None, false) => write!(f, "{}", hex::encode_upper(self)),
-        }
+        <u128 as UpperHex>::fmt(&self.node_id,f)
     }
 }
 
 impl Debug for NodeId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NodeId({self:X})")
+        write!(f, "NodeId({self:014x})")
     }
 }
 
 impl From<&NodeId> for Ipv6Addr {
     fn from(value: &NodeId) -> Self {
-        let mut bytes = [0; 16];
-        bytes[0] = 0xfc;
-        bytes[1] = 0x00;
-        bytes[2..16].copy_from_slice(&value.bytes[0..14]);
-        Ipv6Addr::from(bytes)
+        // FIXME this should use a configurable prefix
+        let addr= 0xfc00_0000_0000_0000_0000_0000_0000_0000 | (value.node_id & NodeId::MAX);
+
+        Ipv6Addr::from(addr)
     }
 }
 
@@ -520,15 +523,18 @@ mod tests {
     fn from_hex_string() -> Result<(), Box<dyn Error>> {
         let raw = "0123456789ABCDEF0123456789AB";
         let id = NodeId::from_str(raw)?;
-        assert_eq!(id.size(), NodeId::SIZE);
-        assert_eq!(format!("{id:X}"), raw);
-        assert_eq!(format!("{id:x}"), raw.to_lowercase());
-
-        // Invalid bit length -> Has to be multiple of 8
-        assert!(NodeId::from_str("0123456789ABCDEF0123456789A").is_err());
-        assert!(NodeId::from_str("0123456789ABCDEF0123456789ABC").is_err());
+        //assert_eq!(id.size(), NodeId::SIZE);
+        assert_eq!(format!("{id:028X}"), raw);
+        assert_eq!(format!("{id:028x}"), raw.to_lowercase());
 
         Ok(())
+    }
+
+    #[test]
+    #[should_panic]
+    fn invalid_hex_string() {
+        // Invalid bit length
+        let _u = NodeId::from_str("123456789abcdef0123456789abcd").unwrap();
     }
 
     // Basic construction Operations. Testing basic construction.
@@ -561,8 +567,18 @@ mod tests {
     }
 
     #[test]
-    fn from_array() {
-        assert!(NodeId::from([0u8; 14]).is_zero());
+    #[should_panic(expected="u128 should only contain 112 bits")]
+    fn from_u128_panics() {
+        let t : u128 = 0x1234_5678_abcd_ef12_3456_7890_abcd_ef01;
+        let _p = NodeId::from(t);
+    }
+
+    #[test]
+    fn from_u128() {
+        let t : u128 = 0x1234_5678_abcd_ef12_3456_7890_abcd_ef01;
+        let s : u128 = 0x0000_5678_abcd_ef12_3456_7890_abcd_ef01;
+        let n : NodeId = NodeId::from(t & NodeId::MAX);
+        assert!(u128::from(n) == s);
     }
 
     // Equality Tests
@@ -572,13 +588,15 @@ mod tests {
         assert_eq!(NodeId::one(), NodeId::one());
         assert_ne!(NodeId::one(), NodeId::zero());
         assert_eq!(NodeId::zero(), NodeId::zero());
+        let t : u128 = 0x0000_1234_5678_abcd_ef12_3456_7890_abcd;
         assert_eq!(
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15u8, 14u8, 13u8]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15u8, 14u8, 13u8])
+            NodeId::from(t),
+            NodeId::from_str("12345678abcdef1234567890abcd").unwrap()
         );
+        let s : u128 = 0x0000_1234_5678_abcd_ef12_3456_0987_dcba;
         assert_ne!(
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 13u8, 14u8, 15u8]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15u8, 14u8, 13u8])
+            NodeId::from(t),
+            NodeId::from(s)
         );
     }
 
@@ -587,9 +605,14 @@ mod tests {
     #[test]
     fn node_id_xor_works() {
         assert_eq!(
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1u8, 0u8])
-                ^ NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0u8, 1u8]),
-            NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1u8, 1u8])
+            NodeId::from(0x0000_1011_0000_0000_0000_0000_0000_1101u128) ^
+            NodeId::from(0x0000_1011_0000_0000_0000_0000_0000_1101u128),
+            NodeId::zero()
+        );
+        assert_eq!(
+            NodeId::from(0x0000_1011_0000_0000_0000_0000_0000_1101u128) ^
+            NodeId::from(0x0000_0100_0000_0000_0000_0000_0000_0010u128),
+            NodeId::from(0x0000_1111_0000_0000_0000_0000_0000_1111u128)
         );
     }
 
@@ -606,9 +629,15 @@ mod tests {
         assert_eq!(zero.shared_prefix_bits(&one).bit_len(), NodeId::BITS - 1);
 
         let one = NodeId::one();
-        let valid = NodeId::from([0, 0b10000000, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let valid = NodeId::from(0x0000_0001_80FF_0000_0000_0000_0000u128);
 
-        assert_eq!(one.shared_prefix_bits(&valid).bit_len(), 8);
+        assert_eq!(one.shared_prefix_bits(&valid).bit_len(), 31);
+
+        let one = NodeId::one();
+        let valid = NodeId::from(0x0000_0000_80FF_0000_0000_0000_0000u128);
+
+        assert_eq!(one.shared_prefix_bits(&valid).bit_len(), 32);
+
     }
 
     #[test]
@@ -632,6 +661,15 @@ mod tests {
                 .map(SharedPrefix::into_bit_len),
             Ok(NodeId::BITS - 1)
         );
+
+        let first = NodeId::from(0x1234_5678_9a3f_0000_0000_0000_1101u128);
+        let secnd = NodeId::from(0x1234_5678_9a4f_0000_0000_0000_1101u128);
+        assert_eq!(
+            first.shared_prefix_len(&secnd, NonZeroU8::new(1).unwrap())
+                 .map(SharedPrefix::into_bit_len),
+            Ok(41)
+        );
+
         assert_eq!(
             zero.shared_prefix_len(&one, NonZeroU8::new(2).unwrap())
                 .map(SharedPrefix::into_bit_len),
@@ -643,8 +681,7 @@ mod tests {
             Ok((NodeId::BITS / 4) - 1)
         );
 
-        let one = NodeId::one();
-        let valid = NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b10000000, 0xFF, 0]);
+        let valid = NodeId::from(0b10000000_11111111_00000000);
 
         assert_eq!(
             one.shared_prefix_len(&valid, NonZeroU8::new(8).unwrap())
@@ -654,8 +691,21 @@ mod tests {
     }
 
     #[test]
+    fn test_single_bit() {
+        let value = NodeId::from(0b01101110u128);
+        assert_eq!(value.bits(0, NonZeroU8::new(1).unwrap()), Ok(0));
+        assert_eq!(value.bits(1, NonZeroU8::new(1).unwrap()), Ok(1));
+        assert_eq!(value.bits(2, NonZeroU8::new(1).unwrap()), Ok(1));
+        assert_eq!(value.bits(3, NonZeroU8::new(1).unwrap()), Ok(1));
+        assert_eq!(value.bits(4, NonZeroU8::new(1).unwrap()), Ok(0));
+        assert_eq!(value.bits(5, NonZeroU8::new(1).unwrap()), Ok(1));
+        assert_eq!(value.bits(6, NonZeroU8::new(1).unwrap()), Ok(1));
+        assert_eq!(value.bits(7, NonZeroU8::new(1).unwrap()), Ok(0));
+    }
+
+    #[test]
     fn test_single_bits() {
-        let value = NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b01101110]);
+        let value = NodeId::from(0b01101110u128);
         assert_eq!(value.bits(0, NonZeroU8::MIN), Ok(0));
         assert_eq!(value.bits(1, NonZeroU8::MIN), Ok(1));
         assert_eq!(value.bits(2, NonZeroU8::MIN), Ok(1));
@@ -668,19 +718,21 @@ mod tests {
 
     #[test]
     fn test_multiple_bits_in_same_byte() {
-        let value = NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b01101110]);
+        let value = NodeId::from(0b01101110);
         assert_eq!(value.bits(0, NonZeroU8::new(8).unwrap()), Ok(0b01101110));
+        let high = NodeId::with_msb(0b11000000);
+        assert_eq!(high.bits(110, NonZeroU8::new(2).unwrap()), Ok(3));
     }
 
     #[test]
-    fn test_multiple_bits_through_multiply_bytes() {
-        let value = NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b01101110, 0b10110100]);
+    fn test_multiple_bits_through_multiple_bytes() {
+        let value = NodeId::from(0b01101110_10110100);
         assert_eq!(value.bits(4, NonZeroU8::new(8).unwrap()), Ok(0b11101011));
     }
 
     #[test]
     fn test_out_of_bounds() {
-        let value = NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b01101110, 0b10110100]);
+        let value = NodeId::from(0b01101110_10110100);
         assert!(
             value
                 .bits(NodeId::BITS + 10, NonZeroU8::new(8).unwrap())
@@ -695,15 +747,13 @@ mod tests {
 
     #[test]
     fn test_multiple_bits_starting_in_higher_byte() {
-        let value = NodeId::from([
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b01101110, 0b10110100, 0b10110100, 0b10110100,
-        ]);
+        let value = NodeId::from(0b01101110_10110100_10110100_10110100u128);
         assert_eq!(value.bits(17, NonZeroU8::new(7).unwrap()), Ok(0b1011010));
     }
 
     #[test]
     fn test_get_bit() {
-        let zero = NodeId::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b01101110]);
+        let zero = NodeId::from(0b01101110u128);
         assert_eq!(zero.bit(0), Ok(0));
         assert_eq!(zero.bit(1), Ok(1));
         assert_eq!(zero.bit(2), Ok(1));

@@ -314,7 +314,7 @@ where
         }
 
         // Check States as returning an error doesn't show an unrecoverable error
-        let states: Vec<&(dyn UseCaseState)> = vec![
+        let states: Vec<&dyn UseCaseState> = vec![
             self.forward_message.state(),
             self.failure_handling.state(),
             self.random_probing.state(),

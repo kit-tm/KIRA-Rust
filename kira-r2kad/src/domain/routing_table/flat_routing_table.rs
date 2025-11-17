@@ -153,8 +153,8 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
     }
 
     fn random_id(&self) -> Option<&NodeId> {
-        let mut rng = rand::thread_rng();
-        let random_contact = rng.gen_range(0..self.num_contacts());
+        let mut rng = rand::rng();
+        let random_contact = rng.random_range(0..self.num_contacts());
         self.iter().nth(random_contact).map(|contact| contact.id())
     }
 
@@ -353,21 +353,22 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
 
         // bitindex is now the index of the LSB of the first non-zero digit in delta
         // Example: delta = 00 00 00 01 10 11 10; ACC=2
-        // => prefix_len = 3, bit_index = 14 - 8 = 6
+        // => prefix_len = 3, bit_index = 14 - (3+1)*2 = 6
         let bit_index = NodeId::BITS.checked_sub((prefix_len + 1) * ACC);
         let Some(bit_index) = bit_index else {
             // This is the root key
             return self.num_buckets() - 1; // Always at least one bucket present
         };
 
+        debug_assert!(bit_index + Self::non_zero_acc().get() <= NodeId::BITS, "bit_index {}, acc: {}", bit_index, Self::non_zero_acc().get());
         // Example: digit = 01
         let digit = delta.bits(bit_index, Self::non_zero_acc()).unwrap() as usize;
-        assert_ne!(
+        debug_assert_ne!(
             digit, 0,
             "bit_index is the LSB of the first non-zero digit, so digit must not be zero"
         );
 
-        assert!(
+        debug_assert!(
             bit_index + ACC >= NodeId::BITS
                 || delta.bits(bit_index + ACC, Self::non_zero_acc()) == Ok(0)
         );
