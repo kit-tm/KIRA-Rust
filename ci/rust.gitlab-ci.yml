@@ -12,6 +12,7 @@
 .rust-ci-rules:
   extends: .semver_release_rule
   rules:
+    - !reference [.semver_release_rule, rules] # merge rules
     # only run manually on Draft-MR
     - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TITLE =~ /^Draft:/
       when: manual
@@ -178,4 +179,5 @@ cargo_audit:
     - cargo audit
 
   rules:
+    - !reference [.rust-ci-rules, rules] # merge rules
     - if: $CI_PIPELINE_SOURCE == "schedule" # scheduled nightly runs
