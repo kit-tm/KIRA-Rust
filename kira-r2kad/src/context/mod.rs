@@ -34,6 +34,7 @@ pub trait UseCaseContext {
     type UnderlayNeighborTable: Sized;
     type VicinityGraph: Sized;
 
+    #[allow(clippy::type_complexity)]
     fn new(
         config: ContextConfig<
             Self::RoutingTable,

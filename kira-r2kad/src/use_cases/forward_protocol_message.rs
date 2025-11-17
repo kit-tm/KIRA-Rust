@@ -323,10 +323,10 @@ where
         // TODO: last_seen should be updated on receiving a Rsp to a pending Req.
 
         // only update observed_ssn if it's greater to prohibit unnecessary resyncs
-        if let Some(entry) = context.vicinity_graph_mut().entry_mut(source) {
-            if entry.observed_ssn() < ssn {
-                entry.update_observed_ssn(*ssn);
-            }
+        if let Some(entry) = context.vicinity_graph_mut().entry_mut(source)
+            && entry.observed_ssn() < ssn
+        {
+            entry.update_observed_ssn(*ssn);
         }
     }
 

@@ -98,13 +98,12 @@ fn notify_all<const BUCKET_SIZE: usize>(
     event: RoutingTableEvent<BUCKET_SIZE>,
 ) {
     // Skip update events that only update the age
-    if let RoutingTableEvent::UpdatedContact { old, new } = &event {
-        if old.path() == new.path()
-            && old.state_seq_nr() == new.state_seq_nr()
-            && old.state() == new.state()
-        {
-            return;
-        }
+    if let RoutingTableEvent::UpdatedContact { old, new } = &event
+        && old.path() == new.path()
+        && old.state_seq_nr() == new.state_seq_nr()
+        && old.state() == new.state()
+    {
+        return;
     }
 
     for observable in observers {

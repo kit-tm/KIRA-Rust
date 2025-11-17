@@ -15,7 +15,7 @@ use derive_more::derive::{Display, Error};
 /// As all NodeIds have to be of the same size for an application this implementation
 /// uses const generics to specify its size instead of using [Vec] (which uses Heap
 /// allocation by default).
-#[derive(Clone, Copy, Eq, PartialEq, Hash, Display)]
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Display, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[display("{self:X}")]
 pub struct NodeId {
@@ -118,9 +118,8 @@ impl NodeId {
         if lz >= IGNORE_BITS {
             lz -= IGNORE_BITS;
             lz.try_into().unwrap()
-        }
-        else {
-            panic!("NodeId internal error: leading zeros value invalid ({})",lz);
+        } else {
+            panic!("NodeId internal error: leading zeros value invalid ({lz})");
         }
     }
 
@@ -459,19 +458,6 @@ impl FromStr for NodeId {
             Ok(value) => Ok(NodeId::from(value)),
             Err(e) => Err(e),
         }
-    }
-}
-
-
-impl PartialOrd for NodeId {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        <u128 as PartialOrd>::partial_cmp(&self.node_id, &other.node_id)
-    }
-}
-
-impl Ord for NodeId {
-    fn cmp(&self, other: &Self) -> Ordering {
-        <u128 as Ord>::cmp(&self.node_id, &other.node_id)
     }
 }
 

@@ -68,7 +68,7 @@ impl TryFrom<u32> for InterfaceId {
 }
 
 /// An underlay destination for [ProtocolMessages](crate::messaging::ProtocolMessage).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From, Default)]
 pub enum UnderlayNeighborDestination {
     /// Broadcast to all underlay neighbors.
     ///
@@ -77,6 +77,7 @@ pub enum UnderlayNeighborDestination {
     ///
     /// All neighbors that joined the well-known link-local multicast address `ALL-KIRA-NODES`
     /// should receive this message on *all* interfaces.
+    #[default]
     Broadcast,
     /// Multicast to all underlay neighbors connected via the interface.
     ///
@@ -107,12 +108,6 @@ impl UnderlayNeighborDestination {
     /// is [Multicast](UnderlayNeighborDestination::Multicast).
     pub const fn is_multicast(&self) -> bool {
         matches!(self, Self::Multicast(_))
-    }
-}
-
-impl Default for UnderlayNeighborDestination {
-    fn default() -> Self {
-        Self::Broadcast
     }
 }
 
