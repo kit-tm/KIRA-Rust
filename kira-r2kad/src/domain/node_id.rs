@@ -449,7 +449,7 @@ impl UpperHex for NodeId {
 
 impl Debug for NodeId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NodeId({self:014x})")
+        write!(f, "NodeId({self:028x})")
     }
 }
 
@@ -484,6 +484,14 @@ mod tests {
         //assert_eq!(id.size(), NodeId::SIZE);
         assert_eq!(format!("{id:028X}"), raw);
         assert_eq!(format!("{id:028x}"), raw.to_lowercase());
+
+        // need to fill in leading zeros
+        let short = "8702fcd81b5d24bace4307bf326";
+        let id = NodeId::from_str(short)?;
+        assert_eq!(format!("{id:028x}"), "08702fcd81b5d24bace4307bf326");
+
+        // test debug format
+        assert_eq!(format!("{id:?}"), "NodeId(08702fcd81b5d24bace4307bf326)");
 
         Ok(())
     }
