@@ -1,15 +1,15 @@
-use std::{collections::HashMap, fmt::Debug, ops::Deref};
+use std::{collections::HashMap, fmt::Debug, num::NonZeroU8, ops::Deref};
 
 use crate::{
     domain::{NodeId, Path, RoutingTable, ULNTable, UnderlayNeighborId},
     messaging::{
+        Nonce, ProtocolMessage, ReqRspMessage,
         dht::{DefaultLHTInput, FetchReqData, StoreReqData},
         source_route::SourceRoute,
-        Nonce, ProtocolMessage, ReqRspMessage,
     },
     use_cases::{
-        inject_messages::errors::InjectMessageError, BroadcastableUseCaseEvent, UseCaseContext,
-        UseCaseRuntime,
+        BroadcastableUseCaseEvent, UseCaseContext, UseCaseRuntime,
+        inject_messages::errors::InjectMessageError,
     },
 };
 
@@ -37,7 +37,7 @@ where
     // TODO: support other shared_prefix_grouping via config
     let closest_node = context
         .routing_table()
-        .next_hop(overlay_destination, 20, 1)
+        .next_hop(overlay_destination, 20, NonZeroU8::MIN)
         .expect("Shared Prefix Grouping should be valid");
 
     let path = if let Some(closest_node) = closest_node {
@@ -52,7 +52,7 @@ where
     let source_route = SourceRoute::new(*context.root_id(), path);
 
     ReqRspMessage {
-        source_state_seq_nr: *context.uln_table().state_seq_nr(),
+        source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
         not_via: context.not_via().clone(),
         data,
         nonce,

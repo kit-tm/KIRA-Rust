@@ -4,34 +4,58 @@
 //! [UnderlayObserverConnection](crate::underlay::UnderlayObserverConnection)
 //! and accessed using an [UnderlayObserverHandle](crate::underlay::UnderlayObserverHandle).
 //! The data structure holding the information is the
-//! [UnderlayInformationBase](crate::underlay::UnderlayInformationBase)
+//! [UnderlayInformationBase](crate::underlay::information_base::UnderlayInformationBase)
 
-use std::{collections::HashSet, net::Ipv6Addr};
+use std::net::Ipv6Addr;
 
 use kira_forwarding::underlay::UnderlayNeighborInformation;
-pub use kira_r2kad::domain::{InterfaceId, UnderlayNeighborId, UnderlayNeighborUpdate};
+pub use kira_r2kad::domain::{
+    ConnectionId, InterfaceId, UnderlayNeighborId, UnderlayNeighborUpdate,
+};
 
 /// Ethernet Address.
-pub type EthAddr = [u8; 6];
+pub type EthAddr = [u8; 6]; // should probably be a newtype on best practice
 
 /// A struct storing all necessary information on an network interface
 /// for the KIRA daemon.
 ///
 /// This information is used through the [UnderlayNeighborInformation] by
 /// the fast forwarding layer and the [io-part](crate::io) of R²/KAD.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Interface {
-    /// Id of the [Interface].
-    pub interface_id: InterfaceId,
-    /// Ethernet address used for sending messages from this [Interface].
-    pub src_mac: EthAddr,
-    /// Ethernet address used for broadcasting messages from this [Interface].
-    pub broadcast_mac: EthAddr,
-    /// List of all neighbors connected via this [Interface].
-    neighbors: HashSet<UnderlayNeighborId>,
+    interface_id: InterfaceId,
+    src_mac: EthAddr,
+    broadcast_mac: EthAddr,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+impl Interface {
+    /// Creates a new [Interface]
+    pub const fn new(if_index: InterfaceId, src_mac: EthAddr, broadcast_mac: EthAddr) -> Self {
+        // TODO: do some sanity checks on EthAddr
+
+        Self {
+            interface_id: if_index,
+            src_mac,
+            broadcast_mac,
+        }
+    }
+
+    /// Id of the [Interface].
+    pub fn interface_id(&self) -> &InterfaceId {
+        &self.interface_id
+    }
+
+    /// Ethernet address used for sending messages from this [Interface].
+    pub fn src_mac(&self) -> &EthAddr {
+        &self.src_mac
+    }
+
+    /// Ethernet address used for broadcasting messages from this [Interface].
+    pub fn broadcast_mac(&self) -> &EthAddr {
+        &self.broadcast_mac
+    }
+}
+
 /// An struct containing all information about an underlay neighbor
 /// excluding the actual [Interface] data.
 ///
@@ -41,11 +65,10 @@ pub struct Interface {
 ///
 /// This information is used through the [UnderlayNeighborInformation] by
 /// the fast forwarding layer and the [io-part](crate::io) of R²/KAD.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct UnderlayNeighbor {
-    /// link-local IPv6 address under which the neighbor can be reached.
-    pub ll_ipv6: Ipv6Addr,
-    /// Id of the interface under which the neighbor can be reached.
-    pub interface_id: InterfaceId,
+    ll_ipv6: Ipv6Addr,
+    interface_id: InterfaceId,
 }
 
 impl UnderlayNeighbor {
@@ -81,40 +104,14 @@ impl UnderlayNeighbor {
             ll_ipv6: self.ll_ipv6,
         }
     }
-}
 
-impl Interface {
-    /// Creates a new [Interface]
-    ///
-    /// The initial neighbor capacity is set to `1`.
-    pub fn new(if_index: InterfaceId, src_mac: EthAddr, broadcast_mac: EthAddr) -> Self {
-        Self {
-            interface_id: if_index,
-            src_mac,
-            broadcast_mac,
-            // one neighbor per link should be the norm
-            // e.g.: Containernet simulation == 1
-            neighbors: HashSet::with_capacity(1),
-        }
+    /// Link-local IPv6 address under which the neighbor can be reached.
+    pub fn ll_ipv6(&self) -> &Ipv6Addr {
+        &self.ll_ipv6
     }
 
-    /// Add a new underlay neighbor specified by its [UnderlayNeighborId] to an [Interface].
-    ///
-    /// If the interface already has the [UnderlayNeighborId] added this method will panic.
-    pub fn add_neighbor(&mut self, ulnid: UnderlayNeighborId) {
-        assert!(
-            self.neighbors.insert(ulnid),
-            "UnderlayNeighbors can only be registered once"
-        );
-    }
-
-    /// Returns a list of all underlay neighbors connected via this [Interface].
-    pub fn neighbors(&self) -> impl Iterator<Item = &UnderlayNeighborId> {
-        self.neighbors.iter()
-    }
-
-    /// Converts the [Interface] into all underlay neighbors connected via itself.
-    pub fn into_neighbors(self) -> impl Iterator<Item = UnderlayNeighborId> {
-        self.neighbors.into_iter()
+    /// Id of the interface under which the neighbor can be reached.
+    pub fn interface_id(&self) -> &InterfaceId {
+        &self.interface_id
     }
 }

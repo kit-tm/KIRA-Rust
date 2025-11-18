@@ -1,15 +1,15 @@
 use std::cmp::Ordering;
-use std::num::NonZeroUsize;
+use std::num::NonZeroU8;
 use std::ops::IndexMut;
 
 use rand::Rng;
 
 use crate::domain::{
-    node_id, AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, ContactState,
-    GroupingError, NodeId, ReplacementError, RoutingTable, SharedPrefix, DEFAULT_BUCKET_SIZE,
+    AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, ContactState,
+    DEFAULT_BUCKET_SIZE, GroupingError, NodeId, ReplacementError, RoutingTable, SharedPrefix,
 };
 
-pub const DEFAULT_ACCELERATION: usize = 1;
+pub const DEFAULT_ACCELERATION: u8 = 1;
 
 /// A [RoutingTable] implemented as flat array of [Bucket]s.
 ///
@@ -26,7 +26,7 @@ pub const DEFAULT_ACCELERATION: usize = 1;
 #[derive(Debug)]
 pub struct FlatRoutingTable<
     const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE,
-    const ACC: usize = DEFAULT_ACCELERATION,
+    const ACC: u8 = DEFAULT_ACCELERATION,
 > {
     buckets: Vec<Bucket<BUCKET_SIZE>>,
     root: NodeId,
@@ -42,7 +42,7 @@ impl FlatRoutingTable<DEFAULT_BUCKET_SIZE, DEFAULT_ACCELERATION> {
     }
 }
 
-impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, ACC> {
+impl<const BUCKET_SIZE: usize, const ACC: u8> FlatRoutingTable<BUCKET_SIZE, ACC> {
     /// Creates a [RoutingTable] with 0 capacity.
     pub fn new(root: NodeId) -> Result<Self, GroupingError> {
         Self::with_buckets(root, vec![Bucket::new()])
@@ -63,10 +63,9 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
         root: NodeId,
         buckets: Vec<Bucket<BUCKET_SIZE>>,
     ) -> Result<Self, GroupingError> {
-        if ACC > node_id::BIT_SIZE || ACC == 0 {
+        if ACC > NodeId::BITS || ACC == 0 {
             return Err(GroupingError::Invalid {
-                id_size: node_id::SIZE,
-                group_size: ACC,
+                group_size: NonZeroU8::try_from(ACC).unwrap_or(NonZeroU8::MAX),
             });
         }
         Ok(Self { buckets, root })
@@ -83,14 +82,14 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
 
     /// Returns a [NonZeroUsize] version of *ACC*. Workaround for using
     /// [NonZeroUsize] in const generics.
-    fn non_zero_acc() -> NonZeroUsize {
-        NonZeroUsize::new(ACC).expect("checked on initialization")
+    const fn non_zero_acc() -> NonZeroU8 {
+        NonZeroU8::new(ACC).expect("checked on initialization")
     }
 
     /// Returns the max number of buckets for a [RoutingTable] with the given
     /// `ID_SIZE` and `ACC`.
     pub const fn max_buckets() -> usize {
-        (node_id::BIT_SIZE / ACC) * Self::level_width()
+        ((NodeId::BITS / ACC) as usize) * Self::level_width()
     }
 
     /// Returns the number of present [Bucket]s.
@@ -102,13 +101,17 @@ impl<const BUCKET_SIZE: usize, const ACC: usize> FlatRoutingTable<BUCKET_SIZE, A
     pub fn num_contacts(&self) -> usize {
         self.buckets.iter().flat_map(|bucket| bucket.iter()).count()
     }
+
+    fn bucket_mut(&mut self, of: &NodeId) -> &mut Bucket<BUCKET_SIZE> {
+        let index = self.get_bucket_index(of);
+        self.buckets.index_mut(index)
+    }
 }
 
-impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZE>
+impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
     for FlatRoutingTable<BUCKET_SIZE, ACC>
 {
     type ContactWriteGuard = &'a mut Contact;
-    type BucketWriteGuard = &'a mut Bucket<BUCKET_SIZE>;
     type BucketIter = std::slice::Iter<'a, Bucket<BUCKET_SIZE>>;
 
     fn root(&self) -> &NodeId {
@@ -199,18 +202,13 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         &self.buckets[index]
     }
 
-    fn bucket_mut(&'a mut self, of: &NodeId) -> Self::BucketWriteGuard {
-        let index = self.get_bucket_index(of);
-        self.buckets.index_mut(index)
-    }
-
     /// Collects the closest `n` contacts to the given node by iterating the buckets from
     /// the one the given node would belong to.
     fn closest(
         &self,
         to: &NodeId,
         n: usize,
-        shared_prefix_grouping: usize,
+        shared_prefix_grouping: NonZeroU8,
     ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError> {
         // check for valid grouping first because we don't want unexpectetly panic inside iters
         to.shared_prefix_len(&self.root, shared_prefix_grouping)?;
@@ -342,10 +340,6 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         &self.buckets[index]
     }
 
-    fn bucket_by_index_mut(&'a mut self, index: usize) -> Self::BucketWriteGuard {
-        self.buckets.index_mut(index)
-    }
-
     /// Returns the index of the [Bucket] the id should be in related
     /// to the current state of the [RoutingTable].
     fn get_bucket_index(&self, of: &NodeId) -> usize {
@@ -354,28 +348,27 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
             length: prefix_len,
         } = self
             .root
-            .shared_prefix_len(of, ACC)
+            .shared_prefix_len(of, Self::non_zero_acc())
             .expect("grouping is checked on initialization");
 
         // bitindex is now the index of the LSB of the first non-zero digit in delta
         // Example: delta = 00 00 00 01 10 11 10; ACC=2
         // => prefix_len = 3, bit_index = 14 - 8 = 6
-        let bit_index = (node_id::BIT_SIZE).checked_sub((prefix_len + 1) * ACC);
-        let bit_index = match bit_index {
+        let bit_index = NodeId::BITS.checked_sub((prefix_len + 1) * ACC);
+        let Some(bit_index) = bit_index else {
             // This is the root key
-            None => return self.num_buckets() - 1, // Always at least one bucket present
-            Some(bit_index) => bit_index,
+            return self.num_buckets() - 1; // Always at least one bucket present
         };
 
         // Example: digit = 01
-        let digit = delta.bits(bit_index, Self::non_zero_acc()).unwrap();
+        let digit = delta.bits(bit_index, Self::non_zero_acc()).unwrap() as usize;
         assert_ne!(
             digit, 0,
             "bit_index is the LSB of the first non-zero digit, so digit must not be zero"
         );
 
         assert!(
-            bit_index + ACC >= node_id::BIT_SIZE
+            bit_index + ACC >= NodeId::BITS
                 || delta.bits(bit_index + ACC, Self::non_zero_acc()) == Ok(0)
         );
 
@@ -388,7 +381,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         // levelOffset = levelWidth - digit
         // index = levelBaseIndex + levelOffset
         // => index = (prefixLen+1) * levelWidth - digit
-        let level_id = prefix_len;
+        let level_id = prefix_len as usize;
         let level_base_index = level_id * Self::level_width();
         let level_offset = Self::level_width() - digit;
         let index = level_base_index + level_offset;
@@ -397,8 +390,8 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: usize> RoutingTable<'a, BUCKET_SIZ
         index.min(self.num_buckets() - 1) // Always at least one bucket present
     }
 
-    fn get_bucket_prefix_length(&self, bucket_index: usize) -> usize {
-        ACC + ACC * (bucket_index / Self::level_width())
+    fn get_bucket_prefix_length(&self, bucket_index: usize) -> u8 {
+        ACC + ACC * ((bucket_index / Self::level_width()) as u8)
     }
 }
 
@@ -407,14 +400,17 @@ mod routing_tests {
     use std::error::Error;
 
     use crate::domain::{
-        AddError, Contact, FlatRoutingTable, NodeId, Path, RoutingTable, StateSeqNr,
+        AddError, Contact, FlatRoutingTable, NodeId, Path, RoutingTable, SafeStateSeqNr,
     };
 
     #[test]
     fn test_add() -> Result<(), Box<dyn Error>> {
         let mut table = FlatRoutingTable::<1, 1>::new(NodeId::zero())?;
 
-        let contact = Contact::new(Path::from(NodeId::one()), StateSeqNr::from(1));
+        let contact = Contact::new(
+            Path::from(NodeId::one()),
+            SafeStateSeqNr::try_from(2).unwrap(),
+        );
 
         assert_eq!(table.add(contact), Ok(()));
 
@@ -427,13 +423,13 @@ mod routing_tests {
 
         table.add(Contact::new(
             Path::from(NodeId::with_lsb(1)),
-            StateSeqNr::from(0),
+            SafeStateSeqNr::try_from(1).unwrap(),
         ))?;
 
         assert_eq!(
             table.add(Contact::new(
                 Path::from(NodeId::with_lsb(2)),
-                StateSeqNr::from(0),
+                SafeStateSeqNr::try_from(1).unwrap(),
             )),
             Err(AddError::NotAdded)
         );
@@ -447,7 +443,10 @@ mod routing_tests {
 
         let mut table = FlatRoutingTable::<1, 1>::new(NodeId::zero())?;
 
-        table.add(Contact::new(Path::from(NodeId::one()), StateSeqNr::from(0)))?;
+        table.add(Contact::new(
+            Path::from(NodeId::one()),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        ))?;
 
         assert_eq!(table.split_bucket(&NodeId::one()), Ok(0));
 
@@ -462,12 +461,12 @@ mod routing_tests {
 
         table.insert(Contact::new(
             Path::from(NodeId::with_lsb(0b00000001)),
-            StateSeqNr::from(0),
+            SafeStateSeqNr::try_from(1).unwrap(),
         ))?;
 
         table.insert(Contact::new(
             Path::from(NodeId::with_lsb(0b00000010)),
-            StateSeqNr::from(0),
+            SafeStateSeqNr::try_from(1).unwrap(),
         ))?;
         assert_eq!(
             table.num_buckets(),
@@ -477,14 +476,14 @@ mod routing_tests {
 
         table.insert(Contact::new(
             Path::from(NodeId::with_lsb(0b00010000)),
-            StateSeqNr::from(0),
+            SafeStateSeqNr::try_from(1).unwrap(),
         ))?;
 
         assert!(
             table
                 .insert(Contact::new(
                     Path::from(NodeId::with_lsb(0b00010111)),
-                    StateSeqNr::from(0),
+                    SafeStateSeqNr::try_from(1).unwrap(),
                 ))
                 .is_err(),
             "is in the same bucket as 00010000"
@@ -499,7 +498,7 @@ mod routing_tests {
 
         table.add(Contact::new(
             Path::from(NodeId::with_lsb(0b00000001)),
-            StateSeqNr::from(0),
+            SafeStateSeqNr::try_from(1).unwrap(),
         ))?;
         assert_eq!(table.buckets.len(), 1);
 
@@ -507,7 +506,7 @@ mod routing_tests {
             table
                 .add(Contact::new(
                     Path::from(NodeId::with_msb(0b11000000)),
-                    StateSeqNr::from(0),
+                    SafeStateSeqNr::try_from(1).unwrap(),
                 ))
                 .is_ok(),
             "no split required on bucket BUCKET_SIZE=2"
@@ -518,7 +517,7 @@ mod routing_tests {
         assert_eq!(
             table.add(Contact::new(
                 Path::from(NodeId::with_msb(0b10000000)),
-                StateSeqNr::from(0),
+                SafeStateSeqNr::try_from(1).unwrap(),
             )),
             Err(AddError::NotAdded),
             "split required because single bucket is full"
@@ -533,7 +532,7 @@ mod routing_tests {
             table
                 .add(Contact::new(
                     Path::from(NodeId::with_msb(0b10000000)),
-                    StateSeqNr::from(0),
+                    SafeStateSeqNr::try_from(1).unwrap(),
                 ))
                 .is_ok(),
             "bucket should have been created on split"
@@ -544,7 +543,7 @@ mod routing_tests {
             table
                 .add(Contact::new(
                     Path::from(NodeId::with_msb(0b10000001)),
-                    StateSeqNr::from(0),
+                    SafeStateSeqNr::try_from(1).unwrap(),
                 ))
                 .is_ok(),
             "bucket with prefix 10 should have space"
@@ -553,7 +552,7 @@ mod routing_tests {
             table
                 .add(Contact::new(
                     Path::from(NodeId::with_msb(0b00000011)),
-                    StateSeqNr::from(0),
+                    SafeStateSeqNr::try_from(1).unwrap(),
                 ))
                 .is_ok(),
             "bucket with prefix 00 should have space"
@@ -563,7 +562,7 @@ mod routing_tests {
             table
                 .add(Contact::new(
                     Path::from(NodeId::with_msb(0b01000000)),
-                    StateSeqNr::from(0),
+                    SafeStateSeqNr::try_from(1).unwrap(),
                 ))
                 .is_ok(),
             "bucket with prefix 01 should have space"

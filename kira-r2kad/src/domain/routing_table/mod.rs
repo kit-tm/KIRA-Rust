@@ -1,5 +1,5 @@
 use derive_more::{Display, Error};
-use std::ops::DerefMut;
+use std::{num::NonZeroU8, ops::DerefMut};
 
 use crate::domain::{Bucket, Contact, GroupingError, NodeId, ReplacementError, SharedPrefix};
 
@@ -63,10 +63,6 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     ///
     /// Allows implementations to support RAII types to watch mutability of a contact.
     type ContactWriteGuard: DerefMut<Target = Contact>;
-    /// Possible Write Guard for a mutable bucket reference.
-    ///
-    /// Allows implementations to support RAII types to watch mutability of a bucket.
-    type BucketWriteGuard: DerefMut<Target = Bucket<BUCKET_SIZE>>;
 
     /// Iterator type over all [Bucket]s
     type BucketIter: Iterator<Item = &'a Bucket<BUCKET_SIZE>>;
@@ -118,21 +114,15 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// current state of the [RoutingTable].
     fn bucket(&self, of: &NodeId) -> &Bucket<BUCKET_SIZE>;
 
-    /// Returns a mutable reference to the [Bucket] for the given [NodeId].
-    fn bucket_mut(&'a mut self, of: &NodeId) -> Self::BucketWriteGuard;
-
     /// Returns the [Bucket] at the given index.
     fn bucket_by_index(&self, index: usize) -> &Bucket<BUCKET_SIZE>;
-
-    /// Returns a mutable reference to the [Bucket] at the given index.
-    fn bucket_by_index_mut(&'a mut self, index: usize) -> Self::BucketWriteGuard;
 
     /// Returns the index of the [Bucket] the given [NodeId] should be located in
     /// based on the current state of the [RoutingTable].
     fn get_bucket_index(&self, of: &NodeId) -> usize;
 
     /// Returns the fixed prefix length of the[Bucket] at the given index.
-    fn get_bucket_prefix_length(&self, bucket_index: usize) -> usize;
+    fn get_bucket_prefix_length(&self, bucket_index: usize) -> u8;
 
     /// Inserts a [Contact] into the table by splitting the [Bucket] until
     /// Insertion succeeds or splitting failed.
@@ -179,7 +169,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         &self,
         to: &NodeId,
         n: usize,
-        shared_prefix_grouping: usize,
+        shared_prefix_grouping: NonZeroU8,
     ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError>;
 
     /// Returns the next overlay hop to the given [NodeId]
@@ -195,7 +185,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         &self,
         to: &NodeId,
         n: usize,
-        shared_prefix_grouping: usize,
+        shared_prefix_grouping: NonZeroU8,
     ) -> Result<Option<Contact>, GroupingError> {
         log::trace!(target: "routing_table", "Calculating next hop to {to}");
 

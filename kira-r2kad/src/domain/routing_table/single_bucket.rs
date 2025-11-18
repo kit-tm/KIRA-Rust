@@ -2,6 +2,7 @@
 #![allow(unused_variables)]
 
 use std::cmp::Ordering;
+use std::num::NonZeroU8;
 
 use rand::Rng;
 
@@ -37,7 +38,6 @@ impl<const BUCKET_SIZE: usize> SingleBucketRT<BUCKET_SIZE> {
 
 impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucketRT<BUCKET_SIZE> {
     type ContactWriteGuard = &'a mut Contact;
-    type BucketWriteGuard = &'a mut Bucket<BUCKET_SIZE>;
     type BucketIter = std::iter::Once<&'a Bucket<BUCKET_SIZE>>;
 
     fn root(&self) -> &NodeId {
@@ -97,16 +97,11 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
         &self.bucket
     }
 
-    /// Returns a mutable reference to the only [Bucket] in this [RoutingTable].
-    fn bucket_mut(&'a mut self, _of: &NodeId) -> Self::BucketWriteGuard {
-        &mut self.bucket
-    }
-
     fn closest(
         &self,
         to: &NodeId,
         n: usize,
-        shared_prefix_grouping: usize,
+        shared_prefix_grouping: NonZeroU8,
     ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError> {
         let mut result = Vec::with_capacity(n);
         for contact in self.bucket.iter().take(n) {
@@ -145,15 +140,11 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
         &self.bucket
     }
 
-    fn bucket_by_index_mut(&'a mut self, index: usize) -> Self::BucketWriteGuard {
-        &mut self.bucket
-    }
-
     fn get_bucket_index(&self, of: &NodeId) -> usize {
         0
     }
 
-    fn get_bucket_prefix_length(&self, bucket_index: usize) -> usize {
+    fn get_bucket_prefix_length(&self, bucket_index: usize) -> u8 {
         0
     }
 }

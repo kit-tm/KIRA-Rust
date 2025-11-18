@@ -13,11 +13,12 @@ use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
 
 use super::*;
+use crate::domain::underlay::UnderlayNeighbor;
 use crate::format::ProtocolMessageFormat;
 use crate::io::ALL_KIRA_NODES;
-use crate::underlay::handle::UnderlayObserverHandleError;
-use crate::underlay::UnderlayNeighborInterfaceDownError;
 use crate::underlay::UnderlayObserverHandle;
+use crate::underlay::handle::UnderlayObserverHandleError;
+use crate::underlay::information_base::UnderlayNeighborInterfaceDownError;
 
 /// Maximum Transmission Unit (MTU). In general the MTU is actually smaller due to
 /// network restrictions. But to be safe we use this.
@@ -162,11 +163,8 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
             }
             log::trace!(target: "message_receiver", "Received {:?} from {}", &message, received_from);
 
-            let ulnid = match self
-                .underlay_handle
-                .register_neighbor(interface_id, *received_from.ip())
-                .await
-            {
+            let neighbor = UnderlayNeighbor::new(*received_from.ip(), interface_id);
+            let ulnid = match self.underlay_handle.register_neighbor(neighbor).await {
                 Ok(ulnid) => ulnid,
                 Err(UnderlayObserverHandleError::SenderClosed(e)) => {
                     log::error!(target: "message_receiver", "underlay handle sender closed: {e}");

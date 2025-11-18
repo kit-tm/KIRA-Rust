@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
-use std::num::NonZeroUsize;
+use std::num::NonZeroU8;
 use std::ops::Deref;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::domain::{
-    node_id, Contact, GroupingError, NodeId, NotVia, RoutingTable, StateSeqNr, ULNTable,
-    UnderlayNeighborId, DEFAULT_BUCKET_SIZE,
+    Contact, DEFAULT_BUCKET_SIZE, GroupingError, NodeId, NotVia, RoutingTable, StateSeqNr,
+    ULNTable, UnderlayNeighborId,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{ErrorData, FindNodeReqData, ProtocolMessage, RTableData, ReqRspMessage};
@@ -14,13 +14,13 @@ use crate::use_cases::{EventHandler, NeverError, UseCaseContext, UseCaseEvent, U
 
 #[derive(Debug)]
 pub struct OverlayDiscoveryConfig {
-    pub shared_prefix_bits_grouping: NonZeroUsize,
+    pub shared_prefix_bits_grouping: NonZeroU8,
 }
 
 impl Default for OverlayDiscoveryConfig {
     fn default() -> Self {
         Self {
-            shared_prefix_bits_grouping: NonZeroUsize::new(1).unwrap(),
+            shared_prefix_bits_grouping: NonZeroU8::MIN,
         }
     }
 }
@@ -44,10 +44,9 @@ impl<C, const BUCKET_SIZE: usize> HandleOverlayDiscovery<C, BUCKET_SIZE> {
     /// Builds an instance of the [HandleOverlayDiscovery] and returns an error if the configuration
     /// is invalid.
     pub fn new(config: OverlayDiscoveryConfig) -> Result<Self, GroupingError> {
-        if config.shared_prefix_bits_grouping.get() > node_id::BIT_SIZE {
+        if config.shared_prefix_bits_grouping.get() > NodeId::BITS {
             return Err(GroupingError::Invalid {
-                group_size: config.shared_prefix_bits_grouping.get(),
-                id_size: node_id::BIT_SIZE,
+                group_size: config.shared_prefix_bits_grouping,
             });
         }
 
@@ -154,7 +153,7 @@ where
                 .closest(
                     &req.data.target,
                     number_of_neighbors,
-                    self.config.shared_prefix_bits_grouping.get(),
+                    self.config.shared_prefix_bits_grouping,
                 )
                 .expect("grouping has to be checked on initialization");
 
@@ -187,14 +186,14 @@ where
                     self.build_find_node_rsp(
                         context.not_via().clone(),
                         req.clone(),
-                        *context.uln_table().state_seq_nr(),
+                        From::from(*context.uln_table().state_seq_nr()),
                         closest,
                     )
                 }
                 (true, target, false, Some((closest_known_distance, contact))) => {
                     let own_distance = context
                         .root_id()
-                        .shared_prefix_len(target, self.config.shared_prefix_bits_grouping.get())
+                        .shared_prefix_len(target, self.config.shared_prefix_bits_grouping)
                         .expect("grouping was checked on init");
 
                     if &own_distance > closest_known_distance && req.source() != contact.id() {
@@ -209,14 +208,14 @@ where
                         self.build_error(
                             context.not_via().clone(),
                             req.clone(),
-                            *context.uln_table().state_seq_nr(),
+                            From::from(*context.uln_table().state_seq_nr()),
                         )
                     }
                 }
                 (true, _, false, None) => self.build_error(
                     context.not_via().clone(),
                     req.clone(),
-                    *context.uln_table().state_seq_nr(),
+                    From::from(*context.uln_table().state_seq_nr()),
                 ),
                 (false, _, true, _) => {
                     log::warn!(
@@ -228,7 +227,7 @@ where
                 (false, target, false, Some((closest_known_distance, contact))) => {
                     let own_distance = context
                         .root_id()
-                        .shared_prefix_len(target, self.config.shared_prefix_bits_grouping.get())
+                        .shared_prefix_len(target, self.config.shared_prefix_bits_grouping)
                         .expect("grouping was checked on init");
 
                     if &own_distance > closest_known_distance && req.source() != contact.id() {
@@ -245,7 +244,7 @@ where
                         self.build_find_node_rsp(
                             context.not_via().clone(),
                             req.clone(),
-                            *context.uln_table().state_seq_nr(),
+                            From::from(*context.uln_table().state_seq_nr()),
                             closest,
                         )
                     }
@@ -253,7 +252,7 @@ where
                 (false, _, false, None) => self.build_find_node_rsp(
                     context.not_via().clone(),
                     req.clone(),
-                    *context.uln_table().state_seq_nr(),
+                    From::from(*context.uln_table().state_seq_nr()),
                     Vec::with_capacity(0),
                 ),
             };

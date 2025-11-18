@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU8, NonZeroUsize};
 use std::ops::Deref;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::domain::{
     Contact, ContactState, NodeId, NotVia, RoutingTable, ULNTable, UnderlayNeighborId,
@@ -19,14 +19,14 @@ pub struct HandleContactUpdateConfig {
     /// Number of overlay neighbors to notify of a change to the routing table.
     pub radius: NonZeroUsize,
     /// Number of bits to group for determining the closeness of contacts
-    pub grouping_bits: NonZeroUsize,
+    pub grouping_bits: NonZeroU8,
 }
 
 impl Default for HandleContactUpdateConfig {
     fn default() -> Self {
         HandleContactUpdateConfig {
             radius: NonZeroUsize::new(3).unwrap(),
-            grouping_bits: NonZeroUsize::new(1).unwrap(),
+            grouping_bits: NonZeroU8::MIN,
         }
     }
 }
@@ -75,13 +75,13 @@ where
             .closest(
                 context.root_id(),
                 self.config.radius.get(),
-                self.config.grouping_bits.get(),
+                self.config.grouping_bits,
             )
             .expect("type didn't prevent invalid grouping");
 
         for (_, contact) in overlay_neighbors {
             let message = UpdateRouteReq {
-                source_state_seq_nr: *context.uln_table().state_seq_nr(),
+                source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
                 not_via: context.not_via().clone(),
                 contact_actions: updates.clone(),
                 source_route: SourceRoute::new(*context.root_id(), contact.path().clone()),

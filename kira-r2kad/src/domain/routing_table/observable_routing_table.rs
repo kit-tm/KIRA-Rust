@@ -1,6 +1,9 @@
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
+use std::num::NonZeroU8;
 use std::ops::{Deref, DerefMut};
+
+use derive_more::derive::Display;
 
 use crate::domain::unlimited_uln_routing_table::UnlimitedULNRoutingTable;
 use crate::domain::{
@@ -23,41 +26,29 @@ use crate::domain::{
 /// implementing [RoutingTable] and wrapped by [ObservableRoutingTable].
 /// Therefore [RoutingTableEvent::UpdatedBucket] is currently (2022.07.13) the only one
 /// triggered from the [ObservableRoutingTable].
-///
-/// # Explicitly emitting an event
-///
-/// To publish an event from explicitly one can use the [ObservableRoutingTable::emit] function.
-/// This can be handy when e.g. an
-/// [InsertionStrategy](crate::domain::insertion_strategy::InsertionStrategy) explicitly splits a
-/// bucket and filters out some contacts.
-/// The [InsertionStrategy](crate::domain::insertion_strategy::InsertionStrategy) can then emit
-/// multiple [RoutingTableEvent::RemovedContact] explicitly while otherwise the
-/// [ObservableRoutingTable] would only emit one [RoutingTableEvent::UpdatedBucket].
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Display)]
 pub enum RoutingTableEvent<const BUCKET_SIZE: usize> {
     /// The new [Contact] was added to the [RoutingTable].
+    #[display("NewContact [{_0}]")]
     NewContact(Contact),
     /// An existing [Contact] was updated.
+    #[display("UpdatedContact [{old} => {new}]")]
     UpdatedContact { new: Contact, old: Contact },
     /// A [Contact] was removed from the [RoutingTable].
+    #[display("RemovedContact [{_0}]")]
     RemovedContact(Contact),
     /// The [Bucket] at the given index was updated.
-    /// This event is only fire when a path of a [Contact] in the [Bucket] changed.
+    ///
+    /// This event is fired together with [NewBucket] after a split of a bucket.
+    /// In contrast to the contact events no contact in the routing table was
+    /// updated but only the bucket of contacts was changed.
+    ///
+    /// [NewBucket]: RoutingTableEvent::NewBucket
+    #[display("UpdatedBucket to [{_0}]")]
     UpdatedBucket(usize),
     /// A new [Bucket] was added at the given index.
+    #[display("NewBucket [{_0}]")]
     NewBucket(usize),
-}
-
-impl<const BUCKET_SIZE: usize> Display for RoutingTableEvent<BUCKET_SIZE> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NewContact(contact) => write!(f, "NewContact [{contact}]"),
-            Self::RemovedContact(contact) => write!(f, "RemovedContact [{contact}]"),
-            Self::UpdatedContact { old, new } => write!(f, "UpdatedContact [{old} => {new}]"),
-            Self::NewBucket(bucket) => write!(f, "NewBucket [{bucket}]"),
-            Self::UpdatedBucket(bucket) => write!(f, "UpdatedBucket to [{bucket}]"),
-        }
-    }
 }
 
 /// Observer for [RoutingTableEvent]s.
@@ -71,14 +62,20 @@ impl<const BUCKET_SIZE: usize> Display for RoutingTableEvent<BUCKET_SIZE> {
 /// A simple way to implement A [RoutingTableEvent] is by using a closure.
 ///
 /// ```rust
-/// # use kira_lib::domain::{Bucket, FlatRoutingTable, NodeId};
-/// # use kira_lib::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
+/// # use kira_r2kad::domain::{Bucket, Contact, FlatRoutingTable, Path, RoutingTable,
+/// # SafeStateSeqNr, NodeId};
+/// # use kira_r2kad::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
 /// let mut observable_rt = ObservableRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
 ///
 /// // A simple debug logger
 /// observable_rt.add_observer(|event| println!("{:?}", event));
 ///
-/// observable_rt.emit(RoutingTableEvent::NewBucket(Bucket::new()));
+/// let contact = Contact::new(
+///     Path::from(NodeId::with_msb(2)),
+///     SafeStateSeqNr::try_from(2).unwrap(),
+/// );
+/// let _ = observable_rt.add(contact);
+///
 /// ```
 pub trait RoutingTableObserver<const BUCKET_SIZE: usize>: Send {
     /// Notify the [RoutingTableObserver] about a [RoutingTableEvent].
@@ -124,12 +121,12 @@ pub trait NonObservableRoutingTable<'a, const BUCKET_SIZE: usize>:
 {
 }
 
-impl<const BUCKET_SIZE: usize, const ACC: usize> NonObservableRoutingTable<'_, BUCKET_SIZE>
+impl<const BUCKET_SIZE: usize, const ACC: u8> NonObservableRoutingTable<'_, BUCKET_SIZE>
     for FlatRoutingTable<BUCKET_SIZE, ACC>
 {
 }
 
-impl<const BUCKET_SIZE: usize, const ACC: usize> NonObservableRoutingTable<'_, BUCKET_SIZE>
+impl<const BUCKET_SIZE: usize, const ACC: u8> NonObservableRoutingTable<'_, BUCKET_SIZE>
     for UnlimitedULNRoutingTable<BUCKET_SIZE, ACC>
 {
 }
@@ -167,17 +164,6 @@ impl<RT, const BUCKET_SIZE: usize> ObservableRoutingTable<RT, BUCKET_SIZE> {
         self.observers.push(Box::new(observer));
     }
 
-    /// Explicitly emits a [RoutingTableEvent] to all observers of this [ObservableRoutingTable].
-    ///
-    /// This can be used to emit additional events to the ones automatically emitted.
-    /// E.g. when using [RoutingTable::bucket_mut] instead of [RoutingTable::remove]
-    /// to remove multiple contacts, [ObservableRoutingTable::emit] can be used to
-    /// explicitly emit [RoutingTableEvent::RemovedContact]-Events for every contact
-    /// removed.
-    pub fn emit(&self, event: RoutingTableEvent<BUCKET_SIZE>) {
-        self.notify_all(event);
-    }
-
     // Eases the access to the utility function
     fn notify_all(&self, event: RoutingTableEvent<BUCKET_SIZE>) {
         notify_all(&self.observers, event);
@@ -190,7 +176,6 @@ where
     RT: 'a + NonObservableRoutingTable<'a, BUCKET_SIZE>,
 {
     type ContactWriteGuard = ContactWriteGuard<'a, RT::ContactWriteGuard, BUCKET_SIZE>;
-    type BucketWriteGuard = BucketWriteGuard<'a, RT::BucketWriteGuard, BUCKET_SIZE>;
     type BucketIter = RT::BucketIter;
 
     fn root(&self) -> &NodeId {
@@ -266,22 +251,11 @@ where
         self.inner.bucket(of)
     }
 
-    fn bucket_mut(&'a mut self, of: &NodeId) -> Self::BucketWriteGuard {
-        let index = self.inner.get_bucket_index(of);
-        let bucket = self.inner.bucket_by_index_mut(index);
-        BucketWriteGuard {
-            observers: &self.observers,
-            original: Bucket::<BUCKET_SIZE>::clone(bucket.deref()),
-            index,
-            bucket,
-        }
-    }
-
     fn closest(
         &self,
         to: &NodeId,
         n: usize,
-        shared_prefix_grouping: usize,
+        shared_prefix_grouping: NonZeroU8,
     ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError> {
         self.inner.closest(to, n, shared_prefix_grouping)
     }
@@ -302,21 +276,11 @@ where
         self.inner.bucket_by_index(index)
     }
 
-    fn bucket_by_index_mut(&'a mut self, index: usize) -> Self::BucketWriteGuard {
-        let bucket = self.inner.bucket_by_index_mut(index);
-        BucketWriteGuard {
-            observers: &self.observers,
-            original: Bucket::<BUCKET_SIZE>::clone(bucket.deref()),
-            index,
-            bucket,
-        }
-    }
-
     fn get_bucket_index(&self, of: &NodeId) -> usize {
         self.inner.get_bucket_index(of)
     }
 
-    fn get_bucket_prefix_length(&self, bucket_index: usize) -> usize {
+    fn get_bucket_prefix_length(&self, bucket_index: usize) -> u8 {
         self.inner.get_bucket_prefix_length(bucket_index)
     }
 }
@@ -401,62 +365,10 @@ where
             notify_all(
                 self.observers,
                 RoutingTableEvent::UpdatedContact {
-                    new: self.contact.deref().clone(),
+                    new: self.contact.clone(),
                     old: self.original.clone(),
                 },
             );
-        }
-    }
-}
-
-/// Resource Acquisition Is Initialization (RAII) type to provide observability of mutating a
-/// [Bucket].
-///
-/// Emits a [RoutingTableEvent::UpdatedBucket] on [Drop] only if the [Bucket] actually changed.
-/// As a smart pointer this type dereferences to the updated [Bucket].
-pub struct BucketWriteGuard<'a, B, const BUCKET_SIZE: usize>
-where
-    B: DerefMut<Target = Bucket<BUCKET_SIZE>>,
-{
-    observers: &'a [Box<dyn RoutingTableObserver<BUCKET_SIZE>>],
-    original: Bucket<BUCKET_SIZE>,
-    index: usize,
-    bucket: B,
-}
-
-impl<B, const BUCKET_SIZE: usize> Deref for BucketWriteGuard<'_, B, BUCKET_SIZE>
-where
-    B: DerefMut<Target = Bucket<BUCKET_SIZE>>,
-{
-    type Target = Bucket<BUCKET_SIZE>;
-
-    fn deref(&self) -> &Self::Target {
-        self.bucket.deref()
-    }
-}
-
-impl<B, const BUCKET_SIZE: usize> DerefMut for BucketWriteGuard<'_, B, BUCKET_SIZE>
-where
-    B: DerefMut<Target = Bucket<BUCKET_SIZE>>,
-{
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.bucket.deref_mut()
-    }
-}
-
-impl<B, const BUCKET_SIZE: usize> Drop for BucketWriteGuard<'_, B, BUCKET_SIZE>
-where
-    B: DerefMut<Target = Bucket<BUCKET_SIZE>>,
-{
-    fn drop(&mut self) {
-        if self
-            .bucket
-            .deref()
-            .iter()
-            .zip(self.original.iter())
-            .any(|(a, b)| a.path() != b.path())
-        {
-            notify_all(self.observers, RoutingTableEvent::UpdatedBucket(self.index))
         }
     }
 }
@@ -467,11 +379,16 @@ mod tests {
 
     use crate::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
     use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::{Contact, ContactState, NodeId, Path, RoutingTable, StateSeqNr, Timestamp};
+    use crate::domain::{
+        Contact, ContactState, NodeId, Path, RoutingTable, SafeStateSeqNr, Timestamp,
+    };
 
     #[test]
     fn add_contact() {
-        let contact = Contact::new(Path::from(NodeId::with_msb(2)), StateSeqNr::from(1));
+        let contact = Contact::new(
+            Path::from(NodeId::with_msb(2)),
+            SafeStateSeqNr::try_from(2).unwrap(),
+        );
 
         let mut observable = ObservableRoutingTable::from(SingleBucketRT::<10>::new(NodeId::one()));
 
@@ -490,7 +407,10 @@ mod tests {
 
     #[test]
     fn remove_contact() {
-        let contact = Contact::new(Path::from(NodeId::with_msb(2)), StateSeqNr::from(1));
+        let contact = Contact::new(
+            Path::from(NodeId::with_msb(2)),
+            SafeStateSeqNr::try_from(2).unwrap(),
+        );
 
         let mut rt = SingleBucketRT::<10>::new(NodeId::one());
         assert!(rt.add(contact.clone()).is_ok());
@@ -509,7 +429,10 @@ mod tests {
 
     #[test]
     fn replace_contact() {
-        let contact = Contact::new(Path::from(NodeId::with_msb(2)), StateSeqNr::from(1));
+        let contact = Contact::new(
+            Path::from(NodeId::with_msb(2)),
+            SafeStateSeqNr::try_from(2).unwrap(),
+        );
 
         let mut rt = SingleBucketRT::<10>::new(NodeId::one());
         assert!(rt.add(contact.clone()).is_ok());
@@ -521,17 +444,27 @@ mod tests {
         let observable_events = Arc::clone(&events);
         observable.add_observer(move |event| observable_events.write().unwrap().push(event));
 
-        let new_contact = Contact::new(Path::from(NodeId::with_msb(3)), StateSeqNr::from(2));
+        let new_contact = Contact::new(
+            Path::from(NodeId::with_msb(3)),
+            SafeStateSeqNr::try_from(3).unwrap(),
+        );
 
         let add_result = observable.replace(contact.id(), new_contact.clone());
         assert!(add_result.is_ok());
-        assert!((events.read().unwrap()).contains(&RoutingTableEvent::RemovedContact(contact)));
-        assert!((events.read().unwrap()).contains(&RoutingTableEvent::NewContact(new_contact)));
+        assert!(
+            (events.read().unwrap()).contains(&RoutingTableEvent::UpdatedContact {
+                old: contact,
+                new: new_contact
+            })
+        );
     }
 
     #[test]
     fn update_contact() {
-        let contact = Contact::new(Path::from(NodeId::with_msb(2)), StateSeqNr::from(1));
+        let contact = Contact::new(
+            Path::from(NodeId::with_msb(2)),
+            SafeStateSeqNr::try_from(2).unwrap(),
+        );
 
         let mut rt = SingleBucketRT::<10>::new(NodeId::one());
         assert!(rt.add(contact.clone()).is_ok());

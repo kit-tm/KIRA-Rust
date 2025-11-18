@@ -34,16 +34,6 @@ impl<V> TaggedValue<V> {
     /// # Returns
     ///
     /// Returns itself with the tagged flag set to `true`.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use kira_lib::domain::dht::strategies::timeout_strategy::TaggedValue;
-    ///
-    /// let tg = TaggedValue::new(42).tag();
-    ///
-    /// assert!(tg.tagged());
-    /// ```
     pub fn tag(mut self) -> Self {
         self.tagged = true;
         self
@@ -94,4 +84,3 @@ impl<C, D> TimeoutStrategy for TaggedTimeoutStrategy<C, TaggedValue<D>> {
         expirable.tagged()
     }
 }
-

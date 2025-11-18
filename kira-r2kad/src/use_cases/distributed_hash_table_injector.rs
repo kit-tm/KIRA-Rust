@@ -201,9 +201,9 @@ where
 
                 let nonce = nonce.unwrap_or_else(|| self.generate_distinct_nonce());
 
-                dht::send_store_req(context, nonce.clone(), payload.clone());
+                dht::send_store_req(context, nonce, payload.clone());
                 self.nonces
-                    .insert(nonce.clone(), (context.runtime().current_time(), callback));
+                    .insert(nonce, (context.runtime().current_time(), callback));
                 if restore {
                     self.restore_data.push_back(payload);
                 }
@@ -219,13 +219,11 @@ where
 
                 let nonce = nonce.unwrap_or_else(|| self.generate_distinct_nonce());
 
-                if let Err(inject_err) = dht::send_fetch_req(context, nonce.clone(), payload) {
+                if let Err(inject_err) = dht::send_fetch_req(context, nonce, payload) {
                     self.inform_injector_about_send_error(inject_err, &nonce, callback)?;
                 } else {
-                    self.nonces.insert(
-                        nonce.clone(),
-                        (context.runtime().current_time(), callback.clone()),
-                    );
+                    self.nonces
+                        .insert(nonce, (context.runtime().current_time(), callback.clone()));
                 }
             }
             (UseCaseEvent::Message(message, ulnid), _) => {

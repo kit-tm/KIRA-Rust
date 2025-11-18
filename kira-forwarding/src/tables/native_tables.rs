@@ -88,7 +88,7 @@ impl<I> NativeFwdTables<I> {
 
 impl<I> Drop for NativeFwdTables<I> {
     fn drop(&mut self) {
-        // FIXME: cleanup interfaces and routes
+        // TODO: cleanup interfaces and routes
     }
 }
 
@@ -134,26 +134,6 @@ where
 
         if self.node_id_table.get(&destination) == Some(&entry) {
             return Ok(());
-        }
-
-        // FIXME:
-        // Because of how the routing table works, there can only be one entry
-        // per prefix_len != 128 (not completely correct but works for now)
-        // these subnet entries may change their destination when the routing table grows, so remove the old ones first
-        if prefix_length != 128 {
-            log::debug!(target: "native_fwd_table", "Checking for prefix entry change {entry:?}");
-            if let Some(old_entry) = self
-                .node_id_table
-                .keys()
-                .find(|e| {
-                    e.prefix_length() == destination.prefix_length()
-                        && e.node_id() != destination.node_id()
-                })
-                .cloned()
-            {
-                log::debug!(target: "native_fwd_table", "Prefix entry changed from {old_entry} to {entry}");
-                AsyncNodeIdTable::remove(self, &old_entry).await?;
-            }
         }
 
         match &entry {
@@ -239,7 +219,7 @@ where
                         .await
                         .unwrap();
 
-                    // FIXME: delete via routes
+                    // TODO: delete via routes
                 }
             }
 

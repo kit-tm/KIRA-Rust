@@ -1,8 +1,10 @@
 //! Interface definition and implementation for use case interaction with a runtime.
-//!
+
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::time::{Duration, Instant};
+
+use rand::Rng;
 
 use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
 use crate::domain::{NodeId, UnderlayNeighborDestination, UnderlayNeighborId};
@@ -13,8 +15,6 @@ pub use crate::r2kad::runtime::R2KadRuntime;
 
 #[cfg(test)]
 pub mod testing;
-
-// TODO: Expose current time in Runtime to UseCases
 
 /// Interface for the [UseCases](crate::use_cases::UseCase) to the runtime environment.
 pub trait UseCaseRuntime {
@@ -29,6 +29,15 @@ pub trait UseCaseRuntime {
     /// The returned TimerId has to be unique.
     /// It's an error for runtimes to return duplicate [TimerId]s.
     fn register_periodic_timer(&self, duration: Duration) -> TimerId;
+
+    fn register_rand_timer(&self, duration: Duration) -> TimerId {
+        let mut rng = rand::thread_rng();
+        let factor = rng.gen_range(0.5..=1.5);
+        self.register_timer(duration.mul_f64(factor))
+    }
+
+    /// Get the [Duration] left of a timer if one is known by the [TimerId].
+    fn timer_remaining_duration(&self, timer: &TimerId) -> Option<Duration>;
 
     /// Get the current time.
     fn current_time(&self) -> Instant;
@@ -54,10 +63,19 @@ pub trait UseCaseRuntime {
         ulntable: &impl Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     ) {
         let protocol_message: ProtocolMessage = protocol_message.into();
-        // WARNING: also broadcasting to neighbors not present in the ulntable
         let underlay_dest = protocol_message
             .current_hop()
-            .and_then(|next_hop| ulntable.get(next_hop))
+            .and_then(|next_hop| {
+                let uln_dest = ulntable.get(next_hop);
+                if uln_dest.is_none() {
+                    tracing::warn!(
+                        %next_hop,
+                        reason = "dest_next_hop_unknown",
+                        "Fallback to broadcast message delivery"
+                    );
+                }
+                uln_dest
+            })
             .copied()
             .into();
 
@@ -80,6 +98,10 @@ impl<UR: UseCaseRuntime, D: Deref<Target = UR>> UseCaseRuntime for D {
 
     fn register_periodic_timer(&self, duration: Duration) -> TimerId {
         self.deref().register_periodic_timer(duration)
+    }
+
+    fn timer_remaining_duration(&self, timer: &TimerId) -> Option<Duration> {
+        self.deref().timer_remaining_duration(timer)
     }
 
     fn current_time(&self) -> Instant {
