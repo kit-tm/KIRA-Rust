@@ -1,19 +1,31 @@
 [package]
 name = "kirad"
 version = "0.1.0"
-edition = "2021"
 description = "A kira routing daemon"
 license = ""
-authors = ["Karlsruhe Institute of Technology"]
+authors.workspace = true
+homepage.workspace = true
+edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["api", "swagger_doc"]
-bench = ["log/release_max_level_off"]
-api = ["axum", "hex", "sha2", "base64", "serde", "serde_derive", "serde_json"]
-swagger_doc = ["utoipa", "utoipa-swagger-ui", "api", "itertools"]
+default = ["tokio-console", "api", "swagger_doc"]
+api = ["kira-lib/api"]
+swagger_doc = ["kira-lib/swagger_doc"]
+# default routing table bucket size: 3
 small_buckets = []
+# tracing support for tokio-console
+tokio-console = ["console-subscriber"]
+# tracing output to OTel [OTel](https://opentelemetry.io/).
+otel = [
+  "tracing-opentelemetry",
+  "opentelemetry/trace",
+  "opentelemetry-otlp/logs",
+  "opentelemetry-otlp/grpc-tonic",
+  "opentelemetry_sdk/trace",
+  "opentelemetry-semantic-conventions",
+]
 
 [lib]
 name = "kirad_lib"
@@ -24,41 +36,47 @@ name = "kirad"
 path = "src/main.rs"
 
 [dependencies]
-chrono = "0.4.38"
 clap = { version = "4.5.17", features = ["derive", "env"] }
-futures = "0.3.30"
-humantime = "2.1.0"
-log = "0.4.22"
-kira-lib = { path = "../kira-lib", features = ["serde", "udp-tokio", "rmp-serde", "in-memory-message-channel"] }
-rmp-serde = "1.3.0"
+derive_more = { workspace = true }
+chrono = { workspace = true }
+
+kira-lib = { path = "../kira-lib", default-features = false, features = [
+  "format-mp",
+  "udp-tokio",
+] }
+kira-forwarding = { path = "../kira-forwarding", default-features = false, features = [
+  "nft",
+] }
+kira-r2kad = { path = "../kira-r2kad", default-features = false, features = [
+  "serde",
+] }
+
+futures = { workspace = true }
 signal-hook = "0.3.17"
 signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
-tokio = { version = "1.40.0", default-features = true, features = ["macros", "time", "net", "rt", "signal", "sync", "full", "tracing"] }
-# rest backend
-axum = { version = "0.7.5", features = ["json"], optional = true }
-serde = { version = "1.0.210", features = ["derive"], optional = true }
-serde_derive = { version = "1.0.210", optional = true }
-serde_json = { version = "1.0.128", optional = true }
-hex = { version = "0.4.3", optional = true }
-# todo support other hashing algorithms
-sha2 = { version = "0.10.8", optional = true }
-base64 = { version = "0.22.1", optional = true }
-# swagger documentation
-utoipa = { version = "4.2.3", optional = true }
-utoipa-swagger-ui = { version = "6.0.0", features = ["axum"], optional = true }
+tokio = { workspace = true, default-features = true, features = [
+  "macros",
+  "rt",
+  "rt-multi-thread",
+  "signal",
+  "tracing",
+] }
 itertools = { version = "0.13.0", optional = true }
-rtnetlink = "0.14.1"
-tracing = { version = "0.1.40", features = ["attributes"] }
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
+log = { workspace = true }
+tracing = { workspace = true, features = ["attributes"] }
+tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json"] }
+# tokio debug console
+console-subscriber = { version = "0.4.0", optional = true }
+# opentelemetry
+tracing-opentelemetry = { version = "0.31.0", optional = true }
+opentelemetry = { version = "0.30.0", optional = true }
+# opentelemetry tracer
+opentelemetry_sdk = { version = "0.30.0", optional = true }
+# batched tracer export to OTel instance using OTLP format
+opentelemetry-otlp = { version = "0.30.0", optional = true }
+opentelemetry-semantic-conventions = { version = "0.30.0", optional = true }
 
-[dev-dependencies]
-anyhow = "1.0.88"
-async-trait = "0.1.82"
-chrono = "0.4.38"
-log4rs = "1.3.0"
-ntest = "0.9.3"
-petgraph = { version = "0.6.5", features = ["serde", "serde-1"] }
 
 [package.metadata.deb]
 name = "kirad"
@@ -67,7 +85,15 @@ depends = "$auto, iproute2, nftables"
 copyright = "Karlsruhe Institute of Technology (c) 2024. All rights reserved."
 maintainer-scripts = "../pkg/"
 assets = [
-    [ "target/release/kirad", "/usr/local/bin/kirad", "755", ],
-    [ "conf/nftables.conf", "/usr/local/share/kira/nftables.conf", "644", ],
+  [
+    "target/release/kirad",
+    "/usr/local/bin/kirad",
+    "755",
+  ],
+  [
+    "conf/nftables.conf",
+    "/usr/local/share/kira/nftables.conf",
+    "644",
+  ],
 ]
 systemd-units = { enable = false } #, enable = false, start = false }

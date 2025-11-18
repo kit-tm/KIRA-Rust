@@ -1,0 +1,30 @@
+[package]
+name = "kira-forwarding"
+version = "0.1.0"
+description = "KIRA fast forwarding implementations"
+edition = "2021"
+
+[features]
+default = ["nft"]
+nft = ["netlink"]
+netlink = [
+  "netlink-proto",
+  "netlink-packet-core",
+  "netlink-packet-route",
+  "netlink-packet-utils",
+  "futures",
+]
+
+[dependencies]
+log = { workspace = true }
+# common domain layer
+kira-r2kad = { path = "../kira-r2kad", default-features = false }
+tokio = { workspace = true, features = ["sync"] }
+tracing = { workspace = true, features = ["attributes"] }
+derive_more = { workspace = true }
+netlink-proto = { workspace = true, optional = true }
+netlink-packet-core = { workspace = true, optional = true }
+netlink-packet-route = { workspace = true, optional = true }
+netlink-packet-utils = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
+trait-variant = { workspace = true }

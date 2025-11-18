@@ -15,19 +15,22 @@ class DefaultNodeConfig(object):
     dns: Optional[List[str]] = None
 
     sysctls: Dict[str, int] = field(default_factory=lambda: dict())
-    enviroments:  Dict[str, str] = field(default_factory=lambda: dict())
+    enviroments: Dict[str, str] = field(default_factory=lambda: dict())
 
     seed: InitVar[int] = "1234"
     debug_level: InitVar[str] = "debug"
 
     def __post_init__(self, seed, debug_level):
-        self._non_default_values = ((k, v) for (
-            k, v) in {**asdict(self), "debug_level": debug_level}.items() if v is not None)
+        self._non_default_values = (
+            (k, v)
+            for (k, v) in {**asdict(self), "debug_level": debug_level}.items()
+            if v is not None
+        )
 
-        self.sysctls.setdefault('net.ipv6.conf.default.disable_ipv6', 0)
+        self.sysctls.setdefault("net.ipv6.conf.default.disable_ipv6", 0)
         # disable host-interface
-        #self.sysctls.setdefault('net.ipv6.conf.eth0.disable_ipv6', 1)
-        self.sysctls.setdefault('net.ipv6.conf.all.forwarding', 1)
+        # self.sysctls.setdefault('net.ipv6.conf.eth0.disable_ipv6', 1)
+        self.sysctls.setdefault("net.ipv6.conf.all.forwarding", 1)
 
         self.enviroments.setdefault("RUST_LOG", debug_level)
         self.rng = Random(seed)
@@ -53,21 +56,29 @@ class NodeConfig(object):
     dns: Optional[List[str]] = None
 
     sysctls: Optional[Dict[str, int]] = None
-    enviroments:  Optional[Dict[str, str]] = None
+    enviroments: Optional[Dict[str, str]] = None
 
     ip_v4: InitVar[IPv4Address] = None
     debug_level: InitVar[Optional[str]] = None
     default: InitVar[Optional[DefaultNodeConfig]] = None
 
     def __post_init__(self, ip_v4, debug_level, default):
-        self._non_default_values = ((k, v) for (k, v) in {
-                                    **asdict(self), "ip_v4": ip_v4, "debug_level": debug_level, "default": default.name}.items() if v is not None)
+        self._non_default_values = (
+            (k, v)
+            for (k, v) in {
+                **asdict(self),
+                "ip_v4": ip_v4,
+                "debug_level": debug_level,
+                "default": default.name,
+            }.items()
+            if v is not None
+        )
 
         if default is None:
             default = DefaultNodeConfig()
 
         if self.node_id is None:
-            self.node_id = default.rng.getrandbits(14*8).to_bytes(14, "big")
+            self.node_id = default.rng.getrandbits(14 * 8).to_bytes(14, "big")
 
         if self.docker_image is None:
             self.docker_image = default.docker_image
@@ -98,8 +109,8 @@ class NodeConfig(object):
             self.enviroments["RUST_LOG"] = debug_level
 
     def save_in_graph(self, G: Graph, label):
-        # TODO ensure defaults are saved prior
-        for (k, v) in self._non_default_values:
+        # TODO: ensure defaults are saved prior
+        for k, v in self._non_default_values:
             G.nodes[label][k] = v
 
     @classmethod
