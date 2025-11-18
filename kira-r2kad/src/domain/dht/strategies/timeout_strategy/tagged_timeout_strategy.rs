@@ -70,6 +70,7 @@ impl<V: Hash> Hash for TaggedValue<V> {
 /// [TaggedValue]s are considered expired if they are tagged.
 ///
 /// The [TimeoutStrategy::Context] is arbitrary and not used.
+#[allow(dead_code)]
 #[derive(Default)]
 pub struct TaggedTimeoutStrategy<C, D> {
     _c: PhantomData<C>,

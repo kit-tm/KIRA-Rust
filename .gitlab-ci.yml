@@ -1,0 +1,32 @@
+.semver_release_rule:
+  rules:
+    # matches semver release tags "v1.2.3"
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
+      variables:
+        RUSTDOCFLAGS: "-Dwarnings" # prohibit publishing of incomplete rustdoc
+
+include:
+  - local: 'ci/rust.gitlab-ci.yml'
+
+stages:
+  - check
+  - test
+  - build
+  - release
+
+# TODO: build and release docker containers on release
+
+release:
+  stage: release
+  extends: .semver_release_rule
+  image: alpine/git:latest
+  script:
+    - echo "Creating release..."
+
+  artifacts:
+    paths:
+      - release-artifacts/
+  release:
+    name: "Release $CI_COMMIT_TAG"
+    description: "Release created from tag $CI_COMMIT_TAG"
+    tag_name: "$CI_COMMIT_TAG"
