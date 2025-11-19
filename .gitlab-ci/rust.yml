@@ -122,6 +122,7 @@ rust-tests:
     policy: pull-push
 
   before_script:
+    - apk add musl-dev git
     - cargo install cargo-nextest --locked
   script:
     - cargo nextest run --workspace --all-features --all-targets
@@ -136,6 +137,9 @@ rust-doctests:
   cache: 
     <<: *cargo_cache
     policy: pull-push
+  needs: 
+    - job: rust-tests # ensure cache propagation
+      optional: true
 
   script:
     - cargo test --workspace --all-features --doc 
