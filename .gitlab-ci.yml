@@ -31,6 +31,22 @@ stages:
   - security      # security audits (cargo-audit)
   - release       # make releases
 
+
+# allow successful merger even if no pipeline jobs where created because nothing was changed
+no-checks:
+  image: alpine
+  stage: check
+  script:
+    - echo "Files changed not guarded by checks."
+    - exit 1
+  allow_failure: true # warn of absent checks
+
+  rules:
+    - changes: !reference [.rust_paths]
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: always
+
 # TODO: build and release docker containers on release
 
 release:

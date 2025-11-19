@@ -1,4 +1,4 @@
-.rust_pahts: &rust_paths
+.rust_paths: &rust_paths
   - "**/*.rs"
   - "**/Cargo.toml"
   - "**/Cargo.lock"
