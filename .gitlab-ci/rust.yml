@@ -49,10 +49,6 @@
       changes:
         paths: *rust_paths
         compare_to: $CI_DEFAULT_BRANCH
-    # allows force-run if detection fails
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG
-      when: manual
-      allow_failure: true # don't block other necessary jobs
     - if: $CI_PIPELINE_SOURCE == "web"
 
 
