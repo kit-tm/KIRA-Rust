@@ -21,7 +21,7 @@ spec:
       when: always
 
 include:
-  - local: 'ci/rust.gitlab-ci.yml'
+  - local: '.gitlab-ci/rust.yml'
 
 stages:
   - lint          # fast lints
