@@ -49,16 +49,23 @@ no-checks:
 
 # TODO: build and release docker containers on release
 
+
 release:
+  image: registry.gitlab.com/gitlab-org/cli:latest
   stage: release
   extends: .semver_release_rule
-  image: alpine/git:latest
   script:
     - echo "Creating release..."
+    - tar -czvf docs.tar.gz -C doc
+
+  needs:
+    - build-rustdoc
+    - build-kirad-release
 
   artifacts:
     paths:
-      - release-artifacts/
+      - kirad-*.tar.gz
+      - docs.tar.gz
   release:
     name: "Release $CI_COMMIT_TAG"
     description: "Release created from tag $CI_COMMIT_TAG"
