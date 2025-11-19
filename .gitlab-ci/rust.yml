@@ -210,6 +210,7 @@ rust-audit:
     - .rust-ci-rules
 
   before_script:
+    - apk add --no-cache musl-dev git
     - cargo install cargo-audit --locked
   script:
     - cargo audit
@@ -217,3 +218,7 @@ rust-audit:
   rules:
     - !reference [.rust-ci-rules, rules] # merge rules
     - if: $CI_PIPELINE_SOURCE == "schedule" # scheduled nightly runs
+
+  cache: 
+    <<: *cargo_cache
+    policy: pull-push
