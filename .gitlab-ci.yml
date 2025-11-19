@@ -10,11 +10,12 @@ include:
   - local: 'ci/rust.gitlab-ci.yml'
 
 stages:
-  - check
-  - test
-  - build
-  - security
-  - release
+  - lint          # fast lints
+  - check         # in-depth code checks
+  - test          # unit-, integration, doc-tests
+  - build         # build kirad binaries
+  - security      # security audits (cargo-audit)
+  - release       # make releases
 
 # TODO: build and release docker containers on release
 

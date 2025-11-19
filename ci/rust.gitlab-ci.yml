@@ -1,12 +1,33 @@
+.rust_pahts: &rust_paths
+  - "**/*.rs"
+  - "**/Cargo.toml"
+  - "**/Cargo.lock"
+
 # common rust job
 .rust-defaults:
-  image: rust:latest
-  cache:
-    key: cargo-cache
-    paths:
-      - .cargo/ # cargo registry
-      - target/ # build artifacts
+  image: rust:alpine # more nimble than rust:latest
+  before_script:
+    - apk add musl-dev git # necessary for building and downloading dependencies
   interruptible: true
+
+  variables:
+    CARGO_HOME: $CI_PROJECT_DIR/.cargo_home # move to cacheable directory
+  cache: &cargo_cache
+    key:
+      files: # fresh cache on dependency-changes (don't cache unused dependencies)
+        - Cargo.toml
+        - Cargo.lock
+      prefix: cargo_cache
+    paths:
+      - target/ # build artifacts
+      - "$CI_PROJECT_DIR/.cargo_home/.crates.toml"
+      - "$CI_PROJECT_DIR/.cargo_home/.crates2.json"
+      - "$CI_PROJECT_DIR/.cargo_home/bin/"
+      - "$CI_PROJECT_DIR/.cargo_home/registry/index/"
+      - "$CI_PROJECT_DIR/.cargo_home/registry/cache/"
+      - "$CI_PROJECT_DIR/.cargo_home/git/db/"
+      - "$CI_PROJECT_DIR/.cargo_home/advisory-dbs"
+    policy: pull # only update cache by specific jobs
 
 # rust job that is run if rust code changed by a merge request
 .rust-ci-rules:
@@ -16,70 +37,41 @@
     # only run manually on Draft-MR
     - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TITLE =~ /^Draft:/
       when: manual
+      allow_failure: true
     # automatically run on MR and pushes
     - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - "**/*.rs"
-        - "**/Cargo.toml"
-        - "**/Cargo.lock"
+      changes: *rust_paths
     # automatically run on commit tags
     - if: $CI_COMMIT_TAG
       changes:
-        paths:
-          - "**/*.rs"
-          - "**/Cargo.toml"
-          - "**/Cargo.lock"
+        paths: *rust_paths
         compare_to: $CI_DEFAULT_BRANCH
     # allows force-run if detection fails
     - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG
       when: manual
+      allow_failure: true # don't block other necessary jobs
     - if: $CI_PIPELINE_SOURCE == "web"
-      when: manual
-stages:
-  - check
-  - test
-  - build
-  - security
-  - release
 
-# ==================== #
-#         Jobs         #
-# ==================== #
 
-cargo_check:
-  stage: check
+
+# =============================================== #
+#               RUST-JOBS                         #
+# =============================================== #
+
+rustfmt:
+  stage: lint
   extends:
     - .rust-defaults
     - .rust-ci-rules
-
-  # fail-fast if packages can't be compiled
-  script:
-    - cargo check --workspace --all-targets --all-features
- 
-clippy_check:
-  stage: check
-  extends:
-    - .rust-defaults
-    - .rust-ci-rules
-
-  before_script:
-    - rustup component add clippy
-  script:
-    - cargo clippy --workspace --all-targets --all-features -- -D warnings
-
-rustfmt_check:
-  stage: check
-  extends:
-    - .rust-defaults
-    - .rust-ci-rules
+  cache: [] # no cache needed for simple formatting
 
   before_script:
     - rustup component add rustfmt
   script:
     - cargo fmt --all --check
 
-rustdoc_check:
-  stage: check
+rustdoc:
+  stage: lint
   extends:
     - .rust-defaults
     - .rust-ci-rules
@@ -88,13 +80,47 @@ rustdoc_check:
     - cargo doc --workspace --no-deps
 
   variables:
-    RUSTDOCFLAGS: "-Dwarnings"
+    RUSTDOCFLAGS: "-Dwarnings" # fail on warnings like failed links
 
-rust-test:
+rust-checks:
+  stage: check
+  extends:
+    - .rust-defaults
+    - .rust-ci-rules
+
+  cache: 
+    <<: *cargo_cache
+    policy: pull-push
+
+  # fail-fast if packages can't be compiled
+  script:
+    - cargo check --workspace --all-targets --all-features
+
+clippy:
+  stage: check
+  extends:
+    - .rust-defaults
+    - .rust-ci-rules
+
+  needs: 
+    - job: rust-checks # running if cargo check fails doesn't make sense
+      optional: true
+  before_script:
+    - rustup component add clippy
+  script:
+    - cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+ 
+
+rust-tests:
   stage: test
   extends:
     - .rust-defaults
     - .rust-ci-rules
+
+  cache: 
+    <<: *cargo_cache
+    policy: pull-push
 
   before_script:
     - cargo install cargo-nextest --locked
@@ -108,22 +134,27 @@ rust-doctests:
     - .rust-defaults
     - .rust-ci-rules
 
+  cache: 
+    <<: *cargo_cache
+    policy: pull-push
+
   script:
     - cargo test --workspace --all-features --doc 
 
-build_kirad:
-  image: rust:alpine
+kirad:
   stage: build
   extends:
     - .rust-defaults
     - .rust-ci-rules
 
-  before_script:
-    - apk add --no-cache musl-dev git
+  cache: 
+    <<: *cargo_cache
+    policy: pull-push
+
   script:
     - cargo build --package kirad
 
-release:build:kirad:
+kirad:release:
   image: rust:alpine
   stage: build
   extends: 
@@ -150,7 +181,7 @@ release:build:kirad:
     name: "kirad-$TARGET_TRIPLE"
     expire_in: 1 day
 
-release:build:rustdoc:
+rustdoc:release:
   stage: build
   extends: 
     - .rust-defaults
@@ -167,7 +198,7 @@ release:build:rustdoc:
     name: "rustdocs"
     expire_in: 1 day
 
-cargo_audit:
+rust-audit:
   stage: security
   extends:
     - .rust-defaults
