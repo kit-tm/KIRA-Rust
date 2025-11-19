@@ -1,3 +1,12 @@
+spec:
+  inputs:
+    release_build:
+      type: boolean
+      default: false
+      description: "Set to true to build release artifacts"
+
+---
+
 .semver_release_rule:
   rules:
     # matches semver release tags "v1.2.3"
@@ -6,15 +15,37 @@
         RUSTDOCFLAGS: "-Dwarnings" # prohibit publishing of incomplete rustdoc
       interruptible: false
 
+.force_release_build_artifacts:
+  rules:
+    - if: '"$[[ inputs.release_build ]]" == "true"' # force build
+      when: always
+
 include:
-  - local: 'ci/rust.gitlab-ci.yml'
+  - local: '.gitlab-ci/rust.yml'
 
 stages:
-  - check
-  - test
-  - build
-  - security
-  - release
+  - lint          # fast lints
+  - check         # in-depth code checks
+  - test          # unit-, integration, doc-tests
+  - build         # build kirad binaries
+  - security      # security audits (cargo-audit)
+  - release       # make releases
+
+
+# allow successful merger even if no pipeline jobs where created because nothing was changed
+no-checks:
+  image: alpine
+  stage: check
+  script:
+    - echo "Files changed not guarded by checks."
+    - exit 1
+  allow_failure: true # warn of absent checks
+
+  rules:
+    - changes: !reference [.rust_paths]
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: always
 
 # TODO: build and release docker containers on release
 
