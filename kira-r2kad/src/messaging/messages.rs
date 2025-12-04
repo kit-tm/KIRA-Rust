@@ -400,7 +400,7 @@ impl From<ReqRspMessage<PathTeardownReqData>> for ProtocolMessage {
 pub struct UpdateRouteReq {
     pub source_state_seq_nr: StateSeqNr,
     pub not_via: HashSet<NotVia>,
-    pub contact_actions: HashMap<Contact, RouteUpdate>,
+    pub contact_actions: HashMap<Contact, RouteUpdateActionType>,
     /// Source Path to the next overlay Hop.
     ///
     /// This way if the source route is too large, it can be split and transmitted
@@ -412,9 +412,11 @@ pub struct UpdateRouteReq {
 /// Data type representing the action performed on a contact.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub enum RouteUpdate {
-    Removed,
-    Updated,
+pub enum RouteUpdateActionType {
+    Announce, // new contact in routing table
+    WithDraw, // contact deleted from routing table
+    Change,   // path has been changed, i.e., improved
+    Unreachable, // contact is currently not reachable
 }
 
 impl From<UpdateRouteReq> for ProtocolMessage {

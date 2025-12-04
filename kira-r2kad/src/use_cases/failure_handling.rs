@@ -12,7 +12,7 @@ use crate::domain::{
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
-    ErrorData, FindNodeReqData, Nonce, ProtocolMessage, ReqRspMessage, RouteUpdate, UpdateRouteReq,
+    ErrorData, FindNodeReqData, Nonce, ProtocolMessage, ReqRspMessage, RouteUpdateActionType, UpdateRouteReq,
 };
 use crate::use_cases::{
     ContactEvent, EventHandler, ReactiveUseCaseState, UseCase, UseCaseContext, UseCaseEvent,
@@ -29,7 +29,7 @@ use crate::utils::{BackoffMap, ExponentialBackoff};
 /// - Overlay neighbors to notify via `UpdateRouteReq`: 3.
 /// - Number of Bits grouped for calculation of closeness for overlay neighbors: 1 Bit.
 /// - Intervall used for calculation of random timeout: `[0.5 t, 1.5 t]`, t = 500ms (overlay neighbor),
-///   t = 1s (underlay neighbor), t = 2s (andernfalls).
+///   t = 1s (underlay neighbor), t = 2s (otherwise).
 /// - Max retries for exponential backoff: 5.
 #[derive(Debug)]
 pub struct FailureHandlingConfig {
@@ -95,12 +95,12 @@ where
         log::trace!(target: "failure_handling", "Removed not via data mentioning {contact_id}");
     }
 
-    fn invalidate_containing_contacts(&self, context: &C, id: &NodeId) {
+    fn invalidate_contacts_containing_link(&self, context: &C, failedlink: &Link) {
         for mut contact in context.routing_table_mut().iter_mut() {
-            if contact.path().contains(id) {
+            if contact.path().contains_link(failedlink) {
                 *contact.state_mut() = ContactState::Invalid;
 
-                log::trace!(target: "failure_handling", "Invalidated {} whose path contains {}", contact.id(), id);
+                log::trace!(target: "failure_handling", "Invalidated {} whose path contains {}", contact.id(), failedlink);
             }
         }
     }
@@ -136,22 +136,28 @@ where
                 self.config.grouping_bits,
             )
             .expect("invalid config");
-        let mut updates = HashMap::new();
-        updates.insert(contact.clone(), RouteUpdate::Updated);
-        for (_, closest_overlay_neighbor) in closest {
-            let update_route_message = UpdateRouteReq {
-                source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
-                not_via: context.not_via().clone(),
-                contact_actions: updates.clone(),
-                source_route: SourceRoute::new(
-                    *context.root_id(),
-                    closest_overlay_neighbor.path().clone(),
-                ),
-            };
 
-            context
-                .runtime()
-                .send_message(update_route_message, context.uln_table().deref());
+        // TODO Updates should be sent by a separate method and
+        // when direct links have failed and otherwise after some time
+        // for now we sent Unreachable from here
+        if contact.is_uln() && contact.state() == &ContactState::Invalid {
+            let mut updates = HashMap::new();
+            updates.insert(contact.clone(), RouteUpdateActionType::Unreachable);
+            for (_, closest_overlay_neighbor) in closest {
+                let update_route_message = UpdateRouteReq {
+                    source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
+                    not_via: context.not_via().clone(),
+                    contact_actions: updates.clone(),
+                    source_route: SourceRoute::new(
+                        *context.root_id(),
+                        closest_overlay_neighbor.path().clone(),
+                    ),
+                };
+
+                context
+                    .runtime()
+                    .send_message(update_route_message, context.uln_table().deref());
+            }
         }
 
         let closest = context
@@ -307,37 +313,39 @@ where
         Ok(())
     }
 
-    /// Find all contacts whose paths start with neighbors affected by the outage.
+    /// Find all contacts whose paths start with underlay neighbors affected by the outage.
     fn invalidate_affected_contacts(&self, context: &C, ulnid: UnderlayNeighborId) {
         let mut rt = context.routing_table_mut();
         let mut not_via = context.not_via_mut();
 
-        let affected_neighbors = context
+        let affected_underlay_neighbors = context
             .uln_table()
             .iter()
             .filter_map(|(id, via)| if via == &ulnid { Some(*id) } else { None })
             .collect::<HashSet<_>>();
 
-        log::trace!(target: "failure_handling", "These neighbors are affected by interfaces {ulnid:?} down: {affected_neighbors:?}");
+        log::trace!(target: "failure_handling", "Underlay neighbors affected by interface {ulnid:?} down: {affected_underlay_neighbors:?}");
 
         not_via.extend(
-            affected_neighbors
+            affected_underlay_neighbors
                 .iter()
                 .cloned()
                 .map(|id| NotVia::Link(Link::new(*context.root_id(), id))),
         );
 
+        // find contacts whose path contain affected underlay neighbors as first hop
         for mut contact in rt.iter_mut() {
-            if affected_neighbors.contains(contact.path().first()) {
+            if affected_underlay_neighbors.contains(contact.path().first()) {
                 *contact.state_mut() = ContactState::Invalid;
 
-                log::trace!(target: "failure_handling", "Invalidated contact {} as it starts with an invalid neighbor {}", contact.id(), contact.path().first());
+                log::trace!(target: "failure_handling", "Invalidated contact {} as it starts with failed underlay neighbor {}", contact.id(), contact.path().first());
             }
         }
 
+        // update vicinity graph
         let root_id = context.root_id();
         let mut vg_lock = context.vicinity_graph_mut();
-        for neighbor in affected_neighbors.iter() {
+        for neighbor in affected_underlay_neighbors.iter() {
             context.uln_table_mut().remove(neighbor);
             if vg_lock.remove_edge(root_id, neighbor) {
                 tracing::debug!(
@@ -389,13 +397,15 @@ where
     ) -> Result<Self::Value, Self::Error> {
         match event {
             UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {
-                // contact was invalidated
-                if new.state() == &ContactState::Invalid && old.state() != &ContactState::Invalid {
-                    self.invalidate_containing_contacts(context, new.id());
-                    self.start_rediscovery(context, new)?;
-                } else if new.state() == &ContactState::Valid && old.state() != &ContactState::Valid
-                {
-                    self.remove_notvia_mentioning(context, new.id());
+                if new.id() == old.id() {
+                    // contact was invalidated
+                    if new.state() == &ContactState::Invalid && old.state() != &ContactState::Invalid {
+                        self.start_rediscovery(context, new)?;
+                    }
+                    else if new.state() == &ContactState::Valid && old.state() != &ContactState::Valid
+                    {
+                        self.remove_notvia_mentioning(context, new.id());
+                    }
                 }
             }
             UseCaseEvent::Contact(ContactEvent::Removed(contact)) => {
@@ -429,6 +439,7 @@ where
                         .not_via_mut()
                         .insert(NotVia::Link(failed_link.clone()));
                     log::trace!(target: "failure_handling", "added failed link {failed_link:?} to NotVia data");
+                    self.invalidate_contacts_containing_link(context, &failed_link);
                 }
             }
             UseCaseEvent::Timer(id) => {
