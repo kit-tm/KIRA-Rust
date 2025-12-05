@@ -2,16 +2,16 @@ use std::collections::VecDeque;
 
 use crate::domain::{NodeId, Path};
 
-/// Source Route of a package all the way back to its origin.
+/// Source Route of a message all the way back to its origin.
 ///
 /// This is a different Type than [Path] as the requirements are different.
 /// While Path only provides access based on the allowed functions to a Contact
 /// the source route is altered in a Message context.
 ///
-/// Invariant:
+/// Invariants:
 /// - Current_hop has to be the current nodes NodeId.
 /// - SourceRoutes are not allowed to be empty and always start with the source of a [ProtocolMessage](crate::messaging::messages::ProtocolMessage).
-/// - progress is in range [1, len - 1].
+/// - progress is an index in the source route and therefore valid in range [0, len - 1]
 #[derive(Debug, Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SourceRoute {
@@ -29,18 +29,16 @@ impl SourceRoute {
         Self { ids, progress: 1 }
     }
 
-    /// Creates a new source path with 0 progress and reversed of the given route.
-    ///
-    /// The progress is adjusted appropriately.
-    /// If the given route has size 10 and progress of 3 the reverted route
-    /// will have progress of 7.
+    /// Creates a new source path from reverse of the given route.
+    /// The given route is truncated at the current progress
+    /// as this will be called by the responder
     pub fn from_reversed<I: Into<SourceRoute>>(route: I) -> Self {
         let mut converted = route.into();
-        let progress = converted.size() - converted.progress;
+        converted.ids.truncate(converted.progress+1);
         converted.ids.make_contiguous().reverse();
         Self {
             ids: converted.ids,
-            progress,
+            progress: 1,
         }
     }
 
@@ -82,7 +80,7 @@ impl SourceRoute {
         &self.ids[self.progress]
     }
 
-    /// Advances the source routes progress by one returning the previous position.
+    /// Advances the source route's progress by one
     pub fn advance(&mut self) {
         if self.progress < self.ids.len() - 1 {
             self.progress += 1;
@@ -101,7 +99,7 @@ impl SourceRoute {
     ///
     /// This usually means the target was reached.
     pub fn is_finished(&self) -> bool {
-        self.progress == self.ids.len() - 1
+        self.progress >= self.ids.len() - 1
     }
 
     /// Returns the first element of the [SourceRoute].
@@ -195,3 +193,60 @@ impl From<NodeId> for SourceRoute {
         }
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::SourceRoute;
+
+    use super::{NodeId,Path};
+
+
+    #[test]
+    fn source_route_basics() {
+
+        let first = NodeId::from(0x1);
+        let second = NodeId::from(0x2);
+        let third = NodeId::from(0x3);
+
+        let mut src_route = SourceRoute::from(second);
+        assert_eq!(src_route.size(),1);
+        assert_eq!(src_route.is_finished(),true);
+        assert_eq!(*src_route.prev_hop(),second);
+        src_route.push_front(first);
+        assert_eq!(*src_route.current_hop(),second);
+        assert_eq!(src_route.size(),2);
+        src_route.advance();
+        assert_eq!(src_route.traveled_hop_count(),1);
+        assert_eq!(*src_route.current_hop(),second);
+        assert!(src_route.contains(&second));
+        let p = Path::from([first, second, third]);
+        let src_route_2 = SourceRoute::from(p);
+        assert_eq!(src_route_2.source(),&first);
+        assert_eq!(src_route_2.destination(),&third);
+        assert!(src_route_2.contains(&first));
+        assert!(src_route_2.contains(&second));
+        assert!(src_route_2.contains(&third));
+    }
+
+    #[test]
+    fn source_route_reverse() {
+        let first = NodeId::from(0x1);
+        let second = NodeId::from(0x2);
+        let third = NodeId::from(0x3);
+
+        let p = Path::from([first, second, third]);
+        let rev_p = Path::from([third, second, first]);
+        let rev_p_trunc = Path::from([second, first]);
+        let mut src_route = SourceRoute::from(p);
+        let reverse_route = SourceRoute::from(rev_p_trunc);
+        let reversed_route = SourceRoute::from_reversed(src_route.clone());
+        assert_eq!(reversed_route,reverse_route);
+        src_route.advance();
+        assert!(src_route.is_finished());
+        let reverse_route = SourceRoute::from(rev_p);
+        let reversed_route = SourceRoute::from_reversed(src_route);
+        assert_eq!(reversed_route,reverse_route);
+    }
+
+} // end tests

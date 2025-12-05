@@ -44,7 +44,7 @@ impl PathId {
             let path = path.into_iter().collect::<Vec<_>>();
             let path_str = format!("{path:?}");
             let result = Self::from_digest(sha1::Sha1::new(), path);
-            tracing::trace!(target: "path_id", path=path_str, path_id=format!("{:X}",result), "Calulated path_id");
+            tracing::trace!(target: "path_id", path=path_str, path_id=format!("{:X}",result), "Calculated path_id");
             result
         } else {
             Self::from_digest(sha1::Sha1::new(), path)

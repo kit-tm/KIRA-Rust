@@ -233,9 +233,15 @@ where
         }
         let source_contact = source_contact.unwrap();
 
-        for (updated_contact, update) in route_updates {
-            if routing_table.contact(updated_contact.id()).is_none() {
-                // Skip updates which are not contained in own routing table
+        for (updated_contact, update_action) in route_updates {
+            if let Some(mycontact) = routing_table.contact(updated_contact.id()) {
+                // if updated contact is a ULN of this node, we ignore information about it
+                if mycontact.is_uln() {
+                    continue;
+                }
+            }
+            else {
+                // Skip updates for contacts which are not contained in own routing table
                 continue;
             }
 
@@ -243,7 +249,7 @@ where
             new_path.extend(updated_contact.path().clone());
 
             // Note that for all actions we have the contact already, checked for existence before
-            match update {
+            match update_action {
                 // Invalidate contact -> Every Contact affected by that will be handled in
                 //                       FailureHandling use case
                 RouteUpdateActionType::Unreachable => {
