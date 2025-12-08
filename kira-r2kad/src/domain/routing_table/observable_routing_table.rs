@@ -7,7 +7,7 @@ use derive_more::derive::Display;
 
 use crate::domain::unlimited_uln_routing_table::UnlimitedULNRoutingTable;
 use crate::domain::{
-    AddError, Bucket, BucketSplitError, Contact, FlatRoutingTable, GroupingError, NodeId,
+    AddError, Bucket, BucketSplitError, Contact, FlatRoutingTable, GroupingError, Hasher, NodeId,
     ReplacementError, RoutingTable, SharedPrefix,
 };
 
@@ -111,7 +111,7 @@ fn notify_all<const BUCKET_SIZE: usize>(
     }
 }
 
-/// An type which implements [RoutingTable] but doesn't support observability.
+/// A type which implements [RoutingTable] but doesn't support observability.
 ///
 /// Marker trait for implementations of [RoutingTable] which don't implement
 /// an observable pattern and can be wrapped by [ObservableRoutingTable].
@@ -282,6 +282,11 @@ where
     fn get_bucket_prefix_length(&self, bucket_index: usize) -> u8 {
         self.inner.get_bucket_prefix_length(bucket_index)
     }
+
+    fn path_hasher(&self) -> Hasher {
+        Hasher::default()
+    }
+
 }
 
 // Not using "NonObservableRoutingTable" Trait as rust emits recursion error (maybe a rust bug?)

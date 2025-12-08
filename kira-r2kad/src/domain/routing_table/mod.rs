@@ -1,7 +1,7 @@
 use derive_more::{Display, Error};
 use std::{num::NonZeroU8, ops::DerefMut};
 
-use crate::domain::{Bucket, Contact, GroupingError, NodeId, ReplacementError, SharedPrefix};
+use crate::domain::{Bucket, Contact, GroupingError, Hasher, NodeId, ReplacementError, SharedPrefix};
 
 pub mod flat_routing_table;
 pub mod observable_routing_table;
@@ -260,4 +260,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
 
     /// Iterator over all [Bucket]s in the [RoutingTable]
     fn bucket_iter(&'a self) -> Self::BucketIter;
+
+    // a hash function used to hash paths into PathIDs
+    fn path_hasher(&self) -> Hasher;
 }

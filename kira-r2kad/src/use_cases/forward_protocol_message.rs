@@ -149,6 +149,9 @@ where
             context.uln_table_mut().remove(contact.id());
             log::debug!(target: "forward_protocol_message", "Removed {} from ULNTable as no more a undelay neighbor; {:?}", contact.id(), contact);
         }
+        else {
+            log::debug!(target: "forward_protocol_message", "Insertion result {:?}",result);
+        }
     }
 
     fn extract_rtable_reqrsp(

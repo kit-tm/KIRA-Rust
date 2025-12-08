@@ -66,9 +66,12 @@ where
 {
     /// Update an existing contact in the table instead of inserting.
     fn update_existing(&self, contact: Contact, table: &mut RT) -> InsertionStrategyResult {
+        let root_id = table.root().clone();
+        let path_hasher= table.path_hasher();
+
         let mut existing = table
             .contact_mut(contact.id())
-            .expect("update_existing should only be called after detecting a id to be present");
+            .expect("update_existing should only be called after detecting an id to be present");
         assert_eq!(
             existing.id(),
             contact.id(),
@@ -84,7 +87,7 @@ where
         if contact.is_older_than(&existing) {
             log::trace!(
                 target: "routing_table",
-                "Dropping path: Older [info: {:?}, saved_age: {:?}, saved_ssn: {:?}]",
+                "Dropping path: Older [info: {:?}, existing_age: {:?}, existing_ssn: {:?}]",
                 contact,
                 existing.age(),
                 existing.state_seq_nr(),
@@ -98,20 +101,29 @@ where
         // FIXME: check whether the supposed new path actually avoids all broken links
         // -> `src/routing/r2kademlia/KadRoutingTable.cc:299`
         if existing.state() == &ContactState::Invalid && contact.state() == &ContactState::Valid {
-            log::trace!(target: "routing_table", "Updated path: Invalid path was replaced [{contact:?}]");
+            log::trace!(target: "routing_table", "Updated path: Invalid path was replaced by [{contact:?}]");
             *existing = contact;
             return InsertionStrategyResult::Updated;
         }
 
         // don't replace path with longer path if ssn is same
+        // if paths have the same length the XOR metric is used to determine replacement
+        // FIXME: need to use randomized anchor value instead of the root_id
         if existing.state_seq_nr() == contact.state_seq_nr()
-            // TODO: support option to specify replace behaviour on equal length (called `enableSinglePathDiversity`)
-            // TODO: use hash to prevent path flapping
-            && contact.path().size() >= /* > */ existing.path().size()
+            &&
+            (contact.path().size() > existing.path().size()
+             ||
+             (contact.path().size() == existing.path().size() // enable SinglePathDiversity
+              && // use hash with XOR metric to prevent path flapping
+              path_hasher.hash(contact.path()) ^ &root_id > path_hasher.hash(existing.path()) ^ &root_id
+             )
+            )
         {
             log::trace!(
                 target: "routing_table",
-                "Not updating contacts path because it is longer [{contact:?}]"
+                "Not updating path of contact, because it is not shorter/better [{:?}] than existing [{:?}]",
+                contact.path(),
+                existing.path()
             );
             return InsertionStrategyResult::Dropped;
         }
@@ -121,7 +133,7 @@ where
             if contact.path() == existing.path() && contact.state() == existing.state() {
                 log::trace!(
                     target: "routing_table",
-                    "Not updating contacts path because its the same and doesn't change state [{}]",
+                    "Not updating contacts path because it's the same and doesn't change state [{}]",
                     contact.id()
                 );
 

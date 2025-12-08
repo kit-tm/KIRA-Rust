@@ -8,8 +8,8 @@ use rand::Rng;
 
 use crate::domain::observable_routing_table::NonObservableRoutingTable;
 use crate::domain::{
-    AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, GroupingError, NodeId,
-    ReplacementError, RoutingTable, SharedPrefix,
+    AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, GroupingError,
+    Hasher, NodeId, ReplacementError, RoutingTable, SharedPrefix,
 };
 
 /// A [RoutingTable] with a single not splittable [Bucket].
@@ -146,6 +146,11 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
 
     fn get_bucket_prefix_length(&self, bucket_index: usize) -> u8 {
         0
+    }
+
+
+    fn path_hasher(&self) -> Hasher {
+        Hasher::default()
     }
 }
 
