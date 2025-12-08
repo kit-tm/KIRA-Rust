@@ -286,7 +286,6 @@ where
     fn path_hasher(&self) -> Hasher {
         Hasher::default()
     }
-
 }
 
 // Not using "NonObservableRoutingTable" Trait as rust emits recursion error (maybe a rust bug?)

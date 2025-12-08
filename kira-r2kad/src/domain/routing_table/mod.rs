@@ -1,7 +1,9 @@
 use derive_more::{Display, Error};
 use std::{num::NonZeroU8, ops::DerefMut};
 
-use crate::domain::{Bucket, Contact, GroupingError, Hasher, NodeId, ReplacementError, SharedPrefix};
+use crate::domain::{
+    Bucket, Contact, GroupingError, Hasher, NodeId, ReplacementError, SharedPrefix,
+};
 
 pub mod flat_routing_table;
 pub mod observable_routing_table;

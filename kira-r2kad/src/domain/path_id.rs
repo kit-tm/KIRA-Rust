@@ -25,9 +25,6 @@ impl From<Vec<u8>> for PathId {
     }
 }
 
-
-
-
 impl PathId {
     pub fn from_digest<'a, D: Digest, I: IntoIterator<Item = &'a NodeId>>(
         mut hasher: D,
@@ -71,7 +68,6 @@ impl PathId {
     pub fn from_sha3_512<'a, I: IntoIterator<Item = &'a NodeId>>(path: I) -> Self {
         Self::from_digest(sha3::Sha3_512::new(), path)
     }
-
 }
 
 impl AsRef<[u8]> for PathId {
@@ -98,7 +94,6 @@ impl FromStr for PathId {
         Ok(Self { bytes })
     }
 }
-
 
 impl std::ops::BitXor<&NodeId> for PathId {
     type Output = NodeId;

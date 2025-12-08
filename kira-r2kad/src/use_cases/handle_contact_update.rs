@@ -156,8 +156,7 @@ where
                 let mut updates = HashMap::new();
                 if new.state() == &ContactState::Valid {
                     updates.insert(new.clone(), RouteUpdateActionType::Change);
-                }
-                else {
+                } else {
                     updates.insert(new.clone(), RouteUpdateActionType::Unreachable);
                 }
 

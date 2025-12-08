@@ -12,7 +12,8 @@ use crate::domain::{
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
-    ErrorData, FindNodeReqData, Nonce, ProtocolMessage, ReqRspMessage, RouteUpdateActionType, UpdateRouteReq,
+    ErrorData, FindNodeReqData, Nonce, ProtocolMessage, ReqRspMessage, RouteUpdateActionType,
+    UpdateRouteReq,
 };
 use crate::use_cases::{
     ContactEvent, EventHandler, ReactiveUseCaseState, UseCase, UseCaseContext, UseCaseEvent,
@@ -399,10 +400,12 @@ where
             UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {
                 if new.id() == old.id() {
                     // contact was invalidated
-                    if new.state() == &ContactState::Invalid && old.state() != &ContactState::Invalid {
+                    if new.state() == &ContactState::Invalid
+                        && old.state() != &ContactState::Invalid
+                    {
                         self.start_rediscovery(context, new)?;
-                    }
-                    else if new.state() == &ContactState::Valid && old.state() != &ContactState::Valid
+                    } else if new.state() == &ContactState::Valid
+                        && old.state() != &ContactState::Valid
                     {
                         self.remove_notvia_mentioning(context, new.id());
                     }

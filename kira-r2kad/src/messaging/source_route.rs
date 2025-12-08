@@ -34,7 +34,7 @@ impl SourceRoute {
     /// as this will be called by the responder
     pub fn from_reversed<I: Into<SourceRoute>>(route: I) -> Self {
         let mut converted = route.into();
-        converted.ids.truncate(converted.progress+1);
+        converted.ids.truncate(converted.progress + 1);
         converted.ids.make_contiguous().reverse();
         Self {
             ids: converted.ids,
@@ -194,36 +194,33 @@ impl From<NodeId> for SourceRoute {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::SourceRoute;
 
-    use super::{NodeId,Path};
-
+    use super::{NodeId, Path};
 
     #[test]
     fn source_route_basics() {
-
         let first = NodeId::from(0x1);
         let second = NodeId::from(0x2);
         let third = NodeId::from(0x3);
 
         let mut src_route = SourceRoute::from(second);
-        assert_eq!(src_route.size(),1);
-        assert_eq!(src_route.is_finished(),true);
-        assert_eq!(*src_route.prev_hop(),second);
+        assert_eq!(src_route.size(), 1);
+        assert!(src_route.is_finished());
+        assert_eq!(*src_route.prev_hop(), second);
         src_route.push_front(first);
-        assert_eq!(*src_route.current_hop(),second);
-        assert_eq!(src_route.size(),2);
+        assert_eq!(*src_route.current_hop(), second);
+        assert_eq!(src_route.size(), 2);
         src_route.advance();
-        assert_eq!(src_route.traveled_hop_count(),1);
-        assert_eq!(*src_route.current_hop(),second);
+        assert_eq!(src_route.traveled_hop_count(), 1);
+        assert_eq!(*src_route.current_hop(), second);
         assert!(src_route.contains(&second));
         let p = Path::from([first, second, third]);
         let src_route_2 = SourceRoute::from(p);
-        assert_eq!(src_route_2.source(),&first);
-        assert_eq!(src_route_2.destination(),&third);
+        assert_eq!(src_route_2.source(), &first);
+        assert_eq!(src_route_2.destination(), &third);
         assert!(src_route_2.contains(&first));
         assert!(src_route_2.contains(&second));
         assert!(src_route_2.contains(&third));
@@ -241,12 +238,11 @@ mod tests {
         let mut src_route = SourceRoute::from(p);
         let reverse_route = SourceRoute::from(rev_p_trunc);
         let reversed_route = SourceRoute::from_reversed(src_route.clone());
-        assert_eq!(reversed_route,reverse_route);
+        assert_eq!(reversed_route, reverse_route);
         src_route.advance();
         assert!(src_route.is_finished());
         let reverse_route = SourceRoute::from(rev_p);
         let reversed_route = SourceRoute::from_reversed(src_route);
-        assert_eq!(reversed_route,reverse_route);
+        assert_eq!(reversed_route, reverse_route);
     }
-
 } // end tests

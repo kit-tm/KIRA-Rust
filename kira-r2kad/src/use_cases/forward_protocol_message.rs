@@ -11,7 +11,9 @@ use crate::domain::{
     VICINITY_RADIUS, VicinityGraph,
 };
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{ErrorData, ProtocolMessage, RTableData, ReqRspMessage, RouteUpdateActionType};
+use crate::messaging::{
+    ErrorData, ProtocolMessage, RTableData, ReqRspMessage, RouteUpdateActionType,
+};
 use crate::use_cases::{
     EventHandler, HandlingResult, NeverError, ReactiveUseCaseState, UseCase, UseCaseContext,
     UseCaseEvent, UseCaseRuntime,
@@ -148,8 +150,7 @@ where
         {
             context.uln_table_mut().remove(contact.id());
             log::debug!(target: "forward_protocol_message", "Removed {} from ULNTable as no more a undelay neighbor; {:?}", contact.id(), contact);
-        }
-        else {
+        } else {
             log::debug!(target: "forward_protocol_message", "Insertion result {:?}",result);
         }
     }
@@ -242,8 +243,7 @@ where
                 if mycontact.is_uln() {
                     continue;
                 }
-            }
-            else {
+            } else {
                 // Skip updates for contacts which are not contained in own routing table
                 continue;
             }
@@ -266,8 +266,7 @@ where
                         log::trace!(target: "forward_protocol_message", "Invalidated contact {} based on route update data of {} [Removed]", saved_contact.id(), source_id);
                     }
                 }
-                RouteUpdateActionType::Announce |
-                RouteUpdateActionType::Change => {
+                RouteUpdateActionType::Announce | RouteUpdateActionType::Change => {
                     // Announce: Sender has the contact as new contact, but we know it already according to precondition above
                     // Change: Path has been changed, usually an improvement
                     // Probably update Path of contact if path is better and more recent
@@ -285,7 +284,6 @@ where
                 RouteUpdateActionType::WithDraw => {
                     // no action right now
                 }
-
             }
         }
     }

@@ -413,9 +413,9 @@ pub struct UpdateRouteReq {
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum RouteUpdateActionType {
-    Announce, // new contact in routing table
-    WithDraw, // contact deleted from routing table
-    Change,   // path has been changed, i.e., improved
+    Announce,    // new contact in routing table
+    WithDraw,    // contact deleted from routing table
+    Change,      // path has been changed, i.e., improved
     Unreachable, // contact is currently not reachable
 }
 
