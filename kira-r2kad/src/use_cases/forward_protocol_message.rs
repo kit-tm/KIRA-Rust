@@ -11,7 +11,9 @@ use crate::domain::{
     VICINITY_RADIUS, VicinityGraph,
 };
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{ErrorData, ProtocolMessage, RTableData, ReqRspMessage, RouteUpdate};
+use crate::messaging::{
+    ErrorData, ProtocolMessage, RTableData, ReqRspMessage, RouteUpdateActionType,
+};
 use crate::use_cases::{
     EventHandler, HandlingResult, NeverError, ReactiveUseCaseState, UseCase, UseCaseContext,
     UseCaseEvent, UseCaseRuntime,
@@ -148,6 +150,8 @@ where
         {
             context.uln_table_mut().remove(contact.id());
             log::debug!(target: "forward_protocol_message", "Removed {} from ULNTable as no more a undelay neighbor; {:?}", contact.id(), contact);
+        } else {
+            log::debug!(target: "forward_protocol_message", "Insertion result {:?}",result);
         }
     }
 
@@ -220,7 +224,7 @@ where
         }
     }
 
-    fn handle_update_routes<I: IntoIterator<Item = (Contact, RouteUpdate)>>(
+    fn handle_update_routes<I: IntoIterator<Item = (Contact, RouteUpdateActionType)>>(
         &self,
         context: &C,
         source_id: &NodeId,
@@ -233,20 +237,26 @@ where
         }
         let source_contact = source_contact.unwrap();
 
-        for (updated_contact, update) in route_updates {
-            if routing_table.contact(updated_contact.id()).is_none() {
-                // Skip updates which are not contained in own routing table
+        for (updated_contact, update_action) in route_updates {
+            if let Some(mycontact) = routing_table.contact(updated_contact.id()) {
+                // if updated contact is a ULN of this node, we ignore information about it
+                if mycontact.is_uln() {
+                    continue;
+                }
+            } else {
+                // Skip updates for contacts which are not contained in own routing table
                 continue;
             }
 
             let mut new_path = source_contact.path().clone();
             new_path.extend(updated_contact.path().clone());
 
-            match update {
+            // Note that for all actions we have the contact already, checked for existence before
+            match update_action {
                 // Invalidate contact -> Every Contact affected by that will be handled in
                 //                       FailureHandling use case
-                RouteUpdate::Removed => {
-                    // Checked for existence before
+                RouteUpdateActionType::Unreachable => {
+                    // this is only useful for ULN contacts to consider
                     let mut saved_contact =
                         routing_table.contact_mut(updated_contact.id()).unwrap();
                     if saved_contact.path().contains(source_id)
@@ -256,19 +266,23 @@ where
                         log::trace!(target: "forward_protocol_message", "Invalidated contact {} based on route update data of {} [Removed]", saved_contact.id(), source_id);
                     }
                 }
-                RouteUpdate::Updated => {
-                    // If the saved contact is via the node which updated -> Update Path of contact
-                    // Other Paths are updated while operating
-                    // TODO: check if comment actually true
+                RouteUpdateActionType::Announce | RouteUpdateActionType::Change => {
+                    // Announce: Sender has the contact as new contact, but we know it already according to precondition above
+                    // Change: Path has been changed, usually an improvement
+                    // Probably update Path of contact if path is better and more recent
+                    // TODO the path should only be used as proposed path that needs to be validated
                     let mut old_contact = routing_table.contact_mut(updated_contact.id()).unwrap();
                     if old_contact.path().size() > new_path.size()
                         && old_contact.path().contains(source_id)
                         && old_contact.is_older_than(&updated_contact)
                         && updated_contact.state() == &ContactState::Valid
                     {
-                        *old_contact.state_mut() = ContactState::Invalid;
-                        log::trace!(target: "forward_protocol_message", "Invalidated contact {} based on route update data of {} [Worsened]", old_contact.id(), source_id);
+                        *old_contact.state_mut() = ContactState::Valid;
+                        log::trace!(target: "forward_protocol_message", "Update from {} for contact {} provides improved path {}", source_id, old_contact.id(), new_path);
                     }
+                }
+                RouteUpdateActionType::WithDraw => {
+                    // no action right now
                 }
             }
         }

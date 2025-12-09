@@ -4,7 +4,7 @@ use rand::Rng;
 
 use crate::domain::{
     AddError, Bucket, BucketSplitError, Contact, ContactState, FlatRoutingTable, GroupingError,
-    NodeId, ReplacementError, RoutingTable, SharedPrefix,
+    Hasher, NodeId, ReplacementError, RoutingTable, SharedPrefix,
 };
 
 /// A routing table which uses an additional data structure to store all
@@ -186,6 +186,10 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
 
     fn get_bucket_prefix_length(&self, bucket_index: usize) -> u8 {
         self.inner.get_bucket_prefix_length(bucket_index)
+    }
+
+    fn path_hasher(&self) -> Hasher {
+        self.inner.path_hasher()
     }
 }
 

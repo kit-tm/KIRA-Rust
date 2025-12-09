@@ -168,7 +168,7 @@ where
 
     fn perform_refresh(&mut self, context: &C) {
         for contact in context.routing_table().iter() {
-            // dont probe invalid or vicinity contacts
+            // don't probe invalid or vicinity contacts
             if contact.state() != &ContactState::Valid || contact.path().size() <= VICINITY_RADIUS {
                 continue;
             }

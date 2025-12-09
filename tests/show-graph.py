@@ -13,7 +13,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Show Grpah of gml")
+    parser = argparse.ArgumentParser(description="Show Graph of gml")
     parser.add_argument("test_gml", type=str, help="The gml file")
     args = parser.parse_args()
     main(args)

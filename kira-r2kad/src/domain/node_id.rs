@@ -17,7 +17,7 @@ use derive_more::derive::{Display, Error};
 /// allocation by default).
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Display, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[display("{self:X}")]
+#[display("{self:x}")]
 pub struct NodeId {
     node_id: u128,
 }
