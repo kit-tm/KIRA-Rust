@@ -6,7 +6,8 @@ use rand::Rng;
 
 use crate::domain::{
     AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, ContactState,
-    DEFAULT_BUCKET_SIZE, GroupingError, NodeId, ReplacementError, RoutingTable, SharedPrefix,
+    DEFAULT_BUCKET_SIZE, GroupingError, Hasher, NodeId, ReplacementError, RoutingTable,
+    SharedPrefix,
 };
 
 pub const DEFAULT_ACCELERATION: u8 = 1;
@@ -398,6 +399,10 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
 
     fn get_bucket_prefix_length(&self, bucket_index: usize) -> u8 {
         ACC + ACC * ((bucket_index / Self::level_width()) as u8)
+    }
+
+    fn path_hasher(&self) -> Hasher {
+        Hasher::default()
     }
 }
 

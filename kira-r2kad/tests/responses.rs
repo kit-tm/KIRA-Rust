@@ -151,7 +151,7 @@ fn uln_disc_req_response() {
         }
     }
 
-    let discovery_dest = discovery_dest.expect("send UNDiscRsp to neighbor");
+    let discovery_dest = discovery_dest.expect("send ULNDiscRsp to neighbor");
 
     assert!(
         matches!(discovery_dest, UnderlayNeighborDestination::UnderlayNeighbor(neighbor_dest) if neighbor_dest == neighbor_id),

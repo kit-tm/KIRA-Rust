@@ -94,7 +94,7 @@ where
                     break;
                 };
                 if let Err(e) = handle_r2kad_request(&mut forwarding_tables, req).instrument(kira_span).await {
-                    log::error!(target: "forwarding_tables", "Handling an ForwardingTablesUpdate failed: {e}");
+                    log::error!(target: "forwarding_tables", "Handling a ForwardingTablesUpdate failed: {e}");
                 }
             }
         }).unwrap();

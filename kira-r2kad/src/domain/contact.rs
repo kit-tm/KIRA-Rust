@@ -11,7 +11,7 @@ use crate::domain::{NodeId, Path, SafeStateSeqNr};
 ///
 /// # Ordering
 ///
-/// As [Age] specifies a timestamp in milliseconds a greater value represents a bigger age.
+/// As [Age] specifies a timestamp in milliseconds a greater value represents a larger age.
 /// Considering `X = Age(10)` and `Y = Age(20)` then `X < Y == true`.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -111,6 +111,8 @@ impl Contact {
     /// Returns if the [Contact] represents a underlay neighbor.
     pub fn is_uln(&self) -> bool {
         // FIXME: Invariant is, that path doesn't contain the own node_id. whole_path Method is for that.
+        // However, one needs to distinguish whether the current contact is still a ULN but has
+        // just lost its direct link...
         self.path.size() == 1
     }
 
