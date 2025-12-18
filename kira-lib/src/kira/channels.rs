@@ -83,11 +83,11 @@ pub struct R2KadOutputChannels {
 pub(super) async fn input_fan_in(input_channels: &mut R2KadInputChannels) -> Option<Input> {
     let input = tokio::select! {
         biased; // poll in order
-        Some((msg, src_ulnid)) = input_channels.protocol_input.recv() => {
-            Input::Message(msg, src_ulnid)
-        }
         Some(underlay_update) = input_channels.underlay.recv() => {
             Input::UnderlayUpdate(underlay_update)
+        }
+        Some((msg, src_ulnid)) = input_channels.protocol_input.recv() => {
+            Input::Message(msg, src_ulnid)
         }
         Some(api) = input_channels.debug.recv() => {
             Input::Debug(api)
