@@ -10,7 +10,7 @@ pub mod observable_underlay_neighbor_table;
 ///
 /// ## Invariants
 ///
-/// * The output of [`state_seq_nr`][Self::state_seq_nr] should change every time the [ULNTable] is mutated.
+/// * The output of [`state_seq_nr`][Self::state_seq_nr] should change every time the [ULNTable] is changed.
 pub trait ULNTable {
     /// Adds a Mapping to the table returning the [UnderlayNeighborId] previously mapped to the [NodeId].
     fn insert(&mut self, id: NodeId, ulnid: UnderlayNeighborId) -> Option<UnderlayNeighborId>;

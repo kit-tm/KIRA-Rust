@@ -156,6 +156,8 @@ pub enum VicinityEvent {
     /// The StateSeqNr of the running routing daemon changed because the
     /// underlay vicinity changed.
     SSNChanged,
+    /// Nodes or links added or removed
+    Changed,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Display)]

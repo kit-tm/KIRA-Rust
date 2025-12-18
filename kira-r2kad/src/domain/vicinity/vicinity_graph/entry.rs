@@ -1,6 +1,6 @@
 //! Defines meta-data that is stored in the [VicinityGraph](super::VicinityGraph).
 
-use std::{cmp, time::Instant};
+use std::time::Instant;
 
 use crate::domain::SafeStateSeqNr;
 
@@ -8,42 +8,47 @@ use crate::domain::SafeStateSeqNr;
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Entry {
     last_seen: Option<Instant>,
-    vicinity_ssn: Option<SafeStateSeqNr>,
+    synched_ssn: Option<SafeStateSeqNr>, // SSN up to which state has been synchronized (ULNDiscReq/Rsp or QueryRouteReq/Rsp exchange)
     observed_ssn: SafeStateSeqNr,
 }
 
 impl Entry {
     /// Create a new [Entry].
     ///
-    /// Since the entry hasn't been contacted initially [`last_seen`] and [`vicinity_ssn`] are [None].
+    /// Since the entry hasn't been contacted initially [`last_seen`] and [`synched_ssn`] are [None].
     ///
     /// [`last_seen`]: fn@Entry::last_seen
-    /// [`vicinity_ssn`]: fn@Entry::vicinity_ssn
+    /// [`synched_ssn`]: fn@Entry::synched_ssn
     pub fn new(observed_ssn: SafeStateSeqNr) -> Self {
         // initially the vicinity node hasn't been seen
         // nor does it have stored vicinity information
         Self {
             last_seen: None,
-            vicinity_ssn: None,
-            observed_ssn,
+            synched_ssn: None, // should only be updated by ULNDisRsp or QueryRouteRsp
+            observed_ssn,      // can be updated by any message
         }
     }
 
     /// Update the latest [observed state sequence number].
     ///
-    /// The state sequence number can be decreased on resets.
+    /// The state sequence number can be decreased on resets only.
     ///
     /// [observed state sequence number]: fn@Entry::observed_ssn
     pub fn update_observed_ssn(&mut self, observed_ssn: SafeStateSeqNr) {
-        self.observed_ssn = observed_ssn;
+        if observed_ssn > self.observed_ssn {
+            self.observed_ssn = observed_ssn;
+        }
     }
 
-    /// Update the [state sequence number of the vicinity].
+    /// Update the [synchronized state sequence number].
     ///
-    /// [state sequence number of the vicinity]: fn@Entry::vicinity_ssn
-    pub fn update_vicinity_ssn(&mut self, vicinity_ssn: SafeStateSeqNr) {
-        self.observed_ssn = cmp::max(self.observed_ssn, vicinity_ssn);
-        self.vicinity_ssn = Some(vicinity_ssn);
+    /// [synchronized state sequence number]: fn@Entry::synched_ssn
+    pub fn update_synched_ssn(&mut self, synched_ssn: SafeStateSeqNr) {
+        self.synched_ssn = Some(synched_ssn);
+        // also update the observed_ssn in case it is smaller than synched_ssn
+        if self.observed_ssn < synched_ssn {
+            self.observed_ssn = synched_ssn;
+        }
     }
 
     /// Update the last time the node was successfully contacted *directly*
@@ -53,7 +58,7 @@ impl Entry {
     /// the method will panic.
     pub fn update_last_seen(&mut self, now: Instant) {
         assert!(
-            self.last_seen.is_none_or(|l| l < now),
+            self.last_seen.is_none_or(|l| l <= now),
             "last seen can't move backwards in time"
         );
 
@@ -62,7 +67,7 @@ impl Entry {
 
     /// Forgets the vicinity state sequence number.
     pub fn forget_vicinity(&mut self) {
-        self.vicinity_ssn = None;
+        self.synched_ssn = None;
     }
 }
 
@@ -76,12 +81,12 @@ impl Entry {
         self.last_seen
     }
 
-    /// State sequence number of the vicinity present in the [VicinityGraph](super::VicinityGraph).
+    /// synchronized state sequence number present in the [VicinityGraph](super::VicinityGraph).
     ///
     /// The value can be [`None`] if the vicinity state of the node hasn't been acquired
     /// either because a synchronisation is ongoing or because of a node reset initialised.
-    pub fn vicinity_ssn(&self) -> Option<&SafeStateSeqNr> {
-        self.vicinity_ssn.as_ref()
+    pub fn synched_ssn(&self) -> Option<&SafeStateSeqNr> {
+        self.synched_ssn.as_ref()
     }
 
     /// Greatest observed state sequence number.

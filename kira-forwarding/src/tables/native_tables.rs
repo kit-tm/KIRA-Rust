@@ -180,7 +180,7 @@ where
                     self.netlink
                         .replace_via_route(out_path_id, &next_hop)
                         .await
-                        .unwrap();
+                        .unwrap_or_else(|err|{log::error!(target: "native_fwd_table", "Failed to replace route to {:?} via {:?} error={}", &out_path_id, &next_hop, err)});
                 }
             }
         }

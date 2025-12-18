@@ -30,7 +30,7 @@ impl PathSimplifier for ShortestFirstPathSimplifier {
         for dest_index in (1..path.size()).rev() {
             let dest_id = path[dest_index];
 
-            // Replace if target is a underlay neighbor
+            // Replace if target is an underlay neighbor
             if uln_table.contains(&dest_id) {
                 path.replace_interval(0, dest_index, [dest_id]);
                 // Breaking, as the remaining path to check is replaced by the underlay neighbors path
