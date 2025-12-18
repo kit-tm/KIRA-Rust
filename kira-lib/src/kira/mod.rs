@@ -44,6 +44,31 @@ use crate::io::sender::AsyncProtocolMessageSender;
 use crate::io::sender::error::SenderError;
 use crate::underlay::UnderlayNeighborUpdatesRx;
 
+/// Buffer sizes of channels used to connect components.
+mod buffer_size {
+    /// Buffer size of API requests.
+    ///
+    /// Kept small to induce back pressure if daemon is busy with other things.
+    pub const API: usize = 3;
+
+    /// Buffer size of received messages.
+    pub const RECV_MESSAGE: usize = 16;
+
+    /// Buffer size of messages to send.
+    ///
+    /// Kept small to induce back-pressure to R²/KAD if message sender can't
+    /// cope with the amount.
+    pub const SEND_MESSAGE: usize = 16;
+
+    /// Buffer size of update to the forwarding tables.
+    ///
+    /// Large so we don't stall if e.g. a link-failure produces many updates.
+    pub const FORWARDING: usize = 128;
+
+    /// Buffer size of underlay updates.
+    pub const UNDERLAY: usize = 16;
+}
+
 /// Main KIRA protocol instance.
 ///
 /// The KIRA protocol instance is the orchestrator of the main KIRA components:
@@ -86,7 +111,7 @@ where
         mut pm_sender: impl AsyncProtocolMessageSender + Debug + 'static,
     ) -> Self {
         // forwarding tables
-        let (fwtables_tx, mut fwtables_rx) = mpsc::channel(100);
+        let (fwtables_tx, mut fwtables_rx) = mpsc::channel(buffer_size::FORWARDING);
         tokio::task::Builder::new()
             .name("KIRA: Fowarding Tables Channel").spawn(async move {
             loop {
@@ -100,7 +125,7 @@ where
         }).unwrap();
 
         // underlay observer
-        let (underlay_tx, underlay_rx) = mpsc::channel(100);
+        let (underlay_tx, underlay_rx) = mpsc::channel(buffer_size::UNDERLAY);
         // adapt stream
         tokio::task::Builder::new()
             .name("Underlay Observer channel")
@@ -115,8 +140,7 @@ where
             .unwrap();
 
         // API
-        #[allow(unused_variables)]
-        let (api_tx, api_rx) = mpsc::channel(100);
+        let (api_tx, api_rx) = mpsc::channel(buffer_size::API);
         #[cfg(feature = "api")]
         let api_config = api::ApiConfig::new(
             "[::]:8080".parse().unwrap(),
@@ -129,7 +153,7 @@ where
             .spawn(api::start_http_server(api_config))
             .unwrap();
 
-        let (pm_receiver_tx, pm_receiver_rx) = mpsc::channel(100);
+        let (pm_receiver_tx, pm_receiver_rx) = mpsc::channel(buffer_size::RECV_MESSAGE);
         tokio::task::Builder::new().name("KIRA: Protocol Message Receiver channel").spawn(async move {
             while let Some(recv) = pm_receiver.recv().await {
                 match recv {
@@ -148,7 +172,7 @@ where
             log::debug!(target: "kira", "Protocol message receiver finished: {pm_receiver:?}");
         }).unwrap();
 
-        let (pm_sender_tx, mut pm_sender_rx) = mpsc::channel(100);
+        let (pm_sender_tx, mut pm_sender_rx) = mpsc::channel(buffer_size::SEND_MESSAGE);
         tokio::task::Builder::new().name("KIRA: Protocol Message Sender channel").spawn(async move {
             while let Some((msg, dest, kira_span)) = pm_sender_rx.recv().await {
                 match pm_sender.send_message(msg, dest).instrument(kira_span).await {
