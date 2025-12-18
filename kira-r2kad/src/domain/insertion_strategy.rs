@@ -117,7 +117,7 @@ where
         {
             log::trace!(
                 target: "routing_table",
-                "Not updating path of contact, because it is not shorter/better [{:?}] than existing [{:?}]",
+                "Not updating path to contact, because it is not shorter/better [{:?}] than existing [{:?}]",
                 contact.path(),
                 existing.path()
             );
@@ -130,7 +130,7 @@ where
         {
             log::trace!(
                 target: "routing_table",
-                "Not updating contacts path because it's the same and doesn't change state [{}]",
+                "Not updating path to contact, because it is the same and does not change state [{}]",
                 contact.id()
             );
 
@@ -266,7 +266,7 @@ where
         if contact.id() == routing_table.root() {
             tracing::trace!(
                 target: "routing_table",
-                reason = "us",
+                reason = "ignoring myself as contact",
                 path = %contact.path(),
                 "dropping contact",
             );
@@ -276,7 +276,7 @@ where
         if contact.path().contains(routing_table.root()) {
             tracing::trace!(
                 target: "routing_table",
-                reason = "via_us",
+                reason = "path contains myself",
                 path = %contact.path(),
                 "dropping contact",
             );
@@ -286,7 +286,7 @@ where
         if !un_table.contains(contact.path().first()) {
             tracing::trace!(
                 target: "routing_table",
-                reason = "no_underlay_neighbor",
+                reason = "path not leading via underlay neighbor",
                 node = %contact.path().first(),
                 path = %contact.path(),
                 "dropping contact",

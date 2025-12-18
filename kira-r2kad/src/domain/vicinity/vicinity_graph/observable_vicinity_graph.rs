@@ -130,4 +130,12 @@ impl<V: VicinityGraph> VicinityGraph for ObservableVicinityGraph<V> {
     fn vicinity_path_to(&self, destination: NodeId) -> Option<Path> {
         self.inner.vicinity_path_to(destination)
     }
+
+    fn vicinity_changed(&self) -> bool {
+        self.inner.vicinity_changed()
+    }
+
+    fn vicinity_processed(&mut self) {
+        self.inner.vicinity_processed();
+    }
 }

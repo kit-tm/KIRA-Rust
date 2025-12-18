@@ -30,7 +30,7 @@ fn hello_response() {
     let mut r2kad = R2Kad::<SyncContext<_, _, _, _, _>, 20>::builder()
         .root_id(us)
         .build();
-    r2kad.startup(Instant::now()).expect("successfull startup");
+    r2kad.startup(Instant::now()).expect("successful startup");
 
     // ignore set timers and initial output
     while let Some(_out) = r2kad.poll_output() {}

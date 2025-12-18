@@ -17,6 +17,7 @@ pub struct PetVicinityGraph {
     root_id: NodeId,
     graph: UnGraphMap<NodeId, ()>,   // connectivity
     entries: HashMap<NodeId, Entry>, // meta-data
+    graph_changed: bool,
 }
 
 /// Errors that can happen on [VicinityGraph::insert].
@@ -43,6 +44,7 @@ impl PetVicinityGraph {
             root_id,
             graph,
             entries: HashMap::default(),
+            graph_changed: false,
         }
     }
 }
@@ -89,6 +91,9 @@ impl VicinityGraph for PetVicinityGraph {
             .or_insert_with(|| Entry::new(observed_ssn));
 
         let new_edge = self.graph.add_edge(node, *discovered_via, ()).is_none();
+        if new_edge {
+            self.graph_changed = true;
+        }
         Ok(new_edge)
     }
 
@@ -100,6 +105,9 @@ impl VicinityGraph for PetVicinityGraph {
             !entry_removed || graph_removed, // entry_removed => graph_removed
             "vicinity node entry not in the vicinity graph"
         );
+        if entry_removed || graph_removed {
+            self.graph_changed = true;
+        }
 
         entry_removed || graph_removed
     }
@@ -127,7 +135,12 @@ impl VicinityGraph for PetVicinityGraph {
     }
 
     fn remove_edge(&mut self, node_a: &NodeId, node_b: &NodeId) -> bool {
-        self.graph.remove_edge(*node_a, *node_b).is_some()
+        if self.graph.remove_edge(*node_a, *node_b).is_some() {
+            self.graph_changed = true;
+            true
+        } else {
+            false
+        }
     }
 
     fn retain_vicinity(&mut self) -> impl Iterator<Item = NodeId> {
@@ -191,6 +204,14 @@ impl VicinityGraph for PetVicinityGraph {
         }
 
         path.try_into().ok()
+    }
+
+    fn vicinity_changed(&self) -> bool {
+        self.graph_changed
+    }
+    /// this should be called if precomputed paths have been calculated
+    fn vicinity_processed(&mut self) {
+        self.graph_changed = false;
     }
 }
 
@@ -258,7 +279,7 @@ mod test {
         // check entry creation
         let entry = graph.entry(&insert_node).expect("insertion creates entry");
         assert_eq!(entry.observed_ssn(), &insert_ssn);
-        assert_eq!(entry.vicinity_ssn(), None);
+        assert_eq!(entry.synched_ssn(), None);
         assert_eq!(entry.last_seen(), None);
     }
 
@@ -269,11 +290,11 @@ mod test {
         let initial_ssn = SafeStateSeqNr::try_from(1).unwrap();
         let updated_ssn = SafeStateSeqNr::try_from(2).unwrap();
         let now = Instant::now();
-        let vicinity_ssn = initial_ssn;
+        let synched_ssn = initial_ssn;
         let inital_entry = {
             let mut initial_entry = Entry::new(initial_ssn);
             initial_entry.update_last_seen(now);
-            initial_entry.update_vicinity_ssn(vicinity_ssn);
+            initial_entry.update_synched_ssn(synched_ssn);
             initial_entry
         };
 
@@ -291,7 +312,7 @@ mod test {
             // check entry
             let entry = graph.entry(&insert_node).expect("insertion creates entry");
             assert_eq!(entry.observed_ssn(), &initial_ssn);
-            assert_eq!(entry.vicinity_ssn(), Some(&vicinity_ssn));
+            assert_eq!(entry.synched_ssn(), Some(&synched_ssn));
             assert_eq!(entry.last_seen(), Some(now));
         }
 
@@ -303,7 +324,7 @@ mod test {
             // check entry
             let entry = graph.entry(&insert_node).expect("insertion creates entry");
             assert_eq!(entry.observed_ssn(), &updated_ssn);
-            assert_eq!(entry.vicinity_ssn(), Some(&vicinity_ssn));
+            assert_eq!(entry.synched_ssn(), Some(&synched_ssn));
             assert_eq!(entry.last_seen(), Some(now));
         }
     }
