@@ -7,8 +7,7 @@ use tracing::{Level, instrument};
 
 use crate::domain::{
     Contact, ContactState, InsertionStrategy, InsertionStrategyResult, Link, NodeId, NotVia, Path,
-    RoutingTable, SafeStateSeqNr, StateSeqNr, ULNTable, UnderlayNeighborId, UnderlayNeighborSource,
-    VICINITY_RADIUS, VicinityGraph,
+    RoutingTable, ULNTable, UnderlayNeighborId, UnderlayNeighborSource, VicinityGraph,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -120,26 +119,31 @@ where
     }
 
     /// Attempts to insert the contact into the routing table which may create a new entry,
-    /// update an existing entry or do nothing.
+    /// update an existing entry, or do nothing.
     ///
-    /// If the contact was previously a underlay neighbor but not anymore its entry in the ULNTable
+    /// If the contact was previously an underlay neighbor but not anymore its entry in the ULNTable
     /// will be removed.
     fn update_contact(&self, context: &C, contact: Contact) {
         if let Some(not_via) = context.not_via().iter().find(|not_via| match not_via {
             NotVia::Link(link) => contact.path().contains_link(link),
         }) {
-            log::trace!(target: "forward_protocol_message", "Skipping contact as contains invalid not-via data {not_via}; {contact}");
+            log::trace!(target: "forward_protocol_message", "Skipping contact - its path contains a not-via link {not_via}; {contact}");
             return;
         }
 
-        log::trace!(target: "forward_protocol_message", "Attempting to insert {contact}");
+        // ignore information about us from other parties
+        if contact.id() == context.root_id() {
+            return;
+        }
+
+        log::trace!(target: "forward_protocol_message", "Attempting to insert {contact} into routing table");
         let result = context.routing_table_insertion_strategy().insert(
             contact.clone(),
             context.routing_table_mut().deref_mut(),
             context.uln_table().deref(),
         );
 
-        // Remove if contact changed the routing table in any way, was a underlay neighbor and is not a uln anymore
+        // Remove if contact changed the routing table in any way, was an underlay neighbor and is not a ULN anymore
         if result != InsertionStrategyResult::Dropped
             && context.uln_table().contains(contact.id())
             && !context
@@ -149,9 +153,9 @@ where
                 .unwrap_or(false)
         {
             context.uln_table_mut().remove(contact.id());
-            log::debug!(target: "forward_protocol_message", "Removed {} from ULNTable as no more a undelay neighbor; {:?}", contact.id(), contact);
+            log::debug!(target: "forward_protocol_message", "Removed {} from ULNTable as it is no more an undelay neighbor; {:?}", contact.id(), contact);
         } else {
-            log::debug!(target: "forward_protocol_message", "Insertion result {:?}",result);
+            log::debug!(target: "forward_protocol_message", "Routing table insertion result {:?}",result);
         }
     }
 
@@ -206,11 +210,15 @@ where
         source: &NodeId,
         new_not_via_data: &HashSet<NotVia>,
     ) {
+        // we exclude any notvia that contains ourselves, because we know better
+        let mut filtered_not_via_data = new_not_via_data.iter().filter(|notvia| match *notvia {
+            NotVia::Link(link) => link.contains(context.root_id()),
+        });
+
         let mut routing_table = context.routing_table_mut();
 
         for mut contact in routing_table.iter_mut() {
-            let not_via_invalidation = new_not_via_data
-                .iter()
+            let not_via_invalidation = filtered_not_via_data
                 .find(|entry| match entry {
                     NotVia::Link(link) => contact.path().contains_link(link),
                 })
@@ -288,62 +296,6 @@ where
         }
     }
 
-    fn extract_vicinity_information(&self, context: &C, message: &ProtocolMessage) {
-        if message
-            .source_route()
-            .is_none_or(|s| s.traveled_hop_count() >= VICINITY_RADIUS)
-        {
-            return;
-        }
-
-        let source = message.source();
-        let ssn = message.source_state_seq_nr();
-        let ssn = match ssn {
-            StateSeqNr::Value(ssn) => ssn,
-            StateSeqNr::Invalid => {
-                tracing::warn!(
-                    target: "forward_protocol_message",
-                    %source,
-                    "Received message with invalid state sequence number."
-                );
-                // TODO: send error back to source to inform about mishap?
-                return;
-            }
-            StateSeqNr::Reset => {
-                // FIXME: prohibit multiple resets if outdated information
-                // or information not meant for the node reaches node
-                // probably necessitates guarding with pending request condition
-
-                if let Some(entry) = context.vicinity_graph_mut().entry_mut(source) {
-                    entry.update_observed_ssn(SafeStateSeqNr::MIN);
-                    entry.forget_vicinity();
-                }
-
-                tracing::trace!(
-                    target: "forward_protocol_message",
-                    %source,
-                    reason="connection_reset",
-                    "scheduled for resync"
-                );
-
-                // TODO: the reset must additionally be triggered for rediscovery with Contacts
-                // implement ContactState::Rediscovering
-                return;
-            }
-        };
-
-        // TODO: observed_ssn should be forcefully overwritten on receiving
-        //       a Rsp to a pending Req since the data is considered up-to-date.
-        // TODO: last_seen should be updated on receiving a Rsp to a pending Req.
-
-        // only update observed_ssn if it's greater to prohibit unnecessary resyncs
-        if let Some(entry) = context.vicinity_graph_mut().entry_mut(source)
-            && entry.observed_ssn() < ssn
-        {
-            entry.update_observed_ssn(*ssn);
-        }
-    }
-
     /// Process meta-information of the received [ProtocolMessage].
     ///
     /// The processing happens at _every_ hop of the message.
@@ -364,8 +316,6 @@ where
             self.extract_not_via_data(context, message.source(), not_via);
         }
 
-        // not in dedicated vicinity_discovery use case to extract on overheard messages
-        self.extract_vicinity_information(context, &message);
         let source_contact = self.extract_source_information(context, &message, ulnid);
 
         match message {

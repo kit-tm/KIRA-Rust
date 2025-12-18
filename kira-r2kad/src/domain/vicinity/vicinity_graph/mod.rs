@@ -74,7 +74,7 @@ pub trait VicinityGraph {
     // [`retain_radius`]: VicinityGraph::retain_radius
     fn nodes(&self) -> impl Iterator<Item = NodeId>;
 
-    /// Computes *all* paths from the root to it's vicinity nodes.
+    /// Computes *all* paths from the root to its vicinity nodes.
     ///
     /// The paths must inside the vicinity.
     fn vicinity_paths(&self) -> impl Iterator<Item = Path>;
@@ -92,6 +92,11 @@ pub trait VicinityGraph {
         self.vicinity_paths_to(destination)
             .min_by_key(|path| path.size())
     }
+
+    /// returns whether the vicinity has been changed since last time the vicinity_processed was called
+    fn vicinity_changed(&self) -> bool;
+    /// this should be called if precomputed paths have been calculated
+    fn vicinity_processed(&mut self);
 }
 
 #[cfg(test)]

@@ -60,17 +60,28 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
     }
 
     fn add(&mut self, contact: Contact) -> Result<(), AddError> {
-        // Add to underlay neighbors if possible
-        if contact.is_uln() {
-            if self.un_contacts.contains_key(contact.id()) {
+        if let Some(uln_entry) = self.un_contacts.get(contact.id()) {
+            // contact to add exists as ULN already
+            if contact.is_uln() {
                 return Err(AddError::AlreadyExists(contact.into_id()));
             }
-            _ = self.inner.remove(contact.id());
-            self.un_contacts.insert(*contact.id(), contact);
-            return Ok(());
+            // the contact is a ULN, but has a longer path now, should be ignored by update
+            if *uln_entry.state() == ContactState::Valid {
+                return Err(AddError::AlreadyExists(contact.into_id()));
+            } else {
+                // if existing contact was former ULN, but it is not anymore, we may remove it from there
+                self.un_contacts.remove(contact.id());
+            }
+        } else {
+            // contact does not exist as ULN
+            if contact.is_uln() {
+                // add to underlay neighbors
+                _ = self.inner.remove(contact.id());
+                self.un_contacts.insert(*contact.id(), contact);
+                return Ok(());
+            }
         }
-
-        // otherwise regular add
+        // try regular add, returns own result
         self.inner.add(contact)
     }
 
