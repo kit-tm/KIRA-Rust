@@ -6,7 +6,7 @@ use std::num::NonZeroU64;
 
 use derive_more::derive::Display;
 
-use crate::domain::{Contact, Link, NodeId, NotVia, StateSeqNr};
+use crate::domain::{Contact, Link, NodeId, NotVia, StateSeqNr, state_seq_nr};
 use crate::messaging::dht::{
     DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreReqData, StoreRspData,
 };
@@ -38,28 +38,140 @@ impl Nonce {
     }
 }
 
+const KIRA_PROTOCOL_VERSION : u8 = 0;
+
+#[repr(u8)]
+enum KiraMsgFlagsBit {
+    ExactFlag = 1,
+    EndSystemFlag  = 1 << 2,
+    DiagnosticFlag = 1 << 6,
+}
+
+
+
 /// Enumeration containing all supported KIRA protocol messages kinds.
 #[derive(Debug, Display, PartialEq, Eq, Clone, Copy)]
 #[display("{_variant}")]
+#[repr(u8)]
 pub enum ProtocolMessageKind {
-    ULNHello,
-    ULNDiscReq,
-    ULNDiscRsp,
-    QueryRouteReq,
-    QueryRouteRsp,
-    FindNodeReq,
-    FindNodeRsp,
-    ProbeReq,
-    ProbeRsp,
-    PathSetupReq,
-    PathTeardownReq,
-    UpdateRouteReq,
-    Error,
-    StoreReq,
-    StoreRsp,
-    FetchReq,
-    FetchRsp,
+    ULNHello   = 0x01,
+    ULNDiscReq = 0x03,
+    ULNDiscRsp = 0x04,
+    FindNodeReq = 0x09,
+    FindNodeRsp = 0x0a,
+    QueryRouteReq = 0x0b,
+    QueryRouteRsp = 0x0c,
+    UpdateRouteReq = 0x11,
+    ProbeReq = 0x21,
+    ProbeRsp = 0x22,
+    Error = 0x70,
+    PathSetupReq = 0x81,
+    PathSetupRsp = 0x82,
+    PathTeardownReq = 0x83,
+    StoreReq = 0xa1,
+    StoreRsp = 0xa2,
+    FetchReq = 0xa3,
+    FetchRsp = 0xa4,
 }
+
+/// Common Header Structure
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+struct CommonHeader {
+    version : u8,
+    msg_type : u8,
+    msg_flags : u8,
+    msg_length : u16,
+    dest_id : NodeId,
+    src_node_id : NodeId,
+    domain_id : u64,
+    msg_id : u64,
+    state_seq_num : u32,
+    src_node_degree : u16,
+}
+
+impl CommonHeader {
+    pub fn new(msg_type : ProtocolMessageKind, src: NodeId, dst: NodeId) -> Self {
+        Self {
+            version : KIRA_PROTOCOL_VERSION,
+            msg_type : msg_type as u8,
+            msg_flags : 0,
+            msg_length : 1+1+1+2+14+14+8+8+4+2, // common header length
+            dest_id : dst,
+            src_node_id : src,
+            domain_id : 0,
+            msg_id : rand::random(),
+            state_seq_num : state_seq_nr::INVALID_SSN,
+            src_node_degree : 0,
+        }
+    }
+
+    pub fn set_flag(&mut self, flag : KiraMsgFlagsBit) {
+        self.msg_flags |= flag as u8;
+    }
+
+    pub fn clear_flag(&mut self, flag : KiraMsgFlagsBit) {
+        self.msg_flags |= !(flag as u8);
+    }
+
+    pub fn set_msg_length(&mut self, msg_len : u16) {
+        self.msg_length = msg_len;
+    }
+
+    pub fn add_to_msg_length(&mut self, msg_len : u16) {
+        if self.msg_length <=  u16::MAX- msg_len {
+            self.msg_length += msg_len;
+        }
+        else {
+            panic!("maximum msg length exceeded when trying to add {} bytes to {}",msg_len,self.msg_length);
+        }
+    }
+
+    pub fn msg_length(&self) -> u16 {
+        self.msg_length
+    }
+
+    pub fn set_dest_id(&mut self, dst: NodeId) {
+        self.dest_id = dst;
+    }
+
+    pub fn dest_id(&mut self) -> NodeId {
+        self.dest_id
+    }
+
+    pub fn set_src_node_id(&mut self, src: NodeId) {
+        self.src_node_id = src;
+    }
+
+    pub fn src_node_id(&mut self) -> NodeId {
+        self.src_node_id
+    }
+
+    pub fn set_domain_id(&mut self, domainid : u64) {
+        self.domain_id = domainid
+    }
+
+    pub fn domain_id(&self) -> u64 {
+        self.domain_id
+    }
+
+    pub fn set_msg_id(&mut self, msgid : u64) {
+        self.msg_id = msgid;
+    }
+
+    pub fn msg_id(&self) -> u64 {
+        self.msg_id
+    }
+
+    pub fn set_src_node_degree(&mut self, degree : u16) {
+        self.src_node_degree = degree;
+    }
+
+    pub fn src_node_degree(&mut self) -> u16 {
+        self.src_node_degree
+    }
+}
+
 
 /// Enumeration containing all supported KIRA protocol messages.
 #[derive(Debug, PartialEq, Eq, Clone)]
