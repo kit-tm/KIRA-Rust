@@ -1,10 +1,13 @@
+from __future__ import annotations
+
 import argparse
 import re
 import sys
 import time
 from cmd import Cmd
-from collections.abc import Iterable, Iterator
-from ipaddress import AddressValueError
+from collections.abc import Iterable
+from functools import cached_property
+from ipaddress import AddressValueError, IPv6Address
 from subprocess import PIPE, Popen
 from typing import Any
 
@@ -14,7 +17,7 @@ from nest.topology.address import Address
 from PIL import Image
 from term_image.image import AutoImage
 
-from kira_nest.domain import KiraIP, NodeID, NodeIP, PathIP
+from kira_nest.domain import KiraIP, NodeID, NodeIP, PathID, PathIP
 from kira_nest.domain.forwarding import (
     FwdEntry,
     NodeIDEncapEntry,
@@ -24,13 +27,17 @@ from kira_nest.domain.forwarding import (
 )
 from kira_nest.nest.imager import KIRAImager
 from kira_nest.nest.link import KIRALink
+from kira_nest.nest.node import KIRANode
+from kira_nest.nest.shell.util import (
+    StoreKIRAIP,
+    StoreNode,
+    init_argparser,
+    with_argparser,
+)
+from kira_nest.nest.test import KIRATest
 
-from .node import KIRANode
-from .test import KIRATest
 
-
-# TODO: rewrite do_foo(arg) command argument parsing
-#       using robust parsing provided by argparse
+@init_argparser
 class DebugShell[T](Cmd):
     intro = (
         "Welcome to the debug shell of nesttest."
@@ -48,24 +55,25 @@ class DebugShell[T](Cmd):
         self.test = test
         self.imager = KIRAImager(test)
 
-        self._compile_re()
-
-    def _construct_replacement_map(self) -> Iterator[tuple[str, str]]:
+    @cached_property
+    def _replacement_map(self) -> dict[str, str]:
+        replacement_map = {}
         for tid, node_cfg in self.test.topology.configs():
             nid = node_cfg.node_id
             ipv6 = node_cfg.ipv6
             short_nid = nid[:8]
             replacement = f"${tid}$"
 
-            yield nid, f"{replacement:<{len(nid)}}"
-            yield short_nid, f"{replacement:<{len(short_nid)}}"
-            yield ipv6, f"{replacement:<{len(ipv6)}}"
+            replacement_map[nid] = f"{replacement:<{len(nid)}}"
+            replacement_map[short_nid] = f"{replacement:<{len(short_nid)}}"
+            replacement_map[ipv6] = f"{replacement:<{len(ipv6)}}"
+        return replacement_map
 
-    def _compile_re(self) -> None:
-        self._replacement_map = dict(self._construct_replacement_map())
+    @cached_property
+    def _replace_re(self) -> re.Pattern:
         replace_re = "|".join(re.escape(nid) for nid in self._replacement_map)
         ignore_case = f"(?i:{replace_re})"
-        self._replace_re = re.compile(ignore_case)
+        return re.compile(ignore_case)
 
     def _cmd_failed(self) -> None:
         self.failure = True
@@ -85,48 +93,19 @@ class DebugShell[T](Cmd):
 
         return self._replace_re.sub(replace, string)
 
-    def _extract_node(self, arg: str) -> tuple[KIRANode | None, str | None]:
-        """
-        Get node in the next argument name.
+    _pingall_parser = argparse.ArgumentParser()
+    _pingall_parser.add_argument(
+        "-f", "--failed", action="store_true", help="display only failed pings"
+    )
+    _pingall_parser.add_argument(
+        "-v", "--verbose", action="store_true", help="more verbose pings"
+    )
 
-        If the node can't be identified by its name the name will be placed
-        in the second element of the return tuple.
-        Otherwise the second element contains the remaining argument(s).
-        """
-        args = arg.split(maxsplit=1)
-        if len(args) == 0:
-            return (None, arg)
-
-        node_name = args[0]
-        scmd = args[1] if len(args) == 2 else None  # noqa: PLR2004
-
-        node = self.test.topology.nodes.by_name(node_name)
-        if node is None:
-            return None, arg
-        return (node, scmd)
-
-    @classmethod
-    def _parse_kira_ip(cls, ip: str | None) -> KiraIP | None:
-        try:
-            return NodeIP(ip)
-        except AddressValueError:
-            print(f"ERR: {ip} is not a valid IPv6-address")
-        except ValueError:
-            try:
-                return PathIP(ip)
-            except AddressValueError:
-                print(f"ERR: {ip} is not a valid IPv6-address")
-            except ValueError:
-                print(f"ERR: {ip} has to be a Node- or Path-IP.")
-
-    def do_pingall(self, arg: str) -> None:
-        "Ping all nodes: PINGALL [-f,--failed] [-v,--verbose]"
-
-        # process flags
-        args = arg.split()
-        failed = "-f" in args or "--failed" in args or self.quiet
-
-        verbose = 2 if "-v" in args or "--verbose" in args else 0
+    # TODO: support pinging specific and partial node pairs
+    @with_argparser(_pingall_parser)
+    def do_pingall(self, args: argparse.Namespace) -> None:
+        failed = args.failed or self.quiet
+        verbose = 2 if args.verbose else 0
 
         for x in self.test.topology.nodes:
             for y in self.test.topology.nodes:
@@ -148,20 +127,27 @@ class DebugShell[T](Cmd):
                             end = "\r" if failed else "\n"
                             print(f"Pinging {x:>3} --> {y:>3} ✓  ", end=end, flush=True)
 
-    def do_exec(self, arg: str) -> None:
-        "Execute arbitrary command in the network namespace of node: EXEC <nid> <cmd>"
-        node, cmd = self._extract_node(arg)
-        if node is None:
-            print(
-                f"ERR: Node '{cmd}' not found.\n"
-                "To get a list of available nodes type NODES."
-            )
-            self._cmd_failed()
-            return
-        if cmd is None:
-            print("Provide a command to execute: EXECUTE <nid> <cmd>")
-            self._cmd_failed()
-            return
+    @property
+    def _exec_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description="Execute arbitrary command in the network namespace of a node."
+        )
+        parser.add_argument(
+            "node",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+            help="identifier of the node (name, NodeId, topology id)",
+        )
+        parser.add_argument(
+            "cmd",
+            help="command that is executed in the namespace of the node",
+        )
+        return parser
+
+    @with_argparser("_exec_parser")
+    def do_exec(self, args: argparse.Namespace) -> None:
+        node: KIRANode = args.node
+        cmd = args.cmd
 
         p = node.exec(cmd, logfile=sys.stdout)
         exit_code = p.wait()
@@ -169,20 +155,27 @@ class DebugShell[T](Cmd):
             self._cmd_failed()
         print()
 
-    def do_api(self, arg: str) -> None:
-        "Issue arbitrary API call to node: API <nid> <rest_path>"
-        node, path = self._extract_node(arg)
-        if node is None:
-            print(
-                f"ERR: Node '{path}' not found.\n"
-                "To get a list of available nodes type NODES."
-            )
-            self._cmd_failed()
-            return
-        if path is None:
-            print("Provide an API-Path: API <nid> <rest_path>")
-            self._cmd_failed()
-            return
+    @property
+    def _api_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description="Issue arbitrary API call to a node."
+        )
+        parser.add_argument(
+            "node",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+            help="identifier of the node (name, NodeId, topology id)",
+        )
+        parser.add_argument(
+            "cmd",
+            help="REST-API path",
+        )
+        return parser
+
+    @with_argparser("_api_parser")
+    def do_api(self, args: argparse.Namespace) -> None:
+        node: KIRANode = args.node
+        path = args.path
 
         res = node.api.call(path)
         if res is None:
@@ -192,61 +185,75 @@ class DebugShell[T](Cmd):
         res = self.sub_nid_name(res)
         print(res)
 
-    def do_node_id(self, arg: str) -> None:
-        "Obtain Node-Id: NODE_ID <nid>"
-        node, _arg = self._extract_node(arg)
-        if node is None:
-            print(
-                f"ERR: Node '{_arg}' not found.\n"
-                "To get a list of available nodes type NODES."
-            )
-            self._cmd_failed()
-            return
+    @property
+    def _node_id_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(description="Get the Node-ID of a node.")
+        parser.add_argument(
+            "node",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+            help="identifier of the node (name, NodeId, topology id)",
+        )
+        return parser
+
+    @with_argparser("_node_id_parser")
+    def do_node_id(self, args: argparse.Namespace) -> None:
+        node: KIRANode = args.node
 
         node_id = node.api.node_id()
         if node_id is None:
-            print("ERR: Unable to reach kira API backend of node.")
+            print("ERR: Unable to reach KIRA API backend of node.")
         else:
             print(node_id)
 
-    def do_store(self, arg: str) -> None:
-        "Store a key-value pair in the DHT: STORE <nid> <key> <value>"
-        node, key_data = self._extract_node(arg)
-        if node is None:
-            print(
-                f"ERR: Node '{key_data}' not found.\n"
-                "To get a list of available nodes type NODES."
-            )
-            self._cmd_failed()
-            return
-        if key_data is None:
-            print("Provide a key and value: STORE <nid> <key> <value>")
-            self._cmd_failed()
-            return
+    @property
+    def _store_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description="Store a key-value pair in the Distributed Hash Table."
+        )
+        parser.add_argument(
+            "node",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+            help="identifier of the node to store from",
+        )
+        parser.add_argument(
+            "key",
+            help="Key",
+        )
+        parser.add_argument(
+            "value",
+            help="Value",
+        )
+        return parser
 
-        key_data = key_data.split(maxsplit=1)
-        if len(key_data) != 2:  # noqa: PLR2004
-            print("Provide a key and value: STORE <nid> <key> <value>")
-            self._cmd_failed()
-            return
-        key, data = key_data
+    @with_argparser("_store_parser")
+    def do_store(self, args: argparse.Namespace) -> None:
+        node: KIRANode = args.node
         # TODO: parse result of store to catch failure
-        print(node.api.store(key, data))
+        print(node.api.store(args.key, args.value))
 
-    def do_fetch(self, arg: str) -> None:
-        "Obtain value of a key in the DHT: FETCH <nid> <key>"
-        node, key = self._extract_node(arg)
-        if node is None:
-            print(
-                f"ERR: Node '{key}' not found.\n"
-                "To get a list of available nodes type NODES."
-            )
-            self._cmd_failed()
-            return
-        if key is None:
-            print("Provide a key to fetch: FETCH <nid> <key>")
-            self._cmd_failed()
-            return
+    @property
+    def _fetch_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description="Obtain the value of a key in the Distributed Hash Table."
+        )
+        parser.add_argument(
+            "node",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+            help="identifier of the node to start the fetch query",
+        )
+        parser.add_argument(
+            "key",
+            help="Key",
+        )
+        return parser
+
+    @with_argparser("_fetch_parser")
+    def do_fetch(self, args: argparse.Namespace) -> None:
+        node: KIRANode = args.node
+        key = args.key
 
         res = node.api.fetch(key)
         if len(res) == 0:
@@ -260,16 +267,22 @@ class DebugShell[T](Cmd):
                 print(f"    {value},")
             print("]")
 
-    def do_routing_table(self, arg: str) -> None:
-        "Dumps routing table of node: ROUTING_TABLE <nid>"
-        node, _arg = self._extract_node(arg)
-        if node is None:
-            print(
-                f"ERR: Node '{_arg}' not found.\n"
-                "To get a list of available nodes type NODES."
-            )
-            self._cmd_failed()
-            return
+    @property
+    def _routing_table_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description="Dumps the routing table of a node."
+        )
+        parser.add_argument(
+            "node",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+            help="identifier of a node",
+        )
+        return parser
+
+    @with_argparser("_routing_table_parser")
+    def do_routing_table(self, args: argparse.Namespace) -> None:
+        node: KIRANode = args.node
 
         res = node.api.routing_table()
         if res is None:
@@ -279,16 +292,22 @@ class DebugShell[T](Cmd):
         res = self.sub_nid_name(res)
         print(res)
 
-    def do_uln_table(self, arg: str) -> None:
-        "Dump physical neighbor table of node: ULN_TABLE <nid>"
-        node, _arg = self._extract_node(arg)
-        if node is None:
-            print(
-                f"ERR: Node '{_arg}' not found.\n"
-                "To get a list of available nodes type NODES."
-            )
-            self._cmd_failed()
-            return
+    @property
+    def _uln_table_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description="Dumps the underlay neighbor table of a node."
+        )
+        parser.add_argument(
+            "node",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+            help="identifier of a node",
+        )
+        return parser
+
+    @with_argparser("_uln_table_parser")
+    def do_uln_table(self, args: argparse.Namespace) -> None:
+        node: KIRANode = args.node
 
         res = node.api.uln_table()
         if res is None:
@@ -298,16 +317,22 @@ class DebugShell[T](Cmd):
         res = self.sub_nid_name(res)
         print(res)
 
-    def do_vicinity_graph(self, arg: str) -> None:
-        "Dump vicinity graph of node: VICINITY_GRAPH <nid>"
-        node, _arg = self._extract_node(arg)
-        if node is None:
-            print(
-                f"ERR: Node '{_arg}' not found.\n"
-                "To get a list of available nodes type NODES."
-            )
-            self._cmd_failed()
-            return
+    @property
+    def _vicinity_graph_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description="Dumps the vicinity graph of a node."
+        )
+        parser.add_argument(
+            "node",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+            help="identifier of a node",
+        )
+        return parser
+
+    @with_argparser("_vicinity_graph_parser")
+    def do_vicinity_graph(self, args: argparse.Namespace) -> None:
+        node: KIRANode = args.node
 
         res = node.api.vicinity_graph()
         if res is None:
@@ -317,16 +342,22 @@ class DebugShell[T](Cmd):
         res = self.sub_nid_name(res)
         print(res)
 
-    def do_local_hashtable(self, arg: str) -> None:
-        "Dump local hashtable of node: LOCAL_HASHTABLE <nid>"
-        node, _arg = self._extract_node(arg)
-        if node is None:
-            print(
-                f"ERR: Node '{_arg}' not found.\n"
-                "To get a list of available nodes type NODES."
-            )
-            self._cmd_failed()
-            return
+    @property
+    def _local_hashtable_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description="Dumps the local hashtable (part of the DHT) of a node."
+        )
+        parser.add_argument(
+            "node",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+            help="identifier of a node",
+        )
+        return parser
+
+    @with_argparser("_local_hashtable_parser")
+    def do_local_hashtable(self, args: argparse.Namespace) -> None:
+        node: KIRANode = args.node
 
         res = node.api.local_hashtable()
         if res is None:
@@ -335,10 +366,22 @@ class DebugShell[T](Cmd):
             return
         print(res)
 
-    def do_checkup(self, arg: str) -> None:
-        "Check if nodes are up: CHECKUP [nid]"
+    @property
+    def _checkup_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(description="Check if node(s) are up.")
+        parser.add_argument(
+            "node",
+            nargs="?",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+            help="identifier of a node",
+        )
+        return parser
+
+    @with_argparser("_checkup_parser")
+    def do_checkup(self, args: argparse.Namespace) -> None:
         # check all if no node is specified
-        if arg == "":
+        if args.node is None:
             all_up = True
             for n in self.test.topology.nodes:
                 if n.is_down():
@@ -350,33 +393,34 @@ class DebugShell[T](Cmd):
 
             return
 
-        node, _arg = self._extract_node(arg)
-        if node is None:
-            print(
-                f"ERR: Node '{_arg}' not found.\n"
-                "To get a list of available nodes type NODES."
-            )
-            self._cmd_failed()
-            return
-
+        node: KIRANode = args.node
         if node.is_up():
             print(f"Node {node} is up")
         else:
             print(f"Node {node} is not up")
             self._cmd_failed()
 
-    def do_next_ip(self, arg: str) -> None:
-        node, ip = self._extract_node(arg)
-        if node is None:
-            print(
-                f"ERR: Node '{ip}' not found.\n"
-                "To get a list of available nodes type NODES."
-            )
-            self._cmd_failed()
-            return
-        kira_ip = self._parse_kira_ip(ip)
-        if kira_ip is None:
-            return
+    @property
+    def _next_ip_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser()
+        parser.add_argument(
+            "node",
+            nargs="?",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+            help="identifier of a node",
+        )
+        parser.add_argument(
+            "kira_ip",
+            action=StoreKIRAIP,
+            help="lookup address",
+        )
+        return parser
+
+    @with_argparser("_next_ip_parser")
+    def do_next_ip(self, args: argparse.Namespace) -> None:
+        node = args.node
+        kira_ip = args.kira_ip
 
         next_ip = node.next_ip(kira_ip)
         print()
@@ -384,18 +428,27 @@ class DebugShell[T](Cmd):
         if next_ip is None:
             self._cmd_failed()
 
-    def do_next_hop(self, arg: str) -> None:
-        node, ip = self._extract_node(arg)
-        if node is None:
-            print(
-                f"ERR: Node '{ip}' not found.\n"
-                "To get a list of available nodes type NODES."
-            )
-            self._cmd_failed()
-            return
-        kira_ip = self._parse_kira_ip(ip)
-        if kira_ip is None:
-            return
+    @property
+    def _next_hop_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser()
+        parser.add_argument(
+            "node",
+            nargs="?",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+            help="identifier of a node",
+        )
+        parser.add_argument(
+            "kira_ip",
+            action=StoreKIRAIP,
+            help="lookup address",
+        )
+        return parser
+
+    @with_argparser("_next_hop_parser")
+    def do_next_hop(self, args: argparse.Namespace) -> None:
+        node = args.node
+        kira_ip = args.kira_ip
 
         next_hop = node.next_hop(kira_ip)
         print()
@@ -403,16 +456,27 @@ class DebugShell[T](Cmd):
         if next_hop is None:
             self._cmd_failed()
 
-    def do_path(self, arg: str) -> None:
-        "Lookup Path-ID on the node: PATH <nid> [path-ip]"
-        node, ip = self._extract_node(arg)
-        if node is None:
-            print(
-                f"ERR: Node '{ip}' not found.\n"
-                "To get a list of available nodes type NODES."
-            )
-            self._cmd_failed()
-            return
+    @property
+    def _path_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(description="Lookup Path-ID on the node.")
+        parser.add_argument(
+            "node",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+            help="identifier of a node",
+        )
+        parser.add_argument(
+            "path_ip",
+            nargs="?",
+            type=PathIP,
+            help="lookup address",
+        )
+        return parser
+
+    @with_argparser("_path_parser")
+    def do_path(self, args: argparse.Namespace) -> None:
+        node = args.node
+        ip = args.path_ip
 
         if ip is None:
             paths = node.paths_routing_table()
@@ -420,15 +484,6 @@ class DebugShell[T](Cmd):
                 self._cmd_failed()
                 return
         else:
-            ip = self._parse_kira_ip(ip)
-            if ip is None:
-                self._cmd_failed()
-                return
-            if ip is not isinstance(ip, PathIP):
-                # TODO: display error message
-                return
-            assert isinstance(ip, PathIP)
-
             path = node.path(ip.to_path_id())
             if path is None:
                 print(f"ERR: Unknown PathIP: {ip}")
@@ -441,162 +496,235 @@ class DebugShell[T](Cmd):
             path_ip = path.to_path_ip()
             print(f"{path_ip} ==> {path_str}")
 
-    def do_traceroute(self, arg: str) -> None:
-        "Traceroute (all) forwarding path: TRACEROUTE [<nid_x> <nid_y>]"
+    @property
+    def _traceroute_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description="Simulate traceroutes of fast-forwarding paths."
+        )
+        parser.add_argument(
+            "source",
+            nargs="?",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+            help="source node",
+        )
+        parser.add_argument(
+            "destination",
+            nargs="?",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+            help="destination node",
+        )
+        parser.add_argument(
+            "-v", "--verbose", action="store_true", help="print successful traceroutes"
+        )
 
-        # trace all paths
-        if arg == "":
-            for x in self.test.topology.nodes:
-                for y in self.test.topology.nodes:
-                    success = self.test.traceroute(x, y, verbose=False)
-                    # only show unsuccessful traceroutes
-                    if not success:
-                        self._cmd_failed()
-                        self.test.traceroute(x, y, verbose=True)
-                        print()
-                        print("==============================================")
-                        print()
+        return parser
 
-            return
+    @with_argparser("_traceroute_parser")
+    def do_traceroute(self, args: argparse.Namespace) -> None:
+        src = args.source
+        dst = args.destination
 
-        x, argv = self._extract_node(arg)
-        if x is None:
-            print(
-                f"ERR: Node '{x}' not found.\n"
-                "To get a list of available nodes type NODES."
-            )
-            self._cmd_failed()
-            return
-        if argv is None:
-            print("Destination not found. Usage: TRACEROUTE <nid_x> <nid_y>")
-            self._cmd_failed()
-            return
+        srcs = iter([src]) if src is not None else iter(self.test.topology.nodes)
+        dsts = iter([dst]) if dst is not None else iter(self.test.topology.nodes)
 
-        y, argv = self._extract_node(argv)
-        if y is None:
-            print(
-                f"ERR: Node '{argv}' not found.\n"
-                "To get a list of available nodes type NODES."
-            )
-            self._cmd_failed()
-            return
+        for src in srcs:
+            for dst in dsts:
+                success = self.test.traceroute(src, dst, verbose=args.verbose)
+                print(f"{src} -> {dst} {success}")
 
-        traceable = self.test.traceroute(x, y, verbose=not self.quiet)
-        if not traceable:
-            self._cmd_failed()
+                # only show unsuccessful traceroutes
+                if not success and not args.verbose:
+                    self._cmd_failed()
+                    self.test.traceroute(src, dst, verbose=True)
+                    print()
+                    print("==============================================")
+                    print()
 
-    def do_link(self, arg: str) -> None:
-        "Sets link (or all links of node) up or down: LINK <DOWN/UP> <nid_x> [nid_y]"
+    @property
+    def _link_parser(self) -> argparse.ArgumentParser:
+        def parse_up_down(value: str) -> bool:
+            mode = value.lower()
+            if "up".startswith(mode):
+                return True
+            if "down".startswith(mode):
+                return False
 
-        # parse args
-        match arg.split(maxsplit=1):
-            case mode, argv:
-                pass
-            case _:
-                print("ERR: Unexpected command syntax. LINK <DOWN/UP> <nid_x> [nid_y]")
-                return
-        x, argv = self._extract_node(argv)
-        if x is None:
-            print(
-                f"ERR: Node '{argv}' not found.\n"
-                "To get a list of available nodes type NODES."
-            )
-            self._cmd_failed()
-            return
+            raise ValueError(f"Invalid value '{value}'. Must be 'u[p]' or 'd[own]'.")
 
-        x_tid = self.test.topology.tid(x)
-        assert x_tid is not None  # because we just parsed the name to get x
-        if argv is not None:
-            y, argv = self._extract_node(argv)
-            if y is None:
-                print(
-                    f"ERR: Node '{argv}' not found.\n"
-                    "To get a list of available nodes type NODES."
-                )
-                self._cmd_failed()
-                return
-            y_tid = self.test.topology.tid(y)
+        parser = argparse.ArgumentParser(description="Sets link up or down.")
+        parser.add_argument(
+            "mode",
+            type=parse_up_down,
+            help="Sets the link to 'mode'. Either 'u[p]' or 'd[own]'.",
+        )
+        parser.add_argument(
+            "node_x",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+        )
+        parser.add_argument(
+            "node_y",
+            nargs="?",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+        )
+
+        return parser
+
+    @with_argparser("_link_parser")
+    def do_link(self, args: argparse.Namespace) -> None:
+        node_x = args.node_x
+        node_y = args.node_y
+        mode = args.mode
+
+        x_tid = self.test.topology.tid(node_x)
+        if node_y is not None:
+            y_tid = self.test.topology.tid(node_y)
             assert y_tid is not None
             ys_tid = [y_tid]
         else:
             # all links from x
             ys_tid = [y_tid for y_tid, _ in self.test.topology.links[x_tid, ...]]
 
-        mode = mode.lower()
-        match mode:
-            case "up":
-                mode_sym = "✔"
-                mode_fn = KIRALink.up
-            case "down":
-                mode_sym = "✗"
-                mode_fn = KIRALink.down
-            case _:
-                print(f"ERR: Unknown mode {mode}")
-                self._cmd_failed()
-                return
+        if mode:
+            mode_sym = "✔"
+            mode_fn = KIRALink.up
+        else:
+            mode_sym = "✗"
+            mode_fn = KIRALink.down
 
         for y_tid in ys_tid:
-            y = self.test.topology.nodes[y_tid]
+            node_y = self.test.topology.nodes[y_tid]
             link = self.test.topology.links[x_tid, y_tid]
             assert isinstance(link, KIRALink)
             mode_fn(link)
 
             if not self.quiet:
-                print(f"{x:>3} -{mode_sym}- {y:>3} ...")
+                print(f"{node_x:>3} -{mode_sym}- {node_y:>3} ...")
 
-    def do_down(self, arg: str) -> None:
-        "Alias for LINK DOWN <...>"
-        self.do_link(f"DOWN {arg}")
+    @property
+    def _down_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(description="Sets link down.")
+        parser.add_argument(
+            "node_x",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+        )
+        parser.add_argument(
+            "node_y",
+            nargs="?",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+        )
 
-    def do_up(self, arg: str) -> None:
-        "Alias for LINK UP <...>"
-        self.do_link(f"UP {arg}")
+        return parser
 
-    def do_links(self, arg: str) -> None:
-        "List links in topology: LINKS [nid]"
+    @with_argparser("_down_parser")
+    def do_down(self, args: argparse.Namespace) -> None:
+        args.mode = False
+        self.do_link(args)
 
-        if arg == "":
+    @property
+    def _up_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(description="Sets link up.")
+        parser.add_argument(
+            "node_x",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+        )
+        parser.add_argument(
+            "node_y",
+            nargs="?",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+        )
+
+        return parser
+
+    @with_argparser("_up_parser")
+    def do_up(self, args: argparse.Namespace) -> None:
+        args.mode = True
+        self.do_link(args)
+
+    @property
+    def _links_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description="List links in the topology and their status."
+        )
+        parser.add_argument(
+            "node",
+            nargs="?",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+        )
+        return parser
+
+    @with_argparser("_link_parser")
+    def do_links(self, args: argparse.Namespace) -> None:
+        node = args.node
+
+        if node is None:
             for x_tid, y_tid, link in self.test.topology.links:
                 x = self.test.topology.nodes[x_tid]
                 y = self.test.topology.nodes[y_tid]
                 up_indicator = "-" if link.is_up() else "✗"
                 print(f"{x:>3} -{up_indicator}- {y:>3}")
         else:
-            x, _arg = self._extract_node(arg)
-            if x is None:
-                print(
-                    f"ERR: Node '{_arg}' not found.\n"
-                    "To get a list of available nodes type NODES."
-                )
-                self._cmd_failed()
-                return
+            x = node
             x_tid = self.test.topology.tid(x)
             for y_tid, link in self.test.topology.links[x_tid, ...]:
                 y = self.test.topology.nodes[y_tid]
                 up_indicator = "-" if link.is_up() else "✗"
                 print(f"{x:>3} -{up_indicator}- {y:>3}")
 
-    def do_edges(self, arg: str) -> None:
-        "Alias for LINKS: EDGES [nid]"
-        self.do_links(arg)
+    @property
+    def _edge_parser(self) -> argparse.ArgumentParser:
+        parser = self._link_parser
+        parser.description = f"{parser.description} Alias for 'links'."
+        return parser
 
-    def do_nodes(self, arg: str) -> None:
-        "List all nodes present in the topology: NODES"
-        _ = arg
+    @with_argparser("_edge_parser")
+    def do_edges(self, args: argparse.Namespace) -> None:
+        self.do_links(args)
+
+    _nodes_parser = argparse.ArgumentParser(
+        description="List all nodes present in the topology."
+    )
+
+    @with_argparser(_nodes_parser)
+    def do_nodes(self, args: argparse.Namespace) -> None:
+        _ = args
+
         for n in self.test.topology.nodes:
             nid = n.node_id
             print(f"{n:>3} {nid}")
 
-    def do_vicinity(self, arg: str) -> None:  # noqa: PLR0915, PLR0912
-        "Get vicinity of <nid>: VICINITY <nid>"
-        node, _arg = self._extract_node(arg)
-        if node is None:
-            print(
-                f"ERR: Node '{_arg}' not found.\n"
-                "To get a list of available nodes type NODES."
-            )
-            self._cmd_failed()
-            return
+    def do_show_graph(self, arg: str) -> None:
+        "Show the current graph of the topology."
+        _ = arg
+
+        buffer = self.imager.image_topology(dpi=400)
+        img = Image.open(buffer)
+        self.current_image = AutoImage(img)
+        self.current_image.draw()
+
+    @property
+    def _vicinity_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description="Get information of the node vicinity."
+        )
+        parser.add_argument(
+            "node",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+        )
+        return parser
+
+    @with_argparser("_vicinity_parser")
+    def do_vicinity(self, args: argparse.Namespace) -> None:  # noqa: PLR0915, PLR0912
+        node = args.node
         tid = self.test.topology.tid(node)
         topo_node = self.test.topology.topology_nodes[tid]
 
@@ -731,23 +859,25 @@ class DebugShell[T](Cmd):
             print("No unexpected nodes in the vicinity.")
         print()
 
-    def do_check(self, arg: str) -> None:  # noqa: PLR0915, PLR0912
-        """
-        Check state of vicinity, routing table and fast-forwarding of nodes: CHECK [nid]
-        """
+    @property
+    def _check_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description=(
+                "Check state of vicinity, routing table and fast-forwarding of nodes."
+            )
+        )
+        parser.add_argument(
+            "node",
+            nargs="?",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+        )
+        return parser
 
-        if arg == "":
-            nodes = self.test.topology.nodes
-        else:
-            node, _arg = self._extract_node(arg)
-            if node is None:
-                print(
-                    f"ERR: Node '{_arg}' not found.\n"
-                    "To get a list of available nodes type NODES."
-                )
-                return
-            nodes = iter([node])
-
+    @with_argparser("_checkup_parser")
+    def do_check(self, args: argparse.Namespace) -> None:  # noqa: PLR0915, PLR0912
+        node = args.node
+        nodes = self.test.topology.nodes if node is None else iter([node])
         fail = False
 
         # print theoretical topology to aide in judgment of potential breakage
@@ -827,33 +957,33 @@ class DebugShell[T](Cmd):
                 print("To further investigate failures type: VICINITY <nid>")
             self._cmd_failed()
 
-    def do_netns(self, arg: str) -> None:
-        "Get network namespace name of node <nid>: NETNS [nid]"
-        node, _arg = self._extract_node(arg)
-        if node is None:
-            print(
-                f"ERR: Node '{_arg}' not found.\n"
-                "To get a list of available nodes type NODES."
-            )
-            self._cmd_failed()
-            return
+    @property
+    def _netns_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description=("Get the network namespace name of a node.")
+        )
+        parser.add_argument(
+            "node",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+        )
+        return parser
 
+    @with_argparser("_netns_parser")
+    def do_netns(self, args: argparse.Namespace) -> None:
+        node = args.node
         netns_name = node.id
         print(f"netnsname: {netns_name}")
 
-    def do_sleep(self, arg: str) -> None:
-        "Sleep for an amount of time: SLEEP <seconds>"
-        if arg == "":
-            print("Usage: SLEEP <seconds>")
-            self._cmd_failed()
-            return
+    @property
+    def _sleep_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(description=("Sleep for an amount of time."))
+        parser.add_argument("seconds", type=int, help="amount to sleep in seconds")
+        return parser
 
-        try:
-            t_secs = float(arg)
-        except ValueError:
-            print(f"ERR: {arg} is not an valid time duration in seconds")
-            self._cmd_failed()
-            return
+    @with_argparser("_sleep_parser")
+    def do_sleep(self, args: argparse.Namespace) -> None:
+        t_secs = args.seconds
         if t_secs <= 0:
             print("ERR: sleep time must be greater than zero")
             self._cmd_failed()
@@ -905,15 +1035,6 @@ class DebugShell[T](Cmd):
         self.close()
         with open(arg) as f:
             self.cmdqueue.extend(f.read().splitlines())
-
-    def do_show_graph(self, arg: str) -> None:
-        "Show the current graph of the topology: SHOW_GRAPH"
-        _ = arg
-
-        buffer = self.imager.image_topology(dpi=400)
-        img = Image.open(buffer)
-        self.current_image = AutoImage(img)
-        self.current_image.draw()
 
     def precmd(self, line: str) -> str:
         line = line.lower()
