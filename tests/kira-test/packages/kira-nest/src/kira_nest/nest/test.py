@@ -275,7 +275,10 @@ class KIRATest[T]:  # T = topology id type, usually int or str
                 if isinstance(prev_outer_ip, NodeIP) and isinstance(outer_ip, PathIP):
                     current_path = current_hop.path(outer_ip.to_path_id())
                 elif current_path is not None:
-                    current_path = Path(current_path[1:])  # advance path
+                    if len(current_path) == 1:
+                        current_path = None  # path is finished
+                    else:
+                        current_path = Path(current_path[1:])  # advance path
 
                 # don't change intended destination!
                 assert isinstance(prev_outer_ip, PathIP) or isinstance(outer_ip, PathIP)
