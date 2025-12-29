@@ -30,8 +30,7 @@ as language servers through [`nvim-lspconfig`] and all dependencies will
 be correctly picked up by [Ruff] and [Pyright]:
 
 ```sh
-cd tests/kira-test
-uv run nvim .
+uv --project=./tests/kira-test run nvim .
 ```
 
 [^1]: Prior to version 6.9.0 there is an [issue with the JSON output](https://git.kernel.org/pub/scm/network/iproute2/iproute2.git/commit/?id=0f32ef97babcbe77140a69218917937e6a50fb6c).
