@@ -7,17 +7,17 @@ import time
 from cmd import Cmd
 from collections.abc import Iterable
 from functools import cached_property
-from ipaddress import AddressValueError, IPv6Address
+from pathlib import Path
 from subprocess import PIPE, Popen
 from typing import Any
 
 import networkx as nx
-from kira_common import NodeConfig
+from kira_common import REPO_ROOT, NodeConfig
 from nest.topology.address import Address
 from PIL import Image
 from term_image.image import AutoImage
 
-from kira_nest.domain import KiraIP, NodeID, NodeIP, PathID, PathIP
+from kira_nest.domain import NodeID, NodeIP, PathIP
 from kira_nest.domain.forwarding import (
     FwdEntry,
     NodeIDEncapEntry,
@@ -1066,6 +1066,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Makes commands less verbose",
     )
     parser.add_argument(
+        "-b",
+        "--binary",
+        default=REPO_ROOT / "target" / "debug" / "kirad",
+        type=Path,
+        help="path to kirad binary",
+    )
+    parser.add_argument(
         "filename",
         nargs="?",
         help="Commands to execute non-interactively",
@@ -1079,18 +1086,14 @@ def run_shell() -> None:
     args = parser.parse_args()
 
     # Load the configuration from the GML file
-    graph = nx.readwrite.read_gml(args.test_gml)
-
-    for node in graph.nodes:
-        cfg = NodeConfig(**graph.nodes[node]["config"])
-        # enable otel for all nodes
-        if args.otel:
+    graph: nx.Graph = nx.readwrite.read_gml(args.test_gml)
+    # enable OTel for all nodes
+    if args.otel:
+        for _, cfg in graph.nodes(data="config"):
             cfg.otel = True
 
-        graph.nodes[node]["config"] = cfg
-
     # Create and run the test
-    test = KIRATest[str](graph)
+    test = KIRATest[str](graph, kirad_binary=args.binary)
     shell = DebugShell(test)
     shell.quiet = args.quiet
 

@@ -4,6 +4,7 @@ import base64
 import json
 import logging
 import os
+import pathlib
 import re
 import sys
 from collections.abc import Iterator
@@ -141,6 +142,24 @@ class KIRANode(Node):
     @cached_property
     def api(self) -> KIRANodeApi:
         return KIRANodeApi(self)
+
+    def start(self, binary: pathlib.Path, *args: str) -> Popen:
+        logfile = f"{self}.log"
+        env_vars = os.environ.copy()
+        env_vars["RUST_LOG_STYLE"] = "never"
+        env_vars["NO_COLOR"] = "1"
+        env_vars["RUST_LOG"] = env_vars.get("RUST_LOG", "info")
+        env_vars["RUST_BACKTRACE"] = "1"
+
+        arg: str = " ".join(args)
+        with open(logfile, "w") as f:
+            return self.exec(
+                # TODO: make binary customisable
+                f"'{binary}' --root-id '{self.config.node_id}'"
+                f" --nftables-conf ./kirad/conf/nftables.conf {arg} && exit",
+                logfile=f,
+                env_vars=env_vars,
+            )
 
     def is_up(self) -> bool:
         path = "node-id"

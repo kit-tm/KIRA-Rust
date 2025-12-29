@@ -1,5 +1,6 @@
 import logging
 import os
+import pathlib
 from functools import cached_property
 from ipaddress import IPv4Network
 from subprocess import Popen
@@ -36,14 +37,17 @@ class KIRATest[T]:  # T = topology id type, usually int or str
 
     processes = []
 
-    def __init__(self, config: Graph, otel_ip: IPv4Network | None = None) -> None:
+    def __init__(
+        self,
+        config: Graph,
+        kirad_binary: pathlib.Path = pathlib.Path("./target/debug/kirad"),
+        otel_ip: IPv4Network | None = None,
+    ) -> None:
         self._otel_ip = otel_ip or IPv4Network("10.42.0.0/24")
 
         self.topology = KIRATopology(config)
-        self._otel_ips = self._otel_ip.hosts()
-
-        otel_iter = iter(self._otel_ips)
-        next(otel_iter)  # skip IP for host
+        self._otel_ips = iter(self._otel_ip.hosts())
+        next(self._otel_ips)  # skip IP for host
 
         logger.info("Setting up the topology ...")
 
@@ -65,77 +69,66 @@ class KIRATest[T]:  # T = topology id type, usually int or str
             # safe interfaces for later
             self.topology.links[x, y] = KIRALink(if_x, if_y)
 
-        # TODO: move functionality inside KIRANode
         logger.info("Starting daemons ...")
         for tid, cfg in self.topology.configs():
             node = self.topology.nodes[tid]
-            node_id = cfg.node_id
             args: list[str] = []
 
             if cfg.otel:
                 args.append("--open-telemetry")
-                if_otel, _ = connect(
-                    node, self._otel_node, f"{node}notel", f"oteln{node}"
-                )
+                self.setup_otel(node)
 
-                # disable automatic IPv6 address
-                # don't gain KIRA connectivity via switch
-                Popen(
-                    [
-                        "ip",
-                        "netns",
-                        "exec",
-                        if_otel.node_id,
-                        "ip",
-                        "link",
-                        "set",
-                        "dev",
-                        if_otel.id,
-                        "addrgenmode",
-                        "none",
-                    ]
-                )
-                if_otel.set_mode("DOWN")
-                if_otel.set_mode("UP")
+            kira_process = node.start(kirad_binary, *args)
+            self.processes.append(kira_process)
 
-                node_otel_ip = next(otel_iter)
-                assert node_otel_ip is not None, (
-                    f"Run out of IPs in {self._otel_ip} to assign to OTel interfaces"
-                )
-                if_otel.set_address(
-                    f"{node_otel_ip.exploded}/{self._otel_ip.prefixlen}"
-                )
-                Popen(
-                    [
-                        "ip",
-                        "netns",
-                        "exec",
-                        if_otel.node_id,
-                        "ip",
-                        "route",
-                        "add",
-                        "default",
-                        "dev",
-                        if_otel.id,
-                    ]
-                )
+    def setup_otel(self, node: KIRANode) -> None:
+        if node.is_up():
+            raise NotImplementedError(
+                "OpenTelemetry must be enabled before kirad is started"
+            )
 
-            logfile = f"{node}.log"
-            env_vars = os.environ.copy()
-            env_vars["RUST_LOG_STYLE"] = "never"
-            env_vars["NO_COLOR"] = "1"
-            env_vars["RUST_LOG"] = env_vars.get("RUST_LOG", "info")
-            env_vars["RUST_BACKTRACE"] = "1"
-            arg: str = " ".join(args)
-            with open(logfile, "w") as f:
-                p = node.exec(
-                    # TODO: make binary customisable
-                    f"./target/debug/kirad --root-id {node_id}"
-                    f" --nftables-conf ./kirad/conf/nftables.conf {arg} && exit",
-                    logfile=f,
-                    env_vars=env_vars,
-                )
-                self.processes.append(p)
+        otel_ip = next(self._otel_ips)
+        assert otel_ip is not None, (
+            f"Run out of IPs in {self._otel_ip} to assign to OTel interfaces"
+        )
+
+        if_otel, _ = connect(node, self._otel_node, f"{node}notel", f"oteln{node}")
+
+        # disable automatic IPv6 address
+        # don't gain KIRA connectivity via switch
+        Popen(
+            [
+                "ip",
+                "netns",
+                "exec",
+                if_otel.node_id,
+                "ip",
+                "link",
+                "set",
+                "dev",
+                if_otel.id,
+                "addrgenmode",
+                "none",
+            ]
+        )
+        if_otel.set_mode("DOWN")
+        if_otel.set_mode("UP")
+
+        if_otel.set_address(f"{otel_ip.exploded}/{self._otel_ip.prefixlen}")
+        Popen(
+            [
+                "ip",
+                "netns",
+                "exec",
+                if_otel.node_id,
+                "ip",
+                "route",
+                "add",
+                "default",
+                "dev",
+                if_otel.id,
+            ]
+        )
 
     @cached_property
     def _otel_node(self) -> Node:

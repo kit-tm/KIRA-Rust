@@ -189,6 +189,12 @@ class KIRATopology[T: str | int]:
     _CONFIG_ID: ClassVar[str] = "config"
     topology: Graph
 
+    def __post_init__(self):
+        # init config
+        for tid, raw_cfg in self.topology.nodes(data=self._CONFIG_ID):
+            cfg = NodeConfig(**raw_cfg)
+            self.topology.nodes[tid][self._CONFIG_ID] = cfg
+
     _name_tid_mapping: dict[str, T] = field(
         init=False,
         compare=False,  # no need since name is also stored in the Graph

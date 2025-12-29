@@ -42,13 +42,14 @@ ignore = [
   "ANN401",  # allow Any type annotations
   "PLR0913", # allow more than 5 arguments in function definition
   "RET504",  # allow assignment before returning for better code readability
+  "RET505",  # allow elif after return for better control flow clarity
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = [
+"packages/*/tests/*" = [
   "ANN",     # type annotations
   "PLR2004", # magic numbers
 ]
-"*/__init__.py" = [
+"**/__init__.py" = [
   "F401", # unused import
 ]
