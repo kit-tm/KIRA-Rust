@@ -9,7 +9,7 @@ use derive_more::derive::{Display, Error};
 
 use crate::domain::{GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{FindNodeReqData, Nonce, ReqRspMessage};
+use crate::messaging::{CommonHeader, ProtocolMessageKind, FindNodeReqData, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{
     EventHandler, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseState,
@@ -60,6 +60,7 @@ impl<C, const BUCKET_SIZE: usize> RandomOverlayDiscovery<C, BUCKET_SIZE> {
 impl<C, const BUCKET_SIZE: usize> RandomOverlayDiscovery<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
+
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
@@ -98,8 +99,11 @@ where
         route.push_front(*context.root_id());
 
         let message = ReqRspMessage {
-            nonce: Nonce::random(),
-            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
+            common_header: CommonHeader::new(ProtocolMessageKind::FindNodeReq,
+                                             *context.root_id(),
+                                             *route.destination(),
+                                             None,
+                                             Some(From::from(*context.uln_table().state_seq_nr()))),
             data: FindNodeReqData {
                 exact: false,
                 neighborhood: self.config.neighborhood_size,

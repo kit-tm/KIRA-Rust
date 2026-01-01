@@ -17,7 +17,7 @@ use std::fmt;
 /// response.
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct Nonce(u128);
+pub struct Nonce(u64);
 
 impl fmt::Display for Nonce {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -25,9 +25,16 @@ impl fmt::Display for Nonce {
     }
 }
 
-impl From<u128> for Nonce {
-    fn from(value: u128) -> Self {
+impl From<u64> for Nonce {
+    fn from(value: u64) -> Self {
         Self(value)
+    }
+}
+
+
+impl From<Nonce> for u64 {
+    fn from(value: Nonce) -> u64 {
+        value.0
     }
 }
 
@@ -38,10 +45,9 @@ impl Nonce {
     }
 }
 
-const KIRA_PROTOCOL_VERSION : u8 = 0;
 
 #[repr(u8)]
-enum KiraMsgFlagsBit {
+pub enum KiraMsgFlagsBit {
     ExactFlag = 1,
     EndSystemFlag  = 1 << 2,
     DiagnosticFlag = 1 << 6,
@@ -77,7 +83,7 @@ pub enum ProtocolMessageKind {
 /// Common Header Structure
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-struct CommonHeader {
+pub struct CommonHeader {
     version : u8,
     msg_type : u8,
     msg_flags : u8,
@@ -91,17 +97,22 @@ struct CommonHeader {
 }
 
 impl CommonHeader {
-    pub fn new(msg_type : ProtocolMessageKind, src: NodeId, dst: NodeId) -> Self {
+    const KIRA_PROTOCOL_VERSION : u8 = 0;
+
+    /// create a new common header
+    /// if msgid is None it is created randomly
+    /// if stateseqnum is None, it is set to INVALID_SSN
+    pub fn new(msg_type : ProtocolMessageKind, src: NodeId, dst: NodeId, msgid: Option<u64>, stateseqnum : Option<u32>) -> Self {
         Self {
-            version : KIRA_PROTOCOL_VERSION,
+            version : Self::KIRA_PROTOCOL_VERSION,
             msg_type : msg_type as u8,
             msg_flags : 0,
             msg_length : 1+1+1+2+14+14+8+8+4+2, // common header length
             dest_id : dst,
             src_node_id : src,
             domain_id : 0,
-            msg_id : rand::random(),
-            state_seq_num : state_seq_nr::INVALID_SSN,
+            msg_id : if let Some(msg_id) = msgid { msg_id } else { rand::random() },
+            state_seq_num : if let Some(stateseqnumber) = stateseqnum { stateseqnumber } else { state_seq_nr::INVALID_SSN },
             src_node_degree : 0,
         }
     }
@@ -135,16 +146,16 @@ impl CommonHeader {
         self.dest_id = dst;
     }
 
-    pub fn dest_id(&mut self) -> NodeId {
-        self.dest_id
+    pub fn dest_id(&self) -> &NodeId {
+        &self.dest_id
     }
 
     pub fn set_src_node_id(&mut self, src: NodeId) {
         self.src_node_id = src;
     }
 
-    pub fn src_node_id(&mut self) -> NodeId {
-        self.src_node_id
+    pub fn src_node_id(&self) -> &NodeId {
+        &self.src_node_id
     }
 
     pub fn set_domain_id(&mut self, domainid : u64) {
@@ -163,15 +174,88 @@ impl CommonHeader {
         self.msg_id
     }
 
+    pub fn set_state_seq_num(&mut self, ssn : StateSeqNr) {
+        self.state_seq_num= StateSeqNr::into(ssn);
+    }
+
+    pub fn state_seq_num(&self) -> StateSeqNr {
+        StateSeqNr::from(self.state_seq_num)
+    }
+
+
     pub fn set_src_node_degree(&mut self, degree : u16) {
         self.src_node_degree = degree;
     }
 
-    pub fn src_node_degree(&mut self) -> u16 {
+    pub fn src_node_degree(&self) -> u16 {
         self.src_node_degree
     }
 }
 
+
+pub trait WireFormatMessage {
+
+    fn common_header(&self) -> &CommonHeader;
+    fn common_header_mut(&mut self) -> &mut CommonHeader;
+
+    fn set_flag(&mut self, flag : KiraMsgFlagsBit) {
+        self.common_header_mut().set_flag(flag);
+    }
+
+    fn clear_flag(&mut self, flag : KiraMsgFlagsBit) {
+        self.common_header_mut().clear_flag(flag);
+    }
+
+    fn set_dest_id(&mut self, dst: NodeId) {
+        self.common_header_mut().set_dest_id(dst);
+    }
+
+    fn dest_id(&self) -> &NodeId {
+        &self.common_header().dest_id()
+    }
+
+    fn set_src_node_id(&mut self, src: NodeId) {
+        self.common_header_mut().set_src_node_id(src);
+    }
+
+    fn src_node_id(&self) -> &NodeId {
+        &self.common_header().src_node_id()
+    }
+
+    fn set_domain_id(&mut self, domainid : u64) {
+        self.common_header_mut().set_domain_id(domainid);
+    }
+
+    fn domain_id(&self) -> u64 {
+        self.common_header().domain_id()
+    }
+
+    fn set_msg_id(&mut self, msgid : u64) {
+        self.common_header_mut().set_msg_id(msgid);
+    }
+
+    fn msg_id(&self) -> u64 {
+        self.common_header().msg_id()
+    }
+
+    fn set_state_seq_num(&mut self, ssn : StateSeqNr) {
+        self.common_header_mut().state_seq_num= StateSeqNr::into(ssn);
+    }
+
+    fn state_seq_num(&self) -> StateSeqNr {
+        StateSeqNr::from(self.common_header().state_seq_num())
+    }
+
+
+    fn set_src_node_degree(&mut self, degree : u16) {
+        self.common_header_mut().src_node_degree = degree;
+    }
+
+    fn src_node_degree(&self) -> u16 {
+        self.common_header().src_node_degree()
+    }
+
+}
 
 /// Enumeration containing all supported KIRA protocol messages.
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -198,6 +282,7 @@ pub enum ProtocolMessage {
 }
 
 impl ProtocolMessage {
+
     pub fn source_route_mut(&mut self) -> Option<&mut SourceRoute> {
         match self {
             Self::ULNHello(_) => None,
@@ -265,31 +350,31 @@ impl ProtocolMessage {
         }
     }
 
-    pub fn nonce(&self) -> Option<&Nonce> {
+    pub fn msg_id(&self) -> Option<Nonce> {
         match self {
             Self::ULNHello(_) => None,
-            Self::ULNDiscReq(req) => Some(&req.nonce),
-            Self::ULNDiscRsp(req) => Some(&req.nonce),
-            Self::QueryRouteReq(req) => Some(&req.nonce),
-            Self::QueryRouteRsp(req) => Some(&req.nonce),
-            Self::FindNodeReq(req) => Some(&req.nonce),
-            Self::FindNodeRsp(req) => Some(&req.nonce),
-            Self::Error(req) => Some(&req.nonce),
-            Self::ProbeReq(req) => Some(&req.nonce),
-            Self::ProbeRsp(req) => Some(&req.nonce),
-            Self::PathSetupReq(req) => Some(&req.nonce),
-            Self::PathTeardownReq(req) => Some(&req.nonce),
+            Self::ULNDiscReq(req) => Some(Nonce::from(req.common_header.msg_id())),
+            Self::ULNDiscRsp(req) => Some(Nonce::from(req.common_header.msg_id())),
+            Self::QueryRouteReq(req) => Some(Nonce::from(req.common_header.msg_id())),
+            Self::QueryRouteRsp(req) => Some(Nonce::from(req.common_header.msg_id())),
+            Self::FindNodeReq(req) => Some(Nonce::from(req.common_header.msg_id())),
+            Self::FindNodeRsp(req) => Some(Nonce::from(req.common_header.msg_id())),
+            Self::Error(req) => Some(Nonce::from(req.common_header.msg_id())),
+            Self::ProbeReq(req) => Some(Nonce::from(req.common_header.msg_id())),
+            Self::ProbeRsp(req) => Some(Nonce::from(req.common_header.msg_id())),
+            Self::PathSetupReq(req) => Some(Nonce::from(req.common_header.msg_id())),
+            Self::PathTeardownReq(req) => Some(Nonce::from(req.common_header.msg_id())),
             Self::UpdateRouteReq(_) => None,
-            Self::StoreReq(req) => Some(&req.nonce),
-            Self::StoreRsp(req) => Some(&req.nonce),
-            Self::FetchReq(req) => Some(&req.nonce),
-            Self::FetchRsp(req) => Some(&req.nonce),
+            Self::StoreReq(req) => Some(Nonce::from(req.common_header.msg_id())),
+            Self::StoreRsp(req) => Some(Nonce::from(req.common_header.msg_id())),
+            Self::FetchReq(req) => Some(Nonce::from(req.common_header.msg_id())),
+            Self::FetchRsp(req) => Some(Nonce::from(req.common_header.msg_id())),
         }
     }
 
     pub fn source(&self) -> &NodeId {
         match self {
-            Self::ULNHello(req) => &req.source,
+            Self::ULNHello(req) => req.common_header.src_node_id(),
             Self::ULNDiscReq(req) => req.source(),
             Self::ULNDiscRsp(req) => req.source(),
             Self::QueryRouteReq(req) => req.source(),
@@ -317,25 +402,25 @@ impl ProtocolMessage {
         }
     }
 
-    pub fn source_state_seq_nr(&self) -> &StateSeqNr {
+    pub fn source_state_seq_nr(&self) -> StateSeqNr {
         match self {
-            Self::ULNHello(req) => &req.source_state_seq_nr,
-            Self::ULNDiscReq(req) => &req.source_state_seq_nr,
-            Self::ULNDiscRsp(req) => &req.source_state_seq_nr,
-            Self::QueryRouteReq(req) => &req.source_state_seq_nr,
-            Self::QueryRouteRsp(req) => &req.source_state_seq_nr,
-            Self::FindNodeReq(req) => &req.source_state_seq_nr,
-            Self::FindNodeRsp(req) => &req.source_state_seq_nr,
-            Self::Error(req) => &req.source_state_seq_nr,
-            Self::ProbeReq(req) => &req.source_state_seq_nr,
-            Self::ProbeRsp(req) => &req.source_state_seq_nr,
-            Self::PathSetupReq(req) => &req.source_state_seq_nr,
-            Self::PathTeardownReq(req) => &req.source_state_seq_nr,
-            Self::UpdateRouteReq(req) => &req.source_state_seq_nr,
-            ProtocolMessage::StoreReq(req) => &req.source_state_seq_nr,
-            ProtocolMessage::StoreRsp(req) => &req.source_state_seq_nr,
-            ProtocolMessage::FetchReq(req) => &req.source_state_seq_nr,
-            ProtocolMessage::FetchRsp(req) => &req.source_state_seq_nr,
+            Self::ULNHello(req) => req.common_header().state_seq_num(),
+            Self::ULNDiscReq(req) => req.common_header().state_seq_num(),
+            Self::ULNDiscRsp(req) => req.common_header().state_seq_num(),
+            Self::QueryRouteReq(req) => req.common_header.state_seq_num(),
+            Self::QueryRouteRsp(req) => req.common_header().state_seq_num(),
+            Self::FindNodeReq(req) => req.common_header().state_seq_num(),
+            Self::FindNodeRsp(req) => req.common_header().state_seq_num(),
+            Self::Error(req) => req.common_header().state_seq_num(),
+            Self::ProbeReq(req) => req.common_header().state_seq_num(),
+            Self::ProbeRsp(req) => req.common_header().state_seq_num(),
+            Self::PathSetupReq(req) => req.common_header().state_seq_num(),
+            Self::PathTeardownReq(req) => req.common_header().state_seq_num(),
+            Self::UpdateRouteReq(req) => req.common_header().state_seq_num(),
+            ProtocolMessage::StoreReq(req) => req.common_header().state_seq_num(),
+            ProtocolMessage::StoreRsp(req) => req.common_header().state_seq_num(),
+            ProtocolMessage::FetchReq(req) => req.common_header().state_seq_num(),
+            ProtocolMessage::FetchRsp(req) => req.common_header().state_seq_num(),
         }
     }
 
@@ -418,13 +503,21 @@ impl From<&ProtocolMessage> for ProtocolMessageKind {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct HelloMessage {
-    pub source: NodeId,
-    pub source_state_seq_nr: StateSeqNr,
+    pub common_header : CommonHeader,
 }
 
 impl From<HelloMessage> for ProtocolMessage {
     fn from(message: HelloMessage) -> Self {
         Self::ULNHello(message)
+    }
+}
+
+impl WireFormatMessage for HelloMessage {
+    fn common_header(&self) -> &CommonHeader {
+        &self.common_header
+    }
+    fn common_header_mut(&mut self) -> &mut CommonHeader {
+        &mut self.common_header
     }
 }
 
@@ -438,8 +531,7 @@ impl From<HelloMessage> for ProtocolMessage {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct ReqRspMessage<T: Debug> {
-    pub nonce: Nonce,
-    pub source_state_seq_nr: StateSeqNr,
+    pub common_header : CommonHeader,
     pub data: T,
     pub not_via: HashSet<NotVia>,
     /// Source Path to the next overlay Hop.
@@ -459,6 +551,15 @@ impl<T: Debug> ReqRspMessage<T> {
     /// Next hop destination of the request.
     pub fn destination(&self) -> &NodeId {
         self.source_route.destination()
+    }
+}
+
+impl<T: Debug> WireFormatMessage for ReqRspMessage<T> {
+    fn common_header(&self) -> &CommonHeader {
+        &self.common_header
+    }
+    fn common_header_mut(&mut self) -> &mut CommonHeader {
+        &mut self.common_header
     }
 }
 
@@ -510,7 +611,7 @@ impl From<ReqRspMessage<PathTeardownReqData>> for ProtocolMessage {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct UpdateRouteReq {
-    pub source_state_seq_nr: StateSeqNr,
+    pub common_header: CommonHeader,
     pub not_via: HashSet<NotVia>,
     pub contact_actions: HashMap<Contact, RouteUpdateActionType>,
     /// Source Path to the next overlay Hop.
@@ -519,6 +620,15 @@ pub struct UpdateRouteReq {
     /// through fragments.
     /// For IPv6 additional Fragment Headers may be used.
     pub source_route: SourceRoute,
+}
+
+impl WireFormatMessage for UpdateRouteReq {
+    fn common_header(&self) -> &CommonHeader {
+        &self.common_header
+    }
+    fn common_header_mut(&mut self) -> &mut CommonHeader {
+        &mut self.common_header
+    }
 }
 
 /// Data type representing the action performed on a contact.

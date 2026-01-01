@@ -234,7 +234,7 @@ where
                 }
 
                 if let Some(Some((instant, callback))) =
-                    message.nonce().map(|nonce| self.nonces.remove(nonce))
+                    message.msg_id().map(|nonce| self.nonces.remove(&nonce))
                 {
                     let elapsed = instant.elapsed();
                     self.send_inject_result(
@@ -242,7 +242,7 @@ where
                         callback,
                     )?;
 
-                    log::trace!(target: "distributed_hash_table_injector", "Received response for nonce {:?} after {:?}", message.nonce(), elapsed);
+                    log::trace!(target: "distributed_hash_table_injector", "Received response for msg id {:?} after {:?}", message.msg_id(), elapsed);
                 }
             }
             (UseCaseEvent::Timer(id), Running(our_id)) => {

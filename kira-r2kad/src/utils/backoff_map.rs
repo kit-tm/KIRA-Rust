@@ -47,9 +47,9 @@ impl BackoffMap {
     }
 
     /// Returns the [NodeId] associated with the given [Nonce].
-    pub fn get_node_for_nonce(&self, nonce: &Nonce) -> Option<&NodeId> {
+    pub fn get_node_for_nonce(&self, nonce: Nonce) -> Option<&NodeId> {
         self.nonce_to_id
-            .get(nonce)
+            .get(&nonce)
             .filter(|id| self.node_to_state.contains_key(id))
     }
 
@@ -78,8 +78,8 @@ impl BackoffMap {
     }
 
     /// Removes a tracked [Nonce] and returns if the [Nonce] was even tracked.
-    pub fn remove_nonce(&mut self, nonce: &Nonce) -> bool {
-        self.nonce_to_id.remove(nonce).is_some()
+    pub fn remove_nonce(&mut self, nonce: Nonce) -> bool {
+        self.nonce_to_id.remove(&nonce).is_some()
     }
 
     /// Removes an [ExponentialBackoff] with its associated timer and nonces from tracking.
@@ -97,12 +97,12 @@ impl BackoffMap {
     /// uses the [NodeId] associated with the given [Nonce].
     pub fn remove_by_nonce(
         &mut self,
-        nonce: &Nonce,
+        nonce: Nonce,
     ) -> Option<(ExponentialBackoff, TimerId, Vec<Nonce>)> {
-        let node_id = self.nonce_to_id.remove(nonce)?;
+        let node_id = self.nonce_to_id.remove(&nonce)?;
         let removed_timers = self.remove_timer_for(&node_id)?;
         let mut removed_nonces = self.remove_nonces_for(&node_id);
-        removed_nonces.push(*nonce);
+        removed_nonces.push(nonce);
         self.node_to_state
             .remove(&node_id)
             .map(|state| (state, removed_timers, removed_nonces))

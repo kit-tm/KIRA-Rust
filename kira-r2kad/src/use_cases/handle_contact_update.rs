@@ -8,7 +8,7 @@ use crate::domain::{
     Contact, ContactState, NodeId, NotVia, RoutingTable, ULNTable, UnderlayNeighborId,
 };
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{RouteUpdateActionType, UpdateRouteReq};
+use crate::messaging::{CommonHeader, ProtocolMessageKind, RouteUpdateActionType, UpdateRouteReq};
 use crate::use_cases::{
     ContactEvent, EventHandler, NeverError, UseCaseContext, UseCaseEvent, UseCaseRuntime,
 };
@@ -81,7 +81,11 @@ where
 
         for (_, contact) in overlay_neighbors {
             let message = UpdateRouteReq {
-                source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
+                common_header: CommonHeader::new(ProtocolMessageKind::UpdateRouteReq,
+                                                 *context.root_id(),
+                                                 *contact.id(),
+                                                 None,
+                                                 Some(From::from(*context.uln_table().state_seq_nr()))),
                 not_via: context.not_via().clone(),
                 contact_actions: updates.clone(),
                 source_route: SourceRoute::new(*context.root_id(), contact.path().clone()),

@@ -10,7 +10,7 @@ use derive_more::Display;
 
 use crate::domain::{GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{FindNodeReqData, Nonce, ProtocolMessage, ReqRspMessage};
+use crate::messaging::{CommonHeader, FindNodeReqData, Nonce, ProtocolMessageKind, ProtocolMessage, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{
     EventHandler, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseState,
@@ -238,8 +238,11 @@ where
         }
 
         let request = ReqRspMessage {
-            nonce,
-            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
+            common_header : CommonHeader::new(ProtocolMessageKind::FindNodeReq,
+                                              *context.root_id(),
+                                              *contact.id(),
+                                             Some(nonce.into()),
+                                             Some(From::from(*context.uln_table().state_seq_nr()))),
             data: FindNodeReqData {
                 exact: false,
                 neighborhood: self.config.overlay_neighborhood_size,
@@ -343,8 +346,9 @@ where
                     nonces,
                     latest,
                 },
-                UseCaseEvent::Message(ProtocolMessage::FindNodeRsp(ReqRspMessage { nonce, .. }), _),
+                UseCaseEvent::Message(ProtocolMessage::FindNodeRsp(ReqRspMessage { common_header, .. }), _),
             ) => {
+                let nonce = Nonce::from(common_header.msg_id());
                 if nonces.contains(&nonce) {
                     // data will be handled in the forwarding UseCase
                     log::debug!(
@@ -363,8 +367,9 @@ where
             // An error response was received
             (
                 ONDState::Running { latest, .. },
-                UseCaseEvent::Message(ProtocolMessage::Error(ReqRspMessage { nonce, data, .. }), _),
+                UseCaseEvent::Message(ProtocolMessage::Error(ReqRspMessage { common_header, data, .. }), _),
             ) => {
+                let nonce = Nonce::from(common_header.msg_id());
                 // This way errors to previous messages will be ignored, as they are
                 // already interpreted as failed
                 if latest == &Some(nonce) {

@@ -11,7 +11,7 @@ use crate::domain::{
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
-    ErrorData, ProtocolMessage, RTableData, ReqRspMessage, RouteUpdateActionType,
+    CommonHeader, ErrorData, ProtocolMessage, ProtocolMessageKind, RTableData, ReqRspMessage, RouteUpdateActionType,
 };
 use crate::use_cases::{
     EventHandler, HandlingResult, NeverError, ReactiveUseCaseState, UseCase, UseCaseContext,
@@ -348,7 +348,7 @@ where
     }
 
     fn handle_next_hop_failed(&self, context: &C, message: ProtocolMessage) {
-        if message.nonce().is_none() {
+        if message.msg_id().is_none() {
             // Messages with no nonce don't require a response
             return;
         }
@@ -363,8 +363,11 @@ where
         );
 
         let error_message = ReqRspMessage {
-            nonce: *message.nonce().unwrap(),
-            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
+            common_header : CommonHeader::new(ProtocolMessageKind::Error,
+                                             *context.root_id(),
+                                             *message.source(),
+                                             Some(message.msg_id().unwrap().into()),
+                                             Some(From::from(*context.uln_table().state_seq_nr()))),
             data: ErrorData::SegmentFailure {
                 failed_link,
                 source: root_id,

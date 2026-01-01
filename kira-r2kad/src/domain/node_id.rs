@@ -49,6 +49,10 @@ impl NodeId {
         node_id: Self::UNDEFINED_UVAL,
     };
 
+    pub const ALL_NODES: Self = Self {
+        node_id: Self::ALL_NODES_UVAL,
+    };
+
     /// [NodeId] with the numerical value of 1.
     pub const ONE: Self = Self { node_id: 1u128 };
 

@@ -1,3 +1,4 @@
+use crate::messaging::WireFormatMessage;
 use std::cmp::min;
 use std::collections::{HashMap, HashSet, hash_map};
 use std::fmt::Debug;
@@ -17,7 +18,7 @@ use crate::domain::{
     VicinityGraph,
 };
 use crate::messaging::{
-    HelloMessage, Nonce, ProtocolMessage, ProtocolMessageKind, QueryRouteReqData, QueryRouteType,
+    HelloMessage, Nonce, CommonHeader, ProtocolMessage, ProtocolMessageKind, QueryRouteReqData, QueryRouteType,
     RTableData, ReqRspMessage, source_route::SourceRoute,
 };
 use crate::use_cases::{
@@ -256,8 +257,11 @@ where
 
         // Request only underlay Neighborhood of that Node
         let request = ReqRspMessage {
-            nonce,
-            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
+            common_header: CommonHeader::new(ProtocolMessageKind::QueryRouteReq,
+                                             *context.root_id(),
+                                             *source_route.destination(),
+                                             Some(nonce.into()),
+                                             Some(From::from(*context.uln_table().state_seq_nr()))),
             data: QueryRouteReqData {
                 query_type: QueryRouteType::UnderlayNeighbors,
             },
@@ -279,12 +283,15 @@ where
         underlay_destination: UnderlayNeighborId,
     ) -> Result<(), VDError> {
         let contacts = match request.data.query_type {
-            QueryRouteType::UnderlayNeighbors => Self::collect_neighbors(context)?.1,
+            QueryRouteType::UnderlayNeighbors => Self::collect_underlay_neighbors(context)?.1,
         };
 
         let response = ProtocolMessage::QueryRouteRsp(ReqRspMessage {
-            nonce: request.nonce,
-            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
+            common_header: CommonHeader::new(ProtocolMessageKind::QueryRouteRsp,
+                                             *context.root_id(),
+                                             *request.source(),
+                                             Some(request.msg_id().into()),
+                                             Some(From::from(*context.uln_table().state_seq_nr()))),
             data: RTableData { contacts },
             not_via: context.not_via().clone(),
             source_route: SourceRoute::from_reversed(request.source_route),
@@ -300,8 +307,12 @@ where
 
     fn broadcast_uln_hello(&self, context: &C) {
         let hello = HelloMessage {
-            source: *context.root_id(),
-            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
+            common_header : CommonHeader::new(ProtocolMessageKind::ULNHello,
+                                               *context.root_id(),
+                                              NodeId::ALL_NODES,
+                                              None,
+                                            Some(From::from(*context.uln_table().state_seq_nr()))
+            )
         };
 
         tracing::trace!( target: "vicinity_discovery", ?hello, "broadcasting ULNHello");
@@ -310,8 +321,12 @@ where
 
     fn multicast_uln_hello_interface(context: &C, interface: InterfaceId) {
         let hello = HelloMessage {
-            source: *context.root_id(),
-            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
+            common_header : CommonHeader::new(ProtocolMessageKind::ULNHello,
+                                               *context.root_id(),
+                                              NodeId::ALL_NODES,
+                                              None,
+                                            Some(From::from(*context.uln_table().state_seq_nr()))
+            )
         };
 
         tracing::trace!(target: "vicinity_discovery", %interface, ?hello, "LL-Multicast ULNHello");
@@ -326,10 +341,13 @@ where
         underlay_destination: UnderlayNeighborId,
         nonce: Nonce,
     ) -> Result<(), VDError> {
-        let (ssn, contacts) = Self::collect_neighbors(context)?;
+        let (ssn, contacts) = Self::collect_underlay_neighbors(context)?;
         let request = ProtocolMessage::ULNDiscReq(ReqRspMessage {
-            nonce,
-            source_state_seq_nr: ssn.into(),
+            common_header : CommonHeader::new(ProtocolMessageKind::ULNDiscReq,
+                                               *context.root_id(),
+                                              destination,
+                                              Some(nonce.into()),
+                                            Some(ssn.into())),
             data: RTableData { contacts },
             not_via: context.not_via().clone(),
             // Source route is ignored, as only underlay neighbors get these
@@ -348,10 +366,13 @@ where
         request: ReqRspMessage<RTableData>,
         underlay_destination: UnderlayNeighborId,
     ) -> Result<(), VDError> {
-        let (ssn, contacts) = Self::collect_neighbors(context)?;
+        let (ssn, contacts) = Self::collect_underlay_neighbors(context)?;
         let response = ProtocolMessage::ULNDiscRsp(ReqRspMessage {
-            nonce: request.nonce,
-            source_state_seq_nr: ssn.into(),
+            common_header : CommonHeader::new(ProtocolMessageKind::ULNDiscRsp,
+                                               *context.root_id(),
+                                              *request.source(),
+                                              Some(request.msg_id().into()),
+                                            Some(ssn.into())),
             data: RTableData { contacts },
             not_via: context.not_via().clone(),
             source_route: SourceRoute::from_reversed(request.source_route),
@@ -365,7 +386,7 @@ where
         Ok(())
     }
 
-    fn collect_neighbors(context: &C) -> Result<(SafeStateSeqNr, Vec<Contact>), VDError> {
+    fn collect_underlay_neighbors(context: &C) -> Result<(SafeStateSeqNr, Vec<Contact>), VDError> {
         let rt_lock = context.routing_table();
         let uln_lock = context.uln_table();
 
@@ -524,7 +545,7 @@ where
         // look up ULN entry and update its vicinity SSN and last seen
         let mut vg = context.vicinity_graph_mut();
         if let Some(source_vicinity_entry) = vg.entry_mut(source_node)
-            && let StateSeqNr::Value(synched_ssn) = req_or_rsp.source_state_seq_nr
+            && let StateSeqNr::Value(synched_ssn) = req_or_rsp.state_seq_num()
         {
             // this will also update observed ssn if the synched_ssn is newer
             source_vicinity_entry.update_synched_ssn(synched_ssn);
@@ -533,7 +554,7 @@ where
             // no entry for the ULN yet:
             // the ULDNDiscReq message may be sent before we heard the ULNHello
             // so we need to add the neighbor first then
-            if let StateSeqNr::Value(synched_ssn) = req_or_rsp.source_state_seq_nr {
+            if let StateSeqNr::Value(synched_ssn) = req_or_rsp.state_seq_num() {
                 vg.insert(*source_node, context.root_id(), synched_ssn)
                     .expect("insertion of ULN into vicinity graph failed");
                 let source_vicinity_entry = vg
@@ -621,7 +642,7 @@ where
             return;
         };
 
-        let perceived_nonce = response.nonce;
+        let perceived_nonce = response.msg_id().into();
         let nid = response.source();
 
         let hash_map::Entry::Occupied(entry) = pending_reqs.entry(*nid) else {
@@ -930,7 +951,7 @@ where
                 // update observed SSN
                 if request.source_route.size() == VICINITY_RADIUS
                     && let Some(entry) = context.vicinity_graph_mut().entry_mut(request.source())
-                    && let StateSeqNr::Value(req_ssn) = request.source_state_seq_nr
+                    && let StateSeqNr::Value(req_ssn) = request.state_seq_num()
                 {
                     entry.update_observed_ssn(req_ssn);
                 }
@@ -940,7 +961,7 @@ where
                 // update synched SSN
                 if response.source_route.size() == VICINITY_RADIUS
                     && let Some(entry) = context.vicinity_graph_mut().entry_mut(response.source())
-                    && let StateSeqNr::Value(rsp_ssn) = response.source_state_seq_nr
+                    && let StateSeqNr::Value(rsp_ssn) = response.state_seq_num()
                 {
                     entry.update_synched_ssn(rsp_ssn);
                 }
@@ -954,9 +975,7 @@ where
             (
                 UseCaseEvent::Message(
                     ProtocolMessage::ULNHello(HelloMessage {
-                        source,
-                        source_state_seq_nr: observed_ssn,
-                        ..
+                        common_header
                     }),
                     UnderlayNeighborSource::UnderlayNeighbor(underlay_source),
                 ),
@@ -966,6 +985,8 @@ where
                     ..
                 },
             ) => {
+                let source = *common_header.src_node_id();
+                let observed_ssn = common_header.state_seq_num();
                 // in case a ULNHello is looped back somehow, ignore it, but log a warning
                 if source == *context.root_id() {
                     tracing::warn!(
