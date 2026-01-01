@@ -238,7 +238,7 @@ where
                 {
                     let elapsed = instant.elapsed();
                     self.send_inject_result(
-                        InjectionResult::Answered((message.clone(), ulnid)),
+                        InjectionResult::Answered(Box::new((message.clone(), ulnid))),
                         callback,
                     )?;
 

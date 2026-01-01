@@ -211,7 +211,7 @@ pub trait WireFormatMessage {
     }
 
     fn dest_id(&self) -> &NodeId {
-        &self.common_header().dest_id()
+        self.common_header().dest_id()
     }
 
     fn set_src_node_id(&mut self, src: NodeId) {
@@ -219,7 +219,7 @@ pub trait WireFormatMessage {
     }
 
     fn src_node_id(&self) -> &NodeId {
-        &self.common_header().src_node_id()
+        self.common_header().src_node_id()
     }
 
     fn set_domain_id(&mut self, domainid : u64) {
@@ -243,7 +243,7 @@ pub trait WireFormatMessage {
     }
 
     fn state_seq_num(&self) -> StateSeqNr {
-        StateSeqNr::from(self.common_header().state_seq_num())
+        self.common_header().state_seq_num()
     }
 
 

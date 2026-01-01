@@ -46,7 +46,7 @@ mod std_extension {
 #[derive(Debug, Eq, PartialEq)]
 pub enum InjectionResult {
     /// The injected [ProtocolMessage] was answered.
-    Answered((ProtocolMessage, UnderlayNeighborSource)),
+    Answered(Box<(ProtocolMessage, UnderlayNeighborSource)>),
     /// The node is isolated and the message couldn't be injected.
     Isolated,
 }
@@ -193,7 +193,7 @@ where
                     let elapsed = instant.elapsed();
                     if let Err(e) = self
                         .injection_result_sender
-                        .send_result(InjectionResult::Answered((message.clone(), interface)))
+                        .send_result(InjectionResult::Answered(Box::new((message.clone(), interface))))
                     {
                         log::error!(target: "inject_messages", "Sending answered result failed: {e}");
                         return Err(InjectMessageError::SendResultFailed);

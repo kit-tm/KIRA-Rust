@@ -180,7 +180,7 @@ where
         + Clone,
 {
     fn send_store_rsp(&mut self, context: &C, req: ReqRspMessage<StoreReqData<DefaultLHTInput>>) {
-        let msgid = u64::from(req.msg_id());
+        let msgid = req.msg_id();
         let res = self.hash_table.store(req.data.handle, req.data.data);
         let source_route = SourceRoute::from_reversed(req.source_route);
 
@@ -212,7 +212,7 @@ where
     }
 
     fn send_fetch_rsp(&mut self, context: &C, req: ReqRspMessage<FetchReqData>) {
-        let msgid = u64::from(req.msg_id());
+        let msgid = req.msg_id();
         let fetch_res = self.hash_table.fetch(&req.data.handle);
         let source_route = SourceRoute::from_reversed(req.source_route);
 

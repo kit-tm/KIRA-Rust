@@ -235,7 +235,7 @@ where
             common_header: CommonHeader::new(ProtocolMessageKind::ProbeRsp,
                                              *context.root_id(),
                                              source,
-                                             Some(req.msg_id().into()),
+                                             Some(req.msg_id()),
                                              Some(From::from(*context.uln_table().state_seq_nr()))),
             data: ProbeRspData,
             not_via: context.not_via().clone(),
