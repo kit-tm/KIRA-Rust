@@ -6,7 +6,7 @@ VALUE = "Psssst... This is a secret!"
 KEYS = ["top", "abc", "_key_", "hello world"]
 
 
-def test_dht_store_fetch(kirad_small_k, kira_topo, tmp_path):
+def test_dht_store_fetch(kirad_small_k, kira_topo):
     test = KIRATest[str](kira_topo, kirad_binary=kirad_small_k)
     sleep(1)
 

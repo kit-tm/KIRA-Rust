@@ -9,6 +9,8 @@ import prctl
 import pytest
 from kira_common import REPO_ROOT, TOPOS_DIR
 
+from kira_nest.nest.node import KIRANode
+
 logger = logging.Logger(__name__)
 
 TOPOS = os.environ.get("KIRA_TOPOS")
@@ -73,6 +75,15 @@ def built_kirad_binary(
     return kirad_dest
 
 
+def _topo_files():
+    if TOPOS is not None:
+        return [Path(file_str).resolve() for file_str in TOPOS.split(os.pathsep)]
+
+    # Fallback: use topo files in "topos" directory
+
+    return sorted(TOPOS_DIR.resolve().glob("*.gml"))
+
+
 @pytest.fixture(scope="session")
 def kirad(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return built_kirad_binary(tmp_path_factory, "")
@@ -81,15 +92,6 @@ def kirad(tmp_path_factory: pytest.TempPathFactory) -> Path:
 @pytest.fixture(scope="session")
 def kirad_small_k(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return built_kirad_binary(tmp_path_factory, "small-k", ["small_buckets"])
-
-
-def _topo_files():
-    if TOPOS is not None:
-        return [Path(file_str).resolve() for file_str in TOPOS.split(os.pathsep)]
-
-    # Fallback: use topo files in "topos" directory
-
-    return sorted(TOPOS_DIR.resolve().glob("*.gml"))
 
 
 @pytest.fixture(scope="session", params=_topo_files(), ids=lambda p: p.name)
@@ -101,3 +103,8 @@ def kira_topo_file(request) -> Path:
 def kira_topo(kira_topo_file: Path) -> nx.Graph:
     # Load the configuration from the GML file for _each_ test
     return nx.readwrite.read_gml(kira_topo_file)
+
+
+@pytest.fixture(autouse=True)
+def kira_logs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    monkeypatch.setenv(KIRANode.ENV_LOG_PATH, str(tmp_path / "log"))

@@ -120,6 +120,8 @@ class KIRANodeApi:
 
 
 class KIRANode(Node):
+    ENV_LOG_PATH = "KIRAD_LOG_PATH"
+
     def __init__(
         self,
         config: NodeConfig,
@@ -153,8 +155,18 @@ class KIRANode(Node):
     def api(self) -> KIRANodeApi:
         return KIRANodeApi(self)
 
+    @property
+    def log_path(self) -> pathlib.Path:
+        raw_log_path = os.environ.get(self.ENV_LOG_PATH)
+        if raw_log_path is None:
+            log_path = pathlib.Path("log").resolve()
+        else:
+            log_path = pathlib.Path(raw_log_path).resolve()
+        log_path.mkdir(parents=True, exist_ok=True)
+        return log_path
+
     def start(self, binary: pathlib.Path, *args: str) -> Popen:
-        logfile = f"{self}.log"
+        logfile = self.log_path / f"{self}.log"
         env_vars = os.environ.copy()
         env_vars["RUST_LOG_STYLE"] = "never"
         env_vars["NO_COLOR"] = "1"

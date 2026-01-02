@@ -4,7 +4,7 @@ from kira_nest.nest.test import KIRATest
 from nest.topology import Address
 
 
-def test_connectivity(kirad_small_k, kira_topo, tmp_path, subtests):
+def test_connectivity(kirad_small_k, kira_topo, subtests):
     test = KIRATest[str](kira_topo, kirad_binary=kirad_small_k)
     sleep(1)
 
