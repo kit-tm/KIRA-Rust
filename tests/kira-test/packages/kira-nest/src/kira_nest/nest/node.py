@@ -18,6 +18,7 @@ from ipaddress import (
 from itertools import chain
 from subprocess import PIPE, Popen
 from typing import Any
+from urllib.parse import urlencode
 
 import networkx as nx
 from kira_common import NodeConfig
@@ -58,22 +59,31 @@ class KIRANodeApi:
     node: KIRANode
     _api_port: int = 8080
 
-    def call(self, path: str, payload: str | None = None) -> str | None:
+    def call(
+        self,
+        path: str,
+        params: dict[str, str] | None = None,
+        payload: str | None = None,
+    ) -> str | None:
         cmd = f"curl localhost:{self._api_port}/{path}"
+        if params is not None:
+            # sadly curl doesn't support encoding params inside an url
+            # using --data-urlencode key=value on a POST method-call
+            cmd += "?" + urlencode(params)
         if payload:
-            cmd += f" -d {payload}"
+            cmd += f" --data-raw '{payload}'"
 
         p = self.node.exec(cmd, logfile=PIPE)
         stdout, _ = p.communicate()
         return stdout.decode("utf-8") if p.returncode == 0 else None
 
     def store(self, key: str, data: str) -> str | None:
-        path = f"dht/store?key={key}"
-        return self.call(path, data)
+        path = "dht/store"
+        return self.call(path, {"key": key}, data)
 
     def fetch(self, key: str) -> list[str]:
-        path = f"dht/fetch?key={key}"
-        res = self.call(path)
+        path = "dht/fetch"
+        res = self.call(path, {"key": key})
         if res is None:
             return []
 

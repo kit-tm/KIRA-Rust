@@ -12,7 +12,7 @@ from subprocess import PIPE, Popen
 from typing import Any
 
 import networkx as nx
-from kira_common import REPO_ROOT, NodeConfig
+from kira_common import REPO_ROOT
 from nest.topology.address import Address
 from PIL import Image
 from term_image.image import AutoImage
