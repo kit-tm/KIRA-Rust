@@ -10,15 +10,21 @@ def test_connectivity(kirad_small_k, kira_topo, tmp_path, subtests):
 
     # checkup
     for n in test.topology.nodes:
-        with subtests.test(msg="checkup", node=f"{n}"):
-            assert n.is_up(), f"{n} is down"
+        with subtests.test(msg="checkup", n=str(n)):
+            assert n.is_up()
 
     sleep(3)
 
     # pingall
-    for x in test.topology.nodes:
-        for y in test.topology.nodes:
-            ip_y = y.node_id.to_node_ip()
+    for src in test.topology.nodes:
+        for dst in test.topology.nodes:
+            ip_y = dst.node_id.to_node_ip()
             ip_y = Address(str(ip_y))
-            with subtests.test(msg="ping", origin=f"{x}", destination=f"{y}"):
-                assert x.ping(ip_y, packets=1, verbose=1), f"Ping {x} --> {y} failed!"
+            with subtests.test(msg="ping", src=str(src), dst=str(dst)):
+                assert src.ping(ip_y, packets=1, verbose=1)
+
+    # traceroute
+    for src in test.topology.nodes:
+        for dst in test.topology.nodes:
+            with subtests.test(msg="traceroute", src=str(dst), dst=str(dst)):
+                assert test.traceroute(src, dst, verbose=False)
