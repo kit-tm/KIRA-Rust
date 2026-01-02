@@ -1,13 +1,13 @@
 import logging
 import os
-import prctl
 import shutil
 import subprocess
 from pathlib import Path
 
+import networkx as nx
+import prctl
 import pytest
 from kira_common import REPO_ROOT, TOPOS_DIR
-import networkx as nx
 
 logger = logging.Logger(__name__)
 

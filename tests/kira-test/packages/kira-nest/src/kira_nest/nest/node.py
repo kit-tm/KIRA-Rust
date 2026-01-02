@@ -21,7 +21,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 import networkx as nx
-from kira_common import NodeConfig
+from kira_common import NFTABLES_CONF, NodeConfig
 from nest.topology import Address, Node
 from networkx import Graph
 
@@ -164,9 +164,8 @@ class KIRANode(Node):
         arg: str = " ".join(args)
         with open(logfile, "w") as f:
             return self.exec(
-                # TODO: make binary customisable
                 f"'{binary}' --root-id '{self.config.node_id}'"
-                f" --nftables-conf ./kirad/conf/nftables.conf {arg} && exit",
+                f" --nftables-conf {NFTABLES_CONF} {arg} && exit",
                 logfile=f,
                 env_vars=env_vars,
             )

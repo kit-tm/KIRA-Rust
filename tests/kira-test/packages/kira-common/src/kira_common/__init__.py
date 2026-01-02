@@ -8,3 +8,6 @@ assert (REPO_ROOT / "Cargo.toml").exists(), "kira-rust repo not detected"
 
 TOPOS_DIR = Path(__file__).resolve().parents[5] / "topos"
 assert TOPOS_DIR.exists(), "kira-test topos not found"
+
+NFTABLES_CONF = REPO_ROOT / "kirad" / "conf" / "nftables.conf"
+assert NFTABLES_CONF.is_file(), "nftables.conf not found"
