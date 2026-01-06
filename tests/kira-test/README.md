@@ -58,7 +58,7 @@ run0 \
     run pytest
 ```
 This will ensure that [pytest] can build the binaries in the same configuration
-as the normal developer, as the normal developer.
+as the normal developer.
 
 # Development
 
