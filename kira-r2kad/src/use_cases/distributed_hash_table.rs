@@ -24,7 +24,9 @@ use crate::domain::dht::strategies::insert_strategy::PermissionlessInsertStrateg
 use crate::domain::dht::strategies::timeout_strategy::ConstTimeoutStrategy;
 
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{Nonce, ProtocolMessageKind, ProtocolMessage, CommonHeader, WireFormatMessage, ReqRspMessage};
+use crate::messaging::{
+    CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage, WireFormatMessage,
+};
 use crate::use_cases::{
     ApiEvent, BroadcastableUseCaseEvent, ContactEvent, EventHandler, NeverError, TimerId, UseCase,
     UseCaseContext, UseCaseEvent, UseCaseRuntime, UseCaseState,
@@ -185,11 +187,13 @@ where
         let source_route = SourceRoute::from_reversed(req.source_route);
 
         let rsp = ReqRspMessage {
-            common_header : CommonHeader::new(ProtocolMessageKind::StoreRsp,
-                                               *context.root_id(),
-                                              *source_route.destination(),
-                                              Some(msgid),
-                                              Some(From::from(*context.uln_table().state_seq_nr()))
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::StoreRsp,
+                *context.root_id(),
+                *source_route.destination(),
+                Some(msgid),
+                Some(From::from(*context.uln_table().state_seq_nr())),
+                context.uln_table().size(),
             ),
             data: StoreRspData { status: res },
             not_via: context.not_via().clone(),
@@ -217,11 +221,13 @@ where
         let source_route = SourceRoute::from_reversed(req.source_route);
 
         let rsp = ReqRspMessage {
-            common_header : CommonHeader::new(ProtocolMessageKind::FetchRsp,
-                                               *context.root_id(),
-                                              *source_route.destination(),
-                                              Some(msgid),
-                                              Some(From::from(*context.uln_table().state_seq_nr()))
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::FetchRsp,
+                *context.root_id(),
+                *source_route.destination(),
+                Some(msgid),
+                Some(From::from(*context.uln_table().state_seq_nr())),
+                context.uln_table().size(),
             ),
             data: FetchRspData { data: fetch_res },
             not_via: context.not_via().clone(),

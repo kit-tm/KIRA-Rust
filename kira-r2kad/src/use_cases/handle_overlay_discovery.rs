@@ -9,7 +9,10 @@ use crate::domain::{
     ULNTable, UnderlayNeighborId,
 };
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{CommonHeader, ErrorData, FindNodeReqData, ProtocolMessage, ProtocolMessageKind, RTableData, ReqRspMessage, WireFormatMessage};
+use crate::messaging::{
+    CommonHeader, ErrorData, FindNodeReqData, ProtocolMessage, ProtocolMessageKind, RTableData,
+    ReqRspMessage, WireFormatMessage,
+};
 use crate::use_cases::{EventHandler, NeverError, UseCaseContext, UseCaseEvent, UseCaseRuntime};
 
 #[derive(Debug)]
@@ -67,11 +70,14 @@ impl<C, const BUCKET_SIZE: usize> HandleOverlayDiscovery<C, BUCKET_SIZE> {
         source_route.advance();
 
         ProtocolMessage::FindNodeReq(ReqRspMessage {
-            common_header : CommonHeader::new(ProtocolMessageKind::FindNodeReq,
-                                             *req.src_node_id(),
-                                             *source_route.destination(),
-                                             Some(req.msg_id()),
-                                             Some(req.state_seq_num().into())),
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::FindNodeReq,
+                *req.src_node_id(),
+                *source_route.destination(),
+                Some(req.msg_id()),
+                Some(req.state_seq_num().into()),
+                req.src_node_degree() as usize,
+            ),
             data: req.data,
             not_via,
             source_route,
@@ -87,11 +93,14 @@ impl<C, const BUCKET_SIZE: usize> HandleOverlayDiscovery<C, BUCKET_SIZE> {
         contacts: Vec<Contact>,
     ) -> ProtocolMessage {
         ProtocolMessage::FindNodeRsp(ReqRspMessage {
-            common_header : CommonHeader::new(ProtocolMessageKind::FindNodeRsp,
-                                              own_id,
-                                             *req.src_node_id(),
-                                             Some(req.msg_id()),
-                                             Some(ssn.into())),
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::FindNodeRsp,
+                own_id,
+                *req.src_node_id(),
+                Some(req.msg_id()),
+                Some(ssn.into()),
+                req.src_node_degree() as usize,
+            ),
             data: RTableData { contacts },
             not_via,
             source_route: SourceRoute::from_reversed(req.source_route),
@@ -106,11 +115,14 @@ impl<C, const BUCKET_SIZE: usize> HandleOverlayDiscovery<C, BUCKET_SIZE> {
         ssn: StateSeqNr,
     ) -> ProtocolMessage {
         ProtocolMessage::Error(ReqRspMessage {
-            common_header : CommonHeader::new(ProtocolMessageKind::Error,
-                                              own_id,
-                                             *req.src_node_id(),
-                                             Some(req.msg_id()),
-                                             Some(ssn.into())),
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::Error,
+                own_id,
+                *req.src_node_id(),
+                Some(req.msg_id()),
+                Some(ssn.into()),
+                req.src_node_degree() as usize,
+            ),
             data: ErrorData::DeadEnd,
             not_via,
             source_route: SourceRoute::from_reversed(req.source_route),

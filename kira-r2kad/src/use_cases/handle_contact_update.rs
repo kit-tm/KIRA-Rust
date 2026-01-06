@@ -81,11 +81,14 @@ where
 
         for (_, contact) in overlay_neighbors {
             let message = UpdateRouteReq {
-                common_header: CommonHeader::new(ProtocolMessageKind::UpdateRouteReq,
-                                                 *context.root_id(),
-                                                 *contact.id(),
-                                                 None,
-                                                 Some(From::from(*context.uln_table().state_seq_nr()))),
+                common_header: CommonHeader::new(
+                    ProtocolMessageKind::UpdateRouteReq,
+                    *context.root_id(),
+                    *contact.id(),
+                    None,
+                    Some(From::from(*context.uln_table().state_seq_nr())),
+                    context.uln_table().size(),
+                ),
                 not_via: context.not_via().clone(),
                 contact_actions: updates.clone(),
                 source_route: SourceRoute::new(*context.root_id(), contact.path().clone()),

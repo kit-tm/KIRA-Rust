@@ -111,6 +111,10 @@ impl<UN: ULNTable> ULNTable for ObservableULNTable<UN> {
 
         removed
     }
+
+    fn size(&self) -> usize {
+        self.inner.size()
+    }
 }
 
 #[cfg(test)]

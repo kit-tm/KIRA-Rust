@@ -11,7 +11,8 @@ use crate::domain::{
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
-    CommonHeader, ErrorData, ProtocolMessage, ProtocolMessageKind, RTableData, ReqRspMessage, RouteUpdateActionType,
+    CommonHeader, ErrorData, ProtocolMessage, ProtocolMessageKind, RTableData, ReqRspMessage,
+    RouteUpdateActionType,
 };
 use crate::use_cases::{
     EventHandler, HandlingResult, NeverError, ReactiveUseCaseState, UseCase, UseCaseContext,
@@ -363,11 +364,14 @@ where
         );
 
         let error_message = ReqRspMessage {
-            common_header : CommonHeader::new(ProtocolMessageKind::Error,
-                                             *context.root_id(),
-                                             *message.source(),
-                                             Some(message.msg_id().unwrap().into()),
-                                             Some(From::from(*context.uln_table().state_seq_nr()))),
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::Error,
+                *context.root_id(),
+                *message.source(),
+                Some(message.msg_id().unwrap().into()),
+                Some(From::from(*context.uln_table().state_seq_nr())),
+                context.uln_table().size(),
+            ),
             data: ErrorData::SegmentFailure {
                 failed_link,
                 source: root_id,

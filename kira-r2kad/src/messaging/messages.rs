@@ -31,7 +31,6 @@ impl From<u64> for Nonce {
     }
 }
 
-
 impl From<Nonce> for u64 {
     fn from(value: Nonce) -> u64 {
         value.0
@@ -45,22 +44,19 @@ impl Nonce {
     }
 }
 
-
 #[repr(u8)]
 pub enum KiraMsgFlagsBit {
     ExactFlag = 1,
-    EndSystemFlag  = 1 << 2,
+    EndSystemFlag = 1 << 2,
     DiagnosticFlag = 1 << 6,
 }
-
-
 
 /// Enumeration containing all supported KIRA protocol messages kinds.
 #[derive(Debug, Display, PartialEq, Eq, Clone, Copy)]
 #[display("{_variant}")]
 #[repr(u8)]
 pub enum ProtocolMessageKind {
-    ULNHello   = 0x01,
+    ULNHello = 0x01,
     ULNDiscReq = 0x03,
     ULNDiscRsp = 0x04,
     FindNodeReq = 0x09,
@@ -84,57 +80,78 @@ pub enum ProtocolMessageKind {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct CommonHeader {
-    version : u8,
-    msg_type : u8,
-    msg_flags : u8,
-    msg_length : u16,
-    dest_id : NodeId,
-    src_node_id : NodeId,
-    domain_id : u64,
-    msg_id : u64,
-    state_seq_num : u32,
-    src_node_degree : u16,
+    version: u8,
+    msg_type: u8,
+    msg_flags: u8,
+    msg_length: u16,
+    dest_id: NodeId,
+    src_node_id: NodeId,
+    domain_id: u64,
+    msg_id: u64,
+    state_seq_num: u32,
+    src_node_degree: u16,
 }
 
 impl CommonHeader {
-    const KIRA_PROTOCOL_VERSION : u8 = 0;
+    const KIRA_PROTOCOL_VERSION: u8 = 0;
 
     /// create a new common header
     /// if msgid is None it is created randomly
     /// if stateseqnum is None, it is set to INVALID_SSN
-    pub fn new(msg_type : ProtocolMessageKind, src: NodeId, dst: NodeId, msgid: Option<u64>, stateseqnum : Option<u32>) -> Self {
+    pub fn new(
+        msg_type: ProtocolMessageKind,
+        src: NodeId,
+        dst: NodeId,
+        msgid: Option<u64>,
+        stateseqnum: Option<u32>,
+        src_node_degree: usize,
+    ) -> Self {
         Self {
-            version : Self::KIRA_PROTOCOL_VERSION,
-            msg_type : msg_type as u8,
-            msg_flags : 0,
-            msg_length : 1+1+1+2+14+14+8+8+4+2, // common header length
-            dest_id : dst,
-            src_node_id : src,
-            domain_id : 0,
-            msg_id : if let Some(msg_id) = msgid { msg_id } else { rand::random() },
-            state_seq_num : if let Some(stateseqnumber) = stateseqnum { stateseqnumber } else { state_seq_nr::INVALID_SSN },
-            src_node_degree : 0,
+            version: Self::KIRA_PROTOCOL_VERSION,
+            msg_type: msg_type as u8,
+            msg_flags: 0,
+            msg_length: 1 + 1 + 1 + 2 + 14 + 14 + 8 + 8 + 4 + 2, // common header length
+            dest_id: dst,
+            src_node_id: src,
+            domain_id: 0,
+            msg_id: if let Some(msg_id) = msgid {
+                msg_id
+            } else {
+                rand::random()
+            },
+            state_seq_num: if let Some(stateseqnumber) = stateseqnum {
+                stateseqnumber
+            } else {
+                state_seq_nr::INVALID_SSN
+            },
+            src_node_degree: if src_node_degree < u16::MAX as usize {
+                src_node_degree as u16
+            } else {
+                u16::MAX
+            },
         }
     }
 
-    pub fn set_flag(&mut self, flag : KiraMsgFlagsBit) {
+    pub fn set_flag(&mut self, flag: KiraMsgFlagsBit) {
         self.msg_flags |= flag as u8;
     }
 
-    pub fn clear_flag(&mut self, flag : KiraMsgFlagsBit) {
+    pub fn clear_flag(&mut self, flag: KiraMsgFlagsBit) {
         self.msg_flags |= !(flag as u8);
     }
 
-    pub fn set_msg_length(&mut self, msg_len : u16) {
+    pub fn set_msg_length(&mut self, msg_len: u16) {
         self.msg_length = msg_len;
     }
 
-    pub fn add_to_msg_length(&mut self, msg_len : u16) {
-        if self.msg_length <=  u16::MAX- msg_len {
+    pub fn add_to_msg_length(&mut self, msg_len: u16) {
+        if self.msg_length <= u16::MAX - msg_len {
             self.msg_length += msg_len;
-        }
-        else {
-            panic!("maximum msg length exceeded when trying to add {} bytes to {}",msg_len,self.msg_length);
+        } else {
+            panic!(
+                "maximum msg length exceeded when trying to add {} bytes to {}",
+                msg_len, self.msg_length
+            );
         }
     }
 
@@ -158,7 +175,7 @@ impl CommonHeader {
         &self.src_node_id
     }
 
-    pub fn set_domain_id(&mut self, domainid : u64) {
+    pub fn set_domain_id(&mut self, domainid: u64) {
         self.domain_id = domainid
     }
 
@@ -166,7 +183,7 @@ impl CommonHeader {
         self.domain_id
     }
 
-    pub fn set_msg_id(&mut self, msgid : u64) {
+    pub fn set_msg_id(&mut self, msgid: u64) {
         self.msg_id = msgid;
     }
 
@@ -174,16 +191,15 @@ impl CommonHeader {
         self.msg_id
     }
 
-    pub fn set_state_seq_num(&mut self, ssn : StateSeqNr) {
-        self.state_seq_num= StateSeqNr::into(ssn);
+    pub fn set_state_seq_num(&mut self, ssn: StateSeqNr) {
+        self.state_seq_num = StateSeqNr::into(ssn);
     }
 
     pub fn state_seq_num(&self) -> StateSeqNr {
         StateSeqNr::from(self.state_seq_num)
     }
 
-
-    pub fn set_src_node_degree(&mut self, degree : u16) {
+    pub fn set_src_node_degree(&mut self, degree: u16) {
         self.src_node_degree = degree;
     }
 
@@ -192,17 +208,15 @@ impl CommonHeader {
     }
 }
 
-
 pub trait WireFormatMessage {
-
     fn common_header(&self) -> &CommonHeader;
     fn common_header_mut(&mut self) -> &mut CommonHeader;
 
-    fn set_flag(&mut self, flag : KiraMsgFlagsBit) {
+    fn set_flag(&mut self, flag: KiraMsgFlagsBit) {
         self.common_header_mut().set_flag(flag);
     }
 
-    fn clear_flag(&mut self, flag : KiraMsgFlagsBit) {
+    fn clear_flag(&mut self, flag: KiraMsgFlagsBit) {
         self.common_header_mut().clear_flag(flag);
     }
 
@@ -222,7 +236,7 @@ pub trait WireFormatMessage {
         self.common_header().src_node_id()
     }
 
-    fn set_domain_id(&mut self, domainid : u64) {
+    fn set_domain_id(&mut self, domainid: u64) {
         self.common_header_mut().set_domain_id(domainid);
     }
 
@@ -230,7 +244,7 @@ pub trait WireFormatMessage {
         self.common_header().domain_id()
     }
 
-    fn set_msg_id(&mut self, msgid : u64) {
+    fn set_msg_id(&mut self, msgid: u64) {
         self.common_header_mut().set_msg_id(msgid);
     }
 
@@ -238,23 +252,21 @@ pub trait WireFormatMessage {
         self.common_header().msg_id()
     }
 
-    fn set_state_seq_num(&mut self, ssn : StateSeqNr) {
-        self.common_header_mut().state_seq_num= StateSeqNr::into(ssn);
+    fn set_state_seq_num(&mut self, ssn: StateSeqNr) {
+        self.common_header_mut().state_seq_num = StateSeqNr::into(ssn);
     }
 
     fn state_seq_num(&self) -> StateSeqNr {
         self.common_header().state_seq_num()
     }
 
-
-    fn set_src_node_degree(&mut self, degree : u16) {
+    fn set_src_node_degree(&mut self, degree: u16) {
         self.common_header_mut().src_node_degree = degree;
     }
 
     fn src_node_degree(&self) -> u16 {
         self.common_header().src_node_degree()
     }
-
 }
 
 /// Enumeration containing all supported KIRA protocol messages.
@@ -282,7 +294,6 @@ pub enum ProtocolMessage {
 }
 
 impl ProtocolMessage {
-
     pub fn source_route_mut(&mut self) -> Option<&mut SourceRoute> {
         match self {
             Self::ULNHello(_) => None,
@@ -503,7 +514,7 @@ impl From<&ProtocolMessage> for ProtocolMessageKind {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct HelloMessage {
-    pub common_header : CommonHeader,
+    pub common_header: CommonHeader,
 }
 
 impl From<HelloMessage> for ProtocolMessage {
@@ -531,7 +542,7 @@ impl WireFormatMessage for HelloMessage {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct ReqRspMessage<T: Debug> {
-    pub common_header : CommonHeader,
+    pub common_header: CommonHeader,
     pub data: T,
     pub not_via: HashSet<NotVia>,
     /// Source Path to the next overlay Hop.

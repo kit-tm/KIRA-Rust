@@ -7,7 +7,9 @@ use kira_r2kad::domain::{
     UnderlayNeighborId,
 };
 use kira_r2kad::messaging::source_route::SourceRoute;
-use kira_r2kad::messaging::{ProtocolMessage, ProtocolMessageKind, RTableData, ReqRspMessage, CommonHeader};
+use kira_r2kad::messaging::{
+    CommonHeader, ProtocolMessage, ProtocolMessageKind, RTableData, ReqRspMessage,
+};
 use kira_r2kad::{Input, Output, R2Kad};
 use kira_r2kad::{context::SyncContext, messaging::HelloMessage};
 
@@ -38,11 +40,14 @@ fn hello_response() {
     // hello message
     {
         let hello_message = HelloMessage {
-            common_header : CommonHeader::new(ProtocolMessageKind::ULNHello,
-                                              neighbor,
-                                              NodeId::ALL_NODES,
-                                              None,
-                                              Some(SafeStateSeqNr::MIN.into())),
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::ULNHello,
+                neighbor,
+                NodeId::ALL_NODES,
+                None,
+                Some(SafeStateSeqNr::MIN.into()),
+                1,
+            ),
         };
         r2kad
             .handle_input(
@@ -77,11 +82,13 @@ fn hello_response() {
     // uln_disc_rsp
     {
         let uln_disc_rsp = ReqRspMessage {
-            common_header : CommonHeader::new(ProtocolMessageKind::ULNDiscReq,
-                                              neighbor,
-                                              us,
-                                              None,
-                                              Some( SafeStateSeqNr::MIN.into())
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::ULNDiscReq,
+                neighbor,
+                us,
+                None,
+                Some(SafeStateSeqNr::MIN.into()),
+                1,
             ),
             data: RTableData {
                 contacts: vec![Contact::new(Path::from(us), SafeStateSeqNr::MIN)],
@@ -130,12 +137,14 @@ fn uln_disc_req_response() {
         }
     };
     let uln_disc_req = ReqRspMessage {
-        common_header : CommonHeader::new(ProtocolMessageKind::ULNDiscReq,
-                                            neighbor,
-                                            us,
-                                          None,
-                                          Some(SafeStateSeqNr::MIN.into())
-            ),
+        common_header: CommonHeader::new(
+            ProtocolMessageKind::ULNDiscReq,
+            neighbor,
+            us,
+            None,
+            Some(SafeStateSeqNr::MIN.into()),
+            1,
+        ),
         data: RTableData { contacts: vec![] },
         not_via: Default::default(),
         source_route: SourceRoute::new(neighbor, Path::from(us)),

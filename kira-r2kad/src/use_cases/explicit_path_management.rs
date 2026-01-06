@@ -16,7 +16,8 @@ use crate::domain::{
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
-    CommonHeader, PathSetupReqData, PathTeardownReqData, ProbeReqData, ProtocolMessageKind, ProtocolMessage, ReqRspMessage,
+    CommonHeader, PathSetupReqData, PathTeardownReqData, ProbeReqData, ProtocolMessage,
+    ProtocolMessageKind, ReqRspMessage,
 };
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{
@@ -95,11 +96,14 @@ where
     fn send_setup_req(&self, context: &C, contact: &Contact) {
         let source_route = SourceRoute::new(*context.root_id(), contact.path().clone());
         let message = ReqRspMessage {
-            common_header: CommonHeader::new(ProtocolMessageKind::PathSetupReq,
-                                             *context.root_id(),
-                                             *source_route.destination(),
-                                             None,
-                                             Some(From::from(*context.uln_table().state_seq_nr()))),
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::PathSetupReq,
+                *context.root_id(),
+                *source_route.destination(),
+                None,
+                Some(From::from(*context.uln_table().state_seq_nr())),
+                context.uln_table().size(),
+            ),
             data: PathSetupReqData,
             not_via: context.not_via().clone(),
             source_route,
@@ -112,11 +116,14 @@ where
     fn send_probe_req(&self, context: &C, contact: &Contact) {
         let source_route = SourceRoute::new(*context.root_id(), contact.path().clone());
         let message = ReqRspMessage {
-            common_header: CommonHeader::new(ProtocolMessageKind::ProbeReq,
-                                             *context.root_id(),
-                                             *source_route.destination(),
-                                             None,
-                                             Some(From::from(*context.uln_table().state_seq_nr()))),
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::ProbeReq,
+                *context.root_id(),
+                *source_route.destination(),
+                None,
+                Some(From::from(*context.uln_table().state_seq_nr())),
+                context.uln_table().size(),
+            ),
             data: ProbeReqData,
             not_via: context.not_via().clone(),
             source_route,
@@ -129,11 +136,14 @@ where
     fn send_teardown_req(&self, context: &C, contact: &Contact) {
         let source_route = SourceRoute::new(*context.root_id(), contact.path().clone());
         let message = ReqRspMessage {
-            common_header: CommonHeader::new(ProtocolMessageKind::PathTeardownReq,
-                                             *context.root_id(),
-                                             *source_route.destination(),
-                                             None,
-                                             Some(From::from(*context.uln_table().state_seq_nr()))),
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::PathTeardownReq,
+                *context.root_id(),
+                *source_route.destination(),
+                None,
+                Some(From::from(*context.uln_table().state_seq_nr())),
+                context.uln_table().size(),
+            ),
             data: PathTeardownReqData,
             not_via: context.not_via().clone(),
             source_route,

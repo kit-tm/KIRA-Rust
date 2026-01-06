@@ -8,7 +8,10 @@ use crate::domain::{
     Contact, ContactState, DEFAULT_BUCKET_SIZE, NodeId, RoutingTable, ULNTable, UnderlayNeighborId,
 };
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{Nonce, CommonHeader, ProbeReqData, ProbeRspData, ProtocolMessageKind, ProtocolMessage, WireFormatMessage, ReqRspMessage};
+use crate::messaging::{
+    CommonHeader, Nonce, ProbeReqData, ProbeRspData, ProtocolMessage, ProtocolMessageKind,
+    ReqRspMessage, WireFormatMessage,
+};
 use crate::use_cases::{
     EventHandler, NeverError, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime,
     UseCaseState,
@@ -35,7 +38,6 @@ impl Default for PathProbingConfig {
             probe_age: chrono::Duration::seconds(40),
             request_timeout: Duration::from_secs(10),
         }
-
     }
 }
 
@@ -136,11 +138,14 @@ where
         let mut route = SourceRoute::from(contact.path().clone());
         route.push_front(*context.root_id());
         let message = ReqRspMessage {
-            common_header: CommonHeader::new(ProtocolMessageKind::ProbeReq,
-                                             *context.root_id(),
-                                             *route.destination(),
-                                             Some(nonce.into()),
-                                             Some(From::from(*context.uln_table().state_seq_nr()))),
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::ProbeReq,
+                *context.root_id(),
+                *route.destination(),
+                Some(nonce.into()),
+                Some(From::from(*context.uln_table().state_seq_nr())),
+                context.uln_table().size(),
+            ),
             data: ProbeReqData,
             not_via: context.not_via().clone(),
             source_route: route,
@@ -232,11 +237,14 @@ where
     fn send_probe_rsp(&mut self, context: &C, req: ReqRspMessage<ProbeReqData>) {
         let source = *req.source();
         let message = ReqRspMessage {
-            common_header: CommonHeader::new(ProtocolMessageKind::ProbeRsp,
-                                             *context.root_id(),
-                                             source,
-                                             Some(req.msg_id()),
-                                             Some(From::from(*context.uln_table().state_seq_nr()))),
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::ProbeRsp,
+                *context.root_id(),
+                source,
+                Some(req.msg_id()),
+                Some(From::from(*context.uln_table().state_seq_nr())),
+                context.uln_table().size(),
+            ),
             data: ProbeRspData,
             not_via: context.not_via().clone(),
             source_route: SourceRoute::from_reversed(req.source_route),

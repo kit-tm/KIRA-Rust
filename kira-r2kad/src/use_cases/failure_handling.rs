@@ -12,8 +12,8 @@ use crate::domain::{
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
-    Nonce, CommonHeader, ErrorData, FindNodeReqData, WireFormatMessage, ProtocolMessage, ProtocolMessageKind, ReqRspMessage, RouteUpdateActionType,
-    UpdateRouteReq,
+    CommonHeader, ErrorData, FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageKind,
+    ReqRspMessage, RouteUpdateActionType, UpdateRouteReq, WireFormatMessage,
 };
 use crate::use_cases::{
     ContactEvent, EventHandler, ReactiveUseCaseState, UseCase, UseCaseContext, UseCaseEvent,
@@ -146,11 +146,14 @@ where
             updates.insert(contact.clone(), RouteUpdateActionType::Unreachable);
             for (_, closest_overlay_neighbor) in closest {
                 let update_route_message = UpdateRouteReq {
-                    common_header: CommonHeader::new(ProtocolMessageKind::UpdateRouteReq,
-                                             *context.root_id(),
-                                             *contact.id(),
-                                             None,
-                                             Some(From::from(*context.uln_table().state_seq_nr()))),
+                    common_header: CommonHeader::new(
+                        ProtocolMessageKind::UpdateRouteReq,
+                        *context.root_id(),
+                        *contact.id(),
+                        None,
+                        Some(From::from(*context.uln_table().state_seq_nr())),
+                        context.uln_table().size(),
+                    ),
                     not_via: context.not_via().clone(),
                     contact_actions: updates.clone(),
                     source_route: SourceRoute::new(
@@ -211,11 +214,14 @@ where
         };
 
         let find_node_request = ReqRspMessage {
-            common_header: CommonHeader::new(ProtocolMessageKind::FindNodeReq,
-                                             *context.root_id(),
-                                             *contact.id(),
-                                             Some(nonce.into()),
-                                             Some(From::from(*context.uln_table().state_seq_nr()))),
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::FindNodeReq,
+                *context.root_id(),
+                *contact.id(),
+                Some(nonce.into()),
+                Some(From::from(*context.uln_table().state_seq_nr())),
+                context.uln_table().size(),
+            ),
             data: FindNodeReqData {
                 exact: true,
                 neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
@@ -298,11 +304,14 @@ where
             nonce
         };
         let find_node_request = ReqRspMessage {
-            common_header: CommonHeader::new(ProtocolMessageKind::FindNodeReq,
-                                             *context.root_id(),
-                                             *node_id,
-                                             Some(nonce.into()),
-                                             Some(From::from(*context.uln_table().state_seq_nr()))),
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::FindNodeReq,
+                *context.root_id(),
+                *node_id,
+                Some(nonce.into()),
+                Some(From::from(*context.uln_table().state_seq_nr())),
+                context.uln_table().size(),
+            ),
             data: FindNodeReqData {
                 exact: true,
                 neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
@@ -438,7 +447,11 @@ where
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::Error(rsp), _) => {
-                if let Some(node) = self.rediscoveries.get_node_for_nonce(rsp.msg_id().into()).cloned() {
+                if let Some(node) = self
+                    .rediscoveries
+                    .get_node_for_nonce(rsp.msg_id().into())
+                    .cloned()
+                {
                     self.rediscoveries.remove_nonce(rsp.msg_id().into());
                     self.handle_rediscovery_failure(context, &node)?;
                 }
