@@ -75,7 +75,6 @@ be correctly picked up by [Ruff] and [Pyright]:
 uv --project=./tests/kira-test run nvim .
 ```
 
-[^1]: Prior to version 6.9.0 there is an [issue with the JSON output](https://git.kernel.org/pub/scm/network/iproute2/iproute2.git/commit/?id=0f32ef97babcbe77140a69218917937e6a50fb6c).
 [uv]: https://docs.astral.sh/uv/
 [iproute]: https://wiki.linuxfoundation.org/networking/iproute2
 [namespaces]: https://en.wikipedia.org/wiki/Linux_namespaces
@@ -85,3 +84,4 @@ uv --project=./tests/kira-test run nvim .
 [Pyright]: https://github.com/microsoft/pyright
 [Neovim]: https://neovim.io/
 [`nvim-lspconfig`]: https://github.com/neovim/nvim-lspconfig
+[^1]: Prior to version 6.9.0 there is an [issue with the JSON output](https://git.kernel.org/pub/scm/network/iproute2/iproute2.git/commit/?id=0f32ef97babcbe77140a69218917937e6a50fb6c).
