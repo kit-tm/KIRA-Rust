@@ -4,11 +4,9 @@ import shutil
 import subprocess
 from pathlib import Path
 
-import networkx as nx
 import prctl
 import pytest
 from kira_common import REPO_ROOT, TOPOS_DIR
-
 from kira_nest.nest.node import KIRANode
 
 logger = logging.Logger(__name__)
@@ -95,14 +93,8 @@ def kirad_small_k(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="session", params=_topo_files(), ids=lambda p: p.name)
-def kira_topo_file(request) -> Path:
+def kira_topo(request) -> Path:
     return request.param
-
-
-@pytest.fixture
-def kira_topo(kira_topo_file: Path) -> nx.Graph:
-    # Load the configuration from the GML file for _each_ test
-    return nx.readwrite.read_gml(kira_topo_file)
 
 
 @pytest.fixture(autouse=True)

@@ -6,6 +6,7 @@ from ipaddress import IPv4Network
 from subprocess import Popen
 from typing import overload
 
+import networkx
 from nest.topology import Node, Switch, connect
 from nest.topology.interface.interface import create_veth_pair
 from networkx import Graph
@@ -31,7 +32,7 @@ class KIRATest[T]:  # T = topology id type, usually int or str
 
     Parameters
     ----------
-    config : dict
+    config : Graph or path to GML file
         The configuration for the test.
     """
 
@@ -39,13 +40,19 @@ class KIRATest[T]:  # T = topology id type, usually int or str
 
     def __init__(
         self,
-        config: Graph,
+        config: Graph | pathlib.Path,
         kirad_binary: pathlib.Path = pathlib.Path("./target/debug/kirad"),
         otel_ip: IPv4Network | None = None,
     ) -> None:
         self._otel_ip = otel_ip or IPv4Network("10.42.0.0/24")
 
-        self.topology = KIRATopology(config)
+        if isinstance(config, pathlib.Path):
+            # Load the configuration from the GML file
+            graph = networkx.readwrite.read_gml(config)
+            self.topology = KIRATopology(graph)
+        else:
+            self.topology = KIRATopology(config)
+
         self._otel_ips = iter(self._otel_ip.hosts())
         next(self._otel_ips)  # skip IP for host
 
