@@ -30,8 +30,8 @@ class KIRANodeView[T: str | int]:
     def by_tid(self, key: str | int) -> KIRANode:
         node = self._inner.topology.nodes[key][self._NODE_ID]
         if node is None:
-            assert type(node) is KIRANode
             raise KeyError
+        assert type(node) is KIRANode
         return node
 
     @__getitem__.register
