@@ -4,10 +4,13 @@
 use std::error::Error;
 use std::io::{Read, Write};
 
-#[cfg(any(feature = "format-json", feature = "format-mp"))]
-use serde::Serialize;
-
 use kira_r2kad::messaging::ProtocolMessage;
+#[cfg(any(
+    feature = "format-json",
+    feature = "format-mp",
+    feature = "format-cbor"
+))]
+use serde::Serialize;
 
 /// Implementation of the interface ProtocolMessageFormat as closed set of
 /// supported formats.
@@ -20,6 +23,12 @@ pub enum ProtocolMessageFormat {
     #[cfg(feature = "format-json")]
     /// [JavaScript object notation](https://www.json.org) message format
     Json,
+    #[cfg(feature = "format-cbor")]
+    /// [Concise Binary Object Representation (CBOR)](https://datatracker.ietf.org/doc/html/rfc8949) message format.
+    ///
+    /// CBOR is very efficient and a platform independent encoding, esp. used in IOT contexts
+    /// This is the default encoding proposed by the KIRA specification
+    CBOR,
     #[cfg(feature = "format-mp")]
     /// [MessagePack](https://msgpack.org/) message format.
     ///
@@ -49,6 +58,8 @@ impl ProtocolMessageFormat {
     /// If no message format was selected this method panics.
     pub fn deserialize<R: Read>(&self, reader: R) -> Result<ProtocolMessage, Box<dyn Error>> {
         let result = match self {
+            #[cfg(feature = "format-cbor")]
+            Self::CBOR => ciborium::from_reader(reader)?,
             #[cfg(feature = "format-json")]
             Self::Json => serde_json::from_reader(reader)?,
             #[cfg(feature = "format-mp")]
@@ -68,6 +79,8 @@ impl ProtocolMessageFormat {
         data: &ProtocolMessage,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         match self {
+            #[cfg(feature = "format-cbor")]
+            Self::CBOR => ciborium::into_writer(data, writer)?,
             #[cfg(feature = "format-json")]
             Self::Json => serde_json::to_writer(writer, data)?,
             #[cfg(feature = "format-mp")]

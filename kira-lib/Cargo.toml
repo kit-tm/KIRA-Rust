@@ -10,11 +10,13 @@ edition.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["format-mp", "udp-tokio", "api", "swagger_doc"]
+default = ["format-cbor", "udp-tokio", "api", "swagger_doc"]
 #bench = ["log/release_max_level_off"]
 api = ["axum", "hex", "sha2", "base64", "serde", "serde/derive", "serde_json"]
 swagger_doc = ["utoipa", "utoipa-swagger-ui", "api", "itertools"]
 udp-tokio = ["tokio/net"]
+# CBOR message format
+format-cbor = ["ciborium", "serde"]
 # rust message pack (de)serialization support
 format-mp = ["rmp-serde", "serde"]
 # json (de)serialization support [debug]
@@ -28,6 +30,7 @@ path = "src/lib.rs"
 
 
 [dependencies]
+ciborium = { version = "0.2.2", optional = true }
 chrono = { workspace = true }
 derive_more = { workspace = true }
 futures = { workspace = true }

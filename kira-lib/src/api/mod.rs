@@ -214,12 +214,10 @@ async fn store_dht_data(
     log::trace!(target: "api_backend", "Received injection result [{injection_result:?}]");
 
     match injection_result {
-        InjectionResult::Answered(boxedtuple) => {
-            match *boxedtuple {
-                (ProtocolMessage::StoreRsp(payload), _) => { Ok(payload.data.status?.into()) }
-                _ => Err(DHTErr::MessageReceiveMismatch)
-            }
-        }
+        InjectionResult::Answered(boxedtuple) => match *boxedtuple {
+            (ProtocolMessage::StoreRsp(payload), _) => Ok(payload.data.status?.into()),
+            _ => Err(DHTErr::MessageReceiveMismatch),
+        },
         InjectionResult::Isolated => Err(DHTErr::Isolated),
     }
 }
@@ -270,12 +268,10 @@ async fn fetch_dht_data(
     log::trace!(target: "api_backend", "Received injection result [{injection_result:?}]");
 
     match injection_result {
-        InjectionResult::Answered(boxedtuple) => {
-            match *boxedtuple {
-                (ProtocolMessage::FetchRsp(payload), _) => { Ok(Json(payload.data.data?.into())) }
-                _ => Err(DHTErr::MessageReceiveMismatch)
-            }
-        }
+        InjectionResult::Answered(boxedtuple) => match *boxedtuple {
+            (ProtocolMessage::FetchRsp(payload), _) => Ok(Json(payload.data.data?.into())),
+            _ => Err(DHTErr::MessageReceiveMismatch),
+        },
         InjectionResult::Isolated => Err(DHTErr::Isolated),
     }
 }
