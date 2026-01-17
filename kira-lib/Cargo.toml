@@ -16,7 +16,7 @@ api = ["axum", "hex", "sha2", "base64", "serde", "serde/derive", "serde_json"]
 swagger_doc = ["utoipa", "utoipa-swagger-ui", "api", "itertools"]
 udp-tokio = ["tokio/net"]
 # CBOR message format
-format-cbor = ["ciborium", "serde"]
+format-cbor = ["serde_cbor", "serde"]
 # rust message pack (de)serialization support
 format-mp = ["rmp-serde", "serde"]
 # json (de)serialization support [debug]
@@ -30,7 +30,6 @@ path = "src/lib.rs"
 
 
 [dependencies]
-ciborium = { version = "0.2.2", optional = true }
 chrono = { workspace = true }
 derive_more = { workspace = true }
 futures = { workspace = true }
@@ -46,6 +45,7 @@ rtnetlink = { workspace = true }
 axum = { version = "0.7.5", features = ["json"], optional = true }
 serde = { workspace = true, optional = true }
 rmp-serde = { workspace = true, optional = true }
+serde_cbor = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 hex = { workspace = true, optional = true }
 # TODO: support other hashing algorithms

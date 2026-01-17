@@ -11,6 +11,7 @@ use futures::Stream;
 pub use kira_r2kad::domain::{InterfaceId, UnderlayNeighborId};
 pub use kira_r2kad::messaging::messages::ProtocolMessage;
 
+
 #[cfg(feature = "udp-tokio")]
 pub mod udp_tokio;
 
@@ -83,7 +84,7 @@ impl<R: AsyncProtocolMessageReceiver + Unpin> Stream for ProtocolMessageReceiver
 pub mod error {
     use std::collections::HashSet;
 
-    use derive_more::{Display, Error};
+    use derive_more::with_trait::{Display, Error};
     use kira_r2kad::domain::InterfaceId;
 
     /// Error type for [AsyncProtocolMessageReceiver::recv](super::AsyncProtocolMessageReceiver::recv)

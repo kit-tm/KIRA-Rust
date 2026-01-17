@@ -12,6 +12,7 @@ use crate::messaging::dht::{
 };
 use crate::messaging::source_route::SourceRoute;
 use std::fmt;
+//use ciborium::{ser,de};
 
 /// Randomly generated number to uniquely identify a protocol message and its
 /// response.
@@ -44,6 +45,7 @@ impl Nonce {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[repr(u8)]
 pub enum KiraMsgFlagsBit {
     ExactFlag = 1,
@@ -53,6 +55,7 @@ pub enum KiraMsgFlagsBit {
 
 /// Enumeration containing all supported KIRA protocol messages kinds.
 #[derive(Debug, Display, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[display("{_variant}")]
 #[repr(u8)]
 pub enum ProtocolMessageKind {

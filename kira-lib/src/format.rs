@@ -44,11 +44,12 @@ pub enum ProtocolMessageFormat {
 }
 
 impl Default for ProtocolMessageFormat {
-    /// Defaults to [Self::None].
+    /// Defaults to [Self::CBOR].
     ///
     /// You must explicitly enable a [ProtocolMessageFormat] if wanted.
     fn default() -> Self {
-        Self::None
+        #[cfg(feature = "format-cbor")]
+        Self::CBOR
     }
 }
 
@@ -59,12 +60,12 @@ impl ProtocolMessageFormat {
     pub fn deserialize<R: Read>(&self, reader: R) -> Result<ProtocolMessage, Box<dyn Error>> {
         let result = match self {
             #[cfg(feature = "format-cbor")]
-            Self::CBOR => ciborium::from_reader(reader)?,
+            Self::CBOR => serde_cbor::from_reader(reader)?,
             #[cfg(feature = "format-json")]
             Self::Json => serde_json::from_reader(reader)?,
             #[cfg(feature = "format-mp")]
             Self::MessagePack => rmp_serde::from_read(reader)?,
-            Self::None => panic!("No Format enabled"),
+            Self::None => panic!("No PDU encoding format enabled"),
         };
 
         Ok(result)
@@ -80,12 +81,17 @@ impl ProtocolMessageFormat {
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         match self {
             #[cfg(feature = "format-cbor")]
-            Self::CBOR => ciborium::into_writer(data, writer)?,
+            Self::CBOR => {
+                data.serialize(
+                    &mut serde_cbor::Serializer::new(&mut serde_cbor::ser::IoWrite::new(writer))
+                        .packed_format(),
+                )?;
+            }
             #[cfg(feature = "format-json")]
             Self::Json => serde_json::to_writer(writer, data)?,
             #[cfg(feature = "format-mp")]
             Self::MessagePack => data.serialize(&mut rmp_serde::Serializer::new(writer))?,
-            Self::None => panic!("No Format enabled"),
+            Self::None => panic!("No PDU encoding format enabled"),
         };
 
         Ok(())
