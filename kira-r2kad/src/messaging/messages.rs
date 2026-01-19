@@ -276,7 +276,7 @@ pub trait WireFormatMessage {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum ProtocolMessage {
-    ULNHello(HelloMessage),
+    ULNHello(CommonHeader),
     ULNDiscReq(ReqRspMessage<RTableData>),
     ULNDiscRsp(ReqRspMessage<RTableData>),
     QueryRouteReq(ReqRspMessage<QueryRouteReqData>),
@@ -388,7 +388,7 @@ impl ProtocolMessage {
 
     pub fn source(&self) -> &NodeId {
         match self {
-            Self::ULNHello(req) => req.common_header.src_node_id(),
+            Self::ULNHello(req) => req.src_node_id(),
             Self::ULNDiscReq(req) => req.source(),
             Self::ULNDiscRsp(req) => req.source(),
             Self::QueryRouteReq(req) => req.source(),
@@ -418,7 +418,7 @@ impl ProtocolMessage {
 
     pub fn source_state_seq_nr(&self) -> StateSeqNr {
         match self {
-            Self::ULNHello(req) => req.common_header().state_seq_num(),
+            Self::ULNHello(req) => req.state_seq_num(),
             Self::ULNDiscReq(req) => req.common_header().state_seq_num(),
             Self::ULNDiscRsp(req) => req.common_header().state_seq_num(),
             Self::QueryRouteReq(req) => req.common_header.state_seq_num(),
@@ -512,28 +512,6 @@ impl From<&ProtocolMessage> for ProtocolMessageKind {
     }
 }
 
-/// Data struct representing the ULNHello protocol message only exchanged
-/// between underlay neighbors.
-#[derive(Debug, PartialEq, Eq, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct HelloMessage {
-    pub common_header: CommonHeader,
-}
-
-impl From<HelloMessage> for ProtocolMessage {
-    fn from(message: HelloMessage) -> Self {
-        Self::ULNHello(message)
-    }
-}
-
-impl WireFormatMessage for HelloMessage {
-    fn common_header(&self) -> &CommonHeader {
-        &self.common_header
-    }
-    fn common_header_mut(&mut self) -> &mut CommonHeader {
-        &mut self.common_header
-    }
-}
 
 /// In contrary to a [HelloMessage] this type contains a [Nonce] to
 /// identify Request and Response Pairs.

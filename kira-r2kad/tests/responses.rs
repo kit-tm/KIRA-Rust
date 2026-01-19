@@ -11,7 +11,7 @@ use kira_r2kad::messaging::{
     CommonHeader, ProtocolMessage, ProtocolMessageKind, RTableData, ReqRspMessage,
 };
 use kira_r2kad::{Input, Output, R2Kad};
-use kira_r2kad::{context::SyncContext, messaging::HelloMessage};
+use kira_r2kad::{context::SyncContext};
 
 #[test_log::test]
 fn hello_response() {
@@ -39,8 +39,8 @@ fn hello_response() {
 
     // hello message
     {
-        let hello_message = HelloMessage {
-            common_header: CommonHeader::new(
+        let hello_message =
+            ProtocolMessage::ULNHello(CommonHeader::new(
                 ProtocolMessageKind::ULNHello,
                 neighbor,
                 NodeId::ALL_NODES,
@@ -48,7 +48,7 @@ fn hello_response() {
                 Some(SafeStateSeqNr::MIN.into()),
                 1,
             ),
-        };
+        );
         r2kad
             .handle_input(
                 Input::Message(hello_message.into(), neighbor_id),

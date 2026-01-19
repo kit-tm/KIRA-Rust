@@ -546,8 +546,6 @@ mod tests {
     use std::num::NonZeroU8;
     use std::str::FromStr;
 
-    use serde::Serialize;
-
     use crate::domain::SharedPrefix;
 
     use super::NodeId;
