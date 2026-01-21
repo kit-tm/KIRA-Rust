@@ -18,8 +18,8 @@ use crate::domain::{
     VicinityGraph,
 };
 use crate::messaging::{
-    CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, QueryRouteReqData,
-    QueryRouteType, RTableData, ReqRspMessage, source_route::SourceRoute,
+    CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, QueryRouteReqData, QueryRouteType,
+    RTableData, ReqRspMessage, source_route::SourceRoute,
 };
 use crate::use_cases::{
     ApiEvent, EventHandler, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime,
@@ -312,32 +312,28 @@ where
     }
 
     fn broadcast_uln_hello(&self, context: &C) {
-        let hello = ProtocolMessage::ULNHello(
-            CommonHeader::new(
-                ProtocolMessageKind::ULNHello,
-                *context.root_id(),
-                NodeId::ALL_NODES,
-                None,
-                Some(From::from(*context.uln_table().state_seq_nr())),
-                context.uln_table().size(),
-            )
-        );
+        let hello = ProtocolMessage::ULNHello(CommonHeader::new(
+            ProtocolMessageKind::ULNHello,
+            *context.root_id(),
+            NodeId::ALL_NODES,
+            None,
+            Some(From::from(*context.uln_table().state_seq_nr())),
+            context.uln_table().size(),
+        ));
 
         tracing::trace!( target: "vicinity_discovery", ?hello, "broadcasting ULNHello");
         context.runtime().send_message_via(hello, Broadcast);
     }
 
     fn multicast_uln_hello_interface(context: &C, interface: InterfaceId) {
-        let hello = ProtocolMessage::ULNHello(
-            CommonHeader::new(
-                ProtocolMessageKind::ULNHello,
-                *context.root_id(),
-                NodeId::ALL_NODES,
-                None,
-                Some(From::from(*context.uln_table().state_seq_nr())),
-                context.uln_table().size(),
-            )
-        );
+        let hello = ProtocolMessage::ULNHello(CommonHeader::new(
+            ProtocolMessageKind::ULNHello,
+            *context.root_id(),
+            NodeId::ALL_NODES,
+            None,
+            Some(From::from(*context.uln_table().state_seq_nr())),
+            context.uln_table().size(),
+        ));
 
         tracing::trace!(target: "vicinity_discovery", %interface, ?hello, "LL-Multicast ULNHello");
         context
@@ -990,7 +986,7 @@ where
             // Process incoming ULNHello
             (
                 UseCaseEvent::Message(
-                    ProtocolMessage::ULNHello( common_header ),
+                    ProtocolMessage::ULNHello(common_header),
                     UnderlayNeighborSource::UnderlayNeighbor(underlay_source),
                 ),
                 VDState::Running {

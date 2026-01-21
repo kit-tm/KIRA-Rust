@@ -1,6 +1,6 @@
 use std::{fmt::Formatter, iter::FusedIterator};
 
-use derive_more::{Error};
+use derive_more::Error;
 use derive_more::with_trait::Display;
 
 use crate::domain::{Contact, NodeId};

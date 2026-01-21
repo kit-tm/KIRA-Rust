@@ -11,7 +11,6 @@ use futures::Stream;
 pub use kira_r2kad::domain::{InterfaceId, UnderlayNeighborId};
 pub use kira_r2kad::messaging::messages::ProtocolMessage;
 
-
 #[cfg(feature = "udp-tokio")]
 pub mod udp_tokio;
 

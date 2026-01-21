@@ -1,4 +1,6 @@
 use rand::Rng;
+use serde;
+use serde::de::{self, Visitor};
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::{Debug, Formatter, LowerHex, UpperHex};
@@ -6,11 +8,8 @@ use std::net::Ipv6Addr;
 use std::num::NonZeroU8;
 use std::ops::BitXor;
 use std::str::FromStr;
-use serde;
-use serde::de::{self, Visitor};
 
-use derive_more::with_trait::{Display,Error};
-
+use derive_more::with_trait::{Display, Error};
 
 /// A NodeId with default SIZE of 112 Bits (14 Byte) as default value as proposed in the Internet-Draft (protocol specification).
 ///
@@ -207,7 +206,6 @@ impl NodeId {
     }
 }
 
-
 impl serde::Serialize for NodeId {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -215,10 +213,9 @@ impl serde::Serialize for NodeId {
     {
         let first_non_zero_byte = self.node_id.leading_zeros() as usize / 8;
         let slice = &self.node_id.to_be_bytes()[first_non_zero_byte..];
-        return serializer.serialize_bytes(slice);
+        serializer.serialize_bytes(slice)
     }
 }
-
 
 struct NodeIdVisitor;
 
@@ -237,36 +234,44 @@ impl<'de> Visitor<'de> for NodeIdVisitor {
 
     fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
     where
-        E: de::Error, {
+        E: de::Error,
+    {
         if v.len() <= NodeId::SIZE {
             let mut output = [0u8; size_of::<u128>()];
-            for (i,b) in v[..v.len()].into_iter().enumerate() {
-                output[size_of::<u128>()-v.len()+i]= *b;
+            for (i, b) in v[..v.len()].iter().enumerate() {
+                output[size_of::<u128>() - v.len() + i] = *b;
             }
-            Ok(NodeId { node_id : u128::from_be_bytes(output)})
-        }
-        else {
-            Err(E::custom(format!("NodeId longer than {} bytes",NodeId::SIZE)))
+            Ok(NodeId {
+                node_id: u128::from_be_bytes(output),
+            })
+        } else {
+            Err(E::custom(format!(
+                "NodeId longer than {} bytes",
+                NodeId::SIZE
+            )))
         }
     }
-
 
     fn visit_borrowed_bytes<E>(self, v: &'de [u8]) -> Result<Self::Value, E>
     where
-        E: de::Error, {
+        E: de::Error,
+    {
         if v.len() <= NodeId::SIZE {
             let mut output = [0u8; size_of::<u128>()];
-            for (i,b) in v[..v.len()].into_iter().enumerate() {
-                output[size_of::<u128>()-v.len()+i]= *b;
+            for (i, b) in v[..v.len()].iter().enumerate() {
+                output[size_of::<u128>() - v.len() + i] = *b;
             }
-            Ok(NodeId { node_id : u128::from_be_bytes(output)})
-        }
-        else {
-            Err(E::custom(format!("NodeId longer than {} bytes",NodeId::SIZE)))
+            Ok(NodeId {
+                node_id: u128::from_be_bytes(output),
+            })
+        } else {
+            Err(E::custom(format!(
+                "NodeId longer than {} bytes",
+                NodeId::SIZE
+            )))
         }
     }
 }
-
 
 impl<'de> serde::Deserialize<'de> for NodeId {
     fn deserialize<D>(deserializer: D) -> Result<NodeId, D::Error>
@@ -276,7 +281,6 @@ impl<'de> serde::Deserialize<'de> for NodeId {
         deserializer.deserialize_bytes(NodeIdVisitor)
     }
 }
-
 
 #[derive(Debug, Eq, PartialEq, Display, Error)]
 #[display("Bit Index out of bounds")]

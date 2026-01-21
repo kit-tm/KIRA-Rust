@@ -2,6 +2,7 @@
 
 use std::time::Instant;
 
+use kira_r2kad::context::SyncContext;
 use kira_r2kad::domain::{
     ConnectionId, Contact, InterfaceId, NodeId, Path, SafeStateSeqNr, UnderlayNeighborDestination,
     UnderlayNeighborId,
@@ -11,7 +12,6 @@ use kira_r2kad::messaging::{
     CommonHeader, ProtocolMessage, ProtocolMessageKind, RTableData, ReqRspMessage,
 };
 use kira_r2kad::{Input, Output, R2Kad};
-use kira_r2kad::{context::SyncContext};
 
 #[test_log::test]
 fn hello_response() {
@@ -39,21 +39,16 @@ fn hello_response() {
 
     // hello message
     {
-        let hello_message =
-            ProtocolMessage::ULNHello(CommonHeader::new(
-                ProtocolMessageKind::ULNHello,
-                neighbor,
-                NodeId::ALL_NODES,
-                None,
-                Some(SafeStateSeqNr::MIN.into()),
-                1,
-            ),
-        );
+        let hello_message = ProtocolMessage::ULNHello(CommonHeader::new(
+            ProtocolMessageKind::ULNHello,
+            neighbor,
+            NodeId::ALL_NODES,
+            None,
+            Some(SafeStateSeqNr::MIN.into()),
+            1,
+        ));
         r2kad
-            .handle_input(
-                Input::Message(hello_message.into(), neighbor_id),
-                Instant::now(),
-            )
+            .handle_input(Input::Message(hello_message, neighbor_id), Instant::now())
             .expect("successfully handle HelloMessage from neighbor");
 
         let mut expected_response = false;

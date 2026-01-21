@@ -512,7 +512,6 @@ impl From<&ProtocolMessage> for ProtocolMessageKind {
     }
 }
 
-
 /// In contrary to a [HelloMessage] this type contains a [Nonce] to
 /// identify Request and Response Pairs.
 ///
