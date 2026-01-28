@@ -19,7 +19,7 @@ use derive_more::with_trait::{Display, Error};
 /// uses const generics to specify its size instead of using [Vec] (which uses Heap
 /// allocation by default).
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Display, PartialOrd, Ord)]
-#[display("{self:x}")]
+#[display("{self:028x}")]
 pub struct NodeId {
     node_id: u128,
 }

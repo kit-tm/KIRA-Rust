@@ -544,14 +544,23 @@ where
 
     fn process_ulndisc_reqrsp(&mut self, context: &C, req_or_rsp: &ReqRspMessage<RTableData>) {
         // update vicinity ssn in vicinity graph if required
-        assert_eq!(
-            req_or_rsp.source_route.size(),
-            2,
-            "ULNDiscReq/Rsp expected to be received directly from ULN"
-        );
+        // sanity check for ULNDiscReq/Rsp messages, log error and ignore
+        if req_or_rsp.source_route.size() != 2 {
+            tracing::warn!(
+                target: "vicinity_discovery",
+                ?req_or_rsp,
+                reason = "source route too long",
+                "ULNDiscReq/Rsp expected to be received directly from ULN – ignored"
+            );
+            return;
+        };
+        // ULNDiscReq/Rsp confirms bidirectional reachability, so we need to add the
+        // node to the vicinity graph (it will be added to the ULNtable in forward_protocol_message)
+
         let source_node = req_or_rsp.source();
         let mut old_source_neighbors: HashSet<_> =
             context.vicinity_graph().vicinity(source_node).collect();
+        // remove own ID from neighbor's neighbors
         old_source_neighbors.remove(context.root_id());
 
         // look up ULN entry and update its vicinity SSN and last seen
@@ -738,10 +747,10 @@ where
             // construct iterator with the given priority
             let uln_sync = uln_lock.keys().copied();
             let vicinity_sync = vg_lock.deref().nodes();
-            let sync_canidates = uln_sync.chain(vicinity_sync);
+            let sync_candidates = uln_sync.chain(vicinity_sync);
 
             let mut isolated_vicinity_nodes = false;
-            for sync_candidate in sync_canidates {
+            for sync_candidate in sync_candidates {
                 // can't check for pending reqs in loop
                 let new_sync = if let Some(underlay_neighbor) =
                     uln_lock.get(&sync_candidate).copied()
@@ -828,16 +837,19 @@ where
                         continue;
                     };
                     if path.size() == 2 {
+                        // sync candidate is a direct neighbor, so skip it here
+                        //
                         // probable causes:
                         // 1. neighborhood update of node included us
                         // 2. actual underlay neighbor not in uln_table
 
-                        tracing::error!(
-                            target: "vicinity_discovery",
-                            node = %sync_candidate,
-                            "underlay vicinity node not in uln_table"
-                        );
-                        return Err(VDError::NeighborInconsistency);
+                        // tracing::error!(
+                        //     target: "vicinity_discovery",
+                        //     node = %sync_candidate,
+                        //     "underlay vicinity node not in uln_table"
+                        // );
+                        // return Err(VDError::NeighborInconsistency);
+                        continue;
                     }
 
                     self.init_new_query_route_req(context, path)?
@@ -1009,13 +1021,15 @@ where
                     return Ok(());
                 }
 
-                // create new entry in vicinity graph if necessary
+                // update entry in vicinity graph if necessary
                 let mut new_neighbor = false;
                 if let StateSeqNr::Value(seen_ssn) = observed_ssn {
-                    new_neighbor = context
-                        .vicinity_graph_mut()
-                        .insert(source, context.root_id(), seen_ssn)
-                        .expect("insertion of underlay neighbor into vicinity graph failed");
+                    if let Some(vg_entry) = context.vicinity_graph_mut().entry_mut(&source) {
+                        vg_entry.update_observed_ssn(seen_ssn);
+                        vg_entry.update_last_seen(context.runtime().current_time());
+                    } else {
+                        new_neighbor = true;
+                    }
                 }
                 if !new_neighbor && !pending_reqs.contains_key(&source) {
                     tracing::trace!(
@@ -1034,7 +1048,7 @@ where
                     // heuristic says: do not answer ULNHello
                     let interface = &underlay_source.interface_id;
 
-                    // still respond if wait time for our next ULNHello larger then heuristic_max_wait_time
+                    // still respond if wait time for our next ULNHello larger than heuristic_max_wait_time
                     match interfaces.get(interface) {
                         Some(InterfaceState { hello_interval })
                             if hello_interval > &self.config.heuristic_max_wait_time =>
