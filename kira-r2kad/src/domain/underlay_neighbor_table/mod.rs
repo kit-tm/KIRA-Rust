@@ -26,6 +26,9 @@ pub trait ULNTable {
 
     /// Removed a Mapping from the table returning that UnderlayNeighborId the [NodeId] was mapped to.
     fn remove(&mut self, id: &NodeId) -> Option<UnderlayNeighborId>;
+
+    /// Return number of underlay neighbors
+    fn size(&self) -> usize;
 }
 
 #[cfg(test)]

@@ -8,7 +8,10 @@ use crate::domain::{
     Contact, ContactState, DEFAULT_BUCKET_SIZE, NodeId, RoutingTable, ULNTable, UnderlayNeighborId,
 };
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{Nonce, ProbeReqData, ProbeRspData, ProtocolMessage, ReqRspMessage};
+use crate::messaging::{
+    CommonHeader, Nonce, ProbeReqData, ProbeRspData, ProtocolMessage, ProtocolMessageKind,
+    ReqRspMessage, WireFormatMessage,
+};
 use crate::use_cases::{
     EventHandler, NeverError, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime,
     UseCaseState,
@@ -135,8 +138,14 @@ where
         let mut route = SourceRoute::from(contact.path().clone());
         route.push_front(*context.root_id());
         let message = ReqRspMessage {
-            nonce,
-            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::ProbeReq,
+                *context.root_id(),
+                *route.destination(),
+                Some(nonce.into()),
+                Some(From::from(*context.uln_table().state_seq_nr())),
+                context.uln_table().size(),
+            ),
             data: ProbeReqData,
             not_via: context.not_via().clone(),
             source_route: route,
@@ -228,8 +237,14 @@ where
     fn send_probe_rsp(&mut self, context: &C, req: ReqRspMessage<ProbeReqData>) {
         let source = *req.source();
         let message = ReqRspMessage {
-            nonce: req.nonce,
-            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::ProbeRsp,
+                *context.root_id(),
+                source,
+                Some(req.msg_id()),
+                Some(From::from(*context.uln_table().state_seq_nr())),
+                context.uln_table().size(),
+            ),
             data: ProbeRspData,
             not_via: context.not_via().clone(),
             source_route: SourceRoute::from_reversed(req.source_route),
@@ -330,13 +345,14 @@ where
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::ProbeRsp(req), _) => {
-                if self.is_tracked_message(&req.nonce) {
+                if self.is_tracked_message(&req.msg_id().into()) {
                     let ReqRspMessage {
-                        nonce,
+                        common_header,
                         source_route,
                         ..
                     } = req;
                     let source = *source_route.source();
+                    let nonce = Nonce::from(common_header.msg_id());
 
                     self.remove_from_tracked_messages(nonce);
 
@@ -344,8 +360,8 @@ where
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::Error(req), _) => {
-                if self.is_tracked_message(&req.nonce) {
-                    self.invalidate_contact_for_message(context, req.nonce);
+                if self.is_tracked_message(&req.msg_id().into()) {
+                    self.invalidate_contact_for_message(context, req.msg_id().into());
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::ProbeReq(req), _) => {

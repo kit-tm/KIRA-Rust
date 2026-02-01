@@ -34,8 +34,9 @@ edition = "2024"
 [workspace.dependencies]
 # For Time Computations in general
 chrono = "0.4.38"
+serde_cbor = "0.11.2"
 # Conveniently derive Display
-derive_more = { version = "1.0.0", features = [
+derive_more = { version = "2.1.1", features = [
   "display",
   "from",
   "error",
@@ -43,7 +44,7 @@ derive_more = { version = "1.0.0", features = [
 ] }
 # For generic hash function choice
 digest = "0.10.7"
-# Asynchronous abstractions
+# Asynchronous abstractiosn
 futures = "0.3.30"
 # Hexadecimal Output formatting of NodeIDs. Non-Optional as basic functionality for a NodeID.
 hex = "0.4.3"

@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt::Debug, num::NonZeroU8, ops::Deref};
 use crate::{
     domain::{NodeId, Path, RoutingTable, ULNTable, UnderlayNeighborId},
     messaging::{
-        Nonce, ProtocolMessage, ReqRspMessage,
+        CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage,
         dht::{DefaultLHTInput, FetchReqData, StoreReqData},
         source_route::SourceRoute,
     },
@@ -24,6 +24,7 @@ pub mod strategies;
 
 pub(crate) fn construct_req_rsp_msg<C, T, const BUCKET_SIZE: usize>(
     context: &C,
+    pdutype: ProtocolMessageKind,
     nonce: Nonce,
     overlay_destination: &NodeId,
     data: T,
@@ -52,10 +53,16 @@ where
     let source_route = SourceRoute::new(*context.root_id(), path);
 
     ReqRspMessage {
-        source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
+        common_header: CommonHeader::new(
+            pdutype,
+            *context.root_id(),
+            *overlay_destination,
+            Some(nonce.into()),
+            Some(u32::from(*context.uln_table().state_seq_nr())),
+            context.uln_table().size(),
+        ),
         not_via: context.not_via().clone(),
         data,
-        nonce,
         source_route,
     }
 }
@@ -70,7 +77,13 @@ pub(crate) fn send_store_req<C, const BUCKET_SIZE: usize>(
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
-    let message = construct_req_rsp_msg(context, nonce, &data.handle.clone(), data);
+    let message = construct_req_rsp_msg(
+        context,
+        ProtocolMessageKind::StoreReq,
+        nonce,
+        &data.handle.clone(),
+        data,
+    );
 
     log::trace!(target: "distributed_hash_table_injector", "Sending StoreReq from {} with destination {}",
         message.source_route.source(),
@@ -101,7 +114,13 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
-    let message = construct_req_rsp_msg(context, nonce, &data.handle.clone(), data);
+    let message = construct_req_rsp_msg(
+        context,
+        ProtocolMessageKind::FetchReq,
+        nonce,
+        &data.handle.clone(),
+        data,
+    );
 
     log::trace!(target: "distributed_hash_table_injector", "Sending FetchReq from {} with destination {}",
         message.source_route.source(),
