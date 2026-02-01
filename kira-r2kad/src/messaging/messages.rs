@@ -54,7 +54,7 @@ pub enum KiraMsgFlagsBit {
 }
 
 /// Enumeration containing all supported KIRA protocol messages kinds.
-#[derive(Debug, Display, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Display, PartialEq, Eq, Clone, Copy, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[display("{_variant}")]
 #[repr(u8)]
@@ -542,6 +542,52 @@ impl<T: Debug> ReqRspMessage<T> {
     /// Next hop destination of the request.
     pub fn destination(&self) -> &NodeId {
         self.source_route.destination()
+    }
+}
+
+impl WireFormatMessage for ProtocolMessage {
+    fn common_header(&self) -> &CommonHeader {
+        match self {
+            Self::ULNHello(common_header) => common_header,
+            Self::ULNDiscReq(req) => &req.common_header,
+            Self::ULNDiscRsp(req) => &req.common_header,
+            Self::QueryRouteReq(req) => &req.common_header,
+            Self::QueryRouteRsp(req) => &req.common_header,
+            Self::FindNodeReq(req) => &req.common_header,
+            Self::FindNodeRsp(req) => &req.common_header,
+            Self::Error(req) => &req.common_header,
+            Self::ProbeReq(req) => &req.common_header,
+            Self::ProbeRsp(req) => &req.common_header,
+            Self::PathSetupReq(req) => &req.common_header,
+            Self::PathTeardownReq(req) => &req.common_header,
+            Self::UpdateRouteReq(req) => &req.common_header,
+            Self::StoreReq(req) => &req.common_header,
+            Self::StoreRsp(req) => &req.common_header,
+            Self::FetchReq(req) => &req.common_header,
+            Self::FetchRsp(req) => &req.common_header,
+        }
+    }
+
+    fn common_header_mut(&mut self) -> &mut CommonHeader {
+        match self {
+            Self::ULNHello(commonheader) => commonheader,
+            Self::ULNDiscReq(req) => req.common_header_mut(),
+            Self::ULNDiscRsp(req) => req.common_header_mut(),
+            Self::QueryRouteReq(req) => req.common_header_mut(),
+            Self::QueryRouteRsp(req) => req.common_header_mut(),
+            Self::FindNodeReq(req) => req.common_header_mut(),
+            Self::FindNodeRsp(req) => req.common_header_mut(),
+            Self::Error(req) => req.common_header_mut(),
+            Self::ProbeReq(req) => req.common_header_mut(),
+            Self::ProbeRsp(req) => req.common_header_mut(),
+            Self::PathSetupReq(req) => req.common_header_mut(),
+            Self::PathTeardownReq(req) => req.common_header_mut(),
+            Self::UpdateRouteReq(req) => req.common_header_mut(),
+            Self::StoreReq(req) => req.common_header_mut(),
+            Self::StoreRsp(req) => req.common_header_mut(),
+            Self::FetchReq(req) => req.common_header_mut(),
+            Self::FetchRsp(req) => req.common_header_mut(),
+        }
     }
 }
 
