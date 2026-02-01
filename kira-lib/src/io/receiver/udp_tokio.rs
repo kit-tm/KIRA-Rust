@@ -107,7 +107,7 @@ impl UdpReceiver {
         let deserialized = match self.format.deserialize(buffer) {
             Ok(message) => message,
             Err(e) => {
-                log::trace!(target: "message_receiver", "Received invalid serialized message: {e}");
+                log::error!(target: "message_receiver", "Received invalid serialized message: {e}");
                 return None;
             }
         };
@@ -154,9 +154,10 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
             }
 
             let Some(message) = self.deserialize(&buffer[..received_bytes]) else {
-                log::warn!(target: "message_receiver", "Deserialization of received message failed");
+                log::error!(target: "message_receiver", "Deserialization of received message failed");
                 continue;
             };
+
             if message.source() == &self.root_id {
                 log::trace!(target: "message_receiver", "Ignoring message from us");
                 continue;

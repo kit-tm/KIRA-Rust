@@ -91,6 +91,11 @@ where
                 in_path.size() <= VICINITY_RADIUS,
                 "VicinityGraph should only generate Paths inside the Vicinity Radius"
             );
+            debug_assert_eq!(
+                in_path.first(),
+                context.root_id(),
+                "in_path does not contain own NodeID as first element"
+            );
 
             let Ok(out_path) = in_path.clone().into_iter().skip(1).collect() else {
                 tracing::warn!(target: "precompute_paths_and_path_ids", "VicinityGraph generated path of size 1");

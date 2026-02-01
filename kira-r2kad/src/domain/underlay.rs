@@ -72,7 +72,7 @@ impl TryFrom<u32> for InterfaceId {
 pub enum UnderlayNeighborDestination {
     /// Broadcast to all underlay neighbors.
     ///
-    /// This is primarily used when sending [HelloMessages](crate::messaging::HelloMessage)
+    /// This is primarily used when sending [HelloMessages](crate::messaging::ProtocolMessage::ULNHello)
     /// to discover the underlay vicinity.
     ///
     /// All neighbors that joined the well-known link-local multicast address `ALL-KIRA-NODES`
@@ -81,7 +81,7 @@ pub enum UnderlayNeighborDestination {
     Broadcast,
     /// Multicast to all underlay neighbors connected via the interface.
     ///
-    /// This is primarily used when sending [HelloMessages](crate::messaging::HelloMessage)
+    /// This is primarily used when sending [HelloMessages](crate::messaging::ProtocolMessage::ULNHello)
     /// to discover the underlay vicinity.
     ///
     /// All neighbors that joined the well-known link-local multicast address `ALL-KIRA-NODES`

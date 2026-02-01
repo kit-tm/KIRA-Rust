@@ -1,4 +1,6 @@
-use derive_more::{Display, Error};
+use derive_more::Error;
+use derive_more::with_trait::Display;
+
 use std::ops::Index;
 use std::slice::SliceIndex;
 

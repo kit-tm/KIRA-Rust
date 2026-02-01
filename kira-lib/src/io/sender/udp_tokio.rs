@@ -42,6 +42,7 @@ impl UdpSender {
 
         let socket = Arc::new(udp_socket);
 
+        log::info!(target: "message_sender", "established UDP socket at port {socket_port}, message encoding {format:?}");
         Self::from_socket(socket, format, underlay_handle)
     }
 

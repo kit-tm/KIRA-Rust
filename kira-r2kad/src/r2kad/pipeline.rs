@@ -208,7 +208,7 @@ where
     ) -> Result<(), UseCaseStateError> {
         let _span = match &event {
             UseCaseEvent::Message(message, _) => {
-                let nonce = match message.nonce() {
+                let nonce = match message.msg_id() {
                     Some(nonce) => nonce.to_string(),
                     None => "None".to_string(),
                 };

@@ -83,7 +83,7 @@ impl<R: AsyncProtocolMessageReceiver + Unpin> Stream for ProtocolMessageReceiver
 pub mod error {
     use std::collections::HashSet;
 
-    use derive_more::{Display, Error};
+    use derive_more::with_trait::{Display, Error};
     use kira_r2kad::domain::InterfaceId;
 
     /// Error type for [AsyncProtocolMessageReceiver::recv](super::AsyncProtocolMessageReceiver::recv)
