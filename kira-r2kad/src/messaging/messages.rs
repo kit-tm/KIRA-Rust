@@ -512,8 +512,8 @@ impl From<&ProtocolMessage> for ProtocolMessageKind {
     }
 }
 
-/// In contrary to a [HelloMessage] this type contains a [Nonce] to
-/// identify Request and Response Pairs.
+/// In contrary to a [ULNHello](crate::messaging::ProtocolMessage::ULNHello) this type contains a [SourceRoute]
+/// and data for request and response pairs
 ///
 /// The target has not to be equal to the end of the source route as some protocol messages
 /// are routed from overlay hop to overlay hop.
