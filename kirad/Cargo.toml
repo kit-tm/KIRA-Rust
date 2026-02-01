@@ -41,7 +41,7 @@ derive_more = { workspace = true }
 chrono = { workspace = true }
 
 kira-lib = { path = "../kira-lib", default-features = false, features = [
-  "format-mp",
+  "format-cbor",
   "udp-tokio",
 ] }
 kira-forwarding = { path = "../kira-forwarding", default-features = false, features = [
