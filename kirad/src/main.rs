@@ -242,7 +242,7 @@ async fn main() {
     // create message sender and receiver
     let (pm_sender, pm_receiver) = async_channel(
         args.socket_port,
-        ProtocolMessageFormat::MessagePack,
+        ProtocolMessageFormat::default(),
         handle,
         excluded_interfaces,
         root_id,

@@ -9,7 +9,7 @@ use derive_more::derive::{Display, Error};
 
 use crate::domain::{GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{FindNodeReqData, Nonce, ReqRspMessage};
+use crate::messaging::{CommonHeader, FindNodeReqData, ProtocolMessageKind, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{
     EventHandler, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseState,
@@ -98,8 +98,14 @@ where
         route.push_front(*context.root_id());
 
         let message = ReqRspMessage {
-            nonce: Nonce::random(),
-            source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::FindNodeReq,
+                *context.root_id(),
+                *route.destination(),
+                None,
+                Some(From::from(*context.uln_table().state_seq_nr())),
+                context.uln_table().size(),
+            ),
             data: FindNodeReqData {
                 exact: false,
                 neighborhood: self.config.neighborhood_size,

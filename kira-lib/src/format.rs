@@ -4,10 +4,13 @@
 use std::error::Error;
 use std::io::{Read, Write};
 
-#[cfg(any(feature = "format-json", feature = "format-mp"))]
-use serde::Serialize;
-
 use kira_r2kad::messaging::ProtocolMessage;
+#[cfg(any(
+    feature = "format-json",
+    feature = "format-mp",
+    feature = "format-cbor"
+))]
+use serde::Serialize;
 
 /// Implementation of the interface ProtocolMessageFormat as closed set of
 /// supported formats.
@@ -20,6 +23,12 @@ pub enum ProtocolMessageFormat {
     #[cfg(feature = "format-json")]
     /// [JavaScript object notation](https://www.json.org) message format
     Json,
+    #[cfg(feature = "format-cbor")]
+    /// [Concise Binary Object Representation (CBOR)](https://datatracker.ietf.org/doc/html/rfc8949) message format.
+    ///
+    /// CBOR is very efficient and a platform independent encoding, esp. used in IOT contexts
+    /// This is the default encoding proposed by the KIRA specification
+    CBOR,
     #[cfg(feature = "format-mp")]
     /// [MessagePack](https://msgpack.org/) message format.
     ///
@@ -35,11 +44,12 @@ pub enum ProtocolMessageFormat {
 }
 
 impl Default for ProtocolMessageFormat {
-    /// Defaults to [Self::None].
+    /// Defaults to [Self::CBOR].
     ///
     /// You must explicitly enable a [ProtocolMessageFormat] if wanted.
     fn default() -> Self {
-        Self::None
+        #[cfg(feature = "format-cbor")]
+        Self::CBOR
     }
 }
 
@@ -49,11 +59,13 @@ impl ProtocolMessageFormat {
     /// If no message format was selected this method panics.
     pub fn deserialize<R: Read>(&self, reader: R) -> Result<ProtocolMessage, Box<dyn Error>> {
         let result = match self {
+            #[cfg(feature = "format-cbor")]
+            Self::CBOR => serde_cbor::from_reader(reader)?,
             #[cfg(feature = "format-json")]
             Self::Json => serde_json::from_reader(reader)?,
             #[cfg(feature = "format-mp")]
             Self::MessagePack => rmp_serde::from_read(reader)?,
-            Self::None => panic!("No Format enabled"),
+            Self::None => panic!("No PDU encoding format enabled"),
         };
 
         Ok(result)
@@ -68,11 +80,18 @@ impl ProtocolMessageFormat {
         data: &ProtocolMessage,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         match self {
+            #[cfg(feature = "format-cbor")]
+            Self::CBOR => {
+                data.serialize(
+                    &mut serde_cbor::Serializer::new(&mut serde_cbor::ser::IoWrite::new(writer))
+                        .packed_format(),
+                )?;
+            }
             #[cfg(feature = "format-json")]
             Self::Json => serde_json::to_writer(writer, data)?,
             #[cfg(feature = "format-mp")]
             Self::MessagePack => data.serialize(&mut rmp_serde::Serializer::new(writer))?,
-            Self::None => panic!("No Format enabled"),
+            Self::None => panic!("No PDU encoding format enabled"),
         };
 
         Ok(())

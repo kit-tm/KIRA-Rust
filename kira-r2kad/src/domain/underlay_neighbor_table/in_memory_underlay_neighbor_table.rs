@@ -92,6 +92,10 @@ impl ULNTable for InMemoryULNTable {
 
         result
     }
+
+    fn size(&self) -> usize {
+        self.map.len()
+    }
 }
 
 impl<'a> IntoIterator for &'a InMemoryULNTable {

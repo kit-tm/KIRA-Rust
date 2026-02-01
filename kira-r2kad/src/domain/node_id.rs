@@ -1,14 +1,17 @@
 use rand::Rng;
+use serde;
+use serde::de::{self, Visitor};
 use std::cmp::Ordering;
+use std::fmt;
 use std::fmt::{Debug, Formatter, LowerHex, UpperHex};
 use std::net::Ipv6Addr;
 use std::num::NonZeroU8;
 use std::ops::BitXor;
 use std::str::FromStr;
 
-use derive_more::derive::{Display, Error};
+use derive_more::with_trait::{Display, Error};
 
-/// A NodeId with default SIZE of 112 Bits (14 Byte) as default value as proposed in the design paper.
+/// A NodeId with default SIZE of 112 Bits (14 Byte) as default value as proposed in the Internet-Draft (protocol specification).
 ///
 /// This implementation supports creating NodeIds with a given byte size.
 ///
@@ -16,8 +19,7 @@ use derive_more::derive::{Display, Error};
 /// uses const generics to specify its size instead of using [Vec] (which uses Heap
 /// allocation by default).
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Display, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[display("{self:x}")]
+#[display("{self:028x}")]
 pub struct NodeId {
     node_id: u128,
 }
@@ -47,6 +49,10 @@ impl NodeId {
     /// A [NodeId] with the undefined value.
     pub const UNDEFINED: Self = Self {
         node_id: Self::UNDEFINED_UVAL,
+    };
+
+    pub const ALL_NODES: Self = Self {
+        node_id: Self::ALL_NODES_UVAL,
     };
 
     /// [NodeId] with the numerical value of 1.
@@ -197,6 +203,82 @@ impl NodeId {
         let mut output = [0u8; NodeId::SIZE];
         output.copy_from_slice(&self.node_id.to_be_bytes()[2..]);
         output
+    }
+}
+
+impl serde::Serialize for NodeId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let first_non_zero_byte = self.node_id.leading_zeros() as usize / 8;
+        let slice = &self.node_id.to_be_bytes()[first_non_zero_byte..];
+        serializer.serialize_bytes(slice)
+    }
+}
+
+struct NodeIdVisitor;
+
+impl<'de> Visitor<'de> for NodeIdVisitor {
+    type Value = NodeId;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a NodeId as byte array")
+    }
+
+    // fn visit_u128<E>(self, v: u128) -> Result<Self::Value, E>
+    // where
+    //     E: de::Error, {
+    //     Ok(NodeId { node_id : v })
+    // }
+
+    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        if v.len() <= NodeId::SIZE {
+            let mut output = [0u8; size_of::<u128>()];
+            for (i, b) in v[..v.len()].iter().enumerate() {
+                output[size_of::<u128>() - v.len() + i] = *b;
+            }
+            Ok(NodeId {
+                node_id: u128::from_be_bytes(output),
+            })
+        } else {
+            Err(E::custom(format!(
+                "NodeId longer than {} bytes",
+                NodeId::SIZE
+            )))
+        }
+    }
+
+    fn visit_borrowed_bytes<E>(self, v: &'de [u8]) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        if v.len() <= NodeId::SIZE {
+            let mut output = [0u8; size_of::<u128>()];
+            for (i, b) in v[..v.len()].iter().enumerate() {
+                output[size_of::<u128>() - v.len() + i] = *b;
+            }
+            Ok(NodeId {
+                node_id: u128::from_be_bytes(output),
+            })
+        } else {
+            Err(E::custom(format!(
+                "NodeId longer than {} bytes",
+                NodeId::SIZE
+            )))
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for NodeId {
+    fn deserialize<D>(deserializer: D) -> Result<NodeId, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_bytes(NodeIdVisitor)
     }
 }
 
