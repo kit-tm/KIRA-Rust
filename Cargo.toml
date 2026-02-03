@@ -44,7 +44,7 @@ derive_more = { version = "2.1.1", features = [
 ] }
 # For generic hash function choice
 digest = "0.10.7"
-# Asynchronous abstractiosn
+# Asynchronous abstractions
 futures = "0.3.30"
 # Hexadecimal Output formatting of NodeIDs. Non-Optional as basic functionality for a NodeID.
 hex = "0.4.3"
