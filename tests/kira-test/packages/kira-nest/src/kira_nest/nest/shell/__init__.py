@@ -661,7 +661,7 @@ class DebugShell[T](Cmd):
         )
         return parser
 
-    @with_argparser("_link_parser")
+    @with_argparser("_links_parser")
     def do_links(self, args: argparse.Namespace) -> None:
         node = args.node
 
