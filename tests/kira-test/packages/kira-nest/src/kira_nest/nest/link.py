@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from kira_nest.nest.node import KIRANode
+
 if TYPE_CHECKING:
     from nest.topology import Interface
 
@@ -33,3 +35,12 @@ class KIRALink:
 
     def is_down(self) -> bool:
         return not self._is_up
+
+    def id(self, of: KIRANode) -> str | None:
+        if self._interface_x in of.interfaces:
+            assert self._interface_y.node_id not in of.interfaces
+            return self._interface_x.id
+        elif self._interface_y.node_id in of.interfaces:
+            return self._interface_y.id
+        else:
+            return None

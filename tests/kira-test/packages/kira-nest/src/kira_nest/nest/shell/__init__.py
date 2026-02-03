@@ -693,6 +693,70 @@ class DebugShell[T](Cmd):
         description="List all nodes present in the topology."
     )
 
+    @property
+    def _pcap_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            description="""\
+            Capture packets sent over links of the topology.
+
+            The packets are always captured in the network-namespace of `node_x`.
+            If you omit `node_y` all links of `node_x` will be captured.
+
+            Abort packet capture using `pkill -SIGHUP tcpdump`.
+
+            You should use a named pipe for package capture if you want to
+            watch the packets captured in real-time.
+            You can create a named pipe using `mkfifo` and later watch the
+            captured packets live using `wireshark -k -i <FIFO>`.
+            The capture is aborted as soon as you stop the package capture in
+            Wireshark.
+        """,
+        )
+        parser.add_argument(
+            "node_x",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+        )
+        parser.add_argument(
+            "node_y",
+            nargs="?",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+        )
+        parser.add_argument(
+            "pcap",
+            type=Path,
+        )
+        return parser
+
+    @with_argparser("_pcap_parser")
+    def do_pcap(self, args: argparse.Namespace) -> None:
+        node_x: KIRANode = args.node_x
+        node_y = args.node_y
+        output_file = args.pcap
+
+        x_tid = self.test.topology.tid(node_x)
+        if node_y is not None:
+            y_tid = self.test.topology.tid(node_y)
+            assert y_tid is not None
+            ys_tid = [y_tid]
+        else:
+            # capture all links of x
+            ys_tid = [y_tid for y_tid, _ in self.test.topology.links[x_tid, ...]]
+
+        interfaces_str = ""
+        for y_tid in ys_tid:
+            node_y = self.test.topology.nodes[y_tid]
+            link = self.test.topology.links[x_tid, y_tid]
+            assert isinstance(link, KIRALink)
+            interface = link.id(node_x)
+            if interface is None:
+                print(f"Can't determine interface of {node_x} to {node_y}")
+            else:
+                interfaces_str += f"-i {interface} "
+        node_x.exec(f"tcpdump {interfaces_str} -w {output_file}")
+
     @with_argparser(_nodes_parser)
     def do_nodes(self, args: argparse.Namespace) -> None:
         _ = args
