@@ -27,7 +27,7 @@ use crate::tables::{
 use crate::underlay::{UnderlayInformationProvider, UnderlayNeighborInformation};
 use kira_r2kad::domain::UnderlayNeighborUpdate;
 
-/// Native linux [ForwardingTables] implementation backed by nftables and linux routing tables.
+/// Native linux [AsyncForwardingTables] implementation backed by nftables and linux routing tables.
 ///
 /// Also logs every change to the forwarding tables with log target `native_fwd_table`.
 #[derive(Debug)]
@@ -180,7 +180,7 @@ where
                     self.netlink
                         .replace_via_route(out_path_id, &next_hop)
                         .await
-                        .unwrap();
+                        .unwrap_or_else(|err|{log::error!(target: "native_fwd_table", "Failed to replace route to {:?} via {:?} error={}", &out_path_id, &next_hop, err)});
                 }
             }
         }

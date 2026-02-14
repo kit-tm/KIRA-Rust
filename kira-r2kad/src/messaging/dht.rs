@@ -1,12 +1,11 @@
 //! Data types for messages used to interact with the distributed hash table.
 
+use crate::domain::NodeId;
 use std::fmt::Debug;
 use std::sync::Arc;
-use crate::domain::NodeId;
 
 pub type DefaultLHTInput = Arc<[u8]>;
 pub type DefaultLHTOutput = Vec<Arc<[u8]>>;
-
 
 /// Data struct representing a StoreReq protocol message.
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -33,14 +32,11 @@ pub enum StoreOK {
     Updated,
 }
 
-
 /// A [StoreErr] should never be returned under the current implementation,
 /// since all store requests should succeed.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub enum StoreErr {
-}
-
+pub enum StoreErr {}
 
 /// The result returned by the store response.
 ///
@@ -55,7 +51,6 @@ pub struct StoreRspData {
     pub status: StoreResult,
 }
 
-
 /// Data struct representing a FetchReq protocol message.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -64,7 +59,7 @@ pub struct FetchReqData {
     pub handle: NodeId,
 }
 
-/// Errors that may occur on a [FetchReq] protocol message.
+/// Errors that may occur on a FetchReq protocol message.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum FetchErr {

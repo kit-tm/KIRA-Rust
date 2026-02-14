@@ -31,20 +31,18 @@ impl PathId {
         path: I,
     ) -> Self {
         for id in path {
-            let id_in_bytes : [u8;NodeId::SIZE] = id.to_be_bytes();
-            hasher.update(&id_in_bytes);
+            let id_in_bytes: [u8; NodeId::SIZE] = id.to_be_bytes();
+            hasher.update(id_in_bytes);
         }
         Self::from(hasher.finalize().to_vec())
     }
-}
 
-impl PathId {
     pub fn from_sha1<'a, I: IntoIterator<Item = &'a NodeId>>(path: I) -> Self {
         if tracing::enabled!(target: "path_id", Level::TRACE) {
             let path = path.into_iter().collect::<Vec<_>>();
             let path_str = format!("{path:?}");
             let result = Self::from_digest(sha1::Sha1::new(), path);
-            tracing::trace!(target: "path_id", path=path_str, path_id=format!("{:X}",result), "Calulated path_id");
+            tracing::trace!(target: "path_id", path=path_str, path_id=format!("{:X}",result), "Calculated path_id");
             result
         } else {
             Self::from_digest(sha1::Sha1::new(), path)
@@ -81,8 +79,8 @@ impl AsRef<[u8]> for PathId {
 impl From<&PathId> for Ipv6Addr {
     fn from(value: &PathId) -> Self {
         let mut bytes = [0; 16];
-        bytes[0] = 0xfc;
-        bytes[1] = 0xaa;
+        bytes[0] = 0xfc; // TODO prefix must be configurable
+        bytes[1] = 0xaa; // TODO prefix must be configurable
         bytes[2..16].copy_from_slice(&value.bytes[0..14]);
         Ipv6Addr::from(bytes)
     }
@@ -94,6 +92,16 @@ impl FromStr for PathId {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let bytes = hex::decode(s)?;
         Ok(Self { bytes })
+    }
+}
+
+impl std::ops::BitXor<&NodeId> for PathId {
+    type Output = NodeId;
+
+    fn bitxor(self, other: &NodeId) -> NodeId {
+        let mut tmp_bytes = [0u8; NodeId::SIZE];
+        tmp_bytes.copy_from_slice(&self.bytes[..NodeId::SIZE]);
+        NodeId::from(tmp_bytes) ^ *other
     }
 }
 

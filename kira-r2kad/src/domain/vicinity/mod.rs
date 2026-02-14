@@ -20,5 +20,5 @@ pub use vicinity_graph::VicinityGraph;
 /// [kira_vg]: https://www.ietf.org/archive/id/draft-bless-rtgwg-kira-03.html#section-3.4-3
 /// [^uln]: Underlay neighbors are _always_ included in the Routing Table.
 /// [^contacts]: Even if they are not Contacts in the Routing Table. Therefor nodes in the vicinity
-/// need to be kept in a separat data structure called *Vicinity Graph*.
+/// need to be kept in a separate data structure called *Vicinity Graph*.
 pub const VICINITY_RADIUS: usize = 3;

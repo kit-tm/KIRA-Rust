@@ -1,0 +1,223 @@
+.rust_paths: &rust_paths
+  - "**/*.rs"
+  - "**/Cargo.toml"
+  - "**/Cargo.lock"
+
+# common rust job
+.rust-defaults:
+  image: rust:alpine # more nimble than rust:latest
+  before_script:
+    - apk add --no-cache musl-dev git # necessary for building and downloading dependencies
+  interruptible: true
+
+  variables:
+    CARGO_HOME: $CI_PROJECT_DIR/.cargo_home # move to cacheable directory
+  cache: &cargo_cache
+    key:
+      files: # fresh cache on dependency-changes (don't cache unused dependencies)
+        - Cargo.toml
+        - Cargo.lock
+      prefix: cargo_cache
+    paths:
+      - target/ # build artifacts
+      - "$CI_PROJECT_DIR/.cargo_home/.crates.toml"
+      - "$CI_PROJECT_DIR/.cargo_home/.crates2.json"
+      - "$CI_PROJECT_DIR/.cargo_home/bin/"
+      - "$CI_PROJECT_DIR/.cargo_home/registry/index/"
+      - "$CI_PROJECT_DIR/.cargo_home/registry/cache/"
+      - "$CI_PROJECT_DIR/.cargo_home/git/db/"
+      - "$CI_PROJECT_DIR/.cargo_home/advisory-dbs"
+    policy: pull # only update cache by specific jobs
+
+# rust job that is run if rust code changed by a merge request
+.rust-ci-rules:
+  extends: .semver_release_rule
+  rules:
+    - !reference [.semver_release_rule, rules] # merge rules
+    # always run on main
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: always
+    # only run manually on Draft-MR
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TITLE =~ /^Draft:/
+      when: manual
+      allow_failure: true
+    # run on MR
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: *rust_paths
+    # run on commit tags
+    - if: $CI_COMMIT_TAG
+      changes:
+        paths: *rust_paths
+        compare_to: $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "web"
+
+
+
+# =============================================== #
+#               RUST-JOBS                         #
+# =============================================== #
+
+rustfmt:
+  stage: lint
+  extends:
+    - .rust-defaults
+    - .rust-ci-rules
+  cache: [] # no cache needed for simple formatting
+
+  before_script:
+    - rustup component add rustfmt
+  script:
+    - cargo fmt --all --check
+
+rustdoc:
+  stage: lint
+  extends:
+    - .rust-defaults
+    - .rust-ci-rules
+
+  script:
+    - cargo doc --workspace --no-deps
+
+  variables:
+    RUSTDOCFLAGS: "-Dwarnings" # fail on warnings like failed links
+
+
+rust-checks:
+  stage: check
+  extends:
+    - .rust-defaults
+    - .rust-ci-rules
+
+  cache:
+    <<: *cargo_cache
+    policy: pull-push
+
+  # fail-fast if packages can't be compiled
+  script:
+    - cargo check --workspace --all-targets --all-features
+
+clippy:
+  stage: check
+  extends:
+    - .rust-defaults
+    - .rust-ci-rules
+
+  needs:
+    - job: rust-checks # running if cargo check fails doesn't make sense
+      optional: true
+  before_script:
+    - rustup component add clippy
+  script:
+    - cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+
+rust-tests:
+  stage: test
+  extends:
+    - .rust-defaults
+    - .rust-ci-rules
+
+  cache:
+    <<: *cargo_cache
+    policy: pull-push
+
+  before_script:
+    - apk add --no-cache musl-dev git
+    - cargo install cargo-nextest --locked
+  script:
+    - cargo nextest run --workspace --all-features --all-targets
+
+# doctests unsupported in nextest (https://github.com/nextest-rs/nextest/issues/16)
+rust-doctests:
+  stage: test
+  extends:
+    - .rust-defaults
+    - .rust-ci-rules
+
+  cache:
+    <<: *cargo_cache
+    policy: pull-push
+  needs:
+    - job: rust-tests # ensure cache propagation
+      optional: true
+
+  script:
+    - cargo test --workspace --all-features --doc
+
+
+build-kirad:
+  stage: build
+  extends:
+    - .rust-defaults
+    - .rust-ci-rules
+
+  cache:
+    <<: *cargo_cache
+    policy: pull-push
+
+  script:
+    - cargo build --package kirad
+
+build-kirad-release:
+  image: rust:alpine
+  stage: build
+  extends:
+    - .rust-defaults
+    - .semver_release_rule
+    - .force_release_build_artifacts
+
+  before_script:
+    - apk add --no-cache musl-dev git tar
+    - rustup target add $TARGET_TRIPLE
+  script:
+    - cargo build --release --package kirad --target $TARGET_TRIPLE
+    - tar -czvf kirad-$TARGET_TRIPLE.tar.gz LICENSE -C target/$TARGET_TRIPLE/release kirad
+
+  parallel:
+    matrix:
+      - TARGET_TRIPLE:
+        - x86_64-unknown-linux-musl
+        # TODO: support cross-compilation for aarch64-unknown-linux-musl
+
+  artifacts:
+    paths:
+      - kirad-$TARGET_TRIPLE.tar.gz
+    expire_in: 1 day
+
+build-rustdoc:
+  stage: build
+  extends:
+    - .rust-defaults
+    - .semver_release_rule
+    - .force_release_build_artifacts
+
+  script:
+    - cargo doc --workspace --no-deps
+    - mkdir -p doc
+    - mv target/doc doc/rustdoc
+
+  artifacts:
+    paths:
+      - doc/rustdoc
+    expire_in: 1 day
+
+
+rust-audit:
+  stage: security
+  extends:
+    - .rust-defaults
+    - .rust-ci-rules
+
+  before_script:
+    - apk add --no-cache musl-dev git
+    - cargo install cargo-audit --locked
+  script:
+    - cargo audit
+
+  rules:
+    - !reference [.rust-ci-rules, rules] # merge rules
+    - if: $CI_PIPELINE_SOURCE == "schedule" # scheduled nightly runs
+
+  cache:
+    <<: *cargo_cache
+    policy: pull-push

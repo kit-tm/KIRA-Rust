@@ -10,7 +10,7 @@ pub mod observable_underlay_neighbor_table;
 ///
 /// ## Invariants
 ///
-/// * The output of [`state_seq_nr`][Self::state_seq_nr] should change every time the [ULNTable] is mutated.
+/// * The output of [`state_seq_nr`][Self::state_seq_nr] should change every time the [ULNTable] is changed.
 pub trait ULNTable {
     /// Adds a Mapping to the table returning the [UnderlayNeighborId] previously mapped to the [NodeId].
     fn insert(&mut self, id: NodeId, ulnid: UnderlayNeighborId) -> Option<UnderlayNeighborId>;
@@ -36,7 +36,7 @@ mod tests {
     use super::*;
 
     pub fn ssn_on_insert<P: ULNTable>(mut table: P) {
-        let id = NodeId::zero();
+        let id = NodeId::ZERO;
         let neighbor = {
             let interface_id = InterfaceId::try_from(42).unwrap();
             let conn_id = ConnectionId::from(42);
@@ -58,7 +58,7 @@ mod tests {
     }
 
     pub fn ssn_on_remove<P: ULNTable>(mut table: P) {
-        let id = NodeId::zero();
+        let id = NodeId::ZERO;
         let neighbor = {
             let interface_id = InterfaceId::try_from(42).unwrap();
             let conn_id = ConnectionId::from(42);
@@ -82,7 +82,7 @@ mod tests {
     }
 
     pub fn ssn_on_fake_remove<P: ULNTable>(mut table: P) {
-        let id = NodeId::zero();
+        let id = NodeId::ZERO;
 
         let before_ssn = *table.state_seq_nr();
         table.remove(&id);

@@ -57,6 +57,10 @@ impl Link {
     pub fn second(&self) -> &NodeId {
         &self.1
     }
+
+    pub fn contains(&self, node_id: &NodeId) -> bool {
+        self.0 == *node_id || self.1 == *node_id
+    }
 }
 
 impl From<(NodeId, NodeId)> for Link {

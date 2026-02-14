@@ -1,7 +1,9 @@
 use derive_more::{Display, Error};
 use std::{num::NonZeroU8, ops::DerefMut};
 
-use crate::domain::{Bucket, Contact, GroupingError, NodeId, ReplacementError, SharedPrefix};
+use crate::domain::{
+    Bucket, Contact, GroupingError, Hasher, NodeId, ReplacementError, SharedPrefix,
+};
 
 pub mod flat_routing_table;
 pub mod observable_routing_table;
@@ -52,12 +54,12 @@ impl From<BucketSplitError> for InsertionError {
 /// # Underlay Neighbors
 ///
 /// As some RoutingTable implementation may handle underlay neighbors in a different way
-/// the caller has to be careful when using [RoutingTable::bucket] and [RoutingTable::bucket_mut].
-/// In structures like
-/// [UnlimitedULNRoutingTable](crate::domain::routing_table::unlimited_uln_routing_table::UnlimitedULNRoutingTable) the Neighbors
-/// may not be included in the buckets.
+/// the caller has to be careful when using [RoutingTable::bucket].
+/// In structures like [UnlimitedULNRoutingTable] the Neighbors may not be included in the buckets.
 ///
 /// As mostly accessing the buckets directly only happens if Insertion fails, this will ne problem.
+///
+///[UnlimitedULNRoutingTable]: crate::domain::routing_table::unlimited_uln_routing_table::UnlimitedULNRoutingTable
 pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// Possible Write Guard for a mutable contact reference.
     ///
@@ -260,4 +262,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
 
     /// Iterator over all [Bucket]s in the [RoutingTable]
     fn bucket_iter(&'a self) -> Self::BucketIter;
+
+    // a hash function used to hash paths into PathIDs
+    fn path_hasher(&self) -> Hasher;
 }

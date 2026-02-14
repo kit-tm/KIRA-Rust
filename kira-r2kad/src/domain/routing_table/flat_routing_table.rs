@@ -6,7 +6,8 @@ use rand::Rng;
 
 use crate::domain::{
     AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, ContactState,
-    DEFAULT_BUCKET_SIZE, GroupingError, NodeId, ReplacementError, RoutingTable, SharedPrefix,
+    DEFAULT_BUCKET_SIZE, GroupingError, Hasher, NodeId, ReplacementError, RoutingTable,
+    SharedPrefix,
 };
 
 pub const DEFAULT_ACCELERATION: u8 = 1;
@@ -360,7 +361,12 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
             return self.num_buckets() - 1; // Always at least one bucket present
         };
 
-        debug_assert!(bit_index + Self::non_zero_acc().get() <= NodeId::BITS, "bit_index {}, acc: {}", bit_index, Self::non_zero_acc().get());
+        debug_assert!(
+            bit_index + Self::non_zero_acc().get() <= NodeId::BITS,
+            "bit_index {}, acc: {}",
+            bit_index,
+            Self::non_zero_acc().get()
+        );
         // Example: digit = 01
         let digit = delta.bits(bit_index, Self::non_zero_acc()).unwrap() as usize;
         debug_assert_ne!(
@@ -394,6 +400,10 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
     fn get_bucket_prefix_length(&self, bucket_index: usize) -> u8 {
         ACC + ACC * ((bucket_index / Self::level_width()) as u8)
     }
+
+    fn path_hasher(&self) -> Hasher {
+        Hasher::default()
+    }
 }
 
 #[cfg(test)]
@@ -406,10 +416,10 @@ mod routing_tests {
 
     #[test]
     fn test_add() -> Result<(), Box<dyn Error>> {
-        let mut table = FlatRoutingTable::<1, 1>::new(NodeId::zero())?;
+        let mut table = FlatRoutingTable::<1, 1>::new(NodeId::ZERO)?;
 
         let contact = Contact::new(
-            Path::from(NodeId::one()),
+            Path::from(NodeId::ONE),
             SafeStateSeqNr::try_from(2).unwrap(),
         );
 
@@ -420,7 +430,7 @@ mod routing_tests {
 
     #[test]
     fn test_add_full() -> Result<(), Box<dyn Error>> {
-        let mut table = FlatRoutingTable::<1, 1>::new(NodeId::zero())?;
+        let mut table = FlatRoutingTable::<1, 1>::new(NodeId::ZERO)?;
 
         table.add(Contact::new(
             Path::from(NodeId::with_lsb(1)),
@@ -442,23 +452,23 @@ mod routing_tests {
     fn test_split() -> Result<(), Box<dyn Error>> {
         // Split should move contacts accordingly and bucket_index should change
 
-        let mut table = FlatRoutingTable::<1, 1>::new(NodeId::zero())?;
+        let mut table = FlatRoutingTable::<1, 1>::new(NodeId::ZERO)?;
 
         table.add(Contact::new(
-            Path::from(NodeId::one()),
+            Path::from(NodeId::ONE),
             SafeStateSeqNr::try_from(1).unwrap(),
         ))?;
 
-        assert_eq!(table.split_bucket(&NodeId::one()), Ok(0));
+        assert_eq!(table.split_bucket(&NodeId::ONE), Ok(0));
 
-        assert_eq!(table.get_bucket_index(&NodeId::one()), 1);
+        assert_eq!(table.get_bucket_index(&NodeId::ONE), 1);
 
         Ok(())
     }
 
     #[test]
     fn test_insert_to_max_buckets() -> Result<(), Box<dyn Error>> {
-        let mut table = FlatRoutingTable::<1, 1>::new(NodeId::zero())?;
+        let mut table = FlatRoutingTable::<1, 1>::new(NodeId::ZERO)?;
 
         table.insert(Contact::new(
             Path::from(NodeId::with_lsb(0b00000001)),
@@ -495,7 +505,7 @@ mod routing_tests {
 
     #[test]
     fn test_split_acc() -> Result<(), Box<dyn Error>> {
-        let mut table = FlatRoutingTable::<2, 2>::new(NodeId::zero())?;
+        let mut table = FlatRoutingTable::<2, 2>::new(NodeId::ZERO)?;
 
         table.add(Contact::new(
             Path::from(NodeId::with_lsb(0b00000001)),

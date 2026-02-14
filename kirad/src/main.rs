@@ -123,7 +123,7 @@ async fn main() {
                     .flatten_event(true)
                     .boxed()
             } else {
-                tracing_subscriber::fmt::layer().compact().boxed()
+                tracing_subscriber::fmt::layer().pretty().boxed()
             }
             .with_filter(env_filter),
         );

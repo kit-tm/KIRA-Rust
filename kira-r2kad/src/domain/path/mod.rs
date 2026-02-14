@@ -8,9 +8,9 @@ use super::Link;
 
 pub mod cycle_remover;
 pub mod in_order_cycle_remover;
+pub mod pathcollection;
 pub mod shortest_first_path_simplifier;
 pub mod simplifier;
-pub mod pathcollection;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -18,9 +18,8 @@ pub enum PathState {
     Undefined, // initial state, path state not yet defined
     Valid,     // path is valid (has been validated)
     Checking,  // path probably usable, but needs to be validated (e.g., for a proposed path)
-    Invalid    // path invalid (contains broken links)
+    Invalid,   // path invalid (contains broken links)
 }
-
 
 impl Default for PathState {
     fn default() -> Self {
@@ -45,7 +44,6 @@ pub struct Path {
     path_state: PathState,
 }
 
-
 /// Converts a Vector of [NodeId]s to a Path.
 ///
 /// It may be advised to shrink the [Vec] to its length
@@ -58,7 +56,10 @@ impl TryFrom<Vec<NodeId>> for Path {
             return Err(EmptyPathError);
         }
 
-        Ok(Self { ids: value, path_state: Default::default() })
+        Ok(Self {
+            ids: value,
+            path_state: Default::default(),
+        })
     }
 }
 
@@ -95,8 +96,9 @@ impl<const PATH_SIZE: usize> From<[NodeId; PATH_SIZE]> for Path {
 
 impl From<NodeId> for Path {
     fn from(raw: NodeId) -> Self {
-        Self { ids: vec![raw],
-               path_state: Default::default(),
+        Self {
+            ids: vec![raw],
+            path_state: Default::default(),
         }
     }
 }
@@ -115,8 +117,10 @@ impl FromIterator<NodeId> for Result<Path, EmptyPathError> {
             return Err(EmptyPathError);
         }
 
-        Ok(Path { ids: vec,
-                  path_state: Default::default(), })
+        Ok(Path {
+            ids: vec,
+            path_state: Default::default(),
+        })
     }
 }
 
@@ -142,7 +146,8 @@ impl Path {
             .iter()
             .zip(self.ids.iter().skip(1))
             .any(|(first, second)| {
-                (first == link.first() && second == link.second()) || (first == link.second() && second == link.first())
+                (first == link.first() && second == link.second())
+                    || (first == link.second() && second == link.first())
             })
     }
     /// Returns the first entry in the [Path].
@@ -224,8 +229,7 @@ impl Path {
     pub fn set_state(&mut self, new_state: PathState) {
         if new_state == PathState::Undefined {
             panic!("Path State MUST never be set to Undefined");
-        }
-        else {
+        } else {
             self.path_state = new_state;
         }
     }
@@ -308,13 +312,7 @@ mod tests {
             NodeId::from(2u128),
         ]);
 
-        assert_eq!(
-            &indexed[1..],
-            [
-                NodeId::from(1u128),
-                NodeId::from(2u128)
-            ]
-        );
+        assert_eq!(&indexed[1..], [NodeId::from(1u128), NodeId::from(2u128)]);
         assert_eq!(
             &indexed[..],
             [
@@ -397,10 +395,7 @@ mod tests {
 
         assert_eq!(
             path,
-            Path::from([
-                NodeId::from(1u128),
-                NodeId::from(5u128),
-            ])
+            Path::from([NodeId::from(1u128), NodeId::from(5u128),])
         );
     }
 
@@ -415,7 +410,7 @@ mod tests {
             NodeId::from(6u128),
         ]);
 
-        path.replace_interval(1, 3, [NodeId::zero(), NodeId::one()]);
+        path.replace_interval(1, 3, [NodeId::ZERO, NodeId::ONE]);
 
         assert_eq!(
             path,
@@ -440,7 +435,7 @@ mod tests {
             NodeId::from(6u128),
         ]);
 
-        path.replace_interval(0, 3, [NodeId::zero(), NodeId::one()]);
+        path.replace_interval(0, 3, [NodeId::ZERO, NodeId::ONE]);
 
         assert_eq!(
             path,
@@ -464,7 +459,7 @@ mod tests {
             NodeId::from(6u128),
         ]);
 
-        path.replace_interval(3, 5, [NodeId::zero(), NodeId::one()]);
+        path.replace_interval(3, 5, [NodeId::ZERO, NodeId::ONE]);
 
         assert_eq!(
             path,

@@ -69,7 +69,7 @@ pub trait AsyncForwardingTables: AsyncNodeIdTable + AsyncPathIdTable {}
 ///
 /// # Note
 ///
-/// The result of [NodeIdTable::remove] and [PathIdTable::remove] are ignored.
+/// The result of [AsyncNodeIdTable::remove] and [AsyncPathIdTable::remove] are ignored.
 pub async fn handle_r2kad_request<FT, E>(
     tables: &mut FT,
     req: r2kad::ForwardingTablesUpdate,

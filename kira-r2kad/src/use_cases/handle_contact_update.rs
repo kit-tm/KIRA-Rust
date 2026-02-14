@@ -8,7 +8,7 @@ use crate::domain::{
     Contact, ContactState, NodeId, NotVia, RoutingTable, ULNTable, UnderlayNeighborId,
 };
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{RouteUpdate, UpdateRouteReq};
+use crate::messaging::{RouteUpdateActionType, UpdateRouteReq};
 use crate::use_cases::{
     ContactEvent, EventHandler, NeverError, UseCaseContext, UseCaseEvent, UseCaseRuntime,
 };
@@ -69,7 +69,7 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
-    fn send_update(&self, context: &C, updates: HashMap<Contact, RouteUpdate>) {
+    fn send_update(&self, context: &C, updates: HashMap<Contact, RouteUpdateActionType>) {
         let overlay_neighbors = context
             .routing_table()
             .closest(
@@ -134,7 +134,7 @@ where
                 // this doesn't happen in reality since we use the UnlimitedULNRoutingTable
                 if contact.is_uln() {
                     let mut updates = HashMap::new();
-                    updates.insert(contact.clone(), RouteUpdate::Removed);
+                    updates.insert(contact.clone(), RouteUpdateActionType::WithDraw);
 
                     log::trace!(target: "handle_contact_update", "Sending update concerning removal of underlay neighbor {}", contact.id());
                     self.send_update(context, updates);
@@ -154,7 +154,11 @@ where
             }
             UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {
                 let mut updates = HashMap::new();
-                updates.insert(new.clone(), RouteUpdate::Updated);
+                if new.state() == &ContactState::Valid {
+                    updates.insert(new.clone(), RouteUpdateActionType::Change);
+                } else {
+                    updates.insert(new.clone(), RouteUpdateActionType::Unreachable);
+                }
 
                 // this should be fine, since we only update contacts if interesting anyways
                 self.send_update(context, updates);
@@ -166,7 +170,7 @@ where
             UseCaseEvent::Contact(ContactEvent::New(new)) => {
                 // always send an update if a new contact was found
                 let mut updates = HashMap::new();
-                updates.insert(new.clone(), RouteUpdate::Updated);
+                updates.insert(new.clone(), RouteUpdateActionType::Announce);
 
                 log::trace!(target: "handle_contact_update", "New contact {} found. Sending update.", new.id());
                 self.send_update(context, updates);

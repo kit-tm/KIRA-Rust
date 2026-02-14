@@ -7,7 +7,7 @@ use derive_more::derive::Display;
 
 use crate::domain::unlimited_uln_routing_table::UnlimitedULNRoutingTable;
 use crate::domain::{
-    AddError, Bucket, BucketSplitError, Contact, FlatRoutingTable, GroupingError, NodeId,
+    AddError, Bucket, BucketSplitError, Contact, FlatRoutingTable, GroupingError, Hasher, NodeId,
     ReplacementError, RoutingTable, SharedPrefix,
 };
 
@@ -65,7 +65,7 @@ pub enum RoutingTableEvent<const BUCKET_SIZE: usize> {
 /// # use kira_r2kad::domain::{Bucket, Contact, FlatRoutingTable, Path, RoutingTable,
 /// # SafeStateSeqNr, NodeId};
 /// # use kira_r2kad::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
-/// let mut observable_rt = ObservableRoutingTable::from(FlatRoutingTable::default(NodeId::zero()));
+/// let mut observable_rt = ObservableRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
 ///
 /// // A simple debug logger
 /// observable_rt.add_observer(|event| println!("{:?}", event));
@@ -98,13 +98,12 @@ fn notify_all<const BUCKET_SIZE: usize>(
     event: RoutingTableEvent<BUCKET_SIZE>,
 ) {
     // Skip update events that only update the age
-    if let RoutingTableEvent::UpdatedContact { old, new } = &event {
-        if old.path() == new.path()
-            && old.state_seq_nr() == new.state_seq_nr()
-            && old.state() == new.state()
-        {
-            return;
-        }
+    if let RoutingTableEvent::UpdatedContact { old, new } = &event
+        && old.path() == new.path()
+        && old.state_seq_nr() == new.state_seq_nr()
+        && old.state() == new.state()
+    {
+        return;
     }
 
     for observable in observers {
@@ -112,7 +111,7 @@ fn notify_all<const BUCKET_SIZE: usize>(
     }
 }
 
-/// An type which implements [RoutingTable] but doesn't support observability.
+/// A type which implements [RoutingTable] but doesn't support observability.
 ///
 /// Marker trait for implementations of [RoutingTable] which don't implement
 /// an observable pattern and can be wrapped by [ObservableRoutingTable].
@@ -283,6 +282,10 @@ where
     fn get_bucket_prefix_length(&self, bucket_index: usize) -> u8 {
         self.inner.get_bucket_prefix_length(bucket_index)
     }
+
+    fn path_hasher(&self) -> Hasher {
+        Hasher::default()
+    }
 }
 
 // Not using "NonObservableRoutingTable" Trait as rust emits recursion error (maybe a rust bug?)
@@ -390,7 +393,7 @@ mod tests {
             SafeStateSeqNr::try_from(2).unwrap(),
         );
 
-        let mut observable = ObservableRoutingTable::from(SingleBucketRT::<10>::new(NodeId::one()));
+        let mut observable = ObservableRoutingTable::from(SingleBucketRT::<10>::new(NodeId::ONE));
 
         let events = Arc::new(RwLock::new(vec![]));
 
@@ -412,7 +415,7 @@ mod tests {
             SafeStateSeqNr::try_from(2).unwrap(),
         );
 
-        let mut rt = SingleBucketRT::<10>::new(NodeId::one());
+        let mut rt = SingleBucketRT::<10>::new(NodeId::ONE);
         assert!(rt.add(contact.clone()).is_ok());
 
         let mut observable = ObservableRoutingTable::from(rt);
@@ -434,7 +437,7 @@ mod tests {
             SafeStateSeqNr::try_from(2).unwrap(),
         );
 
-        let mut rt = SingleBucketRT::<10>::new(NodeId::one());
+        let mut rt = SingleBucketRT::<10>::new(NodeId::ONE);
         assert!(rt.add(contact.clone()).is_ok());
 
         let mut observable = ObservableRoutingTable::from(rt);
@@ -466,7 +469,7 @@ mod tests {
             SafeStateSeqNr::try_from(2).unwrap(),
         );
 
-        let mut rt = SingleBucketRT::<10>::new(NodeId::one());
+        let mut rt = SingleBucketRT::<10>::new(NodeId::ONE);
         assert!(rt.add(contact.clone()).is_ok());
 
         let mut observable = ObservableRoutingTable::from(rt);

@@ -16,7 +16,6 @@ pub trait InsertionStrategy {
     /// Status if the insertion succeeded
     type Status;
 
-
     /// Inserts the provided data into the composite object.
     ///
     /// # Parameters
@@ -28,5 +27,10 @@ pub trait InsertionStrategy {
     /// # Returns
     ///
     /// Returns the status of the insertion operation.
-    fn insert(&self, handle: Self::Handle, data: Self::InputData, into: &mut Self::Composite) -> Self::Status;
+    fn insert(
+        &self,
+        handle: Self::Handle,
+        data: Self::InputData,
+        into: &mut Self::Composite,
+    ) -> Self::Status;
 }

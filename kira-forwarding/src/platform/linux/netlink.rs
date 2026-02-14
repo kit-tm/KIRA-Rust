@@ -89,8 +89,10 @@ impl ForwardingRtNetlink {
     /// Encapsulates packets with a destination ip of `node_id`
     /// using the encapsulation device `kira` and sets the new outer destination to `path_id`.
     ///
-    /// This rule is used for realizing an [Encapsulate NodeIdEntry](crate::tables::NodeIdEntry::Encapsulate).
+    /// This rule is used for realizing an [NodeIdEncapsulationEntry].
     /// An existing rule is overwritten.
+    ///
+    /// [NodeIdEncapsulationEntry]: crate::domain::NodeIdEncapsulationEntry
     #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink", skip_all, fields(%node_id, out_path_id=%path_id))]
     pub async fn replace_encap_route(
         &mut self,
@@ -198,10 +200,11 @@ impl ForwardingRtNetlink {
     ///
     /// This rule is used to determine to which underlay neighbor (`next_hop_ip`)
     /// a packet with a given [PathId] is forwarded.
-    /// This rule is used in combination with a [forwarding_rule](add_forwarding_rule)
-    /// to realize A [Forward PathIdEntry](crate::tables::PathIdEntry::Forward).
+    /// This rule is used in combination with a [forwarding_rule] to realize A [PathIdForwardingEntry].
     /// An existing rule is overwritten.
-
+    ///
+    /// [PathIdForwardingEntry]: crate::domain::PathIdForwardingEntry
+    /// [forwarding_rule]: crate::platform::add_forwarding_rule
     #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink", skip_all, fields(%path_id, ?next_hop))]
     // TODO: figure out where route should get deleted
     pub async fn replace_via_route(
@@ -242,7 +245,9 @@ impl ForwardingRtNetlink {
 
     /// Forwards packets with destination `ip` to interface with name `interface_name` unchanged.
     ///
-    /// This is used to realize [Forward NodeIdEntry](crate::tables::NodeIdEntry::Forward).
+    /// This is used to realize [NodeIdForwardingEntry].
+    ///
+    /// [NodeIdForwardingEntry]: crate::domain::NodeIdForwardingEntry
     #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink", skip_all, fields(%node_id, interface=%interface_id))]
     pub async fn replace_neighbor_route(
         &mut self,
@@ -283,7 +288,9 @@ impl ForwardingRtNetlink {
         Ok(())
     }
 
-    /// Deletes a [neighbor route](replace_neighbor_route).
+    /// Deletes a [neighbor route].
+    ///
+    /// [neighbor route]: Self::replace_neighbor_route
     #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink", skip_all, fields(%node_id, interface=%interface_id))]
     pub async fn delete_neighbor_route(
         &mut self,
@@ -364,7 +371,7 @@ impl ForwardingRtNetlink {
         Ok(())
     }
 
-    /// Deletes the [`kira` interface](create_kira_interface).
+    /// Deletes the encapsulation interface.
     ///
     /// This method consumes the struct because other methods rely on the interface
     /// to be present.

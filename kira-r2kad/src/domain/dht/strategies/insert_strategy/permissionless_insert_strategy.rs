@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::domain::dht::strategies::insert_strategy::InsertionStrategy;
-use crate::domain::dht::TimedValue;
 use crate::domain::NodeId;
+use crate::domain::dht::TimedValue;
+use crate::domain::dht::strategies::insert_strategy::InsertionStrategy;
 use crate::messaging::dht::{DefaultLHTInput, StoreOK, StoreResult};
 use crate::use_cases::distributed_hash_table::HashTableData;
 
@@ -54,7 +54,7 @@ mod tests {
     fn creation() {
         let strategy = PermissionlessInsertStrategy::default();
         let mut composite = HashMap::new();
-        let handle = NodeId::zero();
+        let handle = NodeId::ZERO;
         let data: DefaultLHTInput = Arc::new([1, 2, 3, 4]);
 
         let result = strategy.insert(handle, data, &mut composite);
@@ -71,7 +71,7 @@ mod tests {
     #[test]
     fn insertion() {
         let strategy = PermissionlessInsertStrategy::default();
-        let handle = NodeId::zero();
+        let handle = NodeId::ZERO;
         let mut composite = HashMap::new();
         let existing_data: DefaultLHTInput = Arc::new([4, 3, 2, 1]);
         let data: DefaultLHTInput = Arc::new([1, 2, 3, 4]);
@@ -92,7 +92,7 @@ mod tests {
     #[test]
     fn update() {
         let strategy = PermissionlessInsertStrategy::default();
-        let handle = NodeId::zero();
+        let handle = NodeId::ZERO;
         let mut composite = HashMap::new();
         let existing_data: DefaultLHTInput = Arc::new([1, 2, 3, 4]);
         let data: DefaultLHTInput = Arc::new([1, 2, 3, 4]);
@@ -110,4 +110,3 @@ mod tests {
         );
     }
 }
-

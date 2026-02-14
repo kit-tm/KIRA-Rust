@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use derive_more::derive::{Display, Error};
 use tokio::sync::mpsc::error::SendError;

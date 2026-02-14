@@ -14,8 +14,8 @@ use kira_r2kad::{context::SyncContext, messaging::HelloMessage};
 #[test_log::test]
 fn hello_response() {
     // important because deterministic_heuristic must be true to respond to Hello
-    let us = NodeId::zero();
-    let neighbor = NodeId::one();
+    let us = NodeId::ZERO;
+    let neighbor = NodeId::ONE;
 
     let neighbor_id = {
         let interface_id = InterfaceId::try_from(1).unwrap();
@@ -30,7 +30,7 @@ fn hello_response() {
     let mut r2kad = R2Kad::<SyncContext<_, _, _, _, _>, 20>::builder()
         .root_id(us)
         .build();
-    r2kad.startup(Instant::now()).expect("successfull startup");
+    r2kad.startup(Instant::now()).expect("successful startup");
 
     // ignore set timers and initial output
     while let Some(_out) = r2kad.poll_output() {}
@@ -110,9 +110,9 @@ fn hello_response() {
 
 #[test]
 fn uln_disc_req_response() {
-    let us = NodeId::one();
+    let us = NodeId::ONE;
 
-    let neighbor = NodeId::zero();
+    let neighbor = NodeId::ZERO;
     let neighbor_id = {
         let interface_id = InterfaceId::try_from(1).unwrap();
         let conn_id = ConnectionId::from(0);
@@ -151,7 +151,7 @@ fn uln_disc_req_response() {
         }
     }
 
-    let discovery_dest = discovery_dest.expect("send UNDiscRsp to neighbor");
+    let discovery_dest = discovery_dest.expect("send ULNDiscRsp to neighbor");
 
     assert!(
         matches!(discovery_dest, UnderlayNeighborDestination::UnderlayNeighbor(neighbor_dest) if neighbor_dest == neighbor_id),

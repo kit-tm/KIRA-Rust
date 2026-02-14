@@ -248,7 +248,7 @@ impl<C: UseCaseContext, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE> {
 }
 
 impl<C: UseCaseContext, const BUCKET_SIZE: usize> R2Kad<C, BUCKET_SIZE> {
-    /// Creates a new [R2Kad] instance with the default [R2KadPipeline] employed.
+    /// Creates a new [R2Kad] instance with the default use-case pipeline employed.
     pub fn new(context: C) -> Self {
         let pipeline = R2KadPipeline::default();
 
@@ -282,7 +282,7 @@ where
     /// Process received [Input] event.
     #[instrument(level = Level::DEBUG, target = "r2kad", skip_all, fields(reason = ?received_event))]
     pub fn handle_input(&mut self, received_event: Input, now: Instant) -> Result<()> {
-        // just to be save we check for due timers
+        // just to be safe we check for due timers
         self.handle_timeout(now)?;
 
         debug_assert_eq!(self.context.runtime().next_event(), None);

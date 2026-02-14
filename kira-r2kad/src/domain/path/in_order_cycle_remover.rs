@@ -1,5 +1,5 @@
-use crate::domain::cycle_remover::PathCycleRemover;
 use crate::domain::Path;
+use crate::domain::cycle_remover::PathCycleRemover;
 
 /// This algorithm iterates the [Path] from first to last [NodeId](crate::domain::node_id::NodeId).
 ///
@@ -129,10 +129,7 @@ mod tests {
 
         assert_eq!(
             path,
-            Path::from([
-                NodeId::from(1u128),
-                NodeId::from(3u128),
-            ])
+            Path::from([NodeId::from(1u128), NodeId::from(3u128),])
         );
     }
 }

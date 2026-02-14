@@ -1,10 +1,10 @@
+use rand::Rng;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter, LowerHex, UpperHex};
 use std::net::Ipv6Addr;
-use std::num::{NonZeroU8};
+use std::num::NonZeroU8;
 use std::ops::BitXor;
 use std::str::FromStr;
-use rand::Rng;
 
 use derive_more::derive::{Display, Error};
 
@@ -15,9 +15,9 @@ use derive_more::derive::{Display, Error};
 /// As all NodeIds have to be of the same size for an application this implementation
 /// uses const generics to specify its size instead of using [Vec] (which uses Heap
 /// allocation by default).
-#[derive(Clone, Copy, Eq, PartialEq, Hash, Display)]
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Display, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[display("{self:X}")]
+#[display("{self:x}")]
 pub struct NodeId {
     node_id: u128,
 }
@@ -36,71 +36,57 @@ impl NodeId {
     /// Length in Characters of the short output format for [NodeId]s.
     /// const SHORT_OUTPUT_LENGTH: usize = 8;
     /// Maximum value and mask to set the highest 16 bit to 0
-    const MAX: u128 = 0x0000ffff_ffffffff_ffffffff_ffffffff;
+    const MAX_UVAL: u128 = 0x0000ffff_ffffffff_ffffffff_ffffffff;
     /// undefined is all zeros
     const UNDEFINED_UVAL: u128 = 0u128;
-    /// undefined is all zeros
-    const ALL_NODES_UVAL: u128 = NodeId::MAX;
+    const ALL_NODES_UVAL: u128 = NodeId::MAX_UVAL;
 
-    /// Creating a [NodeId] with the numerical value of 0.
-    pub const fn zero() -> Self {
-        Self {
-            node_id : 0u128,
-        }
-    }
+    /// A [NodeId] with the numerical value of 0.
+    pub const ZERO: Self = Self { node_id: 0u128 };
 
-    /// Creating a [NodeId] with the undefined value.
-    pub const fn undefined() -> Self {
-        Self {
-            node_id : Self::UNDEFINED_UVAL,
-        }
-    }
+    /// A [NodeId] with the undefined value.
+    pub const UNDEFINED: Self = Self {
+        node_id: Self::UNDEFINED_UVAL,
+    };
 
-    /// Creating a [NodeId] with the numerical value of 1.
+    /// [NodeId] with the numerical value of 1.
+    pub const ONE: Self = Self { node_id: 1u128 };
+
+    /// The maximum representable [NodeId] for the given Byte size.
     ///
-    pub const fn one() -> Self {
-        Self {
-            node_id : 1u128,
-        }
-    }
-
-    /// Returns the maximum representable [NodeId] for the given Byte size.
     /// This is equal to all bits in a [NodeId] == 1.
-    pub const fn max_value() -> Self {
-        Self {
-            node_id : Self::MAX
-        }
-    }
+    pub const MAX: Self = Self {
+        node_id: Self::MAX_UVAL,
+    };
 
-    pub const fn from_const(inner: u128) -> Self
-    {
+    pub const fn from_const(inner: u128) -> Self {
         Self { node_id: inner }
     }
 
     /// Creates a random [NodeId].
-    /// The generated [NodeId] is guaranteed to not be equal to [NodeId::UNDEFINED] or [NodeId::ALL_NODES].
     pub fn random() -> Self {
+        // generated [NodeId] is guaranteed to not be equal to [NodeId::UNDEFINED] or [NodeId::ALL_NODES].
         let mut inner = 0u128;
         let mut myrng = rand::rng();
         while inner == Self::UNDEFINED_UVAL || inner == Self::ALL_NODES_UVAL {
             inner = myrng.random::<u128>();
         }
         Self {
-            node_id : inner & Self::MAX
+            node_id: inner & Self::MAX_UVAL,
         }
     }
 
     /// Creates an all zeroed-out id with the LSB set to the given value.
     pub fn with_lsb(lsb: u8) -> Self {
         Self {
-            node_id : u128::from(lsb),
+            node_id: u128::from(lsb),
         }
     }
 
     /// Creates an all zeroed-out id with the MSB set to the given value.
     pub fn with_msb(msb: u8) -> Self {
         Self {
-            node_id : u128::from(msb) << (NodeId::BITS - 8),
+            node_id: u128::from(msb) << (NodeId::BITS - 8),
         }
     }
 
@@ -117,15 +103,14 @@ impl NodeId {
     }
 
     pub fn leading_zeros(&self) -> u8 {
-        const IGNORE_BITS : u32 = u128::BITS - (NodeId::BITS as u32);
+        const IGNORE_BITS: u32 = u128::BITS - (NodeId::BITS as u32);
         // this is carried out on the full u128!
-        let mut lz =self.node_id.leading_zeros();
+        let mut lz = self.node_id.leading_zeros();
         if lz >= IGNORE_BITS {
             lz -= IGNORE_BITS;
             lz.try_into().unwrap()
-        }
-        else {
-            panic!("NodeId internal error: leading zeros value invalid ({})",lz);
+        } else {
+            panic!("NodeId internal error: leading zeros value invalid ({lz})");
         }
     }
 
@@ -147,7 +132,6 @@ impl NodeId {
         other: &Self,
         bits_per_group: NonZeroU8,
     ) -> Result<SharedPrefix, GroupingError> {
-
         if bits_per_group.get() > Self::BITS {
             return Err(GroupingError::Invalid {
                 group_size: bits_per_group,
@@ -177,12 +161,7 @@ impl NodeId {
         }
 
         let result = self.node_id & (1u128 << bit_index);
-        if result == 0 {
-            Ok(0)
-        }
-        else {
-            Ok(1)
-        }
+        if result == 0 { Ok(0) } else { Ok(1) }
     }
 
     /// Returns a number representing the bits from an inclusive position from LSB to MSB.
@@ -191,14 +170,13 @@ impl NodeId {
         from_bit_index: u8,
         num_bits: NonZeroU8,
     ) -> Result<u128, BitIndexOutOfBounds> {
-
         let num_bits = num_bits.get();
         if from_bit_index + num_bits > Self::BITS {
             return Err(BitIndexOutOfBounds);
         }
 
         // create bit mask with zeros right and left
-        let mut mask = Self::MAX >> from_bit_index;
+        let mut mask = Self::MAX_UVAL >> from_bit_index;
         mask <<= from_bit_index;
         mask <<= u128::BITS - (from_bit_index + num_bits) as u32;
         mask >>= u128::BITS - (from_bit_index + num_bits) as u32;
@@ -208,23 +186,23 @@ impl NodeId {
 
     /// Returns the prefix of the given length with the rest set to 0
     pub fn prefix(&self, prefix_len: u8) -> Self {
-        let mut mask = Self::MAX >> (Self::BITS - prefix_len) as u128;
+        let mut mask = Self::MAX_UVAL >> (Self::BITS - prefix_len) as u128;
         mask <<= (Self::BITS - prefix_len) as u128;
 
         log::trace!(target: "node_id", "prefix with length {} of {:?} is {:?}", prefix_len, self, NodeId { node_id : self.node_id & mask });
 
-        NodeId { node_id : self.node_id & mask }
+        NodeId {
+            node_id: self.node_id & mask,
+        }
     }
 
     // outputs array of bytes in network byte order
-    pub fn to_be_bytes(&self) -> [u8;NodeId::SIZE] {
-        let mut output = [0u8;NodeId::SIZE];
+    pub fn to_be_bytes(&self) -> [u8; NodeId::SIZE] {
+        let mut output = [0u8; NodeId::SIZE];
         output.copy_from_slice(&self.node_id.to_be_bytes()[2..]);
         output
     }
 }
-
-
 
 #[derive(Debug, Eq, PartialEq, Display, Error)]
 #[display("Bit Index out of bounds")]
@@ -246,7 +224,7 @@ impl NodeIdSubnet {
     /// Creates a new [NodeIdSubnet].
     ///
     /// This function return [PrefixLengthError] if the `prefix_length`
-    /// is larger then the [bytes length](SIZE) of a [NodeId].
+    /// is larger then [NodeId::BITS].
     pub fn try_new(node_id: NodeId, prefix_length: u8) -> Result<NodeIdSubnet, PrefixLengthError> {
         if prefix_length <= NodeId::BITS {
             Ok(Self {
@@ -380,10 +358,9 @@ pub enum GroupingError {
 
 impl Default for NodeId {
     fn default() -> Self {
-        Self::undefined()
+        Self::UNDEFINED
     }
 }
-
 
 // ============ Conversions ==================
 
@@ -393,41 +370,34 @@ impl AsRef<u128> for NodeId {
     }
 }
 
-
 // impl AsRef<[u8]> for NodeId {
 //     fn as_ref(&self) -> &[u8] {
 //         self.node_id.to_be_bytes().as_ref()
 //     }
 // }
 
-
 impl From<[u8; NodeId::SIZE]> for NodeId {
     fn from(bytearray: [u8; NodeId::SIZE]) -> Self {
         let mut u = [0u8; 16];
         u[2..].clone_from_slice(&bytearray);
         let v = u128::from_be_bytes(u);
-        Self {
-            node_id : v,
-        }
+        Self { node_id: v }
     }
 }
-
 
 /// convert to NodeId from u128
 /// panics if u128 is longer than Self::BITS
 impl From<u128> for NodeId {
     fn from(id: u128) -> Self {
-        if (!Self::MAX & id) == 0 {
+        if (!Self::MAX_UVAL & id) == 0 {
             Self {
-                node_id : id & Self::MAX
+                node_id: id & Self::MAX_UVAL,
             }
-        }
-        else {
-            panic!("u128 should only contain {} bits",Self::BITS);
+        } else {
+            panic!("u128 should only contain {} bits", Self::BITS);
         }
     }
 }
-
 
 impl From<NodeId> for u128 {
     fn from(id: NodeId) -> Self {
@@ -435,16 +405,15 @@ impl From<NodeId> for u128 {
     }
 }
 
-
-
-
 // ============ Operations ============
 
 impl BitXor for NodeId {
     type Output = NodeId;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
-        NodeId { node_id: self.node_id ^ rhs.node_id }
+        NodeId {
+            node_id: self.node_id ^ rhs.node_id,
+        }
     }
 }
 
@@ -468,43 +437,30 @@ impl FromStr for NodeId {
     }
 }
 
-
-impl PartialOrd for NodeId {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        <u128 as PartialOrd>::partial_cmp(&self.node_id, &other.node_id)
-    }
-}
-
-impl Ord for NodeId {
-    fn cmp(&self, other: &Self) -> Ordering {
-        <u128 as Ord>::cmp(&self.node_id, &other.node_id)
-    }
-}
-
 // ============ Output Formatters ============
 
 impl LowerHex for NodeId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-       <u128 as LowerHex>::fmt(&self.node_id,f)
+        <u128 as LowerHex>::fmt(&self.node_id, f)
     }
 }
 
 impl UpperHex for NodeId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        <u128 as UpperHex>::fmt(&self.node_id,f)
+        <u128 as UpperHex>::fmt(&self.node_id, f)
     }
 }
 
 impl Debug for NodeId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NodeId({self:014x})")
+        write!(f, "NodeId({self:028x})")
     }
 }
 
 impl From<&NodeId> for Ipv6Addr {
     fn from(value: &NodeId) -> Self {
         // FIXME this should use a configurable prefix
-        let addr= 0xfc00_0000_0000_0000_0000_0000_0000_0000 | (value.node_id & NodeId::MAX);
+        let addr = 0xfc00_0000_0000_0000_0000_0000_0000_0000 | (value.node_id & NodeId::MAX_UVAL);
 
         Ipv6Addr::from(addr)
     }
@@ -522,7 +478,7 @@ mod tests {
 
     #[test]
     fn prefix_one() {
-        assert_eq!(NodeId::max_value().prefix(1), NodeId::with_msb(0x80))
+        assert_eq!(NodeId::MAX.prefix(1), NodeId::with_msb(0x80))
     }
 
     #[test]
@@ -532,6 +488,14 @@ mod tests {
         //assert_eq!(id.size(), NodeId::SIZE);
         assert_eq!(format!("{id:028X}"), raw);
         assert_eq!(format!("{id:028x}"), raw.to_lowercase());
+
+        // need to fill in leading zeros
+        let short = "8702fcd81b5d24bace4307bf326";
+        let id = NodeId::from_str(short)?;
+        assert_eq!(format!("{id:028x}"), "08702fcd81b5d24bace4307bf326");
+
+        // test debug format
+        assert_eq!(format!("{id:?}"), "NodeId(08702fcd81b5d24bace4307bf326)");
 
         Ok(())
     }
@@ -547,22 +511,22 @@ mod tests {
 
     #[test]
     fn zero_is_zero() {
-        assert!(NodeId::zero().is_zero());
+        assert!(NodeId::ZERO.is_zero());
     }
 
     #[test]
     fn zero_is_not_one() {
-        assert!(!NodeId::zero().is_one())
+        assert!(!NodeId::ZERO.is_one())
     }
 
     #[test]
     fn one_is_not_zero() {
-        assert!(!NodeId::one().is_zero());
+        assert!(!NodeId::ONE.is_zero());
     }
 
     #[test]
     fn one_is_one() {
-        assert!(NodeId::one().is_one());
+        assert!(NodeId::ONE.is_one());
     }
 
     #[test]
@@ -573,17 +537,17 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected="u128 should only contain 112 bits")]
+    #[should_panic(expected = "u128 should only contain 112 bits")]
     fn from_u128_panics() {
-        let t : u128 = 0x1234_5678_abcd_ef12_3456_7890_abcd_ef01;
+        let t: u128 = 0x1234_5678_abcd_ef12_3456_7890_abcd_ef01;
         let _p = NodeId::from(t);
     }
 
     #[test]
     fn from_u128() {
-        let t : u128 = 0x1234_5678_abcd_ef12_3456_7890_abcd_ef01;
-        let s : u128 = 0x0000_5678_abcd_ef12_3456_7890_abcd_ef01;
-        let n : NodeId = NodeId::from(t & NodeId::MAX);
+        let t: u128 = 0x1234_5678_abcd_ef12_3456_7890_abcd_ef01;
+        let s: u128 = 0x0000_5678_abcd_ef12_3456_7890_abcd_ef01;
+        let n: NodeId = NodeId::from(t & NodeId::MAX_UVAL);
         assert!(u128::from(n) == s);
     }
 
@@ -591,19 +555,16 @@ mod tests {
 
     #[test]
     fn node_id_comparison() {
-        assert_eq!(NodeId::one(), NodeId::one());
-        assert_ne!(NodeId::one(), NodeId::zero());
-        assert_eq!(NodeId::zero(), NodeId::zero());
-        let t : u128 = 0x0000_1234_5678_abcd_ef12_3456_7890_abcd;
+        assert_eq!(NodeId::ONE, NodeId::ONE);
+        assert_ne!(NodeId::ONE, NodeId::ZERO);
+        assert_eq!(NodeId::ZERO, NodeId::ZERO);
+        let t: u128 = 0x0000_1234_5678_abcd_ef12_3456_7890_abcd;
         assert_eq!(
             NodeId::from(t),
             NodeId::from_str("12345678abcdef1234567890abcd").unwrap()
         );
-        let s : u128 = 0x0000_1234_5678_abcd_ef12_3456_0987_dcba;
-        assert_ne!(
-            NodeId::from(t),
-            NodeId::from(s)
-        );
+        let s: u128 = 0x0000_1234_5678_abcd_ef12_3456_0987_dcba;
+        assert_ne!(NodeId::from(t), NodeId::from(s));
     }
 
     // Xor Tests
@@ -611,47 +572,46 @@ mod tests {
     #[test]
     fn node_id_xor_works() {
         assert_eq!(
-            NodeId::from(0x0000_1011_0000_0000_0000_0000_0000_1101u128) ^
-            NodeId::from(0x0000_1011_0000_0000_0000_0000_0000_1101u128),
-            NodeId::zero()
+            NodeId::from(0x0000_1011_0000_0000_0000_0000_0000_1101u128)
+                ^ NodeId::from(0x0000_1011_0000_0000_0000_0000_0000_1101u128),
+            NodeId::ZERO
         );
         assert_eq!(
-            NodeId::from(0x0000_1011_0000_0000_0000_0000_0000_1101u128) ^
-            NodeId::from(0x0000_0100_0000_0000_0000_0000_0000_0010u128),
+            NodeId::from(0x0000_1011_0000_0000_0000_0000_0000_1101u128)
+                ^ NodeId::from(0x0000_0100_0000_0000_0000_0000_0000_0010u128),
             NodeId::from(0x0000_1111_0000_0000_0000_0000_0000_1111u128)
         );
     }
 
     #[test]
     fn prefix_bits_smoke_test() {
-        let zero = NodeId::zero();
+        let zero = NodeId::ZERO;
         let one = NodeId::with_msb(1);
 
         assert_eq!(zero.shared_prefix_bits(&one).bit_len(), 7);
 
-        let zero = NodeId::zero();
-        let one = NodeId::one();
+        let zero = NodeId::ZERO;
+        let one = NodeId::ONE;
 
         assert_eq!(zero.shared_prefix_bits(&one).bit_len(), NodeId::BITS - 1);
 
-        let one = NodeId::one();
+        let one = NodeId::ONE;
         let valid = NodeId::from(0x0000_0001_80FF_0000_0000_0000_0000u128);
 
         assert_eq!(one.shared_prefix_bits(&valid).bit_len(), 31);
 
-        let one = NodeId::one();
+        let one = NodeId::ONE;
         let valid = NodeId::from(0x0000_0000_80FF_0000_0000_0000_0000u128);
 
         assert_eq!(one.shared_prefix_bits(&valid).bit_len(), 32);
-
     }
 
     #[test]
     fn prefix_len_self() {
         assert_eq!(
-            NodeId::zero().shared_prefix_len(&NodeId::zero(), NonZeroU8::MIN),
+            NodeId::ZERO.shared_prefix_len(&NodeId::ZERO, NonZeroU8::MIN),
             Ok(SharedPrefix {
-                xor: NodeId::zero(),
+                xor: NodeId::ZERO,
                 length: NodeId::BITS,
             })
         );
@@ -659,8 +619,8 @@ mod tests {
 
     #[test]
     fn prefix_length_smoke_test() {
-        let zero = NodeId::zero();
-        let one = NodeId::one();
+        let zero = NodeId::ZERO;
+        let one = NodeId::ONE;
 
         assert_eq!(
             zero.shared_prefix_len(&one, NonZeroU8::new(1).unwrap())
@@ -671,8 +631,9 @@ mod tests {
         let first = NodeId::from(0x1234_5678_9a3f_0000_0000_0000_1101u128);
         let secnd = NodeId::from(0x1234_5678_9a4f_0000_0000_0000_1101u128);
         assert_eq!(
-            first.shared_prefix_len(&secnd, NonZeroU8::new(1).unwrap())
-                 .map(SharedPrefix::into_bit_len),
+            first
+                .shared_prefix_len(&secnd, NonZeroU8::new(1).unwrap())
+                .map(SharedPrefix::into_bit_len),
             Ok(41)
         );
 
