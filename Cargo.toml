@@ -20,7 +20,7 @@ authors = [
   "Julius Rüberg <julius.rueberg@student.kit.edu>",
   "Jakob Müllner <uifnz@student.kit.edu>",
   "Paul Seehofer <paul.seehofer@kit.edu>",
-  "Roland Bless <roland.bless@kit.edu>"
+  "Roland Bless <roland.bless@kit.edu>",
 ]
 
 homepage = "https://gitlab.kit.edu/kit/tm/telematics/kira/kira-rust"
@@ -34,8 +34,9 @@ edition = "2024"
 [workspace.dependencies]
 # For Time Computations in general
 chrono = "0.4.38"
+serde_cbor = "0.11.2"
 # Conveniently derive Display
-derive_more = { version = "1.0.0", features = [
+derive_more = { version = "2.1.1", features = [
   "display",
   "from",
   "error",
@@ -50,11 +51,11 @@ hex = "0.4.3"
 # Logging facade supporting many concrete implementations in binaries
 log = "0.4.22"
 # Fetching link status using netlink protocol on Linux
-netlink-packet-core = "0.7.0"
-netlink-packet-route = "0.24.0"
-netlink-packet-utils = "0.5.2"
-netlink-proto = "0.11.5"
-rtnetlink = "0.17.0"
+netlink-packet-core = "0.8.1"
+netlink-packet-route = "0.27.0"
+netlink-packet-utils = "0.6.0"
+netlink-proto = "0.12.0"
+rtnetlink = "0.19.0"
 # Random NodeId generation
 rand = "0.9.2"
 # Rust message pack support for serde

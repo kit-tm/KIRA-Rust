@@ -10,7 +10,7 @@ use crate::domain::{
     GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, UnderlayNeighborSource,
 };
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{Nonce, ProtocolMessage, ReqRspMessage};
+use crate::messaging::{CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage};
 use crate::use_cases::inject_messages::errors::InjectMessageError;
 use crate::use_cases::{
     EventHandler, InjectionMessageData, ReactiveUseCaseState, UseCase, UseCaseContext,
@@ -46,7 +46,7 @@ mod std_extension {
 #[derive(Debug, Eq, PartialEq)]
 pub enum InjectionResult {
     /// The injected [ProtocolMessage] was answered.
-    Answered((ProtocolMessage, UnderlayNeighborSource)),
+    Answered(Box<(ProtocolMessage, UnderlayNeighborSource)>),
     /// The node is isolated and the message couldn't be injected.
     Isolated,
 }
@@ -171,8 +171,14 @@ where
                 });
 
                 let message = ProtocolMessage::FindNodeReq(ReqRspMessage {
-                    nonce,
-                    source_state_seq_nr: From::from(*context.uln_table().state_seq_nr()),
+                    common_header: CommonHeader::new(
+                        ProtocolMessageKind::FindNodeReq,
+                        *context.root_id(),
+                        target,
+                        Some(nonce.into()),
+                        Some(From::from(*context.uln_table().state_seq_nr())),
+                        context.uln_table().size(),
+                    ),
                     data,
                     not_via: context.not_via().clone(),
                     source_route,
@@ -185,17 +191,21 @@ where
                 self.nonces.insert(nonce, context.runtime().current_time());
             }
             UseCaseEvent::Message(message, interface) => {
-                if let Some(Some(instant)) = message.nonce().map(|nonce| self.nonces.remove(nonce))
+                if let Some(Some(instant)) =
+                    message.msg_id().map(|nonce| self.nonces.remove(&nonce))
                 {
                     let elapsed = instant.elapsed();
-                    if let Err(e) = self
-                        .injection_result_sender
-                        .send_result(InjectionResult::Answered((message.clone(), interface)))
+                    if let Err(e) =
+                        self.injection_result_sender
+                            .send_result(InjectionResult::Answered(Box::new((
+                                message.clone(),
+                                interface,
+                            ))))
                     {
                         log::error!(target: "inject_messages", "Sending answered result failed: {e}");
                         return Err(InjectMessageError::SendResultFailed);
                     }
-                    log::trace!(target: "inject_messages", "Received response for nonce {:?} after {:?}", message.nonce(), elapsed);
+                    log::trace!(target: "inject_messages", "Received response for nonce {:?} after {:?}", message.msg_id(), elapsed);
                 }
             }
             _ => {}

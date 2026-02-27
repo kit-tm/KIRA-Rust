@@ -161,7 +161,7 @@ impl VicinityGraph for PetVicinityGraph {
     }
 
     fn nodes(&self) -> impl Iterator<Item = NodeId> {
-        self.graph.nodes().filter(|node| node != &self.root_id)
+        self.graph.nodes().filter(|node| *node != self.root_id)
     }
 
     fn vicinity_paths(&self) -> impl Iterator<Item = Path> {

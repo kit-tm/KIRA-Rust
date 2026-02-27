@@ -9,7 +9,10 @@ use crate::domain::{
     ULNTable, UnderlayNeighborId,
 };
 use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{ErrorData, FindNodeReqData, ProtocolMessage, RTableData, ReqRspMessage};
+use crate::messaging::{
+    CommonHeader, ErrorData, FindNodeReqData, ProtocolMessage, ProtocolMessageKind, RTableData,
+    ReqRspMessage, WireFormatMessage,
+};
 use crate::use_cases::{EventHandler, NeverError, UseCaseContext, UseCaseEvent, UseCaseRuntime};
 
 #[derive(Debug)]
@@ -62,13 +65,19 @@ impl<C, const BUCKET_SIZE: usize> HandleOverlayDiscovery<C, BUCKET_SIZE> {
         req: ReqRspMessage<FindNodeReqData>,
         next_contact: Contact,
     ) -> ProtocolMessage {
-        let mut source_route = req.source_route;
+        let mut source_route = req.source_route.clone();
         source_route.extend(next_contact.path().clone());
         source_route.advance();
 
         ProtocolMessage::FindNodeReq(ReqRspMessage {
-            nonce: req.nonce,
-            source_state_seq_nr: req.source_state_seq_nr,
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::FindNodeReq,
+                *req.src_node_id(),
+                *source_route.destination(),
+                Some(req.msg_id()),
+                Some(req.state_seq_num().into()),
+                req.src_node_degree() as usize,
+            ),
             data: req.data,
             not_via,
             source_route,
@@ -77,14 +86,21 @@ impl<C, const BUCKET_SIZE: usize> HandleOverlayDiscovery<C, BUCKET_SIZE> {
 
     fn build_find_node_rsp(
         &self,
+        own_id: NodeId,
         not_via: HashSet<NotVia>,
         req: ReqRspMessage<FindNodeReqData>,
         ssn: StateSeqNr,
         contacts: Vec<Contact>,
     ) -> ProtocolMessage {
         ProtocolMessage::FindNodeRsp(ReqRspMessage {
-            nonce: req.nonce,
-            source_state_seq_nr: ssn,
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::FindNodeRsp,
+                own_id,
+                *req.src_node_id(),
+                Some(req.msg_id()),
+                Some(ssn.into()),
+                req.src_node_degree() as usize,
+            ),
             data: RTableData { contacts },
             not_via,
             source_route: SourceRoute::from_reversed(req.source_route),
@@ -93,13 +109,20 @@ impl<C, const BUCKET_SIZE: usize> HandleOverlayDiscovery<C, BUCKET_SIZE> {
 
     fn build_error(
         &self,
+        own_id: NodeId,
         not_via: HashSet<NotVia>,
         req: ReqRspMessage<FindNodeReqData>,
         ssn: StateSeqNr,
     ) -> ProtocolMessage {
         ProtocolMessage::Error(ReqRspMessage {
-            nonce: req.nonce,
-            source_state_seq_nr: ssn,
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::Error,
+                own_id,
+                *req.src_node_id(),
+                Some(req.msg_id()),
+                Some(ssn.into()),
+                req.src_node_degree() as usize,
+            ),
             data: ErrorData::DeadEnd,
             not_via,
             source_route: SourceRoute::from_reversed(req.source_route),
@@ -184,6 +207,7 @@ where
                     let closest = closest.into_iter().map(|(_, contact)| contact).collect();
 
                     self.build_find_node_rsp(
+                        *context.root_id(),
                         context.not_via().clone(),
                         req.clone(),
                         From::from(*context.uln_table().state_seq_nr()),
@@ -206,6 +230,7 @@ where
                         // best contact we know is further away from the target than we are
                         // so we send back an error message, since we can't make progress
                         self.build_error(
+                            *context.root_id(),
                             context.not_via().clone(),
                             req.clone(),
                             From::from(*context.uln_table().state_seq_nr()),
@@ -213,6 +238,7 @@ where
                     }
                 }
                 (true, _, false, None) => self.build_error(
+                    *context.root_id(),
                     context.not_via().clone(),
                     req.clone(),
                     From::from(*context.uln_table().state_seq_nr()),
@@ -242,6 +268,7 @@ where
                         let closest = closest.into_iter().map(|(_, contact)| contact).collect();
 
                         self.build_find_node_rsp(
+                            *context.root_id(),
                             context.not_via().clone(),
                             req.clone(),
                             From::from(*context.uln_table().state_seq_nr()),
@@ -250,6 +277,7 @@ where
                     }
                 }
                 (false, _, false, None) => self.build_find_node_rsp(
+                    *context.root_id(),
                     context.not_via().clone(),
                     req.clone(),
                     From::from(*context.uln_table().state_seq_nr()),

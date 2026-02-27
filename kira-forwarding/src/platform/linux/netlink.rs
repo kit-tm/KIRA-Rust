@@ -11,34 +11,18 @@ use netlink_packet_core::{
 };
 use netlink_packet_route::address::{AddressAttribute, AddressHeader, AddressMessage};
 use netlink_packet_route::link::{
-    AfSpecInet6, AfSpecUnspec, InfoData, InfoGreTun6, InfoKind, LinkAttribute, LinkFlags,
-    LinkHeader, LinkInfo, LinkMessage,
+    AfSpecInet6, AfSpecUnspec, In6AddrGenMode, InfoData, InfoGre6, InfoKind, LinkAttribute,
+    LinkFlags, LinkHeader, LinkInfo, LinkMessage,
 };
 use netlink_packet_route::route::{
-    RouteAddress, RouteAttribute, RouteHeader, RouteLwEnCapType, RouteLwTunnelEncap, RouteMessage,
-    RouteProtocol,
+    RouteAddress, RouteAttribute, RouteHeader, RouteIp6Tunnel, RouteLwEnCapType,
+    RouteLwTunnelEncap, RouteMessage, RouteProtocol,
 };
 use netlink_packet_route::{AddressFamily, RouteNetlinkMessage};
-use netlink_packet_utils::nla::DefaultNla;
 use netlink_proto::{sys::SocketAddr, ConnectionHandle};
 
 use crate::domain::{InterfaceId, NodeId, NodeIdSubnet, PathId};
 use crate::underlay::UnderlayNeighborInformation;
-
-// https://github.com/torvalds/linux/blob/05dbaf8dd8bf537d4b4eb3115ab42a5fb40ff1f5/include/uapi/linux/lwtunnel.h#L39
-// TODO: upstream bindings to netlink_packet_route
-#[repr(u16)]
-enum LwtunnelIp6 {
-    Dst = 2,
-}
-
-// https://github.com/torvalds/linux/blob/05dbaf8dd8bf537d4b4eb3115ab42a5fb40ff1f5/include/uapi/linux/if_link.h#L456
-#[repr(u8)]
-enum AddrGenMode {
-    None = 1,
-}
-// https://github.com/torvalds/linux/blob/72deda0abee6e705ae71a93f69f55e33be5bca5c/include/uapi/linux/if_tunnel.h#L78
-const IFLA_GRE_COLLECT_METADATA: u16 = 18;
 
 #[derive(Debug, Clone)]
 /// Manages links, addresses and routes using Netlink for the
@@ -122,11 +106,8 @@ impl ForwardingRtNetlink {
             .push(RouteAttribute::EncapType(RouteLwEnCapType::Ip6));
         rt_msg
             .attributes
-            .push(RouteAttribute::Encap(vec![RouteLwTunnelEncap::Other(
-                DefaultNla::new(
-                    LwtunnelIp6::Dst as u16,
-                    Ipv6Addr::from(path_id).octets().to_vec(),
-                ),
+            .push(RouteAttribute::Encap(vec![RouteLwTunnelEncap::Ip6(
+                RouteIp6Tunnel::Destination(Ipv6Addr::from(path_id)),
             )]));
 
         let msg = NetlinkMessage::new(nl_hdr, RouteNetlinkMessage::NewRoute(rt_msg).into());
@@ -174,11 +155,8 @@ impl ForwardingRtNetlink {
             .push(RouteAttribute::EncapType(RouteLwEnCapType::Ip6));
         rt_msg
             .attributes
-            .push(RouteAttribute::Encap(vec![RouteLwTunnelEncap::Other(
-                DefaultNla::new(
-                    LwtunnelIp6::Dst as u16,
-                    Ipv6Addr::from(path_id).octets().to_vec(),
-                ),
+            .push(RouteAttribute::Encap(vec![RouteLwTunnelEncap::Ip6(
+                RouteIp6Tunnel::Destination(Ipv6Addr::from(path_id)),
             )]));
 
         let msg = NetlinkMessage::new(nl_hdr, RouteNetlinkMessage::DelRoute(rt_msg).into());
@@ -426,9 +404,9 @@ pub async fn create_encap_interface(
             LinkAttribute::IfName(if_name.to_string()),
             LinkAttribute::LinkInfo(vec![
                 LinkInfo::Kind(InfoKind::GreTun6),
-                LinkInfo::Data(InfoData::GreTun6(vec![InfoGreTun6::Other(
-                    DefaultNla::new(IFLA_GRE_COLLECT_METADATA, vec![]), // externally managed (by Nftables)
-                )])),
+                LinkInfo::Data(InfoData::GreTun6(vec![
+                    InfoGre6::CollectMetadata, // externally managed (by Nftables)
+                ])),
             ]),
         ];
         let msg = NetlinkMessage::new(nl_hdr, RouteNetlinkMessage::NewLink(rt_msg).into());
@@ -482,7 +460,7 @@ pub async fn create_encap_interface(
             ..rt_msg.header
         };
         rt_msg.attributes = vec![LinkAttribute::AfSpecUnspec(vec![AfSpecUnspec::Inet6(
-            vec![AfSpecInet6::AddrGenMode(AddrGenMode::None as u8)],
+            vec![AfSpecInet6::AddrGenMode(In6AddrGenMode::None)],
         )])];
         let msg = NetlinkMessage::new(nl_hdr, RouteNetlinkMessage::SetLink(rt_msg).into());
 
