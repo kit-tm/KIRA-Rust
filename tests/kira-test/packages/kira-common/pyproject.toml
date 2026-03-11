@@ -1,7 +1,7 @@
 [project]
 name = "kira-common"
-version = "0.1.0"
-description = "Testing infrastructure of kirad with NeST"
+version = "0.0.1"
+description = "Common definitions for the testing infrastructure of kirad with NeST"
 readme = "README.md"
 authors = [
   { name = "Julius Rüberg", email = "julius.rueberg@student.kit.edu" },

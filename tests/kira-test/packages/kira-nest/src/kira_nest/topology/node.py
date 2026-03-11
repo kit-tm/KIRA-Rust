@@ -5,12 +5,14 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 import networkx as nx
+from kira_common.domain import VICINITY_RADIUS
 
-from kira_nest.domain import VICINITY_RADIUS
 from kira_nest.nest.node import KIRANode
 
 if TYPE_CHECKING:
     from kira_nest.domain.topology import KIRATopology
+
+# TODO: separate from NeST and move to kira_common
 
 
 @dataclass(frozen=True)

@@ -6,14 +6,16 @@ from functools import cached_property, singledispatchmethod
 from types import EllipsisType
 from typing import ClassVar, overload
 
-from kira_common import NodeConfig
+from kira_common.domain import NodeID, NodeIP
+from kira_common.node_config import NodeConfig
 from networkx import Graph
 from networkx.classes.reportviews import OutEdgeView
 
-from kira_nest.domain import NodeID, NodeIP
 from kira_nest.nest.link import KIRALink
 from kira_nest.nest.node import KIRANode
 from kira_nest.topology import KIRATopologyNode
+
+# TODO: This should probably reside in kira_common and be independent of NeST
 
 
 @dataclass

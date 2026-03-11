@@ -12,19 +12,19 @@ from subprocess import PIPE, Popen
 from typing import Any
 
 import networkx as nx
-from kira_common import REPO_ROOT
-from nest.topology.address import Address
-from PIL import Image
-from term_image.image import AutoImage
-
-from kira_nest.domain import NodeID, NodeIP, PathIP
-from kira_nest.domain.forwarding import (
+from kira_common.domain import NodeID, NodeIP, PathIP
+from kira_common.domain.forwarding import (
     FwdEntry,
     NodeIDEncapEntry,
     NodeIDFwdEntry,
     PathIDFwdEntry,
     PathIDSwapEntry,
 )
+from kira_common.paths import REPO_ROOT
+from nest.topology.address import Address
+from PIL import Image
+from term_image.image import AutoImage
+
 from kira_nest.nest.imager import KIRAImager
 from kira_nest.nest.link import KIRALink
 from kira_nest.nest.node import KIRANode

@@ -1,6 +1,6 @@
 [project]
 name = "kira-nest"
-version = "0.1.0"
+version = "0.0.1"
 description = "Testing infrastructure of kirad with NeST"
 readme = "README.md"
 authors = [

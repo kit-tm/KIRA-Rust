@@ -1,6 +1,6 @@
 [project]
 name = "kira-test"
-version = "0.1.0"
+version = "0.0.1"
 description = "Python powered testing infrastructure of kirad"
 readme = "README.md"
 authors = [
@@ -20,6 +20,15 @@ members = ["packages/*"]
 kira-nest = { workspace = true }
 kira-common = { workspace = true }
 
+[[tool.uv.index]]
+name = "gitlab"
+url = "gitlab.kit.edu/api/v4/projects/162502/packages/pypi/simple"
+# NOTE: Use `password` for tokens on uv publish (see: https://github.com/astral-sh/uv/issues/9195#issuecomment-2483840918)
+publish-url = "https://gitlab.kit.edu/api/v4/projects/162502/packages/pypi"
+explicit = true
+
+[tool.uv]
+publish-url = "https://gitlab.kit.edu/api/v4/projects/162502/packages/pypi"
 
 [tool.ruff.lint]
 # https://docs.astral.sh/ruff/linter/#rule-selection

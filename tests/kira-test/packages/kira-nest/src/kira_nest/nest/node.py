@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import importlib.resources
 import json
 import logging
 import os
@@ -21,11 +22,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 import networkx as nx
-from kira_common import NFTABLES_CONF, NodeConfig
-from nest.topology import Address, Node
-from networkx import Graph
-
-from kira_nest.domain import (
+from kira_common.domain import (
     NODE_IP_SN,
     PATH_IP_SN,
     VICINITY_RADIUS,
@@ -36,7 +33,7 @@ from kira_nest.domain import (
     PathID,
     PathIP,
 )
-from kira_nest.domain.forwarding import (
+from kira_common.domain.forwarding import (
     FwdEntry,
     NodeIDEncapEntry,
     NodeIDFwdEntry,
@@ -44,6 +41,10 @@ from kira_nest.domain.forwarding import (
     PathIDFwdEntry,
     PathIDSwapEntry,
 )
+from kira_common.node_config import NodeConfig
+from kira_common.paths import NFTABLES_CONF
+from nest.topology import Address, Node
+from networkx import Graph
 
 logger = logging.getLogger(__name__)
 
@@ -174,10 +175,13 @@ class KIRANode(Node):
         env_vars["RUST_BACKTRACE"] = "1"
 
         arg: str = " ".join(args)
-        with open(logfile, "w") as f:
+        with (
+            open(logfile, "w") as f,
+            importlib.resources.as_file(NFTABLES_CONF) as nftables_conf,
+        ):
             return self.exec(
                 f"'{binary}' --root-id '{self.config.node_id}'"
-                f" --nftables-conf {NFTABLES_CONF} {arg} && exit",
+                f" --nftables-conf {nftables_conf} {arg} && exit",
                 logfile=f,
                 env_vars=env_vars,
             )

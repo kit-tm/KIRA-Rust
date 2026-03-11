@@ -1,8 +1,9 @@
 from time import sleep
 
-from kira_common import TOPOS_DIR
 from kira_nest.nest.test import KIRATest
 from nest.topology import Address
+
+from .conftest import TOPOS_DIR
 
 
 def test_connectivity(kirad_small_k, kira_topo, subtests):

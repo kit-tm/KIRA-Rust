@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from kira_nest.domain import NodeID, Path
+from . import NodeID, Path
 
 # NOTE: Definitions don't align with kira-r2kad/src/domain/protocol_event/forwarding.rs
 #

@@ -6,10 +6,13 @@ from pathlib import Path
 
 import prctl
 import pytest
-from kira_common import REPO_ROOT, TOPOS_DIR
+from kira_common.paths import REPO_ROOT
 from kira_nest.nest.node import KIRANode
 
 logger = logging.Logger(__name__)
+
+TOPOS_DIR = REPO_ROOT / "tests" / "topos"
+assert TOPOS_DIR.exists(), "kira-test topos not found"
 
 TOPOS = os.environ.get("KIRA_TOPOS")
 

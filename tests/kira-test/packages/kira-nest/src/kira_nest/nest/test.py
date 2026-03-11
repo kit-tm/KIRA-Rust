@@ -7,11 +7,11 @@ from subprocess import Popen
 from typing import overload
 
 import networkx
+from kira_common.domain import NodeIP, Path, PathIP
 from nest.topology import Node, Switch, connect
 from nest.topology.interface.interface import create_veth_pair
 from networkx import Graph
 
-from kira_nest.domain import NodeIP, Path, PathIP
 from kira_nest.domain.topology import KIRATopology
 from kira_nest.nest.link import KIRALink
 from kira_nest.nest.node import KIRANode

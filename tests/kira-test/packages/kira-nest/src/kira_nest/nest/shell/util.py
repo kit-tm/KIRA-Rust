@@ -5,7 +5,8 @@ from collections.abc import Callable, Sequence
 from functools import wraps
 from typing import Any
 
-from kira_nest.domain import NODE_IP_SN, PATH_IP_SN, NodeID, NodeIP, PathIP
+from kira_common.domain import NODE_IP_SN, PATH_IP_SN, NodeID, NodeIP, PathIP
+
 from kira_nest.domain.topology import KIRANodeView
 
 
