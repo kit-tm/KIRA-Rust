@@ -78,3 +78,5 @@ tracing = { version = "0.1.40", features = ["attributes"] }
 tracing-subscriber = "0.3.20"
 # Async trait helper macros (https://blog.rust-lang.org/2023/12/21/async-fn-rpit-in-traits.html)
 trait-variant = "0.1.2"
+
+binrw = "0.15.1"

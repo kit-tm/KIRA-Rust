@@ -20,6 +20,10 @@ use serde::Serialize;
 // TODO: Refactor this to be more efficient. Currently it doesn't support proper buffer writing.
 #[derive(Debug, Copy, Clone)]
 pub enum ProtocolMessageFormat {
+    #[cfg(feature = "format-binrw")]
+    /// Binary serialization using the `binrw` format (not implemented yet).
+    BINRW,
+
     #[cfg(feature = "format-json")]
     /// [JavaScript object notation](https://www.json.org) message format
     Json,
@@ -59,6 +63,8 @@ impl ProtocolMessageFormat {
     /// If no message format was selected this method panics.
     pub fn deserialize<R: Read>(&self, reader: R) -> Result<ProtocolMessage, Box<dyn Error>> {
         let result = match self {
+            #[cfg(feature = "format-binrw")]
+            Self::BINRW => unimplemented!("BINRW deserialization not yet implemented"),
             #[cfg(feature = "format-cbor")]
             Self::CBOR => serde_cbor::from_reader(reader)?,
             #[cfg(feature = "format-json")]
@@ -80,6 +86,8 @@ impl ProtocolMessageFormat {
         data: &ProtocolMessage,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         match self {
+            #[cfg(feature = "format-binrw")]
+            Self::BINRW => unimplemented!("BINRW serialization not yet implemented"),
             #[cfg(feature = "format-cbor")]
             Self::CBOR => {
                 data.serialize(
