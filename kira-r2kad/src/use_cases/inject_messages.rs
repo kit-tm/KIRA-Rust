@@ -7,7 +7,8 @@ use std::time::Instant;
 use tracing::{Level, instrument};
 
 use crate::domain::{
-    GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, UnderlayNeighborSource,
+    GroupingError, NodeId, NotVia, RoutingTable, ULNTable, UnderlayNeighborId,
+    UnderlayNeighborSource,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage};
@@ -180,7 +181,11 @@ where
                         context.uln_table().size(),
                     ),
                     data,
-                    not_via: context.not_via().clone(),
+                    not_via: context
+                        .not_via_state()
+                        .iter()
+                        .map(|nvs| NotVia::from(nvs))
+                        .collect(),
                     source_route,
                 });
 

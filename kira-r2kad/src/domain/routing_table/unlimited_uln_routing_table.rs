@@ -4,7 +4,7 @@ use rand::Rng;
 
 use crate::domain::{
     AddError, Bucket, BucketSplitError, Contact, ContactState, FlatRoutingTable, GroupingError,
-    Hasher, NodeId, ReplacementError, RoutingTable, SharedPrefix,
+    NodeId, ReplacementError, RoutingTable, SharedPrefix, hasher::Hasher,
 };
 
 /// A routing table which uses an additional data structure to store all
@@ -291,7 +291,7 @@ mod tests {
             UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
         routing_table
             .extend(false, contacts.clone())
-            .expect("failed to insert all contact");
+            .expect("failed to insert all contacts");
 
         let closest = routing_table.closest(&NodeId::ZERO, 20, NonZeroU8::MIN);
         assert!(closest.is_ok(), "Returned None");
@@ -337,7 +337,7 @@ mod tests {
             UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
         routing_table
             .extend(false, contacts.clone())
-            .expect("failed to insert all contact");
+            .expect("failed to insert all contacts");
 
         let closest = routing_table.closest(&NodeId::ZERO, 1, NonZeroU8::MIN);
         assert!(closest.is_ok(), "Returned None");
@@ -376,7 +376,7 @@ mod tests {
             UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
         routing_table
             .extend(false, contacts.clone())
-            .expect("failed to insert all contact");
+            .expect("failed to insert all contacts");
 
         let closest = routing_table.closest(&NodeId::ZERO, 1, NonZeroU8::MIN);
         assert!(closest.is_ok(), "Returned None");
@@ -410,7 +410,7 @@ mod tests {
             UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
         routing_table
             .extend(false, contacts.clone())
-            .expect("failed to insert all contact");
+            .expect("failed to insert all contacts");
 
         let closest = routing_table.closest(&NodeId::ZERO, 20, NonZeroU8::MIN);
         assert!(closest.is_ok(), "Returned error: {closest:?}");

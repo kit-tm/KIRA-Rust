@@ -9,7 +9,7 @@ use crate::domain::protocol_event::forwarding::{
     PathIdEntry, PathIdForwardingEntry, PathIdTableUpdate,
 };
 use crate::domain::{
-    Hasher, NodeId, RoutingTable, UnderlayNeighborId, VICINITY_RADIUS, VicinityGraph,
+    NodeId, RoutingTable, UnderlayNeighborId, VICINITY_RADIUS, VicinityGraph, hasher::Hasher,
 };
 
 use crate::use_cases::{
