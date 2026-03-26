@@ -92,7 +92,7 @@ where
                 not_via: context
                     .not_via_state()
                     .iter()
-                    .map(|nvs| NotVia::from(nvs))
+                    .map(NotVia::from)
                     .collect(),
                 contact_actions: updates.clone(),
                 source_route: SourceRoute::new(*context.root_id(), contact.path().clone()),

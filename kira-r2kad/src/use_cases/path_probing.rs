@@ -151,7 +151,7 @@ where
             not_via: context
                 .not_via_state()
                 .iter()
-                .map(|nvs| NotVia::from(nvs))
+                .map(NotVia::from)
                 .collect(),
             source_route: route,
         };
@@ -254,7 +254,7 @@ where
             not_via: context
                 .not_via_state()
                 .iter()
-                .map(|nvs| NotVia::from(nvs))
+                .map(NotVia::from)
                 .collect(),
             source_route: SourceRoute::from_reversed(req.source_route),
         };

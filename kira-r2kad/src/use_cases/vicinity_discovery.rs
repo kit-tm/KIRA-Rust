@@ -273,7 +273,7 @@ where
             not_via: context
                 .not_via_state()
                 .iter()
-                .map(|nvs| NotVia::from(nvs))
+                .map(NotVia::from)
                 .collect(),
             source_route,
         };
@@ -308,7 +308,7 @@ where
             not_via: context
                 .not_via_state()
                 .iter()
-                .map(|nvs| NotVia::from(nvs))
+                .map(NotVia::from)
                 .collect(),
             source_route: SourceRoute::from_reversed(request.source_route),
         });
@@ -371,7 +371,7 @@ where
             not_via: context
                 .not_via_state()
                 .iter()
-                .map(|nvs| NotVia::from(nvs))
+                .map(NotVia::from)
                 .collect(),
             // Source route is ignored, as only underlay neighbors get these
             source_route: SourceRoute::from(Path::from([*context.root_id(), destination])),
@@ -403,7 +403,7 @@ where
             not_via: context
                 .not_via_state()
                 .iter()
-                .map(|nvs| NotVia::from(nvs))
+                .map(NotVia::from)
                 .collect(),
             source_route: SourceRoute::from_reversed(request.source_route),
         });

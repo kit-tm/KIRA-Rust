@@ -157,7 +157,7 @@ where
                     not_via: context
                         .not_via_state()
                         .iter()
-                        .map(|nvia| NotVia::from(nvia))
+                        .map(NotVia::from)
                         .collect(),
                     contact_actions: updates.clone(),
                     source_route: SourceRoute::new(
@@ -234,7 +234,7 @@ where
             not_via: context
                 .not_via_state()
                 .iter()
-                .map(|nvia| NotVia::from(nvia))
+                .map(NotVia::from)
                 .collect(),
             source_route: SourceRoute::new(*context.root_id(), closest_contact.path().clone()),
         };
@@ -328,7 +328,7 @@ where
             not_via: context
                 .not_via_state()
                 .iter()
-                .map(|nvia| NotVia::from(nvia))
+                .map(NotVia::from)
                 .collect(),
             source_route: SourceRoute::new(*context.root_id(), closest_contact.path().clone()),
         };

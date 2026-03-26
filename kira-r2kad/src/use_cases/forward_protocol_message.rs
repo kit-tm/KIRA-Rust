@@ -327,7 +327,7 @@ where
         }
 
         // extract information from source route, potentially update the corresponding contact
-        let source_contact = self.extract_source_information(context, &message, ulnid);
+        let source_contact = self.extract_source_information(context, message, ulnid);
 
         match message {
             // process messages with RTable information
@@ -395,7 +395,7 @@ where
             not_via: context
                 .not_via_state()
                 .iter()
-                .map(|nvs| NotVia::from(nvs))
+                .map(NotVia::from)
                 .collect(),
             source_route: SourceRoute::from_reversed(message.source_route().unwrap().clone()),
         };

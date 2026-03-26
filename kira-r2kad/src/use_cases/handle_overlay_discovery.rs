@@ -215,7 +215,7 @@ where
                         context
                             .not_via_state()
                             .iter()
-                            .map(|nvs| NotVia::from(nvs))
+                            .map(NotVia::from)
                             .collect(),
                         req.clone(),
                         From::from(*context.uln_table().state_seq_nr()),
@@ -233,7 +233,7 @@ where
                             context
                                 .not_via_state()
                                 .iter()
-                                .map(|nvs| NotVia::from(nvs))
+                                .map(NotVia::from)
                                 .collect(),
                             req.clone(),
                             Contact::clone(contact),
@@ -246,7 +246,7 @@ where
                             context
                                 .not_via_state()
                                 .iter()
-                                .map(|nvs| NotVia::from(nvs))
+                                .map(NotVia::from)
                                 .collect(),
                             req.clone(),
                             From::from(*context.uln_table().state_seq_nr()),
@@ -258,7 +258,7 @@ where
                     context
                         .not_via_state()
                         .iter()
-                        .map(|nvs| NotVia::from(nvs))
+                        .map(NotVia::from)
                         .collect(),
                     req.clone(),
                     From::from(*context.uln_table().state_seq_nr()),
@@ -281,7 +281,7 @@ where
                             context
                                 .not_via_state()
                                 .iter()
-                                .map(|nvs| NotVia::from(nvs))
+                                .map(NotVia::from)
                                 .collect(),
                             req.clone(),
                             Contact::clone(contact),
@@ -296,7 +296,7 @@ where
                             context
                                 .not_via_state()
                                 .iter()
-                                .map(|nvs| NotVia::from(nvs))
+                                .map(NotVia::from)
                                 .collect(),
                             req.clone(),
                             From::from(*context.uln_table().state_seq_nr()),
@@ -309,7 +309,7 @@ where
                     context
                         .not_via_state()
                         .iter()
-                        .map(|nvs| NotVia::from(nvs))
+                        .map(NotVia::from)
                         .collect(),
                     req.clone(),
                     From::from(*context.uln_table().state_seq_nr()),
