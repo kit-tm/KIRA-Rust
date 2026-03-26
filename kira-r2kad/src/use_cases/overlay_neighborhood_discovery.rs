@@ -8,7 +8,7 @@ use tracing::{Level, instrument};
 
 use derive_more::Display;
 
-use crate::domain::{GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
+use crate::domain::{GroupingError, NodeId, NotVia, RoutingTable, ULNTable, UnderlayNeighborId};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     CommonHeader, FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage,
@@ -253,7 +253,7 @@ where
                 neighborhood: self.config.overlay_neighborhood_size,
                 target: *context.root_id(),
             },
-            not_via: context.not_via().clone(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route: route_to_closest_on,
         };
 

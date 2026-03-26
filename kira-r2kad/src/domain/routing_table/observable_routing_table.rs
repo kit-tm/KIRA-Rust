@@ -7,8 +7,8 @@ use derive_more::derive::Display;
 
 use crate::domain::unlimited_uln_routing_table::UnlimitedULNRoutingTable;
 use crate::domain::{
-    AddError, Bucket, BucketSplitError, Contact, FlatRoutingTable, GroupingError, Hasher, NodeId,
-    ReplacementError, RoutingTable, SharedPrefix,
+    AddError, Bucket, BucketSplitError, Contact, FlatRoutingTable, GroupingError, NodeId,
+    ReplacementError, RoutingTable, SharedPrefix, hasher::Hasher,
 };
 
 /// An Event emitted by the [ObservableRoutingTable].

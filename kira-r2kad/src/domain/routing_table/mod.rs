@@ -2,7 +2,7 @@ use derive_more::{Display, Error};
 use std::{num::NonZeroU8, ops::DerefMut};
 
 use crate::domain::{
-    Bucket, Contact, GroupingError, Hasher, NodeId, ReplacementError, SharedPrefix,
+    Bucket, Contact, GroupingError, NodeId, ReplacementError, SharedPrefix, hasher::Hasher,
 };
 
 pub mod flat_routing_table;

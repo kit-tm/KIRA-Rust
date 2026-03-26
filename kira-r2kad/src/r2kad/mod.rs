@@ -136,7 +136,7 @@ where
             runtime,
             insertion_strategy,
             uln_table,
-            not_via: HashSet::default(),
+            not_via_state: HashSet::default(),
             vicinity_graph,
         });
 
