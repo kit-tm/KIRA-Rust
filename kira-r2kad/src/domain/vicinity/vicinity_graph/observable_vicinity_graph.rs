@@ -102,6 +102,10 @@ impl<V: VicinityGraph> VicinityGraph for ObservableVicinityGraph<V> {
         self.inner.root_distance(node)
     }
 
+    fn is_direct_uln(&self, node: &NodeId) -> bool {
+        self.inner.is_direct_uln(node)
+    }
+
     fn remove_edge(&mut self, node_a: &NodeId, node_b: &NodeId) -> bool {
         self.inner.remove_edge(node_a, node_b)
     }

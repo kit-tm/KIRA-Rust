@@ -72,7 +72,7 @@ impl Default for VicinityDiscoveryConfig {
         Self {
             uln_min_interval: Duration::from_millis(200), // 100 ms wireless
             uln_max_interval: Duration::from_secs(30),    // 1 s wireless
-            uln_discovery_rsp_initial_max_wait_time: Duration::from_millis(200),
+            uln_discovery_rsp_initial_max_wait_time: Duration::from_millis(250),
             uln_discovery_max_retries: 2,
 
             query_route_discovery_rsp_initial_max_wait_time: Duration::from_secs(3),
@@ -513,6 +513,16 @@ where
         underlay_neighbor: UnderlayNeighborId,
     ) -> Result<(), VDError> {
         let expected_nonce = Nonce::random();
+
+        tracing::trace!(
+            target: "vicinity_discovery",
+            from = %context.root_id(),
+            to = %destination,
+            underlay_neighbor = %underlay_neighbor,
+            exp_nonce = %expected_nonce,
+            "Sending ULNDiscReq",
+        );
+
         Self::send_uln_disc_req(context, destination, underlay_neighbor, expected_nonce)?;
 
         self.register_pending_req(
@@ -538,9 +548,7 @@ where
         let VDState::Running { pending_reqs, .. } = &self.state else {
             panic!("VicinityDiscovery should be running");
         };
-        if let Some(pending_request) = pending_reqs.get(&(node, ProtocolMessageKind::QueryRouteReq))
-            && pending_request.kind == ProtocolMessageKind::ULNDiscRsp
-        {
+        if pending_reqs.contains_key(&(node, ProtocolMessageKind::ULNDiscRsp)) {
             return Ok(false);
         }
 
@@ -797,10 +805,18 @@ where
                 // update entry in vicinity graph if necessary
                 let mut new_neighbor = false;
                 if let StateSeqNr::Value(seen_ssn) = observed_ssn {
-                    if let Some(vg_entry) = context.vicinity_graph_mut().entry_mut(&source) {
+                    let mut vg = context.vicinity_graph_mut();
+                    if let Some(vg_entry) = vg.entry_mut(&source) {
                         vg_entry.update_observed_ssn(seen_ssn);
                         vg_entry.update_last_seen(context.runtime().current_time());
+
+                        // it may be the case that the node was present as 2-hop neighbor already/still
+                        // however, if it is now a ULN (again), we treat it as such
+                        if !vg.is_direct_uln(&source) {
+                            new_neighbor = true;
+                        }
                     } else {
+                        // node not present in vicinity graph
                         new_neighbor = true;
                     }
                 }
@@ -809,13 +825,14 @@ where
                                        interfaces, .. } = &mut self.state else {
                     return Err(VDError::InternalError);
                 };
-                if !new_neighbor && !pending_reqs.contains_key(&(source,ProtocolMessageKind::ULNDiscReq)) {
+                if !new_neighbor && pending_reqs.contains_key(&(source,ProtocolMessageKind::ULNDiscRsp)) {
                     tracing::trace!(
                         target: "vicinity_discovery",
                         %source,
                         reason = "pending_req",
                         "ignore ULNHello",
                     );
+                    return Ok(())
                 }
 
                 if !deterministic_heuristic(
@@ -900,7 +917,7 @@ where
                     }
                     StateSeqNr::Value(observed_ssn) => {
                         let vicinity_graph = context.vicinity_graph();
-                        if let Some(entry) = vicinity_graph.entry(&source) {
+                        if let Some(entry) = vicinity_graph.entry(&source) && !new_neighbor {
                             let synched_ssn = entry.synched_ssn();
                             if synched_ssn.is_none() || synched_ssn < Some(&observed_ssn) {
                                 tracing::debug!(
@@ -1317,7 +1334,7 @@ where
                 match timer_hooks.remove(timer_id) {
                     Some(TimerHook::TimeoutULNDiscReq(destination)) => {
                         let hash_map::Entry::Occupied(mut entry) =
-                            pending_reqs.entry((destination, ProtocolMessageKind::ULNDiscReq))
+                            pending_reqs.entry((destination, ProtocolMessageKind::ULNDiscRsp))
                         else {
                             // likely answered before timeout
                             tracing::trace!(
@@ -1431,7 +1448,7 @@ where
                     }
                     Some(TimerHook::TimeoutQueryRouteReq(destination)) => {
                         let hash_map::Entry::Occupied(mut entry) =
-                            pending_reqs.entry((destination, ProtocolMessageKind::QueryRouteReq))
+                            pending_reqs.entry((destination, ProtocolMessageKind::QueryRouteRsp))
                         else {
                             // likely answered before timeout
                             tracing::trace!(
