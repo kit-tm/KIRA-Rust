@@ -111,11 +111,7 @@ where
                 neighborhood: self.config.neighborhood_size,
                 target: random_id,
             },
-            not_via: context
-                .not_via_state()
-                .iter()
-                .map(NotVia::from)
-                .collect(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route: route,
         };
         log::trace!(target: "random_overlay_discovery", "Sending message {message:?}");

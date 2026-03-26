@@ -154,11 +154,7 @@ where
                         Some(From::from(*context.uln_table().state_seq_nr())),
                         context.uln_table().size(),
                     ),
-                    not_via: context
-                        .not_via_state()
-                        .iter()
-                        .map(NotVia::from)
-                        .collect(),
+                    not_via: context.not_via_state().iter().map(NotVia::from).collect(),
                     contact_actions: updates.clone(),
                     source_route: SourceRoute::new(
                         *context.root_id(),
@@ -231,11 +227,7 @@ where
                 neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
                 target: *contact.id(),
             },
-            not_via: context
-                .not_via_state()
-                .iter()
-                .map(NotVia::from)
-                .collect(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route: SourceRoute::new(*context.root_id(), closest_contact.path().clone()),
         };
 
@@ -325,11 +317,7 @@ where
                 neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
                 target: *node_id,
             },
-            not_via: context
-                .not_via_state()
-                .iter()
-                .map(NotVia::from)
-                .collect(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route: SourceRoute::new(*context.root_id(), closest_contact.path().clone()),
         };
 

@@ -148,11 +148,7 @@ where
                 context.uln_table().size(),
             ),
             data: ProbeReqData,
-            not_via: context
-                .not_via_state()
-                .iter()
-                .map(NotVia::from)
-                .collect(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route: route,
         };
         context
@@ -251,11 +247,7 @@ where
                 context.uln_table().size(),
             ),
             data: ProbeRspData,
-            not_via: context
-                .not_via_state()
-                .iter()
-                .map(NotVia::from)
-                .collect(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route: SourceRoute::from_reversed(req.source_route),
         };
         context

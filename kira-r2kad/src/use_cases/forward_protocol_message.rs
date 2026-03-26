@@ -392,11 +392,7 @@ where
                 failed_link,
                 source: root_id,
             },
-            not_via: context
-                .not_via_state()
-                .iter()
-                .map(NotVia::from)
-                .collect(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route: SourceRoute::from_reversed(message.source_route().unwrap().clone()),
         };
 

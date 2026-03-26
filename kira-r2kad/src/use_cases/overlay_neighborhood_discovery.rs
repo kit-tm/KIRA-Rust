@@ -253,11 +253,7 @@ where
                 neighborhood: self.config.overlay_neighborhood_size,
                 target: *context.root_id(),
             },
-            not_via: context
-                .not_via_state()
-                .iter()
-                .map(NotVia::from)
-                .collect(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route: route_to_closest_on,
         };
 

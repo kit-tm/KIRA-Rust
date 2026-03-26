@@ -181,11 +181,7 @@ where
                         context.uln_table().size(),
                     ),
                     data,
-                    not_via: context
-                        .not_via_state()
-                        .iter()
-                        .map(NotVia::from)
-                        .collect(),
+                    not_via: context.not_via_state().iter().map(NotVia::from).collect(),
                     source_route,
                 });
 

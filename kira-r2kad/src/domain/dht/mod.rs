@@ -61,11 +61,7 @@ where
             Some(u32::from(*context.uln_table().state_seq_nr())),
             context.uln_table().size(),
         ),
-        not_via: context
-            .not_via_state()
-            .iter()
-            .map(NotVia::from)
-            .collect(),
+        not_via: context.not_via_state().iter().map(NotVia::from).collect(),
         data,
         source_route,
     }

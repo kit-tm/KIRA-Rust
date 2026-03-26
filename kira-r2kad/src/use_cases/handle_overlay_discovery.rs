@@ -212,11 +212,7 @@ where
 
                     self.build_find_node_rsp(
                         *context.root_id(),
-                        context
-                            .not_via_state()
-                            .iter()
-                            .map(NotVia::from)
-                            .collect(),
+                        context.not_via_state().iter().map(NotVia::from).collect(),
                         req.clone(),
                         From::from(*context.uln_table().state_seq_nr()),
                         closest,
@@ -230,11 +226,7 @@ where
 
                     if &own_distance > closest_known_distance && req.source() != contact.id() {
                         self.build_find_node_to_next_hop(
-                            context
-                                .not_via_state()
-                                .iter()
-                                .map(NotVia::from)
-                                .collect(),
+                            context.not_via_state().iter().map(NotVia::from).collect(),
                             req.clone(),
                             Contact::clone(contact),
                         )
@@ -243,11 +235,7 @@ where
                         // so we send back an error message, since we can't make progress
                         self.build_error(
                             *context.root_id(),
-                            context
-                                .not_via_state()
-                                .iter()
-                                .map(NotVia::from)
-                                .collect(),
+                            context.not_via_state().iter().map(NotVia::from).collect(),
                             req.clone(),
                             From::from(*context.uln_table().state_seq_nr()),
                         )
@@ -255,11 +243,7 @@ where
                 }
                 (true, _, false, None) => self.build_error(
                     *context.root_id(),
-                    context
-                        .not_via_state()
-                        .iter()
-                        .map(NotVia::from)
-                        .collect(),
+                    context.not_via_state().iter().map(NotVia::from).collect(),
                     req.clone(),
                     From::from(*context.uln_table().state_seq_nr()),
                 ),
@@ -278,11 +262,7 @@ where
 
                     if &own_distance > closest_known_distance && req.source() != contact.id() {
                         self.build_find_node_to_next_hop(
-                            context
-                                .not_via_state()
-                                .iter()
-                                .map(NotVia::from)
-                                .collect(),
+                            context.not_via_state().iter().map(NotVia::from).collect(),
                             req.clone(),
                             Contact::clone(contact),
                         )
@@ -293,11 +273,7 @@ where
 
                         self.build_find_node_rsp(
                             *context.root_id(),
-                            context
-                                .not_via_state()
-                                .iter()
-                                .map(NotVia::from)
-                                .collect(),
+                            context.not_via_state().iter().map(NotVia::from).collect(),
                             req.clone(),
                             From::from(*context.uln_table().state_seq_nr()),
                             closest,
@@ -306,11 +282,7 @@ where
                 }
                 (false, _, false, None) => self.build_find_node_rsp(
                     *context.root_id(),
-                    context
-                        .not_via_state()
-                        .iter()
-                        .map(NotVia::from)
-                        .collect(),
+                    context.not_via_state().iter().map(NotVia::from).collect(),
                     req.clone(),
                     From::from(*context.uln_table().state_seq_nr()),
                     Vec::with_capacity(0),

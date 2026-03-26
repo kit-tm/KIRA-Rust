@@ -270,11 +270,7 @@ where
             data: QueryRouteReqData {
                 query_type: QueryRouteType::UnderlayNeighbors,
             },
-            not_via: context
-                .not_via_state()
-                .iter()
-                .map(NotVia::from)
-                .collect(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route,
         };
 
@@ -305,11 +301,7 @@ where
                 context.uln_table().size(),
             ),
             data: RTableData { contacts },
-            not_via: context
-                .not_via_state()
-                .iter()
-                .map(NotVia::from)
-                .collect(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route: SourceRoute::from_reversed(request.source_route),
         });
 
@@ -368,11 +360,7 @@ where
                 context.uln_table().size(),
             ),
             data: RTableData { contacts },
-            not_via: context
-                .not_via_state()
-                .iter()
-                .map(NotVia::from)
-                .collect(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             // Source route is ignored, as only underlay neighbors get these
             source_route: SourceRoute::from(Path::from([*context.root_id(), destination])),
         });
@@ -400,11 +388,7 @@ where
                 context.uln_table().size(),
             ),
             data: RTableData { contacts },
-            not_via: context
-                .not_via_state()
-                .iter()
-                .map(NotVia::from)
-                .collect(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route: SourceRoute::from_reversed(request.source_route),
         });
 

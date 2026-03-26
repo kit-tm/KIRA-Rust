@@ -89,11 +89,7 @@ where
                     Some(From::from(*context.uln_table().state_seq_nr())),
                     context.uln_table().size(),
                 ),
-                not_via: context
-                    .not_via_state()
-                    .iter()
-                    .map(NotVia::from)
-                    .collect(),
+                not_via: context.not_via_state().iter().map(NotVia::from).collect(),
                 contact_actions: updates.clone(),
                 source_route: SourceRoute::new(*context.root_id(), contact.path().clone()),
             };

@@ -196,11 +196,7 @@ where
                 context.uln_table().size(),
             ),
             data: StoreRspData { status: res },
-            not_via: context
-                .not_via_state()
-                .iter()
-                .map(NotVia::from)
-                .collect(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route,
         };
 
@@ -234,11 +230,7 @@ where
                 context.uln_table().size(),
             ),
             data: FetchRspData { data: fetch_res },
-            not_via: context
-                .not_via_state()
-                .iter()
-                .map(NotVia::from)
-                .collect(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route,
         };
 
