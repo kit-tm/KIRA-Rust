@@ -75,12 +75,8 @@ impl Timestamp {
 
     /// Returns the [Age] of the [Timestamp].
     pub fn to_age(&self) -> Age {
-        let distance = Utc::now() - self.0;
         // OK since stored timestamp should always be >= current time
-        Age::from(
-            distance.num_seconds().unsigned_abs() * 1000
-                + distance.num_milliseconds().unsigned_abs(),
-        )
+        Age::from((Utc::now() - self.0).num_milliseconds().unsigned_abs())
     }
 
     /// Returns the [Duration] representation of the [Age] of the [Timestamp].
