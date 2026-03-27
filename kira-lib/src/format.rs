@@ -5,10 +5,11 @@ use std::error::Error;
 use std::io::{Error as IoError, ErrorKind, Read, Write};
 
 #[cfg(feature = "format-binrw")]
-use binrw::{BinRead, BinWrite, binrw};
+const HEADER_LEN: usize = 55; // KIRA header size (bytes)
+
+use binrw::{self, BinRead, BinWrite};
+use kira_r2kad::messaging::CommonHeader;
 use kira_r2kad::messaging::ProtocolMessage;
-#[cfg(feature = "format-binrw")]
-use kira_r2kad::messaging::{CommonHeader, ProtocolMessageKind};
 #[cfg(any(
     feature = "format-json",
     feature = "format-mp",
@@ -54,6 +55,7 @@ pub enum ProtocolMessageFormat {
 #[cfg(all(test, feature = "format-binrw"))]
 mod tests {
     use super::*;
+    use kira_r2kad::messaging::ProtocolMessageKind;
     use std::io::Cursor;
 
     #[test]
@@ -163,24 +165,25 @@ impl ProtocolMessageFormat {
 
 #[cfg(feature = "format-binrw")]
 fn deserialize_binrw<R: Read>(mut reader: R) -> Result<ProtocolMessage, Box<dyn Error>> {
-    const HEADER_LEN: usize = 55; // KIRA header size (bytes)
-
     let mut buf = [0u8; HEADER_LEN];
     reader.read_exact(&mut buf)?;
 
     let mut cursor = binrw::io::Cursor::new(&buf);
     let header = CommonHeader::read_options(&mut cursor, binrw::Endian::Big, ())?;
-    if header.msg_type() != ProtocolMessageKind::ULNHello as u8 {
-        return Err(Box::new(IoError::new(
-            ErrorKind::Unsupported,
-            format!(
-                "binrw currently supports ULNHello only (got msg_type {:#x})",
-                header.msg_type()
-            ),
-        )));
-    }
+    match header.msg_type() {
+        0x01 => Ok(ProtocolMessage::ULNHello(header)),
+        0x03 => {
+            // Payload: count (u16) + repeated (NodeId, StateSeqNr)
+            let remaining_len = (header.msg_length() - HEADER_LEN as u16) as usize;
 
-    Ok(ProtocolMessage::ULNHello(header))
+            todo!("ULNDiscovReq deserialization not finished yet")
+            //TODO: get this to work after implementing the serialization
+        }
+        other => Err(Box::new(IoError::new(
+            ErrorKind::Unsupported,
+            format!("msg_type {:#x}, currently not supported by binrw", other),
+        ))),
+    }
 }
 
 #[cfg(feature = "format-binrw")]
@@ -190,14 +193,30 @@ fn serialize_binrw<W: Write>(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     match message {
         ProtocolMessage::ULNHello(header) => {
-            let mut cursor = binrw::io::Cursor::new(Vec::with_capacity(55));
+            let mut cursor = binrw::io::Cursor::new(Vec::with_capacity(HEADER_LEN));
             header.write_options(&mut cursor, binrw::Endian::Big, ())?;
             writer.write_all(cursor.get_ref())?;
             Ok(())
         }
+        ProtocolMessage::ULNDiscReq(req) => {
+            let contact_count = req.data.contacts.len();
+            if contact_count > u16::MAX as usize {
+                return Err(Box::new(IoError::new(
+                    ErrorKind::InvalidInput,
+                    format!(
+                        "number of contacts too big for ULNDiscReq: {}",
+                        contact_count
+                    ),
+                )));
+            }
+            let payload_len = todo!("calculate payload length for ULNDiscReq serialization");
+            //TODO: serialize header, uln_list
+            //TODO:Not_Via?
+            //TODO: Src_Route?
+        }
         _ => Err(Box::new(IoError::new(
             ErrorKind::Unsupported,
-            "binrw currently only supports ULNHello",
+            "currently not supported by binrw ",
         ))),
     }
 }
