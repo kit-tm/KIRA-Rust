@@ -10,6 +10,7 @@ edition.workspace = true
 
 [features]
 serde = ["serde-big-array", "chrono/serde"]
+binrw = ["dep:binrw"]
 sync-wrapper = []
 
 
@@ -29,6 +30,7 @@ sha2 = { workspace = true, optional = true }
 sha3 = { workspace = true, optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 petgraph = "0.8.2"
+binrw = { workspace = true, optional = true }
 
 # Dependencies for examples, Benchmarks and Tests
 [dev-dependencies]

@@ -6,7 +6,14 @@ use std::num::NonZeroU64;
 
 use derive_more::derive::Display;
 
+<<<<<<< HEAD
 use crate::domain::{Contact, Link, NodeId, NotViaList, StateSeqNr, state_seq_nr};
+=======
+#[cfg(feature = "binrw")]
+use binrw::{BinRead, BinWrite};
+
+use crate::domain::{Contact, Link, NodeId, NotVia, StateSeqNr, state_seq_nr};
+>>>>>>> a3b1f94 (Implemented BinRW functionality for ULNHello, added test)
 use crate::messaging::dht::{
     FetchReqData, FetchRspData, LHTInput, LHTOutput, StoreReqData, StoreRspData,
 };
@@ -82,12 +89,18 @@ pub enum ProtocolMessageKind {
 /// Common Header Structure
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "binrw", derive(BinRead, BinWrite))]
+#[cfg_attr(feature = "binrw", brw(big))]
 pub struct CommonHeader {
     version: u8,
     msg_type: u8,
     msg_flags: u8,
     msg_length: u16,
+    #[cfg_attr(feature = "binrw", br(map = |bytes: [u8; NodeId::SIZE]| NodeId::from(bytes)))]
+    #[cfg_attr(feature = "binrw", bw(map = |id: &NodeId| id.to_be_bytes()))]
     dest_id: NodeId,
+    #[cfg_attr(feature = "binrw", br(map = |bytes: [u8; NodeId::SIZE]| NodeId::from(bytes)))]
+    #[cfg_attr(feature = "binrw", bw(map = |id: &NodeId| id.to_be_bytes()))]
     src_node_id: NodeId,
     domain_id: u64,
     msg_id: u64,
@@ -145,6 +158,18 @@ impl CommonHeader {
 
     pub fn set_msg_length(&mut self, msg_len: u16) {
         self.msg_length = msg_len;
+    }
+
+    pub fn msg_type(&self) -> u8 {
+        self.msg_type
+    }
+
+    pub fn version(&self) -> u8 {
+        self.version
+    }
+
+    pub fn msg_flags(&self) -> u8 {
+        self.msg_flags
     }
 
     pub fn add_to_msg_length(&mut self, msg_len: u16) {

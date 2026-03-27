@@ -34,6 +34,7 @@ edition = "2024"
 [workspace.dependencies]
 # For Time Computations in general
 chrono = "0.4.38"
+binrw = "0.15.1"
 serde_cbor = "0.11.2"
 # Conveniently derive Display
 derive_more = { version = "2.1.1", features = [
@@ -78,5 +79,3 @@ tracing = { version = "0.1.40", features = ["attributes"] }
 tracing-subscriber = "0.3.20"
 # Async trait helper macros (https://blog.rust-lang.org/2023/12/21/async-fn-rpit-in-traits.html)
 trait-variant = "0.1.2"
-
-binrw = "0.15.1"
