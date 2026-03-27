@@ -6,8 +6,9 @@ use std::ops::{Deref, DerefMut};
 use tracing::{Level, instrument};
 
 use crate::domain::{
-    Contact, ContactState, InsertionStrategy, InsertionStrategyResult, Link, NodeId, NotVia, Path,
-    RoutingTable, ULNTable, UnderlayNeighborId, UnderlayNeighborSource, VicinityGraph,
+    Contact, ContactState, InsertionStrategy, InsertionStrategyResult, Link, NodeId, NotVia,
+    NotViaState, Path, RoutingTable, Timestamp, ULNTable, UnderlayNeighborId,
+    UnderlayNeighborSource, VicinityGraph,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -31,7 +32,7 @@ use crate::use_cases::{
 /// As some [UseCase]s rely on the information already being extracted this UseCase has to handle
 /// any [ProtocolMessage] before all other [UseCase]s **except** [ExplicitPathManagement](super::explicit_path_management::ExplicitPathManagement).
 ///
-/// The [UseCase] returns an result which shows if the message was already handled and forwarded.
+/// The [UseCase] returns a result which shows if the message was already handled and forwarded.
 #[derive(Debug)]
 pub struct ForwardProtocolMessage<C, const BUCKET_SIZE: usize> {
     _pd: PhantomData<C>,
@@ -124,10 +125,13 @@ where
     ///
     /// If the contact was previously an underlay neighbor but not anymore its entry in the ULNTable
     /// will be removed.
+    // TODO check notvia handling considering age
     fn update_contact(&self, context: &C, contact: Contact) {
-        if let Some(not_via) = context.not_via().iter().find(|not_via| match not_via {
-            NotVia::Link(link) => contact.path().contains_link(link),
-        }) {
+        if let Some(not_via) = context
+            .not_via_state()
+            .iter()
+            .find(|not_via| contact.path().contains_link(&not_via.link))
+        {
             log::trace!(target: "forward_protocol_message", "Skipping contact - its path contains a not-via link {not_via}; {contact}");
             return;
         }
@@ -163,10 +167,10 @@ where
     fn extract_rtable_reqrsp(
         &self,
         context: &C,
-        request: ReqRspMessage<RTableData>,
+        request: &ReqRspMessage<RTableData>,
         path_to_source: Path,
     ) {
-        for mut contact in request.data.contacts {
+        for mut contact in request.data.contacts.clone() {
             let mut path = path_to_source.clone();
             path.extend(contact.path().clone());
             *contact.path_mut() = path;
@@ -175,15 +179,17 @@ where
         }
     }
 
-    fn extract_failed_contact(&self, context: &C, request: ReqRspMessage<ErrorData>) {
+    fn extract_failed_contact(&self, context: &C, request: &ReqRspMessage<ErrorData>) {
         match &request.data {
             ErrorData::SegmentFailure {
                 failed_link: link, ..
             } => {
-                let mut not_via = context.not_via_mut();
+                let mut not_via_state = context.not_via_state_mut();
                 let mut routing_table = context.routing_table_mut();
 
-                not_via.insert(NotVia::Link(link.clone()));
+                // probably update the timestamp
+                let nvs_entry = NotViaState::new(link.clone(), Timestamp::now());
+                not_via_state.replace(nvs_entry.clone());
 
                 let contacts_id = request.request_destination();
 
@@ -212,16 +218,18 @@ where
         new_not_via_data: &HashSet<NotVia>,
     ) {
         // we exclude any notvia that contains ourselves, because we know better
-        let mut filtered_not_via_data = new_not_via_data.iter().filter(|notvia| match *notvia {
-            NotVia::Link(link) => link.contains(context.root_id()),
-        });
+        let mut filtered_not_via_data = new_not_via_data
+            .iter()
+            .filter(|notvia| notvia.link.contains(context.root_id()));
 
         let mut routing_table = context.routing_table_mut();
 
+        // invalidate contacts that have older path information than notvia and contain a notvia link
         for mut contact in routing_table.iter_mut() {
             let not_via_invalidation = filtered_not_via_data
-                .find(|entry| match entry {
-                    NotVia::Link(link) => contact.path().contains_link(link),
+                .find(|entry| {
+                    *(contact.last_seen()) < Timestamp::from_age(entry.age)
+                        && contact.path().contains_link(&entry.link)
                 })
                 .cloned();
             if not_via_invalidation.is_none() {
@@ -310,16 +318,19 @@ where
     fn extract_message_info(
         &self,
         context: &C,
-        message: ProtocolMessage,
+        message: &ProtocolMessage,
         ulnid: UnderlayNeighborId,
     ) {
+        // extract not via information
         if let Some(not_via) = message.not_via() {
             self.extract_not_via_data(context, message.source(), not_via);
         }
 
-        let source_contact = self.extract_source_information(context, &message, ulnid);
+        // extract information from source route, potentially update the corresponding contact
+        let source_contact = self.extract_source_information(context, message, ulnid);
 
         match message {
+            // process messages with RTable information
             ProtocolMessage::ULNDiscReq(msg)
             | ProtocolMessage::ULNDiscRsp(msg)
             | ProtocolMessage::QueryRouteRsp(msg)
@@ -328,11 +339,16 @@ where
                     self.extract_rtable_reqrsp(context, msg, source_contact.path().clone())
                 }
             }
+            // process error information
             ProtocolMessage::Error(error_rsp) => self.extract_failed_contact(context, error_rsp),
             // These are already covered by source info extraction
             // Explicitly listing to yield compile time errors as soon as changes happen to ProtocolMessage enum
             ProtocolMessage::UpdateRouteReq(req) => {
-                self.handle_update_routes(context, req.source_route.source(), req.contact_actions);
+                self.handle_update_routes(
+                    context,
+                    req.source_route.source(),
+                    req.contact_actions.clone(),
+                );
             }
             ProtocolMessage::ULNHello(_)
             | ProtocolMessage::QueryRouteReq(_)
@@ -376,7 +392,7 @@ where
                 failed_link,
                 source: root_id,
             },
-            not_via: context.not_via().clone(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route: SourceRoute::from_reversed(message.source_route().unwrap().clone()),
         };
 
@@ -465,10 +481,11 @@ where
         // From here on the message is assumed to be for us
 
         // Check if next link is in not_via data
-        if context
-            .not_via()
-            .contains(&NotVia::Link(Link::new(*context.root_id(), *next_hop)))
-        {
+        // FIXME this should probably not be checked using NotViaState but using the neighbor table?!
+        if context.not_via_state().contains(&NotViaState::new(
+            Link::new(*context.root_id(), *next_hop),
+            Timestamp::now(),
+        )) {
             self.handle_next_hop_failed(context, message);
             return HandlingResult::Handled;
         }
@@ -538,10 +555,12 @@ where
         context: &C,
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
+        // this use case only handles message events
         if let UseCaseEvent::Message(message, ulnid) = event {
             // TODO: make more efficient pls
             if let UnderlayNeighborSource::UnderlayNeighbor(ulnid) = ulnid {
-                self.extract_message_info(context, message.clone(), ulnid);
+                // extract useful message info of bypassing messages (NotVia, RTable)
+                self.extract_message_info(context, &message, ulnid);
             }
 
             Ok(self.handle_forwarding(context, message))

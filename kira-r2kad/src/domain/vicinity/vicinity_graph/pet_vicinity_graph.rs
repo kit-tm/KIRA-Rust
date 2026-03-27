@@ -134,6 +134,10 @@ impl VicinityGraph for PetVicinityGraph {
         }
     }
 
+    fn is_direct_uln(&self, node: &NodeId) -> bool {
+        self.graph.contains_edge(self.root_id, *node)
+    }
+
     fn remove_edge(&mut self, node_a: &NodeId, node_b: &NodeId) -> bool {
         if self.graph.remove_edge(*node_a, *node_b).is_some() {
             self.graph_changed = true;

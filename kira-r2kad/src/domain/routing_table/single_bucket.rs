@@ -8,8 +8,8 @@ use rand::Rng;
 
 use crate::domain::observable_routing_table::NonObservableRoutingTable;
 use crate::domain::{
-    AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, GroupingError, Hasher,
-    NodeId, ReplacementError, RoutingTable, SharedPrefix,
+    AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, GroupingError, NodeId,
+    ReplacementError, RoutingTable, SharedPrefix, hasher::Hasher,
 };
 
 /// A [RoutingTable] with a single not splittable [Bucket].
