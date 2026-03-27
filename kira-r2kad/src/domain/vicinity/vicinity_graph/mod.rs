@@ -48,6 +48,8 @@ pub trait VicinityGraph {
     /// Returns the distance of the node to the root of the [VicinityGraph] if present.
     fn root_distance(&self, node: &NodeId) -> Option<usize>;
 
+    /// Returns true if node has a direct link to me
+    fn is_direct_uln(&self, node: &NodeId) -> bool;
     //  === VICINITY GRAPH ACCESS ===
 
     /// Removes an edge from the vicinity graph.

@@ -7,8 +7,8 @@ use tracing::{Level, instrument};
 use derive_more::derive::{Display, Error};
 
 use crate::domain::{
-    Contact, ContactState, Link, NodeId, NotVia, RoutingTable, ULNTable, UnderlayNeighborId,
-    UnderlayNeighborUpdate, VicinityGraph,
+    Contact, ContactState, Link, NodeId, NotVia, NotViaState, RoutingTable, Timestamp, ULNTable,
+    UnderlayNeighborId, UnderlayNeighborUpdate, VicinityGraph,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -90,8 +90,8 @@ where
 {
     /// Remove all NotVia Data which is related to the contact
     fn remove_notvia_mentioning(&self, context: &C, contact_id: &NodeId) {
-        context.not_via_mut().retain(|not_via| match not_via {
-            NotVia::Link(link) => link.first() != contact_id && link.second() != contact_id,
+        context.not_via_state_mut().retain(|not_via| {
+            not_via.link.first() != contact_id && not_via.link.second() != contact_id
         });
         log::trace!(target: "failure_handling", "Removed not via data mentioning {contact_id}");
     }
@@ -154,7 +154,7 @@ where
                         Some(From::from(*context.uln_table().state_seq_nr())),
                         context.uln_table().size(),
                     ),
-                    not_via: context.not_via().clone(),
+                    not_via: context.not_via_state().iter().map(NotVia::from).collect(),
                     contact_actions: updates.clone(),
                     source_route: SourceRoute::new(
                         *context.root_id(),
@@ -227,7 +227,7 @@ where
                 neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
                 target: *contact.id(),
             },
-            not_via: context.not_via().clone(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route: SourceRoute::new(*context.root_id(), closest_contact.path().clone()),
         };
 
@@ -317,7 +317,7 @@ where
                 neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
                 target: *node_id,
             },
-            not_via: context.not_via().clone(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route: SourceRoute::new(*context.root_id(), closest_contact.path().clone()),
         };
 
@@ -333,10 +333,10 @@ where
         Ok(())
     }
 
-    /// Find all contacts whose paths start with underlay neighbors affected by the outage.
+    /// Find all contacts whose paths start with underlay neighbors affected by the outage of an interface
     fn invalidate_affected_contacts(&self, context: &C, ulnid: UnderlayNeighborId) {
         let mut rt = context.routing_table_mut();
-        let mut not_via = context.not_via_mut();
+        let mut not_via_state = context.not_via_state_mut();
 
         let affected_underlay_neighbors = context
             .uln_table()
@@ -346,11 +346,11 @@ where
 
         log::trace!(target: "failure_handling", "Underlay neighbors affected by interface {ulnid:?} down: {affected_underlay_neighbors:?}");
 
-        not_via.extend(
+        not_via_state.extend(
             affected_underlay_neighbors
                 .iter()
                 .cloned()
-                .map(|id| NotVia::Link(Link::new(*context.root_id(), id))),
+                .map(|id| NotViaState::new(Link::new(*context.root_id(), id), Timestamp::now())), // TODO check for correct age value
         );
 
         // find contacts whose path contain affected underlay neighbors as first hop
@@ -462,8 +462,8 @@ where
                 } = rsp
                 {
                     context
-                        .not_via_mut()
-                        .insert(NotVia::Link(failed_link.clone()));
+                        .not_via_state_mut()
+                        .insert(NotViaState::new(failed_link.clone(), Timestamp::now()));
                     log::trace!(target: "failure_handling", "added failed link {failed_link:?} to NotVia data");
                     self.invalidate_contacts_containing_link(context, &failed_link);
                 }

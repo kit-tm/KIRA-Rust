@@ -89,7 +89,7 @@ where
                     Some(From::from(*context.uln_table().state_seq_nr())),
                     context.uln_table().size(),
                 ),
-                not_via: context.not_via().clone(),
+                not_via: context.not_via_state().iter().map(NotVia::from).collect(),
                 contact_actions: updates.clone(),
                 source_route: SourceRoute::new(*context.root_id(), contact.path().clone()),
             };
@@ -147,10 +147,8 @@ where
                     self.send_update(context, updates);
                 }
 
-                context.not_via_mut().retain(|not_via| match not_via {
-                    NotVia::Link(link) => {
-                        link.first() != contact.id() && link.second() != contact.id()
-                    }
+                context.not_via_state_mut().retain(|not_via| {
+                    not_via.link.first() != contact.id() && not_via.link.second() != contact.id()
                 });
 
                 self.invalidate_all_affected_contacts(context, &contact);

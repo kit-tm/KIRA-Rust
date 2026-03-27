@@ -22,6 +22,7 @@
 //! # Cargo feature flags
 //!
 //! - **`udp-tokio`**  —  Async implementations for sending and receiving protocol messages using tokio sockets
+//! - **`format-cbor`**  —  Protocol Message Format support: CBOR (Concise Binary Object Notation)
 //! - **`format-mp`**  —  Protocol Message Format support: Message Pack
 //! - **`format-json`**  —  Protocol Message Format support: Json
 //! - **`api`**  —  API REST service for accessing the DHT and inspecting internal data structures
