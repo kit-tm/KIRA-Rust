@@ -1154,7 +1154,7 @@ def run_shell() -> None:
     # enable OTel for all nodes
     if args.otel:
         for _, cfg in graph.nodes(data="config"):
-            cfg.otel = True
+            cfg["otel"] = True
 
     # Create and run the test
     test = KIRATest[str](graph, kirad_binary=args.binary)
