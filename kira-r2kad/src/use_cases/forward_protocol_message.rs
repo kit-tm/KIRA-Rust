@@ -189,7 +189,7 @@ where
 
                 // probably update the timestamp
                 let nvs_entry = NotViaState::new(link.clone(), Timestamp::now());
-                not_via_state.replace(nvs_entry.clone());
+                not_via_state.replace(nvs_entry);
 
                 let contacts_id = request.request_destination();
 
@@ -210,7 +210,7 @@ where
         };
     }
 
-    /// Extracts not_via data and applies them on the routing table.
+    /// Extracts not_via data and applies them to the routing table
     fn extract_not_via_data(
         &self,
         context: &C,
@@ -454,7 +454,7 @@ where
             // TODO: support other shared_prefix_grouping via config
             let closest_node = context
                 .routing_table()
-                .next_hop(overlay_destination, 20, NonZeroU8::MIN)
+                .next_hop(overlay_destination, BUCKET_SIZE, NonZeroU8::MIN)
                 .expect("Shared Prefix Grouping should be valid");
 
             // closest known overlay hop is us -> nothing to forward,
