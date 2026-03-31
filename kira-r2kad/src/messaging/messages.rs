@@ -86,6 +86,65 @@ pub enum ProtocolMessageKind {
     FetchRsp = 0xa4,
 }
 
+/// Object types for protocol message payload objects (see draft section 4.4.2).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[repr(u8)]
+pub enum ProtocolObjectType {
+    SourceRoute = 0x01,
+    NotViaList = 0x02,
+    ContactList = 0x03,
+    RTableRequest = 0x04,
+    RTable = 0x05,
+    RTableUpdateInfo = 0x06,
+    Unknown(u8),
+}
+
+impl From<u8> for ProtocolObjectType {
+    fn from(value: u8) -> Self {
+        match value {
+            0x01 => Self::SourceRoute,
+            0x02 => Self::NotViaList,
+            0x03 => Self::ContactList,
+            0x04 => Self::RTableRequest,
+            0x05 => Self::RTable,
+            0x06 => Self::RTableUpdateInfo,
+            other => Self::Unknown(other),
+        }
+    }
+}
+
+impl From<ProtocolObjectType> for u8 {
+    fn from(value: ProtocolObjectType) -> Self {
+        match value {
+            ProtocolObjectType::SourceRoute => 0x01,
+            ProtocolObjectType::NotViaList => 0x02,
+            ProtocolObjectType::ContactList => 0x03,
+            ProtocolObjectType::RTableRequest => 0x04,
+            ProtocolObjectType::RTable => 0x05,
+            ProtocolObjectType::RTableUpdateInfo => 0x06,
+            ProtocolObjectType::Unknown(other) => other,
+        }
+    }
+}
+
+/// Header that precedes every payload object.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct CommonObjectHeader {
+    pub object_type: ProtocolObjectType,
+    pub object_length: u16,
+}
+
+impl CommonObjectHeader {
+    pub fn new(object_type: ProtocolObjectType, object_length: u16) -> Self {
+        Self {
+            object_type,
+            object_length,
+        }
+    }
+}
+
 /// Common Header Structure
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
