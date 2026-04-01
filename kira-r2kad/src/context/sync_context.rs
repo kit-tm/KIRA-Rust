@@ -2,7 +2,7 @@ use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashSet;
 
 use crate::context::ContextConfig;
-use crate::domain::{NodeId, NotVia};
+use crate::domain::{NodeId, NotViaState};
 use crate::use_cases::UseCaseContext;
 
 /// Implements a [UseCaseContext] which can only be used in a single threaded synchronous environment.
@@ -13,7 +13,7 @@ pub struct SyncContext<RT, RU, IS, UN, VG> {
     insertion_strategy: RefCell<IS>,
     un_table: RefCell<UN>,
     runtime: RU,
-    not_via: RefCell<HashSet<NotVia>>,
+    not_via_state: RefCell<HashSet<NotViaState>>,
     vicinity_graph: RefCell<VG>,
 }
 
@@ -31,7 +31,7 @@ impl<RT, RU, IS, UN, VG> UseCaseContext for SyncContext<RT, RU, IS, UN, VG> {
             insertion_strategy: RefCell::new(config.insertion_strategy),
             un_table: RefCell::new(config.uln_table),
             runtime: config.runtime,
-            not_via: RefCell::new(config.not_via),
+            not_via_state: RefCell::new(config.not_via_state),
             vicinity_graph: RefCell::new(config.vicinity_graph),
         }
     }
@@ -64,12 +64,12 @@ impl<RT, RU, IS, UN, VG> UseCaseContext for SyncContext<RT, RU, IS, UN, VG> {
         &self.runtime
     }
 
-    fn not_via(&self) -> Ref<'_, HashSet<NotVia>> {
-        self.not_via.borrow()
+    fn not_via_state(&self) -> Ref<'_, HashSet<NotViaState>> {
+        self.not_via_state.borrow()
     }
 
-    fn not_via_mut(&self) -> RefMut<'_, HashSet<NotVia>> {
-        self.not_via.borrow_mut()
+    fn not_via_state_mut(&self) -> RefMut<'_, HashSet<NotViaState>> {
+        self.not_via_state.borrow_mut()
     }
 
     fn vicinity_graph(&self) -> Ref<'_, Self::VicinityGraph> {

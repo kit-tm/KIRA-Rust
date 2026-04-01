@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 pub use sync_context::SyncContext;
 
-use crate::domain::{NodeId, NotVia};
+use crate::domain::{NodeId, NotViaState};
 
 pub mod sync_context;
 
@@ -16,7 +16,7 @@ pub struct ContextConfig<RT, RU, IS, UN, VG> {
     pub runtime: RU,
     pub insertion_strategy: IS,
     pub uln_table: UN,
-    pub not_via: HashSet<NotVia>,
+    pub not_via_state: HashSet<NotViaState>,
     pub vicinity_graph: VG,
 }
 
@@ -59,9 +59,9 @@ pub trait UseCaseContext {
 
     fn runtime(&self) -> &Self::Runtime;
 
-    fn not_via(&self) -> Ref<'_, HashSet<NotVia>>;
+    fn not_via_state(&self) -> Ref<'_, HashSet<NotViaState>>;
 
-    fn not_via_mut(&self) -> RefMut<'_, HashSet<NotVia>>;
+    fn not_via_state_mut(&self) -> RefMut<'_, HashSet<NotViaState>>;
 
     fn vicinity_graph(&self) -> Ref<'_, Self::VicinityGraph>;
 

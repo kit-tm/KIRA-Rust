@@ -10,7 +10,8 @@ use crate::domain::protocol_event::forwarding::{
     NodeIdTableUpdate, PathIdDecapsulationEntry, PathIdEntry, PathIdTableUpdate,
 };
 use crate::domain::{
-    Contact, ContactState, Hasher, NodeId, NodeIdSubnet, Path, RoutingTable, UnderlayNeighborId,
+    Contact, ContactState, NodeId, NodeIdSubnet, Path, RoutingTable, UnderlayNeighborId,
+    hasher::Hasher,
 };
 use crate::runtime::UseCaseRuntime;
 use crate::use_cases::{
@@ -646,7 +647,7 @@ mod tests {
                 uln_table,
                 insertion_strategy: (),
                 runtime,
-                not_via: HashSet::default(),
+                not_via_state: HashSet::default(),
                 vicinity_graph: (),
             });
 
@@ -765,7 +766,7 @@ mod tests {
                 uln_table,
                 insertion_strategy: (),
                 runtime,
-                not_via: HashSet::default(),
+                not_via_state: HashSet::default(),
                 vicinity_graph: (),
             });
 
@@ -883,7 +884,7 @@ mod tests {
                 uln_table,
                 insertion_strategy: (),
                 runtime,
-                not_via: HashSet::default(),
+                not_via_state: HashSet::default(),
                 vicinity_graph: (),
             });
 
@@ -996,7 +997,7 @@ mod tests {
                 uln_table,
                 insertion_strategy: (),
                 runtime,
-                not_via: HashSet::default(),
+                not_via_state: HashSet::default(),
                 vicinity_graph: (),
             });
 

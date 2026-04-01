@@ -11,8 +11,8 @@ use crate::domain::protocol_event::forwarding::{
     PathIdEntry, PathIdForwardingEntry, PathIdTableUpdate,
 };
 use crate::domain::{
-    Contact, ContactState, Hasher, NodeId, Path, PathId, RoutingTable, ULNTable,
-    UnderlayNeighborId, VICINITY_RADIUS,
+    Contact, ContactState, NodeId, NotVia, Path, PathId, RoutingTable, ULNTable,
+    UnderlayNeighborId, VICINITY_RADIUS, hasher::Hasher,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -105,7 +105,7 @@ where
                 context.uln_table().size(),
             ),
             data: PathSetupReqData,
-            not_via: context.not_via().clone(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route,
         };
         context
@@ -125,7 +125,7 @@ where
                 context.uln_table().size(),
             ),
             data: ProbeReqData,
-            not_via: context.not_via().clone(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route,
         };
         context
@@ -145,7 +145,7 @@ where
                 context.uln_table().size(),
             ),
             data: PathTeardownReqData,
-            not_via: context.not_via().clone(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route,
         };
         context

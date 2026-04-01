@@ -1,62 +1,9 @@
 use std::cmp::Ordering;
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::Utc;
 use derive_more::derive::Display;
 
-use crate::domain::{NodeId, Path, SafeStateSeqNr};
-
-/// Specifies in milliseconds the age of the routing information.
-///
-/// This is either associated with the [Age] of a [Contact] or a failed link.
-///
-/// # Ordering
-///
-/// As [Age] specifies a timestamp in milliseconds a greater value represents a larger age.
-/// Considering `X = Age(10)` and `Y = Age(20)` then `X < Y == true`.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Display)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct Age(u64);
-
-impl From<u64> for Age {
-    fn from(value: u64) -> Self {
-        Self(value)
-    }
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Display)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[display("{}", self.0.timestamp_millis())]
-pub struct Timestamp(
-    #[cfg_attr(feature = "serde", serde(with = "chrono::serde::ts_milliseconds"))] DateTime<Utc>,
-);
-
-impl From<DateTime<Utc>> for Timestamp {
-    fn from(time: DateTime<Utc>) -> Self {
-        Self(time)
-    }
-}
-
-impl Timestamp {
-    /// Creates a new Timestamp at current time.
-    pub fn now() -> Self {
-        Self(Utc::now())
-    }
-
-    /// Returns the [Age] of the [Timestamp].
-    pub fn to_age(&self) -> Age {
-        let distance = Utc::now() - self.0;
-        // OK since stored timestamp should always be >= current time
-        Age::from(
-            distance.num_seconds().unsigned_abs() * 1000
-                + distance.num_milliseconds().unsigned_abs(),
-        )
-    }
-
-    /// Returns the [Duration] representation of the [Age] of the [Timestamp].
-    pub fn to_age_duration(&self) -> Duration {
-        Utc::now() - self.0
-    }
-}
+use crate::domain::{Age, NodeId, Path, SafeStateSeqNr, Timestamp};
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
