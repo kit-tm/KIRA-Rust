@@ -86,6 +86,11 @@ def _topo_files():
 
 
 @pytest.fixture(scope="session")
+def topos_dir():
+    return TOPOS_DIR
+
+
+@pytest.fixture(scope="session")
 def kirad(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return built_kirad_binary(tmp_path_factory, "")
 

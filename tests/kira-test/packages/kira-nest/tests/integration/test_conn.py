@@ -3,10 +3,8 @@ from time import sleep
 from kira_nest.nest.test import KIRATest
 from nest.topology import Address
 
-from .conftest import TOPOS_DIR
 
-
-def test_connectivity(kirad_small_k, kira_topo, subtests):
+def test_connectivity(kirad_small_k, kira_topo, subtests, topos_dir):
     test = KIRATest[str](kira_topo, kirad_binary=kirad_small_k)
     sleep(1)
 
@@ -35,7 +33,7 @@ def test_connectivity(kirad_small_k, kira_topo, subtests):
                 assert test.traceroute(src, dst, verbose=False)
 
     # test link up/down of k1
-    minimal_topo = TOPOS_DIR / "minimal-small-k.gml"
+    minimal_topo = topos_dir / "minimal-small-k.gml"
     if kira_topo == minimal_topo:
         isolating_tid = "1"
         isolating_node = test.topology.nodes[isolating_tid]
