@@ -1,0 +1,29 @@
+[project]
+name = "kira-nest"
+version = "0.0.1"
+description = "Testing infrastructure of kirad with NeST"
+readme = "README.md"
+authors = [
+  { name = "Julius Rüberg", email = "julius.rueberg@student.kit.edu" },
+  { name = "Jakob Müllner ", email = "uifnz@student.kit.edu" },
+]
+requires-python = "~=3.12.0" # Python 3.12.X
+dependencies = [
+  "kira-common",
+  "nest @ git+https://gitlab.com/Toorero/nest.git@feature/cap_sys_admin", # https://gitlab.com/nitk-nest/nest/-/work_items/283
+  "networkx==3.4.2",
+  "scipy==1.15.3",
+  "term-image==0.7.2",
+  "matplotlib==3.10.3",
+  "python-prctl==1.8.1",
+]
+
+[project.scripts]
+nesttest = "kira_nest.nest.shell:run_shell"
+
+[dependency-groups]
+dev = ["pytest>=9.0.1", "ruff>=0.14.5", "pyright>=1.1.407"]
+
+[build-system]
+requires = ["uv_build>=0.9.11,<0.10.0"]
+build-backend = "uv_build"

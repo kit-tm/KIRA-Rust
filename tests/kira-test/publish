@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+if [[ -v CI_JOB_TOKEN ]]; then
+    UV_PUBLISH_USERNAME='gitlab-ci-token'
+    UV_PUBLISH_PASSWORD="${CI_JOB_TOKEN}"
+fi
+
+if [[ -v DRY_RUN ]]; then
+    dry_run="--dry-run"
+else
+    dry_run=""
+fi
+
+if ! [[ -v BUMP && -z ${BUMP} ]]; then # skip if BUMP=""
+    for package in packages/*; do
+        pushd "${package}" >/dev/null
+        uv version --bump=${BUMP:=dev} ${dry_run}
+        popd >/dev/null
+    done
+fi
+
+uv build --clear --wheel --all-packages
+uv publish --index=gitlab ${dry_run}
+
