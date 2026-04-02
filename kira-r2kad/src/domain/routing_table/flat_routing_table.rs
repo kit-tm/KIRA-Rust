@@ -6,8 +6,8 @@ use rand::Rng;
 
 use crate::domain::{
     AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, ContactState,
-    DEFAULT_BUCKET_SIZE, GroupingError, Hasher, NodeId, ReplacementError, RoutingTable,
-    SharedPrefix,
+    DEFAULT_BUCKET_SIZE, GroupingError, NodeId, ReplacementError, RoutingTable, SharedPrefix,
+    hasher::Hasher,
 };
 
 pub const DEFAULT_ACCELERATION: u8 = 1;

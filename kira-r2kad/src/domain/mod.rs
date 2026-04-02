@@ -3,7 +3,6 @@
 pub use bucket::*;
 pub use contact::*;
 use derive_more::derive::Display;
-pub use hasher::*;
 pub use insertion_strategy::*;
 pub use node_id::*;
 pub use path::cycle_remover::*;
@@ -15,6 +14,7 @@ pub use path_id::*;
 pub use routing_table::flat_routing_table::*;
 pub use routing_table::*;
 pub use state_seq_nr::*;
+use std::hash::{Hash, Hasher};
 pub use underlay::*;
 pub use underlay_neighbor_table::*;
 pub use vicinity::*;
@@ -33,6 +33,62 @@ pub mod state_seq_nr;
 pub mod underlay;
 pub mod underlay_neighbor_table;
 pub mod vicinity;
+
+use chrono::{DateTime, Duration, Utc};
+
+/// Specifies in milliseconds the age of the routing information.
+///
+/// This is either associated with the [Age] of a [Contact] or a failed link.
+///
+/// # Ordering
+///
+/// As [Age] specifies a timestamp in milliseconds a greater value represents a larger age.
+/// Considering `X = Age(10)` and `Y = Age(20)` then `X < Y == true`.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Display)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct Age(u64);
+
+impl From<u64> for Age {
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Display)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[display("{}", self.0.timestamp_millis())]
+pub struct Timestamp(
+    #[cfg_attr(feature = "serde", serde(with = "chrono::serde::ts_milliseconds"))] DateTime<Utc>,
+);
+
+impl From<DateTime<Utc>> for Timestamp {
+    fn from(time: DateTime<Utc>) -> Self {
+        Self(time)
+    }
+}
+
+impl Timestamp {
+    /// Creates a new Timestamp at current time.
+    pub fn now() -> Self {
+        Self(Utc::now())
+    }
+
+    /// Returns the [Age] of the [Timestamp].
+    pub fn to_age(&self) -> Age {
+        // OK since stored timestamp should always be >= current time
+        Age::from((Utc::now() - self.0).num_milliseconds().unsigned_abs())
+    }
+
+    /// Returns the [Duration] representation of the [Age] of the [Timestamp].
+    pub fn to_age_duration(&self) -> Duration {
+        Utc::now() - self.0
+    }
+
+    /// Returns the [Timestamp] of the [Age].
+    pub fn from_age(age: Age) -> Timestamp {
+        Self(Utc::now() - Duration::milliseconds(age.0.cast_signed()))
+    }
+}
 
 /// A underlay connection between two nodes.
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Display)]
@@ -75,9 +131,74 @@ impl From<(NodeId, NodeId)> for Link {
 /// It's an error for the local not via data to contain entries not affecting any nodes in the
 /// routing table.
 /// When a node gets deleted, all the not via data mentioning it will be removed.
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Display)]
+#[derive(Debug, Clone, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub enum NotVia {
-    #[display("NotVia {_0}")]
-    Link(Link),
+#[display("NotVia {link} {age}ms")]
+pub struct NotVia {
+    pub link: Link,
+    pub age: Age,
 }
+
+impl From<(Link, Age)> for NotVia {
+    fn from((first, second): (Link, Age)) -> Self {
+        Self {
+            link: first,
+            age: second,
+        }
+    }
+}
+
+impl From<&NotViaState> for NotVia {
+    fn from(notvia_state: &NotViaState) -> Self {
+        Self {
+            link: notvia_state.link.clone(),
+            age: notvia_state.timestamp.to_age(),
+        }
+    }
+}
+
+impl Hash for NotVia {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.link.hash(state);
+    }
+}
+
+// we ignore the Age component for checking the equality
+impl PartialEq for NotVia {
+    fn eq(&self, other: &Self) -> bool {
+        self.link == other.link
+    }
+}
+
+impl Eq for NotVia {}
+
+/// Data structure representing failed underlay connections with associated time information
+/// This is for storing NotVia state internally
+#[derive(Debug, Clone, Display)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[display("NotViaState {link} {timestamp}")]
+pub struct NotViaState {
+    pub link: Link,
+    pub timestamp: Timestamp,
+}
+
+impl NotViaState {
+    pub fn new(link: Link, timestamp: Timestamp) -> Self {
+        Self { link, timestamp }
+    }
+}
+
+impl Hash for NotViaState {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.link.hash(state);
+    }
+}
+
+// we ignore the timestamp component for checking the equality
+impl PartialEq for NotViaState {
+    fn eq(&self, other: &Self) -> bool {
+        self.link == other.link
+    }
+}
+
+impl Eq for NotViaState {}

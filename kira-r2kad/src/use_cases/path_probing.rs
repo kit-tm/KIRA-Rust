@@ -5,7 +5,8 @@ use std::time::Duration;
 use tracing::{Level, instrument};
 
 use crate::domain::{
-    Contact, ContactState, DEFAULT_BUCKET_SIZE, NodeId, RoutingTable, ULNTable, UnderlayNeighborId,
+    Contact, ContactState, DEFAULT_BUCKET_SIZE, NodeId, NotVia, RoutingTable, ULNTable,
+    UnderlayNeighborId,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -147,7 +148,7 @@ where
                 context.uln_table().size(),
             ),
             data: ProbeReqData,
-            not_via: context.not_via().clone(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route: route,
         };
         context
@@ -246,7 +247,7 @@ where
                 context.uln_table().size(),
             ),
             data: ProbeRspData,
-            not_via: context.not_via().clone(),
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route: SourceRoute::from_reversed(req.source_route),
         };
         context
