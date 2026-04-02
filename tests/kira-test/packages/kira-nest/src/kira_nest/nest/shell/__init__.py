@@ -71,6 +71,15 @@ def unshare_emulation() -> bool:
     # 3. mount -t tmpfs tmpfs /var/run/netns
     # otherwise network namespaces can't be created using ip netns add
 
+    # create mount-point
+    IP_NETNS_PINS = Path("/var/run/netns")
+    try:
+        IP_NETNS_PINS.mkdir(parents=True, exist_ok=True)
+    except PermissionError as e:
+        print(
+            "Error: Unable to create mount-point /var/run/netns. Try creating manually: mkdir -p /var/run/netns"
+        )
+
     libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
     libc.mount.argtypes = (
         ctypes.c_char_p,
@@ -83,7 +92,7 @@ def unshare_emulation() -> bool:
     #           const char *filesystemtype, unsigned long mountflags,
     #           const void *_Nullable data);
     source = "tmpfs"
-    target = "/var/run/netns"
+    target = IP_NETNS_PINS.as_posix()
     filesystemtype = "tmpfs"
     mountflags = 0
     data = None
