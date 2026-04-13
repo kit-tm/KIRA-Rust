@@ -15,6 +15,7 @@ pub use routing_table::flat_routing_table::*;
 pub use routing_table::*;
 pub use state_seq_nr::*;
 use std::hash::{Hash, Hasher};
+use std::time::{Instant};
 pub use underlay::*;
 pub use underlay_neighbor_table::*;
 pub use vicinity::*;
@@ -152,7 +153,7 @@ impl From<&NotViaState> for NotVia {
     fn from(notvia_state: &NotViaState) -> Self {
         Self {
             link: notvia_state.link.clone(),
-            age: notvia_state.timestamp.to_age(),
+            age: Age::from((Instant::now() - notvia_state.timestamp).as_millis() as u64),
         }
     }
 }
@@ -175,15 +176,14 @@ impl Eq for NotVia {}
 /// Data structure representing failed underlay connections with associated time information
 /// This is for storing NotVia state internally
 #[derive(Debug, Clone, Display)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[display("NotViaState {link} {timestamp}")]
+#[display("NotViaState {link} {timestamp:?}")]
 pub struct NotViaState {
     pub link: Link,
-    pub timestamp: Timestamp,
+    pub timestamp: Instant,
 }
 
 impl NotViaState {
-    pub fn new(link: Link, timestamp: Timestamp) -> Self {
+    pub fn new(link: Link, timestamp: Instant) -> Self {
         Self { link, timestamp }
     }
 }

@@ -259,7 +259,7 @@ where
         context: &C,
         contact: &Contact,
     ) -> Result<NodeIdEntry, DeriveFwdEntriesError> {
-        let next_hop = *contact.path().first();
+        let next_hop = *contact.path().expect("contact is expected to have an active path").first();
         let next_hop = context
             .uln_table()
             .get(&next_hop)
@@ -281,7 +281,7 @@ where
             Ok(NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry {
                 destination: NodeIdSubnet::new(*contact.id()),
                 next_hop,
-                out_path_id: self.config.hasher.hash(contact.path()),
+                out_path_id: self.config.hasher.hash(contact.path().unwrap()),
             }))
         }
     }
@@ -301,7 +301,8 @@ where
 
         // Proximity Neighbor Selection:
         // Select contact with shortest path in bucket as prefix entry
-        let Some(closest) = iter.min_by_key(|c| c.path().size()) else {
+        let Some(closest) = iter.filter(|c|c.is_valid())
+                                .min_by_key(|c| c.path().expect("valid contact should have an active path").size()) else {
             assert_eq!(
                 bucket.iter().count(),
                 0,
@@ -323,7 +324,7 @@ where
         let subnet = NodeIdSubnet::try_new(closest.id().prefix(prefix_len), prefix_len)
             .expect("should be valid prefix length");
 
-        let next_hop = *closest.path().first();
+        let next_hop = *closest.path().unwrap().first();
         let next_hop = context
             .uln_table()
             .get(&next_hop)
@@ -339,7 +340,7 @@ where
             NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry {
                 destination: subnet,
                 next_hop,
-                out_path_id: self.config.hasher.hash(closest.path()),
+                out_path_id: self.config.hasher.hash(closest.path().unwrap()),
             })
         };
 
@@ -695,7 +696,7 @@ mod tests {
             assert_eq!(
                 encap_entry.out_path_id,
                 //Hasher::Sha1.hash(vicinity_contact.path().into_iter().skip(1))
-                Hasher::Sha1.hash(vicinity_contact.path().into_iter())
+                Hasher::Sha1.hash(vicinity_contact.path().unwrap().into_iter())
             );
 
             let path_id_update = output.iter().find_map(|o| {
@@ -1019,8 +1020,8 @@ mod tests {
             );
 
             let mut new_in_path = Path::from(root_id);
-            new_in_path.extend(new_contact.path().clone());
-            let new_out_path_id = Hasher::Sha1.hash(new_contact.path());
+            new_in_path.extend(new_contact.path().unwrap().clone());
+            let new_out_path_id = Hasher::Sha1.hash(new_contact.path().unwrap());
 
             let event = UseCaseEvent::Contact(ContactEvent::Updated {
                 new: new_contact.clone(),

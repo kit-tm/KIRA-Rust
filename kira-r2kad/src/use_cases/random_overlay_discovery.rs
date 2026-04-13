@@ -72,7 +72,7 @@ where
             .closest(&random_id, BUCKET_SIZE, self.config.shared_prefix_grouping)
             .expect("grouping was checked on initialization")
             .first()
-            .map(|(_, contact)| contact.path())
+            .map(|(_, contact)| contact.path().unwrap()) // closest returns only valid contacts
             .cloned();
         if closest_path.is_none() {
             log::trace!(

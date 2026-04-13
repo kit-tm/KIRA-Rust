@@ -40,7 +40,7 @@ use runtime::R2KadRuntime;
 
 pub struct Builder<C, const BUCKET_SIZE: usize> {
     context: PhantomData<C>,
-    root_id: Option<NodeId>, // None => random
+    root_id: Option<NodeId>, // the node's NodeID None => random
     pipeline_config: R2KadPipelineConfig,
     current_time: Instant,
 }

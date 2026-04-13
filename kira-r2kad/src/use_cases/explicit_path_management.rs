@@ -94,7 +94,11 @@ where
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     fn send_setup_req(&self, context: &C, contact: &Contact) {
-        let source_route = SourceRoute::new(*context.root_id(), contact.path().clone());
+        // just in case the contact has been invalidated meanwhile
+        if !contact.is_valid() {
+            return;
+        }
+        let source_route = SourceRoute::new(*context.root_id(), contact.path().unwrap().clone());
         let message = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::PathSetupReq,
@@ -113,8 +117,8 @@ where
             .send_message(message, context.uln_table().deref());
     }
 
-    fn send_probe_req(&self, context: &C, contact: &Contact) {
-        let source_route = SourceRoute::new(*context.root_id(), contact.path().clone());
+    fn send_probe_req(&self, context: &C, path: &Path) {
+        let source_route = SourceRoute::new(*context.root_id(), path.clone());
         let message = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::ProbeReq,
@@ -133,8 +137,23 @@ where
             .send_message(message, context.uln_table().deref());
     }
 
+    fn send_probe_req_for_active(&self, context: &C, contact: &Contact) {
+        if let Some(active_path) = contact.path() {
+            self.send_probe_req(context, active_path);
+        }
+    }
+
+    fn send_probe_req_for_proposed(&self, context: &C, contact: &Contact) {
+        if let Some(proposed_path) = contact.proposed_path() {
+            self.send_probe_req(context, proposed_path);
+        }
+    }
+
     fn send_teardown_req(&self, context: &C, contact: &Contact) {
-        let source_route = SourceRoute::new(*context.root_id(), contact.path().clone());
+        let Some(active_path) = contact.path() else {
+            return;
+        };
+        let source_route = SourceRoute::new(*context.root_id(), active_path.clone());
         let message = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::PathTeardownReq,
@@ -188,11 +207,11 @@ where
     fn perform_refresh(&mut self, context: &C) {
         for contact in context.routing_table().iter() {
             // don't probe invalid or vicinity contacts
-            if contact.state() != &ContactState::Valid || contact.path().size() <= VICINITY_RADIUS {
+            if contact.state() != &ContactState::Valid || contact.path().unwrap().size() <= VICINITY_RADIUS {
                 continue;
             }
 
-            self.send_probe_req(context, contact);
+            self.send_probe_req_for_active(context, contact);
         }
     }
 
@@ -344,7 +363,7 @@ where
         match (event, &self.state) {
             // ========== Contact Updates ==========
             (UseCaseEvent::Contact(ContactEvent::New(contact)), _) => {
-                if contact.path().size() > VICINITY_RADIUS {
+                if contact.path().unwrap().size() > VICINITY_RADIUS {
                     self.send_setup_req(context, &contact);
                 }
             }
@@ -352,8 +371,8 @@ where
                 match (
                     new.state(),
                     old.state(),
-                    new.path().size() > VICINITY_RADIUS,
-                    old.path().size() > VICINITY_RADIUS,
+                    new.path().unwrap().size() > VICINITY_RADIUS,
+                    old.path().unwrap().size() > VICINITY_RADIUS,
                 ) {
                     (ContactState::Valid, ContactState::Invalid, true, _) => {
                         // Contacts becomes valid
@@ -398,7 +417,7 @@ where
                 }
             }
             (UseCaseEvent::Contact(ContactEvent::Removed(contact)), _) => {
-                if contact.path().size() > VICINITY_RADIUS {
+                if contact.path().unwrap().size() > VICINITY_RADIUS {
                     self.send_teardown_req(context, &contact);
                 }
             }

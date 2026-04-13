@@ -136,7 +136,7 @@ where
             nonce = Nonce::random();
         }
 
-        let mut route = SourceRoute::from(contact.path().clone());
+        let mut route = SourceRoute::from(contact.path().unwrap().clone());
         route.push_front(*context.root_id());
         let message = ReqRspMessage {
             common_header: CommonHeader::new(
@@ -198,7 +198,7 @@ where
             match lock.contact_mut(&contacts_id) {
                 Some(mut contact) => {
                     *contact.state_mut() = ContactState::Invalid;
-                    log::warn!(target: "path_probing", "Invalidated contact due of timer [path: {}]", contact.path());
+                    log::warn!(target: "path_probing", "Invalidated contact due of timer [path: {:?}]", contact.path());
                 }
                 None => {
                     log::warn!(target: "path_probing", "Removed timeout for non existent contact {contacts_id}")

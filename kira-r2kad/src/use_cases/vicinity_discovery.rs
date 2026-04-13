@@ -606,7 +606,7 @@ where
             .data
             .contacts
             .iter()
-            .filter(|&c| c.path().size() == 1 && c.id() != context.root_id());
+            .filter(|&c| c.path().unwrap().size() == 1 && c.id() != context.root_id());
 
         // update links in vicinity graph
         for contact in source_neighbors {

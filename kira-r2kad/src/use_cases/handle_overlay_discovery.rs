@@ -66,7 +66,7 @@ impl<C, const BUCKET_SIZE: usize> HandleOverlayDiscovery<C, BUCKET_SIZE> {
         next_contact: Contact,
     ) -> ProtocolMessage {
         let mut source_route = req.source_route.clone();
-        source_route.extend(next_contact.path().clone());
+        source_route.extend(next_contact.path().unwrap().clone());
         source_route.advance();
 
         ProtocolMessage::FindNodeReq(ReqRspMessage {
@@ -181,18 +181,19 @@ where
                 .expect("grouping has to be checked on initialization");
 
             // Get any contact not contained in local or included not_via data
+            // closest returns only valid contacts, so unwrapping paths is safe
             let closest_node = closest.iter().find(|(_, contact)| {
                 if context
                     .not_via_state()
                     .iter()
-                    .any(|nvs| contact.path().contains_link(&nvs.link))
+                    .any(|nvs| contact.path().unwrap().contains_link(&nvs.link))
                 {
                     return false;
                 }
                 if req
                     .not_via
                     .iter()
-                    .any(|not_via| contact.path().contains_link(&not_via.link))
+                    .any(|not_via| contact.path().unwrap().contains_link(&not_via.link))
                 {
                     return false;
                 }

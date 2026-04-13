@@ -138,11 +138,11 @@ where
 
                 let closest_route = context
                     .routing_table()
-                    .closest(&target, 20, self.config.shared_prefix_grouping)
+                    .closest(&target, BUCKET_SIZE, self.config.shared_prefix_grouping)
                     .expect("grouping has to be checked on init")
                     .first()
                     .map(|(_, contact)| {
-                        let mut route = SourceRoute::from(contact.path().clone());
+                        let mut route = SourceRoute::from(contact.path().unwrap().clone());
                         route.push_front(*context.root_id());
                         route
                     });

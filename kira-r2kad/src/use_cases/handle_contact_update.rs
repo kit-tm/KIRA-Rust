@@ -91,7 +91,7 @@ where
                 ),
                 not_via: context.not_via_state().iter().map(NotVia::from).collect(),
                 contact_actions: updates.clone(),
-                source_route: SourceRoute::new(*context.root_id(), contact.path().clone()),
+                source_route: SourceRoute::new(*context.root_id(), contact.path().unwrap().clone()),
             };
 
             context
@@ -103,7 +103,7 @@ where
     fn invalidate_all_affected_contacts(&self, context: &C, invalidated_contact: &Contact) {
         // Invalidate all other contacts via this contact
         for mut saved_contact in context.routing_table_mut().iter_mut() {
-            if saved_contact.path().starts_with(invalidated_contact.path()) {
+            if saved_contact.path().is_some() && saved_contact.path().unwrap().starts_with(invalidated_contact.path().unwrap()) {
                 *saved_contact.state_mut() = ContactState::Invalid;
             }
         }

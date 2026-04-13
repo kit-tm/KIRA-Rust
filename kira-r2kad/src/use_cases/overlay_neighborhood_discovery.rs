@@ -224,7 +224,7 @@ where
             return Err(ONDError::NeighborInconsistency);
         }
         let contact = path_to_closest_on.unwrap();
-        let mut route_to_closest_on = SourceRoute::from(contact.path().clone());
+        let mut route_to_closest_on = SourceRoute::from(contact.path().unwrap().clone());
         route_to_closest_on.push_front(*context.root_id());
 
         // Get the interface of the next underlay neighbor to route this request through

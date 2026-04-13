@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use chrono::Utc;
 use derive_more::derive::Display;
 
-use crate::domain::{Age, NodeId, Path, SafeStateSeqNr, Timestamp};
+use crate::{domain::{Age, NodeId, Path, SafeStateSeqNr, Timestamp, pathcollection::PathCollection}};
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -11,7 +11,7 @@ use crate::domain::{Age, NodeId, Path, SafeStateSeqNr, Timestamp};
 pub enum ContactState {
     Valid,         // has a validated active path
     Invalid,       // no valid path
-    Rediscovering, // no valid path, but trying to rediscvoery
+    Rediscovering, // no valid path, but trying to rediscvoer
     Dead,          // contact not usable anymore (e.g., rediscovery failed finally)
 }
 
@@ -20,12 +20,12 @@ pub enum ContactState {
 /// The contact is Invalid if no valid paths are present
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[display("Contact [id: {}, age: {}, state_seq_nr: {state_seq_nr}, state: {state}, path: {path}]", self.id(), self.last_seen.to_age_duration())]
+#[display("Contact [id: {}, age: {}, state_seq_nr: {state_seq_nr}, state: {state}, path: {path_collection:?}]", self.id(), self.last_seen.to_age_duration())]
 pub struct Contact {
     dest_id: NodeId,
     state: ContactState,
     last_seen: Timestamp,
-    path: Path,
+    path_collection: PathCollection,
     state_seq_nr: SafeStateSeqNr,
 }
 
@@ -38,7 +38,7 @@ impl Contact {
             dest_id: *path.last(),
             state: ContactState::Valid,
             last_seen: Timestamp::from(Utc::now()),
-            path,
+            path_collection: PathCollection::new_with_active_path(path),
             state_seq_nr,
         }
     }
@@ -64,7 +64,10 @@ impl Contact {
         // FIXME: Invariant is, that path doesn't contain the own node_id. whole_path Method is for that.
         // However, one needs to distinguish whether the current contact is still a ULN but has
         // just lost its direct link...
-        self.path.size() == 1
+        match self.path_collection.active_path() {
+            Some(path) =>  (*path).size() == 1,
+            None => false
+        }
     }
 
     pub fn age(&self) -> Age {
@@ -92,6 +95,10 @@ impl Contact {
         }
     }
 
+    pub fn is_valid(&self) -> bool {
+        self.state == ContactState::Valid
+    }
+
     pub fn last_seen(&self) -> &Timestamp {
         &self.last_seen
     }
@@ -104,9 +111,49 @@ impl Contact {
         &mut self.last_seen
     }
 
-    /// Returns the [Path] of the [Contact].
-    pub fn path(&self) -> &Path {
-        &self.path
+    /// assesses whether given path candidate is an improvement over current active path
+    /// if path_candidate is suitable this method updates the proposed path
+    /// returns true if new path_candidate updated the proposed path
+    pub fn assess_path_candidate(&mut self, path_candidate: &Path) -> bool {
+        let path_suitable = match self.state {
+            ContactState::Invalid => true,
+            ContactState::Valid => {
+                let active_path = self.path_collection.active_path().expect("Valid contact should never have an unset active path");
+                path_candidate.is_better_than(active_path)
+            },
+            ContactState::Rediscovering => false,
+            ContactState::Dead => false,
+        };
+
+        if path_suitable {
+            // check if path_candidate is better than current proposed path if present
+            let should_set_proposed_path = match self.path_collection.proposed_path() {
+                Some(current_proposed_path) => path_candidate.is_better_than(current_proposed_path), // will return true if path candidate is better than current proposed path
+                None => true,
+            };
+
+            if should_set_proposed_path {
+                // set a new proposed path
+                self.path_collection.set_proposed_path(path_candidate.clone());
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Returns the active [Path] of the [Contact].
+    pub fn path(&self) -> Option<&Path> {
+        self.path_collection.active_path()
+    }
+
+    /// Returns the proposed [Path] of the [Contact].
+    pub fn proposed_path(&self) -> Option<&Path> {
+        self.path_collection.proposed_path()
+    }
+
+    /// Set the active [Path] of the [Contact].
+    pub fn set_path(&mut self, new_path: Path) {
+        self.path_collection.set_active_path(new_path);
     }
 
     /// Returns a mutable reference to the [Path] of the [Contact].
@@ -114,8 +161,8 @@ impl Contact {
     /// As it's invalid for a [Path] not to end with the [NodeId] of the [Contact]
     /// and external users could violate this invariant, the access to the method
     /// is limited to the crate itself.
-    pub(crate) fn path_mut(&mut self) -> &mut Path {
-        &mut self.path
+    pub(crate) fn path_mut(&mut self) -> Option<&mut Path> {
+        self.path_collection.active_path_mut()
     }
 
     pub fn state_seq_nr(&self) -> &SafeStateSeqNr {

@@ -7,7 +7,7 @@ use tracing::{Level, instrument};
 use derive_more::derive::{Display, Error};
 
 use crate::domain::{
-    Contact, ContactState, Link, NodeId, NotVia, NotViaState, RoutingTable, Timestamp, ULNTable,
+    Contact, ContactState, Link, NodeId, NotVia, NotViaState, RoutingTable, ULNTable,
     UnderlayNeighborId, UnderlayNeighborUpdate, VicinityGraph,
 };
 use crate::messaging::source_route::SourceRoute;
@@ -98,7 +98,7 @@ where
 
     fn invalidate_contacts_containing_link(&self, context: &C, failedlink: &Link) {
         for mut contact in context.routing_table_mut().iter_mut() {
-            if contact.path().contains_link(failedlink) {
+            if contact.path().is_some() && contact.path().unwrap().contains_link(failedlink) {
                 *contact.state_mut() = ContactState::Invalid;
 
                 log::trace!(target: "failure_handling", "Invalidated {} whose path contains {}", contact.id(), failedlink);
@@ -158,7 +158,7 @@ where
                     contact_actions: updates.clone(),
                     source_route: SourceRoute::new(
                         *context.root_id(),
-                        closest_overlay_neighbor.path().clone(),
+                        closest_overlay_neighbor.path().unwrap().clone(),
                     ),
                 };
 
@@ -228,7 +228,7 @@ where
                 target: *contact.id(),
             },
             not_via: context.not_via_state().iter().map(NotVia::from).collect(),
-            source_route: SourceRoute::new(*context.root_id(), closest_contact.path().clone()),
+            source_route: SourceRoute::new(*context.root_id(), closest_contact.path().unwrap().clone()),
         };
 
         context
@@ -318,7 +318,7 @@ where
                 target: *node_id,
             },
             not_via: context.not_via_state().iter().map(NotVia::from).collect(),
-            source_route: SourceRoute::new(*context.root_id(), closest_contact.path().clone()),
+            source_route: SourceRoute::new(*context.root_id(), closest_contact.path().unwrap().clone()),
         };
 
         context
@@ -350,15 +350,15 @@ where
             affected_underlay_neighbors
                 .iter()
                 .cloned()
-                .map(|id| NotViaState::new(Link::new(*context.root_id(), id), Timestamp::now())), // TODO check for correct age value
+                .map(|id| NotViaState::new(Link::new(*context.root_id(), id), context.runtime().current_time())), // TODO check for correct age value
         );
 
         // find contacts whose path contain affected underlay neighbors as first hop
         for mut contact in rt.iter_mut() {
-            if affected_underlay_neighbors.contains(contact.path().first()) {
+            if contact.path().is_some() && affected_underlay_neighbors.contains(contact.path().unwrap().first()) {
                 *contact.state_mut() = ContactState::Invalid;
 
-                log::trace!(target: "failure_handling", "Invalidated contact {} as it starts with failed underlay neighbor {}", contact.id(), contact.path().first());
+                log::trace!(target: "failure_handling", "Invalidated contact {} as it starts with failed underlay neighbor {}", contact.id(), contact.path().unwrap().first());
             }
         }
 
@@ -463,7 +463,7 @@ where
                 {
                     context
                         .not_via_state_mut()
-                        .insert(NotViaState::new(failed_link.clone(), Timestamp::now()));
+                        .insert(NotViaState::new(failed_link.clone(), context.runtime().current_time()));
                     log::trace!(target: "failure_handling", "added failed link {failed_link:?} to NotVia data");
                     self.invalidate_contacts_containing_link(context, &failed_link);
                 }

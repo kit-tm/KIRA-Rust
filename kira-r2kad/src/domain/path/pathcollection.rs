@@ -1,15 +1,22 @@
 use crate::domain::Path;
 
+use std::hash::{Hash, Hasher};
+use derive_more::derive::Display;
+
 const MAX_ALTERNATIVE_PATHS: usize = 3;
 
-#[derive(Default, Debug)]
-
+#[derive(Default, Debug, Clone, Eq, Display)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[display("PathColl [active: {:?}, proposed: {:?}], alternatives: {:?}", self.active_path, self.proposed_path, self.alternative_paths)]
 pub struct PathCollection {
     active_path: Option<Path>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     proposed_path: Option<Path>,
 
+    #[cfg_attr(feature = "serde", serde(skip))]
     alternative_paths: [Option<Path>; MAX_ALTERNATIVE_PATHS],
 }
+
 
 impl PathCollection {
     pub fn new() -> Self {
@@ -29,27 +36,31 @@ impl PathCollection {
         self.active_path = Some(new_active_path);
     }
 
-    pub fn active_path(&self) -> &Option<Path> {
-        &self.active_path
+    pub fn active_path(&self) -> Option<&Path> {
+        self.active_path.as_ref()
+    }
+
+    pub fn active_path_mut(&mut self) -> Option<&mut Path> {
+        self.active_path.as_mut()
     }
 
     pub fn set_proposed_path(&mut self, new: Path) {
         self.proposed_path = Some(new);
     }
 
-    pub fn proposed_path(&self) -> &Option<Path> {
-        &self.proposed_path
+    pub fn proposed_path(&self) -> Option<&Path> {
+        self.proposed_path.as_ref()
     }
 
     pub fn set_proposed_to_active(&mut self) {
         self.active_path = self.proposed_path.take();
     }
 
-    pub fn first_alternative_path(&self) -> &Option<Path> {
+    pub fn first_alternative_path(&self) -> Option<&Path> {
         self.alternative_paths
             .iter()
-            .find(|&x| x.is_some())
-            .unwrap_or(&None)
+            .find(|x| x.is_some())?
+            .as_ref()
     }
 
     pub fn move_active_to_alternative(&mut self) {
@@ -64,6 +75,22 @@ impl PathCollection {
         }
     }
 }
+
+
+impl PartialEq for PathCollection {
+    fn eq(&self, other: &Self) -> bool {
+        self.active_path == other.active_path && self.proposed_path == other.proposed_path
+    }
+}
+
+
+// NOTE currently the hasher only considers the active path if there is one
+impl Hash for PathCollection {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        if let Some(ref apath) = self.active_path { Hash::hash(apath, state) }
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -119,7 +146,7 @@ mod tests {
         .expect("not empty");
         let mut pc = PathCollection::new();
         pc.set_proposed_path(p.clone());
-        if let Some(r) = pc.proposed_path().as_ref() {
+        if let Some(r) = pc.proposed_path() {
             assert!(*r == p);
         } else {
             panic!("proposed path assumed to be not None");
@@ -139,7 +166,7 @@ mod tests {
         let mut pc = PathCollection::new();
         pc.set_proposed_path(p.clone());
         pc.set_proposed_to_active();
-        if let Some(r) = pc.active_path().as_ref() {
+        if let Some(r) = pc.active_path() {
             assert!(*r == p);
             assert!(pc.proposed_path.is_none());
         } else {
@@ -163,7 +190,7 @@ mod tests {
         assert!(pc.proposed_path.is_none());
         pc.move_active_to_alternative();
         assert!(pc.active_path().is_none());
-        if let Some(r) = pc.first_alternative_path().as_ref() {
+        if let Some(r) = pc.first_alternative_path() {
             assert!(*r == p);
         } else {
             panic!("at least one alternative path must be present");

@@ -246,7 +246,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
             .iter()
             .take_while(|(prefix, _)| prefix.length == nearest_prefix.length)
             .map(|(_, contact)| contact)
-            .min_by(|ca, cb| ca.path().size().cmp(&cb.path().size()));
+            .min_by(|ca, cb| ca.path().unwrap().size().cmp(&cb.path().unwrap().size()));
         // TODO: select by xor if all path lengths (size) are the same
 
         Ok(next_hop.cloned())

@@ -66,8 +66,6 @@ where
 {
     /// Update an existing contact in the table instead of inserting.
     fn update_existing(&self, contact: Contact, table: &mut RT) -> InsertionStrategyResult {
-        let root_id = *table.root();
-        let path_hasher = table.path_hasher();
 
         let mut existing = table
             .contact_mut(contact.id())
@@ -77,13 +75,9 @@ where
             contact.id(),
             "Returned contact has to have same id"
         );
-        if contact.state() != &ContactState::Valid {
-            tracing::trace!(target: "routing_table", "Dropped path: Invalid [{contact:?}]");
-            return InsertionStrategyResult::Dropped;
-        }
 
         // drop if received data is older than stored data
-        // FIXME: update if on direct contact (self-controlled Nonce) to catch wrap
+        // FIXME: update if on direct contact (self-controlled Nonce) to catch wrapping sequence numbers
         if contact.is_older_than(&existing) {
             log::trace!(
                 target: "routing_table",
@@ -95,79 +89,31 @@ where
             return InsertionStrategyResult::Dropped;
         }
 
-        // contact is newer, better or fixes a contact
-
-        // replace invalid existing data
-        // FIXME: check whether the supposed new path actually avoids all broken links
-        // -> `src/routing/r2kademlia/KadRoutingTable.cc:299`
-        if existing.state() == &ContactState::Invalid && contact.state() == &ContactState::Valid {
-            log::trace!(target: "routing_table", "Updated path: Invalid path was replaced by [{contact:?}]");
-            *existing = contact;
-            return InsertionStrategyResult::Updated;
-        }
+        // contact is newer, may provide better path or improves an invalid contact
 
         // don't replace path with longer path if ssn is same
-        // if paths have the same length the XOR metric is used to determine replacement
-        // FIXME: need to use randomized anchor value instead of the root_id
-        if existing.state_seq_nr() == contact.state_seq_nr()
-            && (contact.path().size() > existing.path().size()
-                || (contact.path().size() == existing.path().size() // enable SinglePathDiversity
-                    && // use hash with XOR metric to prevent path flapping
-                    path_hasher.hash(contact.path()) ^ &root_id > path_hasher.hash(existing.path()) ^ &root_id))
-        {
-            log::trace!(
-                target: "routing_table",
-                "Not updating path to contact, because it is not shorter/better [{:?}] than existing [{:?}]",
-                contact.path(),
-                existing.path()
-            );
-            return InsertionStrategyResult::Dropped;
+        // if paths have the same length the XOR metric is used to determine possible replacement
+        // if given path is somehow an improvement (contact vailidity is considered as well) it will be set as new proposed path
+        if existing.state_seq_nr() == contact.state_seq_nr() {
+            if existing.assess_path_candidate(contact.path().expect("contact is expected to have a path")) {
+                log::trace!(target: "routing_table", "Updated path: proposed path was replaced by [{contact:?} ]");
+                return InsertionStrategyResult::Updated;
+            } else {
+                log::trace!(
+                    target: "routing_table",
+                    "Not updating path to contact, because it is not shorter/better [{:?}] than existing [{:?}]",
+                    contact.path(),
+                    existing.path()
+                );
+                return InsertionStrategyResult::Dropped;
+            }
         }
 
-        // But: If only age is updated, don't emit anything
-        let return_result = if contact.path() == existing.path()
-            && contact.state() == existing.state()
-        {
-            log::trace!(
-                target: "routing_table",
-                "Not updating path to contact, because it is the same and does not change state [{}]",
-                contact.id()
-            );
-
-            // WARN: This will update the SSN even if the InsertionStrategyResult is Dropped
-            //  be sure to notify other UseCases with UseCaseEvent::Resync
-            // TODO: figure out if skipping the update of the SSN causes trouble
-            //  this would keep the routing-table in a more sensible state
-            //  this would maybe cause delayed UpdateRouteReq,
-
-            existing.set_last_seen_now();
-            *existing.state_seq_nr_mut() = *contact.state_seq_nr();
-            InsertionStrategyResult::Dropped
-        } else {
-            // FIXME: Don't accept longer path to potential UN
-            //   this potentially also requires to rework the PathSimplifier,
-            //   since it just assumes working UN and replaces with existing short path
-            // TODO: schedule recheck UN if in vicinityDiscoveryRadius
-            // TODO: schedule pathcheck for shorter path if offered path is longer
-            // -> src/routing/r2kademlia/KadRoutingTable.cc:315
-            log::trace!(
-                target: "routing_table",
-                "Updated contact [{contact:?}]"
-            );
-            existing.set_last_seen_now();
-            *existing = contact.clone();
-            InsertionStrategyResult::Updated
-        };
-
-        if existing.path().size() > contact.path().size() {
-            log::warn!(target: "insertion_strategy", "New Path {:?} is better than existing path {:?}, 
-                but InsertionStrategyResult is {:?} ", contact.path(), existing.path(), return_result);
-        }
-
-        return_result
+        InsertionStrategyResult::Dropped
     }
 
     /// Check if the contact can replace an entry in the bucket it belongs to.
+    /// FIXME: this should only be done after checking that the contact is currently reachable
     fn replace_in_full_bucket(&self, contact: Contact, table: &mut RT) -> InsertionStrategyResult {
         let bucket = table.bucket(contact.id());
         assert!(
@@ -193,8 +139,8 @@ where
         // Get the contact with the longest path but only if longer than new contact
         let replaceable = bucket
             .iter()
-            .filter(|c| c.path().size() > contact.path().size())
-            .max_by_key(|c| c.path().size());
+            .filter(|c| c.path().unwrap().size() > contact.path().unwrap().size())
+            .max_by_key(|c| c.path().unwrap().size());
 
         if let Some(replaceable) = replaceable.cloned() {
             // obtain mut reference to replaceable contact
@@ -256,7 +202,7 @@ where
                 target: "routing_table",
                 state = %contact.state(),
                 reason = "invalid_state",
-                path = %contact.path(),
+                path = %contact.path().unwrap(),
                 "dropping contact",
             );
             return InsertionStrategyResult::Dropped;
@@ -267,28 +213,28 @@ where
             tracing::trace!(
                 target: "routing_table",
                 reason = "ignoring myself as contact",
-                path = %contact.path(),
+                path = %contact.path().unwrap(),
                 "dropping contact",
             );
             return InsertionStrategyResult::Dropped;
         }
         // Ignore paths via us or contacts containing our own id
-        if contact.path().contains(routing_table.root()) {
+        if contact.path().unwrap().contains(routing_table.root()) {
             tracing::trace!(
                 target: "routing_table",
                 reason = "path contains myself",
-                path = %contact.path(),
+                path = %contact.path().unwrap(),
                 "dropping contact",
             );
             return InsertionStrategyResult::Dropped;
         }
         // If the first element is no underlay neighbor
-        if !un_table.contains(contact.path().first()) {
+        if !un_table.contains(contact.path().unwrap().first()) {
             tracing::trace!(
                 target: "routing_table",
                 reason = "path not leading via underlay neighbor",
-                node = %contact.path().first(),
-                path = %contact.path(),
+                node = %contact.path().unwrap().first(),
+                path = %contact.path().unwrap(),
                 "dropping contact",
             );
             return InsertionStrategyResult::Dropped;
@@ -297,7 +243,7 @@ where
         // remove cycles and simplify
         // Uses the Path containing the id of the contact
         // itself to include it in the process
-        let path = contact.path_mut();
+        let path = contact.path_mut().unwrap();
         self.path_cycle_remover.remove_cycles_in_place(path);
         self.path_simplifier.simplify(routing_table, un_table, path);
 
