@@ -339,10 +339,10 @@ where
     ) -> Result<Self::Value, Self::Error> {
         match (&mut self.state, event) {
             // Regular timer went off
-            (ONDState::Running { timer_id, .. }, UseCaseEvent::Timer(received_timer_id)) => {
-                if timer_id == &received_timer_id {
-                    self.send_next_request(context)?;
-                }
+            (ONDState::Running { timer_id, .. }, UseCaseEvent::Timer(received_timer_id))
+                if timer_id == &received_timer_id =>
+            {
+                self.send_next_request(context)?;
             }
             // A successful response was received
             (

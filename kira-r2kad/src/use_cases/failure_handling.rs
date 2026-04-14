@@ -416,18 +416,12 @@ where
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
         match event {
-            UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {
-                if new.id() == old.id() {
-                    // contact was invalidated
-                    if new.state() == &ContactState::Invalid
-                        && old.state() != &ContactState::Invalid
-                    {
-                        self.start_rediscovery(context, new)?;
-                    } else if new.state() == &ContactState::Valid
-                        && old.state() != &ContactState::Valid
-                    {
-                        self.remove_notvia_mentioning(context, new.id());
-                    }
+            UseCaseEvent::Contact(ContactEvent::Updated { new, old }) if new.id() == old.id() => {
+                if new.state() == &ContactState::Invalid && old.state() != &ContactState::Invalid {
+                    self.start_rediscovery(context, new)?;
+                } else if new.state() == &ContactState::Valid && old.state() != &ContactState::Valid
+                {
+                    self.remove_notvia_mentioning(context, new.id());
                 }
             }
             UseCaseEvent::Contact(ContactEvent::Removed(contact)) => {

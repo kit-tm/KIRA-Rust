@@ -215,10 +215,11 @@ async fn store_dht_data(
 
     match injection_result {
         InjectionResult::Answered(boxedtuple) => match *boxedtuple {
-            (ProtocolMessage::StoreRsp(payload), _) => Ok(payload.data.status?.into()),
+            ProtocolMessage::StoreRsp(payload) => Ok(payload.data.status?.into()),
             _ => Err(DHTErr::MessageReceiveMismatch),
         },
         InjectionResult::Isolated => Err(DHTErr::Isolated),
+        InjectionResult::Timeout => Err(DHTErr::Timeout),
     }
 }
 
@@ -269,10 +270,11 @@ async fn fetch_dht_data(
 
     match injection_result {
         InjectionResult::Answered(boxedtuple) => match *boxedtuple {
-            (ProtocolMessage::FetchRsp(payload), _) => Ok(Json(payload.data.data?.into())),
+            ProtocolMessage::FetchRsp(payload) => Ok(Json(payload.data.data?.into())),
             _ => Err(DHTErr::MessageReceiveMismatch),
         },
         InjectionResult::Isolated => Err(DHTErr::Isolated),
+        InjectionResult::Timeout => Err(DHTErr::Timeout),
     }
 }
 

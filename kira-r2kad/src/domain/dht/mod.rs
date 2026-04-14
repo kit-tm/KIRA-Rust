@@ -22,11 +22,15 @@ pub use timed::*;
 pub mod hash_table;
 pub mod strategies;
 
+/// Construct a protocol message that is routed to its destination
+/// by key-based routing.
+///
+/// The initial overlay hop is determined using proximity routing.
 pub(crate) fn construct_req_rsp_msg<C, T, const BUCKET_SIZE: usize>(
     context: &C,
     pdutype: ProtocolMessageKind,
     nonce: Nonce,
-    overlay_destination: &NodeId,
+    overlay_destination: NodeId,
     data: T,
 ) -> ReqRspMessage<T>
 where
@@ -38,7 +42,7 @@ where
     // TODO: support other shared_prefix_grouping via config
     let closest_node = context
         .routing_table()
-        .next_hop(overlay_destination, NonZeroU8::MIN)
+        .next_hop(&overlay_destination, NonZeroU8::MIN)
         .expect("Shared Prefix Grouping should be valid");
 
     let path = if let Some(closest_node) = closest_node {
@@ -56,7 +60,7 @@ where
         common_header: CommonHeader::new(
             pdutype,
             *context.root_id(),
-            *overlay_destination,
+            overlay_destination,
             Some(nonce.into()),
             Some(u32::from(*context.uln_table().state_seq_nr())),
             context.uln_table().size(),
@@ -67,10 +71,12 @@ where
     }
 }
 
+/// Send a StoreReq that is routed by key-based routing.
 pub(crate) fn send_store_req<C, const BUCKET_SIZE: usize>(
     context: &C,
     nonce: Nonce,
     data: StoreReqData<DefaultLHTInput>,
+    destination: NodeId,
 ) where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
@@ -81,7 +87,7 @@ pub(crate) fn send_store_req<C, const BUCKET_SIZE: usize>(
         context,
         ProtocolMessageKind::StoreReq,
         nonce,
-        &data.handle.clone(),
+        destination,
         data,
     );
 
@@ -103,10 +109,12 @@ pub(crate) fn send_store_req<C, const BUCKET_SIZE: usize>(
         .send_message(message, context.uln_table().deref());
 }
 
+/// Send a FetchReq that is routed by key-based routing.
 pub(crate) fn send_fetch_req<C, const BUCKET_SIZE: usize>(
     context: &C,
     nonce: Nonce,
     data: FetchReqData,
+    destination: NodeId,
 ) -> Result<(), InjectMessageError>
 where
     C: UseCaseContext,
@@ -118,7 +126,7 @@ where
         context,
         ProtocolMessageKind::FetchReq,
         nonce,
-        &data.handle.clone(),
+        destination,
         data,
     );
 

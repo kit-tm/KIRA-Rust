@@ -10,7 +10,7 @@ pub type DefaultLHTOutput = Vec<Arc<[u8]>>;
 /// Data struct representing a StoreReq protocol message.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct StoreReqData<D: Debug> {
+pub struct StoreReqData<D> {
     /// The handle with which the data can be retrieved later.
     pub handle: NodeId,
     /// The data to save with this request.

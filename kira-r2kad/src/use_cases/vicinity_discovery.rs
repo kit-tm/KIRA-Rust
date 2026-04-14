@@ -101,8 +101,8 @@ pub struct InterfaceState {
     hello_interval: Duration,
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
 /// Information about the pending response to a request.
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct RequestState {
     kind: ProtocolMessageKind,
     timeouts: usize,

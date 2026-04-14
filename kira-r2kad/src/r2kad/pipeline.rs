@@ -62,7 +62,7 @@ impl<C, const BUCKET_SIZE: usize> R2KadPipeline<C, BUCKET_SIZE> {
     pub fn new(_config: R2KadPipelineConfig) -> Self {
         let derive_forwarding_tables = DeriveFwdTableEntries::new(Default::default());
         let distributed_hash_table: DistributedHashTable<_, DefaultExpiringHashTable, BUCKET_SIZE> =
-            DistributedHashTable::new(Default::default());
+            DistributedHashTable::default();
         let distributed_hash_table_injector = DistributedHashTableInjector::default();
         let explicit_path_management = ExplicitPathManagement::new(Default::default());
         let failure_handling = FailureHandling::new(Default::default());

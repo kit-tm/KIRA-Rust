@@ -122,3 +122,9 @@ impl Contact {
         &mut self.state_seq_nr
     }
 }
+
+impl From<Contact> for Path {
+    fn from(contact: Contact) -> Self {
+        contact.path
+    }
+}
