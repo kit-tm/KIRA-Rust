@@ -145,6 +145,39 @@ impl CommonObjectHeader {
     }
 }
 
+/// Values for `rtable-request-type-object` (draft section 4.4.2.5).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[repr(u8)]
+pub enum RTableRequestTypeValue {
+    None = 0x00,
+    ContactsOnly = 0x01,
+    OverlayNeighbors = 0x02,
+    OverlayNeighborsSource = 0x03,
+    ULNVicinity = 0x04,
+}
+
+impl TryFrom<u8> for RTableRequestTypeValue {
+    type Error = String;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x00 => Ok(Self::None),
+            0x01 => Ok(Self::ContactsOnly),
+            0x02 => Ok(Self::OverlayNeighbors),
+            0x03 => Ok(Self::OverlayNeighborsSource),
+            0x04 => Ok(Self::ULNVicinity),
+            _ => Err(format!("invalid rtable-request type: {value:#x}")),
+        }
+    }
+}
+
+impl From<RTableRequestTypeValue> for u8 {
+    fn from(value: RTableRequestTypeValue) -> Self {
+        value as u8
+    }
+}
+
 /// Common Header Structure
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]

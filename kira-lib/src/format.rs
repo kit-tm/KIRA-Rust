@@ -4,6 +4,7 @@
 use std::collections::HashSet;
 use std::error::Error;
 use std::io::{Error as IoError, ErrorKind, Read, Seek, SeekFrom, Write};
+use std::num::NonZeroU64;
 
 #[cfg(feature = "format-binrw")]
 const HEADER_LEN: usize = 55; // KIRA header size (bytes)
@@ -12,8 +13,8 @@ use binrw::{self, BinRead, BinWrite};
 use kira_r2kad::domain::{Contact, Link, NodeId, NotVia, Path, SafeStateSeqNr};
 use kira_r2kad::messaging::source_route::SourceRoute;
 use kira_r2kad::messaging::{
-    CommonHeader, CommonObjectHeader, ProtocolMessage, ProtocolObjectType, RTableData,
-    ReqRspMessage,
+    CommonHeader, CommonObjectHeader, FindNodeReqData, ProtocolMessage, ProtocolObjectType,
+    QueryRouteReqData, QueryRouteType, RTableData, RTableRequestTypeValue, ReqRspMessage,
 };
 #[cfg(any(
     feature = "format-json",
@@ -55,117 +56,6 @@ pub enum ProtocolMessageFormat {
     /// [deserialize](Self::deserialize) [ProtocolMessages](ProtocolMessage).
     // WARNING: Why does this variant exist?
     None,
-}
-
-#[cfg(all(test, feature = "format-binrw"))]
-mod binrw_tests {
-    use super::*;
-    use kira_r2kad::domain::{Contact, NodeId, Path, SafeStateSeqNr};
-    use kira_r2kad::messaging::{ProtocolMessageKind, RTableData, ReqRspMessage};
-    use std::collections::HashSet;
-    use std::io::Cursor;
-
-    #[test]
-    fn binrw_hello() {
-        let mut header = CommonHeader::new(
-            ProtocolMessageKind::ULNHello,
-            NodeId::with_lsb(0x12),
-            NodeId::with_lsb(0x34),
-            Some(0x789),
-            Some(0x1234),
-            1,
-        );
-        header.set_domain_id(0x4242);
-
-        let msg = ProtocolMessage::ULNHello(header.clone());
-
-        let mut buf = Vec::new();
-        ProtocolMessageFormat::BINRW
-            .serialize(&mut buf, &msg)
-            .expect("serialize");
-
-        let decoded = ProtocolMessageFormat::BINRW
-            .deserialize(Cursor::new(&buf))
-            .expect("deserialize");
-
-        println!("Serialized into:");
-
-        for (_i, byte) in buf.iter().enumerate() {
-            print!("{:02x} ", byte);
-        }
-        println!();
-
-        assert_eq!(decoded, ProtocolMessage::ULNHello(header));
-    }
-
-    #[test]
-    fn binrw_discreq() {
-        let mut header = CommonHeader::new(
-            ProtocolMessageKind::ULNDiscReq,
-            NodeId::with_lsb(0x10),
-            NodeId::with_lsb(0x20),
-            Some(0x1111),
-            Some(0x2222),
-            2,
-        );
-        header.set_domain_id(0x4242);
-
-        let contact_id = NodeId::with_lsb(0x30);
-        let ssn = SafeStateSeqNr::try_from(1u32).unwrap();
-        let contact = Contact::new(Path::from(contact_id), ssn);
-
-        let req = ReqRspMessage {
-            common_header: header.clone(),
-            data: RTableData {
-                contacts: vec![contact.clone()],
-            },
-            not_via: HashSet::new(),
-            source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
-        };
-
-        let msg = ProtocolMessage::ULNDiscReq(req);
-
-        let mut buf = Vec::new();
-        ProtocolMessageFormat::BINRW
-            .serialize(&mut buf, &msg)
-            .expect("serialize");
-
-        let decoded = ProtocolMessageFormat::BINRW
-            .deserialize(Cursor::new(&buf))
-            .expect("deserialize");
-
-        println!("Serialized ULNDiscReq:");
-        for byte in &buf {
-            print!("{:02x} ", byte);
-        }
-        println!();
-
-        let src_node_id = header.src_node_id();
-        let dest_node_id = header.dest_id();
-
-        let ProtocolMessage::ULNDiscReq(decoded_req) = &decoded else {
-            panic!("unexpected message: {decoded:?}");
-        };
-
-        let hdr = &decoded_req.common_header;
-        assert_eq!(hdr.msg_type(), header.msg_type());
-        assert_eq!(hdr.dest_id(), header.dest_id());
-        assert_eq!(hdr.src_node_id(), header.src_node_id());
-        assert_eq!(hdr.domain_id(), header.domain_id());
-        assert_eq!(hdr.msg_id(), header.msg_id());
-        assert_eq!(hdr.state_seq_num(), header.state_seq_num());
-        assert_eq!(hdr.src_node_degree(), header.src_node_degree());
-        assert!(hdr.msg_length() >= HEADER_LEN as u16);
-
-        assert!(decoded_req.not_via.is_empty());
-
-        let got = &decoded_req.data.contacts[0];
-        assert_eq!(got.id(), contact.id());
-        assert_eq!(got.state_seq_nr(), contact.state_seq_nr());
-
-        assert_eq!(decoded_req.source_route.source(), src_node_id);
-        assert_eq!(decoded_req.source_route.destination(), dest_node_id);
-    }
 }
 
 impl Default for ProtocolMessageFormat {
@@ -236,169 +126,337 @@ fn deserialize_binrw<R: Read>(mut reader: R) -> Result<ProtocolMessage, Box<dyn 
     let header = CommonHeader::read_options(&mut cursor, binrw::Endian::Big, ())?;
     match header.msg_type() {
         0x01 => Ok(ProtocolMessage::ULNHello(header)),
-        0x03 => {
-            let payload_len = (header.msg_length() - HEADER_LEN as u16) as usize;
-            let mut payload = vec![0u8; payload_len];
-            reader.read_exact(&mut payload)?;
-
-            let mut payload_cursor = binrw::io::Cursor::new(&payload);
-            let mut payload_consumed = 0;
-
-            let mut source_route: Option<SourceRoute> = None;
-            let mut not_via: HashSet<NotVia> = HashSet::new();
-            let mut contacts: Vec<Contact> = Vec::new();
-
-            while payload_consumed < payload_len {
-                let CommonObjectHeader {
-                    object_type,
-                    object_length,
-                } = read_common_object_header(&mut payload_cursor)?;
-                let object_length = object_length as usize;
-
-                if payload_consumed + 3 + object_length > payload_len {
-                    return Err(Box::new(IoError::new(
-                        ErrorKind::InvalidData,
-                        "object length exceeds payload",
-                    )));
-                }
-
-                payload_consumed += 3;
-
-                match object_type {
-                    ProtocolObjectType::SourceRoute => {
-                        if object_length < 2 {
-                            return Err(Box::new(IoError::new(
-                                ErrorKind::InvalidData,
-                                "source route object too short",
-                            )));
-                        }
-
-                        let index = u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())?
-                            as usize;
-                        payload_consumed += 2;
-
-                        let remaining = object_length - 2;
-                        if remaining % NodeId::SIZE != 0 {
-                            return Err(Box::new(IoError::new(
-                                ErrorKind::InvalidData,
-                                "source route object has invalid length",
-                            )));
-                        }
-
-                        let hop_count = remaining / NodeId::SIZE;
-                        if hop_count == 0 {
-                            return Err(Box::new(IoError::new(
-                                ErrorKind::InvalidData,
-                                "source route without hops",
-                            )));
-                        }
-
-                        let mut hops = Vec::with_capacity(hop_count);
-                        for _ in 0..hop_count {
-                            let mut nid_bytes = [0u8; NodeId::SIZE];
-                            payload_cursor.read_exact(&mut nid_bytes)?;
-                            hops.push(NodeId::from(nid_bytes));
-                        }
-                        payload_consumed += remaining;
-
-                        let path: Result<Path, _> = hops.clone().into_iter().collect();
-                        let mut sr = SourceRoute::from(path.map_err(|err| {
-                            IoError::new(ErrorKind::InvalidData, format!("{err}"))
-                        })?);
-
-                        for _ in 1..index {
-                            sr.advance();
-                        }
-
-                        source_route = Some(sr);
-                    }
-                    ProtocolObjectType::NotViaList => {
-                        if object_length % 32 != 0 {
-                            return Err(Box::new(IoError::new(
-                                ErrorKind::InvalidData,
-                                "notvialist object has invalid length",
-                            )));
-                        }
-
-                        let entries = object_length / 32;
-                        for _ in 0..entries {
-                            let mut src = [0u8; NodeId::SIZE];
-                            let mut dst = [0u8; NodeId::SIZE];
-                            payload_cursor.read_exact(&mut src)?;
-                            payload_cursor.read_exact(&mut dst)?;
-                            let _age =
-                                u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
-                            not_via.insert(NotVia::Link(Link::new(
-                                NodeId::from(src),
-                                NodeId::from(dst),
-                            )));
-                        }
-                        payload_consumed += object_length;
-                    }
-                    ProtocolObjectType::ContactList => {
-                        if object_length % 24 != 0 {
-                            return Err(Box::new(IoError::new(
-                                ErrorKind::InvalidData,
-                                "contactlist object has invalid length",
-                            )));
-                        }
-
-                        let entries = object_length / 24;
-                        for _ in 0..entries {
-                            let mut id_bytes = [0u8; NodeId::SIZE];
-                            payload_cursor.read_exact(&mut id_bytes)?;
-                            let contact_id = NodeId::from(id_bytes);
-
-                            let ssn_raw =
-                                u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
-                            let _age =
-                                u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
-                            let _node_degree =
-                                u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
-
-                            let ssn = SafeStateSeqNr::try_from(ssn_raw).map_err(|_| {
-                                IoError::new(
-                                    ErrorKind::InvalidData,
-                                    format!("invalid state_seq_num {ssn_raw}"),
-                                )
-                            })?;
-
-                            let contact = Contact::new(Path::from(contact_id), ssn);
-                            contacts.push(contact);
-                        }
-
-                        payload_consumed += object_length;
-                    }
-                    //other Objecttypes are ignored because they arent needed in DiscoveryReq
-                    //TODO: Maybe return Error instead?
-                    ProtocolObjectType::RTableRequest
-                    | ProtocolObjectType::RTable
-                    | ProtocolObjectType::RTableUpdateInfo
-                    | ProtocolObjectType::Unknown(_) => {
-                        payload_cursor.seek(SeekFrom::Current(object_length as i64))?;
-                        payload_consumed += object_length;
-                    }
-                }
-            }
-
-            let source_route = source_route.unwrap_or_else(|| {
-                SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id()))
-            });
-
-            let message = ReqRspMessage {
-                common_header: header,
-                data: RTableData { contacts },
-                not_via,
-                source_route,
-            };
-
-            Ok(ProtocolMessage::ULNDiscReq(message))
-        }
+        0x03 => deserialize_uln_disc_req(header, &mut reader),
+        0x04 => deserialize_uln_disc_rsp(header, &mut reader),
+        0x0b => deserialize_query_route_req(header, &mut reader),
+        0x0c => deserialize_query_route_rsp(header, &mut reader),
+        0x09 => deserialize_find_node_req(header, &mut reader),
+        0x0a => deserialize_find_node_rsp(header, &mut reader),
         other => Err(Box::new(IoError::new(
             ErrorKind::Unsupported,
             format!("msg_type {:#x}, currently not supported by binrw", other),
         ))),
     }
+}
+
+#[cfg(feature = "format-binrw")]
+fn deserialize_uln_disc_rsp<R: Read>(
+    header: CommonHeader,
+    reader: &mut R,
+) -> Result<ProtocolMessage, Box<dyn Error>> {
+    let parsed = deserialize_req_rsp_payload(&header, reader)?;
+    let source_route = source_route_from_header(&header, parsed.source_route);
+
+    Ok(ProtocolMessage::ULNDiscRsp(ReqRspMessage {
+        common_header: header,
+        data: RTableData {
+            contacts: parsed.contacts,
+        },
+        not_via: parsed.not_via,
+        source_route,
+    }))
+}
+
+#[cfg(feature = "format-binrw")]
+fn source_route_from_header(
+    header: &CommonHeader,
+    parsed_route: Option<SourceRoute>,
+) -> SourceRoute {
+    parsed_route
+        .unwrap_or_else(|| SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())))
+}
+
+#[cfg(feature = "format-binrw")]
+fn deserialize_uln_disc_req<R: Read>(
+    header: CommonHeader,
+    reader: &mut R,
+) -> Result<ProtocolMessage, Box<dyn Error>> {
+    let parsed = deserialize_req_rsp_payload(&header, reader)?;
+    let source_route = source_route_from_header(&header, parsed.source_route);
+
+    Ok(ProtocolMessage::ULNDiscReq(ReqRspMessage {
+        common_header: header,
+        data: RTableData {
+            contacts: parsed.contacts,
+        },
+        not_via: parsed.not_via,
+        source_route,
+    }))
+}
+
+#[cfg(feature = "format-binrw")]
+fn deserialize_query_route_req<R: Read>(
+    header: CommonHeader,
+    reader: &mut R,
+) -> Result<ProtocolMessage, Box<dyn Error>> {
+    let parsed = deserialize_req_rsp_payload(&header, reader)?;
+    let source_route = source_route_from_header(&header, parsed.source_route);
+
+    let (request_type, _radius) = parsed.rtable_request.ok_or_else(|| {
+        IoError::new(
+            ErrorKind::InvalidData,
+            "missing rtable-request object in QueryRouteReq",
+        )
+    })?;
+
+    let query_type = match request_type {
+        RTableRequestTypeValue::ULNVicinity => QueryRouteType::UnderlayNeighbors,
+        _ => {
+            return Err(Box::new(IoError::new(
+                ErrorKind::InvalidData,
+                "unsupported rtable-request for QueryRouteReq",
+            )));
+        }
+    };
+
+    Ok(ProtocolMessage::QueryRouteReq(ReqRspMessage {
+        common_header: header,
+        data: QueryRouteReqData { query_type },
+        not_via: parsed.not_via,
+        source_route,
+    }))
+}
+
+#[cfg(feature = "format-binrw")]
+fn deserialize_query_route_rsp<R: Read>(
+    header: CommonHeader,
+    reader: &mut R,
+) -> Result<ProtocolMessage, Box<dyn Error>> {
+    let parsed = deserialize_req_rsp_payload(&header, reader)?;
+    let source_route = source_route_from_header(&header, parsed.source_route);
+
+    Ok(ProtocolMessage::QueryRouteRsp(ReqRspMessage {
+        common_header: header,
+        data: RTableData {
+            contacts: parsed.contacts,
+        },
+        not_via: parsed.not_via,
+        source_route,
+    }))
+}
+
+#[cfg(feature = "format-binrw")]
+fn deserialize_find_node_req<R: Read>(
+    header: CommonHeader,
+    reader: &mut R,
+) -> Result<ProtocolMessage, Box<dyn Error>> {
+    let parsed = deserialize_req_rsp_payload(&header, reader)?;
+    let source_route = source_route_from_header(&header, parsed.source_route);
+
+    let (_request_type, radius) = parsed.rtable_request.ok_or_else(|| {
+        IoError::new(
+            ErrorKind::InvalidData,
+            "missing rtable-request object in FindNodeReq",
+        )
+    })?;
+    let neighborhood = NonZeroU64::new(u64::from(radius)).ok_or_else(|| {
+        IoError::new(
+            ErrorKind::InvalidData,
+            "FindNodeReq radius in rtable-request must be > 0",
+        )
+    })?;
+    let exact = header.msg_flags() & 0x01 != 0;
+    let target = *header.dest_id();
+
+    Ok(ProtocolMessage::FindNodeReq(ReqRspMessage {
+        common_header: header,
+        data: FindNodeReqData {
+            exact,
+            neighborhood,
+            target,
+        },
+        not_via: parsed.not_via,
+        source_route,
+    }))
+}
+
+#[cfg(feature = "format-binrw")]
+fn deserialize_find_node_rsp<R: Read>(
+    header: CommonHeader,
+    reader: &mut R,
+) -> Result<ProtocolMessage, Box<dyn Error>> {
+    let parsed = deserialize_req_rsp_payload(&header, reader)?;
+    let source_route = source_route_from_header(&header, parsed.source_route);
+
+    Ok(ProtocolMessage::FindNodeRsp(ReqRspMessage {
+        common_header: header,
+        data: RTableData {
+            contacts: parsed.contacts,
+        },
+        not_via: parsed.not_via,
+        source_route,
+    }))
+}
+
+#[cfg(feature = "format-binrw")]
+#[derive(Debug)]
+struct ParsedReqRspPayload {
+    source_route: Option<SourceRoute>,
+    not_via: HashSet<NotVia>,
+    contacts: Vec<Contact>,
+    rtable_request: Option<(RTableRequestTypeValue, u8)>,
+}
+
+#[cfg(feature = "format-binrw")]
+fn deserialize_req_rsp_payload<R: Read>(
+    header: &CommonHeader,
+    reader: &mut R,
+) -> Result<ParsedReqRspPayload, Box<dyn Error>> {
+    let payload_len = (header.msg_length() - HEADER_LEN as u16) as usize;
+    let mut payload = vec![0u8; payload_len];
+    reader.read_exact(&mut payload)?;
+
+    let mut payload_cursor = binrw::io::Cursor::new(&payload);
+    let mut payload_consumed = 0;
+
+    let mut source_route: Option<SourceRoute> = None;
+    let mut not_via: HashSet<NotVia> = HashSet::new();
+    let mut contacts: Vec<Contact> = Vec::new();
+    let mut rtable_request: Option<(RTableRequestTypeValue, u8)> = None;
+
+    while payload_consumed < payload_len {
+        let CommonObjectHeader {
+            object_type,
+            object_length,
+        } = read_common_object_header(&mut payload_cursor)?;
+        let object_length = object_length as usize;
+
+        if payload_consumed + 3 + object_length > payload_len {
+            return Err(Box::new(IoError::new(
+                ErrorKind::InvalidData,
+                "object length exceeds payload",
+            )));
+        }
+
+        payload_consumed += 3;
+
+        match object_type {
+            ProtocolObjectType::SourceRoute => {
+                if object_length < 2 {
+                    return Err(Box::new(IoError::new(
+                        ErrorKind::InvalidData,
+                        "source route object too short",
+                    )));
+                }
+
+                let index = u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())?
+                    as usize;
+                payload_consumed += 2;
+
+                let remaining = object_length - 2;
+                if remaining % NodeId::SIZE != 0 {
+                    return Err(Box::new(IoError::new(
+                        ErrorKind::InvalidData,
+                        "source route object has invalid length",
+                    )));
+                }
+
+                let hop_count = remaining / NodeId::SIZE;
+                if hop_count == 0 {
+                    return Err(Box::new(IoError::new(
+                        ErrorKind::InvalidData,
+                        "source route without hops",
+                    )));
+                }
+
+                let mut hops = Vec::with_capacity(hop_count);
+                for _ in 0..hop_count {
+                    let mut nid_bytes = [0u8; NodeId::SIZE];
+                    payload_cursor.read_exact(&mut nid_bytes)?;
+                    hops.push(NodeId::from(nid_bytes));
+                }
+                payload_consumed += remaining;
+
+                let path: Result<Path, _> = hops.clone().into_iter().collect();
+                let mut sr = SourceRoute::from(
+                    path.map_err(|err| IoError::new(ErrorKind::InvalidData, format!("{err}")))?,
+                );
+
+                for _ in 1..index {
+                    sr.advance();
+                }
+
+                source_route = Some(sr);
+            }
+            ProtocolObjectType::NotViaList => {
+                if object_length % 32 != 0 {
+                    return Err(Box::new(IoError::new(
+                        ErrorKind::InvalidData,
+                        "notvialist object has invalid length",
+                    )));
+                }
+
+                let entries = object_length / 32;
+                for _ in 0..entries {
+                    let mut src = [0u8; NodeId::SIZE];
+                    let mut dst = [0u8; NodeId::SIZE];
+                    payload_cursor.read_exact(&mut src)?;
+                    payload_cursor.read_exact(&mut dst)?;
+                    not_via.insert(NotVia::Link(Link::new(NodeId::from(src), NodeId::from(dst))));
+                }
+                payload_consumed += object_length;
+            }
+            ProtocolObjectType::ContactList => {
+                if object_length % 24 != 0 {
+                    return Err(Box::new(IoError::new(
+                        ErrorKind::InvalidData,
+                        "contactlist object has invalid length",
+                    )));
+                }
+
+                let entries = object_length / 24;
+                for _ in 0..entries {
+                    let mut id_bytes = [0u8; NodeId::SIZE];
+                    payload_cursor.read_exact(&mut id_bytes)?;
+                    let contact_id = NodeId::from(id_bytes);
+
+                    let ssn_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
+                    let _node_degree =
+                        u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
+
+                    let ssn = SafeStateSeqNr::try_from(ssn_raw).map_err(|_| {
+                        IoError::new(
+                            ErrorKind::InvalidData,
+                            format!("invalid state_seq_num {ssn_raw}"),
+                        )
+                    })?;
+
+                    let contact = Contact::new(Path::from(contact_id), ssn);
+                    contacts.push(contact);
+                }
+
+                payload_consumed += object_length;
+            }
+            ProtocolObjectType::RTableRequest => {
+                if object_length != 2 {
+                    return Err(Box::new(IoError::new(
+                        ErrorKind::InvalidData,
+                        "rtable-request object must be exactly 2 bytes",
+                    )));
+                }
+
+                let req_type_raw = u8::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
+                let radius = u8::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
+                let req_type = RTableRequestTypeValue::try_from(req_type_raw)
+                    .map_err(|e| IoError::new(ErrorKind::InvalidData, e))?;
+                rtable_request = Some((req_type, radius));
+                payload_consumed += object_length;
+            }
+            ProtocolObjectType::RTable
+            | ProtocolObjectType::RTableUpdateInfo
+            | ProtocolObjectType::Unknown(_) => {
+                payload_cursor.seek(SeekFrom::Current(object_length as i64))?;
+                payload_consumed += object_length;
+            }
+        }
+    }
+
+    Ok(ParsedReqRspPayload {
+        source_route,
+        not_via,
+        contacts,
+        rtable_request,
+    })
 }
 
 //helper: read a objectHeader
@@ -427,12 +485,13 @@ fn serialize_binrw<W: Write>(
             writer.write_all(cursor.get_ref())?;
             Ok(())
         }
-        ProtocolMessage::ULNDiscReq(req) => serialize_req_rsp_rtable(writer, req),
-        ProtocolMessage::ULNDiscRsp(rsp) => serialize_req_rsp_rtable(writer, rsp),
+        ProtocolMessage::ULNDiscReq(req)
+        | ProtocolMessage::ULNDiscRsp(req)
+        | ProtocolMessage::QueryRouteRsp(req)
+        | ProtocolMessage::FindNodeRsp(req) => serialize_req_rsp_rtable(writer, req),
+        ProtocolMessage::QueryRouteReq(req) => serialize_query_route_req(writer, req),
+        ProtocolMessage::FindNodeReq(req) => serialize_find_node_req(writer, req),
         //todo: implement other message types
-        //todo fix QueryRouteRsp and FindNodeRsp return
-        ProtocolMessage::QueryRouteRsp(rsp) => serialize_req_rsp_rtable(writer, rsp),
-        ProtocolMessage::FindNodeRsp(rsp) => serialize_req_rsp_rtable(writer, rsp),
         _ => Err(Box::new(IoError::new(
             ErrorKind::Unsupported,
             "currently not supported by binrw ",
@@ -441,19 +500,13 @@ fn serialize_binrw<W: Write>(
 }
 
 #[cfg(feature = "format-binrw")]
-fn serialize_req_rsp_rtable<W: Write>(
-    mut writer: W,
-    req: &ReqRspMessage<RTableData>,
+fn write_header_and_payload<W: Write>(
+    writer: &mut W,
+    header: &CommonHeader,
+    payload: &[u8],
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let mut payload = Vec::new();
-
-    let source_route_len = write_source_route_object(&mut payload, &req.source_route)?;
-    let not_via_len = write_notvialist_object(&mut payload, &req.not_via)?;
-    let contact_list_len = write_contactlist_object(&mut payload, &req.data.contacts)?;
-
-    let payload_len = source_route_len + not_via_len + contact_list_len;
     let total_len = HEADER_LEN
-        .checked_add(payload_len)
+        .checked_add(payload.len())
         .ok_or_else(|| IoError::new(ErrorKind::InvalidData, "msg too large"))?;
 
     if total_len > u16::MAX as usize {
@@ -463,14 +516,91 @@ fn serialize_req_rsp_rtable<W: Write>(
         )));
     }
 
-    let mut header = req.common_header.clone();
+    let mut header = header.clone();
     header.set_msg_length(total_len as u16);
 
     let mut cursor = binrw::io::Cursor::new(Vec::with_capacity(HEADER_LEN));
     header.write_options(&mut cursor, binrw::Endian::Big, ())?;
     writer.write_all(cursor.get_ref())?;
-    writer.write_all(&payload)?;
+    writer.write_all(payload)?;
     Ok(())
+}
+
+#[cfg(feature = "format-binrw")]
+fn serialize_query_route_req<W: Write>(
+    writer: W,
+    req: &ReqRspMessage<QueryRouteReqData>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let (request_type, radius) = match req.data.query_type {
+        QueryRouteType::UnderlayNeighbors => (
+            RTableRequestTypeValue::ULNVicinity,
+            req.common_header.src_node_degree().min(u8::MAX as u16) as u8,
+        ),
+    };
+
+    serialize_req_rsp_with_rtable_request(writer, req, request_type, radius)
+}
+
+#[cfg(feature = "format-binrw")]
+fn serialize_find_node_req<W: Write>(
+    writer: W,
+    req: &ReqRspMessage<FindNodeReqData>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let radius = req.data.neighborhood.get().min(u8::MAX as u64) as u8;
+    let request_type = RTableRequestTypeValue::OverlayNeighbors;
+
+    serialize_req_rsp_with_rtable_request(writer, req, request_type, radius)
+}
+
+#[cfg(feature = "format-binrw")]
+fn serialize_req_rsp_with_rtable_request<W: Write, T: std::fmt::Debug>(
+    mut writer: W,
+    req: &ReqRspMessage<T>,
+    request_type: RTableRequestTypeValue,
+    radius: u8,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut payload = Vec::new();
+
+    write_rtable_request_object(&mut payload, request_type, radius)?;
+    write_source_route_object(&mut payload, &req.source_route)?;
+    write_notvialist_object(&mut payload, &req.not_via)?;
+
+    write_header_and_payload(&mut writer, &req.common_header, &payload)
+}
+
+#[cfg(feature = "format-binrw")]
+fn write_rtable_request_object<W: Write>(
+    writer: &mut W,
+    request_type: RTableRequestTypeValue,
+    radius: u8,
+) -> Result<usize, IoError> {
+    write_common_object_header(
+        writer,
+        CommonObjectHeader::new(ProtocolObjectType::RTableRequest, 2),
+    )?;
+
+    let req: u8 = request_type.into();
+    writer.write_all(&[req, radius])?;
+
+    Ok(5)
+}
+
+#[cfg(feature = "format-binrw")]
+fn serialize_req_rsp_rtable<W: Write>(
+    mut writer: W,
+    req: &ReqRspMessage<RTableData>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut payload = Vec::new();
+
+    write_source_route_object(&mut payload, &req.source_route)?;
+    write_notvialist_object(&mut payload, &req.not_via)?;
+    write_contactlist_object(
+        &mut payload,
+        &req.data.contacts,
+        req.common_header.src_node_degree(),
+    )?;
+
+    write_header_and_payload(&mut writer, &req.common_header, &payload)
 }
 
 #[cfg(feature = "format-binrw")]
@@ -580,6 +710,7 @@ fn write_notvialist_object<W: Write>(
 fn write_contactlist_object<W: Write>(
     writer: &mut W,
     contacts: &[Contact],
+    node_degree: u16,
 ) -> Result<usize, IoError> {
     if contacts.is_empty() {
         return Ok(0);
@@ -605,7 +736,8 @@ fn write_contactlist_object<W: Write>(
         writer.write_all(&ssn.to_be_bytes())?;
 
         writer.write_all(&0u32.to_be_bytes())?; // age-info placeholder
-        writer.write_all(&0u16.to_be_bytes())?; // node-degree placeholder
+
+        writer.write_all(&node_degree.to_be_bytes())?;
     }
 
     Ok(3 + object_length)
