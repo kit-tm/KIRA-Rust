@@ -97,6 +97,7 @@ pub enum ProtocolObjectType {
     RTableRequest = 0x04,
     RTable = 0x05,
     RTableUpdateInfo = 0x06,
+    ErrorData = 0x07,
     Unknown(u8),
 }
 
@@ -109,6 +110,7 @@ impl From<u8> for ProtocolObjectType {
             0x04 => Self::RTableRequest,
             0x05 => Self::RTable,
             0x06 => Self::RTableUpdateInfo,
+            0x07 => Self::ErrorData,
             other => Self::Unknown(other),
         }
     }
@@ -123,6 +125,7 @@ impl From<ProtocolObjectType> for u8 {
             ProtocolObjectType::RTableRequest => 0x04,
             ProtocolObjectType::RTable => 0x05,
             ProtocolObjectType::RTableUpdateInfo => 0x06,
+            ProtocolObjectType::ErrorData => 0x07,
             ProtocolObjectType::Unknown(other) => other,
         }
     }

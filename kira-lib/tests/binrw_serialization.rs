@@ -2,7 +2,8 @@ use kira_lib::format::ProtocolMessageFormat;
 use kira_r2kad::domain::{Contact, NodeId, Path, SafeStateSeqNr};
 use kira_r2kad::messaging::source_route::SourceRoute;
 use kira_r2kad::messaging::{
-    CommonHeader, FindNodeReqData, KiraMsgFlagsBit, ProtocolMessage, ProtocolMessageKind,
+    CommonHeader, ErrorData, FindNodeReqData, KiraMsgFlagsBit, ProtocolMessage,
+    ProtocolMessageKind,
     QueryRouteReqData, QueryRouteType, RTableData, ReqRspMessage,
 };
 use std::collections::HashSet;
@@ -358,4 +359,50 @@ fn binrw_find_node_rsp() {
     };
     assert_eq!(decoded_rsp.data.contacts[0].id(), contact.id());
     assert_eq!(decoded_rsp.data.contacts[0].state_seq_nr(), contact.state_seq_nr());
+}
+
+#[test]
+fn binrw_error_dead_end() {
+    let mut header = CommonHeader::new(
+        ProtocolMessageKind::Error,
+        NodeId::with_lsb(0xa1),
+        NodeId::with_lsb(0xa2),
+        Some(0x9001),
+        Some(0x9002),
+        2,
+    );
+    header.set_domain_id(0x4242);
+
+    let msg = ProtocolMessage::Error(ReqRspMessage {
+        common_header: header.clone(),
+        data: ErrorData::DeadEnd,
+        not_via: HashSet::new(),
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    });
+
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::BINRW
+        .serialize(&mut buf, &msg)
+        .expect("serialize");
+
+    println!("Serialized Error(DeadEnd):");
+    for byte in &buf {
+        print!("{:02x} ", byte);
+    }
+    println!();
+
+    let decoded = ProtocolMessageFormat::BINRW
+        .deserialize(Cursor::new(&buf))
+        .expect("deserialize");
+
+    let ProtocolMessage::Error(decoded_error) = decoded else {
+        panic!("unexpected message type");
+    };
+
+    assert!(matches!(decoded_error.data, ErrorData::DeadEnd));
+    assert!(decoded_error.not_via.is_empty());
+    assert_eq!(decoded_error.common_header.msg_type(), header.msg_type());
+    assert_eq!(decoded_error.common_header.msg_id(), header.msg_id());
+    assert_eq!(decoded_error.source_route.source(), header.src_node_id());
+    assert_eq!(decoded_error.source_route.destination(), header.dest_id());
 }

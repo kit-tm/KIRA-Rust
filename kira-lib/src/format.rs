@@ -8,12 +8,18 @@ use std::num::NonZeroU64;
 
 #[cfg(feature = "format-binrw")]
 const HEADER_LEN: usize = 55; // KIRA header size (bytes)
+const ERROR_DEAD_END: u8 = 0x0a;
+const ERROR_SEGMENT_FAILURE: u8 = 0x05;
 
 use binrw::{self, BinRead, BinWrite};
 use kira_r2kad::domain::{Contact, Link, NodeId, NotVia, Path, SafeStateSeqNr};
+use kira_r2kad::messaging::dht::{
+    DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreReqData, StoreRspData,
+};
 use kira_r2kad::messaging::source_route::SourceRoute;
 use kira_r2kad::messaging::{
-    CommonHeader, CommonObjectHeader, FindNodeReqData, ProtocolMessage, ProtocolObjectType,
+    CommonHeader, CommonObjectHeader, ErrorData, FindNodeReqData, PathSetupReqData,
+    PathTeardownReqData, ProbeReqData, ProbeRspData, ProtocolMessage, ProtocolObjectType,
     QueryRouteReqData, QueryRouteType, RTableData, RTableRequestTypeValue, ReqRspMessage,
 };
 #[cfg(any(
@@ -128,15 +134,195 @@ fn deserialize_binrw<R: Read>(mut reader: R) -> Result<ProtocolMessage, Box<dyn 
         0x01 => Ok(ProtocolMessage::ULNHello(header)),
         0x03 => deserialize_uln_disc_req(header, &mut reader),
         0x04 => deserialize_uln_disc_rsp(header, &mut reader),
-        0x0b => deserialize_query_route_req(header, &mut reader),
-        0x0c => deserialize_query_route_rsp(header, &mut reader),
         0x09 => deserialize_find_node_req(header, &mut reader),
         0x0a => deserialize_find_node_rsp(header, &mut reader),
+        0x0b => deserialize_query_route_req(header, &mut reader),
+        0x0c => deserialize_query_route_rsp(header, &mut reader),
+        0x21 => deserialize_probe_req(header, &mut reader),
+        0x22 => deserialize_probe_rsp(header, &mut reader),
+        0x70 => deserialize_error(header, &mut reader),
+        0x81 => deserialize_path_setup_req(header, &mut reader),
+        0x83 => deserialize_path_teardown_req(header, &mut reader),
+        0xa1 => deserialize_store_req(header, &mut reader),
+        0xa2 => deserialize_store_rsp(header, &mut reader),
+        0xa3 => deserialize_fetch_req(header, &mut reader),
+        0xa4 => deserialize_fetch_rsp(header, &mut reader),
         other => Err(Box::new(IoError::new(
             ErrorKind::Unsupported,
             format!("msg_type {:#x}, currently not supported by binrw", other),
         ))),
     }
+}
+
+#[cfg(feature = "format-binrw")]
+fn deserialize_probe_req<R: Read>(
+    _header: CommonHeader,
+    _reader: &mut R,
+) -> Result<ProtocolMessage, Box<dyn Error>> {
+    todo!("deserialize ProbeReq BINRW")
+}
+
+#[cfg(feature = "format-binrw")]
+fn deserialize_probe_rsp<R: Read>(
+    _header: CommonHeader,
+    _reader: &mut R,
+) -> Result<ProtocolMessage, Box<dyn Error>> {
+    todo!("deserialize ProbeRsp BINRW")
+}
+
+#[cfg(feature = "format-binrw")]
+fn deserialize_error<R: Read>(
+    header: CommonHeader,
+    reader: &mut R,
+) -> Result<ProtocolMessage, Box<dyn Error>> {
+    let payload = read_payload_bytes(&header, reader)?;
+    let parsed = parse_req_rsp_payload_from_bytes(&header, &payload)?;
+    let data = parse_error_data_from_bytes(&payload)?;
+
+    let source_route = source_route_from_header(&header, parsed.source_route);
+
+    Ok(ProtocolMessage::Error(ReqRspMessage {
+        common_header: header,
+        data,
+        not_via: parsed.not_via,
+        source_route,
+    }))
+}
+
+#[cfg(feature = "format-binrw")]
+fn parse_error_data_from_bytes(payload: &[u8]) -> Result<ErrorData, Box<dyn Error>> {
+    let mut payload_cursor = binrw::io::Cursor::new(&payload);
+    let payload_len = payload.len();
+    let mut payload_consumed = 0;
+    let mut error_data: Option<ErrorData> = None;
+
+    while payload_consumed < payload_len {
+        let CommonObjectHeader {
+            object_type,
+            object_length,
+        } = read_common_object_header(&mut payload_cursor)?;
+        let object_length = object_length as usize;
+
+        if payload_consumed + 3 + object_length > payload_len {
+            return Err(Box::new(IoError::new(
+                ErrorKind::InvalidData,
+                "object length exceeds payload",
+            )));
+        }
+
+        payload_consumed += 3;
+
+        match object_type {
+            ProtocolObjectType::ErrorData => {
+                if object_length < 1 {
+                    return Err(Box::new(IoError::new(
+                        ErrorKind::InvalidData,
+                        "error-data object too short",
+                    )));
+                }
+
+                let kind = u8::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
+                match kind {
+                    ERROR_DEAD_END => {
+                        if object_length != 1 {
+                            return Err(Box::new(IoError::new(
+                                ErrorKind::InvalidData,
+                                "dead-end error-data object must be exactly 1 byte",
+                            )));
+                        }
+                        error_data = Some(ErrorData::DeadEnd);
+                    }
+                    ERROR_SEGMENT_FAILURE => {
+                        let expected_len = 1 + (NodeId::SIZE * 3);
+                        if object_length != expected_len {
+                            return Err(Box::new(IoError::new(
+                                ErrorKind::InvalidData,
+                                "segment-failure error-data object has invalid length",
+                            )));
+                        }
+
+                        let mut source = [0u8; NodeId::SIZE];
+                        let mut first = [0u8; NodeId::SIZE];
+                        let mut second = [0u8; NodeId::SIZE];
+                        payload_cursor.read_exact(&mut source)?;
+                        payload_cursor.read_exact(&mut first)?;
+                        payload_cursor.read_exact(&mut second)?;
+                        error_data = Some(ErrorData::SegmentFailure {
+                            failed_link: Link::new(NodeId::from(first), NodeId::from(second)),
+                            source: NodeId::from(source),
+                        });
+                    }
+                    other => {
+                        return Err(Box::new(IoError::new(
+                            ErrorKind::InvalidData,
+                            format!("unknown error-data kind: {other:#x}"),
+                        )));
+                    }
+                }
+
+                payload_consumed += object_length;
+            }
+            _ => {
+                payload_cursor.seek(SeekFrom::Current(object_length as i64))?;
+                payload_consumed += object_length;
+            }
+        }
+    }
+
+    error_data.ok_or_else(|| {
+        Box::new(IoError::new(
+            ErrorKind::InvalidData,
+            "missing error-data object in Error message",
+        )) as Box<dyn Error>
+    })
+}
+
+#[cfg(feature = "format-binrw")]
+fn deserialize_path_setup_req<R: Read>(
+    _header: CommonHeader,
+    _reader: &mut R,
+) -> Result<ProtocolMessage, Box<dyn Error>> {
+    todo!("deserialize PathSetupReq BINRW")
+}
+
+#[cfg(feature = "format-binrw")]
+fn deserialize_path_teardown_req<R: Read>(
+    _header: CommonHeader,
+    _reader: &mut R,
+) -> Result<ProtocolMessage, Box<dyn Error>> {
+    todo!("deserialize PathTeardownReq BINRW")
+}
+
+#[cfg(feature = "format-binrw")]
+fn deserialize_store_req<R: Read>(
+    _header: CommonHeader,
+    _reader: &mut R,
+) -> Result<ProtocolMessage, Box<dyn Error>> {
+    todo!("deserialize StoreReq BINRW")
+}
+
+#[cfg(feature = "format-binrw")]
+fn deserialize_store_rsp<R: Read>(
+    _header: CommonHeader,
+    _reader: &mut R,
+) -> Result<ProtocolMessage, Box<dyn Error>> {
+    todo!("deserialize StoreRsp BINRW")
+}
+
+#[cfg(feature = "format-binrw")]
+fn deserialize_fetch_req<R: Read>(
+    _header: CommonHeader,
+    _reader: &mut R,
+) -> Result<ProtocolMessage, Box<dyn Error>> {
+    todo!("deserialize FetchReq BINRW")
+}
+
+#[cfg(feature = "format-binrw")]
+fn deserialize_fetch_rsp<R: Read>(
+    _header: CommonHeader,
+    _reader: &mut R,
+) -> Result<ProtocolMessage, Box<dyn Error>> {
+    todo!("deserialize FetchRsp BINRW")
 }
 
 #[cfg(feature = "format-binrw")]
@@ -302,11 +488,26 @@ fn deserialize_req_rsp_payload<R: Read>(
     header: &CommonHeader,
     reader: &mut R,
 ) -> Result<ParsedReqRspPayload, Box<dyn Error>> {
+    let payload = read_payload_bytes(header, reader)?;
+    parse_req_rsp_payload_from_bytes(header, &payload)
+}
+
+#[cfg(feature = "format-binrw")]
+fn read_payload_bytes<R: Read>(header: &CommonHeader, reader: &mut R) -> Result<Vec<u8>, IoError> {
     let payload_len = (header.msg_length() - HEADER_LEN as u16) as usize;
     let mut payload = vec![0u8; payload_len];
     reader.read_exact(&mut payload)?;
+    Ok(payload)
+}
 
-    let mut payload_cursor = binrw::io::Cursor::new(&payload);
+#[cfg(feature = "format-binrw")]
+fn parse_req_rsp_payload_from_bytes(
+    _header: &CommonHeader,
+    payload: &[u8],
+) -> Result<ParsedReqRspPayload, Box<dyn Error>> {
+    let payload_len = payload.len();
+
+    let mut payload_cursor = binrw::io::Cursor::new(payload);
     let mut payload_consumed = 0;
 
     let mut source_route: Option<SourceRoute> = None;
@@ -444,6 +645,7 @@ fn deserialize_req_rsp_payload<R: Read>(
             }
             ProtocolObjectType::RTable
             | ProtocolObjectType::RTableUpdateInfo
+            | ProtocolObjectType::ErrorData
             | ProtocolObjectType::Unknown(_) => {
                 payload_cursor.seek(SeekFrom::Current(object_length as i64))?;
                 payload_consumed += object_length;
@@ -491,12 +693,129 @@ fn serialize_binrw<W: Write>(
         | ProtocolMessage::FindNodeRsp(req) => serialize_req_rsp_rtable(writer, req),
         ProtocolMessage::QueryRouteReq(req) => serialize_query_route_req(writer, req),
         ProtocolMessage::FindNodeReq(req) => serialize_find_node_req(writer, req),
-        //todo: implement other message types
+        ProtocolMessage::ProbeReq(req) => serialize_probe_req(writer, req),
+        ProtocolMessage::ProbeRsp(req) => serialize_probe_rsp(writer, req),
+        ProtocolMessage::PathSetupReq(req) => serialize_path_setup_req(writer, req),
+        ProtocolMessage::PathTeardownReq(req) => serialize_path_teardown_req(writer, req),
+        ProtocolMessage::Error(req) => serialize_error(writer, req),
+        ProtocolMessage::StoreReq(req) => serialize_store_req(writer, req),
+        ProtocolMessage::StoreRsp(req) => serialize_store_rsp(writer, req),
+        ProtocolMessage::FetchReq(req) => serialize_fetch_req(writer, req),
+        ProtocolMessage::FetchRsp(req) => serialize_fetch_rsp(writer, req),
         _ => Err(Box::new(IoError::new(
             ErrorKind::Unsupported,
             "currently not supported by binrw ",
         ))),
     }
+}
+
+#[cfg(feature = "format-binrw")]
+fn serialize_probe_req<W: Write>(
+    _writer: W,
+    _req: &ReqRspMessage<ProbeReqData>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    todo!("serialize ProbeReq BINRW")
+}
+
+#[cfg(feature = "format-binrw")]
+fn serialize_probe_rsp<W: Write>(
+    _writer: W,
+    _req: &ReqRspMessage<ProbeRspData>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    todo!("serialize ProbeRsp BINRW")
+}
+
+#[cfg(feature = "format-binrw")]
+fn serialize_path_setup_req<W: Write>(
+    _writer: W,
+    _req: &ReqRspMessage<PathSetupReqData>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    todo!("serialize PathSetupReq BINRW")
+}
+
+#[cfg(feature = "format-binrw")]
+fn serialize_path_teardown_req<W: Write>(
+    _writer: W,
+    _req: &ReqRspMessage<PathTeardownReqData>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    todo!("serialize PathTeardownReq BINRW")
+}
+
+#[cfg(feature = "format-binrw")]
+fn serialize_error<W: Write>(
+    mut writer: W,
+    req: &ReqRspMessage<ErrorData>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut payload = Vec::new();
+
+    write_notvialist_object(&mut payload, &req.not_via)?;
+    write_source_route_object(&mut payload, &req.source_route)?;
+    write_error_data(&mut payload, &req.data)?;
+
+    write_header_and_payload(&mut writer, &req.common_header, &payload)
+}
+
+#[cfg(feature = "format-binrw")]
+fn write_error_data<W: Write>(writer: &mut W, data: &ErrorData) -> Result<usize, IoError> {
+    match data {
+        ErrorData::DeadEnd => {
+            write_common_object_header(
+                writer,
+                CommonObjectHeader::new(ProtocolObjectType::ErrorData, 1),
+            )?;
+            writer.write_all(&[ERROR_DEAD_END])?;
+            Ok(4)
+        }
+        ErrorData::SegmentFailure {
+            failed_link,
+            source,
+        } => {
+            let object_length = 1 + (NodeId::SIZE * 3);
+            write_common_object_header(
+                writer,
+                CommonObjectHeader::new(ProtocolObjectType::ErrorData, (object_length )as u16),
+            )?;
+
+            writer.write_all(&[ERROR_SEGMENT_FAILURE])?;
+            writer.write_all(&source.to_be_bytes())?;
+            writer.write_all(&failed_link.first().to_be_bytes())?;
+            writer.write_all(&failed_link.second().to_be_bytes())?;
+
+            Ok(3 + object_length)
+        }
+    }
+}
+
+#[cfg(feature = "format-binrw")]
+fn serialize_store_req<W: Write>(
+    _writer: W,
+    _req: &ReqRspMessage<StoreReqData<DefaultLHTInput>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    todo!("serialize StoreReq BINRW")
+}
+
+#[cfg(feature = "format-binrw")]
+fn serialize_store_rsp<W: Write>(
+    _writer: W,
+    _req: &ReqRspMessage<StoreRspData>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    todo!("serialize StoreRsp BINRW")
+}
+
+#[cfg(feature = "format-binrw")]
+fn serialize_fetch_req<W: Write>(
+    _writer: W,
+    _req: &ReqRspMessage<FetchReqData>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    todo!("serialize FetchReq BINRW")
+}
+
+#[cfg(feature = "format-binrw")]
+fn serialize_fetch_rsp<W: Write>(
+    _writer: W,
+    _req: &ReqRspMessage<FetchRspData<DefaultLHTOutput>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    todo!("serialize FetchRsp BINRW")
 }
 
 #[cfg(feature = "format-binrw")]
