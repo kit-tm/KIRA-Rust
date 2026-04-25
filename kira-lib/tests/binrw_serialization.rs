@@ -1,14 +1,16 @@
 use kira_lib::format::ProtocolMessageFormat;
 use kira_r2kad::domain::{Contact, NodeId, Path, SafeStateSeqNr};
+use kira_r2kad::messaging::dht::{FetchReqData, FetchRspData, StoreOK, StoreReqData, StoreRspData};
 use kira_r2kad::messaging::source_route::SourceRoute;
 use kira_r2kad::messaging::{
     CommonHeader, ErrorData, FindNodeReqData, KiraMsgFlagsBit, ProtocolMessage,
-    ProtocolMessageKind,
+    PathSetupReqData, PathTeardownReqData, ProbeReqData, ProbeRspData, ProtocolMessageKind,
     QueryRouteReqData, QueryRouteType, RTableData, ReqRspMessage,
 };
 use std::collections::HashSet;
 use std::io::Cursor;
 use std::num::NonZeroU64;
+use std::sync::Arc;
 
 #[test]
 fn binrw_hello() {
@@ -405,4 +407,338 @@ fn binrw_error_dead_end() {
     assert_eq!(decoded_error.common_header.msg_id(), header.msg_id());
     assert_eq!(decoded_error.source_route.source(), header.src_node_id());
     assert_eq!(decoded_error.source_route.destination(), header.dest_id());
+}
+
+#[test]
+fn binrw_probe_req() {
+    let mut header = CommonHeader::new(
+        ProtocolMessageKind::ProbeReq,
+        NodeId::with_lsb(0xb1),
+        NodeId::with_lsb(0xb2),
+        Some(0x9101),
+        Some(0x9102),
+        1,
+    );
+    header.set_domain_id(0x4242);
+
+    let msg = ProtocolMessage::ProbeReq(ReqRspMessage {
+        common_header: header.clone(),
+        data: ProbeReqData,
+        not_via: HashSet::new(),
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    });
+
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::BINRW.serialize(&mut buf, &msg).expect("serialize");
+
+    println!("Serialized ProbeReq:");
+    for byte in &buf {
+        print!("{:02x} ", byte);
+    }
+    println!();
+
+    let decoded = ProtocolMessageFormat::BINRW
+        .deserialize(Cursor::new(&buf))
+        .expect("deserialize");
+
+    let ProtocolMessage::ProbeReq(decoded_req) = decoded else {
+        panic!("unexpected message type");
+    };
+    assert_eq!(decoded_req.common_header.msg_id(), header.msg_id());
+    assert_eq!(decoded_req.source_route.source(), header.src_node_id());
+    assert_eq!(decoded_req.source_route.destination(), header.dest_id());
+}
+
+#[test]
+fn binrw_probe_rsp() {
+    let mut header = CommonHeader::new(
+        ProtocolMessageKind::ProbeRsp,
+        NodeId::with_lsb(0xb3),
+        NodeId::with_lsb(0xb4),
+        Some(0x9201),
+        Some(0x9202),
+        1,
+    );
+    header.set_domain_id(0x4242);
+
+    let msg = ProtocolMessage::ProbeRsp(ReqRspMessage {
+        common_header: header.clone(),
+        data: ProbeRspData,
+        not_via: HashSet::new(),
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    });
+
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::BINRW.serialize(&mut buf, &msg).expect("serialize");
+
+    println!("Serialized ProbeRsp:");
+    for byte in &buf {
+        print!("{:02x} ", byte);
+    }
+    println!();
+
+    let decoded = ProtocolMessageFormat::BINRW
+        .deserialize(Cursor::new(&buf))
+        .expect("deserialize");
+
+    let ProtocolMessage::ProbeRsp(decoded_rsp) = decoded else {
+        panic!("unexpected message type");
+    };
+    assert_eq!(decoded_rsp.common_header.msg_id(), header.msg_id());
+    assert_eq!(decoded_rsp.source_route.source(), header.src_node_id());
+    assert_eq!(decoded_rsp.source_route.destination(), header.dest_id());
+}
+
+#[test]
+fn binrw_path_setup_req() {
+    let mut header = CommonHeader::new(
+        ProtocolMessageKind::PathSetupReq,
+        NodeId::with_lsb(0xc1),
+        NodeId::with_lsb(0xc2),
+        Some(0x9301),
+        Some(0x9302),
+        1,
+    );
+    header.set_domain_id(0x4242);
+
+    let msg = ProtocolMessage::PathSetupReq(ReqRspMessage {
+        common_header: header.clone(),
+        data: PathSetupReqData,
+        not_via: HashSet::new(),
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    });
+
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::BINRW.serialize(&mut buf, &msg).expect("serialize");
+
+    println!("Serialized PathSetupReq:");
+    for byte in &buf {
+        print!("{:02x} ", byte);
+    }
+    println!();
+
+    let decoded = ProtocolMessageFormat::BINRW
+        .deserialize(Cursor::new(&buf))
+        .expect("deserialize");
+
+    let ProtocolMessage::PathSetupReq(decoded_req) = decoded else {
+        panic!("unexpected message type");
+    };
+    assert_eq!(decoded_req.common_header.msg_id(), header.msg_id());
+    assert_eq!(decoded_req.source_route.source(), header.src_node_id());
+    assert_eq!(decoded_req.source_route.destination(), header.dest_id());
+}
+
+#[test]
+fn binrw_path_teardown_req() {
+    let mut header = CommonHeader::new(
+        ProtocolMessageKind::PathTeardownReq,
+        NodeId::with_lsb(0xc3),
+        NodeId::with_lsb(0xc4),
+        Some(0x9401),
+        Some(0x9402),
+        1,
+    );
+    header.set_domain_id(0x4242);
+
+    let msg = ProtocolMessage::PathTeardownReq(ReqRspMessage {
+        common_header: header.clone(),
+        data: PathTeardownReqData,
+        not_via: HashSet::new(),
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    });
+
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::BINRW.serialize(&mut buf, &msg).expect("serialize");
+
+    println!("Serialized PathTeardownReq:");
+    for byte in &buf {
+        print!("{:02x} ", byte);
+    }
+    println!();
+
+    let decoded = ProtocolMessageFormat::BINRW
+        .deserialize(Cursor::new(&buf))
+        .expect("deserialize");
+
+    let ProtocolMessage::PathTeardownReq(decoded_req) = decoded else {
+        panic!("unexpected message type");
+    };
+    assert_eq!(decoded_req.common_header.msg_id(), header.msg_id());
+    assert_eq!(decoded_req.source_route.source(), header.src_node_id());
+    assert_eq!(decoded_req.source_route.destination(), header.dest_id());
+}
+
+#[test]
+fn binrw_store_req() {
+    let mut header = CommonHeader::new(
+        ProtocolMessageKind::StoreReq,
+        NodeId::with_lsb(0xd1),
+        NodeId::with_lsb(0xd2),
+        Some(0x9501),
+        Some(0x9502),
+        2,
+    );
+    header.set_domain_id(0x4242);
+
+    let data = Arc::from(vec![0x01u8, 0x02, 0x03]);
+    let handle = NodeId::with_lsb(0xd3);
+
+    let msg = ProtocolMessage::StoreReq(ReqRspMessage {
+        common_header: header.clone(),
+        data: StoreReqData { handle, data },
+        not_via: HashSet::new(),
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    });
+
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::BINRW.serialize(&mut buf, &msg).expect("serialize");
+
+    println!("Serialized StoreReq:");
+    for byte in &buf {
+        print!("{:02x} ", byte);
+    }
+    println!();
+
+    let decoded = ProtocolMessageFormat::BINRW
+        .deserialize(Cursor::new(&buf))
+        .expect("deserialize");
+
+    let ProtocolMessage::StoreReq(decoded_req) = decoded else {
+        panic!("unexpected message type");
+    };
+
+    assert_eq!(decoded_req.common_header.msg_id(), header.msg_id());
+    assert_eq!(decoded_req.data.handle, handle);
+    assert_eq!(&*decoded_req.data.data, &[0x01u8, 0x02, 0x03]);
+}
+
+#[test]
+fn binrw_store_rsp() {
+    let mut header = CommonHeader::new(
+        ProtocolMessageKind::StoreRsp,
+        NodeId::with_lsb(0xd4),
+        NodeId::with_lsb(0xd5),
+        Some(0x9601),
+        Some(0x9602),
+        2,
+    );
+    header.set_domain_id(0x4242);
+
+    let msg = ProtocolMessage::StoreRsp(ReqRspMessage {
+        common_header: header.clone(),
+        data: StoreRspData {
+            status: Ok(StoreOK::Inserted),
+        },
+        not_via: HashSet::new(),
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    });
+
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::BINRW.serialize(&mut buf, &msg).expect("serialize");
+
+    println!("Serialized StoreRsp:");
+    for byte in &buf {
+        print!("{:02x} ", byte);
+    }
+    println!();
+
+    let decoded = ProtocolMessageFormat::BINRW
+        .deserialize(Cursor::new(&buf))
+        .expect("deserialize");
+
+    let ProtocolMessage::StoreRsp(decoded_rsp) = decoded else {
+        panic!("unexpected message type");
+    };
+
+    assert_eq!(decoded_rsp.common_header.msg_id(), header.msg_id());
+    assert!(matches!(decoded_rsp.data.status, Ok(StoreOK::Inserted)));
+}
+
+#[test]
+fn binrw_fetch_req() {
+    let mut header = CommonHeader::new(
+        ProtocolMessageKind::FetchReq,
+        NodeId::with_lsb(0xe1),
+        NodeId::with_lsb(0xe2),
+        Some(0x9701),
+        Some(0x9702),
+        2,
+    );
+    header.set_domain_id(0x4242);
+
+    let handle = NodeId::with_lsb(0xe3);
+    let msg = ProtocolMessage::FetchReq(ReqRspMessage {
+        common_header: header.clone(),
+        data: FetchReqData { handle },
+        not_via: HashSet::new(),
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    });
+
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::BINRW.serialize(&mut buf, &msg).expect("serialize");
+
+    println!("Serialized FetchReq:");
+    for byte in &buf {
+        print!("{:02x} ", byte);
+    }
+    println!();
+
+    let decoded = ProtocolMessageFormat::BINRW
+        .deserialize(Cursor::new(&buf))
+        .expect("deserialize");
+
+    let ProtocolMessage::FetchReq(decoded_req) = decoded else {
+        panic!("unexpected message type");
+    };
+
+    assert_eq!(decoded_req.common_header.msg_id(), header.msg_id());
+    assert_eq!(decoded_req.data.handle, handle);
+}
+
+#[test]
+fn binrw_fetch_rsp() {
+    let mut header = CommonHeader::new(
+        ProtocolMessageKind::FetchRsp,
+        NodeId::with_lsb(0xe4),
+        NodeId::with_lsb(0xe5),
+        Some(0x9801),
+        Some(0x9802),
+        2,
+    );
+    header.set_domain_id(0x4242);
+
+    let msg = ProtocolMessage::FetchRsp(ReqRspMessage {
+        common_header: header.clone(),
+        data: FetchRspData {
+            data: Ok(vec![Arc::from(vec![0x0a, 0x0b]), Arc::from(vec![0x0c])]),
+        },
+        not_via: HashSet::new(),
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    });
+
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::BINRW.serialize(&mut buf, &msg).expect("serialize");
+
+    println!("Serialized FetchRsp:");
+    for byte in &buf {
+        print!("{:02x} ", byte);
+    }
+    println!();
+
+    let decoded = ProtocolMessageFormat::BINRW
+        .deserialize(Cursor::new(&buf))
+        .expect("deserialize");
+
+    let ProtocolMessage::FetchRsp(decoded_rsp) = decoded else {
+        panic!("unexpected message type");
+    };
+
+    assert_eq!(decoded_rsp.common_header.msg_id(), header.msg_id());
+    let Ok(values) = decoded_rsp.data.data else {
+        panic!("expected fetch ok data");
+    };
+    assert_eq!(values.len(), 2);
+    assert_eq!(&*values[0], &[0x0a, 0x0b]);
+    assert_eq!(&*values[1], &[0x0c]);
 }
