@@ -22,6 +22,8 @@ pub use timed::*;
 pub mod hash_table;
 pub mod strategies;
 
+// TODO: move the following into the DistributedHashTableInjector UseCase
+
 /// Construct a protocol message that is routed to its destination
 /// by key-based routing.
 ///
@@ -48,9 +50,8 @@ where
     let path = if let Some(closest_node) = closest_node {
         closest_node.path().clone()
     } else {
-        // we are the closest => loopback
-        log::warn!(target: "distributed_hash_table_injector", "Node is isolated!");
-
+        tracing::warn!(target: "distributed_hash_table_injector", "Node is isolated!");
+        // send message via loopback because of the isolation we are the closest node
         Path::from(*context.root_id())
     };
 
@@ -91,9 +92,12 @@ pub(crate) fn send_store_req<C, const BUCKET_SIZE: usize>(
         data,
     );
 
-    log::trace!(target: "distributed_hash_table_injector", "Sending StoreReq from {} with destination {}",
-        message.source_route.source(),
-        message.data.handle
+    tracing::trace!(
+        target: "distributed_hash_table_injector",
+        key = %message.data.handle,
+        %destination,
+        source_route = ?message.source_route,
+        "Sending StoreReq",
     );
 
     let message = ProtocolMessage::StoreReq(message);
@@ -130,9 +134,12 @@ where
         data,
     );
 
-    log::trace!(target: "distributed_hash_table_injector", "Sending FetchReq from {} with destination {}",
-        message.source_route.source(),
-        message.data.handle
+    tracing::trace!(
+        target: "distributed_hash_table_injector",
+        key = %message.data.handle,
+        %destination,
+        source_route = ?message.source_route,
+        "Sending FetchReq",
     );
 
     let message = ProtocolMessage::FetchReq(message);

@@ -1,8 +1,8 @@
 use core::time::Duration;
 use derive_more::Display;
 use derive_more::From;
+use std::collections::HashMap;
 use std::collections::hash_map::Entry::Occupied;
-use std::collections::{HashMap, LinkedList};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::num::{NonZeroU64, NonZeroUsize};
@@ -25,9 +25,7 @@ use crate::use_cases::inject_messages::InjectionResult;
 use crate::use_cases::inject_messages::errors::InjectMessageError;
 
 /// Default number of seconds between two attempts to restore an existing value.
-// TODO: random offsets for periodic restore AND collection of the hash table?
-// TODO: what would be a sensible value here?
-pub const DEFAULT_PERIODIC_RESTORE: Duration = Duration::from_secs(60 * 60);
+pub const DEFAULT_PERIODIC_RESTORE: Duration = Duration::from_hours(1);
 
 /// Default timeout duration of the [DistributedHashTableInjector] use case.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -132,12 +130,14 @@ enum ResponseHook {
 
 #[derive(Debug, Display, Eq, PartialEq, Clone)]
 pub enum TimerHook {
-    #[display("Timeout: FindeNodeReq")]
+    #[display("Timeout: FindNodeReq")]
     TimeoutFindNodeReq(Nonce),
     #[display("Timeout: StoreReq")]
     TimeoutRedundantStoreReq(Nonce),
     #[display("Timeout: FetchReq")]
     TimeoutFetchReq(Nonce),
+    #[display("Periodic Restore")]
+    PeriodicRestore(StoreReqData<DefaultLHTInput>),
 }
 
 /// Represents the state of the [DistributedHashTableInjector] UseCase.
@@ -152,7 +152,6 @@ pub enum DHTInjectorState {
     #[default]
     Initialized,
     Running {
-        restore_timer: TimerId,
         timer_hooks: HashMap<TimerId, TimerHook>,
         pending_reqs: HashMap<Nonce, RequestState>,
     },
@@ -189,8 +188,6 @@ pub struct DistributedHashTableInjector<C, const BUCKET_SIZE: usize> {
     state: DHTInjectorState,
     config: DistributedHashTableInjectorConfig,
 
-    restore_data: LinkedList<StoreReqData<DefaultLHTInput>>,
-
     // avoid cloning: store the callbacks centrally.
     callbacks: HashMap<Nonce, OneshotInjectMessageCallback>,
 }
@@ -216,7 +213,6 @@ impl<C, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCKET_SIZE> {
             _c: PhantomData,
             state: DHTInjectorState::default(),
             config,
-            restore_data: LinkedList::default(),
             callbacks: HashMap::default(),
         }
     }
@@ -242,9 +238,13 @@ impl<C, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCKET_SIZE> {
     }
 
     fn generate_distinct_nonce(&self) -> Nonce {
+        let DHTInjectorState::Running { pending_reqs, .. } = &self.state else {
+            panic!("DistributedHashTable should be running");
+        };
+
         loop {
             let nonce = Nonce::random();
-            if !self.callbacks.contains_key(&nonce) {
+            if !pending_reqs.contains_key(&nonce) {
                 break nonce;
             }
         }
@@ -276,7 +276,7 @@ where
             panic!("DistributedHashTable should be running");
         };
 
-        tracing::trace!(
+        tracing::debug!(
             target: "distributed_hash_table_injector",
             %destination,
             %expected_nonce,
@@ -296,6 +296,24 @@ where
         // set timeout timer
         let timeout_timer_id = context.runtime().register_rand_timer(timeout);
         timer_hooks.insert(timeout_timer_id, timeout_hook);
+    }
+
+    fn register_periodic_restore(&mut self, context: &C, payload: StoreReqData<DefaultLHTInput>) {
+        let DHTInjectorState::Running { timer_hooks, .. } = &mut self.state else {
+            panic!("DistributedHashTable should be running");
+        };
+
+        tracing::trace!(
+            target: "distributed_hash_table_injector",
+            key = %payload.handle,
+            data = ?payload.data.deref(),
+            "Registering data for periodic restore",
+        );
+
+        let timeout_timer_id = context
+            .runtime()
+            .register_rand_timer(self.config.periodic_restore);
+        timer_hooks.insert(timeout_timer_id, TimerHook::PeriodicRestore(payload));
     }
 }
 
@@ -325,11 +343,11 @@ where
         )
         .into();
 
-        tracing::trace!(
+        tracing::debug!(
             target: "distributed_hash_table_injector",
             %nonce,
             ?message,
-            "Sending FindeNodeReq",
+            "Sending FindNodeReq",
         );
         if message.destination().unwrap() == context.root_id() {
             context
@@ -349,6 +367,11 @@ where
     ///
     /// A node usually doesn't know the *k* closest nodes to the key
     /// because it isn't close to its own [NodeId].
+    #[instrument(
+        level = Level::DEBUG,
+        target = "distributed_hash_table_injector",
+        skip(self, context),
+    )]
     fn init_redundancy_lookup(
         &mut self,
         context: &C,
@@ -377,6 +400,11 @@ where
     }
 
     /// **DHT Redundancy**: Store key-value pair (payload) at redundant *k* destinations.
+    #[instrument(
+        level = Level::DEBUG,
+        target = "distributed_hash_table_injector",
+        skip(self, context),
+    )]
     fn init_redundant_store(
         &mut self,
         context: &C,
@@ -411,6 +439,11 @@ where
         );
     }
 
+    #[instrument(
+        level = Level::DEBUG,
+        target = "distributed_hash_table_injector",
+        skip(self, context),
+    )]
     fn init_fetch_req(
         &mut self,
         context: &C,
@@ -429,6 +462,83 @@ where
             TimerHook::TimeoutFetchReq(nonce),
             ResponseHook::RegisterFetchRsp,
         );
+
+        Ok(())
+    }
+
+    #[instrument(
+        level = Level::DEBUG,
+        target = "distributed_hash_table_injector",
+        skip(self, context),
+    )]
+    fn handle_response(
+        &mut self,
+        context: &C,
+        response_hook: ResponseHook,
+        answered_message: ProtocolMessage,
+    ) -> Result<(), InjectMessageError> {
+        let nonce = answered_message
+            .msg_id()
+            .expect("RPC response message have a message-id");
+
+        match (response_hook, answered_message) {
+            (
+                ResponseHook::SendRedundantStoreReqs { payload, restore },
+                ProtocolMessage::FindNodeRsp(ReqRspMessage { data: rtable, .. }),
+            ) => {
+                let redundancy_factor = self.config.redundancy_factor.resolve(BUCKET_SIZE).get();
+                if rtable.contacts.len() != redundancy_factor {
+                    tracing::warn!(
+                        target: "distributed_hash_table_injector",
+                        %nonce,
+                        redundancy_factor,
+                        ?rtable,
+                        "Requested redundancy doesn't match size of rtable object",
+                    );
+                }
+
+                self.init_redundant_store(context, payload, rtable.contacts, nonce, restore);
+
+                // wait for periodic restore after we confirmed the key-value pair
+                // was successfully stored at the closest node
+            }
+            (
+                ResponseHook::RegisterStoreRsp {
+                    payload, restore, ..
+                },
+                answered_message @ ProtocolMessage::StoreRsp(_),
+            ) => {
+                // no callback on periodic restore
+                let Some(callback) = self.callbacks.remove(&nonce) else {
+                    return Ok(());
+                };
+                // relay response
+                self.send_inject_result(
+                    InjectionResult::Answered(Box::new(answered_message)),
+                    callback,
+                )?;
+
+                if restore {
+                    self.register_periodic_restore(context, payload);
+                }
+            }
+            (ResponseHook::RegisterFetchRsp, answered_message @ ProtocolMessage::FetchRsp(_)) => {
+                let Some(callback) = self.callbacks.remove(&nonce) else {
+                    tracing::warn!(
+                        target: "distributed_hash_table_injector",
+                        %nonce,
+                        "No callback for FetchReq registered",
+                    );
+                    return Ok(());
+                };
+
+                self.send_inject_result(
+                    InjectionResult::Answered(Box::new(answered_message)),
+                    callback,
+                )?;
+            }
+            _ => unreachable!("Response Hook and Message Kind where previously validated"),
+        }
 
         Ok(())
     }
@@ -506,7 +616,9 @@ where
                 DHTInjectorState::Running { pending_reqs, .. },
             ) => {
                 // FIND CORRESPONDING PENDING REQUEST
-                let nonce = message.msg_id().expect("Responses should have a Nonce");
+                let nonce = message
+                    .msg_id()
+                    .expect("RPC response message have a message-id");
                 let Occupied(req_state_entry) = pending_reqs.entry(nonce) else {
                     tracing::trace!(
                         target: "distributed_hash_table_injector",
@@ -536,93 +648,20 @@ where
                 };
                 // return early to not mark unhandled responses as complete
                 if !completes_request {
+                    tracing::trace!(
+                        target: "distributed_hash_table_injector",
+                        %nonce,
+                        response_hook = ?req_state_entry.get().response_hook,
+                        "Received message doesn't complete RPC",
+                    );
                     return Ok(());
                 }
 
                 // HANDLE RESPONSE
                 let state = req_state_entry.remove();
-                match (state.response_hook, message) {
-                    (
-                        ResponseHook::SendRedundantStoreReqs { payload, restore },
-                        ProtocolMessage::FindNodeRsp(ReqRspMessage { data: rtable, .. }),
-                    ) => {
-                        let redundancy_factor =
-                            self.config.redundancy_factor.resolve(BUCKET_SIZE).get();
-                        if rtable.contacts.len() != redundancy_factor {
-                            tracing::warn!(
-                                target: "distributed_hash_table_injector",
-                                %nonce,
-                                redundancy_factor,
-                                ?rtable,
-                                "Requested redundancy doesn't match size of rtable object",
-                            );
-                        }
-
-                        self.init_redundant_store(
-                            context,
-                            payload,
-                            rtable.contacts,
-                            nonce,
-                            restore,
-                        );
-
-                        // wait for periodic restore after we confirmed the key-value pair
-                        // was successfully stored at the closest node
-                    }
-                    (
-                        ResponseHook::RegisterStoreRsp {
-                            payload, restore, ..
-                        },
-                        answered_message @ ProtocolMessage::StoreRsp(_),
-                    ) => {
-                        // no callback on periodic restore
-                        let Some(callback) = self.callbacks.remove(&nonce) else {
-                            return Ok(());
-                        };
-                        // relay response
-                        self.send_inject_result(
-                            InjectionResult::Answered(Box::new(answered_message)),
-                            callback,
-                        )?;
-
-                        // initialize periodic restore
-                        if restore {
-                            self.restore_data.push_back(payload);
-                        }
-                    }
-                    (
-                        ResponseHook::RegisterFetchRsp,
-                        answered_message @ ProtocolMessage::FetchRsp(_),
-                    ) => {
-                        let Some(callback) = self.callbacks.remove(&nonce) else {
-                            tracing::warn!(
-                                target: "distributed_hash_table_injector",
-                                %nonce,
-                                "No callback for FetchReq registered",
-                            );
-                            return Ok(());
-                        };
-
-                        self.send_inject_result(
-                            InjectionResult::Answered(Box::new(answered_message)),
-                            callback,
-                        )?;
-                    }
-                    _ => unreachable!("Response Hook and Message Kind where previously validated"),
-                }
-                return Ok(());
+                self.handle_response(context, state.response_hook, message)?;
             }
-            (UseCaseEvent::Timer(id), Running { restore_timer, .. }) if &id == restore_timer => {
-                // TODO: have individual restore timers
-                for data in self.restore_data.clone().into_iter() {
-                    let StoreReqData { handle, data } = data;
-                    // don't register restore again
-                    let restore_false = false;
-
-                    let nonce = self.generate_distinct_nonce();
-                    self.init_redundancy_lookup(context, handle, data, restore_false, nonce)?;
-                }
-            }
+            // ========== Handle Timers ==========
             (
                 UseCaseEvent::Timer(ref id),
                 Running {
@@ -630,24 +669,43 @@ where
                     pending_reqs,
                     ..
                 },
-            ) if let Some(timer_hook) = timer_hooks.get(id) => {
-                let (TimerHook::TimeoutFindNodeReq(nonce)
-                | TimerHook::TimeoutRedundantStoreReq(nonce)
-                | TimerHook::TimeoutFetchReq(nonce)) = timer_hook;
+            ) => {
+                match timer_hooks.remove(id) {
+                    Some(
+                        timeout_hook @ (TimerHook::TimeoutFindNodeReq(nonce)
+                        | TimerHook::TimeoutRedundantStoreReq(nonce)
+                        | TimerHook::TimeoutFetchReq(nonce)),
+                    ) => {
+                        // timeout timer still fires if successfully completed request
+                        if let Some(req) = pending_reqs.remove(&nonce) {
+                            // TODO: log warning if periodic restore timed out
 
-                // timeout timer still fires if successfully completed request
-                if pending_reqs.remove(nonce).is_some() {
-                    tracing::debug!(
-                        target: "distributed_hash_table_injector",
-                        %nonce,
-                        kind=%timer_hook,
-                        "Request timed out",
-                    );
-                }
-
-                if let Some(callback) = self.callbacks.remove(nonce) {
-                    self.send_inject_result(InjectionResult::Timeout, callback)?;
-                }
+                            tracing::debug!(
+                                target: "distributed_hash_table_injector",
+                                %nonce,
+                                kind=%timeout_hook,
+                                request=?req,
+                                "Request timed out",
+                            );
+                            if let Some(callback) = self.callbacks.remove(&nonce) {
+                                self.send_inject_result(InjectionResult::Timeout, callback)?;
+                            }
+                        } else {
+                            debug_assert!(
+                                self.callbacks.remove(&nonce).is_none(),
+                                "orphan callback left over"
+                            );
+                        }
+                    }
+                    Some(TimerHook::PeriodicRestore(payload)) => {
+                        let StoreReqData { handle, ref data } = payload;
+                        let nonce = self.generate_distinct_nonce();
+                        self.init_redundancy_lookup(context, handle, data.clone(), false, nonce)?;
+                        // schedule restore immediately to restore the value if the request timed out
+                        self.register_periodic_restore(context, payload);
+                    }
+                    None => {}
+                };
             }
             _ => {}
         }
@@ -665,14 +723,8 @@ where
 {
     type State = DHTInjectorState;
 
-    fn start(&mut self, context: &Self::Context) -> Result<(), Self::Error> {
-        // TODO: make timer random
-        let timer_id = context
-            .runtime()
-            .register_periodic_timer(self.config.periodic_restore);
-
+    fn start(&mut self, _: &Self::Context) -> Result<(), Self::Error> {
         self.state = Running {
-            restore_timer: timer_id,
             timer_hooks: HashMap::default(),
             pending_reqs: HashMap::default(),
         };
