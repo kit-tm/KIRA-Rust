@@ -17,7 +17,7 @@ use utoipa::openapi::{RefOr, ResponseBuilder, ResponsesBuilder};
 #[cfg(feature = "swagger_doc")]
 use utoipa::{ToResponse, ToSchema};
 
-pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub enum Handle {
     Handle(NodeId),
@@ -174,6 +174,7 @@ pub enum DHTErr {
     Isolated,
     ReceiveError,
     Timeout,
+    RPCTimeout,
     MessageReceiveMismatch,
     NotFound,
     Miscellaneous,
@@ -195,6 +196,7 @@ impl Display for DHTErr {
             Self::Isolated => write!(f, "Node is isolated."),
             Self::ReceiveError => write!(f, "Receive Error."),
             Self::Timeout => write!(f, "Timout of request."),
+            Self::RPCTimeout => write!(f, "Timout of request (RPC)."),
             Self::MessageReceiveMismatch => {
                 write!(f, "Response message received isn't expected type.")
             }
@@ -207,12 +209,12 @@ impl Display for DHTErr {
 impl IntoResponse for DHTErr {
     fn into_response(self) -> Response {
         let status = match self {
-            // TODO: overthink status codes
             Self::FormatError(_) => http::StatusCode::BAD_REQUEST,
             Self::SendError => http::StatusCode::INTERNAL_SERVER_ERROR,
             Self::Isolated => http::StatusCode::SERVICE_UNAVAILABLE,
             Self::ReceiveError => http::StatusCode::BAD_GATEWAY,
             Self::Timeout => http::StatusCode::GATEWAY_TIMEOUT,
+            Self::RPCTimeout => http::StatusCode::GATEWAY_TIMEOUT, // server still got an answer (timeout)
             Self::MessageReceiveMismatch => http::StatusCode::BAD_GATEWAY,
             Self::NotFound => http::StatusCode::NOT_FOUND,
             Self::Miscellaneous => http::StatusCode::SERVICE_UNAVAILABLE,
@@ -306,6 +308,7 @@ impl utoipa::IntoResponses for DHTErr {
             DHTErr::Isolated,
             DHTErr::ReceiveError,
             DHTErr::Timeout,
+            DHTErr::RPCTimeout,
             DHTErr::MessageReceiveMismatch,
             DHTErr::NotFound,
             DHTErr::Miscellaneous,

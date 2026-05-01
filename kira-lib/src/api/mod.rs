@@ -219,7 +219,7 @@ async fn store_dht_data(
             _ => Err(DHTErr::MessageReceiveMismatch),
         },
         InjectionResult::Isolated => Err(DHTErr::Isolated),
-        InjectionResult::Timeout => Err(DHTErr::Timeout),
+        InjectionResult::Timeout => Err(DHTErr::RPCTimeout),
     }
 }
 
