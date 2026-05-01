@@ -8,24 +8,24 @@ use std::sync::Arc;
 use tracing::{Level, instrument};
 
 use crate::domain::{
-    Contact, ContactState, NodeId, NotVia, RoutingTable, ULNTable, UnderlayNeighborId, dht,
+    Contact, ContactState, GroupingError, NodeId, NotVia, Path, RoutingTable, ULNTable,
+    UnderlayNeighborId, dht,
 };
 use crate::messaging::dht::{
     DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchReqData, FetchRspData, StoreReqData,
     StoreResult, StoreRspData,
 };
 
-use crate::domain::dht::Expiring;
-use crate::domain::dht::TimedValue;
-use crate::domain::dht::hash_table::LocalHashTable;
-use crate::domain::dht::hash_table::expiring_hash_table::ExpiringHashTable;
-use crate::domain::dht::strategies::fetch_strategy::PermissionlessFetchStrategy;
-use crate::domain::dht::strategies::insert_strategy::PermissionlessInsertStrategy;
-use crate::domain::dht::strategies::timeout_strategy::ConstTimeoutStrategy;
-
+use crate::domain::dht::hash_table::{LocalHashTable, expiring_hash_table::ExpiringHashTable};
+use crate::domain::dht::strategies::{
+    fetch_strategy::PermissionlessFetchStrategy, insert_strategy::PermissionlessInsertStrategy,
+    timeout_strategy::ConstTimeoutStrategy,
+};
+use crate::domain::dht::{Expiring, TimedValue};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
-    CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage, WireFormatMessage,
+    CommonHeader, ErrorData, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage,
+    WireFormatMessage,
 };
 use crate::use_cases::{
     ApiEvent, BroadcastableUseCaseEvent, ContactEvent, EventHandler, NeverError, TimerId, UseCase,
@@ -64,32 +64,29 @@ pub struct DistributedHashTableConfig {
     ///
     /// The garbage collection calls [Expiring::expire] on the [LocalHashTable].
     pub collect_interval: Duration,
-}
-impl DistributedHashTableConfig {
-    /// Creates a new instance of [DistributedHashTableConfig] with the given `collect_interval`.
-    ///
-    /// The `collect_interval` specifies the duration between each garbage collection process
-    /// of the internal hash table.
-    ///
-    /// # Arguments
-    ///
-    /// - `collect_interval` - The duration between each garbage collection process.
-    ///
-    /// # Returns
-    ///
-    /// A new instance of `Self` with the specified `collect_interval`.
-    fn with_collect_interval(collect_interval: Duration) -> Self {
-        Self { collect_interval }
-    }
+
+    pub shared_prefix_bits_grouping: NonZeroU8,
 }
 
 impl Default for DistributedHashTableConfig {
     /// Creates a new instance of [DistributedHashTableConfig] with default settings.
     ///
-    /// The [DistributedHashTableConfig] returned
-    /// is initialized with the [DEFAULT_COLLECT_INTERVAL].
+    /// # Example
+    ///
+    /// ```
+    /// # use kira_r2kad::use_cases::distributed_hash_table::{DistributedHashTableConfig, DEFAULT_COLLECT_INTERVAL};
+    /// # use std::num::NonZeroU8;
+    ///
+    /// let config = DistributedHashTableConfig::default();
+    ///
+    /// assert_eq!(config.collect_interval, DEFAULT_COLLECT_INTERVAL);
+    /// assert_eq!(config.shared_prefix_bits_grouping, NonZeroU8::MIN);
+    /// ```
     fn default() -> Self {
-        Self::with_collect_interval(DEFAULT_COLLECT_INTERVAL)
+        Self {
+            collect_interval: DEFAULT_COLLECT_INTERVAL,
+            shared_prefix_bits_grouping: NonZeroU8::MIN,
+        }
     }
 }
 
@@ -143,13 +140,21 @@ impl<C, H: Default, const BUCKET_SIZE: usize> DistributedHashTable<C, H, BUCKET_
     /// # Arguments
     ///
     /// - `config` - The configuration object for the [DistributedHashTable].
-    pub fn new(config: DistributedHashTableConfig) -> Self {
-        Self {
+    pub fn new(config: DistributedHashTableConfig) -> Result<Self, GroupingError> {
+        // TODO: Avoid errors by creating SharedPrefixGrouping newtype that inforces
+        // invariant upon creation
+        if config.shared_prefix_bits_grouping.get() > NodeId::BITS {
+            return Err(GroupingError::Invalid {
+                group_size: config.shared_prefix_bits_grouping,
+            });
+        };
+
+        Ok(Self {
             _c: PhantomData,
             state: DHTState::default(),
             config,
             hash_table: H::default(),
-        }
+        })
     }
 }
 
@@ -157,6 +162,7 @@ impl<C, H: Default, const BUCKET_SIZE: usize> Default for DistributedHashTable<C
     /// Constructs a new [DistributedHashTable] instance with the default configuration.
     fn default() -> Self {
         Self::new(DistributedHashTableConfig::default())
+            .expect("Valid grouping with default config")
     }
 }
 
@@ -181,11 +187,13 @@ where
         > + Expiring<Context = (), Result = RS>
         + Clone,
 {
-    fn send_store_rsp(&mut self, context: &C, req: ReqRspMessage<StoreReqData<DefaultLHTInput>>) {
-        let msgid = req.msg_id();
-        let res = self.hash_table.store(req.data.handle, req.data.data);
-        let source_route = SourceRoute::from_reversed(req.source_route);
-
+    fn send_store_rsp(
+        &mut self,
+        context: &C,
+        store_res: StoreResult,
+        msgid: u64,
+        source_route: SourceRoute,
+    ) {
         let rsp = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::StoreRsp,
@@ -195,14 +203,13 @@ where
                 Some(From::from(*context.uln_table().state_seq_nr())),
                 context.uln_table().size(),
             ),
-            data: StoreRspData { status: res },
+            data: StoreRspData { status: store_res },
             not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route,
         };
 
-        log::trace!(target: "distributed_hash_table", "Sending message: {rsp:?}");
-
-        let message = ProtocolMessage::StoreRsp(rsp);
+        let message = ProtocolMessage::from(rsp);
+        tracing::trace!(target: "distributed_hash_table", ?message, "Sending StoreRsp");
         if message.destination().unwrap() == context.root_id() {
             context
                 .runtime()
@@ -215,11 +222,42 @@ where
             .send_message(message, context.uln_table().deref());
     }
 
-    fn send_fetch_rsp(&mut self, context: &C, req: ReqRspMessage<FetchReqData>) {
-        let msgid = req.msg_id();
-        let fetch_res = self.hash_table.fetch(&req.data.handle);
-        let source_route = SourceRoute::from_reversed(req.source_route);
+    fn send_dead_end(&mut self, context: &C, msgid: u64, source_route: SourceRoute) {
+        let rsp = ReqRspMessage {
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::Error,
+                *context.root_id(),
+                *source_route.destination(),
+                Some(msgid),
+                Some(From::from(*context.uln_table().state_seq_nr())),
+                context.uln_table().size(),
+            ),
+            data: ErrorData::DeadEnd,
+            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            source_route,
+        };
 
+        let message = ProtocolMessage::from(rsp);
+        tracing::trace!(target: "distributed_hash_table", ?message, "Sending DeadEnd Error");
+        if message.destination().unwrap() == context.root_id() {
+            context
+                .runtime()
+                .broadcast_event(BroadcastableUseCaseEvent::Message(message));
+            return;
+        }
+
+        context
+            .runtime()
+            .send_message(message, context.uln_table().deref());
+    }
+
+    fn send_fetch_rsp(
+        &mut self,
+        context: &C,
+        data: Result<DefaultLHTOutput, FetchErr>,
+        msgid: u64,
+        source_route: SourceRoute,
+    ) {
         let rsp = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::FetchRsp,
@@ -229,14 +267,13 @@ where
                 Some(From::from(*context.uln_table().state_seq_nr())),
                 context.uln_table().size(),
             ),
-            data: FetchRspData { data: fetch_res },
+            data: FetchRspData { data },
             not_via: context.not_via_state().iter().map(NotVia::from).collect(),
             source_route,
         };
 
-        log::trace!(target: "distributed_hash_table", "Sending message: {rsp:?}");
-
-        let message = ProtocolMessage::FetchRsp(rsp);
+        let message = ProtocolMessage::from(rsp);
+        tracing::trace!(target: "distributed_hash_table", ?message, "Sending FetchRsp");
         if message.destination().unwrap() == context.root_id() {
             context
                 .runtime()
@@ -251,15 +288,14 @@ where
 
     fn republish_to_contact_if_closer(&mut self, context: &C, contact: Contact) {
         for handle in self.hash_table.handles() {
-            // TODO: support different shared_prefix_len via config
             let contact_prefix = contact
                 .id()
-                .shared_prefix_len(handle, NonZeroU8::MIN)
-                .expect("shared_prefix_len 1 failed");
+                .shared_prefix_len(handle, self.config.shared_prefix_bits_grouping)
+                .expect("grouping has to be checked on initialization");
             let root_prefix = context
                 .root_id()
-                .shared_prefix_len(handle, NonZeroU8::MIN)
-                .expect("shared_prefix_len 1 failed");
+                .shared_prefix_len(handle, self.config.shared_prefix_bits_grouping)
+                .expect("grouping has to be checked on initialization");
 
             if contact_prefix > root_prefix {
                 continue;
@@ -272,13 +308,197 @@ where
                 .expect("Fetching existing handle failed");
 
             // TODO: make this more efficient by just sending one big request
-            // TODO: make it configurable to delete the value after a successful store
             for data in entry {
                 let data = StoreReqData {
                     handle: *handle,
                     data,
                 };
                 dht::send_store_req(context, Nonce::random(), data, *handle);
+            }
+        }
+    }
+
+    #[instrument(
+        level = Level::DEBUG,
+        target = "distributed_hash_table",
+        "distributed_hash_table",
+        skip_all,
+        fields(
+            key = %message.data.handle,
+            destination = %message.dest_id(),
+        )
+    )]
+    fn handle_store_req(
+        &mut self,
+        context: &C,
+        mut message: ReqRspMessage<StoreReqData<DefaultLHTInput>>,
+    ) {
+        let msg_id = message.msg_id();
+        let destination = message.dest_id();
+        if destination == context.root_id() {
+            tracing::debug!(
+                target: "distributed_hash_table",
+                reason = "final destination",
+                "Responding to FetchReq with FetchRsp",
+            );
+
+            let store_res = self
+                .hash_table
+                .store(message.data.handle, message.data.data);
+
+            return self.send_store_rsp(
+                context,
+                store_res,
+                msg_id,
+                SourceRoute::from_reversed(message.source_route),
+            );
+        }
+
+        // route to next overlay hop
+        match context
+            .routing_table()
+            .next_hop(destination, self.config.shared_prefix_bits_grouping)
+            .expect("grouping has to be checked on initialization")
+        {
+            Some(next_overlay_hop) => {
+                assert_eq!(
+                    next_overlay_hop.state(),
+                    &ContactState::Valid,
+                    "invalid next overlay overlay hop"
+                );
+
+                let path: Path = next_overlay_hop.into();
+                message.source_route.extend(path);
+                message.source_route.advance();
+
+                tracing::trace!(
+                    target: "distributed_hash_table",
+                    reason = "value not stored",
+                    next_overlay_hop = %message.destination(),
+                    uln = %message
+                        .source_route
+                        .next_hop()
+                        .expect("should have next hop after extending to next overlay hop"),
+                    "Route StoreReq to next overlay hop by key-based routing",
+                );
+
+                context
+                    .runtime()
+                    .send_message(message, context.uln_table().deref())
+            }
+            None => {
+                tracing::debug!(
+                    target: "distributed_hash_table",
+                    reason = "unable to complete route to destination",
+                    "Responding to StoreReq with DeadEnd Error",
+                );
+
+                self.send_dead_end(
+                    context,
+                    message.msg_id(),
+                    SourceRoute::from_reversed(message.source_route),
+                )
+            }
+        }
+    }
+
+    #[instrument(
+        level = Level::DEBUG,
+        target = "distributed_hash_table",
+        "distributed_hash_table",
+        skip_all,
+        fields(
+            key = %message.data.handle,
+            destination = %message.dest_id(),
+        )
+    )]
+    fn handle_fetch_req(&mut self, context: &C, mut message: ReqRspMessage<FetchReqData>) {
+        let fetch_res = self.hash_table.fetch(&message.data.handle);
+        if fetch_res.is_ok() {
+            tracing::debug!(
+                target: "distributed_hash_table",
+                reason = "value stored",
+                "Responding to FetchReq with FetchRsp",
+            );
+
+            return self.send_fetch_rsp(
+                context,
+                fetch_res,
+                message.msg_id(),
+                SourceRoute::from_reversed(message.source_route),
+            );
+        }
+
+        let destination = message.dest_id();
+        if destination != &message.data.handle {
+            // the message is going to routed by destination
+            // therefor the resulting routing will not be key-based routing
+            tracing::warn!(
+                target: "distributed_hash_table",
+                key = %message.data.handle,
+                destination = %message.dest_id(),
+                "Received FetchReq where destination doesn't match requested key",
+            );
+        }
+        if destination == context.root_id() {
+            tracing::debug!(
+                target: "distributed_hash_table",
+                reason = "final destination",
+                "Responding to FetchReq with FetchRsp",
+            );
+
+            return self.send_fetch_rsp(
+                context,
+                fetch_res,
+                message.msg_id(),
+                SourceRoute::from_reversed(message.source_route),
+            );
+        }
+
+        // route to next overlay hop (ideally this results in key-based routing)
+        match context
+            .routing_table()
+            .next_hop(destination, self.config.shared_prefix_bits_grouping)
+            .expect("grouping has to be checked on initialization")
+        {
+            Some(next_overlay_hop) => {
+                assert_eq!(
+                    next_overlay_hop.state(),
+                    &ContactState::Valid,
+                    "invalid next overlay overlay hop"
+                );
+
+                let path: Path = next_overlay_hop.into();
+                message.source_route.extend(path);
+                message.source_route.advance();
+
+                tracing::trace!(
+                    target: "distributed_hash_table",
+                    reason = "value not stored",
+                    next_overlay_hop = %message.destination(),
+                    uln = %message
+                        .source_route
+                        .next_hop()
+                        .expect("should have next hop after extending to next overlay hop"),
+                    "Route FetchReq to next overlay hop",
+                );
+
+                context
+                    .runtime()
+                    .send_message(message, context.uln_table().deref())
+            }
+            None => {
+                tracing::debug!(
+                    target: "distributed_hash_table",
+                    reason = "unable to route to nearer overlay hop",
+                    "Responding to FetchReq with FetchRsp",
+                );
+                self.send_fetch_rsp(
+                    context,
+                    fetch_res,
+                    message.msg_id(),
+                    SourceRoute::from_reversed(message.source_route),
+                )
             }
         }
     }
@@ -321,13 +541,16 @@ where
         match (event, &self.state) {
             // ========== Respond to Requests ==========
             (UseCaseEvent::Message(ProtocolMessage::StoreReq(req), _), _) => {
-                self.send_store_rsp(context, req)
+                self.handle_store_req(context, req);
             }
             (UseCaseEvent::Message(ProtocolMessage::FetchReq(req), _), _) => {
-                self.send_fetch_rsp(context, req)
+                self.handle_fetch_req(context, req);
             }
             // ========== Expire Timer event ==========
             (UseCaseEvent::Timer(id), DHTState::Running(our_timer_id)) if &id == our_timer_id => {
+                // checks the whole hash table for expired values
+
+                // TODO: log expired values
                 self.hash_table.expire(&());
             }
             // ========== Republish values ==========
@@ -339,8 +562,12 @@ where
             {
                 self.republish_to_contact_if_closer(context, new);
             }
+            (UseCaseEvent::Contact(ContactEvent::Updated { new, old }), _)
+                if new.state() == &ContactState::Valid && new.id() != old.id() =>
+            {
+                self.republish_to_contact_if_closer(context, new);
+            }
             // ========== API Calls ==========
-            // TODO: move hash table in context and add extra DHTApi UseCase for this event handler
             (UseCaseEvent::API(ApiEvent::LocalHashTable(callback)), _) => {
                 let table_dump = self.hash_table.fetch_all();
 

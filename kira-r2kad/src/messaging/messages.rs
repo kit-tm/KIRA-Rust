@@ -460,16 +460,6 @@ impl ProtocolMessage {
         }
     }
 
-    // TODO: write documentation how to use
-    // and why other "overlay" messages are not listed here
-    pub fn overlay_destination(&self) -> Option<&NodeId> {
-        match self {
-            Self::StoreReq(req) => Some(&req.data.handle),
-            Self::FetchReq(req) => Some(&req.data.handle),
-            _ => None,
-        }
-    }
-
     /// Current hop of the message.
     ///
     /// Is only [Option::None] if the message has no source route (ULNHello).
@@ -539,8 +529,19 @@ impl<T: Debug> ReqRspMessage<T> {
         self.source_route.source()
     }
 
-    /// Next hop destination of the request.
+    /// Next overlay hop destination of the request.
+    ///
+    /// Essentially this is the destination of the source route.
     pub fn destination(&self) -> &NodeId {
+        // TODO: coherent renaming of methods destination methdos
+        // to distinguish between current overlay hop "destination" and final destination
+        //
+        // Currently we have multiple ambiguous destination methods:
+        //
+        // - `ReqRspMessage::destination`: overlay destination
+        // - `ProtocolMessage::destination`: overlay destination (or None on ULNHello)
+        // - `WireFormatMessage::dest_id`: final intended destination
+        //      can differ from current overlay hop destination if forwarded via multiple overlay hops
         self.source_route.destination()
     }
 }

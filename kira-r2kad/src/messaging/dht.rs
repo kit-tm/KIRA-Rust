@@ -1,6 +1,8 @@
 //! Data types for messages used to interact with the distributed hash table.
 
 use crate::domain::NodeId;
+use crate::messaging::ProtocolMessage;
+use crate::messaging::ReqRspMessage;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -16,6 +18,12 @@ pub struct StoreReqData<D> {
     /// The data to save with this request.
     pub data: D,
     //store_duration: Duration,
+}
+
+impl From<ReqRspMessage<StoreReqData<DefaultLHTInput>>> for ProtocolMessage {
+    fn from(message: ReqRspMessage<StoreReqData<DefaultLHTInput>>) -> Self {
+        ProtocolMessage::StoreReq(message)
+    }
 }
 
 /// Successful storage of hash table data.
@@ -51,12 +59,24 @@ pub struct StoreRspData {
     pub status: StoreResult,
 }
 
+impl From<ReqRspMessage<StoreRspData>> for ProtocolMessage {
+    fn from(message: ReqRspMessage<StoreRspData>) -> Self {
+        ProtocolMessage::StoreRsp(message)
+    }
+}
+
 /// Data struct representing a FetchReq protocol message.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct FetchReqData {
     /// Handle of which the sender wants to know the stored data.
     pub handle: NodeId,
+}
+
+impl From<ReqRspMessage<FetchReqData>> for ProtocolMessage {
+    fn from(message: ReqRspMessage<FetchReqData>) -> Self {
+        ProtocolMessage::FetchReq(message)
+    }
 }
 
 /// Errors that may occur on a FetchReq protocol message.
@@ -75,4 +95,10 @@ pub struct FetchRspData<D: Debug> {
     /// further describing the error that occurred while trying to fetch
     /// the data.
     pub data: Result<D, FetchErr>,
+}
+
+impl From<ReqRspMessage<FetchRspData<DefaultLHTOutput>>> for ProtocolMessage {
+    fn from(message: ReqRspMessage<FetchRspData<DefaultLHTOutput>>) -> Self {
+        ProtocolMessage::FetchRsp(message)
+    }
 }

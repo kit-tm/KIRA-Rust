@@ -70,20 +70,20 @@ impl RedundancyFactor {
     /// # Examples
     ///
     /// ```
-    /// # use kira_r2kad::use_cases::distributed_hash_table::RedundancyFactor;
+    /// # use kira_r2kad::use_cases::distributed_hash_table_injector::RedundancyFactor;
     ///
     /// let bucket_size = 20;
     /// let fixed = 42;
     ///
     /// // When set to BucketSize it should return the provided bucket size.
     /// let bucket_redundancy = RedundancyFactor::BucketSize;
-    /// assert_eq!(bucket_redundancy.resolve(bucket_size), bucket_size);
+    /// assert_eq!(bucket_redundancy.resolve(bucket_size).get(), bucket_size);
     /// // The default RedundancyFactor is BucketSize.
-    /// assert_eq!(RedundancyFactor::default().resolve(bucket_size), bucket_size);
+    /// assert_eq!(RedundancyFactor::default().resolve(bucket_size).get(), bucket_size);
     ///
     /// // When set to a fixed value it should return the fixed value.
-    /// let fixed_redundancy = RedundancyFactor::Fixed(fixed);
-    /// assert_eq!(fixed_redundancy.resolve(bucket_size), fixed);
+    /// let fixed_redundancy = RedundancyFactor::Fixed(fixed.try_into().unwrap());
+    /// assert_eq!(fixed_redundancy.resolve(bucket_size).get(), fixed);
     /// ```
     pub fn resolve(&self, bucket_size: usize) -> NonZeroUsize {
         match self {
@@ -330,6 +330,18 @@ where
         k: NonZeroUsize,
         nonce: Nonce,
     ) -> Result<(), InjectMessageError> {
+        let neighbors = match k.get().try_into() {
+            Ok(value) => value,
+            Err(err) => {
+                tracing::warn!(
+                    target: "distributed_hash_table_injector",
+                    %err,
+                    "Requested more nodes than FindNodeReq can address. Returning max value.",
+                );
+                u64::MAX
+            }
+        };
+
         let message: ProtocolMessage = dht::construct_req_rsp_msg(
             context,
             ProtocolMessageKind::FindNodeReq,
@@ -337,7 +349,7 @@ where
             destination,
             FindNodeReqData {
                 exact: false,
-                neighborhood: NonZeroU64::new(k.get() as u64).unwrap(),
+                neighborhood: NonZeroU64::new(neighbors).unwrap(),
                 target: destination,
             },
         )
@@ -620,12 +632,12 @@ where
                     .msg_id()
                     .expect("RPC response message have a message-id");
                 let Occupied(req_state_entry) = pending_reqs.entry(nonce) else {
-                    tracing::trace!(
+                    /*tracing::trace!(
                         target: "distributed_hash_table_injector",
                         %nonce,
                         response = ?message,
                         "received unexpected Response",
-                    );
+                    );*/
                     return Ok(());
                 };
                 let expected_response_kind = req_state_entry.get().response_kind;
