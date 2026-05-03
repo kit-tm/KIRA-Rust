@@ -11,10 +11,6 @@ use std::sync::Arc;
 const HEADER_LEN: usize = 55; // KIRA header size (bytes)
 const ERROR_DEAD_END: u8 = 0x0a;
 const ERROR_SEGMENT_FAILURE: u8 = 0x05;
-const STORE_REQ_DATA_OBJECT: u8 = 0x80;
-const STORE_RSP_DATA_OBJECT: u8 = 0x81;
-const FETCH_REQ_DATA_OBJECT: u8 = 0x82;
-const FETCH_RSP_DATA_OBJECT: u8 = 0x83;
 const STORE_STATUS_CREATED: u8 = 0x00;
 const STORE_STATUS_INSERTED: u8 = 0x01;
 const STORE_STATUS_UPDATED: u8 = 0x02;
@@ -30,8 +26,9 @@ use kira_r2kad::messaging::dht::{
 use kira_r2kad::messaging::source_route::SourceRoute;
 use kira_r2kad::messaging::{
     CommonHeader, CommonObjectHeader, ErrorData, FindNodeReqData, PathSetupReqData,
-    PathTeardownReqData, ProbeReqData, ProbeRspData, ProtocolMessage, ProtocolObjectType,
-    QueryRouteReqData, QueryRouteType, RTableData, RTableRequestTypeValue, ReqRspMessage,
+    PathTeardownReqData, ProbeReqData, ProbeRspData, ProtocolMessage, ProtocolMessageKind,
+    ProtocolObjectType, QueryRouteReqData, QueryRouteType, RTableData, RTableRequestTypeValue,
+    ReqRspMessage,
 };
 #[cfg(any(
     feature = "format-json",
@@ -142,22 +139,54 @@ fn deserialize_binrw<R: Read>(mut reader: R) -> Result<ProtocolMessage, Box<dyn 
     let mut cursor = binrw::io::Cursor::new(&buf);
     let header = CommonHeader::read_options(&mut cursor, binrw::Endian::Big, ())?;
     match header.msg_type() {
-        0x01 => Ok(ProtocolMessage::ULNHello(header)),
-        0x03 => deserialize_uln_disc_req(header, &mut reader),
-        0x04 => deserialize_uln_disc_rsp(header, &mut reader),
-        0x09 => deserialize_find_node_req(header, &mut reader),
-        0x0a => deserialize_find_node_rsp(header, &mut reader),
-        0x0b => deserialize_query_route_req(header, &mut reader),
-        0x0c => deserialize_query_route_rsp(header, &mut reader),
-        0x21 => deserialize_probe_req(header, &mut reader),
-        0x22 => deserialize_probe_rsp(header, &mut reader),
-        0x70 => deserialize_error(header, &mut reader),
-        0x81 => deserialize_path_setup_req(header, &mut reader),
-        0x83 => deserialize_path_teardown_req(header, &mut reader),
-        0xa1 => deserialize_store_req(header, &mut reader),
-        0xa2 => deserialize_store_rsp(header, &mut reader),
-        0xa3 => deserialize_fetch_req(header, &mut reader),
-        0xa4 => deserialize_fetch_rsp(header, &mut reader),
+        value if value == ProtocolMessageKind::ULNHello as u8 => {
+            Ok(ProtocolMessage::ULNHello(header))
+        }
+        value if value == ProtocolMessageKind::ULNDiscReq as u8 => {
+            deserialize_uln_disc_req(header, &mut reader)
+        }
+        value if value == ProtocolMessageKind::ULNDiscRsp as u8 => {
+            deserialize_uln_disc_rsp(header, &mut reader)
+        }
+        value if value == ProtocolMessageKind::FindNodeReq as u8 => {
+            deserialize_find_node_req(header, &mut reader)
+        }
+        value if value == ProtocolMessageKind::FindNodeRsp as u8 => {
+            deserialize_find_node_rsp(header, &mut reader)
+        }
+        value if value == ProtocolMessageKind::QueryRouteReq as u8 => {
+            deserialize_query_route_req(header, &mut reader)
+        }
+        value if value == ProtocolMessageKind::QueryRouteRsp as u8 => {
+            deserialize_query_route_rsp(header, &mut reader)
+        }
+        value if value == ProtocolMessageKind::ProbeReq as u8 => {
+            deserialize_probe_req(header, &mut reader)
+        }
+        value if value == ProtocolMessageKind::ProbeRsp as u8 => {
+            deserialize_probe_rsp(header, &mut reader)
+        }
+        value if value == ProtocolMessageKind::Error as u8 => {
+            deserialize_error(header, &mut reader)
+        }
+        value if value == ProtocolMessageKind::PathSetupReq as u8 => {
+            deserialize_path_setup_req(header, &mut reader)
+        }
+        value if value == ProtocolMessageKind::PathTeardownReq as u8 => {
+            deserialize_path_teardown_req(header, &mut reader)
+        }
+        value if value == ProtocolMessageKind::StoreReq as u8 => {
+            deserialize_store_req(header, &mut reader)
+        }
+        value if value == ProtocolMessageKind::StoreRsp as u8 => {
+            deserialize_store_rsp(header, &mut reader)
+        }
+        value if value == ProtocolMessageKind::FetchReq as u8 => {
+            deserialize_fetch_req(header, &mut reader)
+        }
+        value if value == ProtocolMessageKind::FetchRsp as u8 => {
+            deserialize_fetch_rsp(header, &mut reader)
+        }
         other => Err(Box::new(IoError::new(
             ErrorKind::Unsupported,
             format!("msg_type {:#x}, currently not supported by binrw", other),
@@ -435,7 +464,7 @@ fn parse_store_req_data_from_bytes(
         payload_consumed += 3;
 
         match object_type {
-            ProtocolObjectType::Unknown(STORE_REQ_DATA_OBJECT) => {
+            ProtocolObjectType::StoreReqData => {
                 if object_length < NodeId::SIZE + 2 {
                     return Err(Box::new(IoError::new(
                         ErrorKind::InvalidData,
@@ -499,7 +528,7 @@ fn parse_store_rsp_data_from_bytes(payload: &[u8]) -> Result<StoreRspData, Box<d
         payload_consumed += 3;
 
         match object_type {
-            ProtocolObjectType::Unknown(STORE_RSP_DATA_OBJECT) => {
+            ProtocolObjectType::StoreRspData => {
                 if object_length != 1 {
                     return Err(Box::new(IoError::new(
                         ErrorKind::InvalidData,
@@ -558,7 +587,7 @@ fn parse_fetch_req_data_from_bytes(payload: &[u8]) -> Result<FetchReqData, Box<d
         payload_consumed += 3;
 
         match object_type {
-            ProtocolObjectType::Unknown(FETCH_REQ_DATA_OBJECT) => {
+            ProtocolObjectType::FetchReqData => {
                 if object_length != NodeId::SIZE {
                     return Err(Box::new(IoError::new(
                         ErrorKind::InvalidData,
@@ -611,7 +640,7 @@ fn parse_fetch_rsp_data_from_bytes(
         payload_consumed += 3;
 
         match object_type {
-            ProtocolObjectType::Unknown(FETCH_RSP_DATA_OBJECT) => {
+            ProtocolObjectType::FetchRspData => {
                 if object_length < 1 {
                     return Err(Box::new(IoError::new(
                         ErrorKind::InvalidData,
@@ -1019,7 +1048,11 @@ fn parse_req_rsp_payload_from_bytes(
             ProtocolObjectType::RTable
             | ProtocolObjectType::RTableUpdateInfo
             | ProtocolObjectType::ErrorData
-            | ProtocolObjectType::Unknown(_) => {
+            | ProtocolObjectType::StoreReqData
+            | ProtocolObjectType::StoreRspData
+            | ProtocolObjectType::FetchReqData
+            | ProtocolObjectType::FetchRspData
+            | ProtocolObjectType::Unknown => {
                 payload_cursor.seek(SeekFrom::Current(object_length as i64))?;
                 payload_consumed += object_length;
             }
@@ -1239,7 +1272,7 @@ fn write_store_req_data_object<W: Write>(
     write_common_object_header(
         writer,
         CommonObjectHeader::new(
-            ProtocolObjectType::Unknown(STORE_REQ_DATA_OBJECT),
+            ProtocolObjectType::StoreReqData,
             object_length as u16,
         ),
     )?;
@@ -1258,7 +1291,7 @@ fn write_store_rsp_data_object<W: Write>(
 ) -> Result<usize, IoError> {
     write_common_object_header(
         writer,
-        CommonObjectHeader::new(ProtocolObjectType::Unknown(STORE_RSP_DATA_OBJECT), 1),
+    CommonObjectHeader::new(ProtocolObjectType::StoreRspData, 1),
     )?;
 
     let status = match &data.status {
@@ -1280,7 +1313,7 @@ fn write_fetch_req_data_object<W: Write>(
     write_common_object_header(
         writer,
         CommonObjectHeader::new(
-            ProtocolObjectType::Unknown(FETCH_REQ_DATA_OBJECT),
+            ProtocolObjectType::FetchReqData,
             NodeId::SIZE as u16,
         ),
     )?;
@@ -1324,7 +1357,7 @@ fn write_fetch_rsp_data_object<W: Write>(
             write_common_object_header(
                 writer,
                 CommonObjectHeader::new(
-                    ProtocolObjectType::Unknown(FETCH_RSP_DATA_OBJECT),
+                    ProtocolObjectType::FetchRspData,
                     object_length as u16,
                 ),
             )?;
@@ -1341,7 +1374,7 @@ fn write_fetch_rsp_data_object<W: Write>(
         Err(FetchErr::NotFoundErr) => {
             write_common_object_header(
                 writer,
-                CommonObjectHeader::new(ProtocolObjectType::Unknown(FETCH_RSP_DATA_OBJECT), 1),
+                CommonObjectHeader::new(ProtocolObjectType::FetchRspData, 1),
             )?;
             writer.write_all(&[FETCH_STATUS_NOT_FOUND])?;
             Ok(4)

@@ -98,36 +98,35 @@ pub enum ProtocolObjectType {
     RTable = 0x05,
     RTableUpdateInfo = 0x06,
     ErrorData = 0x07,
-    Unknown(u8),
+    StoreReqData = 0x80,
+    StoreRspData = 0x81,
+    FetchReqData = 0x82,
+    FetchRspData = 0x83,
+    Unknown = 0xff,
 }
 
 impl From<u8> for ProtocolObjectType {
     fn from(value: u8) -> Self {
         match value {
-            0x01 => Self::SourceRoute,
-            0x02 => Self::NotViaList,
-            0x03 => Self::ContactList,
-            0x04 => Self::RTableRequest,
-            0x05 => Self::RTable,
-            0x06 => Self::RTableUpdateInfo,
-            0x07 => Self::ErrorData,
-            other => Self::Unknown(other),
+            value if value == ProtocolObjectType::SourceRoute as u8 => Self::SourceRoute,
+            value if value == ProtocolObjectType::NotViaList as u8 => Self::NotViaList,
+            value if value == ProtocolObjectType::ContactList as u8 => Self::ContactList,
+            value if value == ProtocolObjectType::RTableRequest as u8 => Self::RTableRequest,
+            value if value == ProtocolObjectType::RTable as u8 => Self::RTable,
+            value if value == ProtocolObjectType::RTableUpdateInfo as u8 => Self::RTableUpdateInfo,
+            value if value == ProtocolObjectType::ErrorData as u8 => Self::ErrorData,
+            value if value == ProtocolObjectType::StoreReqData as u8 => Self::StoreReqData,
+            value if value == ProtocolObjectType::StoreRspData as u8 => Self::StoreRspData,
+            value if value == ProtocolObjectType::FetchReqData as u8 => Self::FetchReqData,
+            value if value == ProtocolObjectType::FetchRspData as u8 => Self::FetchRspData,
+            _ => Self::Unknown,
         }
     }
 }
 
 impl From<ProtocolObjectType> for u8 {
     fn from(value: ProtocolObjectType) -> Self {
-        match value {
-            ProtocolObjectType::SourceRoute => 0x01,
-            ProtocolObjectType::NotViaList => 0x02,
-            ProtocolObjectType::ContactList => 0x03,
-            ProtocolObjectType::RTableRequest => 0x04,
-            ProtocolObjectType::RTable => 0x05,
-            ProtocolObjectType::RTableUpdateInfo => 0x06,
-            ProtocolObjectType::ErrorData => 0x07,
-            ProtocolObjectType::Unknown(other) => other,
-        }
+        value as u8
     }
 }
 
@@ -165,11 +164,11 @@ impl TryFrom<u8> for RTableRequestTypeValue {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0x00 => Ok(Self::None),
-            0x01 => Ok(Self::ContactsOnly),
-            0x02 => Ok(Self::OverlayNeighbors),
-            0x03 => Ok(Self::OverlayNeighborsSource),
-            0x04 => Ok(Self::ULNVicinity),
+            value if value == Self::None as u8 => Ok(Self::None),
+            value if value == Self::ContactsOnly as u8 => Ok(Self::ContactsOnly),
+            value if value == Self::OverlayNeighbors as u8 => Ok(Self::OverlayNeighbors),
+            value if value == Self::OverlayNeighborsSource as u8 => Ok(Self::OverlayNeighborsSource),
+            value if value == Self::ULNVicinity as u8 => Ok(Self::ULNVicinity),
             _ => Err(format!("invalid rtable-request type: {value:#x}")),
         }
     }
