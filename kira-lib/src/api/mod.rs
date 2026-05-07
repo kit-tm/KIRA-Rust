@@ -306,7 +306,7 @@ async fn dump_local_hashtable(
     let local_ht = timeout(domain::dht::DEFAULT_TIMEOUT, rx.recv())
         .await
         .map(|received| received.ok_or(DHTErr::ReceiveError))
-        .map_err(|_| DHTErr::Timeout)???;
+        .map_err(|_| DHTErr::Timeout)??;
 
     let local_ht = local_ht
         .into_iter()

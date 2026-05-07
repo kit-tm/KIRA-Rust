@@ -6,8 +6,8 @@ use crate::messaging::ReqRspMessage;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-pub type DefaultLHTInput = Arc<[u8]>;
-pub type DefaultLHTOutput = Vec<Arc<[u8]>>;
+pub type LHTInput = Arc<[u8]>;
+pub type LHTOutput = Vec<Arc<[u8]>>;
 
 /// Data struct representing a StoreReq protocol message.
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -20,8 +20,8 @@ pub struct StoreReqData<D> {
     //store_duration: Duration,
 }
 
-impl From<ReqRspMessage<StoreReqData<DefaultLHTInput>>> for ProtocolMessage {
-    fn from(message: ReqRspMessage<StoreReqData<DefaultLHTInput>>) -> Self {
+impl From<ReqRspMessage<StoreReqData<LHTInput>>> for ProtocolMessage {
+    fn from(message: ReqRspMessage<StoreReqData<LHTInput>>) -> Self {
         ProtocolMessage::StoreReq(message)
     }
 }
@@ -29,7 +29,7 @@ impl From<ReqRspMessage<StoreReqData<DefaultLHTInput>>> for ProtocolMessage {
 /// Successful storage of hash table data.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub enum StoreOK {
+pub enum StoreOk {
     /// No previous data was stored under the specified handle.
     Created,
     /// Data was appended to existing data-entry.
@@ -44,12 +44,15 @@ pub enum StoreOK {
 /// since all store requests should succeed.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub enum StoreErr {}
+pub enum StoreErr {
+    /// An unexpected error occurred on storing a key-value pair in the DHT.
+    UnexpectedError(String),
+}
 
 /// The result returned by the store response.
 ///
 /// This result is wrapped in the [StoreRspData] struct.
-pub type StoreResult = Result<StoreOK, StoreErr>;
+pub type StoreResult = Result<StoreOk, StoreErr>;
 
 /// Data struct representing a StoreRsp protocol message.
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -97,8 +100,8 @@ pub struct FetchRspData<D: Debug> {
     pub data: Result<D, FetchErr>,
 }
 
-impl From<ReqRspMessage<FetchRspData<DefaultLHTOutput>>> for ProtocolMessage {
-    fn from(message: ReqRspMessage<FetchRspData<DefaultLHTOutput>>) -> Self {
+impl From<ReqRspMessage<FetchRspData<LHTOutput>>> for ProtocolMessage {
+    fn from(message: ReqRspMessage<FetchRspData<LHTOutput>>) -> Self {
         ProtocolMessage::FetchRsp(message)
     }
 }

@@ -7,7 +7,7 @@ use std::ops::Deref;
 use tokio::sync::mpsc; // use tokio::sync::oneshot;
 
 use crate::domain::{Contact, NodeId, UnderlayNeighborSource, UnderlayNeighborUpdate};
-use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr};
+use crate::messaging::dht::{LHTInput, LHTOutput};
 use crate::messaging::messages::ProtocolMessage;
 use crate::messaging::{FindNodeReqData, Nonce};
 use crate::use_cases::inject_messages::InjectionResult;
@@ -55,10 +55,7 @@ pub enum UseCaseEvent {
 #[derive(Debug, Clone)]
 pub enum InjectionMessageData {
     FindNode(FindNodeReqData),
-    Store(
-        StoreInjectData<DefaultLHTInput>,
-        OneshotInjectMessageCallback,
-    ),
+    Store(StoreInjectData<LHTInput>, OneshotInjectMessageCallback),
     Fetch(FetchInjectData, OneshotInjectMessageCallback),
 }
 
@@ -88,7 +85,7 @@ impl PartialEq for InjectionMessageData {
 
 #[derive(Debug, Clone)]
 pub enum ApiEvent {
-    LocalHashTable(mpsc::UnboundedSender<Result<Vec<(NodeId, DefaultLHTOutput)>, FetchErr>>),
+    LocalHashTable(mpsc::UnboundedSender<Vec<(NodeId, LHTOutput)>>),
     ULNTable(mpsc::UnboundedSender<String>),
     RoutingTable(mpsc::UnboundedSender<String>),
     VicinityGraph(mpsc::UnboundedSender<String>),

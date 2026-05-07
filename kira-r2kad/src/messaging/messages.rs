@@ -8,7 +8,7 @@ use derive_more::derive::Display;
 
 use crate::domain::{Contact, Link, NodeId, NotVia, StateSeqNr, state_seq_nr};
 use crate::messaging::dht::{
-    DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreReqData, StoreRspData,
+    FetchReqData, FetchRspData, LHTInput, LHTOutput, StoreReqData, StoreRspData,
 };
 use crate::messaging::source_route::SourceRoute;
 use std::fmt;
@@ -290,10 +290,10 @@ pub enum ProtocolMessage {
     // TODO: add Rsp for Setup and Teardown and handle them accordingly
     UpdateRouteReq(UpdateRouteReq),
     Error(ReqRspMessage<ErrorData>),
-    StoreReq(ReqRspMessage<StoreReqData<DefaultLHTInput>>),
+    StoreReq(ReqRspMessage<StoreReqData<LHTInput>>),
     StoreRsp(ReqRspMessage<StoreRspData>),
     FetchReq(ReqRspMessage<FetchReqData>),
-    FetchRsp(ReqRspMessage<FetchRspData<DefaultLHTOutput>>),
+    FetchRsp(ReqRspMessage<FetchRspData<LHTOutput>>),
 }
 
 impl ProtocolMessage {

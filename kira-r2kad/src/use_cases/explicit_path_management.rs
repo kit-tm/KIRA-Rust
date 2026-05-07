@@ -403,25 +403,15 @@ where
                 self.send_teardown_req(context, &contact);
             }
             // ========== Timers ==========
-            (
-                UseCaseEvent::Timer(timer),
-                EPMState::Running {
-                    cleanup_timer,
-                    refresh_timer,
-                    ..
-                },
-            ) if &timer == cleanup_timer => {
+            (UseCaseEvent::Timer(timer), EPMState::Running { cleanup_timer, .. })
+                if &timer == cleanup_timer =>
+            {
                 self.perform_cleanup(context);
                 self.create_new_cleanup_timer(context);
             }
-            (
-                UseCaseEvent::Timer(timer),
-                EPMState::Running {
-                    cleanup_timer,
-                    refresh_timer,
-                    ..
-                },
-            ) if &Some(timer) == refresh_timer => {
+            (UseCaseEvent::Timer(timer), EPMState::Running { refresh_timer, .. })
+                if &Some(timer) == refresh_timer =>
+            {
                 self.perform_refresh(context);
                 self.create_new_refresh_timer(context);
             }

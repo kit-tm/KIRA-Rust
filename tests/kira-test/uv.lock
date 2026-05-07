@@ -275,7 +275,7 @@ wheels = [
 [[package]]
 name = "nest"
 version = "0.4.4"
-source = { git = "https://gitlab.com/Toorero/nest.git?rev=feature%2Fcap_sys_admin#e74f132527d999ed09e9925df30faacfc9f0c000" }
+source = { git = "https://gitlab.com/Toorero/nest.git?rev=feature%2Fcap_sys_admin#fc1b2775722440d018d2a42863c236968118bbb4" }
 dependencies = [
     { name = "aiocoap" },
     { name = "colorama" },
@@ -283,7 +283,6 @@ dependencies = [
     { name = "numpy" },
     { name = "packaging" },
     { name = "pandas" },
-    { name = "python-prctl" },
     { name = "tqdm" },
 ]
 

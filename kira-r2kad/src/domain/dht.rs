@@ -4,7 +4,7 @@ use crate::{
     domain::{NodeId, NotVia, Path, RoutingTable, ULNTable, UnderlayNeighborId},
     messaging::{
         CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage,
-        dht::{DefaultLHTInput, FetchReqData, StoreReqData},
+        dht::{FetchReqData, LHTInput, StoreReqData},
         source_route::SourceRoute,
     },
     use_cases::{
@@ -13,14 +13,7 @@ use crate::{
     },
 };
 
-mod expiring;
-mod timed;
-
-pub use expiring::Expiring;
-pub use timed::*;
-
 pub mod hash_table;
-pub mod strategies;
 
 // TODO: move the following into the DistributedHashTableInjector UseCase
 
@@ -76,7 +69,7 @@ where
 pub(crate) fn send_store_req<C, const BUCKET_SIZE: usize>(
     context: &C,
     nonce: Nonce,
-    data: StoreReqData<DefaultLHTInput>,
+    data: StoreReqData<LHTInput>,
     destination: NodeId,
 ) where
     C: UseCaseContext,

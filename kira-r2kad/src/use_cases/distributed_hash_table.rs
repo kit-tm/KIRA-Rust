@@ -1,10 +1,9 @@
 use core::time::Duration;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::num::NonZeroU8;
 use std::ops::Deref;
-use std::sync::Arc;
 use tracing::{Level, instrument};
 
 use crate::domain::{
@@ -12,16 +11,11 @@ use crate::domain::{
     UnderlayNeighborId, dht,
 };
 use crate::messaging::dht::{
-    DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchReqData, FetchRspData, StoreReqData,
+    FetchErr, FetchReqData, FetchRspData, LHTInput, LHTOutput, StoreErr, StoreOk, StoreReqData,
     StoreResult, StoreRspData,
 };
 
-use crate::domain::dht::hash_table::{LocalHashTable, expiring_hash_table::ExpiringHashTable};
-use crate::domain::dht::strategies::{
-    fetch_strategy::PermissionlessFetchStrategy, insert_strategy::PermissionlessInsertStrategy,
-    timeout_strategy::ConstTimeoutStrategy,
-};
-use crate::domain::dht::{Expiring, TimedValue};
+use crate::domain::dht::hash_table::{EntryMeta, LocalHashTable};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     CommonHeader, ErrorData, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage,
@@ -32,38 +26,39 @@ use crate::use_cases::{
     UseCaseContext, UseCaseEvent, UseCaseRuntime, UseCaseState,
 };
 
-/// Default number of seconds between each garbage collection process.
+/// Default interval between garbage collections of the [LocalHashTable].
 ///
-/// This may not be confused with the [DEFAULT_TIMEOUT](crate::domain::dht::strategies::timeout_strategy::DEFAULT_TIMEOUT) used
-/// by the [ConstTimeoutStrategy]
-/// to determine if a value actually **is** expired.
+/// To prevent synchronization with other nodes, the actual interval is
+/// chosen randomly between 0.5x and 1.5x of this base value.
 pub const DEFAULT_COLLECT_INTERVAL: Duration = Duration::from_secs(60);
 
-/// Single data entry in hash table.
-pub type HashTableSingle = Arc<[u8]>;
-
-/// Data kept internally in the [ExpiringHashTable]
-///
-/// This is a collection of multiple [HashTableSingle]s tagged with a
-/// creation timestamp to determine if they have expired. (see [TimedValue])
-pub type HashTableData = HashSet<TimedValue<HashTableSingle>>;
-
-/// This is the [ExpiringHashTable] with all the default strategies.
-pub type DefaultExpiringHashTable = ExpiringHashTable<
-    NodeId,
-    HashTableData,
-    PermissionlessInsertStrategy,
-    PermissionlessFetchStrategy,
-    ConstTimeoutStrategy<NodeId, Arc<[u8]>>,
->;
+/// A key-value pair is evicted from the [LocalHashTable] if not accessed for the duration.
+pub const DEFAULT_KEY_VALUE_TIMEOUT: Duration = Duration::from_hours(24);
 
 /// Configuration for [DistributedHashTable].
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct DistributedHashTableConfig {
-    /// The [Duration] between each garbage collection process.
+    /// Interval between garbage collections of the [LocalHashTable].
     ///
-    /// The garbage collection calls [Expiring::expire] on the [LocalHashTable].
+    /// The garbage collection evicts expired entries from the [LocalHashTable].
+    /// To prevent synchronization with other nodes, the actual interval is
+    /// chosen randomly between 0.5x and 1.5x of this base value.
+    ///
+    /// A shorter [Duration] improves the memory footprint by cleaning up
+    /// expired entries sooner, but increases CPU overhead.
+    /// A longer duration reduces CPU usage but allows expired entries
+    /// to persist in memory longer.
     pub collect_interval: Duration,
+
+    /// A key-value pair is considered _expired_ if wasn't accessed for the
+    /// entire duration.
+    ///
+    /// Expired key-value paires get periodically _evicted_ ([`collect_interval`]).
+    ///
+    /// An key-value pair is accessed by a successful store or fetch request.
+    ///
+    /// [`collect_interval`]: DistributedHashTableConfig::collect_interval
+    pub key_value_timeout: Duration,
 
     pub shared_prefix_bits_grouping: NonZeroU8,
 }
@@ -74,17 +69,23 @@ impl Default for DistributedHashTableConfig {
     /// # Example
     ///
     /// ```
-    /// # use kira_r2kad::use_cases::distributed_hash_table::{DistributedHashTableConfig, DEFAULT_COLLECT_INTERVAL};
+    /// # use kira_r2kad::use_cases::distributed_hash_table::{
+    /// #     DistributedHashTableConfig,
+    /// #     DEFAULT_COLLECT_INTERVAL,
+    /// #     DEFAULT_KEY_VALUE_TIMEOUT
+    /// # };
     /// # use std::num::NonZeroU8;
     ///
     /// let config = DistributedHashTableConfig::default();
     ///
     /// assert_eq!(config.collect_interval, DEFAULT_COLLECT_INTERVAL);
+    /// assert_eq!(config.key_value_timeout, DEFAULT_KEY_VALUE_TIMEOUT);
     /// assert_eq!(config.shared_prefix_bits_grouping, NonZeroU8::MIN);
     /// ```
     fn default() -> Self {
         Self {
             collect_interval: DEFAULT_COLLECT_INTERVAL,
+            key_value_timeout: DEFAULT_KEY_VALUE_TIMEOUT,
             shared_prefix_bits_grouping: NonZeroU8::MIN,
         }
     }
@@ -108,24 +109,38 @@ pub enum DHTState {
 
 /// The [DistributedHashTable] UseCase.
 ///
-/// The UseCase is responsible for handling incoming [StoreReq](ProtocolMessage::StoreReq) and [FetchReq](ProtocolMessage::FetchReq) over the network
-/// by sending the respective response.
+/// The use case provides the following functionality of the DHT:
 ///
-/// For injecting new requests into the network see the
-/// [DistributedHashTableInjector](super::distributed_hash_table_injector::DistributedHashTableInjector) UseCase
+/// 1. **Key-based Routing (KBR)**:
+///    Routes [StoreReq] and [FetchReq] to the key-wise closest node.
+///    At each overlay hop the current [SourceRoute] is extended to the key-wise closest node
+///    (known to the overlay hop).
+/// 2. **Recursive DHT-Value Lookups**:
+///    Checks _at each overlay hop_ if the node has stored the key-value pair.
+/// 3. **Storage Backend**:
+///    Utilizes a [LocalHashTable] to manage and store key-value data.
+///    In particular the [UseCase] periodically evicts expired key-value pairs from
+///    its [LocalHashTable].
+///    The interval is configurable: [`collect_interval`].
+/// 4. **Key Re-Publishing**:
+///    Ensures availability under node churn.
+///    - _Actively republishes_ key-value pairs to newly joined nodes
+///      if the node is key-wise closer to the key-value pair.
+///    - Periodically _republishes_ key-value pairs to the k-closest
+///      nodes to account for node churn. (__not implemented yet__)
 ///
-/// # Invariants
-///
-/// This UseCase assumes all DHT requests tasked to handle are addressed to his [LocalHashTable].
-/// You need to forward [ProtocolMessage]s over the network yourself if not meant for this Node
-///
-/// You can use the [ForwardProtocolMessage](crate::use_cases::forward_protocol_message::ForwardProtocolMessage) UseCase to aid you in this task.
+/// For injecting new requests into the network see the [DistributedHashTableInjector] use case.
 ///
 /// # Generics
 ///
 /// - `C`: [UseCaseContext] in which the UseCase is running in.
 /// - `H`: [LocalHashTable] type used.
 /// - `BUCKET_SIZE`: Bucket size of the [RoutingTable].
+///
+/// [StoreReq]: ProtocolMessage::StoreReq
+/// [FetchReq]: ProtocolMessage::FetchReq
+/// [DistributedHashTableInjector]: super::distributed_hash_table_injector::DistributedHashTableInjector
+/// [`collect_interval`]: DistributedHashTableConfig::collect_interval
 #[derive(Debug)]
 pub struct DistributedHashTable<C, H, const BUCKET_SIZE: usize> {
     _c: PhantomData<C>,
@@ -141,8 +156,7 @@ impl<C, H: Default, const BUCKET_SIZE: usize> DistributedHashTable<C, H, BUCKET_
     ///
     /// - `config` - The configuration object for the [DistributedHashTable].
     pub fn new(config: DistributedHashTableConfig) -> Result<Self, GroupingError> {
-        // TODO: Avoid errors by creating SharedPrefixGrouping newtype that inforces
-        // invariant upon creation
+        // TODO: Avoid errors by creating SharedPrefixGrouping newtype that enforces invariant upon creation
         if config.shared_prefix_bits_grouping.get() > NodeId::BITS {
             return Err(GroupingError::Invalid {
                 group_size: config.shared_prefix_bits_grouping,
@@ -172,20 +186,16 @@ impl UseCaseState for DHTState {
     }
 }
 
-impl<C, H, RS, const BUCKET_SIZE: usize> DistributedHashTable<C, H, BUCKET_SIZE>
+impl<C, H, const BUCKET_SIZE: usize> DistributedHashTable<C, H, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
-    H: LocalHashTable<
-            NodeId,
-            DefaultLHTInput,
-            DefaultLHTOutput,
-            StoreRes = StoreResult,
-            FetchErr = FetchErr,
-        > + Expiring<Context = (), Result = RS>
-        + Clone,
+    H: LocalHashTable + Clone,
+    H::StoreOk: Into<StoreOk>,
+    H::StoreErr: Into<StoreErr>,
+    H::FetchErr: Into<FetchErr>,
 {
     fn send_store_rsp(
         &mut self,
@@ -252,9 +262,9 @@ where
     }
 
     fn send_fetch_rsp(
-        &mut self,
+        &self,
         context: &C,
-        data: Result<DefaultLHTOutput, FetchErr>,
+        data: Result<LHTOutput, FetchErr>,
         msgid: u64,
         source_route: SourceRoute,
     ) {
@@ -287,33 +297,30 @@ where
     }
 
     fn republish_to_contact_if_closer(&mut self, context: &C, contact: Contact) {
-        for handle in self.hash_table.handles() {
+        for (key, values) in self.hash_table.fetch_all() {
             let contact_prefix = contact
                 .id()
-                .shared_prefix_len(handle, self.config.shared_prefix_bits_grouping)
+                .shared_prefix_len(key, self.config.shared_prefix_bits_grouping)
                 .expect("grouping has to be checked on initialization");
             let root_prefix = context
                 .root_id()
-                .shared_prefix_len(handle, self.config.shared_prefix_bits_grouping)
+                .shared_prefix_len(key, self.config.shared_prefix_bits_grouping)
                 .expect("grouping has to be checked on initialization");
 
             if contact_prefix > root_prefix {
                 continue;
             }
-            log::debug!(target: "distributed_hash_table", "Replicate local hash entry at nearer node: [{}] at [{}]", handle, contact.id());
-
-            let entry = self
-                .hash_table
-                .peek(handle)
-                .expect("Fetching existing handle failed");
+            // FIXME: Don't republish to closer node if key-value pair is only kept
+            // at the node for redundancy <=> node is not closest to key
+            log::debug!(target: "distributed_hash_table", "Replicate local hash entry at nearer node: [{}] at [{}]", key, contact.id());
 
             // TODO: make this more efficient by just sending one big request
-            for data in entry {
+            for value in values {
                 let data = StoreReqData {
-                    handle: *handle,
-                    data,
+                    handle: *key,
+                    data: value,
                 };
-                dht::send_store_req(context, Nonce::random(), data, *handle);
+                dht::send_store_req(context, Nonce::random(), data, *key);
             }
         }
     }
@@ -331,7 +338,7 @@ where
     fn handle_store_req(
         &mut self,
         context: &C,
-        mut message: ReqRspMessage<StoreReqData<DefaultLHTInput>>,
+        mut message: ReqRspMessage<StoreReqData<LHTInput>>,
     ) {
         let msg_id = message.msg_id();
         let destination = message.dest_id();
@@ -339,12 +346,22 @@ where
             tracing::debug!(
                 target: "distributed_hash_table",
                 reason = "final destination",
-                "Responding to FetchReq with FetchRsp",
+                "Responding to StoreReq with StoreRsp",
             );
+            let key = message.data.handle;
+            let value = message.data.data;
 
-            let store_res = self
-                .hash_table
-                .store(message.data.handle, message.data.data);
+            let store_res = match self.hash_table.store(key, value) {
+                Ok(ok) => {
+                    self.hash_table
+                        .meta_mut(&key)
+                        .expect("metadata present for succesfully stored key-value pair")
+                        .access(context.runtime().current_time());
+
+                    Ok(ok.into())
+                }
+                Err(err) => Err(err.into()),
+            };
 
             return self.send_store_rsp(
                 context,
@@ -413,21 +430,30 @@ where
         )
     )]
     fn handle_fetch_req(&mut self, context: &C, mut message: ReqRspMessage<FetchReqData>) {
-        let fetch_res = self.hash_table.fetch(&message.data.handle);
-        if fetch_res.is_ok() {
-            tracing::debug!(
-                target: "distributed_hash_table",
-                reason = "value stored",
-                "Responding to FetchReq with FetchRsp",
-            );
+        let key = &message.data.handle;
+        let fetch_err = match self.hash_table.fetch(key).map(|values| values.collect()) {
+            Ok(values) => {
+                // record access
+                self.hash_table
+                    .meta_mut(key)
+                    .expect("metadata present for succesfully stored key-value pair")
+                    .access(context.runtime().current_time());
 
-            return self.send_fetch_rsp(
-                context,
-                fetch_res,
-                message.msg_id(),
-                SourceRoute::from_reversed(message.source_route),
-            );
-        }
+                tracing::debug!(
+                    target: "distributed_hash_table",
+                    reason = "value stored",
+                    "Responding to FetchReq with FetchRsp",
+                );
+                self.send_fetch_rsp(
+                    context,
+                    Ok(values),
+                    message.msg_id(),
+                    SourceRoute::from_reversed(message.source_route),
+                );
+                return;
+            }
+            Err(fetch_err) => fetch_err,
+        };
 
         let destination = message.dest_id();
         if destination != &message.data.handle {
@@ -449,7 +475,7 @@ where
 
             return self.send_fetch_rsp(
                 context,
-                fetch_res,
+                Err(fetch_err.into()),
                 message.msg_id(),
                 SourceRoute::from_reversed(message.source_route),
             );
@@ -495,7 +521,7 @@ where
                 );
                 self.send_fetch_rsp(
                     context,
-                    fetch_res,
+                    Err(fetch_err.into()),
                     message.msg_id(),
                     SourceRoute::from_reversed(message.source_route),
                 )
@@ -504,20 +530,16 @@ where
     }
 }
 
-impl<C, H, RS, const BUCKET_SIZE: usize> EventHandler for DistributedHashTable<C, H, BUCKET_SIZE>
+impl<C, H, const BUCKET_SIZE: usize> EventHandler for DistributedHashTable<C, H, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
-    H: LocalHashTable<
-            NodeId,
-            DefaultLHTInput,
-            DefaultLHTOutput,
-            StoreRes = StoreResult,
-            FetchErr = FetchErr,
-        > + Expiring<Context = (), Result = RS>
-        + Clone,
+    H: LocalHashTable + Clone,
+    H::StoreOk: Into<StoreOk>,
+    H::StoreErr: Into<StoreErr>,
+    H::FetchErr: Into<FetchErr>,
 {
     type Context = C;
     type Error = NeverError;
@@ -548,10 +570,52 @@ where
             }
             // ========== Expire Timer event ==========
             (UseCaseEvent::Timer(id), DHTState::Running(our_timer_id)) if &id == our_timer_id => {
-                // checks the whole hash table for expired values
+                let now = context.runtime().current_time();
+                let keys = self
+                    .hash_table
+                    .fetch_all()
+                    .map(|(k, _)| *k)
+                    .collect::<Vec<_>>();
 
-                // TODO: log expired values
-                self.hash_table.expire(&());
+                for key in keys {
+                    let last_access = self.hash_table.meta(&key).unwrap().last_access();
+
+                    let remove = match last_access {
+                        Some(last_access) => {
+                            let not_accessed = now.saturating_duration_since(last_access);
+                            if not_accessed > self.config.key_value_timeout {
+                                tracing::debug!(
+                                    target: "distributed_hash_table",
+                                    %key,
+                                    reason = "expired",
+                                    not_accessed_ms = not_accessed.as_millis(),
+                                    "Remove key from local hash table",
+                                );
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        None => {
+                            tracing::warn!(
+                                target: "distributed_hash_table",
+                                %key,
+                                reason = "never accessed",
+                                "Remove key from local hash table",
+                            );
+                            true
+                        }
+                    };
+
+                    if remove {
+                        assert!(self.hash_table.remove(&key));
+                    }
+                }
+
+                let timer_id = context
+                    .runtime()
+                    .register_rand_timer(self.config.collect_interval);
+                self.state = DHTState::Running(timer_id);
             }
             // ========== Republish values ==========
             (UseCaseEvent::Contact(ContactEvent::New(contact)), _) => {
@@ -569,7 +633,11 @@ where
             }
             // ========== API Calls ==========
             (UseCaseEvent::API(ApiEvent::LocalHashTable(callback)), _) => {
-                let table_dump = self.hash_table.fetch_all();
+                let table_dump = self
+                    .hash_table
+                    .fetch_all()
+                    .map(|(k, vs)| (*k, vs.collect()))
+                    .collect();
 
                 if let Err(e) = callback.send(table_dump) {
                     log::error!(target: "distributed_hash_table", "Failed to send local hash table: {e:?}");
@@ -582,27 +650,23 @@ where
     }
 }
 
-impl<C, H, RS, const BUCKET_SIZE: usize> UseCase for DistributedHashTable<C, H, BUCKET_SIZE>
+impl<C, H, const BUCKET_SIZE: usize> UseCase for DistributedHashTable<C, H, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
-    H: LocalHashTable<
-            NodeId,
-            DefaultLHTInput,
-            DefaultLHTOutput,
-            StoreRes = StoreResult,
-            FetchErr = FetchErr,
-        > + Expiring<Context = (), Result = RS>
-        + Clone,
+    H: LocalHashTable + Clone,
+    H::StoreOk: Into<StoreOk>,
+    H::StoreErr: Into<StoreErr>,
+    H::FetchErr: Into<FetchErr>,
 {
     type State = DHTState;
 
     fn start(&mut self, context: &C) -> Result<(), Self::Error> {
         let timer_id = context
             .runtime()
-            .register_periodic_timer(self.config.collect_interval);
+            .register_rand_timer(self.config.collect_interval);
 
         self.state = DHTState::Running(timer_id);
 

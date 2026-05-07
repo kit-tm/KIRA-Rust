@@ -16,7 +16,7 @@ use crate::use_cases::{
     UseCaseRuntime, UseCaseState,
 };
 
-use crate::messaging::dht::{DefaultLHTInput, FetchReqData, StoreReqData};
+use crate::messaging::dht::{FetchReqData, LHTInput, StoreReqData};
 use crate::messaging::{
     FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage,
 };
@@ -117,12 +117,12 @@ pub struct RequestState {
 #[derive(Debug, Eq, PartialEq, Clone)]
 enum ResponseHook {
     SendRedundantStoreReqs {
-        payload: StoreReqData<DefaultLHTInput>,
+        payload: StoreReqData<LHTInput>,
         restore: bool,
     },
     RegisterStoreRsp {
-        payload: StoreReqData<DefaultLHTInput>, // for periodic restore
-        closest: NodeId,                        // only relay StoreRsp of closest Node
+        payload: StoreReqData<LHTInput>, // for periodic restore
+        closest: NodeId,                 // only relay StoreRsp of closest Node
         restore: bool,
     },
     RegisterFetchRsp,
@@ -137,7 +137,7 @@ pub enum TimerHook {
     #[display("Timeout: FetchReq")]
     TimeoutFetchReq(Nonce),
     #[display("Periodic Restore")]
-    PeriodicRestore(StoreReqData<DefaultLHTInput>),
+    PeriodicRestore(StoreReqData<LHTInput>),
 }
 
 /// Represents the state of the [DistributedHashTableInjector] UseCase.
@@ -164,10 +164,10 @@ pub enum DHTInjectorState {
 /// The [UseCase] provides the following functionality of the DHT:
 ///
 /// 1. **Periodic Restore**:
-///    The [UseCase] periodically restores Key-value pairs.
+///    Periodically restores Key-value pairs.
 ///    The duration is configurable: [`periodic_restore`].
 /// 2. **Redundancy**:
-///    The [UseCase] stores the key-value pairs at the *k* closest nodes.
+///    Stores the key-value pairs at the *k* closest nodes.
 ///    The value is configurable: [`redundancy_factor`].
 ///
 /// The [DistributedHashTable] is performing the handling of incoming [StoreReq] and [FetchReq].
@@ -298,7 +298,7 @@ where
         timer_hooks.insert(timeout_timer_id, timeout_hook);
     }
 
-    fn register_periodic_restore(&mut self, context: &C, payload: StoreReqData<DefaultLHTInput>) {
+    fn register_periodic_restore(&mut self, context: &C, payload: StoreReqData<LHTInput>) {
         let DHTInjectorState::Running { timer_hooks, .. } = &mut self.state else {
             panic!("DistributedHashTable should be running");
         };
@@ -388,7 +388,7 @@ where
         &mut self,
         context: &C,
         handle: NodeId,
-        data: DefaultLHTInput,
+        data: LHTInput,
         restore: bool,
         nonce: Nonce,
     ) -> Result<(), InjectMessageError> {
@@ -420,7 +420,7 @@ where
     fn init_redundant_store(
         &mut self,
         context: &C,
-        payload: StoreReqData<DefaultLHTInput>,
+        payload: StoreReqData<LHTInput>,
         destinations: Vec<Contact>,
         nonce: Nonce,
         restore: bool,

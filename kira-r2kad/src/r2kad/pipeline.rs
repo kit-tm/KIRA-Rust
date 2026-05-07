@@ -6,6 +6,7 @@ use derive_more::derive::{Display, Error};
 use tracing::{Level, span};
 
 use crate::context::UseCaseContext;
+use crate::domain::dht::hash_table::ComplexHashTable;
 use crate::domain::{
     InsertionStrategy, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, VicinityGraph,
 };
@@ -18,7 +19,7 @@ use crate::use_cases::{
     UseCase,
     UseCaseEvent,
     derive_fwd_table_entries::DeriveFwdTableEntries,
-    distributed_hash_table::{DefaultExpiringHashTable, DistributedHashTable},
+    distributed_hash_table::DistributedHashTable,
     distributed_hash_table_injector::DistributedHashTableInjector,
     explicit_path_management::ExplicitPathManagement,
     failure_handling::FailureHandling,
@@ -42,7 +43,7 @@ pub struct R2KadPipelineConfig {
 #[derive(Debug)]
 pub struct R2KadPipeline<C, const BUCKET_SIZE: usize> {
     derive_forwarding_tables: DeriveFwdTableEntries<C, BUCKET_SIZE>,
-    distributed_hash_table: DistributedHashTable<C, DefaultExpiringHashTable, BUCKET_SIZE>,
+    distributed_hash_table: DistributedHashTable<C, ComplexHashTable, BUCKET_SIZE>,
     distributed_hash_table_injector: DistributedHashTableInjector<C, BUCKET_SIZE>,
     explicit_path_management: ExplicitPathManagement<C, BUCKET_SIZE>,
     failure_handling: FailureHandling<C, BUCKET_SIZE>,
@@ -61,7 +62,7 @@ pub struct R2KadPipeline<C, const BUCKET_SIZE: usize> {
 impl<C, const BUCKET_SIZE: usize> R2KadPipeline<C, BUCKET_SIZE> {
     pub fn new(_config: R2KadPipelineConfig) -> Self {
         let derive_forwarding_tables = DeriveFwdTableEntries::new(Default::default());
-        let distributed_hash_table: DistributedHashTable<_, DefaultExpiringHashTable, BUCKET_SIZE> =
+        let distributed_hash_table: DistributedHashTable<_, ComplexHashTable, BUCKET_SIZE> =
             DistributedHashTable::default();
         let distributed_hash_table_injector = DistributedHashTableInjector::default();
         let explicit_path_management = ExplicitPathManagement::new(Default::default());

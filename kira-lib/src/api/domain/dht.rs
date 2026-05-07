@@ -5,7 +5,7 @@ use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 #[cfg(feature = "swagger_doc")]
 use itertools::Itertools;
-use kira_r2kad::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, StoreErr};
+use kira_r2kad::messaging::dht::{FetchErr, LHTInput, LHTOutput, StoreErr};
 use kira_r2kad::use_cases::{FetchInjectData, StoreInjectData};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -64,11 +64,11 @@ impl TryFrom<Handle> for kira_r2kad::domain::NodeId {
 pub struct StoreArgs {
     pub handle: Handle,
     pub restore: bool,
-    pub data: DefaultLHTInput,
+    pub data: LHTInput,
 }
 
-impl From<StoreInjectData<DefaultLHTInput>> for StoreArgs {
-    fn from(value: StoreInjectData<DefaultLHTInput>) -> Self {
+impl From<StoreInjectData<LHTInput>> for StoreArgs {
+    fn from(value: StoreInjectData<LHTInput>) -> Self {
         let handle = NodeId::from(value.handle);
         Self {
             handle: Handle::Handle(handle),
@@ -78,7 +78,7 @@ impl From<StoreInjectData<DefaultLHTInput>> for StoreArgs {
     }
 }
 
-impl TryFrom<StoreArgs> for StoreInjectData<DefaultLHTInput> {
+impl TryFrom<StoreArgs> for StoreInjectData<LHTInput> {
     type Error = HandleConvError;
 
     fn try_from(value: StoreArgs) -> Result<Self, Self::Error> {
@@ -121,12 +121,12 @@ impl Display for StoreOK {
     }
 }
 
-impl From<kira_r2kad::messaging::dht::StoreOK> for StoreOK {
-    fn from(value: kira_r2kad::messaging::dht::StoreOK) -> Self {
+impl From<kira_r2kad::messaging::dht::StoreOk> for StoreOK {
+    fn from(value: kira_r2kad::messaging::dht::StoreOk) -> Self {
         match value {
-            kira_r2kad::messaging::dht::StoreOK::Created => Self::Created,
-            kira_r2kad::messaging::dht::StoreOK::Updated => Self::Updated,
-            kira_r2kad::messaging::dht::StoreOK::Inserted => Self::Inserted,
+            kira_r2kad::messaging::dht::StoreOk::Created => Self::Created,
+            kira_r2kad::messaging::dht::StoreOk::Updated => Self::Updated,
+            kira_r2kad::messaging::dht::StoreOk::Inserted => Self::Inserted,
         }
     }
 }
@@ -152,8 +152,8 @@ impl IntoResponse for StoreOK {
 #[cfg_attr(feature = "swagger_doc", derive(ToSchema, ToResponse))]
 pub struct FetchRsp(Vec<String>);
 
-impl From<DefaultLHTOutput> for FetchRsp {
-    fn from(value: DefaultLHTOutput) -> Self {
+impl From<LHTOutput> for FetchRsp {
+    fn from(value: LHTOutput) -> Self {
         Self(
             value
                 .into_iter()
