@@ -742,3 +742,60 @@ fn binrw_fetch_rsp() {
     assert_eq!(&*values[0], &[0x0a, 0x0b]);
     assert_eq!(&*values[1], &[0x0c]);
 }
+
+#[test]
+fn binrw_store_req_no_payload() {
+    use std::io::Write;
+    let mut header = CommonHeader::new(
+        ProtocolMessageKind::StoreReq,
+        NodeId::with_lsb(0xf1),
+        NodeId::with_lsb(0xf2),
+        Some(0xdead),
+        Some(0xbeef),
+        1,
+    );
+    header.set_domain_id(0x4242);
+
+    //set msglength equal to header length (no payload)
+    header.set_msg_length(55u16);
+
+    let mut buf = Vec::new();
+    let mut cursor = binrw::io::Cursor::new(Vec::new());
+    binrw::BinWrite::write_options(&header, &mut cursor, binrw::Endian::Big, ())
+        .expect("write header");
+    buf.extend_from_slice(cursor.get_ref());
+
+    //deserialize should error because store-req-data missing
+    let res = ProtocolMessageFormat::BINRW.deserialize(Cursor::new(&buf));
+    assert!(res.is_err());
+}
+
+#[test]
+fn binrw_error_unknown_error_kind() {
+    use std::io::Write;
+    let mut header = CommonHeader::new(
+        ProtocolMessageKind::Error,
+        NodeId::with_lsb(0xfa),
+        NodeId::with_lsb(0xfb),
+        Some(0xcafe),
+        Some(0xbabe),
+        1,
+    );
+    header.set_domain_id(0x4242);
+
+    header.set_msg_length(55u16 + 4);
+
+    let mut buf = Vec::new();
+    let mut cursor = binrw::io::Cursor::new(Vec::new());
+    binrw::BinWrite::write_options(&header, &mut cursor, binrw::Endian::Big, ())
+        .expect("write header");
+    buf.extend_from_slice(cursor.get_ref());
+
+    //object header
+    buf.write_all(&[0x07u8, 0x00u8, 0x01u8]).unwrap();
+    //unknown kind byte
+    buf.write_all(&[0xffu8]).unwrap();
+
+    let res = ProtocolMessageFormat::BINRW.deserialize(Cursor::new(&buf));
+    assert!(res.is_err());
+}

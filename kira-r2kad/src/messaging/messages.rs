@@ -60,65 +60,98 @@ pub enum KiraMsgFlagsBit {
     DiagnosticFlag = 1 << 6,
 }
 
+// Protocol Message Kind Constants
+pub const PROTOCOL_MSG_KIND_ULN_HELLO: u8 = 0x01;
+pub const PROTOCOL_MSG_KIND_ULN_DISC_REQ: u8 = 0x03;
+pub const PROTOCOL_MSG_KIND_ULN_DISC_RSP: u8 = 0x04;
+pub const PROTOCOL_MSG_KIND_FIND_NODE_REQ: u8 = 0x09;
+pub const PROTOCOL_MSG_KIND_FIND_NODE_RSP: u8 = 0x0a;
+pub const PROTOCOL_MSG_KIND_QUERY_ROUTE_REQ: u8 = 0x0b;
+pub const PROTOCOL_MSG_KIND_QUERY_ROUTE_RSP: u8 = 0x0c;
+pub const PROTOCOL_MSG_KIND_UPDATE_ROUTE_REQ: u8 = 0x11;
+pub const PROTOCOL_MSG_KIND_PROBE_REQ: u8 = 0x21;
+pub const PROTOCOL_MSG_KIND_PROBE_RSP: u8 = 0x22;
+pub const PROTOCOL_MSG_KIND_ERROR: u8 = 0x70;
+pub const PROTOCOL_MSG_KIND_PATH_SETUP_REQ: u8 = 0x81;
+pub const PROTOCOL_MSG_KIND_PATH_SETUP_RSP: u8 = 0x82;
+pub const PROTOCOL_MSG_KIND_PATH_TEARDOWN_REQ: u8 = 0x83;
+pub const PROTOCOL_MSG_KIND_STORE_REQ: u8 = 0xa1;
+pub const PROTOCOL_MSG_KIND_STORE_RSP: u8 = 0xa2;
+pub const PROTOCOL_MSG_KIND_FETCH_REQ: u8 = 0xa3;
+pub const PROTOCOL_MSG_KIND_FETCH_RSP: u8 = 0xa4;
+
 /// Enumeration containing all supported KIRA protocol messages kinds.
 #[derive(Debug, Display, PartialEq, Eq, Clone, Copy, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[display("{_variant}")]
 #[repr(u8)]
 pub enum ProtocolMessageKind {
-    ULNHello = 0x01,
-    ULNDiscReq = 0x03,
-    ULNDiscRsp = 0x04,
-    FindNodeReq = 0x09,
-    FindNodeRsp = 0x0a,
-    QueryRouteReq = 0x0b,
-    QueryRouteRsp = 0x0c,
-    UpdateRouteReq = 0x11,
-    ProbeReq = 0x21,
-    ProbeRsp = 0x22,
-    Error = 0x70,
-    PathSetupReq = 0x81,
-    PathSetupRsp = 0x82,
-    PathTeardownReq = 0x83,
-    StoreReq = 0xa1,
-    StoreRsp = 0xa2,
-    FetchReq = 0xa3,
-    FetchRsp = 0xa4,
+    ULNHello = PROTOCOL_MSG_KIND_ULN_HELLO,
+    ULNDiscReq = PROTOCOL_MSG_KIND_ULN_DISC_REQ,
+    ULNDiscRsp = PROTOCOL_MSG_KIND_ULN_DISC_RSP,
+    FindNodeReq = PROTOCOL_MSG_KIND_FIND_NODE_REQ,
+    FindNodeRsp = PROTOCOL_MSG_KIND_FIND_NODE_RSP,
+    QueryRouteReq = PROTOCOL_MSG_KIND_QUERY_ROUTE_REQ,
+    QueryRouteRsp = PROTOCOL_MSG_KIND_QUERY_ROUTE_RSP,
+    UpdateRouteReq = PROTOCOL_MSG_KIND_UPDATE_ROUTE_REQ,
+    ProbeReq = PROTOCOL_MSG_KIND_PROBE_REQ,
+    ProbeRsp = PROTOCOL_MSG_KIND_PROBE_RSP,
+    Error = PROTOCOL_MSG_KIND_ERROR,
+    PathSetupReq = PROTOCOL_MSG_KIND_PATH_SETUP_REQ,
+    PathSetupRsp = PROTOCOL_MSG_KIND_PATH_SETUP_RSP,
+    PathTeardownReq = PROTOCOL_MSG_KIND_PATH_TEARDOWN_REQ,
+    StoreReq = PROTOCOL_MSG_KIND_STORE_REQ,
+    StoreRsp = PROTOCOL_MSG_KIND_STORE_RSP,
+    FetchReq = PROTOCOL_MSG_KIND_FETCH_REQ,
+    FetchRsp = PROTOCOL_MSG_KIND_FETCH_RSP,
 }
+
+pub const PROTOCOL_OBJECT_TYPE_SOURCE_ROUTE: u8 = 0x01;
+pub const PROTOCOL_OBJECT_TYPE_NOT_VIA_LIST: u8 = 0x02;
+pub const PROTOCOL_OBJECT_TYPE_CONTACT_LIST: u8 = 0x03;
+pub const PROTOCOL_OBJECT_TYPE_RTABLE_REQUEST: u8 = 0x04;
+pub const PROTOCOL_OBJECT_TYPE_RTABLE: u8 = 0x05;
+pub const PROTOCOL_OBJECT_TYPE_RTABLE_UPDATE_INFO: u8 = 0x06;
+pub const PROTOCOL_OBJECT_TYPE_ERROR_DATA: u8 = 0x07;
+pub const PROTOCOL_OBJECT_TYPE_STORE_REQ_DATA: u8 = 0x80;
+pub const PROTOCOL_OBJECT_TYPE_STORE_RSP_DATA: u8 = 0x81;
+pub const PROTOCOL_OBJECT_TYPE_FETCH_REQ_DATA: u8 = 0x82;
+pub const PROTOCOL_OBJECT_TYPE_FETCH_RSP_DATA: u8 = 0x83;
+pub const PROTOCOL_OBJECT_TYPE_UNKNOWN: u8 = 0xff;
 
 /// Object types for protocol message payload objects (see draft section 4.4.2).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[repr(u8)]
 pub enum ProtocolObjectType {
-    SourceRoute = 0x01,
-    NotViaList = 0x02,
-    ContactList = 0x03,
-    RTableRequest = 0x04,
-    RTable = 0x05,
-    RTableUpdateInfo = 0x06,
-    ErrorData = 0x07,
-    StoreReqData = 0x80,
-    StoreRspData = 0x81,
-    FetchReqData = 0x82,
-    FetchRspData = 0x83,
-    Unknown = 0xff,
+    SourceRoute = PROTOCOL_OBJECT_TYPE_SOURCE_ROUTE,
+    NotViaList = PROTOCOL_OBJECT_TYPE_NOT_VIA_LIST,
+    ContactList = PROTOCOL_OBJECT_TYPE_CONTACT_LIST,
+    RTableRequest = PROTOCOL_OBJECT_TYPE_RTABLE_REQUEST,
+    RTable = PROTOCOL_OBJECT_TYPE_RTABLE,
+    RTableUpdateInfo = PROTOCOL_OBJECT_TYPE_RTABLE_UPDATE_INFO,
+    ErrorData = PROTOCOL_OBJECT_TYPE_ERROR_DATA,
+    StoreReqData = PROTOCOL_OBJECT_TYPE_STORE_REQ_DATA,
+    StoreRspData = PROTOCOL_OBJECT_TYPE_STORE_RSP_DATA,
+    FetchReqData = PROTOCOL_OBJECT_TYPE_FETCH_REQ_DATA,
+    FetchRspData = PROTOCOL_OBJECT_TYPE_FETCH_RSP_DATA,
+    Unknown = PROTOCOL_OBJECT_TYPE_UNKNOWN,
 }
 
 impl From<u8> for ProtocolObjectType {
     fn from(value: u8) -> Self {
         match value {
-            value if value == ProtocolObjectType::SourceRoute as u8 => Self::SourceRoute,
-            value if value == ProtocolObjectType::NotViaList as u8 => Self::NotViaList,
-            value if value == ProtocolObjectType::ContactList as u8 => Self::ContactList,
-            value if value == ProtocolObjectType::RTableRequest as u8 => Self::RTableRequest,
-            value if value == ProtocolObjectType::RTable as u8 => Self::RTable,
-            value if value == ProtocolObjectType::RTableUpdateInfo as u8 => Self::RTableUpdateInfo,
-            value if value == ProtocolObjectType::ErrorData as u8 => Self::ErrorData,
-            value if value == ProtocolObjectType::StoreReqData as u8 => Self::StoreReqData,
-            value if value == ProtocolObjectType::StoreRspData as u8 => Self::StoreRspData,
-            value if value == ProtocolObjectType::FetchReqData as u8 => Self::FetchReqData,
-            value if value == ProtocolObjectType::FetchRspData as u8 => Self::FetchRspData,
+            PROTOCOL_OBJECT_TYPE_SOURCE_ROUTE => Self::SourceRoute,
+            PROTOCOL_OBJECT_TYPE_NOT_VIA_LIST => Self::NotViaList,
+            PROTOCOL_OBJECT_TYPE_CONTACT_LIST => Self::ContactList,
+            PROTOCOL_OBJECT_TYPE_RTABLE_REQUEST => Self::RTableRequest,
+            PROTOCOL_OBJECT_TYPE_RTABLE => Self::RTable,
+            PROTOCOL_OBJECT_TYPE_RTABLE_UPDATE_INFO => Self::RTableUpdateInfo,
+            PROTOCOL_OBJECT_TYPE_ERROR_DATA => Self::ErrorData,
+            PROTOCOL_OBJECT_TYPE_STORE_REQ_DATA => Self::StoreReqData,
+            PROTOCOL_OBJECT_TYPE_STORE_RSP_DATA => Self::StoreRspData,
+            PROTOCOL_OBJECT_TYPE_FETCH_REQ_DATA => Self::FetchReqData,
+            PROTOCOL_OBJECT_TYPE_FETCH_RSP_DATA => Self::FetchRspData,
             _ => Self::Unknown,
         }
     }
@@ -147,16 +180,23 @@ impl CommonObjectHeader {
     }
 }
 
+
+pub const RTABLE_REQUEST_TYPE_NONE: u8 = 0x00;
+pub const RTABLE_REQUEST_TYPE_CONTACTS_ONLY: u8 = 0x01;
+pub const RTABLE_REQUEST_TYPE_OVERLAY_NEIGHBORS: u8 = 0x02;
+pub const RTABLE_REQUEST_TYPE_OVERLAY_NEIGHBORS_SOURCE: u8 = 0x03;
+pub const RTABLE_REQUEST_TYPE_ULN_VICINITY: u8 = 0x04;
+
 /// Values for `rtable-request-type-object` (draft section 4.4.2.5).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[repr(u8)]
 pub enum RTableRequestTypeValue {
-    None = 0x00,
-    ContactsOnly = 0x01,
-    OverlayNeighbors = 0x02,
-    OverlayNeighborsSource = 0x03,
-    ULNVicinity = 0x04,
+    None = RTABLE_REQUEST_TYPE_NONE,
+    ContactsOnly = RTABLE_REQUEST_TYPE_CONTACTS_ONLY,
+    OverlayNeighbors = RTABLE_REQUEST_TYPE_OVERLAY_NEIGHBORS,
+    OverlayNeighborsSource = RTABLE_REQUEST_TYPE_OVERLAY_NEIGHBORS_SOURCE,
+    ULNVicinity = RTABLE_REQUEST_TYPE_ULN_VICINITY,
 }
 
 impl TryFrom<u8> for RTableRequestTypeValue {
@@ -164,11 +204,11 @@ impl TryFrom<u8> for RTableRequestTypeValue {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            value if value == Self::None as u8 => Ok(Self::None),
-            value if value == Self::ContactsOnly as u8 => Ok(Self::ContactsOnly),
-            value if value == Self::OverlayNeighbors as u8 => Ok(Self::OverlayNeighbors),
-            value if value == Self::OverlayNeighborsSource as u8 => Ok(Self::OverlayNeighborsSource),
-            value if value == Self::ULNVicinity as u8 => Ok(Self::ULNVicinity),
+            RTABLE_REQUEST_TYPE_NONE => Ok(Self::None),
+            RTABLE_REQUEST_TYPE_CONTACTS_ONLY => Ok(Self::ContactsOnly),
+            RTABLE_REQUEST_TYPE_OVERLAY_NEIGHBORS => Ok(Self::OverlayNeighbors),
+            RTABLE_REQUEST_TYPE_OVERLAY_NEIGHBORS_SOURCE => Ok(Self::OverlayNeighborsSource),
+            RTABLE_REQUEST_TYPE_ULN_VICINITY => Ok(Self::ULNVicinity),
             _ => Err(format!("invalid rtable-request type: {value:#x}")),
         }
     }

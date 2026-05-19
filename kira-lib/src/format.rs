@@ -1,7 +1,7 @@
 //! Concrete serialization and deserialization implementation of
 //! [ProtocolMessages](ProtocolMessage) on a closed set of supported formats.
 
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::error::Error;
 use std::io::{Error as IoError, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::num::NonZeroU64;
@@ -26,9 +26,16 @@ use kira_r2kad::messaging::dht::{
 use kira_r2kad::messaging::source_route::SourceRoute;
 use kira_r2kad::messaging::{
     CommonHeader, CommonObjectHeader, ErrorData, FindNodeReqData, PathSetupReqData,
-    PathTeardownReqData, ProbeReqData, ProbeRspData, ProtocolMessage, ProtocolMessageKind,
+    PathTeardownReqData, ProbeReqData, ProbeRspData, ProtocolMessage,
     ProtocolObjectType, QueryRouteReqData, QueryRouteType, RTableData, RTableRequestTypeValue,
-    ReqRspMessage,
+    ReqRspMessage, KiraMsgFlagsBit, RouteUpdateActionType,
+    PROTOCOL_MSG_KIND_ULN_HELLO, PROTOCOL_MSG_KIND_ULN_DISC_REQ, PROTOCOL_MSG_KIND_ULN_DISC_RSP,
+    PROTOCOL_MSG_KIND_FIND_NODE_REQ, PROTOCOL_MSG_KIND_FIND_NODE_RSP,
+    PROTOCOL_MSG_KIND_QUERY_ROUTE_REQ, PROTOCOL_MSG_KIND_QUERY_ROUTE_RSP,
+    PROTOCOL_MSG_KIND_PROBE_REQ, PROTOCOL_MSG_KIND_PROBE_RSP,
+    PROTOCOL_MSG_KIND_ERROR, PROTOCOL_MSG_KIND_PATH_SETUP_REQ, PROTOCOL_MSG_KIND_PATH_TEARDOWN_REQ,
+    PROTOCOL_MSG_KIND_STORE_REQ, PROTOCOL_MSG_KIND_STORE_RSP, PROTOCOL_MSG_KIND_FETCH_REQ,
+    PROTOCOL_MSG_KIND_FETCH_RSP,
 };
 #[cfg(any(
     feature = "format-json",
@@ -139,54 +146,28 @@ fn deserialize_binrw<R: Read>(mut reader: R) -> Result<ProtocolMessage, Box<dyn 
     let mut cursor = binrw::io::Cursor::new(&buf);
     let header = CommonHeader::read_options(&mut cursor, binrw::Endian::Big, ())?;
     match header.msg_type() {
-        value if value == ProtocolMessageKind::ULNHello as u8 => {
-            Ok(ProtocolMessage::ULNHello(header))
-        }
-        value if value == ProtocolMessageKind::ULNDiscReq as u8 => {
-            deserialize_uln_disc_req(header, &mut reader)
-        }
-        value if value == ProtocolMessageKind::ULNDiscRsp as u8 => {
-            deserialize_uln_disc_rsp(header, &mut reader)
-        }
-        value if value == ProtocolMessageKind::FindNodeReq as u8 => {
-            deserialize_find_node_req(header, &mut reader)
-        }
-        value if value == ProtocolMessageKind::FindNodeRsp as u8 => {
-            deserialize_find_node_rsp(header, &mut reader)
-        }
-        value if value == ProtocolMessageKind::QueryRouteReq as u8 => {
-            deserialize_query_route_req(header, &mut reader)
-        }
-        value if value == ProtocolMessageKind::QueryRouteRsp as u8 => {
-            deserialize_query_route_rsp(header, &mut reader)
-        }
-        value if value == ProtocolMessageKind::ProbeReq as u8 => {
-            deserialize_probe_req(header, &mut reader)
-        }
-        value if value == ProtocolMessageKind::ProbeRsp as u8 => {
-            deserialize_probe_rsp(header, &mut reader)
-        }
-        value if value == ProtocolMessageKind::Error as u8 => {
-            deserialize_error(header, &mut reader)
-        }
-        value if value == ProtocolMessageKind::PathSetupReq as u8 => {
-            deserialize_path_setup_req(header, &mut reader)
-        }
-        value if value == ProtocolMessageKind::PathTeardownReq as u8 => {
-            deserialize_path_teardown_req(header, &mut reader)
-        }
-        value if value == ProtocolMessageKind::StoreReq as u8 => {
-            deserialize_store_req(header, &mut reader)
-        }
-        value if value == ProtocolMessageKind::StoreRsp as u8 => {
-            deserialize_store_rsp(header, &mut reader)
-        }
-        value if value == ProtocolMessageKind::FetchReq as u8 => {
-            deserialize_fetch_req(header, &mut reader)
-        }
-        value if value == ProtocolMessageKind::FetchRsp as u8 => {
-            deserialize_fetch_rsp(header, &mut reader)
-        }
+        PROTOCOL_MSG_KIND_ULN_HELLO => Ok(ProtocolMessage::ULNHello(header)),
+        PROTOCOL_MSG_KIND_ULN_DISC_REQ => deserialize_uln_disc_req(header, &mut reader),
+        PROTOCOL_MSG_KIND_ULN_DISC_RSP => deserialize_uln_disc_rsp(header, &mut reader),
+
+        PROTOCOL_MSG_KIND_QUERY_ROUTE_REQ => deserialize_query_route_req(header, &mut reader),
+        PROTOCOL_MSG_KIND_QUERY_ROUTE_RSP => deserialize_query_route_rsp(header, &mut reader),
+
+        PROTOCOL_MSG_KIND_FIND_NODE_REQ => deserialize_find_node_req(header, &mut reader),
+        PROTOCOL_MSG_KIND_FIND_NODE_RSP => deserialize_find_node_rsp(header, &mut reader),
+
+        PROTOCOL_MSG_KIND_PROBE_REQ => deserialize_probe_req(header, &mut reader),
+        PROTOCOL_MSG_KIND_PROBE_RSP => deserialize_probe_rsp(header, &mut reader),
+
+        PROTOCOL_MSG_KIND_PATH_SETUP_REQ => deserialize_path_setup_req(header, &mut reader),
+        PROTOCOL_MSG_KIND_PATH_TEARDOWN_REQ => deserialize_path_teardown_req(header, &mut reader),
+
+        PROTOCOL_MSG_KIND_ERROR => deserialize_error(header, &mut reader),
+        
+        PROTOCOL_MSG_KIND_STORE_REQ => deserialize_store_req(header, &mut reader),
+        PROTOCOL_MSG_KIND_STORE_RSP => deserialize_store_rsp(header, &mut reader),
+        PROTOCOL_MSG_KIND_FETCH_REQ => deserialize_fetch_req(header, &mut reader),
+        PROTOCOL_MSG_KIND_FETCH_RSP => deserialize_fetch_rsp(header, &mut reader),
         other => Err(Box::new(IoError::new(
             ErrorKind::Unsupported,
             format!("msg_type {:#x}, currently not supported by binrw", other),
@@ -394,6 +375,7 @@ fn deserialize_fetch_rsp<R: Read>(
         ProtocolMessage::FetchRsp,
     )
 }
+
 
 #[cfg(feature = "format-binrw")]
 fn deserialize_req_rsp_no_data<R: Read, T: std::fmt::Debug, M>(
@@ -843,7 +825,7 @@ fn deserialize_find_node_req<R: Read>(
             "FindNodeReq radius in rtable-request must be > 0",
         )
     })?;
-    let exact = header.msg_flags() & 0x01 != 0;
+    let exact = header.msg_flags() & KiraMsgFlagsBit::ExactFlag as u8 != 0;
     let target = *header.dest_id();
 
     Ok(ProtocolMessage::FindNodeReq(ReqRspMessage {
@@ -1107,8 +1089,7 @@ fn serialize_binrw<W: Write>(
         ProtocolMessage::StoreReq(req) => serialize_store_req(writer, req),
         ProtocolMessage::StoreRsp(req) => serialize_store_rsp(writer, req),
         ProtocolMessage::FetchReq(req) => serialize_fetch_req(writer, req),
-        ProtocolMessage::FetchRsp(req) => serialize_fetch_rsp(writer, req),
-        _ => Err(Box::new(IoError::new(
+        ProtocolMessage::FetchRsp(req) => serialize_fetch_rsp(writer, req),        _ => Err(Box::new(IoError::new(
             ErrorKind::Unsupported,
             "currently not supported by binrw ",
         ))),
@@ -1621,6 +1602,124 @@ fn write_contactlist_object<W: Write>(
         writer.write_all(&0u32.to_be_bytes())?; // age-info placeholder
 
         writer.write_all(&node_degree.to_be_bytes())?;
+    }
+
+    Ok(3 + object_length)
+}
+
+#[cfg(feature = "format-binrw")]
+fn parse_rtable_update_info_from_bytes(
+    payload: &[u8],
+) -> Result<HashMap<Contact, RouteUpdateActionType>, Box<dyn Error>> {
+    let mut payload_cursor = binrw::io::Cursor::new(payload);
+    let payload_len = payload.len();
+    let mut payload_consumed = 0;
+
+    while payload_consumed < payload_len {
+        let CommonObjectHeader {
+            object_type,
+            object_length,
+        } = read_common_object_header(&mut payload_cursor)?;
+        let object_length = object_length as usize;
+
+        if payload_consumed + 3 + object_length > payload_len {
+            return Err(Box::new(IoError::new(
+                ErrorKind::InvalidData,
+                "object length exceeds payload",
+            )));
+        }
+        payload_consumed += 3;
+
+        if let ProtocolObjectType::RTableUpdateInfo = object_type {
+            if object_length < NodeId::SIZE + 5 {
+                return Err(Box::new(IoError::new(
+                    ErrorKind::InvalidData,
+                    "rtable-update-info object too short",
+                )));
+            }
+
+            let mut entries_consumed = 0usize;
+            let mut result: HashMap<Contact, RouteUpdateActionType> = HashMap::new();
+
+            while entries_consumed < object_length {
+                let mut id_bytes = [0u8; NodeId::SIZE];
+                payload_cursor.read_exact(&mut id_bytes)?;
+                let contact_id = NodeId::from(id_bytes);
+
+                let ssn_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
+                let action_raw = u8::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
+
+                let ssn = SafeStateSeqNr::try_from(ssn_raw).map_err(|_| {
+                    IoError::new(
+                        ErrorKind::InvalidData,
+                        format!("invalid state_seq_num {ssn_raw}"),
+                    )
+                })?;
+
+                let action = match action_raw {
+                    0x00 => RouteUpdateActionType::Announce,
+                    0x01 => RouteUpdateActionType::WithDraw,
+                    0x02 => RouteUpdateActionType::Change,
+                    0x03 => RouteUpdateActionType::Unreachable,
+                    other => {
+                        return Err(Box::new(IoError::new(
+                            ErrorKind::InvalidData,
+                            format!("unknown rtable update action {:#x}", other),
+                        )))
+                    }
+                };
+
+                let contact = Contact::new(Path::from(contact_id), ssn);
+                result.insert(contact, action);
+
+                entries_consumed += NodeId::SIZE + 4 + 1;
+            }
+
+            payload_consumed += object_length;
+            return Ok(result);
+        } else {
+            payload_cursor.seek(SeekFrom::Current(object_length as i64))?;
+            payload_consumed += object_length;
+        }
+    }
+
+    // no rtable update info found
+    Ok(HashMap::new())
+}
+
+#[cfg(feature = "format-binrw")]
+fn write_rtable_update_info_object<W: Write>(
+    writer: &mut W,
+    data: &HashMap<Contact, RouteUpdateActionType>,
+) -> Result<usize, IoError> {
+    if data.is_empty() {
+        return Ok(0);
+    }
+
+    if data.len() > u16::MAX as usize {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            format!("too many rtable update entries: {}", data.len()),
+        ));
+    }
+
+    let object_length = data.len() * (NodeId::SIZE + 4 + 1);
+    write_common_object_header(
+        writer,
+        CommonObjectHeader::new(ProtocolObjectType::RTableUpdateInfo, object_length as u16),
+    )?;
+
+    for (contact, action) in data.iter() {
+        writer.write_all(&contact.id().to_be_bytes())?;
+        let ssn: u32 = (*contact.state_seq_nr()).into();
+        writer.write_all(&ssn.to_be_bytes())?;
+        let action_byte: u8 = match action {
+            RouteUpdateActionType::Announce => 0x00,
+            RouteUpdateActionType::WithDraw => 0x01,
+            RouteUpdateActionType::Change => 0x02,
+            RouteUpdateActionType::Unreachable => 0x03,
+        };
+        writer.write_all(&[action_byte])?;
     }
 
     Ok(3 + object_length)
