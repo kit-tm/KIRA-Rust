@@ -117,8 +117,8 @@ where
             .send_message(message, context.uln_table().deref());
     }
 
-    fn send_probe_req(&self, context: &C, path: &Path) {
-        let source_route = SourceRoute::new(*context.root_id(), path.clone());
+    fn send_probe_req(&self, context: &C, contact: &Contact) {
+        let source_route = SourceRoute::new(*context.root_id(), contact.path().expect("ProbeReq for refreshing contact should be called for valid contacts only").clone());
         let message = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::ProbeReq,
@@ -135,18 +135,6 @@ where
         context
             .runtime()
             .send_message(message, context.uln_table().deref());
-    }
-
-    fn send_probe_req_for_active(&self, context: &C, contact: &Contact) {
-        if let Some(active_path) = contact.path() {
-            self.send_probe_req(context, active_path);
-        }
-    }
-
-    fn send_probe_req_for_proposed(&self, context: &C, contact: &Contact) {
-        if let Some(proposed_path) = contact.proposed_path() {
-            self.send_probe_req(context, proposed_path);
-        }
     }
 
     fn send_teardown_req(&self, context: &C, contact: &Contact) {
@@ -211,7 +199,7 @@ where
                 continue;
             }
 
-            self.send_probe_req_for_active(context, contact);
+            self.send_probe_req(context, contact);
         }
     }
 

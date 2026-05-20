@@ -8,7 +8,7 @@ use tracing::{Level, instrument};
 
 use crate::domain::{
     Contact, ContactState, InOrderCycleRemover, PathCycleRemover , InsertionStrategy, InsertionStrategyResult, Link, NodeId, NotVia,
-    NotViaState, Path, RoutingTable, Timestamp, ULNTable, UnderlayNeighborId,
+    NotViaState, Path, PathState, RoutingTable, Timestamp, ULNTable, UnderlayNeighborId,
     UnderlayNeighborSource, VicinityGraph,
 };
 use crate::messaging::source_route::SourceRoute;
@@ -69,7 +69,8 @@ where
         };
 
         path.reverse();
-
+        // this path is validated because it was taken from a source route that has been traversed recently
+        path.set_state(PathState::Valid);
         path
     }
 
@@ -179,6 +180,7 @@ where
             }
             // we now have potential cycles that we need to remove
             InOrderCycleRemover.remove_cycles_in_place(&mut path);
+            path.set_state(PathState::Checking);
             reported_contact.set_path(path);
 
             self.update_contact(context, reported_contact);
@@ -284,6 +286,8 @@ where
             new_path.extend(updated_contact.path().unwrap().clone());
             // we now have potential cycles that we need to remove
             InOrderCycleRemover.remove_cycles_in_place(&mut new_path);
+            // path is not yet validated, so we use the state to indicated this
+            new_path.set_state(PathState::Checking);
 
             // Note that for all actions we have the contact already, checked for existence before
             match update_action {
@@ -307,10 +311,9 @@ where
                 RouteUpdateActionType::Announce | RouteUpdateActionType::Change => {
                     // Announce: Sender has the contact as new contact, but we know it already according to precondition above
                     // Change: Path has been changed, usually an improvement
-                    // Probably update Path of contact if path is better and more recent
-                    // TODO the path should only be used as proposed path that needs to be validated
+                    // Updates Proposed Path of contact if path is better and more recent (new_path is not validated)
                     let mut old_contact = routing_table.contact_mut(updated_contact.id()).unwrap();
-                    if old_contact.assess_path_candidate(&new_path) {
+                    if old_contact.assess_path_candidate_and_update(&new_path) {
                         log::trace!(target: "forward_protocol_message", "Update from {} for contact {} provides improved path {}", source_id, old_contact.id(), new_path);
                     }
                 }

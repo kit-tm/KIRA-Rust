@@ -100,6 +100,7 @@ fn notify_all<const BUCKET_SIZE: usize>(
     // Skip update events that only update the age
     if let RoutingTableEvent::UpdatedContact { old, new } = &event
         && old.path() == new.path()
+        && old.proposed_path() == new.proposed_path()
         && old.state_seq_nr() == new.state_seq_nr()
         && old.state() == new.state()
     {
@@ -359,6 +360,7 @@ where
     }
 }
 
+// When the ContactWriteGuard is dropped, all observers are notified
 impl<C, const BUCKET_SIZE: usize> Drop for ContactWriteGuard<'_, C, BUCKET_SIZE>
 where
     C: DerefMut<Target = Contact>,

@@ -63,6 +63,7 @@ impl PathCollection {
             .as_ref()
     }
 
+    // TODO this should also follow a smarter strategy, e.g., replacing longer and older paths
     pub fn move_active_to_alternative(&mut self) {
         if let Some(replaceable) = self.alternative_paths.iter().position(|x| x.is_none()) {
             self.alternative_paths[replaceable] = self.active_path.take();

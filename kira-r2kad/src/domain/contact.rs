@@ -113,8 +113,8 @@ impl Contact {
 
     /// assesses whether given path candidate is an improvement over current active path
     /// if path_candidate is suitable this method updates the proposed path
-    /// returns true if new path_candidate updated the proposed path
-    pub fn assess_path_candidate(&mut self, path_candidate: &Path) -> bool {
+    /// returns true if new path_candidate updated the proposed path or the active path (only when path_candidate was validated)
+    pub fn assess_path_candidate_and_update(&mut self, path_candidate: &Path) -> bool {
         let path_suitable = match self.state {
             ContactState::Invalid => true,
             ContactState::Valid => {
@@ -126,6 +126,11 @@ impl Contact {
         };
 
         if path_suitable {
+            // if path candidate has been validated (stems from a message's source route), we can also replace the active path directly
+            if path_candidate.is_valid() {
+                self.path_collection.set_active_path(path_candidate.clone());
+                return true
+            }
             // check if path_candidate is better than current proposed path if present
             let should_set_proposed_path = match self.path_collection.proposed_path() {
                 Some(current_proposed_path) => path_candidate.is_better_than(current_proposed_path), // will return true if path candidate is better than current proposed path
