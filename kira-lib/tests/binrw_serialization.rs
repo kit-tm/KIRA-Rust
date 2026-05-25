@@ -5,9 +5,10 @@ use kira_r2kad::messaging::source_route::SourceRoute;
 use kira_r2kad::messaging::{
     CommonHeader, ErrorData, FindNodeReqData, KiraMsgFlagsBit, ProtocolMessage,
     PathSetupReqData, PathTeardownReqData, ProbeReqData, ProbeRspData, ProtocolMessageKind,
-    QueryRouteReqData, QueryRouteType, RTableData, ReqRspMessage,
+    QueryRouteReqData, QueryRouteType, RTableData, ReqRspMessage, RouteUpdateActionType,
+    UpdateRouteReq,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 use std::num::NonZeroU64;
 use std::sync::Arc;
@@ -361,6 +362,70 @@ fn binrw_find_node_rsp() {
     };
     assert_eq!(decoded_rsp.data.contacts[0].id(), contact.id());
     assert_eq!(decoded_rsp.data.contacts[0].state_seq_nr(), contact.state_seq_nr());
+}
+
+#[test]
+fn binrw_update_route_req() {
+    let mut header = CommonHeader::new(
+        ProtocolMessageKind::UpdateRouteReq,
+        NodeId::with_lsb(0x99),
+        NodeId::with_lsb(0x9a),
+        Some(0x8a01),
+        Some(0x8a02),
+        4,
+    );
+    header.set_domain_id(0x4242);
+
+    let contact = Contact::new(
+        Path::from(NodeId::with_lsb(0x9b)),
+        SafeStateSeqNr::try_from(12u32).unwrap(),
+    );
+
+    let mut contact_actions = HashMap::new();
+    contact_actions.insert(contact.clone(), RouteUpdateActionType::Announce);
+
+    let msg = ProtocolMessage::UpdateRouteReq(UpdateRouteReq {
+        common_header: header.clone(),
+        not_via: HashSet::new(),
+        contact_actions: contact_actions.clone(),
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    });
+
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::BINRW
+        .serialize(&mut buf, &msg)
+        .expect("serialize");
+
+    println!("Serialized UpdateRouteReq:");
+    for byte in &buf {
+        print!("{:02x} ", byte);
+    }
+    println!();
+
+    let decoded = ProtocolMessageFormat::BINRW
+        .deserialize(Cursor::new(&buf))
+        .expect("deserialize");
+
+    let ProtocolMessage::UpdateRouteReq(decoded_req) = decoded else {
+        panic!("unexpected message type");
+    };
+
+    //Contact Timestamp/Utc made Problems, thats why we use multiple asserts instead of eq for the whole struct
+    assert_eq!(decoded_req.common_header.msg_type(), header.msg_type());
+    assert_eq!(decoded_req.common_header.msg_id(), header.msg_id());
+    assert_eq!(decoded_req.common_header.state_seq_num(), header.state_seq_num());
+    assert!(decoded_req.not_via.is_empty());
+    assert_eq!(decoded_req.source_route.source(), header.src_node_id());
+    assert_eq!(decoded_req.source_route.destination(), header.dest_id());
+    assert_eq!(decoded_req.contact_actions.len(), 1);
+    let (decoded_contact, decoded_action) = decoded_req
+        .contact_actions
+        .iter()
+        .next()
+        .expect("missing contact action");
+    assert_eq!(decoded_contact.id(), contact.id());
+    assert_eq!(decoded_contact.state_seq_nr(), contact.state_seq_nr());
+    assert_eq!(*decoded_action, RouteUpdateActionType::Announce);
 }
 
 #[test]
@@ -745,7 +810,6 @@ fn binrw_fetch_rsp() {
 
 #[test]
 fn binrw_store_req_no_payload() {
-    use std::io::Write;
     let mut header = CommonHeader::new(
         ProtocolMessageKind::StoreReq,
         NodeId::with_lsb(0xf1),
@@ -797,5 +861,42 @@ fn binrw_error_unknown_error_kind() {
     buf.write_all(&[0xffu8]).unwrap();
 
     let res = ProtocolMessageFormat::BINRW.deserialize(Cursor::new(&buf));
+    assert!(res.is_err());
+}
+
+#[test]
+fn binrw_hello_with_payload() {
+    use std::io::Write;
+    let mut header = CommonHeader::new(
+        ProtocolMessageKind::ULNHello,
+        NodeId::with_lsb(0xaa),
+        NodeId::with_lsb(0xbb),
+        Some(0x1234),
+        Some(0x5678),
+        1,
+    );
+    header.set_domain_id(0x4242);
+    header.set_msg_length(55u16 + 3);
+
+    let mut buf = Vec::new();
+    let mut cursor = binrw::io::Cursor::new(Vec::new());
+    binrw::BinWrite::write_options(&header, &mut cursor, binrw::Endian::Big, ())
+        .expect("write header");
+    buf.extend_from_slice(cursor.get_ref());
+    buf.write_all(&[0xdeu8, 0xadu8, 0xbeu8])
+        .expect("write payload");
+
+    let decoded = ProtocolMessageFormat::BINRW
+        .deserialize(Cursor::new(&buf))
+        .expect("deserialize hello with payload");
+
+    assert_eq!(decoded, ProtocolMessage::ULNHello(header));
+}
+
+#[test]
+///Payload/Garbage Data - should error
+fn binrw_payload_only_is_error() {
+    let garbage_payload = [0x07u8, 0x00u8, 0x01u8, 0xffu8, 0x10u8];
+    let res = ProtocolMessageFormat::BINRW.deserialize(Cursor::new(&garbage_payload));
     assert!(res.is_err());
 }

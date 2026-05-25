@@ -28,14 +28,14 @@ use kira_r2kad::messaging::{
     CommonHeader, CommonObjectHeader, ErrorData, FindNodeReqData, PathSetupReqData,
     PathTeardownReqData, ProbeReqData, ProbeRspData, ProtocolMessage,
     ProtocolObjectType, QueryRouteReqData, QueryRouteType, RTableData, RTableRequestTypeValue,
-    ReqRspMessage, KiraMsgFlagsBit, RouteUpdateActionType,
+    ReqRspMessage, UpdateRouteReq, KiraMsgFlagsBit, RouteUpdateActionType,
     PROTOCOL_MSG_KIND_ULN_HELLO, PROTOCOL_MSG_KIND_ULN_DISC_REQ, PROTOCOL_MSG_KIND_ULN_DISC_RSP,
     PROTOCOL_MSG_KIND_FIND_NODE_REQ, PROTOCOL_MSG_KIND_FIND_NODE_RSP,
     PROTOCOL_MSG_KIND_QUERY_ROUTE_REQ, PROTOCOL_MSG_KIND_QUERY_ROUTE_RSP,
     PROTOCOL_MSG_KIND_PROBE_REQ, PROTOCOL_MSG_KIND_PROBE_RSP,
     PROTOCOL_MSG_KIND_ERROR, PROTOCOL_MSG_KIND_PATH_SETUP_REQ, PROTOCOL_MSG_KIND_PATH_TEARDOWN_REQ,
     PROTOCOL_MSG_KIND_STORE_REQ, PROTOCOL_MSG_KIND_STORE_RSP, PROTOCOL_MSG_KIND_FETCH_REQ,
-    PROTOCOL_MSG_KIND_FETCH_RSP,
+    PROTOCOL_MSG_KIND_FETCH_RSP, PROTOCOL_MSG_KIND_UPDATE_ROUTE_REQ
 };
 #[cfg(any(
     feature = "format-json",
@@ -155,6 +155,8 @@ fn deserialize_binrw<R: Read>(mut reader: R) -> Result<ProtocolMessage, Box<dyn 
 
         PROTOCOL_MSG_KIND_FIND_NODE_REQ => deserialize_find_node_req(header, &mut reader),
         PROTOCOL_MSG_KIND_FIND_NODE_RSP => deserialize_find_node_rsp(header, &mut reader),
+
+        PROTOCOL_MSG_KIND_UPDATE_ROUTE_REQ => deserialize_update_route_req(header, &mut reader),
 
         PROTOCOL_MSG_KIND_PROBE_REQ => deserialize_probe_req(header, &mut reader),
         PROTOCOL_MSG_KIND_PROBE_RSP => deserialize_probe_rsp(header, &mut reader),
@@ -859,6 +861,24 @@ fn deserialize_find_node_rsp<R: Read>(
 }
 
 #[cfg(feature = "format-binrw")]
+fn deserialize_update_route_req<R: Read>(
+    header: CommonHeader,
+    reader: &mut R,
+) -> Result<ProtocolMessage, Box<dyn Error>> {
+    let payload = read_payload_bytes(&header, reader)?;
+    let parsed = parse_req_rsp_payload_from_bytes(&header, &payload)?;
+    let contact_actions = parse_rtable_update_info_from_bytes(&payload)?;
+    let source_route = source_route_from_header(&header, parsed.source_route);
+
+    Ok(ProtocolMessage::UpdateRouteReq(UpdateRouteReq {
+        common_header: header,
+        not_via: parsed.not_via,
+        contact_actions,
+        source_route,
+    }))
+}
+
+#[cfg(feature = "format-binrw")]
 #[derive(Debug)]
 struct ParsedReqRspPayload {
     source_route: Option<SourceRoute>,
@@ -1081,6 +1101,7 @@ fn serialize_binrw<W: Write>(
         | ProtocolMessage::FindNodeRsp(req) => serialize_req_rsp_rtable(writer, req),
         ProtocolMessage::QueryRouteReq(req) => serialize_query_route_req(writer, req),
         ProtocolMessage::FindNodeReq(req) => serialize_find_node_req(writer, req),
+        ProtocolMessage::UpdateRouteReq(req) => serialize_update_route_req(writer, req),
         ProtocolMessage::ProbeReq(req) => serialize_probe_req(writer, req),
         ProtocolMessage::ProbeRsp(req) => serialize_probe_rsp(writer, req),
         ProtocolMessage::PathSetupReq(req) => serialize_path_setup_req(writer, req),
@@ -1414,6 +1435,20 @@ fn serialize_find_node_req<W: Write>(
     let request_type = RTableRequestTypeValue::OverlayNeighbors;
 
     serialize_req_rsp_with_rtable_request(writer, req, request_type, radius)
+}
+
+#[cfg(feature = "format-binrw")]
+fn serialize_update_route_req<W: Write>(
+    mut writer: W,
+    req: &UpdateRouteReq,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut payload = Vec::new();
+
+    write_source_route_object(&mut payload, &req.source_route)?;
+    write_notvialist_object(&mut payload, &req.not_via)?;
+    write_rtable_update_info_object(&mut payload, &req.contact_actions)?;
+
+    write_header_and_payload(&mut writer, &req.common_header, &payload)
 }
 
 #[cfg(feature = "format-binrw")]
