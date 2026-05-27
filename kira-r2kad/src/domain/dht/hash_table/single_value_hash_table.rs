@@ -15,7 +15,7 @@ use crate::domain::NodeId;
 /// The [`ComplexHashTable`] is more suitable for real-world use.
 ///
 /// [`ComplexHashTable`]: super::ComplexHashTable
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct SingleValueHashTable {
     inner: HashMap<NodeId, Entry>,
 }
@@ -67,7 +67,7 @@ impl LocalHashTable for SingleValueHashTable {
     }
 }
 
-#[derive(Debug, Display)]
+#[derive(Debug, Display, Clone)]
 pub enum StoreOk {
     #[display("New entry created.")]
     NewEntry,
@@ -75,20 +75,42 @@ pub enum StoreOk {
     EntryUpdated,
 }
 
+impl From<StoreOk> for crate::messaging::dht::StoreOk {
+    fn from(ok: StoreOk) -> Self {
+        match ok {
+            StoreOk::NewEntry => crate::messaging::dht::StoreOk::Created,
+            StoreOk::EntryUpdated => crate::messaging::dht::StoreOk::Updated,
+        }
+    }
+}
+
 /// The simple hash table can't error.
-#[derive(Debug, Display, Error)]
+#[derive(Debug, Display, Error, Clone)]
 pub enum HashTableErr {
     #[display("Entry not found: {_0}")]
     EntryNotFound(#[error(ignore)] NodeId),
 }
 
-#[derive(Debug)]
+impl From<HashTableErr> for crate::messaging::dht::StoreErr {
+    fn from(err: HashTableErr) -> Self {
+        crate::messaging::dht::StoreErr::UnexpectedError(err.to_string())
+    }
+}
+
+impl From<HashTableErr> for crate::messaging::dht::FetchErr {
+    fn from(_: HashTableErr) -> Self {
+        crate::messaging::dht::FetchErr::NotFoundErr
+    }
+}
+
+#[derive(Debug, Clone)]
 struct Entry {
     // data
     value: Arc<[u8]>,
 
     // metadata
     accessed: Option<Instant>,
+    republished: Option<Instant>,
 }
 
 impl Entry {
@@ -96,6 +118,7 @@ impl Entry {
         Self {
             value,
             accessed: None,
+            republished: None,
         }
     }
 }
@@ -112,6 +135,23 @@ impl EntryMeta for Entry {
             .is_none_or(|last_accessed| last_accessed < now)
         {
             self.accessed.replace(now);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn last_republish(&self) -> Option<Instant> {
+        self.republished
+    }
+
+    fn republished(&mut self, now: Instant) -> bool {
+        // prohibit updates of the republish time into the past
+        if self
+            .republished
+            .is_none_or(|last_republished| last_republished < now)
+        {
+            self.republished.replace(now);
             true
         } else {
             false
@@ -283,14 +323,53 @@ mod tests {
         {
             let meta_mut = table.meta_mut(&key).expect("Entry should exist");
             assert!(meta_mut.access(now));
+            assert!(meta_mut.republished(now));
         }
         {
             let meta = table.meta(&key).expect("Entry should exist");
             assert_eq!(meta.last_access(), Some(now));
+            assert_eq!(meta.last_republish(), Some(now));
         }
 
         let missing_key = NodeId::with_msb(69);
         assert!(table.meta(&missing_key).is_none());
         assert!(table.meta_mut(&missing_key).is_none());
+    }
+
+    #[test]
+    fn test_entry_meta_republish_updates() {
+        let mut entry = Entry::new(Arc::new([0, 0, 0]));
+
+        assert_eq!(
+            entry.last_republish(),
+            None,
+            "Entry initially shouldn't have been republished"
+        );
+
+        let inital_republish_time = Instant::now();
+        let second_republish_time = inital_republish_time + Duration::from_secs(10);
+        let time_past = inital_republish_time - Duration::from_secs(10);
+
+        assert!(
+            entry.republished(inital_republish_time),
+            "Failed to record initial republish"
+        );
+        assert_eq!(entry.last_republish(), Some(inital_republish_time));
+
+        assert!(
+            entry.republished(second_republish_time),
+            "Failed to record repeated republish"
+        );
+        assert_eq!(entry.last_republish(), Some(second_republish_time));
+
+        assert!(
+            !entry.republished(time_past),
+            "Recording republish times from the past is prohibited"
+        );
+        assert_eq!(
+            entry.last_republish(),
+            Some(second_republish_time),
+            "Republish time was mutated by a past republish request"
+        );
     }
 }

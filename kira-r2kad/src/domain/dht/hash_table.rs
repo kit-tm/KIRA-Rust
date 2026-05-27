@@ -40,12 +40,14 @@ pub trait LocalHashTable {
 
     /// Returns the metadata of the entry in the local hash table.
     ///
-    /// Returns [`None`] if the key has no associated value.
+    /// Returns [`None`] if the key has no associated value because
+    /// the key is not stored in the hash table.
     fn meta(&self, key: &NodeId) -> Option<&impl EntryMeta>;
 
     /// Returns the metadata of the entry in the local hash table.
     ///
-    /// Returns [`None`] if the key has no associated value.
+    /// Returns [`None`] if the key has no associated value because
+    /// the key is not stored in the hash table.
     fn meta_mut(&mut self, key: &NodeId) -> Option<&mut impl EntryMeta>;
 }
 
@@ -68,6 +70,14 @@ pub trait EntryMeta {
     /// Returns if the access time was successfully updated.
     fn access(&mut self, now: Instant) -> bool;
 
-    //fn last_republish(&self) -> Option<Instant>;
-    //fn republished(&mut self, now: Instant);
+    /// Returns the last republish time of a entry in the hash table.
+    ///
+    /// Returns [`None`] if a entry was never republished.
+    fn last_republish(&self) -> Option<Instant>;
+
+    /// Updates the republish time of an entry.
+    ///
+    /// The republish time of an entry can't be updated to the past.
+    /// Returns if the republish time was successfully updated.
+    fn republished(&mut self, now: Instant) -> bool;
 }

@@ -1,5 +1,6 @@
 //! Data types for messages used to interact with the distributed hash table.
 
+use crate::domain::Age;
 use crate::domain::NodeId;
 use crate::messaging::ProtocolMessage;
 use crate::messaging::ReqRspMessage;
@@ -17,7 +18,11 @@ pub struct StoreReqData<D> {
     pub handle: NodeId,
     /// The data to save with this request.
     pub data: D,
-    //store_duration: Duration,
+    /// Last time the key-value pair was accessed.
+    ///
+    /// This is set if a key-value pair is _republished_.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub last_accessed_ms: Option<Age>,
 }
 
 impl From<ReqRspMessage<StoreReqData<LHTInput>>> for ProtocolMessage {

@@ -1,6 +1,6 @@
 use core::time::Duration;
 use derive_more::Display;
-use derive_more::From;
+
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::Occupied;
 use std::fmt::Debug;
@@ -9,93 +9,67 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use std::ops::Deref;
 use tracing::{Level, instrument};
 
-use crate::domain::{Contact, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, dht};
+use crate::domain::dht::{DEFAULT_TIMEOUT, RedundancyFactor};
+use crate::domain::{NodeId, Path, RoutingTable, ULNTable, UnderlayNeighborId, dht};
+use crate::messaging::dht::{FetchReqData, LHTInput, StoreReqData};
+use crate::messaging::{
+    FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage, SourceRoute,
+};
+use crate::use_cases::inject_messages::{InjectionResult, errors::InjectMessageError};
 use crate::use_cases::{
     BroadcastableUseCaseEvent, EventHandler, FetchInjectData, InjectionMessageData,
     OneshotInjectMessageCallback, StoreInjectData, TimerId, UseCase, UseCaseContext, UseCaseEvent,
     UseCaseRuntime, UseCaseState,
 };
 
-use crate::messaging::dht::{FetchReqData, LHTInput, StoreReqData};
-use crate::messaging::{
-    FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage,
-};
-use crate::use_cases::distributed_hash_table_injector::DHTInjectorState::Running;
-use crate::use_cases::inject_messages::InjectionResult;
-use crate::use_cases::inject_messages::errors::InjectMessageError;
-
 /// Default number of seconds between two attempts to restore an existing value.
 pub const DEFAULT_PERIODIC_RESTORE: Duration = Duration::from_hours(1);
-
-/// Default timeout duration of the [DistributedHashTableInjector] use case.
-pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Configuration options for the [DistributedHashTableInjector].
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DistributedHashTableInjectorConfig {
     /// The duration between periodic restore operations.
     pub periodic_restore: Duration,
+
     /// Timeout duration of FindNodeReqs.
     ///
     /// FindNodeReqs are used by StoreReqs to locate
     /// the nearest neighbors for redundancy.
     /// The number of nodes depends on the [redundancy_factor](Self::redundancy_factor).
     pub find_node_timeout: Duration,
+
     /// Timeout duration of StoreReqs
     pub store_timeout: Duration,
+
     /// Timeout duration of FetchReqs
     pub fetch_timeout: Duration,
+
     /// Determines the number of additional data replications stored in the network.
     pub redundancy_factor: RedundancyFactor,
-}
-
-#[derive(Debug, Default, PartialEq, Eq, From, Clone, Copy)]
-/// The redundancy factor ensures that data is stored at multiple locations to prevent loss if nodes
-/// go offline.
-///
-/// The replicas are stored at the *k* key-wise closest nodes of.
-/// You can resolve the concrete *k* using [RedundancyFactor::resolve].
-///
-/// The redundancy factor *includes* the key-wise closest node.
-pub enum RedundancyFactor {
-    #[default]
-    BucketSize,
-    #[from]
-    Fixed(NonZeroUsize),
-}
-
-impl RedundancyFactor {
-    /// Resolve the concrete [RedundancyFactor] factor.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use kira_r2kad::use_cases::distributed_hash_table_injector::RedundancyFactor;
-    ///
-    /// let bucket_size = 20;
-    /// let fixed = 42;
-    ///
-    /// // When set to BucketSize it should return the provided bucket size.
-    /// let bucket_redundancy = RedundancyFactor::BucketSize;
-    /// assert_eq!(bucket_redundancy.resolve(bucket_size).get(), bucket_size);
-    /// // The default RedundancyFactor is BucketSize.
-    /// assert_eq!(RedundancyFactor::default().resolve(bucket_size).get(), bucket_size);
-    ///
-    /// // When set to a fixed value it should return the fixed value.
-    /// let fixed_redundancy = RedundancyFactor::Fixed(fixed.try_into().unwrap());
-    /// assert_eq!(fixed_redundancy.resolve(bucket_size).get(), fixed);
-    /// ```
-    pub fn resolve(&self, bucket_size: usize) -> NonZeroUsize {
-        match self {
-            Self::BucketSize => bucket_size.try_into().expect("bucket size > 0"),
-            Self::Fixed(redundancy) => *redundancy,
-        }
-    }
 }
 
 impl Default for DistributedHashTableInjectorConfig {
     /// Returns a new instance of the [DistributedHashTableInjectorConfig]
     /// initialized with the [DEFAULT_PERIODIC_RESTORE].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use kira_r2kad::use_cases::distributed_hash_table_injector::{
+    ///     DistributedHashTableInjectorConfig,
+    ///     DEFAULT_PERIODIC_RESTORE,
+    /// };
+    /// use kira_r2kad::domain::dht::DEFAULT_TIMEOUT;
+    ///
+    ///
+    /// let config = DistributedHashTableConfig::default();
+    ///
+    /// assert_eq!(config.periodic_restore, DEFAULT_PERIODIC_RESTORE);
+    /// assert_eq!(config.redundancy_factor, RedundancyFactor::default());
+    /// assert_eq!(config.find_node_timeout, DEFAULT_TIMEOUT);
+    /// assert_eq!(config.store_timeout, DEFAULT_TIMEOUT);
+    /// assert_eq!(config.fetch_timeout, DEFAULT_TIMEOUT);
+    /// ```
     fn default() -> Self {
         Self {
             periodic_restore: DEFAULT_PERIODIC_RESTORE,
@@ -164,7 +138,7 @@ pub enum DHTInjectorState {
 /// The [UseCase] provides the following functionality of the DHT:
 ///
 /// 1. **Periodic Restore**:
-///    Periodically restores Key-value pairs.
+///    Periodically restores key-value pairs to keep them stored in the DHT.
 ///    The duration is configurable: [`periodic_restore`].
 /// 2. **Redundancy**:
 ///    Stores the key-value pairs at the *k* closest nodes.
@@ -231,7 +205,7 @@ impl<C, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCKET_SIZE> {
         callback: OneshotInjectMessageCallback,
     ) -> Result<(), InjectMessageError> {
         callback.send(result).map_err(|e| {
-            log::error!(target: "distributed_hash_table_injector", "failed to send inject result: {e:#?}");
+            log::error!(target: "distributed_hash_table", "failed to send inject result: {e:#?}");
 
             InjectMessageError::SendResultFailed
         })
@@ -239,7 +213,7 @@ impl<C, const BUCKET_SIZE: usize> DistributedHashTableInjector<C, BUCKET_SIZE> {
 
     fn generate_distinct_nonce(&self) -> Nonce {
         let DHTInjectorState::Running { pending_reqs, .. } = &self.state else {
-            panic!("DistributedHashTable should be running");
+            panic!("DistributedHashTableInjector should be running");
         };
 
         loop {
@@ -277,7 +251,7 @@ where
         };
 
         tracing::debug!(
-            target: "distributed_hash_table_injector",
+            target: "distributed_hash_table",
             %destination,
             %expected_nonce,
             %expected_kind,
@@ -304,7 +278,7 @@ where
         };
 
         tracing::trace!(
-            target: "distributed_hash_table_injector",
+            target: "distributed_hash_table",
             key = %payload.handle,
             data = ?payload.data.deref(),
             "Registering data for periodic restore",
@@ -324,17 +298,12 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
-    fn send_find_node_req(
-        context: &C,
-        destination: NodeId,
-        k: NonZeroUsize,
-        nonce: Nonce,
-    ) -> Result<(), InjectMessageError> {
+    fn send_find_node_req(context: &C, destination: NodeId, k: NonZeroUsize, nonce: Nonce) {
         let neighbors = match k.get().try_into() {
             Ok(value) => value,
             Err(err) => {
                 tracing::warn!(
-                    target: "distributed_hash_table_injector",
+                    target: "distributed_hash_table",
                     %err,
                     "Requested more nodes than FindNodeReq can address. Returning max value.",
                 );
@@ -342,7 +311,7 @@ where
             }
         };
 
-        let message: ProtocolMessage = dht::construct_req_rsp_msg(
+        let message: ProtocolMessage = dht::construct_req_rsp_msg_kbr(
             context,
             ProtocolMessageKind::FindNodeReq,
             nonce,
@@ -356,7 +325,7 @@ where
         .into();
 
         tracing::debug!(
-            target: "distributed_hash_table_injector",
+            target: "distributed_hash_table",
             %nonce,
             ?message,
             "Sending FindNodeReq",
@@ -365,14 +334,12 @@ where
             context
                 .runtime()
                 .broadcast_event(BroadcastableUseCaseEvent::Message(message));
-            return Ok(());
+            return;
         }
 
         context
             .runtime()
             .send_message(message, context.uln_table().deref());
-
-        Ok(())
     }
 
     /// **DHT Redundancy**: locate *k* closest nodes to the key to send them store RPCs.
@@ -381,7 +348,7 @@ where
     /// because it isn't close to its own [NodeId].
     #[instrument(
         level = Level::DEBUG,
-        target = "distributed_hash_table_injector",
+        target = "distributed_hash_table",
         skip(self, context),
     )]
     fn init_redundancy_lookup(
@@ -395,9 +362,13 @@ where
         let destination = handle;
         let redundancy = self.config.redundancy_factor.resolve(BUCKET_SIZE);
 
-        Self::send_find_node_req(context, destination, redundancy, nonce)?;
+        Self::send_find_node_req(context, destination, redundancy, nonce);
 
-        let payload = StoreReqData { handle, data };
+        let payload = StoreReqData {
+            handle,
+            data,
+            last_accessed_ms: None,
+        };
         self.register_pending_req(
             context,
             destination,
@@ -414,26 +385,40 @@ where
     /// **DHT Redundancy**: Store key-value pair (payload) at redundant *k* destinations.
     #[instrument(
         level = Level::DEBUG,
-        target = "distributed_hash_table_injector",
+        target = "distributed_hash_table",
         skip(self, context),
     )]
     fn init_redundant_store(
         &mut self,
         context: &C,
         payload: StoreReqData<LHTInput>,
-        destinations: Vec<Contact>,
+        source_route_to_closest: SourceRoute,
+        paths_to_redundant_copies_via_closest: Vec<Path>,
         nonce: Nonce,
         restore: bool,
     ) {
-        let closest = *destinations
-            .first()
-            .expect("init_redundant_store called with no destinations")
-            .id();
+        let closest = *source_route_to_closest.destination();
+        dht::send_store_req(
+            context,
+            nonce,
+            payload.clone(),
+            source_route_to_closest.clone(),
+        );
 
-        // TODO: Spread messages: mitigate incast storm
-        for contact in destinations.into_iter() {
-            let destination = *contact.id();
-            dht::send_store_req(context, nonce, payload.clone(), destination);
+        let paths = paths_to_redundant_copies_via_closest
+            .into_iter()
+            .map(|path_via_closest| {
+                // NOTE: StoreReq to redundancy nodes is routed via the key-wise nearest node.
+                // It remains to be investigated if whether routing the request
+                // via the overlay is favorable.
+                let mut s = source_route_to_closest.clone();
+                s.extend(path_via_closest);
+                s
+            });
+
+        // TODO: Spread messages to mitigate incast storm
+        for contact_path in paths {
+            dht::send_store_req(context, nonce, payload.clone(), contact_path);
         }
 
         self.register_pending_req(
@@ -453,7 +438,7 @@ where
 
     #[instrument(
         level = Level::DEBUG,
-        target = "distributed_hash_table_injector",
+        target = "distributed_hash_table",
         skip(self, context),
     )]
     fn init_fetch_req(
@@ -480,7 +465,7 @@ where
 
     #[instrument(
         level = Level::DEBUG,
-        target = "distributed_hash_table_injector",
+        target = "distributed_hash_table",
         skip(self, context),
     )]
     fn handle_response(
@@ -496,12 +481,16 @@ where
         match (response_hook, answered_message) {
             (
                 ResponseHook::SendRedundantStoreReqs { payload, restore },
-                ProtocolMessage::FindNodeRsp(ReqRspMessage { data: rtable, .. }),
+                ProtocolMessage::FindNodeRsp(ReqRspMessage {
+                    data: rtable,
+                    source_route,
+                    ..
+                }),
             ) => {
                 let redundancy_factor = self.config.redundancy_factor.resolve(BUCKET_SIZE).get();
                 if rtable.contacts.len() != redundancy_factor {
                     tracing::warn!(
-                        target: "distributed_hash_table_injector",
+                        target: "distributed_hash_table",
                         %nonce,
                         redundancy_factor,
                         ?rtable,
@@ -509,7 +498,17 @@ where
                     );
                 }
 
-                self.init_redundant_store(context, payload, rtable.contacts, nonce, restore);
+                // FIXME: If node with key exists, FindeNodeReq(exact=False)
+                // returns a hop before. The actual closest node therefor isn't
+                // the source of the FindeNodeRsp.
+                self.init_redundant_store(
+                    context,
+                    payload,
+                    SourceRoute::from_reversed(source_route),
+                    rtable.contacts.into_iter().map(Path::from).collect(),
+                    nonce,
+                    restore,
+                );
 
                 // wait for periodic restore after we confirmed the key-value pair
                 // was successfully stored at the closest node
@@ -537,7 +536,7 @@ where
             (ResponseHook::RegisterFetchRsp, answered_message @ ProtocolMessage::FetchRsp(_)) => {
                 let Some(callback) = self.callbacks.remove(&nonce) else {
                     tracing::warn!(
-                        target: "distributed_hash_table_injector",
+                        target: "distributed_hash_table",
                         %nonce,
                         "No callback for FetchReq registered",
                     );
@@ -569,8 +568,8 @@ where
 
     #[instrument(
         level = Level::TRACE,
-        target = "distributed_hash_table_injector",
-        "distributed_hash_table_injector",
+        target = "distributed_hash_table",
+        "distributed_hash_table",
         skip(self, context),
         fields(
             state = ?self.state,
@@ -633,7 +632,7 @@ where
                     .expect("RPC response message have a message-id");
                 let Occupied(req_state_entry) = pending_reqs.entry(nonce) else {
                     /*tracing::trace!(
-                        target: "distributed_hash_table_injector",
+                        target: "distributed_hash_table",
                         %nonce,
                         response = ?message,
                         "received unexpected Response",
@@ -643,7 +642,7 @@ where
                 let expected_response_kind = req_state_entry.get().response_kind;
                 if message.kind() != expected_response_kind {
                     tracing::trace!(
-                        target: "distributed_hash_table_injector",
+                        target: "distributed_hash_table",
                         %nonce,
                         expected_kind = ?expected_response_kind,
                         kind = ?message.kind(),
@@ -661,7 +660,7 @@ where
                 // return early to not mark unhandled responses as complete
                 if !completes_request {
                     tracing::trace!(
-                        target: "distributed_hash_table_injector",
+                        target: "distributed_hash_table",
                         %nonce,
                         response_hook = ?req_state_entry.get().response_hook,
                         "Received message doesn't complete RPC",
@@ -676,7 +675,7 @@ where
             // ========== Handle Timers ==========
             (
                 UseCaseEvent::Timer(ref id),
-                Running {
+                DHTInjectorState::Running {
                     timer_hooks,
                     pending_reqs,
                     ..
@@ -693,7 +692,7 @@ where
                             // TODO: log warning if periodic restore timed out
 
                             tracing::debug!(
-                                target: "distributed_hash_table_injector",
+                                target: "distributed_hash_table",
                                 %nonce,
                                 kind=%timeout_hook,
                                 request=?req,
@@ -710,7 +709,9 @@ where
                         }
                     }
                     Some(TimerHook::PeriodicRestore(payload)) => {
-                        let StoreReqData { handle, ref data } = payload;
+                        let StoreReqData {
+                            handle, ref data, ..
+                        } = payload;
                         let nonce = self.generate_distinct_nonce();
                         self.init_redundancy_lookup(context, handle, data.clone(), false, nonce)?;
                         // schedule restore immediately to restore the value if the request timed out
@@ -736,7 +737,7 @@ where
     type State = DHTInjectorState;
 
     fn start(&mut self, _: &Self::Context) -> Result<(), Self::Error> {
-        self.state = Running {
+        self.state = DHTInjectorState::Running {
             timer_hooks: HashMap::default(),
             pending_reqs: HashMap::default(),
         };
@@ -746,5 +747,283 @@ where
 
     fn state(&self) -> &Self::State {
         &self.state
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use tokio::sync::mpsc;
+
+    use crate::Output;
+    use crate::context::ContextConfig;
+    use crate::context::SyncContext;
+    use crate::domain::single_bucket::SingleBucketRT;
+    use crate::domain::underlay::UnderlayNeighborSource;
+    use crate::domain::underlay_neighbor_table::in_memory_underlay_neighbor_table::InMemoryULNTable;
+    use crate::domain::{Contact, NodeId, Path, SafeStateSeqNr};
+    use crate::messaging::dht::{FetchRspData, LHTInput, StoreOk, StoreRspData};
+    use crate::messaging::messages::{
+        CommonHeader, ProtocolMessageKind, RTableData, ReqRspMessage, WireFormatMessage,
+    };
+    use crate::messaging::{ProtocolMessage, SourceRoute};
+    use crate::runtime::testing::TestingUseCaseRuntime;
+    use crate::use_cases::{EventHandler, UseCase, UseCaseEvent};
+
+    use super::*;
+
+    #[test]
+    fn test_store_injection_lifecycle() {
+        crate::tests::init();
+
+        let runtime = TestingUseCaseRuntime::default();
+        let root_id = NodeId::with_lsb(1);
+        let routing_table = SingleBucketRT::<20>::new(root_id);
+        let uln_table = InMemoryULNTable::new();
+
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id,
+            routing_table,
+            uln_table,
+            insertion_strategy: (),
+            runtime,
+            not_via_state: HashSet::default(),
+            vicinity_graph: (),
+        });
+
+        let mut injector = DistributedHashTableInjector::<_, 20>::default();
+        injector.start(&sync_context).unwrap();
+
+        let handle = NodeId::with_lsb(100);
+        let data = LHTInput::from(vec![1, 2, 3]);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        let inject_event = UseCaseEvent::InjectMessage(
+            Some(Nonce::from(1)),
+            InjectionMessageData::Store(
+                StoreInjectData {
+                    handle,
+                    data: data.clone(),
+                    restore: true,
+                },
+                tx,
+            ),
+        );
+
+        injector.handle_event(&sync_context, inject_event).unwrap();
+
+        // 1. Should have sent FindNodeReq
+        let output: Vec<_> = sync_context.runtime().output().collect();
+        assert_eq!(output.len(), 1);
+        let nonce =
+            if let Output::SendProtocolMessage(ProtocolMessage::FindNodeReq(req), _) = &output[0] {
+                assert_eq!(req.data.target, handle);
+                req.msg_id()
+            } else {
+                panic!("Expected FindNodeReq, got {:?}", output[0]);
+            };
+
+        // 2. Respond with FindNodeRsp
+        let closest_contact =
+            Contact::new(Path::from(handle), SafeStateSeqNr::try_from(1).unwrap());
+        let rtable = RTableData {
+            contacts: vec![closest_contact.clone()],
+        };
+        let rsp = ReqRspMessage {
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::FindNodeRsp,
+                handle,
+                root_id,
+                Some(nonce),
+                None,
+                0,
+            ),
+            data: rtable,
+            not_via: HashSet::default(),
+            source_route: SourceRoute::from(handle),
+        };
+
+        injector
+            .handle_event(
+                &sync_context,
+                UseCaseEvent::Message(
+                    ProtocolMessage::FindNodeRsp(rsp),
+                    UnderlayNeighborSource::Local,
+                ),
+            )
+            .unwrap();
+
+        // 3. Should have sent StoreReq
+        let output: Vec<_> = sync_context.runtime().output().collect();
+        assert_eq!(output.len(), 1);
+        if let Output::SendProtocolMessage(ProtocolMessage::StoreReq(req), _) = &output[0] {
+            assert_eq!(req.data.handle, handle);
+            assert_eq!(req.data.data, data);
+            assert_eq!(*req.destination(), handle);
+        } else {
+            panic!("Expected StoreReq, got {:?}", output[0]);
+        }
+
+        // 4. Respond with StoreRsp
+        let store_rsp = ReqRspMessage {
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::StoreRsp,
+                handle,
+                root_id,
+                Some(nonce),
+                None,
+                0,
+            ),
+            data: StoreRspData {
+                status: Ok(StoreOk::Created),
+            },
+            not_via: HashSet::default(),
+            source_route: SourceRoute::from(handle),
+        };
+
+        injector
+            .handle_event(
+                &sync_context,
+                UseCaseEvent::Message(
+                    ProtocolMessage::StoreRsp(store_rsp),
+                    UnderlayNeighborSource::Local,
+                ),
+            )
+            .unwrap();
+
+        // 5. Callback should have received success
+        let result = rx.try_recv().expect("Should have received result");
+        if let InjectionResult::Answered(msg) = result {
+            assert!(matches!(msg.as_ref(), ProtocolMessage::StoreRsp(_)));
+        } else {
+            panic!("Expected Answered, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_fetch_injection_lifecycle() {
+        crate::tests::init();
+
+        let runtime = TestingUseCaseRuntime::default();
+        let root_id = NodeId::with_lsb(1);
+        let routing_table = SingleBucketRT::<20>::new(root_id);
+        let uln_table = InMemoryULNTable::new();
+
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id,
+            routing_table,
+            uln_table,
+            insertion_strategy: (),
+            runtime,
+            not_via_state: HashSet::default(),
+            vicinity_graph: (),
+        });
+
+        let mut injector = DistributedHashTableInjector::<_, 20>::default();
+        injector.start(&sync_context).unwrap();
+
+        let handle = NodeId::with_lsb(100);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        let inject_event = UseCaseEvent::InjectMessage(
+            Some(Nonce::from(2)),
+            InjectionMessageData::Fetch(FetchInjectData { handle }, tx),
+        );
+
+        injector.handle_event(&sync_context, inject_event).unwrap();
+
+        // 1. Should have sent FetchReq
+        let output: Vec<_> = sync_context.runtime().output().collect();
+        assert_eq!(output.len(), 1);
+        let nonce =
+            if let Output::SendProtocolMessage(ProtocolMessage::FetchReq(req), _) = &output[0] {
+                assert_eq!(req.data.handle, handle);
+                req.msg_id()
+            } else {
+                panic!("Expected FetchReq, got {:?}", output[0]);
+            };
+
+        // 2. Respond with FetchRsp
+        let value = LHTInput::from(vec![1, 2, 3]);
+        let fetch_rsp = ReqRspMessage {
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::FetchRsp,
+                handle,
+                root_id,
+                Some(nonce),
+                None,
+                0,
+            ),
+            data: FetchRspData {
+                data: Ok(vec![value.clone()]),
+            },
+            not_via: HashSet::default(),
+            source_route: SourceRoute::from(handle),
+        };
+
+        injector
+            .handle_event(
+                &sync_context,
+                UseCaseEvent::Message(
+                    ProtocolMessage::FetchRsp(fetch_rsp),
+                    UnderlayNeighborSource::Local,
+                ),
+            )
+            .unwrap();
+
+        // 3. Callback should have received success
+        let result = rx.try_recv().expect("Should have received result");
+        if let InjectionResult::Answered(msg) = result {
+            if let ProtocolMessage::FetchRsp(rsp) = msg.as_ref() {
+                let data = rsp.data.data.as_ref().unwrap();
+                assert_eq!(data.len(), 1);
+                assert_eq!(data[0], value);
+            } else {
+                panic!("Expected FetchRsp, got {:?}", msg);
+            }
+        } else {
+            panic!("Expected Answered, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_timeout_handling() {
+        crate::tests::init();
+
+        let runtime = TestingUseCaseRuntime::default();
+        let root_id = NodeId::with_lsb(1);
+        let routing_table = SingleBucketRT::<20>::new(root_id);
+        let uln_table = InMemoryULNTable::new();
+
+        let sync_context = SyncContext::new(ContextConfig {
+            root_id,
+            routing_table,
+            uln_table,
+            insertion_strategy: (),
+            runtime,
+            not_via_state: HashSet::default(),
+            vicinity_graph: (),
+        });
+
+        let mut injector = DistributedHashTableInjector::<_, 20>::default();
+        injector.start(&sync_context).unwrap();
+
+        let handle = NodeId::with_lsb(100);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        let inject_event = UseCaseEvent::InjectMessage(
+            Some(Nonce::from(3)),
+            InjectionMessageData::Fetch(FetchInjectData { handle }, tx),
+        );
+
+        injector.handle_event(&sync_context, inject_event).unwrap();
+
+        // Fire timeout timer
+        let timer_event = sync_context.runtime().timer();
+        injector.handle_event(&sync_context, timer_event).unwrap();
+
+        // Callback should have received timeout
+        let result = rx.try_recv().expect("Should have received result");
+        assert!(matches!(result, InjectionResult::Timeout));
     }
 }

@@ -2,7 +2,6 @@
 
 pub use bucket::*;
 pub use contact::*;
-use derive_more::derive::Display;
 pub use insertion_strategy::*;
 pub use node_id::*;
 pub use path::cycle_remover::*;
@@ -14,7 +13,6 @@ pub use path_id::*;
 pub use routing_table::flat_routing_table::*;
 pub use routing_table::*;
 pub use state_seq_nr::*;
-use std::hash::{Hash, Hasher};
 pub use underlay::*;
 pub use underlay_neighbor_table::*;
 pub use vicinity::*;
@@ -34,7 +32,10 @@ pub mod underlay;
 pub mod underlay_neighbor_table;
 pub mod vicinity;
 
+use std::hash::{Hash, Hasher};
+
 use chrono::{DateTime, Duration, Utc};
+use derive_more::{Display, From};
 
 /// Specifies in milliseconds the age of the routing information.
 ///
@@ -44,13 +45,13 @@ use chrono::{DateTime, Duration, Utc};
 ///
 /// As [Age] specifies a timestamp in milliseconds a greater value represents a larger age.
 /// Considering `X = Age(10)` and `Y = Age(20)` then `X < Y == true`.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Display)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Display, From)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Age(u64);
 
-impl From<u64> for Age {
-    fn from(value: u64) -> Self {
-        Self(value)
+impl From<Age> for std::time::Duration {
+    fn from(Age(age_ms): Age) -> Self {
+        std::time::Duration::from_millis(age_ms)
     }
 }
 
