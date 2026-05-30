@@ -1,10 +1,13 @@
 use std::{collections::HashMap, num::NonZeroU8};
 
 use rand::Rng;
+use tracing::Level;
 
 use crate::domain::{
     AddError, Bucket, BucketSplitError, Contact, ContactState, FlatRoutingTable, GroupingError,
-    NodeId, ReplacementError, RoutingTable, SharedPrefix, hasher::Hasher,
+    NodeId, ReplacementError, RoutingTable,
+    hasher::Hasher,
+    routing_table::{PrefixContact, sorter_xor},
 };
 
 /// A routing table which uses an additional data structure to store all
@@ -129,46 +132,59 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
         self.inner.bucket(of)
     }
 
+    fn bucket_by_index(&self, index: usize) -> &Bucket<BUCKET_SIZE> {
+        self.inner.bucket_by_index(index)
+    }
+
+    fn get_bucket_index(&self, of: &NodeId) -> usize {
+        self.inner.get_bucket_index(of)
+    }
+
+    fn get_bucket_prefix_length(&self, bucket_index: usize) -> u8 {
+        self.inner.get_bucket_prefix_length(bucket_index)
+    }
+
+    #[tracing::instrument(
+        level = Level::TRACE,
+        target = "routing_table::unlimited_uln_routing_table",
+        skip(self),
+        ret, err
+    )]
     fn closest(
         &self,
-        to: &NodeId,
+        target: &NodeId,
         n: usize,
         shared_prefix_grouping: NonZeroU8,
-    ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError> {
-        let mut closest = self.inner.closest(to, n, shared_prefix_grouping)?;
+    ) -> Result<Vec<PrefixContact>, GroupingError> {
+        let mut closest = self.inner.closest(target, n, shared_prefix_grouping)?;
+        closest.extend(
+            self.un_contacts
+                .values()
+                .filter(|contact| contact.state() == &ContactState::Valid)
+                .map(|contact| {
+                    let prefix = target
+                        .shared_prefix_len(contact.id(), shared_prefix_grouping)
+                        .expect("grouping should be checked before");
+                    (prefix, contact.clone())
+                }),
+        );
+        closest.sort_unstable_by(sorter_xor);
 
-        // For every neighbor find the place to insert it if possible
-        for (id, contact) in &self.un_contacts {
-            if contact.state() != &ContactState::Valid {
-                continue;
-            }
+        // Don't include additional if strict XOR-metric routing is required (lowest bucket),
+        // suggesting proximity neighbor selection could be done.
+        //
+        // Check if the nth contact is in the lowest bucket.
+        if let Some((_, nth_closest)) = closest.get(n) {
+            let target_bucket_index = self.inner.get_bucket_index(target);
+            let closet_bucket_index = self.inner.get_bucket_index(nth_closest.id());
 
-            let prefix = to
-                .shared_prefix_len(id, shared_prefix_grouping)
-                .expect("grouping should be checked before");
-
-            if closest.is_empty() {
-                closest.push((prefix, contact.clone()));
-                continue;
-            }
-
-            // Find position of contact
-            let position = closest
-                .iter()
-                .position(|(closest_prefix, closest_contact)| {
-                    if closest_prefix > &prefix {
-                        return true;
-                    }
-                    if closest_prefix == &prefix && closest_contact.id() > id {
-                        return true;
-                    }
-                    false
-                });
-            if let Some(index) = position {
-                if closest.len() == n {
-                    closest.remove(closest.len() - 1);
-                }
-                closest.insert(index, (prefix, contact.clone()));
+            if target_bucket_index == closet_bucket_index {
+                tracing::trace!(
+                    target: "routing_table::unlimited_uln_routing_table",
+                    reason = "last bucket contacts require sorting by strict XOR-metric",
+                    "Truncate collected results",
+                );
+                closest.truncate(n);
             }
         }
 
@@ -185,18 +201,6 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
 
     fn bucket_iter(&'a self) -> Self::BucketIter {
         self.inner.bucket_iter()
-    }
-
-    fn bucket_by_index(&self, index: usize) -> &Bucket<BUCKET_SIZE> {
-        self.inner.bucket_by_index(index)
-    }
-
-    fn get_bucket_index(&self, of: &NodeId) -> usize {
-        self.inner.get_bucket_index(of)
-    }
-
-    fn get_bucket_prefix_length(&self, bucket_index: usize) -> u8 {
-        self.inner.get_bucket_prefix_length(bucket_index)
     }
 
     fn path_hasher(&self) -> Hasher {
@@ -419,6 +423,122 @@ mod tests {
             closest.is_empty(),
             "Returned closest contacts: {closest:#?}"
         );
+    }
+
+    #[test]
+    fn get_closest_invalid_contacts() {
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let mut table =
+            UnlimitedULNRoutingTable::from(FlatRoutingTable::<1, 1>::new(root).unwrap());
+
+        let ids = [
+            NodeId::with_msb(0b1000_0000),
+            NodeId::with_msb(0b1100_0000),
+            NodeId::with_msb(0b0100_0000),
+            NodeId::with_msb(0b0010_0000),
+        ];
+
+        for id in &ids {
+            table
+                .insert(Contact::new(
+                    Path::from(*id),
+                    SafeStateSeqNr::try_from(1).unwrap(),
+                ))
+                .unwrap();
+        }
+
+        *table.contact_mut(&ids[1]).unwrap().state_mut() = ContactState::Invalid;
+        assert_eq!(
+            table.contact(&ids[1]).unwrap().state(),
+            &ContactState::Invalid,
+            "1100... is invalid",
+        );
+
+        let query_id = NodeId::with_msb(0b1100_0001);
+        let results: Vec<_> = table
+            .closest(&query_id, 1, NonZeroU8::new(1).unwrap())
+            .unwrap()
+            .into_iter()
+            .map(|(sp, contact)| (sp, *contact.id()))
+            .collect();
+        tracing::trace!("{results:#?}");
+
+        assert_eq!(results.len(), 1);
+
+        assert_eq!(results[0].1, ids[0]);
+        assert_eq!(results[0].0.bit_len(), 1);
+    }
+
+    #[test]
+    fn get_closest_last_bucket() {
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let mut table =
+            UnlimitedULNRoutingTable::from(FlatRoutingTable::<2, 1>::new(root).unwrap());
+
+        let uln = NodeId::with_msb(0b1000_0000);
+        table
+            .insert(Contact::new(
+                Path::from(uln),
+                SafeStateSeqNr::try_from(1).unwrap(),
+            ))
+            .unwrap();
+
+        let ids = [NodeId::with_msb(0b1000_0010), NodeId::with_msb(0b1000_0001)];
+        for id in &ids {
+            table
+                .insert(Contact::new(
+                    Path::from([uln, *id]),
+                    SafeStateSeqNr::try_from(1).unwrap(),
+                ))
+                .unwrap();
+        }
+
+        // All contacts have SP=1. All contacts belong into last bucket.
+        //
+        // Valid contacts have to be returned in strict XOR-metric.
+        // Don't return additional contacts because proximity neighbor selection
+        // could violate strict XOR-metric requirement.
+
+        let query_id = NodeId::with_msb(0b1100_0001);
+        let results: Vec<_> = table
+            .closest(&query_id, 1, NonZeroU8::new(1).unwrap())
+            .unwrap()
+            .into_iter()
+            .map(|(sp, contact)| (sp, *contact.id()))
+            .collect();
+        tracing::trace!("{results:#?}");
+
+        assert_eq!(
+            results.len(),
+            1,
+            "no additional contacts of last bucket, strict XOR-metric"
+        );
+
+        assert_eq!(results[0].1, ids[1]);
+        assert_eq!(results[0].0.bit_len(), 1);
+
+        let query_id = NodeId::with_msb(0b1100_0001);
+        let results: Vec<_> = table
+            .closest(&query_id, 2, NonZeroU8::new(1).unwrap())
+            .unwrap()
+            .into_iter()
+            .map(|(sp, contact)| (sp, *contact.id()))
+            .collect();
+        tracing::trace!("{results:#?}");
+
+        assert_eq!(
+            results.len(),
+            2,
+            "no additional contacts of last bucket, strict XOR-metric"
+        );
+
+        assert_eq!(results[0].1, ids[1]);
+        assert_eq!(results[0].0.bit_len(), 1);
+
+        assert_eq!(results[1].1, uln);
+        assert_eq!(results[1].0.bit_len(), 1);
     }
 
     #[test]

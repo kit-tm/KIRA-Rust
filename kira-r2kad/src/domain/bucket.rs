@@ -1,9 +1,9 @@
-use std::{fmt::Formatter, iter::FusedIterator};
+use std::{fmt::Formatter, iter::FusedIterator, num::NonZeroU8};
 
 use derive_more::Error;
 use derive_more::with_trait::Display;
 
-use crate::domain::{Contact, NodeId};
+use crate::domain::{Contact, ContactState, NodeId, SharedPrefix};
 
 /// The default size for all buckets in the routing table.
 ///
@@ -193,6 +193,29 @@ impl<const SIZE: usize> Bucket<SIZE> {
     /// A value of [None] indicates that the slot is unpopulated.
     pub fn iter_slots(&self) -> impl Iterator<Item = &Option<Contact>> {
         self.contacts.iter()
+    }
+
+    /// Returns an iterator over all [_valid_] contacts in the bucket, paired with their
+    /// [SharedPrefix] relative to a `target`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `shared_prefix_grouping` is invalid for the system's [NodeId] size.
+    ///
+    /// [_valid_]: crate::domain::contact::ContactState::Valid
+    pub fn iter_valid_with_prefix(
+        &self,
+        target: &NodeId,
+        shared_prefix_grouping: NonZeroU8,
+    ) -> impl Iterator<Item = (SharedPrefix, Contact)> {
+        self.iter()
+            .filter(|c| c.state() == &ContactState::Valid)
+            .map(move |c| {
+                let prefix = target
+                    .shared_prefix_len(c.id(), shared_prefix_grouping)
+                    .expect("checked shared_prefix_grouping on root");
+                (prefix, c.clone())
+            })
     }
 }
 
