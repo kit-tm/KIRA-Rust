@@ -13,8 +13,17 @@ use kira_r2kad::messaging::{
 };
 use kira_r2kad::{Input, Output, R2Kad};
 
-#[test_log::test]
+fn init_test() {
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .with_test_writer()
+        .try_init();
+}
+
+#[test]
 fn hello_response() {
+    init_test();
+
     // important because deterministic_heuristic must be true to respond to Hello
     let us = NodeId::ZERO;
     let neighbor = NodeId::ONE;
@@ -119,6 +128,8 @@ fn hello_response() {
 
 #[test]
 fn uln_disc_req_response() {
+    init_test();
+
     let us = NodeId::ONE;
 
     let neighbor = NodeId::ZERO;

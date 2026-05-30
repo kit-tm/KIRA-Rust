@@ -38,7 +38,7 @@ where
     // TODO: support other shared_prefix_grouping via config
     let closest_node = context
         .routing_table()
-        .next_hop(overlay_destination, 20, NonZeroU8::MIN)
+        .next_hop(overlay_destination, NonZeroU8::MIN)
         .expect("Shared Prefix Grouping should be valid");
 
     let path = if let Some(closest_node) = closest_node {
