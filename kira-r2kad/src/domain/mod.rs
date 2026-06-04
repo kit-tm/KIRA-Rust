@@ -15,6 +15,7 @@ pub use routing_table::flat_routing_table::*;
 pub use routing_table::*;
 pub use state_seq_nr::*;
 use std::hash::{Hash, Hasher};
+use std::collections::HashSet;
 use std::time::{Instant,Duration};
 pub use underlay::*;
 pub use underlay_neighbor_table::*;
@@ -101,9 +102,12 @@ impl Timestamp {
     pub fn to_age_duration_ms(&self) -> u64 {
         u64::try_from(self.0.elapsed().as_millis()).expect("age value should never exceed 64bit in ms")
     }
+}
 
+
+impl From<Age> for Timestamp {
     /// Returns the [Timestamp] of the [Age].
-    pub fn from_age(age: Age) -> Timestamp {
+    fn from(age: Age) -> Timestamp {
         Timestamp::from(Timestamp::now().0 - (Duration::from_millis(age.0)))
     }
 }
@@ -205,6 +209,16 @@ impl NotViaState {
     }
 }
 
+
+impl From<NotVia> for NotViaState {
+    fn from(not_via : NotVia) -> Self {
+        Self {
+            link : not_via.link,
+            timestamp : Timestamp::from(not_via.age),
+        }
+    }
+}
+
 impl Hash for NotViaState {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.link.hash(state);
@@ -219,3 +233,28 @@ impl PartialEq for NotViaState {
 }
 
 impl Eq for NotViaState {}
+
+#[derive(Debug, Clone, Eq, Display, PartialEq)]
+#[display("NotViaStateList {notviastate_list:#?} retries: {retry_counter}")]
+pub struct RediscoveryState {
+    notviastate_list : HashSet<NotViaState>,
+    pub retry_counter : u8,
+}
+
+impl RediscoveryState {
+    pub fn new(not_via : NotVia) -> Self {
+        Self {
+            notviastate_list : HashSet::from([not_via.into()]),
+            retry_counter : 0,
+        }
+    }
+
+    // adds a notvia link to the list
+    pub fn add_notvia(&mut self, not_via : NotVia) -> bool {
+        self.notviastate_list.insert(not_via.into())
+    }
+
+    pub fn get_notviastate_list(&self) -> &HashSet<NotViaState> {
+        &self.notviastate_list
+    }
+}

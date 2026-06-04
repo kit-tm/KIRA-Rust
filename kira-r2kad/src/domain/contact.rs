@@ -1,32 +1,48 @@
 use std::cmp::Ordering;
+use std::hash::{Hash, Hasher};
 
 use derive_more::derive::Display;
 
-use crate::domain::{Age, NodeId, Path, SafeStateSeqNr, Timestamp, pathcollection::PathCollection};
+use crate::domain::{Age, NodeId, Path, RediscoveryState, SafeStateSeqNr, Timestamp, pathcollection::PathCollection};
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Display)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
 #[display("{_variant}")]
 pub enum ContactState {
+    Unknown,       // when contact is initialized, its state is mostly unknown
     Valid,         // has a validated active path
     Invalid,       // no valid path
-    Rediscovering, // no valid path, but trying to rediscvoer
+    Rediscovering(RediscoveryState), // no valid path, but trying to rediscvoer
     Dead,          // contact not usable anymore (e.g., rediscovery failed finally)
+}
+
+
+impl Default for ContactState {
+    fn default() -> Self {
+        ContactState::Unknown
+    }
 }
 
 /// A [Contact] as represented in the [RoutingTable](crate::domain::routing_table::RoutingTable).
 /// A contact contains the destination NodeId, state information, and paths leading to the contact
 /// The contact is Invalid if no valid paths are present
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Display)]
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[display("Contact [id: {}, age: {}ms, state_seq_nr: {state_seq_nr}, state: {state}, path: {path_collection:?}]", self.id(), self.last_seen.to_age_duration().as_millis())]
 pub struct Contact {
     dest_id: NodeId,
+    #[cfg_attr(feature = "serde", serde(skip))]
     state: ContactState,
     #[cfg_attr(feature = "serde", serde(skip))]
     last_seen: Timestamp,
     path_collection: PathCollection,
     state_seq_nr: SafeStateSeqNr,
+}
+
+
+impl Hash for Contact {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.dest_id.hash(state)
+    }
 }
 
 impl Contact {
@@ -116,6 +132,7 @@ impl Contact {
     /// returns true if new path_candidate updated the proposed path or the active path (only when path_candidate was validated)
     pub fn assess_path_candidate_and_update(&mut self, path_candidate: &Path) -> bool {
         let path_suitable = match self.state {
+            ContactState::Unknown => true,
             ContactState::Invalid => true,
             ContactState::Valid => {
                 let active_path = self
@@ -124,7 +141,7 @@ impl Contact {
                     .expect("Valid contact should never have an unset active path");
                 path_candidate.is_better_than(active_path)
             }
-            ContactState::Rediscovering => false,
+            ContactState::Rediscovering(_) => false,
             ContactState::Dead => false,
         };
 

@@ -241,7 +241,7 @@ where
             //let active_path = ;
             for entry in &filtered_not_via_data {
                 if let Some(last_validated) = contact.path().unwrap().get_last_validated()
-                    && *last_validated < Timestamp::from_age(entry.age)
+                    && *last_validated < Timestamp::from(entry.age)
                     && contact.path().unwrap().contains_link(&entry.link)
                 {
                     contact
