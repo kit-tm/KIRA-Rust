@@ -41,7 +41,9 @@ where
         .next_hop(overlay_destination, BUCKET_SIZE, NonZeroU8::MIN)
         .expect("Shared Prefix Grouping should be valid");
 
-    let path = if let Some(closest_node) = closest_node && closest_node.path().is_some() {
+    let path = if let Some(closest_node) = closest_node
+        && closest_node.path().is_some()
+    {
         closest_node.path().unwrap().clone()
     } else {
         // we are the closest => loopback

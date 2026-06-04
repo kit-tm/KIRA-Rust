@@ -3,9 +3,8 @@ use derive_more::with_trait::Display;
 
 use std::ops::Index;
 use std::slice::SliceIndex;
-use std::time::Instant;
 
-use crate::domain::{NodeId, hasher::Hasher};
+use crate::domain::{NodeId, Timestamp, hasher::Hasher};
 use std::sync::OnceLock;
 
 use super::Link;
@@ -32,11 +31,10 @@ impl AnchorNodeId {
 pub enum PathState {
     #[default]
     Undefined, // initial state, path state not yet defined
-    Valid,     // path is valid (has been validated)
-    Faulty,    // path not usable but rediscovery is initiated
-    Checking,  // path probably usable, but needs to be validated (e.g., for a proposed path)
+    Valid,    // path is valid (has been validated)
+    Faulty,   // path not usable but rediscovery is initiated
+    Checking, // path probably usable, but needs to be validated (e.g., for a proposed path)
 }
-
 
 /// A Path of [NodeId]s.
 ///
@@ -55,11 +53,10 @@ pub struct Path {
     #[cfg_attr(feature = "serde", serde(skip))]
     path_state: PathState,
     #[cfg_attr(feature = "serde", serde(skip))]
-    last_validated: Option<Instant>, // update for last validation or invalidation
+    last_validated: Option<Timestamp>, // update for last validation or invalidation
     #[cfg_attr(feature = "serde", serde(skip))]
-    last_path_refresh: Option<Instant>,
+    last_path_refresh: Option<Timestamp>,
 }
-
 
 /// Converts a Vector of [NodeId]s to a Path.
 ///
@@ -161,7 +158,10 @@ impl Path {
     /// Is usually always > 0 as Path has to contain the [Contact](crate::domain::Contact)s NodeId at the
     /// end.
     pub fn size(&self) -> usize {
-        debug_assert!(self.path_state != PathState::Undefined || (self.path_state == PathState::Undefined && !self.ids.is_empty()));
+        debug_assert!(
+            self.path_state != PathState::Undefined
+                || (self.path_state == PathState::Undefined && !self.ids.is_empty())
+        );
         self.ids.len()
     }
     /// Returns if the [Path] contains the [NodeId].
@@ -250,10 +250,11 @@ impl Path {
 
     /// returns true if this path is better (shorter or same length but closer to AnchorNodeId)
     pub fn is_better_than(&self, other_path: &Path) -> bool {
-
         debug_assert!(self.last() == other_path.last()); // paths should have the same destination
-        self.ids.len() < other_path.ids.len() ||
-            (self.ids.len() == other_path.ids.len() && (self.path_hasher().hash(&self.ids) ^ AnchorNodeId.get()) < self.path_hasher().hash(&other_path.ids) ^ AnchorNodeId.get())
+        self.ids.len() < other_path.ids.len()
+            || (self.ids.len() == other_path.ids.len()
+                && (self.path_hasher().hash(&self.ids) ^ AnchorNodeId.get())
+                    < self.path_hasher().hash(&other_path.ids) ^ AnchorNodeId.get())
     }
 
     /// get path state
@@ -289,33 +290,44 @@ impl Path {
     }
 
     /// returns true if path was validated before the given instant (or never)
-    pub fn is_older_than(&self, ts: &Instant) -> bool {
+    pub fn is_older_than(&self, ts: &Timestamp) -> bool {
         match self.last_validated {
             Some(last_ts) => last_ts < *ts,
             None => true,
         }
     }
 
-    pub fn get_last_validated(&self) -> Option<&Instant> {
+    pub fn get_last_validated(&self) -> Option<&Timestamp> {
         self.last_validated.as_ref()
     }
 
-    pub fn get_last_path_refresh(&self) -> Option<&Instant> {
+    pub fn get_last_path_refresh(&self) -> Option<&Timestamp> {
         self.last_path_refresh.as_ref()
     }
 
     pub fn update_last_validated(&mut self) {
-        self.last_validated = Some(Instant::now()); // TODO change Instant::now() to CurrentRuntime::now()
+        // instant should be CurrentRuntime::now()
+        self.last_validated = Some(Timestamp::now());
     }
 
-    pub fn update_last_path_refresh(&mut self) {
-        self.last_path_refresh = Some(Instant::now()); // TODO change Instant::now() to CurrentRuntime::now()
+    pub fn unset_last_validated(&mut self) {
+        // instant should be CurrentRuntime::now()
+        self.last_validated = None;
+    }
+
+    pub fn update_last_path_refresh(&mut self, instant: Timestamp) {
+        // instant should be CurrentRuntime::now()
+        self.last_path_refresh = Some(instant);
+    }
+
+    pub fn unset_last_path_refresh(&mut self) {
+        // instant should be CurrentRuntime::now()
+        self.last_validated = None;
     }
 
     fn path_hasher(&self) -> Hasher {
         Hasher::default()
     }
-
 }
 
 impl Extend<NodeId> for Path {

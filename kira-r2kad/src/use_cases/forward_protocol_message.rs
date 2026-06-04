@@ -7,9 +7,9 @@ use std::ops::{Deref, DerefMut};
 use tracing::{Level, instrument};
 
 use crate::domain::{
-    Contact, ContactState, InOrderCycleRemover, PathCycleRemover , InsertionStrategy, InsertionStrategyResult, Link, NodeId, NotVia,
-    NotViaState, Path, PathState, RoutingTable, Timestamp, ULNTable, UnderlayNeighborId,
-    UnderlayNeighborSource, VicinityGraph,
+    Contact, ContactState, InOrderCycleRemover, InsertionStrategy, InsertionStrategyResult, Link,
+    NodeId, NotVia, NotViaState, Path, PathCycleRemover, PathState, RoutingTable, Timestamp,
+    ULNTable, UnderlayNeighborId, UnderlayNeighborSource, VicinityGraph,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -71,6 +71,7 @@ where
         path.reverse();
         // this path is validated because it was taken from a source route that has been traversed recently
         path.set_state(PathState::Valid);
+        path.update_last_validated();
         path
     }
 
@@ -127,14 +128,12 @@ where
     ///
     /// If the contact was previously an underlay neighbor but not anymore its entry in the ULNTable
     /// will be removed.
-    // TODO new contacts should be probed before insertion is considered
     fn update_contact(&self, context: &C, contact: Contact) {
         let path_to_contact = contact.path().expect("path to given contact should exist");
-        if let Some(not_via) = context
-            .not_via_state()
-            .iter()
-            .find(|not_via| path_to_contact.contains_link(&not_via.link) && path_to_contact.is_older_than(&not_via.timestamp))
-        {
+        if let Some(not_via) = context.not_via_state().iter().find(|not_via| {
+            path_to_contact.contains_link(&not_via.link)
+                && path_to_contact.is_older_than(&not_via.timestamp)
+        }) {
             log::trace!(target: "forward_protocol_message", "Skipping contact - its path contains a not-via link {not_via}; {contact}");
             return;
         }
@@ -144,6 +143,7 @@ where
             return;
         }
 
+        // try to insert or update the contact in the routing table
         log::trace!(target: "forward_protocol_message", "Attempting to insert {contact} into routing table");
         let result = context.routing_table_insertion_strategy().insert(
             contact.clone(),
@@ -181,6 +181,7 @@ where
             // we now have potential cycles that we need to remove
             InOrderCycleRemover.remove_cycles_in_place(&mut path);
             path.set_state(PathState::Checking);
+            path.unset_last_validated();
             reported_contact.set_path(path);
 
             self.update_contact(context, reported_contact);
@@ -195,13 +196,15 @@ where
                 let mut not_via_state = context.not_via_state_mut();
                 let mut routing_table = context.routing_table_mut();
 
-                // probably update the timestamp
-                let nvs_entry = NotViaState::new(link.clone(), context.runtime().current_time());
+                // a segment failure is recent (minus RTT/2), probably update the timestamp
+                let nvs_entry = NotViaState::new(link.clone(), Timestamp::now());
                 not_via_state.replace(nvs_entry.clone());
 
                 // check for all contacts that have an active path that is affected by the failed link
                 for mut contact in routing_table.iter_mut() {
-                    if let Some(active_path) = contact.path_mut() && active_path.contains_link(link) {
+                    if let Some(active_path) = contact.path_mut()
+                        && active_path.contains_link(link)
+                    {
                         // invalidate path and contact now
                         active_path.invalidate();
                         *contact.state_mut() = ContactState::Invalid;
@@ -233,16 +236,23 @@ where
         // invalidate contacts that have older path information than notvia and whose active path contain a notvia link
         for mut contact in routing_table
             .iter_mut()
-            .filter(|c| c.is_valid() && c.path().is_some()) {
-                for entry in &filtered_not_via_data {
-                    if  *contact.last_seen() < Timestamp::from_age(entry.age)
-                        && contact.path().unwrap().contains_link(&entry.link) {
-                            contact.path_mut().unwrap().invalidate();
-                            *contact.state_mut() = ContactState::Invalid;
-                            log::debug!(target: "forward_protocol_message", "Invalidated contact {} based on not-via data of {}", contact.id(), source);
-                            continue;
-                        }
+            .filter(|c| c.is_valid() && c.path().is_some())
+        {
+            //let active_path = ;
+            for entry in &filtered_not_via_data {
+                if let Some(last_validated) = contact.path().unwrap().get_last_validated()
+                    && *last_validated < Timestamp::from_age(entry.age)
+                    && contact.path().unwrap().contains_link(&entry.link)
+                {
+                    contact
+                        .path_mut()
+                        .unwrap()
+                        .invalidate();
+                    *contact.state_mut() = ContactState::Invalid;
+                    log::debug!(target: "forward_protocol_message", "Invalidated contact {} based on not-via data of {}", contact.id(), source);
+                    continue;
                 }
+            }
         }
     }
 
@@ -259,10 +269,9 @@ where
         }
         let source_contact = source_contact.unwrap();
         // TODO using the source route of the message is probably better
-        let Some(path_to_source_contact) = source_contact.path()
-                                                     else {
-                                                         return;
-                                                     };
+        let Some(path_to_source_contact) = source_contact.path() else {
+            return;
+        };
 
         // iterate over all given contacts in the update message
         for (updated_contact, update_action) in route_updates {
@@ -295,17 +304,20 @@ where
                 //                       FailureHandling use case
                 RouteUpdateActionType::Unreachable => {
                     // this is only useful for ULN contacts of the source node to consider
-                    let mut affected_contact =
-                        routing_table.contact_mut(updated_contact.id()).expect("contact should be present");
+                    let mut affected_contact = routing_table
+                        .contact_mut(updated_contact.id())
+                        .expect("contact should be present");
 
                     if let Some(affected_path) = affected_contact.path()
-                        && affected_path.contains_link(&Link::new(*source_id,*updated_contact.id()))
-                        && affected_contact.is_older_than(&updated_contact) {
-                            *affected_contact.state_mut() = ContactState::Invalid;
-                            if let Some(active_path) = affected_contact.path_mut() {
-                                active_path.invalidate();
-                            }
-                            log::trace!(target: "forward_protocol_message", "Invalidated contact {} based on route update (Unreachable) of {} [Removed]", affected_contact.id(), source_id);
+                        && affected_path
+                            .contains_link(&Link::new(*source_id, *updated_contact.id()))
+                        && affected_contact.is_older_than(&updated_contact)
+                    {
+                        *affected_contact.state_mut() = ContactState::Invalid;
+                        if let Some(active_path) = affected_contact.path_mut() {
+                            active_path.invalidate();
+                        }
+                        log::trace!(target: "forward_protocol_message", "Invalidated contact {} based on route update (Unreachable) of {} [Removed]", affected_contact.id(), source_id);
                     }
                 }
                 RouteUpdateActionType::Announce | RouteUpdateActionType::Change => {
@@ -498,16 +510,6 @@ where
         let next_hop = next_hop.unwrap();
 
         // From here on the message is assumed to be for us
-
-        // Check if next link is in not_via data
-        // FIXME this should probably not be checked using NotViaState but using the neighbor table?!
-        if context.not_via_state().contains(&NotViaState::new(
-            Link::new(*context.root_id(), *next_hop),
-            context.runtime().current_time(),
-        )) {
-            self.handle_next_hop_failed(context, message);
-            return HandlingResult::Handled;
-        }
 
         // Next hop is not a underlay neighbor -> Error -> Drop
         let neighbor_ulnid = context.uln_table().get(next_hop).cloned();

@@ -7,8 +7,8 @@ use tracing::{Level, instrument};
 use derive_more::derive::{Display, Error};
 
 use crate::domain::{
-    Contact, ContactState, Link, NodeId, NotVia, NotViaState, RoutingTable, ULNTable,
-    UnderlayNeighborId, UnderlayNeighborUpdate, VicinityGraph,
+    Contact, ContactState, Link, NodeId, NotVia, NotViaState, RoutingTable, Timestamp,
+    ULNTable, UnderlayNeighborId, UnderlayNeighborUpdate, VicinityGraph,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -228,7 +228,10 @@ where
                 target: *contact.id(),
             },
             not_via: context.not_via_state().iter().map(NotVia::from).collect(),
-            source_route: SourceRoute::new(*context.root_id(), closest_contact.path().unwrap().clone()),
+            source_route: SourceRoute::new(
+                *context.root_id(),
+                closest_contact.path().unwrap().clone(),
+            ),
         };
 
         context
@@ -318,7 +321,10 @@ where
                 target: *node_id,
             },
             not_via: context.not_via_state().iter().map(NotVia::from).collect(),
-            source_route: SourceRoute::new(*context.root_id(), closest_contact.path().unwrap().clone()),
+            source_route: SourceRoute::new(
+                *context.root_id(),
+                closest_contact.path().unwrap().clone(),
+            ),
         };
 
         context
@@ -347,15 +353,19 @@ where
         log::trace!(target: "failure_handling", "Underlay neighbors affected by interface {ulnid:?} down: {affected_underlay_neighbors:?}");
 
         not_via_state.extend(
-            affected_underlay_neighbors
-                .iter()
-                .cloned()
-                .map(|id| NotViaState::new(Link::new(*context.root_id(), id), context.runtime().current_time())), // TODO check for correct age value
+            affected_underlay_neighbors.iter().cloned().map(|id| {
+                NotViaState::new(
+                    Link::new(*context.root_id(), id),
+                    Timestamp::now(),
+                )
+            }), // TODO check for correct age value
         );
 
         // find contacts whose path contain affected underlay neighbors as first hop
         for mut contact in rt.iter_mut() {
-            if contact.path().is_some() && affected_underlay_neighbors.contains(contact.path().unwrap().first()) {
+            if contact.path().is_some()
+                && affected_underlay_neighbors.contains(contact.path().unwrap().first())
+            {
                 *contact.state_mut() = ContactState::Invalid;
 
                 log::trace!(target: "failure_handling", "Invalidated contact {} as it starts with failed underlay neighbor {}", contact.id(), contact.path().unwrap().first());
@@ -416,18 +426,13 @@ where
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
         match event {
-            UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {
-                if new.id() == old.id() {
-                    // contact was invalidated
-                    if new.state() == &ContactState::Invalid
-                        && old.state() != &ContactState::Invalid
-                    {
-                        self.start_rediscovery(context, new)?;
-                    } else if new.state() == &ContactState::Valid
-                        && old.state() != &ContactState::Valid
-                    {
-                        self.remove_notvia_mentioning(context, new.id());
-                    }
+            UseCaseEvent::Contact(ContactEvent::Updated { new, old }) if new.id() == old.id() => {
+                // contact was invalidated
+                if new.state() == &ContactState::Invalid && old.state() != &ContactState::Invalid {
+                    self.start_rediscovery(context, *new)?;
+                } else if new.state() == &ContactState::Valid && old.state() != &ContactState::Valid
+                {
+                    self.remove_notvia_mentioning(context, new.id());
                 }
             }
             UseCaseEvent::Contact(ContactEvent::Removed(contact)) => {
@@ -461,9 +466,10 @@ where
                     ..
                 } = rsp
                 {
-                    context
-                        .not_via_state_mut()
-                        .insert(NotViaState::new(failed_link.clone(), context.runtime().current_time()));
+                    context.not_via_state_mut().insert(NotViaState::new(
+                        failed_link.clone(),
+                        Timestamp::now(),
+                    ));
                     log::trace!(target: "failure_handling", "added failed link {failed_link:?} to NotVia data");
                     self.invalidate_contacts_containing_link(context, &failed_link);
                 }

@@ -327,19 +327,17 @@ where
                 self.send_fetch_rsp(context, req)
             }
             // ========== Expire Timer event ==========
-            (UseCaseEvent::Timer(id), DHTState::Running(our_timer_id)) => {
-                if &id == our_timer_id {
-                    self.hash_table.expire(&());
-                }
+            (UseCaseEvent::Timer(id), DHTState::Running(our_timer_id)) if &id == our_timer_id => {
+                self.hash_table.expire(&());
             }
             // ========== Republish values ==========
             (UseCaseEvent::Contact(ContactEvent::New(contact)), _) => {
                 self.republish_to_contact_if_closer(context, contact)
             }
-            (UseCaseEvent::Contact(ContactEvent::Updated { new, old }), _) => {
-                if new.state() == &ContactState::Valid && old.state() != &ContactState::Valid {
-                    self.republish_to_contact_if_closer(context, new);
-                }
+            (UseCaseEvent::Contact(ContactEvent::Updated { new, old }), _)
+                if new.state() == &ContactState::Valid && old.state() != &ContactState::Valid =>
+            {
+                self.republish_to_contact_if_closer(context, *new);
             }
             // ========== API Calls ==========
             // TODO: move hash table in context and add extra DHTApi UseCase for this event handler

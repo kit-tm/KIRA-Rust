@@ -103,7 +103,12 @@ where
     fn invalidate_all_affected_contacts(&self, context: &C, invalidated_contact: &Contact) {
         // Invalidate all other contacts via this contact
         for mut saved_contact in context.routing_table_mut().iter_mut() {
-            if saved_contact.path().is_some() && saved_contact.path().unwrap().starts_with(invalidated_contact.path().unwrap()) {
+            if saved_contact.path().is_some()
+                && saved_contact
+                    .path()
+                    .unwrap()
+                    .starts_with(invalidated_contact.path().unwrap())
+            {
                 *saved_contact.state_mut() = ContactState::Invalid;
             }
         }
@@ -160,9 +165,9 @@ where
             UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {
                 let mut updates = HashMap::new();
                 if new.state() == &ContactState::Valid {
-                    updates.insert(new.clone(), RouteUpdateActionType::Change);
+                    updates.insert(*new.clone(), RouteUpdateActionType::Change);
                 } else {
-                    updates.insert(new.clone(), RouteUpdateActionType::Unreachable);
+                    updates.insert(*new.clone(), RouteUpdateActionType::Unreachable);
                 }
 
                 // this should be fine, since we only update contacts if interesting anyways

@@ -1,7 +1,7 @@
 use crate::domain::Path;
 
-use std::hash::{Hash, Hasher};
 use derive_more::derive::Display;
+use std::hash::{Hash, Hasher};
 
 const MAX_ALTERNATIVE_PATHS: usize = 3;
 
@@ -16,7 +16,6 @@ pub struct PathCollection {
     #[cfg_attr(feature = "serde", serde(skip))]
     alternative_paths: [Option<Path>; MAX_ALTERNATIVE_PATHS],
 }
-
 
 impl PathCollection {
     pub fn new() -> Self {
@@ -77,21 +76,20 @@ impl PathCollection {
     }
 }
 
-
 impl PartialEq for PathCollection {
     fn eq(&self, other: &Self) -> bool {
         self.active_path == other.active_path && self.proposed_path == other.proposed_path
     }
 }
 
-
 // NOTE currently the hasher only considers the active path if there is one
 impl Hash for PathCollection {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        if let Some(ref apath) = self.active_path { Hash::hash(apath, state) }
+        if let Some(ref apath) = self.active_path {
+            Hash::hash(apath, state)
+        }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

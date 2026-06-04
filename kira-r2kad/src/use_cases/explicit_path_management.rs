@@ -118,7 +118,13 @@ where
     }
 
     fn send_probe_req(&self, context: &C, contact: &Contact) {
-        let source_route = SourceRoute::new(*context.root_id(), contact.path().expect("ProbeReq for refreshing contact should be called for valid contacts only").clone());
+        let source_route = SourceRoute::new(
+            *context.root_id(),
+            contact
+                .path()
+                .expect("ProbeReq for refreshing contact should be called for valid contacts only")
+                .clone(),
+        );
         let message = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::ProbeReq,
@@ -195,7 +201,9 @@ where
     fn perform_refresh(&mut self, context: &C) {
         for contact in context.routing_table().iter() {
             // don't probe invalid or vicinity contacts
-            if contact.state() != &ContactState::Valid || contact.path().unwrap().size() <= VICINITY_RADIUS {
+            if contact.state() != &ContactState::Valid
+                || contact.path().unwrap().size() <= VICINITY_RADIUS
+            {
                 continue;
             }
 
@@ -350,10 +358,10 @@ where
     ) -> Result<Self::Value, Self::Error> {
         match (event, &self.state) {
             // ========== Contact Updates ==========
-            (UseCaseEvent::Contact(ContactEvent::New(contact)), _) => {
-                if contact.path().unwrap().size() > VICINITY_RADIUS {
-                    self.send_setup_req(context, &contact);
-                }
+            (UseCaseEvent::Contact(ContactEvent::New(contact)), _)
+                if contact.path().unwrap().size() > VICINITY_RADIUS =>
+            {
+                self.send_setup_req(context, &contact);
             }
             (UseCaseEvent::Contact(ContactEvent::Updated { new, old }), _) => {
                 match (
@@ -404,10 +412,10 @@ where
                     }
                 }
             }
-            (UseCaseEvent::Contact(ContactEvent::Removed(contact)), _) => {
-                if contact.path().unwrap().size() > VICINITY_RADIUS {
-                    self.send_teardown_req(context, &contact);
-                }
+            (UseCaseEvent::Contact(ContactEvent::Removed(contact)), _)
+                if contact.path().unwrap().size() > VICINITY_RADIUS =>
+            {
+                self.send_teardown_req(context, &contact);
             }
             // ========== Timers ==========
             (

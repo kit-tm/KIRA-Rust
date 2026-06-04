@@ -48,7 +48,10 @@ impl PathSimplifier for ShortestFirstPathSimplifier {
                 .contact(&dest_id)
                 .filter(|contact| contact.state() == &ContactState::Valid)
             {
-                let known_path = known_contact.path().expect("Valid contact should have active path").clone();
+                let known_path = known_contact
+                    .path()
+                    .expect("Valid contact should have active path")
+                    .clone();
                 if known_path.size() < part_len {
                     path.replace_interval(0, dest_index, known_path);
                     break;

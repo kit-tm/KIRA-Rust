@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use tracing::{Level, instrument};
 
 use crate::domain::{
-    Contact, ContactState, DEFAULT_BUCKET_SIZE, NodeId, NotVia, RoutingTable, ULNTable,
+    Contact, ContactState, DEFAULT_BUCKET_SIZE, NodeId, NotVia, Path, RoutingTable, ULNTable,
     UnderlayNeighborId,
 };
 use crate::messaging::source_route::SourceRoute;
@@ -14,8 +14,8 @@ use crate::messaging::{
     ReqRspMessage, WireFormatMessage,
 };
 use crate::use_cases::{
-    ContactEvent, EventHandler, NeverError, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime,
-    UseCaseState,
+    ContactEvent, EventHandler, NeverError, TimerId, UseCase, UseCaseContext, UseCaseEvent,
+    UseCaseRuntime, UseCaseState,
 };
 
 /// Configuration for [PathProbing] [UseCase].
@@ -27,7 +27,7 @@ pub struct PathProbingConfig {
     /// Maximum age of a [Contact] before it has to be probed.
     ///
     /// Default is **40s** because underlay advertising is about 30s.
-    pub probe_age: chrono::Duration,
+    pub probe_age: Duration,
     /// Maximum duration a [ProbeReq](crate::messaging::messages::ProtocolMessage::ProbeReq) is allowed to take.
     pub request_timeout: Duration,
     /// When scheduled probe requests will start after their initial schedule
@@ -38,7 +38,7 @@ impl Default for PathProbingConfig {
     fn default() -> Self {
         Self {
             check_interval: Duration::from_secs(1),
-            probe_age: chrono::Duration::seconds(40),
+            probe_age: Duration::from_secs(40),
             request_timeout: Duration::from_secs(10),
             scheduled_probe_delay: Duration::from_millis(250),
         }
@@ -56,7 +56,7 @@ pub enum PathProbingState {
         /// Maps the in flight requests to their contacts id.
         requests_in_flight: HashMap<Nonce, (NodeId, Instant)>,
         /// Scheduled probe request, mainly for path validation of proposed paths
-        scheduled_probe_requests: HashMap<NodeId,Instant>,
+        scheduled_probe_requests: HashMap<NodeId, Instant>,
         /// Timer for sending scheduled probe requests
         scheduled_sending_timer: Option<TimerId>,
     },
@@ -130,15 +130,14 @@ where
     // sends out a single ProbeReq for a proposed path if that is present
     // this is a one shot message, so no timer for repetition is started and garbage collection will remove any unsatisfied request nonces
     fn send_single_probe_req_for_proposed_path(&mut self, context: &C, contact: &Contact) {
-
+        // if there is no proposed path to probe for, just return
         if contact.proposed_path().is_none() {
             return;
         }
 
         let requests_in_flight = match &mut self.state {
             PathProbingState::Running {
-                requests_in_flight,
-                ..
+                requests_in_flight, ..
             } => requests_in_flight,
             _ => panic!("Called sending probe outside of running state"),
         };
@@ -170,9 +169,8 @@ where
 
         requests_in_flight.insert(nonce, (*contact.id(), context.runtime().current_time()));
 
-        log::trace!(target: "path_probing", "Sent probe for proposed path {:?} to {}", contact.proposed_path(), contact.id());
+        log::trace!(target: "path_probing", "Sent probe for proposed path to {} for path {:?}", contact.id(), contact.proposed_path());
     }
-
 
     fn send_probe_req(&mut self, context: &C, contact: &Contact) {
         let (probe_timers, requests_in_flight) = match &mut self.state {
@@ -218,7 +216,6 @@ where
         log::trace!(target: "path_probing", "Sent probe to {}", contact.id());
     }
 
-
     fn remove_from_tracked_messages(&mut self, nonce: Nonce) {
         if let PathProbingState::Running {
             requests_in_flight,
@@ -233,7 +230,6 @@ where
         }
     }
 
-
     fn invalidate_contact_for_timer(&mut self, context: &C, timer_id: TimerId) {
         if let PathProbingState::Running {
             requests_in_flight,
@@ -245,7 +241,8 @@ where
             assert!(nonce.is_some(), "called invalidate without timer existence");
             let nonce = nonce.unwrap();
             let contact_ts_tuple = requests_in_flight.remove(&nonce);
-            let (contacts_id, _) = contact_ts_tuple.expect("It's assumed that for every timer entry a request entry exists");
+            let (contacts_id, _) = contact_ts_tuple
+                .expect("It's assumed that for every timer entry a request entry exists");
             let mut lock = context.routing_table_mut();
             match lock.contact_mut(&contacts_id) {
                 Some(mut contact) => {
@@ -267,7 +264,8 @@ where
         } = &mut self.state
         {
             let contact_ts_tuple = requests_in_flight.remove(&nonce);
-            let (contacts_id,_) = contact_ts_tuple.expect("It's assumed that for every timer entry a request entry exists");
+            let (contacts_id, _) = contact_ts_tuple
+                .expect("It's assumed that for every timer entry a request entry exists");
             probe_timers.retain(|_, v| *v != nonce);
 
             let mut lock = context.routing_table_mut();
@@ -321,9 +319,12 @@ where
 
     fn is_scheduled_probe_timer(&self, timer_id: &TimerId) -> bool {
         match &self.state {
-            PathProbingState::Running { scheduled_sending_timer, .. } => {
+            PathProbingState::Running {
+                scheduled_sending_timer,
+                ..
+            } => {
                 matches!(scheduled_sending_timer, Some(scheduled_sending_timer) if scheduled_sending_timer == timer_id)
-            },
+            }
             _ => false,
         }
     }
@@ -340,19 +341,22 @@ where
     fn schedule_path_probe_req(&mut self, context: &C, contact: &Contact) {
         if let PathProbingState::Running {
             scheduled_probe_requests,
-            scheduled_sending_timer, ..
-        }
-        = &mut self.state
+            scheduled_sending_timer,
+            ..
+        } = &mut self.state
         {
             // start timer for processing if not already done so
             if scheduled_sending_timer.is_none() {
-                *scheduled_sending_timer = Some(context
-                                               .runtime()
-                                               .register_rand_timer(self.config.scheduled_probe_delay));
+                *scheduled_sending_timer = Some(
+                    context
+                        .runtime()
+                        .register_rand_timer(self.config.scheduled_probe_delay),
+                );
             }
             // add request if not yet present
             if !scheduled_probe_requests.contains_key(contact.id()) {
-                scheduled_probe_requests.insert(contact.id().clone(), context.runtime().current_time());
+                scheduled_probe_requests.insert(*contact.id(), context.runtime().current_time());
+                log::trace!(target: "path_probing", "Scheduled probing for proposed path to {}",contact.id());
             }
         }
     }
@@ -360,36 +364,50 @@ where
     // this function removes single shot probe requests from the inflight_requests that are older than config.request_timeout
     fn garbage_collect_requests(&mut self, context: &C) {
         if let PathProbingState::Running {
-                requests_in_flight, ..
-        }
-        = &mut self.state
+            requests_in_flight, ..
+        } = &mut self.state
         {
             let now = context.runtime().current_time();
-            requests_in_flight.retain(|_,v| now.saturating_duration_since(v.1) <= self.config.request_timeout);
+            let old_size = requests_in_flight.len();
+            requests_in_flight
+                .retain(|_, v| now.saturating_duration_since(v.1) <= self.config.request_timeout);
+            if requests_in_flight.len() < old_size {
+                log::trace!(target: "path_probing", "Garbage collect: removed {} orphaned requests", old_size-requests_in_flight.len());
+            }
         }
     }
 
     fn send_scheduled_probe_requests(&mut self, context: &C) {
         let now = context.runtime().current_time();
-        let mut probes_to_send : HashMap<NodeId,Instant> = HashMap::new();
+        let mut probes_to_send: HashMap<NodeId, Instant> = HashMap::new();
         if let PathProbingState::Running {
             scheduled_probe_requests,
-            scheduled_sending_timer, ..
-        }
-        = &mut self.state
+            scheduled_sending_timer,
+            ..
+        } = &mut self.state
         {
             // extract all elapsed events
-            probes_to_send= scheduled_probe_requests.extract_if(|_k,time| now.saturating_duration_since(*time) >  self.config.scheduled_probe_delay/2).collect();
+            probes_to_send = scheduled_probe_requests
+                .extract_if(|_k, time| {
+                    now.saturating_duration_since(*time) > self.config.scheduled_probe_delay / 2
+                })
+                .collect();
             // if more recent requests remain, restart timer
-            if !scheduled_probe_requests.is_empty() {
-                *scheduled_sending_timer = Some(context
-                                                .runtime()
-                                                .register_rand_timer(self.config.scheduled_probe_delay));
+            if scheduled_probe_requests.is_empty() {
+                // no timer needed  to start sending waiting request
+                *scheduled_sending_timer = None;
+            } else {
+                // start a new timer
+                *scheduled_sending_timer = Some(
+                    context
+                        .runtime()
+                        .register_rand_timer(self.config.scheduled_probe_delay),
+                );
             }
         }
 
         // if there is something to probe, send the ProbeReq messages
-        if probes_to_send.len() > 0 {
+        if !probes_to_send.is_empty() {
             if probes_to_send.len() > 100 {
                 log::warn!(target: "path_probing", "{} probes to send: consider rate limiting", probes_to_send.len());
             }
@@ -397,7 +415,6 @@ where
             let rt = context.routing_table();
             for node_id in probes_to_send.keys() {
                 if let Some(contact) = rt.contact(node_id) {
-                    log::warn!(target: "path_probing", "sending ProbeReq to {} for path validation", node_id);
                     self.send_single_probe_req_for_proposed_path(context, contact);
                 }
             }
@@ -475,36 +492,44 @@ where
                     self.send_scheduled_probe_requests(context);
                 }
             }
-            UseCaseEvent::Message(ProtocolMessage::ProbeRsp(req), _) => {
-                if self.is_tracked_message(&req.msg_id().into()) {
+            UseCaseEvent::Message(ProtocolMessage::ProbeRsp(req), _)
+                if self.is_tracked_message(&req.msg_id().into()) => {
                     let ReqRspMessage {
                         common_header,
                         source_route,
                         ..
                     } = req;
                     let source = *source_route.source();
+                    let mut rev_source_route = Path::from(source_route);
+                    rev_source_route.reverse();
+
                     let nonce = Nonce::from(common_header.msg_id());
 
+                    // in case we have a contact we validate it explicitly (currently this is done in forward_messages already)
+                    let mut rt = context.routing_table_mut();
+                    if let Some(mut contact) = rt.contact_mut(&source)
+                        && let Some(active_path) = contact.path_mut()
+                        && *active_path == rev_source_route {
+                            assert!(active_path.is_valid());
+                            active_path.set_state(crate::domain::PathState::Valid);
+                            active_path.update_last_validated();
+                    }
                     self.remove_from_tracked_messages(nonce);
 
-                    log::trace!(target: "path_probing", "Probing {source} was successful!");
+                    log::trace!(target: "path_probing", "Probing destination {source} was successful!");
                 }
-            }
-            UseCaseEvent::Message(ProtocolMessage::Error(req), _) => {
-                if self.is_tracked_message(&req.msg_id().into()) {
+            UseCaseEvent::Message(ProtocolMessage::Error(req), _)
+                if self.is_tracked_message(&req.msg_id().into()) => {
                     self.invalidate_contact_for_message(context, req.msg_id().into());
                 }
-            }
             UseCaseEvent::Message(ProtocolMessage::ProbeReq(req), _) => {
                 self.send_probe_rsp(context, req);
             }
-            UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {
+            UseCaseEvent::Contact(ContactEvent::Updated { new, old })
                 // in case there is a new proposed path present, schedule probing for proposed path in case it is not a ULN
-                if old.proposed_path().is_none() && new.proposed_path().is_some() && new.proposed_path().unwrap().size() > 1 {
+                if old.proposed_path().is_none() && new.proposed_path().is_some() && new.proposed_path().unwrap().size() > 1 => {
                     self.schedule_path_probe_req(context, &new);
-                    log::trace!(target: "path_probing", "Scheduled probing for proposed path");
                 }
-            }
             _ => {}
         }
 

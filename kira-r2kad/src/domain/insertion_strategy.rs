@@ -66,7 +66,6 @@ where
 {
     /// Update an existing contact in the table instead of inserting.
     fn update_existing(&self, contact: Contact, table: &mut RT) -> InsertionStrategyResult {
-
         let mut existing = table
             .contact_mut(contact.id())
             .expect("update_existing should only be called after detecting an id to be present");
@@ -95,11 +94,12 @@ where
         // if paths have the same length the XOR metric is used to determine possible replacement
         // if given path is somehow an improvement (contact vailidity is considered as well) it will be set as new proposed path
         if existing.state_seq_nr() == contact.state_seq_nr() {
-            if existing.assess_path_candidate_and_update(contact.path().expect("contact is expected to have a path")) {
+            if existing.assess_path_candidate_and_update(
+                contact.path().expect("contact is expected to have a path"),
+            ) {
                 if contact.path().unwrap().is_valid() {
                     log::trace!(target: "routing_table", "Updated path: active path was replaced by [{:?} ]", contact.path().unwrap());
-                }
-                else {
+                } else {
                     log::trace!(target: "routing_table", "Updated path: proposed path was replaced by [{:?} ]", contact.path().unwrap());
                 }
                 return InsertionStrategyResult::Updated;

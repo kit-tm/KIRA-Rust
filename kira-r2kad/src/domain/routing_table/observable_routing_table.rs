@@ -32,8 +32,11 @@ pub enum RoutingTableEvent<const BUCKET_SIZE: usize> {
     #[display("NewContact [{_0}]")]
     NewContact(Contact),
     /// An existing [Contact] was updated.
-    #[display("UpdatedContact [{old} => {new}]")]
-    UpdatedContact { new: Contact, old: Contact },
+    #[display("UpdatedContact [{} => {}]",*old,*new)]
+    UpdatedContact {
+        new: Box<Contact>,
+        old: Box<Contact>,
+    },
     /// A [Contact] was removed from the [RoutingTable].
     #[display("RemovedContact [{_0}]")]
     RemovedContact(Contact),
@@ -205,8 +208,8 @@ where
     fn replace(&mut self, id: &NodeId, with: Contact) -> Result<Contact, ReplacementError> {
         let replaced = self.inner.replace(id, with.clone())?;
         self.notify_all(RoutingTableEvent::UpdatedContact {
-            new: with,
-            old: replaced.clone(),
+            new: Box::new(with),
+            old: Box::new(replaced.clone()),
         });
         Ok(replaced)
     }
@@ -370,8 +373,8 @@ where
             notify_all(
                 self.observers,
                 RoutingTableEvent::UpdatedContact {
-                    new: self.contact.clone(),
-                    old: self.original.clone(),
+                    new: Box::new(self.contact.clone()),
+                    old: Box::new(self.original.clone()),
                 },
             );
         }
@@ -458,8 +461,8 @@ mod tests {
         assert!(add_result.is_ok());
         assert!(
             (events.read().unwrap()).contains(&RoutingTableEvent::UpdatedContact {
-                old: contact,
-                new: new_contact
+                old: Box::new(contact),
+                new: Box::new(new_contact)
             })
         );
     }
@@ -500,8 +503,8 @@ mod tests {
                 .read()
                 .unwrap()
                 .contains(&RoutingTableEvent::UpdatedContact {
-                    new: updated_contact,
-                    old: contact,
+                    new: Box::new(updated_contact),
+                    old: Box::new(contact),
                 }),
             "{events:?}"
         );

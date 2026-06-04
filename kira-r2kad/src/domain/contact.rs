@@ -1,9 +1,8 @@
 use std::cmp::Ordering;
 
-use chrono::Utc;
 use derive_more::derive::Display;
 
-use crate::{domain::{Age, NodeId, Path, SafeStateSeqNr, Timestamp, pathcollection::PathCollection}};
+use crate::domain::{Age, NodeId, Path, SafeStateSeqNr, Timestamp, pathcollection::PathCollection};
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -20,10 +19,11 @@ pub enum ContactState {
 /// The contact is Invalid if no valid paths are present
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[display("Contact [id: {}, age: {}, state_seq_nr: {state_seq_nr}, state: {state}, path: {path_collection:?}]", self.id(), self.last_seen.to_age_duration())]
+#[display("Contact [id: {}, age: {}ms, state_seq_nr: {state_seq_nr}, state: {state}, path: {path_collection:?}]", self.id(), self.last_seen.to_age_duration().as_millis())]
 pub struct Contact {
     dest_id: NodeId,
     state: ContactState,
+    #[cfg_attr(feature = "serde", serde(skip))]
     last_seen: Timestamp,
     path_collection: PathCollection,
     state_seq_nr: SafeStateSeqNr,
@@ -37,7 +37,7 @@ impl Contact {
         Self {
             dest_id: *path.last(),
             state: ContactState::Valid,
-            last_seen: Timestamp::from(Utc::now()),
+            last_seen: Timestamp::now(),
             path_collection: PathCollection::new_with_active_path(path),
             state_seq_nr,
         }
@@ -65,8 +65,8 @@ impl Contact {
         // However, one needs to distinguish whether the current contact is still a ULN but has
         // just lost its direct link...
         match self.path_collection.active_path() {
-            Some(path) =>  (*path).size() == 1,
-            None => false
+            Some(path) => (*path).size() == 1,
+            None => false,
         }
     }
 
@@ -104,7 +104,7 @@ impl Contact {
     }
 
     pub fn set_last_seen_now(&mut self) {
-        self.last_seen = Timestamp::from(Utc::now());
+        self.last_seen = Timestamp::now();
     }
 
     pub fn last_seen_mut(&mut self) -> &mut Timestamp {
@@ -118,9 +118,12 @@ impl Contact {
         let path_suitable = match self.state {
             ContactState::Invalid => true,
             ContactState::Valid => {
-                let active_path = self.path_collection.active_path().expect("Valid contact should never have an unset active path");
+                let active_path = self
+                    .path_collection
+                    .active_path()
+                    .expect("Valid contact should never have an unset active path");
                 path_candidate.is_better_than(active_path)
-            },
+            }
             ContactState::Rediscovering => false,
             ContactState::Dead => false,
         };
@@ -129,7 +132,7 @@ impl Contact {
             // if path candidate has been validated (stems from a message's source route), we can also replace the active path directly
             if path_candidate.is_valid() {
                 self.path_collection.set_active_path(path_candidate.clone());
-                return true
+                return true;
             }
             // check if path_candidate is better than current proposed path if present
             let should_set_proposed_path = match self.path_collection.proposed_path() {
@@ -139,7 +142,8 @@ impl Contact {
 
             if should_set_proposed_path {
                 // set a new proposed path
-                self.path_collection.set_proposed_path(path_candidate.clone());
+                self.path_collection
+                    .set_proposed_path(path_candidate.clone());
                 return true;
             }
         }

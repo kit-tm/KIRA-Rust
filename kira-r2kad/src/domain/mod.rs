@@ -15,7 +15,7 @@ pub use routing_table::flat_routing_table::*;
 pub use routing_table::*;
 pub use state_seq_nr::*;
 use std::hash::{Hash, Hasher};
-use std::time::{Instant};
+use std::time::{Instant,Duration};
 pub use underlay::*;
 pub use underlay_neighbor_table::*;
 pub use vicinity::*;
@@ -34,8 +34,6 @@ pub mod state_seq_nr;
 pub mod underlay;
 pub mod underlay_neighbor_table;
 pub mod vicinity;
-
-use chrono::{DateTime, Duration, Utc};
 
 /// Specifies in milliseconds the age of the routing information.
 ///
@@ -56,38 +54,57 @@ impl From<u64> for Age {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Display)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[display("{}", self.0.timestamp_millis())]
+#[display("{:?}", self.0)]
 pub struct Timestamp(
-    #[cfg_attr(feature = "serde", serde(with = "chrono::serde::ts_milliseconds"))] DateTime<Utc>,
+    Instant,
 );
 
-impl From<DateTime<Utc>> for Timestamp {
-    fn from(time: DateTime<Utc>) -> Self {
+impl From<Instant> for Timestamp {
+    fn from(time: Instant) -> Self {
         Self(time)
     }
 }
 
+
+impl From<Timestamp> for Instant {
+    fn from(ts: Timestamp) -> Self {
+        ts.0
+    }
+}
+
+
+impl Default for Timestamp {
+    fn default() -> Self {
+        Self::now()
+    }
+}
+
+
 impl Timestamp {
     /// Creates a new Timestamp at current time.
     pub fn now() -> Self {
-        Self(Utc::now())
+        Self(Instant::now()) // TODO replace with current_runtime::current_time()
     }
 
     /// Returns the [Age] of the [Timestamp].
     pub fn to_age(&self) -> Age {
         // OK since stored timestamp should always be >= current time
-        Age::from((Utc::now() - self.0).num_milliseconds().unsigned_abs())
+        Age::from(u64::try_from(self.0.elapsed().as_millis()).expect("Age value too large"))
     }
 
-    /// Returns the [Duration] representation of the [Age] of the [Timestamp].
+    /// Returns the [std::time::Duration] representation of the [Age] of the [Timestamp].
     pub fn to_age_duration(&self) -> Duration {
-        Utc::now() - self.0
+        self.0.elapsed()
+    }
+
+    /// Returns the [std::time::Duration] representation of the [Age] of the [Timestamp].
+    pub fn to_age_duration_ms(&self) -> u64 {
+        u64::try_from(self.0.elapsed().as_millis()).expect("age value should never exceed 64bit in ms")
     }
 
     /// Returns the [Timestamp] of the [Age].
     pub fn from_age(age: Age) -> Timestamp {
-        Self(Utc::now() - Duration::milliseconds(age.0.cast_signed()))
+        Timestamp::from(Timestamp::now().0 - (Duration::from_millis(age.0)))
     }
 }
 
@@ -153,7 +170,7 @@ impl From<&NotViaState> for NotVia {
     fn from(notvia_state: &NotViaState) -> Self {
         Self {
             link: notvia_state.link.clone(),
-            age: Age::from((Instant::now() - notvia_state.timestamp).as_millis() as u64),
+            age: Age::from(notvia_state.timestamp.to_age_duration_ms()),
         }
     }
 }
@@ -179,11 +196,11 @@ impl Eq for NotVia {}
 #[display("NotViaState {link} {timestamp:?}")]
 pub struct NotViaState {
     pub link: Link,
-    pub timestamp: Instant,
+    pub timestamp: Timestamp,
 }
 
 impl NotViaState {
-    pub fn new(link: Link, timestamp: Instant) -> Self {
+    pub fn new(link: Link, timestamp: Timestamp) -> Self {
         Self { link, timestamp }
     }
 }

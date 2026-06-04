@@ -259,7 +259,10 @@ where
         context: &C,
         contact: &Contact,
     ) -> Result<NodeIdEntry, DeriveFwdEntriesError> {
-        let next_hop = *contact.path().expect("contact is expected to have an active path").first();
+        let next_hop = *contact
+            .path()
+            .expect("contact is expected to have an active path")
+            .first();
         let next_hop = context
             .uln_table()
             .get(&next_hop)
@@ -301,8 +304,11 @@ where
 
         // Proximity Neighbor Selection:
         // Select contact with shortest path in bucket as prefix entry
-        let Some(closest) = iter.filter(|c|c.is_valid())
-                                .min_by_key(|c| c.path().expect("valid contact should have an active path").size()) else {
+        let Some(closest) = iter.filter(|c| c.is_valid()).min_by_key(|c| {
+            c.path()
+                .expect("valid contact should have an active path")
+                .size()
+        }) else {
             assert_eq!(
                 bucket.iter().count(),
                 0,
@@ -470,7 +476,7 @@ where
                             kind = "NodeId",
                         )
                         .entered();
-                        self.create_node_id_entry(context, new)?;
+                        self.create_node_id_entry(context, *new)?;
                     }
                     (ContactState::Valid, ContactState::Valid) if new.path() != old.path() => {
                         if new.id() == old.id() {
@@ -485,7 +491,7 @@ where
                                 kind = "NodeId",
                             )
                             .entered();
-                            self.update_node_id_entry(context, new)?;
+                            self.update_node_id_entry(context, *new)?;
                         } else {
                             // Contact got substituted for another destination
                             // probably due to proximity neighbor selection
@@ -509,7 +515,7 @@ where
                                 kind = "NodeId",
                             )
                             .entered();
-                            self.create_node_id_entry(context, new)?;
+                            self.create_node_id_entry(context, *new)?;
                         }
                     }
                     _ => {}
@@ -1024,8 +1030,8 @@ mod tests {
             let new_out_path_id = Hasher::Sha1.hash(new_contact.path().unwrap());
 
             let event = UseCaseEvent::Contact(ContactEvent::Updated {
-                new: new_contact.clone(),
-                old: vicinity_contact.clone(),
+                new: Box::new(new_contact.clone()),
+                old: Box::new(vicinity_contact.clone()),
             });
             let handle_result = use_case.handle_event(&sync_context, event);
             assert!(
