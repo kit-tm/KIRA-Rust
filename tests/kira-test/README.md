@@ -22,7 +22,15 @@ To start the shell run the following command
 uv --project=./tests/kira-test run nesttest
 ```
 
-Note: Currently, unshare(2) isolation of nesttest isn't supported if you want to collect OpenTelemetry data
+It is recommended to automatically create the directory `/var/run/netns` on boot.
+Otherwise you have to manually create the directory once before running
+the nesttest in unshare(2) isolation.
+This can be achieved using tmpfiles.d(5):
+```sh
+printf "d /run/netns 0755 root root -\n" | sudo install -m 0644 /dev/stdin /etc/tmpfiles.d/netns.conf
+```
+
+**Note:** Currently, unshare(2) isolation of nesttest isn't supported if you want to collect OpenTelemetry data
 (`--otel` option). You have to ensure to have `CAP_SYS_ADMIN` as required by [NeST].
 
 You can find preexisting topology files in `./tests/topos` ending with `.gml`.
