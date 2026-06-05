@@ -175,10 +175,10 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
         //
         // Check if the nth contact is in the lowest bucket.
         if let Some((_, nth_closest)) = closest.get(n) {
-            let target_bucket_index = self.inner.get_bucket_index(target);
-            let closet_bucket_index = self.inner.get_bucket_index(nth_closest.id());
+            let last_bucket_index = self.inner.num_buckets() - 1;
+            let closest_bucket_index = self.inner.get_bucket_index(nth_closest.id());
 
-            if target_bucket_index == closet_bucket_index {
+            if closest_bucket_index == last_bucket_index {
                 tracing::trace!(
                     target: "routing_table::unlimited_uln_routing_table",
                     reason = "last bucket contacts require sorting by strict XOR-metric",
