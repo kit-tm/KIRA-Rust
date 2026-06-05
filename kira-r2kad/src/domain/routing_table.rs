@@ -284,16 +284,18 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         // In the last bucket select strictly by XOR-metric.
         //
         // Ensured by closest: Only return requested amount (1) sorted by XOR-metric.
-        // Nothing to select.
+        // (Or a contacts with worse prefix).
         #[cfg(debug_assertions)]
         {
             let last_bucket_index = self.bucket(self.root());
             let bucket_index_of_nearest = self.bucket(nearest.id());
-            if last_bucket_index == bucket_index_of_nearest {
-                debug_assert_eq!(
-                    closest.len(),
-                    1,
-                    "No alternative contacts in last bucket; strictly select by XOR-metric"
+
+            if last_bucket_index == bucket_index_of_nearest
+                && let Some((sp, _)) = closest.get(1)
+            {
+                debug_assert!(
+                    nearest_prefix.bit_len() > sp.bit_len(),
+                    "No alternative contacts with equal shared prefix length in last bucket; strictly select by XOR-metric"
                 );
             }
         }
