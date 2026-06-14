@@ -171,7 +171,7 @@ impl UseCaseRuntime for R2KadRuntime {
         // TODO: handle overflow
         *counter = counter
             .checked_add(1)
-            .expect("TimerId overflow should not occure");
+            .expect("TimerId overflow should not occur");
 
         id
     }

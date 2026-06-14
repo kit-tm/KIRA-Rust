@@ -106,6 +106,11 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// Returns if a [Contact] with a given [NodeId] is present in the [RoutingTable].
     fn contains(&self, id: &NodeId) -> bool;
 
+    /// Returns if a [Contact] with a given [NodeId] is present in the [RoutingTable] and contact fulfills given predicate
+    fn contains_with<F>(&self, id: &NodeId, f: F) -> bool
+    where
+        F: Fn(&Contact) -> bool;
+
     /// Attempts to split the [Bucket] the id should be located in.
     /// The [Contact]s in the [Bucket] will be inserted in the appropriate [Bucket]s.
     ///
@@ -158,7 +163,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         Ok(())
     }
 
-    /// Returns the **n** closest contacts sorted by distance to the given [NodeId].
+    /// Returns the **n** closest valid contacts sorted by distance to the given [NodeId].
     ///
     /// The returned pairs are the calculated [SharedPrefix] for every [Contact].
     /// These are also sorted from closest to farthest away.

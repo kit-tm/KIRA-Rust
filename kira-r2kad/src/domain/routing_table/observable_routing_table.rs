@@ -234,6 +234,12 @@ where
         self.inner.contains(id)
     }
 
+    fn contains_with<F>(&self, id: &NodeId, f: F) -> bool
+    where
+        F: Fn(&Contact) -> bool {
+        self.inner.contains_with(id,f)
+    }
+
     fn split_bucket(&mut self, id: &NodeId) -> Result<usize, BucketSplitError> {
         let bucket_old = self.inner.bucket(id).clone();
         let index = self.inner.split_bucket(id)?;
@@ -388,7 +394,7 @@ mod tests {
     use crate::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
-        Contact, ContactState, NodeId, Path, RoutingTable, SafeStateSeqNr, Timestamp,
+        Contact, ContactState, NodeId, NotViaStateList, Path, RoutingTable, SafeStateSeqNr, Timestamp,
     };
 
     #[test]
@@ -490,12 +496,12 @@ mod tests {
             let contact = observable.contact_mut(contact.id());
             assert!(contact.is_some());
             let mut contact = contact.unwrap();
-            *contact.state_mut() = ContactState::Invalid;
+            *contact.state_mut() = ContactState::Invalid(NotViaStateList::default());
             *contact.last_seen_mut() = timestamp;
         }
 
         let mut updated_contact = contact.clone();
-        *updated_contact.state_mut() = ContactState::Invalid;
+        *updated_contact.state_mut() = ContactState::Invalid(NotViaStateList::default());
         *updated_contact.last_seen_mut() = timestamp;
 
         assert!(

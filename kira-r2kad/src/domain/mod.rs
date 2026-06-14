@@ -112,7 +112,9 @@ impl From<Age> for Timestamp {
     }
 }
 
-/// A underlay connection between two nodes.
+/// A underlay connection between two nodes,
+/// stores an undirected Link
+/// NOTE that the link uses a sorted order for the tuple for easier disambiguation
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[display("({_0}, {_1})")]
@@ -194,6 +196,9 @@ impl PartialEq for NotVia {
 
 impl Eq for NotVia {}
 
+
+pub type NotViaList = HashSet<NotVia>;
+
 /// Data structure representing failed underlay connections with associated time information
 /// This is for storing NotVia state internally
 #[derive(Debug, Clone, Display)]
@@ -232,29 +237,75 @@ impl PartialEq for NotViaState {
     }
 }
 
-impl Eq for NotViaState {}
+impl Eq for NotViaState {
+}
+
+#[derive(Debug, Clone, Eq, Display, PartialEq, Default)]
+#[display("NotViaStateList {nvs_list:#?}")]
+pub struct NotViaStateList {
+    pub nvs_list : HashSet<NotViaState>,
+}
+
+
+impl From<HashSet<NotViaState>> for NotViaStateList {
+    fn from(other_list : HashSet<NotViaState>) -> Self {
+        Self {
+            nvs_list : other_list
+        }
+    }
+}
+
+impl From<NotViaState> for NotViaStateList {
+    fn from(not_via_state : NotViaState) -> Self {
+        Self {
+            nvs_list : HashSet::from([not_via_state])
+        }
+    }
+}
+
+impl From<NotViaStateList> for Option<NotViaList> {
+    fn from(notviastatelist : NotViaStateList) -> Self {
+        if notviastatelist.nvs_list.is_empty() {
+            None
+        } else {
+            Some(notviastatelist.nvs_list.iter().map(NotVia::from).collect())
+        }
+    }
+}
 
 #[derive(Debug, Clone, Eq, Display, PartialEq)]
 #[display("NotViaStateList {notviastate_list:#?} retries: {retry_counter}")]
 pub struct RediscoveryState {
-    notviastate_list : HashSet<NotViaState>,
+    notviastate_list : NotViaStateList, // any broken links within the active path
+    rev_via_contact_list : Vec<NodeId>, // a list of NodeIds for contact (stored reversed so that we can pop)
     pub retry_counter : u8,
 }
 
 impl RediscoveryState {
-    pub fn new(not_via : NotVia) -> Self {
+    pub fn new(notviastate_list : NotViaStateList, via_contact_list : Vec<NodeId>) -> Self {
         Self {
-            notviastate_list : HashSet::from([not_via.into()]),
+            notviastate_list,
+            rev_via_contact_list : via_contact_list.into_iter().rev().collect(),
             retry_counter : 0,
         }
     }
 
     // adds a notvia link to the list
     pub fn add_notvia(&mut self, not_via : NotVia) -> bool {
-        self.notviastate_list.insert(not_via.into())
+        self.notviastate_list.nvs_list.insert(not_via.into())
     }
 
-    pub fn get_notviastate_list(&self) -> &HashSet<NotViaState> {
+    pub fn get_notviastate_list(&self) -> &NotViaStateList {
         &self.notviastate_list
+    }
+
+    // returns the via contact list in correct order (first element is next contact to try)
+    pub fn get_via_contact_list(&self) -> Vec<NodeId> {
+        self.rev_via_contact_list.iter().rev().cloned().collect()
+    }
+
+    // returns the via contact in XOR sorted order
+    pub fn get_next_via_contact_id(&mut self) -> Option<NodeId> {
+        self.rev_via_contact_list.pop()
     }
 }

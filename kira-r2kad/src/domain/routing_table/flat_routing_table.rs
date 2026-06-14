@@ -169,6 +169,18 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
         bucket.contains(id)
     }
 
+    fn contains_with<F>(&self, id: &NodeId, f: F) -> bool
+    where
+        F: Fn(&Contact) -> bool {
+        let bucket = self.bucket(id);
+        if let Some(contact) = bucket.get(id) {
+            f(contact)
+        }
+        else {
+            false
+        }
+    }
+
     fn split_bucket(&mut self, id: &NodeId) -> Result<usize, BucketSplitError> {
         if self.buckets.len() >= Self::max_buckets() {
             return Err(BucketSplitError::MaxBucketsReached);

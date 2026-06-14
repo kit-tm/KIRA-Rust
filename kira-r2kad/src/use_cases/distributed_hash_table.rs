@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tracing::{Level, instrument};
 
 use crate::domain::{
-    Contact, ContactState, NodeId, NotVia, RoutingTable, ULNTable, UnderlayNeighborId, dht,
+    Contact, ContactState, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, dht,
 };
 use crate::messaging::dht::{
     DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchReqData, FetchRspData, StoreReqData,
@@ -196,7 +196,7 @@ where
                 context.uln_table().size(),
             ),
             data: StoreRspData { status: res },
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route,
         };
 
@@ -230,7 +230,7 @@ where
                 context.uln_table().size(),
             ),
             data: FetchRspData { data: fetch_res },
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route,
         };
 

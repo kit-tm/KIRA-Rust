@@ -11,7 +11,7 @@ use crate::domain::protocol_event::forwarding::{
     PathIdEntry, PathIdForwardingEntry, PathIdTableUpdate,
 };
 use crate::domain::{
-    Contact, ContactState, NodeId, NotVia, Path, PathId, RoutingTable, ULNTable,
+    Contact, ContactState, NodeId, Path, PathId, RoutingTable, ULNTable,
     UnderlayNeighborId, VICINITY_RADIUS, hasher::Hasher,
 };
 use crate::messaging::source_route::SourceRoute;
@@ -109,7 +109,7 @@ where
                 context.uln_table().size(),
             ),
             data: PathSetupReqData,
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route,
         };
         context
@@ -135,7 +135,7 @@ where
                 context.uln_table().size(),
             ),
             data: ProbeReqData,
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route,
         };
         context
@@ -158,7 +158,7 @@ where
                 context.uln_table().size(),
             ),
             data: PathTeardownReqData,
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route,
         };
         context
@@ -361,6 +361,7 @@ where
             (UseCaseEvent::Contact(ContactEvent::New(contact)), _)
                 if contact.path().unwrap().size() > VICINITY_RADIUS =>
             {
+                // new contact outside vicinity requires path setup
                 self.send_setup_req(context, &contact);
             }
             (UseCaseEvent::Contact(ContactEvent::Updated { new, old }), _) => {
@@ -370,7 +371,7 @@ where
                     new.path().unwrap().size() > VICINITY_RADIUS,
                     old.path().unwrap().size() > VICINITY_RADIUS,
                 ) {
-                    (ContactState::Valid, ContactState::Invalid, true, _) => {
+                    (ContactState::Valid, ContactState::Invalid(_), true, _) => {
                         // Contacts becomes valid
                         self.send_setup_req(context, &new);
                     }
@@ -390,7 +391,7 @@ where
                         self.send_teardown_req(context, &old);
                     }
                     (
-                        ContactState::Invalid,
+                        ContactState::Invalid(_),
                         ContactState::Valid,
                         new_outside_vicinity,
                         old_outside_vicinity,

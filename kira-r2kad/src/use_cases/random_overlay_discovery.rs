@@ -7,7 +7,7 @@ use tracing::{Level, instrument};
 
 use derive_more::derive::{Display, Error};
 
-use crate::domain::{GroupingError, NodeId, NotVia, RoutingTable, ULNTable, UnderlayNeighborId};
+use crate::domain::{GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{CommonHeader, FindNodeReqData, ProtocolMessageKind, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
@@ -111,7 +111,7 @@ where
                 neighborhood: self.config.neighborhood_size,
                 target: random_id,
             },
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route: route,
         };
         log::trace!(target: "random_overlay_discovery", "Sending message {message:?}");

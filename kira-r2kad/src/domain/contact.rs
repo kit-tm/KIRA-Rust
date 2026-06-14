@@ -3,24 +3,21 @@ use std::hash::{Hash, Hasher};
 
 use derive_more::derive::Display;
 
-use crate::domain::{Age, NodeId, Path, RediscoveryState, SafeStateSeqNr, Timestamp, pathcollection::PathCollection};
+use crate::domain::{Age, NodeId, NotViaStateList, Path, RediscoveryState, SafeStateSeqNr, Timestamp, pathcollection::PathCollection};
 
-#[derive(Debug, Clone, Eq, PartialEq, Display)]
+#[derive(Debug, Clone, Eq, PartialEq, Display, Default)]
 #[display("{_variant}")]
+/// [ContactState] starts normally in Unknown for contacts heard from other nodes.
+///
 pub enum ContactState {
+    #[default]
     Unknown,       // when contact is initialized, its state is mostly unknown
     Valid,         // has a validated active path
-    Invalid,       // no valid path
+    Invalid(NotViaStateList),   // active path is not valid due to failed links
     Rediscovering(RediscoveryState), // no valid path, but trying to rediscvoer
     Dead,          // contact not usable anymore (e.g., rediscovery failed finally)
 }
 
-
-impl Default for ContactState {
-    fn default() -> Self {
-        ContactState::Unknown
-    }
-}
 
 /// A [Contact] as represented in the [RoutingTable](crate::domain::routing_table::RoutingTable).
 /// A contact contains the destination NodeId, state information, and paths leading to the contact
@@ -75,6 +72,10 @@ impl Contact {
         &mut self.state
     }
 
+    pub fn start_rediscovering(&mut self, notviastate_list : NotViaStateList, via_contact_list : Vec<NodeId>) {
+        self.state= ContactState::Rediscovering(RediscoveryState::new(notviastate_list, via_contact_list));
+    }
+
     /// Returns if the [Contact] represents a underlay neighbor.
     pub fn is_uln(&self) -> bool {
         // FIXME: Invariant is, that path doesn't contain the own node_id. whole_path Method is for that.
@@ -115,6 +116,17 @@ impl Contact {
         self.state == ContactState::Valid
     }
 
+    pub fn is_invalid(&self) -> bool {
+        matches!(self.state,ContactState::Invalid(_))
+    }
+
+    // sets current active path to invalid
+    pub fn set_invalid(&mut self) {
+        if let Some(active_path) = self.path_mut() {
+            active_path.invalidate();
+        }
+    }
+
     pub fn last_seen(&self) -> &Timestamp {
         &self.last_seen
     }
@@ -133,7 +145,7 @@ impl Contact {
     pub fn assess_path_candidate_and_update(&mut self, path_candidate: &Path) -> bool {
         let path_suitable = match self.state {
             ContactState::Unknown => true,
-            ContactState::Invalid => true,
+            ContactState::Invalid(_) => true,
             ContactState::Valid => {
                 let active_path = self
                     .path_collection

@@ -1,12 +1,12 @@
 //! Data types for all protocol messages and wrapped in the central enumeration [ProtocolMessage].
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap};
 use std::fmt::Debug;
 use std::num::NonZeroU64;
 
 use derive_more::derive::Display;
 
-use crate::domain::{Contact, Link, NodeId, NotVia, StateSeqNr, state_seq_nr};
+use crate::domain::{Contact, Link, NodeId, NotViaList, StateSeqNr, state_seq_nr};
 use crate::messaging::dht::{
     DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreReqData, StoreRspData,
 };
@@ -438,25 +438,25 @@ impl ProtocolMessage {
         }
     }
 
-    pub fn not_via(&self) -> Option<&HashSet<NotVia>> {
+    pub fn not_via(&self) -> Option<&NotViaList> {
         match self {
             Self::ULNHello(_) => None,
-            Self::ULNDiscReq(req) => Some(&req.not_via),
-            Self::ULNDiscRsp(req) => Some(&req.not_via),
-            Self::QueryRouteReq(req) => Some(&req.not_via),
-            Self::QueryRouteRsp(req) => Some(&req.not_via),
-            Self::FindNodeReq(req) => Some(&req.not_via),
-            Self::FindNodeRsp(req) => Some(&req.not_via),
-            Self::Error(req) => Some(&req.not_via),
-            Self::ProbeReq(req) => Some(&req.not_via),
-            Self::ProbeRsp(req) => Some(&req.not_via),
-            Self::PathSetupReq(req) => Some(&req.not_via),
-            Self::PathTeardownReq(req) => Some(&req.not_via),
-            Self::UpdateRouteReq(req) => Some(&req.not_via),
-            Self::StoreReq(req) => Some(&req.not_via),
-            Self::StoreRsp(req) => Some(&req.not_via),
-            Self::FetchReq(req) => Some(&req.not_via),
-            Self::FetchRsp(req) => Some(&req.not_via),
+            Self::ULNDiscReq(req) => req.not_via.as_ref(),
+            Self::ULNDiscRsp(req) => req.not_via.as_ref(),
+            Self::QueryRouteReq(req) => req.not_via.as_ref(),
+            Self::QueryRouteRsp(req) => req.not_via.as_ref(),
+            Self::FindNodeReq(req) => req.not_via.as_ref(),
+            Self::FindNodeRsp(req) => req.not_via.as_ref(),
+            Self::Error(req) => req.not_via.as_ref(),
+            Self::ProbeReq(req) => req.not_via.as_ref(),
+            Self::ProbeRsp(req) => req.not_via.as_ref(),
+            Self::PathSetupReq(req) => req.not_via.as_ref(),
+            Self::PathTeardownReq(req) => req.not_via.as_ref(),
+            Self::UpdateRouteReq(req) => req.not_via.as_ref(),
+            Self::StoreReq(req) => req.not_via.as_ref(),
+            Self::StoreRsp(req) => req.not_via.as_ref(),
+            Self::FetchReq(req) => req.not_via.as_ref(),
+            Self::FetchRsp(req) => req.not_via.as_ref(),
         }
     }
 
@@ -524,7 +524,7 @@ impl From<&ProtocolMessage> for ProtocolMessageKind {
 pub struct ReqRspMessage<T: Debug> {
     pub common_header: CommonHeader,
     pub data: T,
-    pub not_via: HashSet<NotVia>,
+    pub not_via: Option<NotViaList>,
     /// Source Path to the next overlay Hop.
     ///
     /// At the end for a reason.
@@ -649,7 +649,7 @@ impl From<ReqRspMessage<PathTeardownReqData>> for ProtocolMessage {
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct UpdateRouteReq {
     pub common_header: CommonHeader,
-    pub not_via: HashSet<NotVia>,
+    pub not_via: Option<NotViaList>,
     pub contact_actions: HashMap<Contact, RouteUpdateActionType>,
     /// Source Path to the next overlay Hop.
     ///

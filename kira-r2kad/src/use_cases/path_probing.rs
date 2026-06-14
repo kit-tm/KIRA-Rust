@@ -5,12 +5,12 @@ use std::time::{Duration, Instant};
 use tracing::{Level, instrument};
 
 use crate::domain::{
-    Contact, ContactState, DEFAULT_BUCKET_SIZE, NodeId, NotVia, Path, RoutingTable, ULNTable,
+    Contact, ContactState, DEFAULT_BUCKET_SIZE, Link, NodeId, NotViaState, NotViaStateList, Path, RoutingTable, Timestamp, ULNTable,
     UnderlayNeighborId,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
-    CommonHeader, Nonce, ProbeReqData, ProbeRspData, ProtocolMessage, ProtocolMessageKind,
+    CommonHeader, ErrorData, Nonce, ProbeReqData, ProbeRspData, ProtocolMessage, ProtocolMessageKind,
     ReqRspMessage, WireFormatMessage,
 };
 use crate::use_cases::{
@@ -160,7 +160,7 @@ where
                 context.uln_table().size(),
             ),
             data: ProbeReqData,
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route: route,
         };
         context
@@ -200,7 +200,7 @@ where
                 context.uln_table().size(),
             ),
             data: ProbeReqData,
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route: route,
         };
         context
@@ -246,7 +246,7 @@ where
             let mut lock = context.routing_table_mut();
             match lock.contact_mut(&contacts_id) {
                 Some(mut contact) => {
-                    *contact.state_mut() = ContactState::Invalid;
+                    *contact.state_mut() = ContactState::Invalid(NotViaStateList::default());
                     log::warn!(target: "path_probing", "Invalidated contact due of timer [path: {:?}]", contact.path());
                 }
                 None => {
@@ -256,7 +256,7 @@ where
         }
     }
 
-    fn invalidate_contact_for_message(&mut self, context: &C, nonce: Nonce) {
+    fn invalidate_contact_for_message(&mut self, context: &C, nonce: Nonce, failed_link : Link) {
         if let PathProbingState::Running {
             requests_in_flight,
             probe_timers,
@@ -271,7 +271,7 @@ where
             let mut lock = context.routing_table_mut();
             match lock.contact_mut(&contacts_id) {
                 Some(mut contact) => {
-                    *contact.state_mut() = ContactState::Invalid;
+                    *contact.state_mut() = ContactState::Invalid(NotViaStateList::from(NotViaState::new(failed_link,Timestamp::now())));
                     log::warn!(target: "path_probing", "Invalidated contact {} because ot segment failure", contact.id())
                 }
                 None => {
@@ -293,7 +293,7 @@ where
                 context.uln_table().size(),
             ),
             data: ProbeRspData,
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: req.not_via,
             source_route: SourceRoute::from_reversed(req.source_route),
         };
         context
@@ -520,7 +520,20 @@ where
                 }
             UseCaseEvent::Message(ProtocolMessage::Error(req), _)
                 if self.is_tracked_message(&req.msg_id().into()) => {
-                    self.invalidate_contact_for_message(context, req.msg_id().into());
+                    if let ErrorData::SegmentFailure { failed_link, ..} = &req.data {
+                        self.invalidate_contact_for_message(context, req.msg_id().into(), failed_link.clone());
+                    } else {
+                        // remove any pending request or timer for the corresponding message
+                        if let PathProbingState::Running {
+                            requests_in_flight,
+                            probe_timers,
+                            ..
+                        } = &mut self.state {
+                            let nonce = req.msg_id().into();
+                            requests_in_flight.remove(&nonce);
+                            probe_timers.retain(|_, v| *v != nonce);
+                        }
+                    }
                 }
             UseCaseEvent::Message(ProtocolMessage::ProbeReq(req), _) => {
                 self.send_probe_rsp(context, req);

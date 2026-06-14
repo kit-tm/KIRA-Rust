@@ -2,7 +2,7 @@
 
 use derive_more::derive::{Display, Error};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fmt::Debug,
     marker::PhantomData,
     ops::Deref,
@@ -136,7 +136,6 @@ where
             runtime,
             insertion_strategy,
             uln_table,
-            not_via_state: HashSet::default(),
             vicinity_graph,
         });
 

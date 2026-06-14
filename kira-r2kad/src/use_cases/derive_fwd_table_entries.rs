@@ -422,7 +422,7 @@ where
                 .entered();
 
                 match (new.state(), old.state()) {
-                    (ContactState::Invalid, ContactState::Valid) if new.id() == old.id() => {
+                    (ContactState::Invalid(_), ContactState::Valid) if new.id() == old.id() => {
                         updated_span.record("kind", "contact_invalidation");
 
                         let _span = tracing::debug_span!(
@@ -435,7 +435,7 @@ where
                         .entered();
                         self.remove_node_id_entry(context, new.id())?;
                     }
-                    (ContactState::Invalid, ContactState::Valid) => {
+                    (ContactState::Invalid(_), ContactState::Valid) => {
                         updated_span.record("kind", "contact_invalidation_by_displacement");
                         tracing::warn!(
                             target: "derive_fwd_table_entries",
@@ -465,7 +465,7 @@ where
                         .entered();
                         self.remove_node_id_entry(context, old.id())?;
                     }
-                    (ContactState::Valid, ContactState::Invalid) => {
+                    (ContactState::Valid, ContactState::Invalid(_)) => {
                         updated_span.record("kind", "contact_validation");
 
                         let _span = tracing::debug_span!(
@@ -594,8 +594,6 @@ impl Error for DeriveFwdEntriesError {}
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
     use crate::Output;
     use crate::context::ContextConfig;
     use crate::context::SyncContext;
@@ -654,7 +652,6 @@ mod tests {
                 uln_table,
                 insertion_strategy: (),
                 runtime,
-                not_via_state: HashSet::default(),
                 vicinity_graph: (),
             });
 
@@ -773,7 +770,6 @@ mod tests {
                 uln_table,
                 insertion_strategy: (),
                 runtime,
-                not_via_state: HashSet::default(),
                 vicinity_graph: (),
             });
 
@@ -891,7 +887,6 @@ mod tests {
                 uln_table,
                 insertion_strategy: (),
                 runtime,
-                not_via_state: HashSet::default(),
                 vicinity_graph: (),
             });
 
@@ -1004,7 +999,6 @@ mod tests {
                 uln_table,
                 insertion_strategy: (),
                 runtime,
-                not_via_state: HashSet::default(),
                 vicinity_graph: (),
             });
 

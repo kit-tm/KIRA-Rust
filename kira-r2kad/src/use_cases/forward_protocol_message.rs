@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap};
 use std::fmt::Debug;
 
 use std::marker::PhantomData;
@@ -8,7 +8,7 @@ use tracing::{Level, instrument};
 
 use crate::domain::{
     Contact, ContactState, InOrderCycleRemover, InsertionStrategy, InsertionStrategyResult, Link,
-    NodeId, NotVia, NotViaState, Path, PathCycleRemover, PathState, RoutingTable, Timestamp,
+    NodeId, NotVia, NotViaList, NotViaState, NotViaStateList, Path, PathCycleRemover, PathState, RoutingTable, Timestamp,
     ULNTable, UnderlayNeighborId, UnderlayNeighborSource, VicinityGraph,
 };
 use crate::messaging::source_route::SourceRoute;
@@ -129,14 +129,6 @@ where
     /// If the contact was previously an underlay neighbor but not anymore its entry in the ULNTable
     /// will be removed.
     fn update_contact(&self, context: &C, contact: Contact) {
-        let path_to_contact = contact.path().expect("path to given contact should exist");
-        if let Some(not_via) = context.not_via_state().iter().find(|not_via| {
-            path_to_contact.contains_link(&not_via.link)
-                && path_to_contact.is_older_than(&not_via.timestamp)
-        }) {
-            log::trace!(target: "forward_protocol_message", "Skipping contact - its path contains a not-via link {not_via}; {contact}");
-            return;
-        }
 
         // ignore information about us from other parties
         if contact.id() == context.root_id() {
@@ -193,12 +185,10 @@ where
             ErrorData::SegmentFailure {
                 failed_link: link, ..
             } => {
-                let mut not_via_state = context.not_via_state_mut();
                 let mut routing_table = context.routing_table_mut();
 
                 // a segment failure is recent (minus RTT/2), probably update the timestamp
                 let nvs_entry = NotViaState::new(link.clone(), Timestamp::now());
-                not_via_state.replace(nvs_entry.clone());
 
                 // check for all contacts that have an active path that is affected by the failed link
                 for mut contact in routing_table.iter_mut() {
@@ -207,7 +197,7 @@ where
                     {
                         // invalidate path and contact now
                         active_path.invalidate();
-                        *contact.state_mut() = ContactState::Invalid;
+                        *contact.state_mut() = ContactState::Invalid(NotViaStateList::from(nvs_entry.clone()));
                     }
                 }
             }
@@ -223,12 +213,12 @@ where
         &self,
         context: &C,
         source: &NodeId,
-        new_not_via_data: &HashSet<NotVia>,
+        new_not_via_data: &NotViaList,
     ) {
         // we exclude any notvia that contains ourselves, because we know better
         let filtered_not_via_data = new_not_via_data
             .iter()
-            .filter(|notvia| notvia.link.contains(context.root_id()))
+            .filter(|notvia| !notvia.link.contains(context.root_id()))
             .collect::<Vec<&NotVia>>();
 
         let mut routing_table = context.routing_table_mut();
@@ -248,7 +238,7 @@ where
                         .path_mut()
                         .unwrap()
                         .invalidate();
-                    *contact.state_mut() = ContactState::Invalid;
+                    *contact.state_mut() = ContactState::Invalid(NotViaStateList::from(NotViaState::from((**entry).clone())));
                     log::debug!(target: "forward_protocol_message", "Invalidated contact {} based on not-via data of {}", contact.id(), source);
                     continue;
                 }
@@ -307,13 +297,13 @@ where
                     let mut affected_contact = routing_table
                         .contact_mut(updated_contact.id())
                         .expect("contact should be present");
-
+                    let direct_uln_link = Link::new(*source_id, *updated_contact.id());
                     if let Some(affected_path) = affected_contact.path()
                         && affected_path
-                            .contains_link(&Link::new(*source_id, *updated_contact.id()))
+                            .contains_link(&direct_uln_link)
                         && affected_contact.is_older_than(&updated_contact)
                     {
-                        *affected_contact.state_mut() = ContactState::Invalid;
+                        *affected_contact.state_mut() = ContactState::Invalid(NotViaStateList::from(NotViaState::new(direct_uln_link,Timestamp::now())));
                         if let Some(active_path) = affected_contact.path_mut() {
                             active_path.invalidate();
                         }
@@ -423,7 +413,7 @@ where
                 failed_link,
                 source: root_id,
             },
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route: SourceRoute::from_reversed(message.source_route().unwrap().clone()),
         };
 

@@ -5,7 +5,7 @@ use std::ops::Deref;
 use tracing::{Level, instrument};
 
 use crate::domain::{
-    Contact, ContactState, NodeId, NotVia, RoutingTable, ULNTable, UnderlayNeighborId,
+    Contact, ContactState, Link, NodeId, NotViaState, NotViaStateList, RoutingTable, Timestamp, ULNTable, UnderlayNeighborId
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{CommonHeader, ProtocolMessageKind, RouteUpdateActionType, UpdateRouteReq};
@@ -89,7 +89,7 @@ where
                     Some(From::from(*context.uln_table().state_seq_nr())),
                     context.uln_table().size(),
                 ),
-                not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+                not_via: None,
                 contact_actions: updates.clone(),
                 source_route: SourceRoute::new(*context.root_id(), contact.path().unwrap().clone()),
             };
@@ -100,7 +100,12 @@ where
         }
     }
 
+    // this should only be called for ULN contacts
     fn invalidate_all_affected_contacts(&self, context: &C, invalidated_contact: &Contact) {
+        // check if invalidated_contact is a ULN
+        if !invalidated_contact.is_uln() {
+            return;
+        }
         // Invalidate all other contacts via this contact
         for mut saved_contact in context.routing_table_mut().iter_mut() {
             if saved_contact.path().is_some()
@@ -109,7 +114,15 @@ where
                     .unwrap()
                     .starts_with(invalidated_contact.path().unwrap())
             {
-                *saved_contact.state_mut() = ContactState::Invalid;
+                if let ContactState::Invalid(not_via_state_list) = invalidated_contact.state() {
+                    // use not via info from invalidated contact
+                    *saved_contact.state_mut() = ContactState::Invalid(not_via_state_list.clone());
+                }
+                else {
+                    let nvs = NotViaState::new(Link::new(*context.root_id(),*invalidated_contact.id()),Timestamp::now());
+                    // since invalidated_contact is a ULN, we use this info
+                    *saved_contact.state_mut() = ContactState::Invalid(NotViaStateList::from(nvs));
+                }
             }
         }
     }
@@ -152,10 +165,6 @@ where
                     self.send_update(context, updates);
                 }
 
-                context.not_via_state_mut().retain(|not_via| {
-                    not_via.link.first() != contact.id() && not_via.link.second() != contact.id()
-                });
-
                 self.invalidate_all_affected_contacts(context, &contact);
 
                 if context.uln_table_mut().remove(contact.id()).is_some() {
@@ -172,7 +181,7 @@ where
 
                 // this should be fine, since we only update contacts if interesting anyways
                 self.send_update(context, updates);
-                if old.state() == &ContactState::Valid && new.state() != &ContactState::Valid {
+                if old.is_valid() && !new.is_valid() {
                     // Add to not-via data if path gets invalid (maybe done already)
                     self.invalidate_all_affected_contacts(context, &new);
                 }

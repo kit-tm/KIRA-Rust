@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt::Debug, num::NonZeroU8, ops::Deref};
 
 use crate::{
-    domain::{NodeId, NotVia, Path, RoutingTable, ULNTable, UnderlayNeighborId},
+    domain::{NodeId, Path, RoutingTable, ULNTable, UnderlayNeighborId},
     messaging::{
         CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage,
         dht::{DefaultLHTInput, FetchReqData, StoreReqData},
@@ -63,7 +63,7 @@ where
             Some(u32::from(*context.uln_table().state_seq_nr())),
             context.uln_table().size(),
         ),
-        not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+        not_via: None,
         data,
         source_route,
     }
