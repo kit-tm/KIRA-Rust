@@ -202,17 +202,8 @@ where
         routing_table: &mut RT,
         un_table: &UN,
     ) -> InsertionStrategyResult {
-        if *contact.state() != ContactState::Valid {
-            tracing::trace!(
-                target: "routing_table",
-                state = %contact.state(),
-                reason = "invalid_state",
-                path = %contact.path().unwrap(),
-                "dropping contact",
-            );
-            return InsertionStrategyResult::Dropped;
-        }
 
+        // perform some sanity checks
         // Ignore paths to us
         if contact.id() == routing_table.root() {
             tracing::trace!(
@@ -252,8 +243,13 @@ where
         self.path_cycle_remover.remove_cycles_in_place(path);
         self.path_simplifier.simplify(routing_table, un_table, path);
 
+        let mut new_contact= contact.clone();
+        // TODO this is a fix for legacy code assuming that contact has to be in valid state
+        // new contact candidates should be validated before insertion
+        *new_contact.state_mut() = ContactState::Valid;
+
         // insert modified contact into routing table
-        let insertion_result = routing_table.insert(contact.clone());
+        let insertion_result = routing_table.insert(new_contact);
 
         let Err(insertion_err) = insertion_result else {
             tracing::debug!(
@@ -275,10 +271,20 @@ where
         // try modifying an existing contact in the bucket instead of inserting
         match insertion_err {
             InsertionError::BucketSplit(_) | InsertionError::Add(AddError::NotAdded) => {
-                self.replace_in_full_bucket(contact.clone(), routing_table)
+                let mut new_contact= contact.clone();
+                // TODO this is a fix for legacy code assuming that contact has to be in valid state
+                // new contact candidates should be validated before insertion
+                *new_contact.state_mut() = ContactState::Valid;
+
+                self.replace_in_full_bucket(new_contact, routing_table)
             }
             InsertionError::Add(AddError::AlreadyExists(_)) => {
-                self.update_existing(contact.clone(), routing_table)
+                let mut new_contact= contact.clone();
+                // TODO this is a fix for legacy code assuming that contact has to be in valid state
+                // new contact candidates should be validated before insertion
+                *new_contact.state_mut() = ContactState::Valid;
+
+                self.update_existing(new_contact, routing_table)
             }
         }
     }

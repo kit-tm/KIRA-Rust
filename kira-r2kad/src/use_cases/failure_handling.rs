@@ -178,7 +178,7 @@ where
 
 
         // send two rediscovery requests in parallel
-        while let Some((_, closest_contact)) = closest_via_contacts.iter().take(self.config.rediscovery_parallelism.get()).next() {
+        for (_, closest_contact) in closest_via_contacts.iter().take(self.config.rediscovery_parallelism.get()) {
 
             // Add rediscovery state before sending find node in case of error
             let start_duration = self
