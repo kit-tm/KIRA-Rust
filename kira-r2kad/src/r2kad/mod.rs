@@ -2,12 +2,7 @@
 
 use derive_more::derive::{Display, Error};
 use std::{
-    collections::HashMap,
-    fmt::Debug,
-    marker::PhantomData,
-    ops::Deref,
-    sync::Arc,
-    time::Instant,
+    collections::HashMap, fmt::Debug, marker::PhantomData, ops::Deref, sync::Arc, time::Instant,
 };
 use tracing::{Level, Span, field, instrument};
 

@@ -7,8 +7,7 @@ use std::time::Instant;
 use tracing::{Level, instrument};
 
 use crate::domain::{
-    GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId,
-    UnderlayNeighborSource,
+    GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, UnderlayNeighborSource,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage};

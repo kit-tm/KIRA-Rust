@@ -126,11 +126,12 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
 
     fn contains_with<F>(&self, id: &NodeId, f: F) -> bool
     where
-        F: Fn(&Contact) -> bool {
+        F: Fn(&Contact) -> bool,
+    {
         if let Some(contact) = self.un_contacts.get(id) {
             f(contact)
         } else {
-          self.inner.contains_with(id, f)
+            self.inner.contains_with(id, f)
         }
     }
 
@@ -224,7 +225,8 @@ mod tests {
 
     use crate::domain::unlimited_uln_routing_table::UnlimitedULNRoutingTable;
     use crate::domain::{
-        Contact, ContactState, FlatRoutingTable, NodeId, NotViaStateList, Path, RoutingTable, SafeStateSeqNr,
+        Contact, ContactState, FlatRoutingTable, NodeId, NotViaStateList, Path, RoutingTable,
+        SafeStateSeqNr,
     };
 
     #[test]
@@ -458,7 +460,8 @@ mod tests {
                 .unwrap();
         }
 
-        *table.contact_mut(&ids[1]).unwrap().state_mut() = ContactState::Invalid(NotViaStateList::default());
+        *table.contact_mut(&ids[1]).unwrap().state_mut() =
+            ContactState::Invalid(NotViaStateList::default());
         assert_eq!(
             table.contact(&ids[1]).unwrap().state(),
             &ContactState::Invalid(NotViaStateList::default()),

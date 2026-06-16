@@ -1,4 +1,4 @@
-use std::collections::{HashMap};
+use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::num::NonZeroU8;
 use std::ops::Deref;
@@ -123,7 +123,7 @@ impl<C, const BUCKET_SIZE: usize> HandleOverlayDiscovery<C, BUCKET_SIZE> {
                 req.src_node_degree() as usize,
             ),
             data: ErrorData::DeadEnd,
-            not_via : None,
+            not_via: None,
             source_route: SourceRoute::from_reversed(req.source_route),
         })
     }

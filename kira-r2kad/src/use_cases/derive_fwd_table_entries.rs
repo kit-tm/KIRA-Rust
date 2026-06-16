@@ -309,7 +309,6 @@ where
                 .expect("valid contact should have an active path")
                 .size()
         }) else {
-
             tracing::trace!(
                 target: "derive_fwd_table_entries",
                 %bucket_index,
@@ -460,8 +459,8 @@ where
                         .entered();
                         self.remove_node_id_entry(context, old.id())?;
                     }
-                    (ContactState::Valid, ContactState::Invalid(_)) |
-                    (ContactState::Valid, ContactState::Rediscovering(_)) => {
+                    (ContactState::Valid, ContactState::Invalid(_))
+                    | (ContactState::Valid, ContactState::Rediscovering(_)) => {
                         updated_span.record("kind", "contact_validation");
 
                         let _span = tracing::debug_span!(

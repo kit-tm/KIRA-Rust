@@ -88,7 +88,8 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
 
     fn contains_with<F>(&self, id: &NodeId, f: F) -> bool
     where
-        F: Fn(&Contact) -> bool {
+        F: Fn(&Contact) -> bool,
+    {
         if let Some(c) = self.bucket.get(id) {
             f(c)
         } else {
@@ -257,7 +258,8 @@ mod tests {
             ))?;
         }
 
-        *table.contact_mut(&ids[1]).unwrap().state_mut() = ContactState::Invalid(NotViaStateList::default());
+        *table.contact_mut(&ids[1]).unwrap().state_mut() =
+            ContactState::Invalid(NotViaStateList::default());
         assert_eq!(
             table.contact(&ids[1]).unwrap().state(),
             &ContactState::Invalid(NotViaStateList::default()),

@@ -5,7 +5,8 @@ use std::ops::Deref;
 use tracing::{Level, instrument};
 
 use crate::domain::{
-    Contact, ContactState, Link, NodeId, NotViaState, NotViaStateList, RoutingTable, Timestamp, ULNTable, UnderlayNeighborId
+    Contact, ContactState, Link, NodeId, NotViaState, NotViaStateList, RoutingTable, Timestamp,
+    ULNTable, UnderlayNeighborId,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{CommonHeader, ProtocolMessageKind, RouteUpdateActionType, UpdateRouteReq};
@@ -117,9 +118,11 @@ where
                 if let ContactState::Invalid(not_via_state_list) = invalidated_contact.state() {
                     // use not via info from invalidated contact
                     saved_contact.set_invalid(not_via_state_list.clone());
-                }
-                else {
-                    let nvs = NotViaState::new(Link::new(*context.root_id(),*invalidated_contact.id()),Timestamp::now());
+                } else {
+                    let nvs = NotViaState::new(
+                        Link::new(*context.root_id(), *invalidated_contact.id()),
+                        Timestamp::now(),
+                    );
                     // since invalidated_contact is a ULN, we use this info
                     saved_contact.set_invalid(NotViaStateList::from(nvs));
                 }

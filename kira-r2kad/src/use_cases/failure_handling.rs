@@ -7,7 +7,8 @@ use tracing::{Level, instrument};
 use derive_more::derive::{Display, Error};
 
 use crate::domain::{
-    Contact, ContactState, Link, NodeId, NotViaState, NotViaStateList, RoutingTable, Timestamp, ULNTable, UnderlayNeighborId, UnderlayNeighborUpdate, VicinityGraph
+    Contact, ContactState, Link, NodeId, NotViaState, NotViaStateList, RoutingTable, Timestamp,
+    ULNTable, UnderlayNeighborId, UnderlayNeighborUpdate, VicinityGraph,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -97,7 +98,10 @@ where
     fn invalidate_contacts_containing_link(&self, context: &C, failedlink: &Link) {
         for mut contact in context.routing_table_mut().iter_mut() {
             if contact.path().is_some() && contact.path().unwrap().contains_link(failedlink) {
-                contact.set_invalid(NotViaStateList::from(NotViaState::new(failedlink.clone(), Timestamp::now())));
+                contact.set_invalid(NotViaStateList::from(NotViaState::new(
+                    failedlink.clone(),
+                    Timestamp::now(),
+                )));
 
                 log::trace!(target: "failure_handling", "Invalidated {} whose path contains {}", contact.id(), failedlink);
             }
@@ -151,7 +155,8 @@ where
             // only use the self.config.failure_notification_radius.get() first contacts of
             for (_, closest_overlay_neighbor) in closest_via_contacts
                 .iter()
-                .take(self.config.failure_notification_radius.get()) {
+                .take(self.config.failure_notification_radius.get())
+            {
                 let update_route_message = UpdateRouteReq {
                     common_header: CommonHeader::new(
                         ProtocolMessageKind::UpdateRouteReq,
@@ -175,10 +180,11 @@ where
             }
         }
 
-
         // send two rediscovery requests in parallel
-        for (_, closest_contact) in closest_via_contacts.iter().take(self.config.rediscovery_parallelism.get()) {
-
+        for (_, closest_contact) in closest_via_contacts
+            .iter()
+            .take(self.config.rediscovery_parallelism.get())
+        {
             // Add rediscovery state before sending find node in case of error
             let start_duration = self
                 .config
@@ -239,21 +245,25 @@ where
 
             // send FindNodeReq message
             context
-            .runtime()
-            .send_message(find_node_request, context.uln_table().deref());
+                .runtime()
+                .send_message(find_node_request, context.uln_table().deref());
 
             log::trace!(target: "failure_handling", "Sent rediscovery find node for {} to {} [retry {} of {}]", contact.id(), closest_contact.id(), exponential_backoff.current_retries, exponential_backoff.max_retries);
-
-        };
+        }
 
         // contact state changes to Rediscovering
-        context.routing_table_mut().contact_mut(contact.id())
-                                   .expect("contact should still be present in RT")
-                                   .start_rediscovering(notviastatelist.clone(),
-                                                        closest_via_contacts.iter()
-                                                                                        .skip(self.config.rediscovery_parallelism.get())
-                                                                                        .map(|(_,x)| *x.id())
-                                                                                        .collect());
+        context
+            .routing_table_mut()
+            .contact_mut(contact.id())
+            .expect("contact should still be present in RT")
+            .start_rediscovering(
+                notviastatelist.clone(),
+                closest_via_contacts
+                    .iter()
+                    .skip(self.config.rediscovery_parallelism.get())
+                    .map(|(_, x)| *x.id())
+                    .collect(),
+            );
 
         Ok(())
     }
@@ -266,27 +276,28 @@ where
         context: &C,
         node_id: &NodeId,
     ) -> Result<(), FailureHandlingError> {
-
         // find next useful via contact from the list
         let mut next_via_contact_id = None;
-        let mut checked_via_contacts : usize = 0;
+        let mut checked_via_contacts: usize = 0;
         if let Some(contact) = context.routing_table().contact(node_id) {
             if let ContactState::Rediscovering(rds) = contact.state() {
                 // get next via contact from list that exists and is valid
-                if let Some(result) = rds.get_via_contact_list()
-                    .iter()
-                    .enumerate()
-                    .find(|(_idx,nid)| context.routing_table().contains_with(nid, |c|c.is_valid())) {
-                        next_via_contact_id = Some(*result.1);
-                        checked_via_contacts = result.0 + 1; // need to add one to index
-                }
-                else {
+                if let Some(result) =
+                    rds.get_via_contact_list()
+                        .iter()
+                        .enumerate()
+                        .find(|(_idx, nid)| {
+                            context.routing_table().contains_with(nid, |c| c.is_valid())
+                        })
+                {
+                    next_via_contact_id = Some(*result.1);
+                    checked_via_contacts = result.0 + 1; // need to add one to index
+                } else {
                     // nothing found, need to clear the whole list then
                     checked_via_contacts = rds.get_via_contact_list().len();
                 }
             }
-        }
-        else {
+        } else {
             // if contact does not exist anymore or is not in Rediscovering state, terminate Rediscovery
             return Ok(());
         };
@@ -294,13 +305,18 @@ where
         // we need to remove any tried not via contacts from the rds state first
         // a second pass is required due to mutable borrow
         if checked_via_contacts > 0
-            && let ContactState::Rediscovering(rds) = context.routing_table_mut().contact_mut(node_id).unwrap().state_mut() {
-                // now pop as many next via contacts that have been skipped
-                while checked_via_contacts > 0 && rds.get_next_via_contact_id().is_some() {
-                    checked_via_contacts -= 1;
-                }
-                assert!(checked_via_contacts == 0); // must be true, otherwise list is too short
+            && let ContactState::Rediscovering(rds) = context
+                .routing_table_mut()
+                .contact_mut(node_id)
+                .unwrap()
+                .state_mut()
+        {
+            // now pop as many next via contacts that have been skipped
+            while checked_via_contacts > 0 && rds.get_next_via_contact_id().is_some() {
+                checked_via_contacts -= 1;
             }
+            assert!(checked_via_contacts == 0); // must be true, otherwise list is too short
+        }
 
         // if there is no usable next via contact, we'll stop
         if next_via_contact_id.is_none() {
@@ -373,7 +389,14 @@ where
             not_via: From::from(notviastate_list.clone()),
             source_route: SourceRoute::new(
                 *context.root_id(),
-                context.routing_table().contact(&next_via_contact_id).as_ref().unwrap().path().expect("valid via contact must have valid path").clone(),
+                context
+                    .routing_table()
+                    .contact(&next_via_contact_id)
+                    .as_ref()
+                    .unwrap()
+                    .path()
+                    .expect("valid via contact must have valid path")
+                    .clone(),
             ),
         };
 
@@ -409,7 +432,10 @@ where
                 // invalidate if it starts with one of the affected ULNs
                 let first_hop = active_path.first().clone();
                 if affected_underlay_neighbors.contains(&first_hop) {
-                    contact.set_invalid(NotViaStateList::from(NotViaState::new(Link::new(*context.root_id(), first_hop), Timestamp::now())));
+                    contact.set_invalid(NotViaStateList::from(NotViaState::new(
+                        Link::new(*context.root_id(), first_hop),
+                        Timestamp::now(),
+                    )));
 
                     log::trace!(target: "failure_handling", "Invalidated contact {} as it starts with failed underlay neighbor {}", contact.id(), contact.path().unwrap().first());
                 }

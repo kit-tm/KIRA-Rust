@@ -1,7 +1,7 @@
 use std::cell::{Ref, RefCell, RefMut};
 
 use crate::context::ContextConfig;
-use crate::domain::{NodeId};
+use crate::domain::NodeId;
 use crate::use_cases::UseCaseContext;
 
 /// Implements a [UseCaseContext] which can only be used in a single threaded synchronous environment.

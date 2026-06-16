@@ -14,9 +14,9 @@ pub use path_id::*;
 pub use routing_table::flat_routing_table::*;
 pub use routing_table::*;
 pub use state_seq_nr::*;
-use std::hash::{Hash, Hasher};
 use std::collections::HashSet;
-use std::time::{Instant,Duration};
+use std::hash::{Hash, Hasher};
+use std::time::{Duration, Instant};
 pub use underlay::*;
 pub use underlay_neighbor_table::*;
 pub use vicinity::*;
@@ -56,9 +56,7 @@ impl From<u64> for Age {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Display)]
 #[display("{:?}", self.0)]
-pub struct Timestamp(
-    Instant,
-);
+pub struct Timestamp(Instant);
 
 impl From<Instant> for Timestamp {
     fn from(time: Instant) -> Self {
@@ -66,20 +64,17 @@ impl From<Instant> for Timestamp {
     }
 }
 
-
 impl From<Timestamp> for Instant {
     fn from(ts: Timestamp) -> Self {
         ts.0
     }
 }
 
-
 impl Default for Timestamp {
     fn default() -> Self {
         Self::now()
     }
 }
-
 
 impl Timestamp {
     /// Creates a new Timestamp at current time.
@@ -100,10 +95,10 @@ impl Timestamp {
 
     /// Returns the [std::time::Duration] representation of the [Age] of the [Timestamp].
     pub fn to_age_duration_ms(&self) -> u64 {
-        u64::try_from(self.0.elapsed().as_millis()).expect("age value should never exceed 64bit in ms")
+        u64::try_from(self.0.elapsed().as_millis())
+            .expect("age value should never exceed 64bit in ms")
     }
 }
-
 
 impl From<Age> for Timestamp {
     /// Returns the [Timestamp] of the [Age].
@@ -196,7 +191,6 @@ impl PartialEq for NotVia {
 
 impl Eq for NotVia {}
 
-
 pub type NotViaList = HashSet<NotVia>;
 
 /// Data structure representing failed underlay connections with associated time information
@@ -214,12 +208,11 @@ impl NotViaState {
     }
 }
 
-
 impl From<NotVia> for NotViaState {
-    fn from(not_via : NotVia) -> Self {
+    fn from(not_via: NotVia) -> Self {
         Self {
-            link : not_via.link,
-            timestamp : Timestamp::from(not_via.age),
+            link: not_via.link,
+            timestamp: Timestamp::from(not_via.age),
         }
     }
 }
@@ -237,34 +230,32 @@ impl PartialEq for NotViaState {
     }
 }
 
-impl Eq for NotViaState {
-}
+impl Eq for NotViaState {}
 
 #[derive(Debug, Clone, Eq, Display, PartialEq, Default)]
 #[display("NotViaStateList {nvs_list:#?}")]
 pub struct NotViaStateList {
-    pub nvs_list : HashSet<NotViaState>,
+    pub nvs_list: HashSet<NotViaState>,
 }
 
-
 impl From<HashSet<NotViaState>> for NotViaStateList {
-    fn from(other_list : HashSet<NotViaState>) -> Self {
+    fn from(other_list: HashSet<NotViaState>) -> Self {
         Self {
-            nvs_list : other_list
+            nvs_list: other_list,
         }
     }
 }
 
 impl From<NotViaState> for NotViaStateList {
-    fn from(not_via_state : NotViaState) -> Self {
+    fn from(not_via_state: NotViaState) -> Self {
         Self {
-            nvs_list : HashSet::from([not_via_state])
+            nvs_list: HashSet::from([not_via_state]),
         }
     }
 }
 
 impl From<NotViaStateList> for Option<NotViaList> {
-    fn from(notviastatelist : NotViaStateList) -> Self {
+    fn from(notviastatelist: NotViaStateList) -> Self {
         if notviastatelist.nvs_list.is_empty() {
             None
         } else {
@@ -276,22 +267,22 @@ impl From<NotViaStateList> for Option<NotViaList> {
 #[derive(Debug, Clone, Eq, Display, PartialEq)]
 #[display("NotViaStateList {notviastate_list:#?} retries: {retry_counter}")]
 pub struct RediscoveryState {
-    notviastate_list : NotViaStateList, // any broken links within the active path
-    rev_via_contact_list : Vec<NodeId>, // a list of NodeIds for contact (stored reversed so that we can pop)
-    pub retry_counter : u8,
+    notviastate_list: NotViaStateList, // any broken links within the active path
+    rev_via_contact_list: Vec<NodeId>, // a list of NodeIds for contact (stored reversed so that we can pop)
+    pub retry_counter: u8,
 }
 
 impl RediscoveryState {
-    pub fn new(notviastate_list : NotViaStateList, via_contact_list : Vec<NodeId>) -> Self {
+    pub fn new(notviastate_list: NotViaStateList, via_contact_list: Vec<NodeId>) -> Self {
         Self {
             notviastate_list,
-            rev_via_contact_list : via_contact_list.into_iter().rev().collect(),
-            retry_counter : 0,
+            rev_via_contact_list: via_contact_list.into_iter().rev().collect(),
+            retry_counter: 0,
         }
     }
 
     // adds a notvia link to the list
-    pub fn add_notvia(&mut self, not_via : NotVia) -> bool {
+    pub fn add_notvia(&mut self, not_via: NotVia) -> bool {
         self.notviastate_list.nvs_list.insert(not_via.into())
     }
 

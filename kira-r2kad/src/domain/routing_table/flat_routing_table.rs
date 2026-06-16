@@ -172,12 +172,12 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
 
     fn contains_with<F>(&self, id: &NodeId, f: F) -> bool
     where
-        F: Fn(&Contact) -> bool {
+        F: Fn(&Contact) -> bool,
+    {
         let bucket = self.bucket(id);
         if let Some(contact) = bucket.get(id) {
             f(contact)
-        }
-        else {
+        } else {
             false
         }
     }
@@ -1120,7 +1120,8 @@ mod tests {
             ))?;
         }
 
-        *table.contact_mut(&ids[1]).unwrap().state_mut() = ContactState::Invalid(NotViaStateList::default());
+        *table.contact_mut(&ids[1]).unwrap().state_mut() =
+            ContactState::Invalid(NotViaStateList::default());
         assert_eq!(
             table.contact(&ids[1]).unwrap().state(),
             &ContactState::Invalid(NotViaStateList::default()),
@@ -1165,7 +1166,8 @@ mod tests {
             ))?;
         }
 
-        *table.contact_mut(&ids[1]).unwrap().state_mut() = ContactState::Invalid(NotViaStateList::default());
+        *table.contact_mut(&ids[1]).unwrap().state_mut() =
+            ContactState::Invalid(NotViaStateList::default());
         assert_eq!(
             table.contact(&ids[1]).unwrap().state(),
             &ContactState::Invalid(NotViaStateList::default()),

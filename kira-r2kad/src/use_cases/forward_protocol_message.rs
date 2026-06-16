@@ -1,4 +1,4 @@
-use std::collections::{HashMap};
+use std::collections::HashMap;
 use std::fmt::Debug;
 
 use std::marker::PhantomData;
@@ -7,9 +7,9 @@ use std::ops::{Deref, DerefMut};
 use tracing::{Level, instrument};
 
 use crate::domain::{
-    Contact, InOrderCycleRemover, InsertionStrategy, InsertionStrategyResult, Link,
-    NodeId, NotVia, NotViaList, NotViaState, NotViaStateList, Path, PathCycleRemover, PathState, RoutingTable, Timestamp,
-    ULNTable, UnderlayNeighborId, UnderlayNeighborSource, VicinityGraph,
+    Contact, InOrderCycleRemover, InsertionStrategy, InsertionStrategyResult, Link, NodeId, NotVia,
+    NotViaList, NotViaState, NotViaStateList, Path, PathCycleRemover, PathState, RoutingTable,
+    Timestamp, ULNTable, UnderlayNeighborId, UnderlayNeighborSource, VicinityGraph,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -131,7 +131,6 @@ where
     /// If the contact was previously an underlay neighbor but not anymore its entry in the ULNTable
     /// will be removed.
     fn update_contact(&self, context: &C, contact: Contact) {
-
         // ignore information about us from other parties
         if contact.id() == context.root_id() {
             return;
@@ -210,12 +209,7 @@ where
     }
 
     /// Extracts not_via data and applies them on the routing table.
-    fn extract_not_via_data(
-        &self,
-        context: &C,
-        source: &NodeId,
-        new_not_via_data: &NotViaList,
-    ) {
+    fn extract_not_via_data(&self, context: &C, source: &NodeId, new_not_via_data: &NotViaList) {
         // we exclude any notvia that contains ourselves, because we know better
         let filtered_not_via_data = new_not_via_data
             .iter()
@@ -235,7 +229,8 @@ where
                     && *last_validated < Timestamp::from(entry.age)
                     && contact.path().unwrap().contains_link(&entry.link)
                 {
-                    contact.set_invalid(NotViaStateList::from(NotViaState::from((**entry).clone())));
+                    contact
+                        .set_invalid(NotViaStateList::from(NotViaState::from((**entry).clone())));
                     log::debug!(target: "forward_protocol_message", "Invalidated contact {} based on not-via data of {}", contact.id(), source);
                     continue;
                 }
@@ -296,12 +291,13 @@ where
                         .expect("contact should be present");
                     let direct_uln_link = Link::new(*source_id, *updated_contact.id());
                     if let Some(affected_path) = affected_contact.path()
-                        && affected_path
-                            .contains_link(&direct_uln_link)
+                        && affected_path.contains_link(&direct_uln_link)
                         && affected_contact.is_older_than(&updated_contact)
                     {
-
-                        affected_contact.set_invalid(NotViaStateList::from(NotViaState::new(direct_uln_link,Timestamp::now())));
+                        affected_contact.set_invalid(NotViaStateList::from(NotViaState::new(
+                            direct_uln_link,
+                            Timestamp::now(),
+                        )));
                         log::trace!(target: "forward_protocol_message", "Invalidated contact {} based on route update (Unreachable) of {} [Removed]", affected_contact.id(), source_id);
                     }
                 }

@@ -11,8 +11,8 @@ use crate::domain::protocol_event::forwarding::{
     PathIdEntry, PathIdForwardingEntry, PathIdTableUpdate,
 };
 use crate::domain::{
-    Contact, ContactState, NodeId, Path, PathId, RoutingTable, ULNTable,
-    UnderlayNeighborId, VICINITY_RADIUS, hasher::Hasher,
+    Contact, ContactState, NodeId, Path, PathId, RoutingTable, ULNTable, UnderlayNeighborId,
+    VICINITY_RADIUS, hasher::Hasher,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -371,8 +371,8 @@ where
                     new.path().unwrap().size() > VICINITY_RADIUS,
                     old.path().unwrap().size() > VICINITY_RADIUS,
                 ) {
-                    (ContactState::Valid, ContactState::Invalid(_), true, _) |
-                    (ContactState::Valid, ContactState::Rediscovering(_), true, _)  => {
+                    (ContactState::Valid, ContactState::Invalid(_), true, _)
+                    | (ContactState::Valid, ContactState::Rediscovering(_), true, _) => {
                         // Contacts becomes valid
                         self.send_setup_req(context, &new);
                     }

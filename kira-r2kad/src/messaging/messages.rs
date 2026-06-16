@@ -1,6 +1,6 @@
 //! Data types for all protocol messages and wrapped in the central enumeration [ProtocolMessage].
 
-use std::collections::{HashMap};
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::num::NonZeroU64;
 

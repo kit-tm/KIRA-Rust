@@ -4,7 +4,7 @@ use std::cell::{Ref, RefMut};
 
 pub use sync_context::SyncContext;
 
-use crate::domain::{NodeId};
+use crate::domain::NodeId;
 
 pub mod sync_context;
 

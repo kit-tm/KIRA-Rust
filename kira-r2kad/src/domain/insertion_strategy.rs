@@ -204,7 +204,6 @@ where
         routing_table: &mut RT,
         un_table: &UN,
     ) -> InsertionStrategyResult {
-
         // perform some sanity checks
 
         // valid contacts stem from source route, unkown contacts from RTable objects
@@ -290,11 +289,9 @@ where
         // try modifying an existing contact in the bucket instead of inserting
         match insertion_err {
             InsertionError::BucketSplit(_) | InsertionError::Add(AddError::NotAdded) => {
-
                 self.replace_in_full_bucket(contact.clone(), routing_table)
             }
             InsertionError::Add(AddError::AlreadyExists(_)) => {
-
                 self.update_existing(contact.clone(), routing_table)
             }
         }

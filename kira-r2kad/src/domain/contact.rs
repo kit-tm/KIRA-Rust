@@ -3,7 +3,10 @@ use std::hash::{Hash, Hasher};
 
 use derive_more::derive::Display;
 
-use crate::domain::{Age, NodeId, NotViaStateList, Path, RediscoveryState, SafeStateSeqNr, Timestamp, pathcollection::PathCollection};
+use crate::domain::{
+    Age, NodeId, NotViaStateList, Path, RediscoveryState, SafeStateSeqNr, Timestamp,
+    pathcollection::PathCollection,
+};
 
 #[derive(Debug, Clone, Eq, PartialEq, Display, Default)]
 #[display("{_variant}")]
@@ -11,13 +14,12 @@ use crate::domain::{Age, NodeId, NotViaStateList, Path, RediscoveryState, SafeSt
 ///
 pub enum ContactState {
     #[default]
-    Unknown,       // when contact is initialized, its state is mostly unknown
-    Valid,         // has a validated active path
-    Invalid(NotViaStateList),   // active path is not valid due to failed links
+    Unknown, // when contact is initialized, its state is mostly unknown
+    Valid,                           // has a validated active path
+    Invalid(NotViaStateList),        // active path is not valid due to failed links
     Rediscovering(RediscoveryState), // no valid path, but trying to rediscvoer
-    Dead,          // contact not usable anymore (e.g., rediscovery failed finally)
+    Dead, // contact not usable anymore (e.g., rediscovery failed finally)
 }
-
 
 /// A [Contact] as represented in the [RoutingTable](crate::domain::routing_table::RoutingTable).
 /// A contact contains the destination NodeId, state information, and paths leading to the contact
@@ -34,7 +36,6 @@ pub struct Contact {
     path_collection: PathCollection,
     state_seq_nr: SafeStateSeqNr,
 }
-
 
 impl Hash for Contact {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -72,8 +73,13 @@ impl Contact {
         &mut self.state
     }
 
-    pub fn start_rediscovering(&mut self, notviastate_list : NotViaStateList, via_contact_list : Vec<NodeId>) {
-        self.state= ContactState::Rediscovering(RediscoveryState::new(notviastate_list, via_contact_list));
+    pub fn start_rediscovering(
+        &mut self,
+        notviastate_list: NotViaStateList,
+        via_contact_list: Vec<NodeId>,
+    ) {
+        self.state =
+            ContactState::Rediscovering(RediscoveryState::new(notviastate_list, via_contact_list));
     }
 
     /// Returns if the [Contact] represents a underlay neighbor.
@@ -117,11 +123,11 @@ impl Contact {
     }
 
     pub fn is_invalid(&self) -> bool {
-        matches!(self.state,ContactState::Invalid(_))
+        matches!(self.state, ContactState::Invalid(_))
     }
 
     // sets contact state to invalid and current active path to invalid
-    pub fn set_invalid(&mut self, notviastate_list : NotViaStateList) {
+    pub fn set_invalid(&mut self, notviastate_list: NotViaStateList) {
         // if contact is already in invalid or rediscovering, we may add an additional notvia link
         match self.state {
             ContactState::Invalid(ref mut existing_notviastate_list) => {
@@ -129,7 +135,7 @@ impl Contact {
                     existing_notviastate_list.nvs_list.insert(nvs.clone());
                 }
             }
-            ContactState::Rediscovering(ref mut rds ) => {
+            ContactState::Rediscovering(ref mut rds) => {
                 for nvs in notviastate_list.nvs_list.iter() {
                     rds.notviastate_list.nvs_list.insert(nvs.clone());
                 }

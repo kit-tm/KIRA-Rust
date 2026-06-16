@@ -235,8 +235,9 @@ where
 
     fn contains_with<F>(&self, id: &NodeId, f: F) -> bool
     where
-        F: Fn(&Contact) -> bool {
-        self.inner.contains_with(id,f)
+        F: Fn(&Contact) -> bool,
+    {
+        self.inner.contains_with(id, f)
     }
 
     fn split_bucket(&mut self, id: &NodeId) -> Result<usize, BucketSplitError> {
@@ -404,7 +405,8 @@ mod tests {
     use crate::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
-        Contact, ContactState, NodeId, NotViaStateList, Path, RoutingTable, SafeStateSeqNr, Timestamp,
+        Contact, ContactState, NodeId, NotViaStateList, Path, RoutingTable, SafeStateSeqNr,
+        Timestamp,
     };
 
     #[test]

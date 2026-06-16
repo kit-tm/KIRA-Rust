@@ -5,13 +5,13 @@ use std::time::{Duration, Instant};
 use tracing::{Level, instrument};
 
 use crate::domain::{
-    Contact, ContactState, DEFAULT_BUCKET_SIZE, Link, NodeId, NotViaState, NotViaStateList, Path, RoutingTable, Timestamp, ULNTable,
-    UnderlayNeighborId,
+    Contact, ContactState, DEFAULT_BUCKET_SIZE, Link, NodeId, NotViaState, NotViaStateList, Path,
+    RoutingTable, Timestamp, ULNTable, UnderlayNeighborId,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
-    CommonHeader, ErrorData, Nonce, ProbeReqData, ProbeRspData, ProtocolMessage, ProtocolMessageKind,
-    ReqRspMessage, WireFormatMessage,
+    CommonHeader, ErrorData, Nonce, ProbeReqData, ProbeRspData, ProtocolMessage,
+    ProtocolMessageKind, ReqRspMessage, WireFormatMessage,
 };
 use crate::use_cases::{
     ContactEvent, EventHandler, NeverError, TimerId, UseCase, UseCaseContext, UseCaseEvent,
@@ -256,7 +256,7 @@ where
         }
     }
 
-    fn invalidate_contact_for_message(&mut self, context: &C, nonce: Nonce, failed_link : Link) {
+    fn invalidate_contact_for_message(&mut self, context: &C, nonce: Nonce, failed_link: Link) {
         if let PathProbingState::Running {
             requests_in_flight,
             probe_timers,
@@ -271,7 +271,10 @@ where
             let mut lock = context.routing_table_mut();
             match lock.contact_mut(&contacts_id) {
                 Some(mut contact) => {
-                    contact.set_invalid(NotViaStateList::from(NotViaState::new(failed_link,Timestamp::now())));
+                    contact.set_invalid(NotViaStateList::from(NotViaState::new(
+                        failed_link,
+                        Timestamp::now(),
+                    )));
                     log::warn!(target: "path_probing", "Invalidated contact {} because ot segment failure", contact.id())
                 }
                 None => {
