@@ -1,0 +1,24 @@
+[project]
+name = "kira-common"
+version = "0.0.1"
+description = "Common definitions for the testing infrastructure of kirad with NeST"
+readme = "README.md"
+authors = [
+  { name = "Julius Rüberg", email = "julius.rueberg@student.kit.edu" },
+  { name = "Jakob Müllner ", email = "uifnz@student.kit.edu" },
+]
+requires-python = "~=3.12.0" # Python 3.12.X
+dependencies = [
+  "nest==0.4.4",
+  "networkx==3.4.2",
+  "scipy==1.15.3",
+  "term-image==0.7.2",
+  "matplotlib==3.10.3",
+]
+
+[dependency-groups]
+dev = ["pytest>=9.0.1", "ruff>=0.14.5", "pyright>=1.1.407"]
+
+[build-system]
+requires = ["uv_build>=0.9.11,<0.10.0"]
+build-backend = "uv_build"

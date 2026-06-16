@@ -245,14 +245,12 @@ where
                     log::trace!(target: "distributed_hash_table_injector", "Received response for msg id {:?} after {:?}", message.msg_id(), elapsed);
                 }
             }
-            (UseCaseEvent::Timer(id), Running(our_id)) => {
-                if &id == our_id {
-                    for data in self.restore_data.iter() {
-                        // TODO: make this more efficient
-                        // 1.) calculate source routes only once for every handle
-                        // 2.) pack all data to that node into a single request
-                        dht::send_store_req(context, Nonce::random(), data.clone());
-                    }
+            (UseCaseEvent::Timer(id), Running(our_id)) if &id == our_id => {
+                for data in self.restore_data.iter() {
+                    // TODO: make this more efficient
+                    // 1.) calculate source routes only once for every handle
+                    // 2.) pack all data to that node into a single request
+                    dht::send_store_req(context, Nonce::random(), data.clone());
                 }
             }
             _ => {}

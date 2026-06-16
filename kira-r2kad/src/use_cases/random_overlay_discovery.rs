@@ -69,9 +69,9 @@ where
 
         let closest_path = context
             .routing_table()
-            .closest(&random_id, BUCKET_SIZE, self.config.shared_prefix_grouping)
+            .closest(&random_id, 1, self.config.shared_prefix_grouping)
             .expect("grouping was checked on initialization")
-            .first()
+            .first() // TODO: Proximity Neighbor Selection
             .map(|(_, contact)| contact.path())
             .cloned();
         if closest_path.is_none() {

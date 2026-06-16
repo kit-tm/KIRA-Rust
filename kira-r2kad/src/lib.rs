@@ -68,15 +68,46 @@ pub mod utils;
 pub use crate::r2kad::{Input, Output, R2Kad};
 
 #[cfg(test)]
+#[allow(dead_code)]
 pub(crate) mod tests {
-    use log::LevelFilter;
+    use crate::domain::NodeId;
 
-    #[allow(dead_code)]
     pub fn init() {
-        let _ = env_logger::builder()
-            .filter_level(LevelFilter::Trace)
-            .parse_default_env()
-            .is_test(true)
+        // setup pretty trace logs to be captured in tests
+        let _ = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_test_writer()
+            .pretty()
             .try_init();
+
+        tracing::trace!("Setup collection of tracing events in test environment");
+    }
+
+    /// Returns the mapping of topo-id to [NodeId] of the [minimal topology].
+    ///
+    /// [minimal topology]: ../../tests/topos/minimal.gml
+    pub fn minimal_topo_nodes() -> [NodeId; 20] {
+        [
+            NodeId::from(u128::from_str_radix("e3e7c2094cac629f6fbed82c07cd", 16).unwrap()),
+            NodeId::from(u128::from_str_radix("f72842485e3a0a5d2f346baa9455", 16).unwrap()),
+            NodeId::from(u128::from_str_radix("eb1167a9c3787c65c1e582e2e662", 16).unwrap()),
+            NodeId::from(u128::from_str_radix("f7c14da5e709d4713d60c8a70639", 16).unwrap()),
+            NodeId::from(u128::from_str_radix("e4439558867f5ba91faf7a024204", 16).unwrap()),
+            NodeId::from(u128::from_str_radix("23a78133287637ebdcd9e87a1613", 16).unwrap()),
+            NodeId::from(u128::from_str_radix("1846c17c627923c6612f48268673", 16).unwrap()),
+            NodeId::from(u128::from_str_radix("fcbd40212ef7cca5a5a19e4d6e3c", 16).unwrap()),
+            NodeId::from(u128::from_str_radix("b486fb97d43588561712e8e5216a", 16).unwrap()),
+            NodeId::from(u128::from_str_radix("259fe6f4590b9a164106cf6a659e", 16).unwrap()),
+            NodeId::from(u128::from_str_radix("12e0bad640fb19488dec4f65d4d9", 16).unwrap()),
+            NodeId::from(u128::from_str_radix("5487af19922ad9b8a714e61a441c", 16).unwrap()),
+            NodeId::from(u128::from_str_radix("5a9219c78df48f4ff31e78de5857", 16).unwrap()),
+            NodeId::from(u128::from_str_radix("a3f29c6316b950f244556f25e2a2", 16).unwrap()),
+            NodeId::from(u128::from_str_radix("8d72f77383c13458a748e9bb17bc", 16).unwrap()),
+            NodeId::from(u128::from_str_radix("8577dd84f39e71545a137a1d5006", 16).unwrap()),
+            NodeId::from(u128::from_str_radix("eb20ce164dba0ff18e0242af9fc3", 16).unwrap()),
+            NodeId::from(u128::from_str_radix("17e003983ca8ea7e9d498c778ea6", 16).unwrap()),
+            NodeId::from(u128::from_str_radix("b5d366194cb1d71037d1b83e90ec", 16).unwrap()),
+            NodeId::from(u128::from_str_radix("a011ab0c1681c8f8e3d0d3290a4c", 16).unwrap()),
+        ]
     }
 }
