@@ -10,7 +10,7 @@ edition.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["tokio-console", "api", "swagger_doc"]
+default = ["api", "swagger_doc"]
 api = ["kira-lib/api"]
 swagger_doc = ["kira-lib/swagger_doc"]
 # default routing table bucket size: 3
@@ -65,7 +65,7 @@ itertools = { version = "0.13.0", optional = true }
 
 log = { workspace = true }
 tracing = { workspace = true, features = ["attributes"] }
-tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 # tokio debug console
 console-subscriber = { version = "0.4.0", optional = true }
 # opentelemetry

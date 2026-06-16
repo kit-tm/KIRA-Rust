@@ -94,9 +94,13 @@ async fn main() {
     // Setup tracing environment
     {
         use tracing::Level;
+        #[cfg(any(feature = "otel", feature = "tokio-console"))]
+        use tracing_subscriber::filter::LevelFilter;
+        #[cfg(feature = "tokio-console")]
+        use tracing_subscriber::filter::Targets;
         use tracing_subscriber::{
             Layer,
-            filter::{EnvFilter, FilterExt, LevelFilter, Targets, filter_fn},
+            filter::{EnvFilter, FilterExt, filter_fn},
             layer::SubscriberExt,
             util::SubscriberInitExt,
         };

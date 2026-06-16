@@ -78,7 +78,6 @@ pub enum RoutingTableEvent<const BUCKET_SIZE: usize> {
 ///     SafeStateSeqNr::try_from(2).unwrap(),
 /// );
 /// let _ = observable_rt.add(contact);
-///
 /// ```
 pub trait RoutingTableObserver<const BUCKET_SIZE: usize>: Send {
     /// Notify the [RoutingTableObserver] about a [RoutingTableEvent].
@@ -260,6 +259,21 @@ where
         self.inner.bucket(of)
     }
 
+    fn bucket_by_index(&self, index: usize) -> &Bucket<BUCKET_SIZE> {
+        self.inner.bucket_by_index(index)
+    }
+
+    fn get_bucket_index(&self, of: &NodeId) -> usize {
+        self.inner.get_bucket_index(of)
+    }
+
+    fn get_bucket_prefix_length(&self, bucket_index: usize) -> u8 {
+        self.inner.get_bucket_prefix_length(bucket_index)
+    }
+
+    // Use default implementations of insert or extend.
+    // Reusing inner's implementations would result in missed events.
+
     fn closest(
         &self,
         to: &NodeId,
@@ -267,6 +281,14 @@ where
         shared_prefix_grouping: NonZeroU8,
     ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError> {
         self.inner.closest(to, n, shared_prefix_grouping)
+    }
+
+    fn next_hop(
+        &self,
+        target: &NodeId,
+        shared_prefix_grouping: NonZeroU8,
+    ) -> Result<Option<Contact>, GroupingError> {
+        self.inner.next_hop(target, shared_prefix_grouping)
     }
 
     fn iter(&self) -> impl Iterator<Item = &Contact> {
@@ -279,18 +301,6 @@ where
 
     fn bucket_iter(&'a self) -> Self::BucketIter {
         self.inner.bucket_iter()
-    }
-
-    fn bucket_by_index(&self, index: usize) -> &Bucket<BUCKET_SIZE> {
-        self.inner.bucket_by_index(index)
-    }
-
-    fn get_bucket_index(&self, of: &NodeId) -> usize {
-        self.inner.get_bucket_index(of)
-    }
-
-    fn get_bucket_prefix_length(&self, bucket_index: usize) -> u8 {
-        self.inner.get_bucket_prefix_length(bucket_index)
     }
 
     fn path_hasher(&self) -> Hasher {

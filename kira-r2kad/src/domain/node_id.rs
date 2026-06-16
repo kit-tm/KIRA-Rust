@@ -36,7 +36,7 @@ impl NodeId {
     /// The size of a [NodeId] in bits.
     pub const BITS: u8 = 112;
     /// Length in Characters of the short output format for [NodeId]s.
-    /// const SHORT_OUTPUT_LENGTH: usize = 8;
+    // const SHORT_OUTPUT_LENGTH: usize = 8;
     /// Maximum value and mask to set the highest 16 bit to 0
     const MAX_UVAL: u128 = 0x0000ffff_ffffffff_ffffffff_ffffffff;
     /// undefined is all zeros
@@ -116,7 +116,7 @@ impl NodeId {
             lz -= IGNORE_BITS;
             lz.try_into().unwrap()
         } else {
-            panic!("NodeId internal error: leading zeros value invalid ({lz})");
+            unreachable!("NodeId internal error: leading zeros value invalid ({lz})");
         }
     }
 
@@ -374,8 +374,8 @@ impl NodeIdSubnet {
 /// > equal length **and** numerical value of xor is smaller )
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct SharedPrefix {
-    pub(crate) xor: NodeId,
-    pub(crate) length: u8,
+    pub xor: NodeId,
+    pub length: u8,
 }
 
 impl From<SharedPrefix> for u8 {

@@ -1,0 +1,64 @@
+[project]
+name = "kira-test"
+version = "0.0.1"
+description = "Python powered testing infrastructure of kirad"
+readme = "README.md"
+authors = [
+  { name = "Julius Rüberg", email = "julius.rueberg@student.kit.edu" },
+  { name = "Jakob Müllner ", email = "uifnz@student.kit.edu" },
+]
+requires-python = "~=3.12.0" # Python 3.12.X
+dependencies = ["kira-nest"]
+
+[dependency-groups]
+dev = ["pytest>=9.0.1", "ruff>=0.14.5", "ty>=0.0.2"]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+kira-nest = { workspace = true }
+kira-common = { workspace = true }
+
+[[tool.uv.index]]
+name = "gitlab"
+url = "gitlab.kit.edu/api/v4/projects/162502/packages/pypi/simple"
+# NOTE: Use `password` for tokens on uv publish (see: https://github.com/astral-sh/uv/issues/9195#issuecomment-2483840918)
+publish-url = "https://gitlab.kit.edu/api/v4/projects/162502/packages/pypi"
+explicit = true
+
+[tool.uv]
+publish-url = "https://gitlab.kit.edu/api/v4/projects/162502/packages/pypi"
+
+[tool.ruff.lint]
+# https://docs.astral.sh/ruff/linter/#rule-selection
+select = [
+  "E",   # pycodestyle
+  "F",   # Pyflakes
+  "UP",  # pyupgrade
+  "B",   # flake8-bugbear
+  "SIM", # flake8-simplify
+  "I",   # isort
+  "PL",  # pylint
+  "N",   # pep8-naming
+  "ANN",
+  "RET",
+]
+ignore = [
+  "ANN002",
+  "ANN003",  # args, kwargs annotations
+  "ANN204",  # special-methods return type annotation
+  "ANN401",  # allow Any type annotations
+  "PLR0913", # allow more than 5 arguments in function definition
+  "RET504",  # allow assignment before returning for better code readability
+  "RET505",  # allow elif after return for better control flow clarity
+]
+
+[tool.ruff.lint.per-file-ignores]
+"packages/*/tests/*" = [
+  "ANN",     # type annotations
+  "PLR2004", # magic numbers
+]
+"**/__init__.py" = [
+  "F401", # unused import
+]

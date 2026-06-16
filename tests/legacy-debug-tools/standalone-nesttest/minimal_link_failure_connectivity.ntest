@@ -1,0 +1,12 @@
+sleep 10
+checkup
+pingall -f
+down k1 k5
+sleep 5
+checkup
+pingall -f
+up k1 k5
+sleep 5
+checkup
+pingall -f
+checkvicinity
