@@ -122,7 +122,22 @@ impl Contact {
 
     // sets contact state to invalid and current active path to invalid
     pub fn set_invalid(&mut self, notviastate_list : NotViaStateList) {
-        self.state = ContactState::Invalid(notviastate_list);
+        // if contact is already in invalid or rediscovering, we may add an additional notvia link
+        match self.state {
+            ContactState::Invalid(ref mut existing_notviastate_list) => {
+                for nvs in notviastate_list.nvs_list.iter() {
+                    existing_notviastate_list.nvs_list.insert(nvs.clone());
+                }
+            }
+            ContactState::Rediscovering(ref mut rds ) => {
+                for nvs in notviastate_list.nvs_list.iter() {
+                    rds.notviastate_list.nvs_list.insert(nvs.clone());
+                }
+            }
+            _ => {
+                self.state = ContactState::Invalid(notviastate_list);
+            }
+        }
 
         if let Some(active_path) = self.path_mut() {
             active_path.invalidate();

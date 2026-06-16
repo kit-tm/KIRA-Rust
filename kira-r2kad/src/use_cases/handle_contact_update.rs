@@ -100,7 +100,7 @@ where
         }
     }
 
-    // this should only be called for ULN contacts
+    // this should only be called for ULN contacts as invalidated_contact
     fn invalidate_all_affected_contacts(&self, context: &C, invalidated_contact: &Contact) {
         // check if invalidated_contact is a ULN
         if !invalidated_contact.is_uln() {

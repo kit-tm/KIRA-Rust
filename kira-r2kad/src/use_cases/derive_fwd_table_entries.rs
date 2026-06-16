@@ -460,7 +460,8 @@ where
                         .entered();
                         self.remove_node_id_entry(context, old.id())?;
                     }
-                    (ContactState::Valid, ContactState::Invalid(_)) => {
+                    (ContactState::Valid, ContactState::Invalid(_)) |
+                    (ContactState::Valid, ContactState::Rediscovering(_)) => {
                         updated_span.record("kind", "contact_validation");
 
                         let _span = tracing::debug_span!(

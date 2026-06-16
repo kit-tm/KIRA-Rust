@@ -371,7 +371,8 @@ where
                     new.path().unwrap().size() > VICINITY_RADIUS,
                     old.path().unwrap().size() > VICINITY_RADIUS,
                 ) {
-                    (ContactState::Valid, ContactState::Invalid(_), true, _) => {
+                    (ContactState::Valid, ContactState::Invalid(_), true, _) |
+                    (ContactState::Valid, ContactState::Rediscovering(_), true, _)  => {
                         // Contacts becomes valid
                         self.send_setup_req(context, &new);
                     }
