@@ -323,7 +323,7 @@ where
         routing_table: &mut RT,
         _un_table: &UN,
     ) -> InsertionStrategyResult {
-        let contact_id = contact.id().clone();
+        let contact_id = *contact.id();
         let result = routing_table.insert(contact);
         if let Err(e) = result {
             log::warn!(target: "routing_table", "Failed to insert contact {} into routing table: {}", contact_id, e);

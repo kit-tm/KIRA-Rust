@@ -430,7 +430,7 @@ where
             if let Some(active_path) = contact.path() {
                 // contact possesses active path
                 // invalidate if it starts with one of the affected ULNs
-                let first_hop = active_path.first().clone();
+                let first_hop = *active_path.first();
                 if affected_underlay_neighbors.contains(&first_hop) {
                     contact.set_invalid(NotViaStateList::from(NotViaState::new(
                         Link::new(*context.root_id(), first_hop),
