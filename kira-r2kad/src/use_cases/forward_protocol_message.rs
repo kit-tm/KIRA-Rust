@@ -7,7 +7,7 @@ use std::ops::{Deref, DerefMut};
 use tracing::{Level, instrument};
 
 use crate::domain::{
-    Contact, ContactState, InOrderCycleRemover, InsertionStrategy, InsertionStrategyResult, Link,
+    Contact, InOrderCycleRemover, InsertionStrategy, InsertionStrategyResult, Link,
     NodeId, NotVia, NotViaList, NotViaState, NotViaStateList, Path, PathCycleRemover, PathState, RoutingTable, Timestamp,
     ULNTable, UnderlayNeighborId, UnderlayNeighborSource, VicinityGraph,
 };
@@ -95,7 +95,9 @@ where
         }
 
         let ssn = ssn.value()?;
+        // new automatically creates a Contact in Valid state
         let contact = Contact::new(path.clone(), ssn);
+        //log::trace!(target: "forward_protocol_message", "extract_source_information for contact {} = {}",contact.id(),contact);
 
         {
             let mut uln_table = context.uln_table_mut();
@@ -109,11 +111,11 @@ where
                 if let Some(replaced) = uln_table.insert(*neighbor_id, ulnid) {
                     // Not allowed to happen as lock is held
                     log::warn!(
-                        target: "un_table",
+                        target: "uln_table",
                         "Overwritten ulnid mapping for '{neighbor_id}' from '{ulnid}' to '{replaced}' but checked before"
                     );
                 } else {
-                    log::debug!(target: "un_table", "Inserted neighbor '{neighbor_id}' at ulnid '{ulnid}'");
+                    log::debug!(target: "uln_table", "Inserted neighbor '{neighbor_id}' at ulnid '{ulnid}'");
                 }
             }
         }
@@ -136,7 +138,7 @@ where
         }
 
         // try to insert or update the contact in the routing table
-        log::trace!(target: "forward_protocol_message", "Attempting to insert {contact} into routing table");
+        log::trace!(target: "forward_protocol_message", "Attempting to insert contact {} into routing table, contact: {}",contact.id(),contact);
         let result = context.routing_table_insertion_strategy().insert(
             contact.clone(),
             context.routing_table_mut().deref_mut(),
@@ -155,7 +157,7 @@ where
             context.uln_table_mut().remove(contact.id());
             log::debug!(target: "forward_protocol_message", "Removed {} from ULNTable as it is no more an undelay neighbor; {:?}", contact.id(), contact);
         } else {
-            log::debug!(target: "forward_protocol_message", "Routing table insertion result {:?}",result);
+            log::debug!(target: "forward_protocol_message", "Routing table insertion result for contact {}: {:?} ", contact.id(), result);
         }
     }
 
@@ -196,8 +198,7 @@ where
                         && active_path.contains_link(link)
                     {
                         // invalidate path and contact now
-                        active_path.invalidate();
-                        *contact.state_mut() = ContactState::Invalid(NotViaStateList::from(nvs_entry.clone()));
+                        contact.set_invalid(NotViaStateList::from(nvs_entry.clone()));
                     }
                 }
             }
@@ -234,11 +235,7 @@ where
                     && *last_validated < Timestamp::from(entry.age)
                     && contact.path().unwrap().contains_link(&entry.link)
                 {
-                    contact
-                        .path_mut()
-                        .unwrap()
-                        .invalidate();
-                    *contact.state_mut() = ContactState::Invalid(NotViaStateList::from(NotViaState::from((**entry).clone())));
+                    contact.set_invalid(NotViaStateList::from(NotViaState::from((**entry).clone())));
                     log::debug!(target: "forward_protocol_message", "Invalidated contact {} based on not-via data of {}", contact.id(), source);
                     continue;
                 }
@@ -303,10 +300,8 @@ where
                             .contains_link(&direct_uln_link)
                         && affected_contact.is_older_than(&updated_contact)
                     {
-                        *affected_contact.state_mut() = ContactState::Invalid(NotViaStateList::from(NotViaState::new(direct_uln_link,Timestamp::now())));
-                        if let Some(active_path) = affected_contact.path_mut() {
-                            active_path.invalidate();
-                        }
+
+                        affected_contact.set_invalid(NotViaStateList::from(NotViaState::new(direct_uln_link,Timestamp::now())));
                         log::trace!(target: "forward_protocol_message", "Invalidated contact {} based on route update (Unreachable) of {} [Removed]", affected_contact.id(), source_id);
                     }
                 }

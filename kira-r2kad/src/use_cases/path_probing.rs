@@ -246,7 +246,7 @@ where
             let mut lock = context.routing_table_mut();
             match lock.contact_mut(&contacts_id) {
                 Some(mut contact) => {
-                    *contact.state_mut() = ContactState::Invalid(NotViaStateList::default());
+                    contact.set_invalid(NotViaStateList::default());
                     log::warn!(target: "path_probing", "Invalidated contact due of timer [path: {:?}]", contact.path());
                 }
                 None => {
@@ -271,7 +271,7 @@ where
             let mut lock = context.routing_table_mut();
             match lock.contact_mut(&contacts_id) {
                 Some(mut contact) => {
-                    *contact.state_mut() = ContactState::Invalid(NotViaStateList::from(NotViaState::new(failed_link,Timestamp::now())));
+                    contact.set_invalid(NotViaStateList::from(NotViaState::new(failed_link,Timestamp::now())));
                     log::warn!(target: "path_probing", "Invalidated contact {} because ot segment failure", contact.id())
                 }
                 None => {

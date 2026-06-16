@@ -116,12 +116,12 @@ where
             {
                 if let ContactState::Invalid(not_via_state_list) = invalidated_contact.state() {
                     // use not via info from invalidated contact
-                    *saved_contact.state_mut() = ContactState::Invalid(not_via_state_list.clone());
+                    saved_contact.set_invalid(not_via_state_list.clone());
                 }
                 else {
                     let nvs = NotViaState::new(Link::new(*context.root_id(),*invalidated_contact.id()),Timestamp::now());
                     // since invalidated_contact is a ULN, we use this info
-                    *saved_contact.state_mut() = ContactState::Invalid(NotViaStateList::from(nvs));
+                    saved_contact.set_invalid(NotViaStateList::from(nvs));
                 }
             }
         }

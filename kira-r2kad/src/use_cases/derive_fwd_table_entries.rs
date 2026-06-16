@@ -309,11 +309,6 @@ where
                 .expect("valid contact should have an active path")
                 .size()
         }) else {
-            assert_eq!(
-                bucket.iter().count(),
-                0,
-                "no PNS of bucket indicates empty bucket"
-            );
 
             tracing::trace!(
                 target: "derive_fwd_table_entries",

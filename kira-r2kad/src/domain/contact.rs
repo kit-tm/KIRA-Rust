@@ -120,8 +120,10 @@ impl Contact {
         matches!(self.state,ContactState::Invalid(_))
     }
 
-    // sets current active path to invalid
-    pub fn set_invalid(&mut self) {
+    // sets contact state to invalid and current active path to invalid
+    pub fn set_invalid(&mut self, notviastate_list : NotViaStateList) {
+        self.state = ContactState::Invalid(notviastate_list);
+
         if let Some(active_path) = self.path_mut() {
             active_path.invalidate();
         }
@@ -153,7 +155,7 @@ impl Contact {
                     .expect("Valid contact should never have an unset active path");
                 path_candidate.is_better_than(active_path)
             }
-            ContactState::Rediscovering(_) => false,
+            ContactState::Rediscovering(_) => true,
             ContactState::Dead => false,
         };
 
@@ -161,6 +163,7 @@ impl Contact {
             // if path candidate has been validated (stems from a message's source route), we can also replace the active path directly
             if path_candidate.is_valid() {
                 self.path_collection.set_active_path(path_candidate.clone());
+                self.state = ContactState::Valid;
                 return true;
             }
             // check if path_candidate is better than current proposed path if present

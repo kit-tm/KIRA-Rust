@@ -97,8 +97,7 @@ where
     fn invalidate_contacts_containing_link(&self, context: &C, failedlink: &Link) {
         for mut contact in context.routing_table_mut().iter_mut() {
             if contact.path().is_some() && contact.path().unwrap().contains_link(failedlink) {
-                *contact.state_mut() = ContactState::Invalid(NotViaStateList::from(NotViaState::new(failedlink.clone(), Timestamp::now())));
-                contact.set_invalid();
+                contact.set_invalid(NotViaStateList::from(NotViaState::new(failedlink.clone(), Timestamp::now())));
 
                 log::trace!(target: "failure_handling", "Invalidated {} whose path contains {}", contact.id(), failedlink);
             }
@@ -405,15 +404,15 @@ where
 
         // find contacts whose path contain affected underlay neighbors as first hop
         for mut contact in rt.iter_mut() {
-            if contact.path().is_some()
-                && affected_underlay_neighbors.contains(contact.path().unwrap().first())
-            {
-                *contact.state_mut() = ContactState::Invalid(
-                    NotViaStateList::from(NotViaState::new(Link::new(*context.root_id(), *contact.path().unwrap().first()),
-                    Timestamp::now(),
-                )));
+            if let Some(active_path) = contact.path() {
+                // contact possesses active path
+                // invalidate if it starts with one of the affected ULNs
+                let first_hop = active_path.first().clone();
+                if affected_underlay_neighbors.contains(&first_hop) {
+                    contact.set_invalid(NotViaStateList::from(NotViaState::new(Link::new(*context.root_id(), first_hop), Timestamp::now())));
 
-                log::trace!(target: "failure_handling", "Invalidated contact {} as it starts with failed underlay neighbor {}", contact.id(), contact.path().unwrap().first());
+                    log::trace!(target: "failure_handling", "Invalidated contact {} as it starts with failed underlay neighbor {}", contact.id(), contact.path().unwrap().first());
+                }
             }
         }
 
