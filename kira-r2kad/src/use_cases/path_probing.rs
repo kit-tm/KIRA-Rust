@@ -73,7 +73,7 @@ impl UseCaseState for PathProbingState {
 ///
 /// This periodically scans the whole routing table for obsolete contacts and sends
 /// path probing requests to them.
-/// If a [ErrorData::SegmentFailure](crate::messaging::messages::ErrorData::SegmentFailure) is
+/// If a [ErrorData::SegmentFailure] is
 /// returned the
 /// [ForwardProtocolMessage](crate::use_cases::forward_protocol_message::ForwardProtocolMessage)
 /// [UseCase] will invalidate all affected [Contacts](crate::domain::Contact).

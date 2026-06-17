@@ -42,10 +42,10 @@ pub enum PathState {
 ///
 /// # Invariant
 ///
-/// A valid Path is not empty at any time as it always contains the NodeId of the destination node at the end
+/// A valid [Path] is not empty at any time as it always contains the NodeId of the destination node at the end
 /// Therefore some methods panic or return errors when constructing empty [Path]s.
-/// The [last_validated] timestamp is the instant when the path was successfully validated by a PathProbe or invalidated by an error
-/// The [last_path_refresh] timestamp is the instant when the path was successfully refreshed
+/// The last_validated timestamp is the instant when the path was successfully validated by a PathProbe or invalidated by an error
+/// The last_path_refresh timestamp is the instant when the path was successfully refreshed
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Path {
