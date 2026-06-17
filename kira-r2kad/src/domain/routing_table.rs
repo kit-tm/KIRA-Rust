@@ -113,6 +113,11 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// Returns if a [Contact] with a given [NodeId] is present in the [RoutingTable].
     fn contains(&self, id: &NodeId) -> bool;
 
+    /// Returns if a [Contact] with a given [NodeId] is present in the [RoutingTable] and contact fulfills given predicate
+    fn contains_with<F>(&self, id: &NodeId, f: F) -> bool
+    where
+        F: Fn(&Contact) -> bool;
+
     /// Attempts to split the [Bucket] the id should be located in.
     /// The [Contact]s in the [Bucket] will be inserted in the appropriate [Bucket]s.
     ///
@@ -336,7 +341,8 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
                 "Select contacts with most prefix progress first"
             );
 
-            match ca.path().size().cmp(&cb.path().size()) {
+            // TODO what if paths are not set and unwrap() may fail?
+            match ca.path().unwrap().size().cmp(&cb.path().unwrap().size()) {
                 // Tie breaker: XOR-Metric
                 Ordering::Equal => spa.xor().cmp(spb.xor()),
                 ord => ord,

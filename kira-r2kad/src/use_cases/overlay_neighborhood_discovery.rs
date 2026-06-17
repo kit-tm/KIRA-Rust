@@ -8,7 +8,7 @@ use tracing::{Level, instrument};
 
 use derive_more::Display;
 
-use crate::domain::{GroupingError, NodeId, NotVia, RoutingTable, ULNTable, UnderlayNeighborId};
+use crate::domain::{GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
     CommonHeader, FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage,
@@ -224,7 +224,7 @@ where
             return Err(ONDError::NeighborInconsistency);
         }
         let contact = path_to_closest_on.unwrap();
-        let mut route_to_closest_on = SourceRoute::from(contact.path().clone());
+        let mut route_to_closest_on = SourceRoute::from(contact.path().unwrap().clone());
         route_to_closest_on.push_front(*context.root_id());
 
         // Get the interface of the next underlay neighbor to route this request through
@@ -253,7 +253,7 @@ where
                 neighborhood: self.config.overlay_neighborhood_size,
                 target: *context.root_id(),
             },
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route: route_to_closest_on,
         };
 
@@ -339,10 +339,10 @@ where
     ) -> Result<Self::Value, Self::Error> {
         match (&mut self.state, event) {
             // Regular timer went off
-            (ONDState::Running { timer_id, .. }, UseCaseEvent::Timer(received_timer_id)) => {
-                if timer_id == &received_timer_id {
-                    self.send_next_request(context)?;
-                }
+            (ONDState::Running { timer_id, .. }, UseCaseEvent::Timer(received_timer_id))
+                if timer_id == &received_timer_id =>
+            {
+                self.send_next_request(context)?;
             }
             // A successful response was received
             (

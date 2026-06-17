@@ -11,8 +11,8 @@ use crate::domain::protocol_event::forwarding::{
     PathIdEntry, PathIdForwardingEntry, PathIdTableUpdate,
 };
 use crate::domain::{
-    Contact, ContactState, NodeId, NotVia, Path, PathId, RoutingTable, ULNTable,
-    UnderlayNeighborId, VICINITY_RADIUS, hasher::Hasher,
+    Contact, ContactState, NodeId, Path, PathId, RoutingTable, ULNTable, UnderlayNeighborId,
+    VICINITY_RADIUS, hasher::Hasher,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -94,7 +94,11 @@ where
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     fn send_setup_req(&self, context: &C, contact: &Contact) {
-        let source_route = SourceRoute::new(*context.root_id(), contact.path().clone());
+        // just in case the contact has been invalidated meanwhile
+        if !contact.is_valid() {
+            return;
+        }
+        let source_route = SourceRoute::new(*context.root_id(), contact.path().unwrap().clone());
         let message = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::PathSetupReq,
@@ -105,7 +109,7 @@ where
                 context.uln_table().size(),
             ),
             data: PathSetupReqData,
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route,
         };
         context
@@ -114,7 +118,13 @@ where
     }
 
     fn send_probe_req(&self, context: &C, contact: &Contact) {
-        let source_route = SourceRoute::new(*context.root_id(), contact.path().clone());
+        let source_route = SourceRoute::new(
+            *context.root_id(),
+            contact
+                .path()
+                .expect("ProbeReq for refreshing contact should be called for valid contacts only")
+                .clone(),
+        );
         let message = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::ProbeReq,
@@ -125,7 +135,7 @@ where
                 context.uln_table().size(),
             ),
             data: ProbeReqData,
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route,
         };
         context
@@ -134,7 +144,10 @@ where
     }
 
     fn send_teardown_req(&self, context: &C, contact: &Contact) {
-        let source_route = SourceRoute::new(*context.root_id(), contact.path().clone());
+        let Some(active_path) = contact.path() else {
+            return;
+        };
+        let source_route = SourceRoute::new(*context.root_id(), active_path.clone());
         let message = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::PathTeardownReq,
@@ -145,7 +158,7 @@ where
                 context.uln_table().size(),
             ),
             data: PathTeardownReqData,
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route,
         };
         context
@@ -188,7 +201,9 @@ where
     fn perform_refresh(&mut self, context: &C) {
         for contact in context.routing_table().iter() {
             // don't probe invalid or vicinity contacts
-            if contact.state() != &ContactState::Valid || contact.path().size() <= VICINITY_RADIUS {
+            if contact.state() != &ContactState::Valid
+                || contact.path().unwrap().size() <= VICINITY_RADIUS
+            {
                 continue;
             }
 
@@ -343,19 +358,21 @@ where
     ) -> Result<Self::Value, Self::Error> {
         match (event, &self.state) {
             // ========== Contact Updates ==========
-            (UseCaseEvent::Contact(ContactEvent::New(contact)), _) => {
-                if contact.path().size() > VICINITY_RADIUS {
-                    self.send_setup_req(context, &contact);
-                }
+            (UseCaseEvent::Contact(ContactEvent::New(contact)), _)
+                if contact.path().unwrap().size() > VICINITY_RADIUS =>
+            {
+                // new contact outside vicinity requires path setup
+                self.send_setup_req(context, &contact);
             }
             (UseCaseEvent::Contact(ContactEvent::Updated { new, old }), _) => {
                 match (
                     new.state(),
                     old.state(),
-                    new.path().size() > VICINITY_RADIUS,
-                    old.path().size() > VICINITY_RADIUS,
+                    new.path().unwrap().size() > VICINITY_RADIUS,
+                    old.path().unwrap().size() > VICINITY_RADIUS,
                 ) {
-                    (ContactState::Valid, ContactState::Invalid, true, _) => {
+                    (ContactState::Valid, ContactState::Invalid(_), true, _)
+                    | (ContactState::Valid, ContactState::Rediscovering(_), true, _) => {
                         // Contacts becomes valid
                         self.send_setup_req(context, &new);
                     }
@@ -375,7 +392,7 @@ where
                         self.send_teardown_req(context, &old);
                     }
                     (
-                        ContactState::Invalid,
+                        ContactState::Invalid(_),
                         ContactState::Valid,
                         new_outside_vicinity,
                         old_outside_vicinity,
@@ -397,10 +414,10 @@ where
                     }
                 }
             }
-            (UseCaseEvent::Contact(ContactEvent::Removed(contact)), _) => {
-                if contact.path().size() > VICINITY_RADIUS {
-                    self.send_teardown_req(context, &contact);
-                }
+            (UseCaseEvent::Contact(ContactEvent::Removed(contact)), _)
+                if contact.path().unwrap().size() > VICINITY_RADIUS =>
+            {
+                self.send_teardown_req(context, &contact);
             }
             // ========== Timers ==========
             (

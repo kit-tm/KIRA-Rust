@@ -1,11 +1,11 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::num::NonZeroU8;
 use std::ops::Deref;
 use tracing::{Level, instrument};
 
 use crate::domain::{
-    Contact, DEFAULT_BUCKET_SIZE, GroupingError, NodeId, NotVia, RoutingTable, StateSeqNr,
+    Contact, DEFAULT_BUCKET_SIZE, GroupingError, NodeId, NotViaList, RoutingTable, StateSeqNr,
     ULNTable, UnderlayNeighborId,
 };
 use crate::messaging::source_route::SourceRoute;
@@ -61,12 +61,12 @@ impl<C, const BUCKET_SIZE: usize> HandleOverlayDiscovery<C, BUCKET_SIZE> {
 
     fn build_find_node_to_next_hop(
         &self,
-        not_via: HashSet<NotVia>,
+        not_via: Option<NotViaList>,
         req: ReqRspMessage<FindNodeReqData>,
         next_contact: Contact,
     ) -> ProtocolMessage {
         let mut source_route = req.source_route.clone();
-        source_route.extend(next_contact.path().clone());
+        source_route.extend(next_contact.path().unwrap().clone());
         source_route.advance();
 
         ProtocolMessage::FindNodeReq(ReqRspMessage {
@@ -87,7 +87,7 @@ impl<C, const BUCKET_SIZE: usize> HandleOverlayDiscovery<C, BUCKET_SIZE> {
     fn build_find_node_rsp(
         &self,
         own_id: NodeId,
-        not_via: HashSet<NotVia>,
+        not_via: Option<NotViaList>,
         req: ReqRspMessage<FindNodeReqData>,
         ssn: StateSeqNr,
         contacts: Vec<Contact>,
@@ -110,7 +110,6 @@ impl<C, const BUCKET_SIZE: usize> HandleOverlayDiscovery<C, BUCKET_SIZE> {
     fn build_error(
         &self,
         own_id: NodeId,
-        not_via: HashSet<NotVia>,
         req: ReqRspMessage<FindNodeReqData>,
         ssn: StateSeqNr,
     ) -> ProtocolMessage {
@@ -124,7 +123,7 @@ impl<C, const BUCKET_SIZE: usize> HandleOverlayDiscovery<C, BUCKET_SIZE> {
                 req.src_node_degree() as usize,
             ),
             data: ErrorData::DeadEnd,
-            not_via,
+            not_via: None,
             source_route: SourceRoute::from_reversed(req.source_route),
         })
     }
@@ -171,6 +170,8 @@ where
                 }
             };
 
+            // collect closest nodes to target from routing table
+            // closest returns only valid contacts, so unwrapping paths is safe
             let closest = context
                 .routing_table()
                 .closest(
@@ -181,25 +182,10 @@ where
                 .expect("grouping has to be checked on initialization");
 
             // Get any contact not contained in local or included not_via data
-            let closest_node = closest.iter().find(|(_, contact)| {
-                if context
-                    .not_via_state()
-                    .iter()
-                    .any(|nvs| contact.path().contains_link(&nvs.link))
-                {
-                    return false;
-                }
-                if req
-                    .not_via
-                    .iter()
-                    .any(|not_via| contact.path().contains_link(&not_via.link))
-                {
-                    return false;
-                }
+            // closest returns only valid contacts, so unwrapping paths is safe
+            let closest_node = closest.first();
 
-                true
-            });
-
+            // build different responses depending on four cases
             // (exact, target, target is us, closest known)
             let outgoing_message = match (
                 &req.data.exact,
@@ -207,17 +193,19 @@ where
                 &req.data.target == context.root_id(),
                 &closest_node,
             ) {
+                // exact FindNodeReq, we are the target node
                 (true, _, true, _) => {
                     let closest = closest.into_iter().map(|(_, contact)| contact).collect();
 
                     self.build_find_node_rsp(
                         *context.root_id(),
-                        context.not_via_state().iter().map(NotVia::from).collect(),
+                        req.not_via.clone(), // use the NotVia from the request also for the response
                         req.clone(),
                         From::from(*context.uln_table().state_seq_nr()),
                         closest,
                     )
                 }
+                // exact FindNodeReq, but we are not the target and found a closest contact
                 (true, target, false, Some((closest_known_distance, contact))) => {
                     let own_distance = context
                         .root_id()
@@ -226,7 +214,7 @@ where
 
                     if &own_distance > closest_known_distance && req.source() != contact.id() {
                         self.build_find_node_to_next_hop(
-                            context.not_via_state().iter().map(NotVia::from).collect(),
+                            req.not_via.clone(),
                             req.clone(),
                             Contact::clone(contact),
                         )
@@ -235,34 +223,44 @@ where
                         // so we send back an error message, since we can't make progress
                         self.build_error(
                             *context.root_id(),
-                            context.not_via_state().iter().map(NotVia::from).collect(),
                             req.clone(),
                             From::from(*context.uln_table().state_seq_nr()),
                         )
                     }
                 }
+                // exact FindNodeReq, but we are not the target and did not find a closest contact
                 (true, _, false, None) => self.build_error(
                     *context.root_id(),
-                    context.not_via_state().iter().map(NotVia::from).collect(),
                     req.clone(),
                     From::from(*context.uln_table().state_seq_nr()),
                 ),
+                // no exact FindNodeReq, but own NodeID as target
                 (false, _, true, _) => {
                     log::warn!(
                         target: "handle_overlay_discovery",
                         "Received FindNodeReq with 'exact=false' with us as target: {req:?}"
                     );
-                    return Ok(());
+                    let closest = closest.into_iter().map(|(_, contact)| contact).collect();
+
+                    self.build_find_node_rsp(
+                        *context.root_id(),
+                        req.not_via.clone(), // use the NotVia from the request also for the response
+                        req.clone(),
+                        From::from(*context.uln_table().state_seq_nr()),
+                        closest,
+                    )
                 }
+                // no exact FindNodeReq and we have a closest contact
                 (false, target, false, Some((closest_known_distance, contact))) => {
                     let own_distance = context
                         .root_id()
                         .shared_prefix_len(target, self.config.shared_prefix_bits_grouping)
                         .expect("grouping was checked on init");
 
+                    // forward FindNodeReq to closer contact
                     if &own_distance > closest_known_distance && req.source() != contact.id() {
                         self.build_find_node_to_next_hop(
-                            context.not_via_state().iter().map(NotVia::from).collect(),
+                            req.not_via.clone(),
                             req.clone(),
                             Contact::clone(contact),
                         )
@@ -273,16 +271,18 @@ where
 
                         self.build_find_node_rsp(
                             *context.root_id(),
-                            context.not_via_state().iter().map(NotVia::from).collect(),
+                            req.not_via.clone(),
                             req.clone(),
                             From::from(*context.uln_table().state_seq_nr()),
                             closest,
                         )
                     }
                 }
+                // no exact FindNodeReq but no closest contact found, sends back an empty FindNodeRsp
+                // TODO check if sending back an error would be a better choice
                 (false, _, false, None) => self.build_find_node_rsp(
                     *context.root_id(),
-                    context.not_via_state().iter().map(NotVia::from).collect(),
+                    req.not_via.clone(),
                     req.clone(),
                     From::from(*context.uln_table().state_seq_nr()),
                     Vec::with_capacity(0),

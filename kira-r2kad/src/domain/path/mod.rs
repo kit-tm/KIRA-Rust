@@ -4,14 +4,37 @@ use derive_more::with_trait::Display;
 use std::ops::Index;
 use std::slice::SliceIndex;
 
-use crate::domain::NodeId;
+use crate::domain::{NodeId, Timestamp, hasher::Hasher};
+use std::sync::OnceLock;
 
 use super::Link;
 
 pub mod cycle_remover;
 pub mod in_order_cycle_remover;
+pub mod pathcollection;
 pub mod shortest_first_path_simplifier;
 pub mod simplifier;
+
+/// this is a static variable that automatically gets initialized on its first use
+/// it represents a random NodeID that serves to prevent route flapping
+pub struct AnchorNodeId;
+
+impl AnchorNodeId {
+    pub fn get(&mut self) -> &'static NodeId {
+        static INSTANCE: OnceLock<NodeId> = OnceLock::new();
+        INSTANCE.get_or_init(NodeId::random)
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub enum PathState {
+    #[default]
+    Undefined, // initial state, path state not yet defined
+    Valid,    // path is valid (has been validated)
+    Faulty,   // path not usable but rediscovery is initiated
+    Checking, // path probably usable, but needs to be validated (e.g., for a proposed path)
+}
 
 /// A Path of [NodeId]s.
 ///
@@ -19,12 +42,20 @@ pub mod simplifier;
 ///
 /// # Invariant
 ///
-/// A valid Path is not empty at any time.
-/// Therefore the methods panic or return errors when constructing empty [Path]s.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// A valid Path is not empty at any time as it always contains the NodeId of the destination node at the end
+/// Therefore some methods panic or return errors when constructing empty [Path]s.
+/// The [last_validated] timestamp is the instant when the path was successfully validated by a PathProbe or invalidated by an error
+/// The [last_path_refresh] timestamp is the instant when the path was successfully refreshed
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Path {
     ids: Vec<NodeId>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    path_state: PathState,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    last_validated: Option<Timestamp>, // update for last validation or invalidation
+    #[cfg_attr(feature = "serde", serde(skip))]
+    last_path_refresh: Option<Timestamp>,
 }
 
 /// Converts a Vector of [NodeId]s to a Path.
@@ -39,7 +70,12 @@ impl TryFrom<Vec<NodeId>> for Path {
             return Err(EmptyPathError);
         }
 
-        Ok(Self { ids: value })
+        Ok(Self {
+            ids: value,
+            path_state: Default::default(),
+            last_validated: None,
+            last_path_refresh: None,
+        })
     }
 }
 
@@ -56,6 +92,9 @@ impl TryFrom<&[NodeId]> for Path {
 
         Ok(Self {
             ids: Vec::from(slice),
+            path_state: Default::default(),
+            last_validated: None,
+            last_path_refresh: None,
         })
     }
 }
@@ -68,13 +107,21 @@ impl<const PATH_SIZE: usize> From<[NodeId; PATH_SIZE]> for Path {
         }
         Self {
             ids: Vec::from(raw),
+            path_state: Default::default(),
+            last_validated: None,
+            last_path_refresh: None,
         }
     }
 }
 
 impl From<NodeId> for Path {
     fn from(raw: NodeId) -> Self {
-        Self { ids: vec![raw] }
+        Self {
+            ids: vec![raw],
+            path_state: Default::default(),
+            last_validated: None,
+            last_path_refresh: None,
+        }
     }
 }
 
@@ -92,7 +139,12 @@ impl FromIterator<NodeId> for Result<Path, EmptyPathError> {
             return Err(EmptyPathError);
         }
 
-        Ok(Path { ids: vec })
+        Ok(Path {
+            ids: vec,
+            path_state: Default::default(),
+            last_validated: None,
+            last_path_refresh: None,
+        })
     }
 }
 
@@ -103,9 +155,13 @@ impl Path {
     }
     /// Size of the [Path] in numbers of Nodes.
     ///
-    /// Is always > 0 as Path has to contain the [Contact](crate::domain::Contact)s NodeId at the
+    /// Is usually always > 0 as Path has to contain the [Contact](crate::domain::Contact)s NodeId at the
     /// end.
     pub fn size(&self) -> usize {
+        debug_assert!(
+            self.path_state != PathState::Undefined
+                || (self.path_state == PathState::Undefined && !self.ids.is_empty())
+        );
         self.ids.len()
     }
     /// Returns if the [Path] contains the [NodeId].
@@ -118,16 +174,17 @@ impl Path {
             .iter()
             .zip(self.ids.iter().skip(1))
             .any(|(first, second)| {
-                (first == &link.0 && second == &link.1) || (first == &link.1 && second == &link.0)
+                (first == link.first() && second == link.second())
+                    || (first == link.second() && second == link.first())
             })
     }
     /// Returns the first entry in the [Path].
     pub fn first(&self) -> &NodeId {
         self.ids
             .first()
-            .expect("Invalid state. Empty path constructed")
+            .expect("Invalid access to first element on empty path")
     }
-    /// Returns the first entry in the [Path].
+    /// Returns the second entry in the [Path].
     pub fn second(&self) -> Option<&NodeId> {
         self.ids.get(1)
     }
@@ -135,7 +192,7 @@ impl Path {
     pub fn last(&self) -> &NodeId {
         self.ids
             .last()
-            .expect("Invalid state. Empty path constructed")
+            .expect("Invalid access to last element on empty path")
     }
     /// Pushs a [NodeId] to the end of the [Path].
     pub fn push(&mut self, id: NodeId) {
@@ -189,6 +246,87 @@ impl Path {
         }
 
         iter.next().is_none()
+    }
+
+    /// returns true if this path is better (shorter or same length but closer to AnchorNodeId)
+    pub fn is_better_than(&self, other_path: &Path) -> bool {
+        debug_assert!(self.last() == other_path.last()); // paths should have the same destination
+        self.ids.len() < other_path.ids.len()
+            || (self.ids.len() == other_path.ids.len()
+                && (self.path_hasher().hash(&self.ids) ^ AnchorNodeId.get())
+                    < self.path_hasher().hash(&other_path.ids) ^ AnchorNodeId.get())
+    }
+
+    /// get path state
+    pub fn get_state(&self) -> PathState {
+        self.path_state
+    }
+
+    /// set path state
+    pub fn set_state(&mut self, new_state: PathState) {
+        if new_state == PathState::Undefined {
+            panic!("Path State MUST never be set to Undefined");
+        } else {
+            self.path_state = new_state;
+        }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        matches!(self.path_state, PathState::Valid)
+    }
+
+    pub fn is_faulty(&self) -> bool {
+        matches!(self.path_state, PathState::Faulty)
+    }
+
+    pub fn is_checking(&self) -> bool {
+        matches!(self.path_state, PathState::Checking)
+    }
+
+    /// invalidate current path
+    pub fn invalidate(&mut self) {
+        self.set_state(PathState::Faulty);
+        self.update_last_validated();
+    }
+
+    /// returns true if path was validated before the given instant (or never)
+    pub fn is_older_than(&self, ts: &Timestamp) -> bool {
+        match self.last_validated {
+            Some(last_ts) => last_ts < *ts,
+            None => true,
+        }
+    }
+
+    pub fn get_last_validated(&self) -> Option<&Timestamp> {
+        self.last_validated.as_ref()
+    }
+
+    pub fn get_last_path_refresh(&self) -> Option<&Timestamp> {
+        self.last_path_refresh.as_ref()
+    }
+
+    pub fn update_last_validated(&mut self) {
+        // instant should be CurrentRuntime::now()
+        self.last_validated = Some(Timestamp::now());
+    }
+
+    pub fn unset_last_validated(&mut self) {
+        // instant should be CurrentRuntime::now()
+        self.last_validated = None;
+    }
+
+    pub fn update_last_path_refresh(&mut self, instant: Timestamp) {
+        // instant should be CurrentRuntime::now()
+        self.last_path_refresh = Some(instant);
+    }
+
+    pub fn unset_last_path_refresh(&mut self) {
+        // instant should be CurrentRuntime::now()
+        self.last_validated = None;
+    }
+
+    fn path_hasher(&self) -> Hasher {
+        Hasher::default()
     }
 }
 

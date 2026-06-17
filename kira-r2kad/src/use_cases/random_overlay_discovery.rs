@@ -7,7 +7,7 @@ use tracing::{Level, instrument};
 
 use derive_more::derive::{Display, Error};
 
-use crate::domain::{GroupingError, NodeId, NotVia, RoutingTable, ULNTable, UnderlayNeighborId};
+use crate::domain::{GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{CommonHeader, FindNodeReqData, ProtocolMessageKind, ReqRspMessage};
 use crate::runtime::UseCaseRuntime;
@@ -72,7 +72,7 @@ where
             .closest(&random_id, 1, self.config.shared_prefix_grouping)
             .expect("grouping was checked on initialization")
             .first() // TODO: Proximity Neighbor Selection
-            .map(|(_, contact)| contact.path())
+            .map(|(_, contact)| contact.path().unwrap()) // closest returns only valid contacts
             .cloned();
         if closest_path.is_none() {
             log::trace!(
@@ -111,7 +111,7 @@ where
                 neighborhood: self.config.neighborhood_size,
                 target: random_id,
             },
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route: route,
         };
         log::trace!(target: "random_overlay_discovery", "Sending message {message:?}");

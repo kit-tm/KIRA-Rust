@@ -142,7 +142,10 @@ pub struct FetchInjectData {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ContactEvent {
     New(Contact),
-    Updated { new: Contact, old: Contact },
+    Updated {
+        new: Box<Contact>,
+        old: Box<Contact>,
+    },
     Removed(Contact),
     BucketUpdated(usize),
     NewBucket(usize),
