@@ -272,7 +272,9 @@ where
         if context.uln_table().contains_key(contact.id()) && !contact.is_uln() {
             log::warn!(target: "derive_fwd_table_entries", 
                 "Contact {contact:?} is not a underlay neighbor but listed in ULNTable -> may overwrite previous route unintentionally!");
-            return Err(DeriveFwdEntriesError::NonUNInULNTable(contact.clone()));
+            return Err(DeriveFwdEntriesError::NonUNInULNTable(Box::new(
+                contact.clone(),
+            )));
         }
 
         if contact.is_uln() {
@@ -382,9 +384,12 @@ where
         context: &C,
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
-        match event {
+        let UseCaseEvent::Contact(contact_event) = event else {
+            return Ok(());
+        };
+        match *contact_event {
             // FIXME: create NodeId entry on receiving PathSetupRsp
-            UseCaseEvent::Contact(ContactEvent::New(contact)) => {
+            ContactEvent::New(contact) => {
                 let _span = tracing::debug_span!(
                     target: "derive_fwd_table_entries",
                     "create_entry",
@@ -395,7 +400,7 @@ where
                 .entered();
                 self.create_node_id_entry(context, contact)?;
             }
-            UseCaseEvent::Contact(ContactEvent::Removed(contact)) => {
+            ContactEvent::Removed(contact) => {
                 let _span = tracing::debug_span!(
                     target: "derive_fwd_table_entries",
                     "remove_entry",
@@ -406,7 +411,7 @@ where
                 .entered();
                 self.remove_node_id_entry(context, contact.id())?;
             }
-            UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {
+            ContactEvent::Updated { new, old } => {
                 let updated_span = tracing::debug_span!(
                     target: "derive_fwd_table_entries",
                     "process_contact_update",
@@ -516,7 +521,7 @@ where
                     _ => {}
                 }
             }
-            UseCaseEvent::Contact(ContactEvent::BucketUpdated(bucket)) => {
+            ContactEvent::BucketUpdated(bucket) => {
                 let _span = tracing::debug_span!(
                     target: "derive_fwd_table_entries",
                     "update_bucket_entries",
@@ -527,7 +532,7 @@ where
                 .entered();
                 self.update_bucket(context, bucket)?;
             }
-            UseCaseEvent::Contact(ContactEvent::NewBucket(bucket)) => {
+            ContactEvent::NewBucket(bucket) => {
                 let _span = tracing::debug_span!(
                     target: "derive_fwd_table_entries",
                     "update_bucket_entries",
@@ -538,7 +543,6 @@ where
                 .entered();
                 self.update_bucket(context, bucket)?;
             }
-            _ => {}
         }
 
         Ok(())
@@ -583,7 +587,7 @@ pub enum DeriveFwdEntriesError {
     #[display("Neighbor listed in contacts path not in ULNTable: {_0}")]
     NeighborNotInULNTable(NodeId),
     #[display("Contact is not a underlay neighbor but listed in ULNTable: {_0}")]
-    NonUNInULNTable(Contact),
+    NonUNInULNTable(Box<Contact>),
 }
 impl Error for DeriveFwdEntriesError {}
 
@@ -657,7 +661,8 @@ mod tests {
             assert!(use_case.start(&sync_context).is_ok(), "starting failed");
             let _ = sync_context.runtime().output();
 
-            let event = UseCaseEvent::Contact(ContactEvent::New(vicinity_contact.clone()));
+            let event =
+                UseCaseEvent::Contact(Box::new(ContactEvent::New(vicinity_contact.clone())));
             let handle_result = use_case.handle_event(&sync_context, event);
             assert!(
                 handle_result.is_ok(),
@@ -775,7 +780,7 @@ mod tests {
             assert!(use_case.start(&sync_context).is_ok(), "starting failed");
             let _ = sync_context.runtime().output();
 
-            let event = UseCaseEvent::Contact(ContactEvent::New(neighbor.clone()));
+            let event = UseCaseEvent::Contact(Box::new(ContactEvent::New(neighbor.clone())));
             let handle_result = use_case.handle_event(&sync_context, event);
             assert!(
                 handle_result.is_ok(),
@@ -892,7 +897,8 @@ mod tests {
             assert!(use_case.start(&sync_context).is_ok(), "starting failed");
             let _ = sync_context.runtime().output();
 
-            let event = UseCaseEvent::Contact(ContactEvent::Removed(vicinity_contact.clone()));
+            let event =
+                UseCaseEvent::Contact(Box::new(ContactEvent::Removed(vicinity_contact.clone())));
             let handle_result = use_case.handle_event(&sync_context, event);
             assert!(
                 handle_result.is_ok(),
@@ -1018,10 +1024,10 @@ mod tests {
             new_in_path.extend(new_contact.path().unwrap().clone());
             let new_out_path_id = Hasher::Sha1.hash(new_contact.path().unwrap());
 
-            let event = UseCaseEvent::Contact(ContactEvent::Updated {
+            let event = UseCaseEvent::Contact(Box::new(ContactEvent::Updated {
                 new: Box::new(new_contact.clone()),
                 old: Box::new(vicinity_contact.clone()),
-            });
+            }));
             let handle_result = use_case.handle_event(&sync_context, event);
             assert!(
                 handle_result.is_ok(),

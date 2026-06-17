@@ -496,56 +496,70 @@ where
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::ProbeRsp(req), _)
-                if self.is_tracked_message(&req.msg_id().into()) => {
-                    let ReqRspMessage {
-                        common_header,
-                        source_route,
-                        ..
-                    } = req;
-                    let source = *source_route.source();
-                    let mut rev_source_route = Path::from(source_route);
-                    rev_source_route.reverse();
+                if self.is_tracked_message(&req.msg_id().into()) =>
+            {
+                let ReqRspMessage {
+                    common_header,
+                    source_route,
+                    ..
+                } = req;
+                let source = *source_route.source();
+                let mut rev_source_route = Path::from(source_route);
+                rev_source_route.reverse();
 
-                    let nonce = Nonce::from(common_header.msg_id());
+                let nonce = Nonce::from(common_header.msg_id());
 
-                    // in case we have a contact we validate it explicitly (currently this is done in forward_messages already)
-                    let mut rt = context.routing_table_mut();
-                    if let Some(mut contact) = rt.contact_mut(&source)
-                        && let Some(active_path) = contact.path_mut()
-                        && *active_path == rev_source_route {
-                            assert!(active_path.is_valid());
-                            active_path.set_state(crate::domain::PathState::Valid);
-                            active_path.update_last_validated();
-                    }
-                    self.remove_from_tracked_messages(nonce);
-
-                    log::trace!(target: "path_probing", "Probing destination {source} was successful!");
+                // in case we have a contact we validate it explicitly (currently this is done in forward_messages already)
+                let mut rt = context.routing_table_mut();
+                if let Some(mut contact) = rt.contact_mut(&source)
+                    && let Some(active_path) = contact.path_mut()
+                    && *active_path == rev_source_route
+                {
+                    assert!(active_path.is_valid());
+                    active_path.set_state(crate::domain::PathState::Valid);
+                    active_path.update_last_validated();
                 }
+                self.remove_from_tracked_messages(nonce);
+
+                log::trace!(target: "path_probing", "Probing destination {source} was successful!");
+            }
             UseCaseEvent::Message(ProtocolMessage::Error(req), _)
-                if self.is_tracked_message(&req.msg_id().into()) => {
-                    if let ErrorData::SegmentFailure { failed_link, ..} = &req.data {
-                        self.invalidate_contact_for_message(context, req.msg_id().into(), failed_link.clone());
-                    } else {
-                        // remove any pending request or timer for the corresponding message
-                        if let PathProbingState::Running {
-                            requests_in_flight,
-                            probe_timers,
-                            ..
-                        } = &mut self.state {
-                            let nonce = req.msg_id().into();
-                            requests_in_flight.remove(&nonce);
-                            probe_timers.retain(|_, v| *v != nonce);
-                        }
+                if self.is_tracked_message(&req.msg_id().into()) =>
+            {
+                if let ErrorData::SegmentFailure { failed_link, .. } = &req.data {
+                    self.invalidate_contact_for_message(
+                        context,
+                        req.msg_id().into(),
+                        failed_link.clone(),
+                    );
+                } else {
+                    // remove any pending request or timer for the corresponding message
+                    if let PathProbingState::Running {
+                        requests_in_flight,
+                        probe_timers,
+                        ..
+                    } = &mut self.state
+                    {
+                        let nonce = req.msg_id().into();
+                        requests_in_flight.remove(&nonce);
+                        probe_timers.retain(|_, v| *v != nonce);
                     }
                 }
+            }
             UseCaseEvent::Message(ProtocolMessage::ProbeReq(req), _) => {
                 self.send_probe_rsp(context, req);
             }
-            UseCaseEvent::Contact(ContactEvent::Updated { new, old })
-                // in case there is a new proposed path present, schedule probing for proposed path in case it is not a ULN
-                if old.proposed_path().is_none() && new.proposed_path().is_some() && new.proposed_path().unwrap().size() > 1 => {
-                    self.schedule_path_probe_req(context, &new);
+            UseCaseEvent::Contact(contact_event) => {
+                if let ContactEvent::Updated { new, old } = *contact_event {
+                    // in case there is a new proposed path present, schedule probing for proposed path in case it is not a ULN
+                    if old.proposed_path().is_none()
+                        && new.proposed_path().is_some()
+                        && new.proposed_path().unwrap().size() > 1
+                    {
+                        self.schedule_path_probe_req(context, &new);
+                    }
                 }
+            }
             _ => {}
         }
 
