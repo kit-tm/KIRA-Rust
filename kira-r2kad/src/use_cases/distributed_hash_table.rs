@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tracing::{Level, instrument};
 
 use crate::domain::{
-    Contact, ContactState, NodeId, NotVia, RoutingTable, ULNTable, UnderlayNeighborId, dht,
+    Contact, ContactState, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, dht,
 };
 use crate::messaging::dht::{
     DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchReqData, FetchRspData, StoreReqData,
@@ -196,7 +196,7 @@ where
                 context.uln_table().size(),
             ),
             data: StoreRspData { status: res },
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route,
         };
 
@@ -230,7 +230,7 @@ where
                 context.uln_table().size(),
             ),
             data: FetchRspData { data: fetch_res },
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route,
         };
 
@@ -327,20 +327,20 @@ where
                 self.send_fetch_rsp(context, req)
             }
             // ========== Expire Timer event ==========
-            (UseCaseEvent::Timer(id), DHTState::Running(our_timer_id)) => {
-                if &id == our_timer_id {
-                    self.hash_table.expire(&());
-                }
+            (UseCaseEvent::Timer(id), DHTState::Running(our_timer_id)) if &id == our_timer_id => {
+                self.hash_table.expire(&());
             }
             // ========== Republish values ==========
-            (UseCaseEvent::Contact(ContactEvent::New(contact)), _) => {
-                self.republish_to_contact_if_closer(context, contact)
-            }
-            (UseCaseEvent::Contact(ContactEvent::Updated { new, old }), _) => {
-                if new.state() == &ContactState::Valid && old.state() != &ContactState::Valid {
-                    self.republish_to_contact_if_closer(context, new);
+            (UseCaseEvent::Contact(contact_event), _) => match *contact_event {
+                ContactEvent::New(contact) => self.republish_to_contact_if_closer(context, contact),
+                ContactEvent::Updated { new, old }
+                    if new.state() == &ContactState::Valid
+                        && old.state() != &ContactState::Valid =>
+                {
+                    self.republish_to_contact_if_closer(context, *new);
                 }
-            }
+                _ => {}
+            },
             // ========== API Calls ==========
             // TODO: move hash table in context and add extra DHTApi UseCase for this event handler
             (UseCaseEvent::API(ApiEvent::LocalHashTable(callback)), _) => {

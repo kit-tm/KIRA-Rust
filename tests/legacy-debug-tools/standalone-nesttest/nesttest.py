@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+import time
 from cmd import Cmd
 from dataclasses import dataclass
 from hashlib import sha1
@@ -465,8 +466,7 @@ FwdEntry = Union[NodeIdEncapEntry, UnderlayNeighborFwdEntry, PathIdFwdEntry, Pat
 
 class NestTest[T]:  # T = tid type, usually int or str
     _otel_ip: IPv4Network = IPv4Network("10.42.0.0/24")
-    processes = [];
-
+    processes = []
     """
     Nest Test
     ===========
@@ -578,6 +578,7 @@ class NestTest[T]:  # T = tid type, usually int or str
                     env_vars=env_vars,
                 )
                 self.processes.append(_p)
+
     @property
     def otel_node(self):
         if self._otel_node is None:
@@ -1055,9 +1056,15 @@ class NestTest[T]:  # T = tid type, usually int or str
 
 
 class DebugShell[T](Cmd):
-    intro = "Welcome to the debug shell of nesttest.  Type help or ? to list commands, exit to quit.\n"
+    intro = (
+        "Welcome to the debug shell of nesttest.  Type help or ? to list commands, exit to quit.\n"
+    )
     prompt = "ntest> "
     file = None
+    failure = False  # a command failed
+    exit_on_failure = False  # set -e
+    print_cmd = False  # set -x
+    quiet = False
 
     def __init__(self, test: NestTest):
         super().__init__()
@@ -1082,6 +1089,9 @@ class DebugShell[T](Cmd):
         replace_re = "|".join(re.escape(nid) for nid in self._replacement_map)
         ignore_case = f"(?i:{replace_re})"
         self._replace_re = re.compile(ignore_case)
+
+    def _cmd_failed(self):
+        self.failure = True
 
     def sub_nid_name(self, string: str) -> str:
         """
@@ -1124,39 +1134,46 @@ class DebugShell[T](Cmd):
 
         # process flags
         args = arg.split()
-        failed = "-f" in args or "--failed" in args
+        failed = "-f" in args or "--failed" in args or self.quiet
 
         verbose = 2 if "-v" in args or "--verbose" in args else 0
 
         for x, _ in self.test.nodes():
             for y, y_config in self.test.nodes():
                 if x != y:
-                    print(f"Pinging {x:>3} --> {y:>3} ...", end="\r")
+                    if not self.quiet:
+                        print(f"Pinging {x:>3} --> {y:>3} ...", end="\r")
                     ip_y = y_config.ipv6
                     ip_y = Address(ip_y)
-                    result = x.ping(ip_y, packets=1, verbose=verbose)
+                    ping_failed = not x.ping(ip_y, packets=1, verbose=verbose)
 
-                    if not verbose:
-                        if result:
+                    if verbose == 0:
+                        if ping_failed:
+                            print(f"Pinging {x:>3} --> {y:>3} ✗   ", flush=True)
+                            self._cmd_failed()
+                            continue
+
+                        if not self.quiet:
                             # overwrite line if failed
                             end = "\r" if failed else "\n"
                             print(f"Pinging {x:>3} --> {y:>3} ✓  ", end=end, flush=True)
-                            continue
-                        else:
-                            print(f"Pinging {x:>3} --> {y:>3} ✗   ", flush=True)
 
     def do_exec(self, arg: str):
         "Execute arbitrary command in the network namespace of node: EXEC <nid> <cmd>"
         node, cmd = self._extract_node(arg)
         if node is None:
             print(f"ERR: Node '{cmd}' not found.\nTo get a list of available nodes type NODES.")
+            self._cmd_failed()
             return
         if cmd is None:
             print("Provide a command to execute: EXECUTE <nid> <cmd>")
+            self._cmd_failed()
             return
 
         p = node.exec(cmd, logfile=sys.stdout)
-        p.wait()
+        exit_code = p.wait()
+        if exit_code != 0:
+            self._cmd_failed()
         print()
 
     def do_api(self, arg: str):
@@ -1164,14 +1181,17 @@ class DebugShell[T](Cmd):
         node, path = self._extract_node(arg)
         if node is None:
             print(f"ERR: Node '{path}' not found.\nTo get a list of available nodes type NODES.")
+            self._cmd_failed()
             return
         if path is None:
             print("Provide an API-Path: API <nid> <rest_path>")
+            self._cmd_failed()
             return
 
         res = node.api_call(path)
         if res is None:
             print("ERR: API call failed")
+            self._cmd_failed()
             return
         res = self.sub_nid_name(res)
         print(res)
@@ -1181,6 +1201,7 @@ class DebugShell[T](Cmd):
         node, _arg = self._extract_node(arg)
         if node is None:
             print(f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES.")
+            self._cmd_failed()
             return
 
         tid = self.test.tid(node)
@@ -1195,16 +1216,20 @@ class DebugShell[T](Cmd):
             print(
                 f"ERR: Node '{key_data}' not found.\nTo get a list of available nodes type NODES."
             )
+            self._cmd_failed()
             return
         if key_data is None:
             print("Provide a key and value: STORE <nid> <key> <value>")
+            self._cmd_failed()
             return
 
         key_data = key_data.split(maxsplit=1)
         if len(key_data) != 2:
             print("Provide a key and value: STORE <nid> <key> <value>")
+            self._cmd_failed()
             return
         key, data = key_data
+        # TODO: parse result of store to catch failure
         print(node.store(key, data))
 
     def do_fetch(self, arg: str):
@@ -1212,14 +1237,17 @@ class DebugShell[T](Cmd):
         node, key = self._extract_node(arg)
         if node is None:
             print(f"ERR: Node '{key}' not found.\nTo get a list of available nodes type NODES.")
+            self._cmd_failed()
             return
         if key is None:
             print("Provide a key to fetch: FETCH <nid> <key>")
+            self._cmd_failed()
             return
 
         res = node.fetch(key)
         if len(res) == 0:
             print(f"No value with key {key} found!")
+            self._cmd_failed()
         elif len(res) == 1:
             print(f"{key}={res[0]}")
         else:
@@ -1233,11 +1261,13 @@ class DebugShell[T](Cmd):
         node, _arg = self._extract_node(arg)
         if node is None:
             print(f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES.")
+            self._cmd_failed()
             return
 
         res = node.routing_table()
         if res is None:
             print("ERR: API call failed")
+            self._cmd_failed()
             return
         res = self.sub_nid_name(res)
         print(res)
@@ -1247,11 +1277,13 @@ class DebugShell[T](Cmd):
         node, _arg = self._extract_node(arg)
         if node is None:
             print(f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES.")
+            self._cmd_failed()
             return
 
         res = node.uln_table()
         if res is None:
             print("ERR: API call failed")
+            self._cmd_failed()
             return
         res = self.sub_nid_name(res)
         print(res)
@@ -1261,11 +1293,13 @@ class DebugShell[T](Cmd):
         node, _arg = self._extract_node(arg)
         if node is None:
             print(f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES.")
+            self._cmd_failed()
             return
 
         res = node.vicinity_graph()
         if res is None:
             print("ERR: API call failed")
+            self._cmd_failed()
             return
         res = self.sub_nid_name(res)
         print(res)
@@ -1275,11 +1309,13 @@ class DebugShell[T](Cmd):
         node, _arg = self._extract_node(arg)
         if node is None:
             print(f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES.")
+            self._cmd_failed()
             return
 
         res = node.local_hashtable()
         if res is None:
             print("ERR: API call failed")
+            self._cmd_failed()
             return
         print(res)
 
@@ -1293,12 +1329,14 @@ class DebugShell[T](Cmd):
             else:
                 for n in down_nodes:
                     print(f"Node {n} is down.")
+                self._cmd_failed()
 
             return
 
         node, _arg = self._extract_node(arg)
         if node is None:
             print(f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES.")
+            self._cmd_failed()
             return
 
         is_up = node.is_up()
@@ -1306,32 +1344,40 @@ class DebugShell[T](Cmd):
             print(f"Node {node} is up")
         else:
             print(f"Node {node} is not up")
+            self._cmd_failed()
 
     def do_next_ip(self, arg: str):
         node, ip = self._extract_node(arg)
         if node is None:
             print(f"ERR: Node '{ip}' not found.\nTo get a list of available nodes type NODES.")
+            self._cmd_failed()
             return
 
         next_ip = node.next_ip(IPv6Address(ip))
         print()
         print(next_ip)
+        if next_ip is None:
+            self._cmd_failed()
 
     def do_next_hop(self, arg: str):
         node, ip = self._extract_node(arg)
         if node is None:
             print(f"ERR: Node '{ip}' not found.\nTo get a list of available nodes type NODES.")
+            self._cmd_failed()
             return
 
         next_hop = node.next_hop(IPv6Address(ip))
         print()
         print(next_hop)
+        if next_hop is None:
+            self._cmd_failed()
 
     def do_path(self, arg: str):
         "Lookup Path-ID on the node: PATH <nid> [path-ip]"
         node, ip = self._extract_node(arg)
         if node is None:
             print(f"ERR: Node '{ip}' not found.\nTo get a list of available nodes type NODES.")
+            self._cmd_failed()
             return
 
         if ip is None:
@@ -1343,12 +1389,14 @@ class DebugShell[T](Cmd):
                 ip = IPv6Address(ip)
             except AddressValueError:
                 print(f"ERR: Path-IP {ip} is not a valid IPv6-address")
+                self._cmd_failed()
                 return
             assert ip in PATH_IP
 
             path = node.path(ip)
             if path is None:
                 print(f"ERR: Unknown PathIP: {ip}")
+                self._cmd_failed()
                 return
             paths = [path]
 
@@ -1369,6 +1417,7 @@ class DebugShell[T](Cmd):
                     success = self.test.traceroute(x_tid, y_tid, verbose=False)
                     # only show unsuccessful traceroutes
                     if not success:
+                        self._cmd_failed()
                         self.test.traceroute(x_tid, y_tid, verbose=True)
                         print()
                         print("==============================================")
@@ -1379,21 +1428,26 @@ class DebugShell[T](Cmd):
         x, argv = self._extract_node(arg)
         if x is None:
             print(f"ERR: Node '{x}' not found.\nTo get a list of available nodes type NODES.")
+            self._cmd_failed()
             return
         if argv is None:
             print("Destination not found. Usage: TRACEROUTE <nid_x> <nid_y>")
+            self._cmd_failed()
             return
 
         y, argv = self._extract_node(argv)
         if y is None:
             print(f"ERR: Node '{argv}' not found.\nTo get a list of available nodes type NODES.")
+            self._cmd_failed()
             return
         x_tid = self.test.tid(x)
         assert x_tid is not None
         y_tid = self.test.tid(y)
         assert y_tid is not None
 
-        self.test.traceroute(x_tid, y_tid, verbose=True)
+        traceable = self.test.traceroute(x_tid, y_tid, verbose=not self.quiet)
+        if not traceable:
+            self._cmd_failed()
 
     def do_link(self, arg: str):
         "Sets link (or all links of node) up or down: LINK <DOWN/UP> <nid_x> [nid_y]"
@@ -1403,6 +1457,7 @@ class DebugShell[T](Cmd):
         x, argv = self._extract_node(argv)
         if x is None:
             print(f"ERR: Node '{x}' not found.\nTo get a list of available nodes type NODES.")
+            self._cmd_failed()
             return
 
         x_tid = self.test.tid(x)
@@ -1413,6 +1468,7 @@ class DebugShell[T](Cmd):
                 print(
                     f"ERR: Node '{argv}' not found.\nTo get a list of available nodes type NODES."
                 )
+                self._cmd_failed()
                 return
             y_tid = self.test.tid(y)
             assert y_tid is not None
@@ -1425,15 +1481,18 @@ class DebugShell[T](Cmd):
         if mode == "up":
             for y_tid in ys_tid:
                 y = self.test.topology.nodes[y_tid]["node"]
-                print(f"{x:>3} -✔- {y:>3} ...")
+                if not self.quiet:
+                    print(f"{x:>3} -✔- {y:>3} ...")
                 self.test.link(x_tid, y_tid).up()
         elif mode == "down":
             for y_tid in ys_tid:
                 y = self.test.topology.nodes[y_tid]["node"]
-                print(f"{x:>3} -✗- {y:>3} ...")
+                if not self.quiet:
+                    print(f"{x:>3} -✗- {y:>3} ...")
                 self.test.link(x_tid, y_tid).down()
         else:
             print(f"ERR: Unknown mode {mode}")
+            self._cmd_failed()
 
     def do_down(self, arg: str):
         "Alias for LINK DOWN <...>"
@@ -1454,6 +1513,7 @@ class DebugShell[T](Cmd):
                 print(
                     f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES."
                 )
+                self._cmd_failed()
                 return
             tid = self.test.tid(node)
 
@@ -1472,7 +1532,11 @@ class DebugShell[T](Cmd):
         "List all nodes present in the topology: NODES"
         for n, _ in self.test.nodes():
             nid = n.node_id()
-            nid = nid.hex().upper() if nid else "???"
+            if nid is None:
+                self._cmd_failed()
+                nid = "???"
+            else:
+                nid = nid.hex().upper()
             print(f"{n:>3} {nid}")
 
     def do_vicinity(self, arg: str):
@@ -1480,6 +1544,7 @@ class DebugShell[T](Cmd):
         node, _arg = self._extract_node(arg)
         if node is None:
             print(f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES.")
+            self._cmd_failed()
             return
 
         # sort topo-ids like `k17` in expected order
@@ -1493,19 +1558,21 @@ class DebugShell[T](Cmd):
         def _sorted(iiter: Iterable[T]) -> Iterable[KIRANode]:
             return sorted(map(self.test.node, iiter), key=_srt)
 
-        print("Theoretical Vicinity:")
-        buffer = self.test.vicinity_image(node, dpi=300)
-        img = Image.open(buffer)
-        img = AutoImage(img)
-        img.set_size(height=20)
-        img.draw(h_align="left", v_align="top", pad_height=1)
+        if not self.quiet:
+            print("Theoretical Vicinity:")
+            buffer = self.test.vicinity_image(node, dpi=300)
+            img = Image.open(buffer)
+            img = AutoImage(img)
+            img.set_size(height=20)
+            img.draw(h_align="left", v_align="top", pad_height=1)
 
-        print("Vicinity Status:")
-        buffer = self.test.vicinity_status_image(node, dpi=300)
-        img = Image.open(buffer)
-        self.current_image = AutoImage(img)
-        self.current_image.set_size(height=20)
-        self.current_image.draw(h_align="left", v_align="top", pad_height=1)
+        if not self.quiet:
+            print("Vicinity Status:")
+            buffer = self.test.vicinity_status_image(node, dpi=300)
+            img = Image.open(buffer)
+            self.current_image = AutoImage(img)
+            self.current_image.set_size(height=20)
+            self.current_image.draw(h_align="left", v_align="top", pad_height=1)
 
         unknowns = self.test.unknown_vicinity(node)
         if unknowns is not None:
@@ -1515,6 +1582,7 @@ class DebugShell[T](Cmd):
                 print("Discovered Vicinity:")
                 if dvicinity is None:
                     print("ERR: determining known vicinity.")
+                    self._cmd_failed()
                 else:
                     for v in _sorted(set(dvicinity)):
                         print(f"{v:>3}")
@@ -1523,10 +1591,12 @@ class DebugShell[T](Cmd):
                 print("Missing Nodes in the Vicinity Graph:")
                 for unknown in _sorted(unknowns):
                     print(f"{unknown:>3}")
+                    self._cmd_failed()
             else:
                 print("All vicinity nodes where discoverd.")
         else:
             print("ERR: checking on (un)known vicinity of the node.")
+            self._cmd_failed()
         print()
 
         unknown_edges = self.test.unknown_vicinity_edges(node)
@@ -1534,12 +1604,14 @@ class DebugShell[T](Cmd):
             unknown_edges = set(unknown_edges)
             if len(unknown_edges) != 0:
                 print("Unknown Vicinity Edges:")
+                self._cmd_failed()
                 for u, v in unknown_edges:
                     print(f"{u:>3} -?- {v:>3}")
             else:
                 print("All edges in the vicinity where discovered.")
         else:
             print("ERR: checking on (un)known vicinity of the node.")
+            self._cmd_failed()
         print()
 
         def _print_fwd_entry(entry: FwdEntry) -> None:
@@ -1568,6 +1640,7 @@ class DebugShell[T](Cmd):
         if missing_entries is not None:
             missing_entries = list(missing_entries)
             if len(missing_entries) != 0:
+                self._cmd_failed()
                 print("Missing path setups:")
                 for entry in missing_entries:
                     print("  - ", end="")
@@ -1576,12 +1649,14 @@ class DebugShell[T](Cmd):
                 print("All paths inside the vicinity are setup.")
         else:
             print("ERR: checking on missing path setups.")
+            self._cmd_failed()
         print()
 
         missing_fwd_entries = self.test.missing_pathsetups_rt(node)
         if missing_fwd_entries is not None:
             missing_fwd_entries = list(missing_fwd_entries)
             if len(missing_fwd_entries) != 0:
+                self._cmd_failed()
                 print("Missing paths or nodes setups of Contacts in the Routing Table:")
                 for entry in missing_fwd_entries:
                     print("  - ", end="")
@@ -1591,12 +1666,14 @@ class DebugShell[T](Cmd):
                 print("All paths and nodes of Contacts in the Routing Table are setup.")
         else:
             print("ERR: checking on missing path setups.")
+            self._cmd_failed()
         print()
 
         additional_vicinity = self.test.additional_vicinity(node)
         if additional_vicinity is not None:
             additional_vicinity = set(additional_vicinity)
             if len(additional_vicinity) != 0:
+                self._cmd_failed()
                 print("Additional Vicinity:")
                 for additional in _sorted(additional_vicinity):
                     print(f"{additional:>3}")
@@ -1604,6 +1681,7 @@ class DebugShell[T](Cmd):
                 print("No unexpected nodes in the vicinity.")
         else:
             print("ERR: checking on additional vicinity of the node.")
+            self._cmd_failed()
         print()
 
     def do_checkvicinity(self, arg: str):
@@ -1621,11 +1699,12 @@ class DebugShell[T](Cmd):
 
         fail = False
 
-        buffer = self.test.topology_image(dpi=100)
-        img = Image.open(buffer)
-        self.current_image = AutoImage(img)
-        self.current_image.set_size(height=20)
-        self.current_image.draw(h_align="left", v_align="top", pad_height=1)
+        if not self.quiet:
+            buffer = self.test.topology_image(dpi=100)
+            img = Image.open(buffer)
+            self.current_image = AutoImage(img)
+            self.current_image.set_size(height=20)
+            self.current_image.draw(h_align="left", v_align="top", pad_height=1)
 
         print("Node: v e p r a")
         for node in nodes:
@@ -1635,6 +1714,7 @@ class DebugShell[T](Cmd):
             unknown_vicinity = self.test.unknown_vicinity(node)
             if unknown_vicinity is None:
                 print(f"{node:<3} ERR determining known vicinity.")
+                self._cmd_failed()
                 return
             try:
                 next(unknown_vicinity)
@@ -1645,6 +1725,7 @@ class DebugShell[T](Cmd):
             unknown_edges = self.test.unknown_vicinity_edges(node)
             if unknown_edges is None:
                 print(f"{node:<3} ERR determining known vicinity edges.")
+                self._cmd_failed()
                 return
             try:
                 next(unknown_edges)
@@ -1656,6 +1737,7 @@ class DebugShell[T](Cmd):
             missing_pathsetups = self.test.missing_pathsetups(node)
             if missing_pathsetups is None:
                 print(f"{node:<3} ERR determining paths setup.")
+                self._cmd_failed()
                 return
             try:
                 next(missing_pathsetups)
@@ -1667,6 +1749,7 @@ class DebugShell[T](Cmd):
             missing_pathsetups_rt = self.test.missing_pathsetups_rt(node)
             if missing_pathsetups_rt is None:
                 print(f"{node:<3} ERR determining paths setup.")
+                self._cmd_failed()
                 return
             try:
                 next(missing_pathsetups_rt)
@@ -1678,6 +1761,7 @@ class DebugShell[T](Cmd):
             additional_vicinity = self.test.additional_vicinity(node)
             if additional_vicinity is None:
                 print(f"{node:<3} ERR determining known vicinity.")
+                self._cmd_failed()
                 return
             try:
                 next(additional_vicinity)
@@ -1700,26 +1784,52 @@ class DebugShell[T](Cmd):
             _print_bool(additional_vicinity)
             print()
 
-        print()
-        print("v = Vicinity-Nodes with SSN in Vicinty Graph")
-        print("e = Edges inside the vicinity radius")
-        print("p = Paths inside the vicinity radius setup (nftables)")
-        print("r = Paths of Contacts inside the Routing Table setup")
-        print("a = Additional Nodes in Vicinity Graph")
+        if not self.quiet:
+            print()
+            print("v = Vicinity-Nodes with SSN in Vicinty Graph")
+            print("e = Edges inside the vicinity radius")
+            print("p = Paths inside the vicinity radius setup (nftables)")
+            print("r = Paths of Contacts inside the Routing Table setup")
+            print("a = Additional Nodes in Vicinity Graph")
 
         if fail:
-            print()
-            print("To further investigate failures type: VICINITY <nid>")
+            if not self.quiet:
+                print()
+                print("To further investigate failures type: VICINITY <nid>")
+            self._cmd_failed()
 
     def do_netns(self, arg: str):
         "Get network namespace name of node <nid>: NETNS [nid]"
         node, _arg = self._extract_node(arg)
         if node is None:
             print(f"ERR: Node '{_arg}' not found.\nTo get a list of available nodes type NODES.")
+            self._cmd_failed()
             return
 
         netns_name = node.id
         print(f"netnsname: {netns_name}")
+
+    def do_sleep(self, arg: str):
+        "Sleep for an amount of time: SLEEP <seconds>"
+        if arg == "":
+            print("Usage: SLEEP <seconds>")
+            self._cmd_failed()
+            return
+
+        try:
+            t_secs = float(arg)
+        except ValueError:
+            print(f"ERR: {arg} is not an valid time duration in seconds")
+            self._cmd_failed()
+            return
+        if t_secs <= 0:
+            print("ERR: sleep time must be greater than zero")
+            self._cmd_failed()
+            return
+
+        if not self.quiet:
+            print(f"Sleeping for {t_secs} seconds...")
+        time.sleep(t_secs)
 
     def do_exit(self, arg: str):
         "Exit the debug shell"
@@ -1737,7 +1847,6 @@ class DebugShell[T](Cmd):
                     killer = Popen(
                         f"ip netns exec {netns_name} {kill_cmd}", shell=True
                     ).communicate()
-            print(f"pid={p.pid}")
 
         # TODO: still partially broken, python processes are not killed for some reason
 
@@ -1753,11 +1862,11 @@ class DebugShell[T](Cmd):
     # ----- record and playback -----
 
     def do_record(self, arg: str):
-        "Save future commands to filename:  RECORD rose.cmd"
+        "Save future commands to filename:  RECORD <file_name.cmd>"
         self.file = open(arg, "w")  # noqa: SIM115
 
     def do_playback(self, arg: str):
-        "Playback commands from a file:  PLAYBACK rose.cmd"
+        "Playback commands from a file:  PLAYBACK <file_name.cmd>"
         self.close()
         with open(arg) as f:
             self.cmdqueue.extend(f.read().splitlines())
@@ -1774,6 +1883,8 @@ class DebugShell[T](Cmd):
         line = line.lower()
         if self.file and "playback" not in line:
             print(line, file=self.file)
+        if self.print_cmd:
+            print(line)
         self.current_image = None
         return line
 
@@ -1797,7 +1908,28 @@ def main(args: Any):
 
     # Create and run the test
     test = NestTest(G)
-    DebugShell(test).cmdloop()
+    shell = DebugShell(test)
+    shell.quiet = args.quiet
+
+    if args.filename is not None:
+        # non-interactive
+        shell.exit_on_failure = True
+        shell.print_cmd = True
+
+        for cmd_line in args.filename.read().splitlines():
+            print(cmd_line)
+            shell.onecmd(cmd_line)
+            if shell.failure:
+                print("Last command failed. Exiting...")
+                break
+            print()
+        shell.do_exit("")
+    else:
+        # interactive
+        shell.cmdloop()
+
+    exit_code = 1 if shell.failure else 0
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":
@@ -1807,6 +1939,18 @@ if __name__ == "__main__":
         "--otel",
         action="store_true",
         help="Enable open telemetry exports on all nodes",
+    )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Makes commands less verbose",
+    )
+    parser.add_argument(
+        "filename",
+        nargs="?",
+        help="Commands to execute non-interactively",
+        type=argparse.FileType("r"),
     )
     args = parser.parse_args()
     main(args)

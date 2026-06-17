@@ -7,8 +7,7 @@ use std::time::Instant;
 use tracing::{Level, instrument};
 
 use crate::domain::{
-    GroupingError, NodeId, NotVia, RoutingTable, ULNTable, UnderlayNeighborId,
-    UnderlayNeighborSource,
+    GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, UnderlayNeighborSource,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage};
@@ -142,7 +141,7 @@ where
                     .expect("grouping has to be checked on init")
                     .first() // TODO: Proximity Neighbor Selection
                     .map(|(_, contact)| {
-                        let mut route = SourceRoute::from(contact.path().clone());
+                        let mut route = SourceRoute::from(contact.path().unwrap().clone());
                         route.push_front(*context.root_id());
                         route
                     });
@@ -181,7 +180,7 @@ where
                         context.uln_table().size(),
                     ),
                     data,
-                    not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+                    not_via: None,
                     source_route,
                 });
 

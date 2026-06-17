@@ -44,7 +44,7 @@ pub type OneshotInjectMessageCallback = mpsc::UnboundedSender<InjectionResult>; 
 pub enum UseCaseEvent {
     Message(ProtocolMessage, UnderlayNeighborSource),
     Timer(TimerId),
-    Contact(ContactEvent),
+    Contact(Box<ContactEvent>),
     Vicinity(VicinityEvent),
     InjectMessage(Option<Nonce>, InjectionMessageData),
     UnderlayUpdate(UnderlayNeighborUpdate),
@@ -142,7 +142,10 @@ pub struct FetchInjectData {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ContactEvent {
     New(Contact),
-    Updated { new: Contact, old: Contact },
+    Updated {
+        new: Box<Contact>,
+        old: Box<Contact>,
+    },
     Removed(Contact),
     BucketUpdated(usize),
     NewBucket(usize),
@@ -183,7 +186,7 @@ impl Deref for TimerId {
 #[derive(Debug, Clone, Eq, PartialEq, From)]
 pub enum BroadcastableUseCaseEvent {
     Message(ProtocolMessage),
-    Contact(ContactEvent),
+    Contact(Box<ContactEvent>),
     Vicinity(VicinityEvent),
 }
 

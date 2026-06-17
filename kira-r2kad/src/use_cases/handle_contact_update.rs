@@ -5,7 +5,8 @@ use std::ops::Deref;
 use tracing::{Level, instrument};
 
 use crate::domain::{
-    Contact, ContactState, NodeId, NotVia, RoutingTable, ULNTable, UnderlayNeighborId,
+    Contact, ContactState, Link, NodeId, NotViaState, NotViaStateList, RoutingTable, Timestamp,
+    ULNTable, UnderlayNeighborId,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{CommonHeader, ProtocolMessageKind, RouteUpdateActionType, UpdateRouteReq};
@@ -89,9 +90,9 @@ where
                     Some(From::from(*context.uln_table().state_seq_nr())),
                     context.uln_table().size(),
                 ),
-                not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+                not_via: None,
                 contact_actions: updates.clone(),
-                source_route: SourceRoute::new(*context.root_id(), contact.path().clone()),
+                source_route: SourceRoute::new(*context.root_id(), contact.path().unwrap().clone()),
             };
 
             context
@@ -100,11 +101,31 @@ where
         }
     }
 
+    // this should only be called for ULN contacts as invalidated_contact
     fn invalidate_all_affected_contacts(&self, context: &C, invalidated_contact: &Contact) {
+        // check if invalidated_contact is a ULN
+        if !invalidated_contact.is_uln() {
+            return;
+        }
         // Invalidate all other contacts via this contact
         for mut saved_contact in context.routing_table_mut().iter_mut() {
-            if saved_contact.path().starts_with(invalidated_contact.path()) {
-                *saved_contact.state_mut() = ContactState::Invalid;
+            if saved_contact.path().is_some()
+                && saved_contact
+                    .path()
+                    .unwrap()
+                    .starts_with(invalidated_contact.path().unwrap())
+            {
+                if let ContactState::Invalid(not_via_state_list) = invalidated_contact.state() {
+                    // use not via info from invalidated contact
+                    saved_contact.set_invalid(not_via_state_list.clone());
+                } else {
+                    let nvs = NotViaState::new(
+                        Link::new(*context.root_id(), *invalidated_contact.id()),
+                        Timestamp::now(),
+                    );
+                    // since invalidated_contact is a ULN, we use this info
+                    saved_contact.set_invalid(NotViaStateList::from(nvs));
+                }
             }
         }
     }
@@ -135,52 +156,51 @@ where
         context: &C,
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
-        match event {
-            UseCaseEvent::Contact(ContactEvent::Removed(contact)) => {
-                // only send update if underlay neighbor got removed
-                // this doesn't happen in reality since we use the UnlimitedULNRoutingTable
-                if contact.is_uln() {
-                    let mut updates = HashMap::new();
-                    updates.insert(contact.clone(), RouteUpdateActionType::WithDraw);
+        if let UseCaseEvent::Contact(contact_event) = event {
+            // handle contact events
+            match *contact_event {
+                ContactEvent::Removed(contact) => {
+                    // only send update if underlay neighbor got removed
+                    // this doesn't happen in reality since we use the UnlimitedULNRoutingTable
+                    if contact.is_uln() {
+                        let mut updates = HashMap::new();
+                        updates.insert(contact.clone(), RouteUpdateActionType::WithDraw);
 
-                    log::trace!(target: "handle_contact_update", "Sending update concerning removal of underlay neighbor {}", contact.id());
+                        log::trace!(target: "handle_contact_update", "Sending update concerning removal of underlay neighbor {}", contact.id());
+                        self.send_update(context, updates);
+                    }
+
+                    self.invalidate_all_affected_contacts(context, &contact);
+
+                    if context.uln_table_mut().remove(contact.id()).is_some() {
+                        log::trace!(target: "handle_contact_update", "removed {} from underlay neighbors", contact.id());
+                    }
+                }
+                ContactEvent::Updated { new, old } => {
+                    let mut updates = HashMap::new();
+                    if new.state() == &ContactState::Valid {
+                        updates.insert(*new.clone(), RouteUpdateActionType::Change);
+                    } else {
+                        updates.insert(*new.clone(), RouteUpdateActionType::Unreachable);
+                    }
+
+                    // this should be fine, since we only update contacts if interesting anyways
+                    self.send_update(context, updates);
+                    if old.is_valid() && !new.is_valid() {
+                        // Add to not-via data if path gets invalid (maybe done already)
+                        self.invalidate_all_affected_contacts(context, &new);
+                    }
+                }
+                ContactEvent::New(new) => {
+                    // always send an update if a new contact was found
+                    let mut updates = HashMap::new();
+                    updates.insert(new.clone(), RouteUpdateActionType::Announce);
+
+                    log::trace!(target: "handle_contact_update", "New contact {} found. Sending update.", new.id());
                     self.send_update(context, updates);
                 }
-
-                context.not_via_state_mut().retain(|not_via| {
-                    not_via.link.first() != contact.id() && not_via.link.second() != contact.id()
-                });
-
-                self.invalidate_all_affected_contacts(context, &contact);
-
-                if context.uln_table_mut().remove(contact.id()).is_some() {
-                    log::trace!(target: "handle_contact_update", "removed {} from underlay neighbors", contact.id());
-                }
+                _ => {}
             }
-            UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {
-                let mut updates = HashMap::new();
-                if new.state() == &ContactState::Valid {
-                    updates.insert(new.clone(), RouteUpdateActionType::Change);
-                } else {
-                    updates.insert(new.clone(), RouteUpdateActionType::Unreachable);
-                }
-
-                // this should be fine, since we only update contacts if interesting anyways
-                self.send_update(context, updates);
-                if old.state() == &ContactState::Valid && new.state() != &ContactState::Valid {
-                    // Add to not-via data if path gets invalid (maybe done already)
-                    self.invalidate_all_affected_contacts(context, &new);
-                }
-            }
-            UseCaseEvent::Contact(ContactEvent::New(new)) => {
-                // always send an update if a new contact was found
-                let mut updates = HashMap::new();
-                updates.insert(new.clone(), RouteUpdateActionType::Announce);
-
-                log::trace!(target: "handle_contact_update", "New contact {} found. Sending update.", new.id());
-                self.send_update(context, updates);
-            }
-            _ => {}
         }
 
         Ok(())

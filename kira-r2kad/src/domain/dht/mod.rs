@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt::Debug, num::NonZeroU8, ops::Deref};
 
 use crate::{
-    domain::{NodeId, NotVia, Path, RoutingTable, ULNTable, UnderlayNeighborId},
+    domain::{NodeId, Path, RoutingTable, ULNTable, UnderlayNeighborId},
     messaging::{
         CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage,
         dht::{DefaultLHTInput, FetchReqData, StoreReqData},
@@ -41,8 +41,10 @@ where
         .next_hop(overlay_destination, NonZeroU8::MIN)
         .expect("Shared Prefix Grouping should be valid");
 
-    let path = if let Some(closest_node) = closest_node {
-        closest_node.path().clone()
+    let path = if let Some(closest_node) = closest_node
+        && closest_node.path().is_some()
+    {
+        closest_node.path().unwrap().clone()
     } else {
         // we are the closest => loopback
         log::warn!(target: "distributed_hash_table_injector", "Node is isolated!");
@@ -61,7 +63,7 @@ where
             Some(u32::from(*context.uln_table().state_seq_nr())),
             context.uln_table().size(),
         ),
-        not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+        not_via: None,
         data,
         source_route,
     }

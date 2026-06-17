@@ -170,6 +170,18 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
         bucket.contains(id)
     }
 
+    fn contains_with<F>(&self, id: &NodeId, f: F) -> bool
+    where
+        F: Fn(&Contact) -> bool,
+    {
+        let bucket = self.bucket(id);
+        if let Some(contact) = bucket.get(id) {
+            f(contact)
+        } else {
+            false
+        }
+    }
+
     #[tracing::instrument(
         level = Level::TRACE,
         target = "routing_table::flat_routing_table",
@@ -530,7 +542,7 @@ mod tests {
     use super::*;
     use std::{cmp::Ordering, collections::HashSet, error::Error};
 
-    use crate::domain::{ContactState, Path, SafeStateSeqNr};
+    use crate::domain::{ContactState, NotViaStateList, Path, SafeStateSeqNr};
 
     fn sorted_xor<C>((a, _): &(SharedPrefix, C), (b, _): &(SharedPrefix, C)) -> bool {
         assert_ne!(a, b, "duplicate contacts");
@@ -1108,10 +1120,11 @@ mod tests {
             ))?;
         }
 
-        *table.contact_mut(&ids[1]).unwrap().state_mut() = ContactState::Invalid;
+        *table.contact_mut(&ids[1]).unwrap().state_mut() =
+            ContactState::Invalid(NotViaStateList::default());
         assert_eq!(
             table.contact(&ids[1]).unwrap().state(),
-            &ContactState::Invalid,
+            &ContactState::Invalid(NotViaStateList::default()),
             "1100... is invalid",
         );
 
@@ -1153,10 +1166,11 @@ mod tests {
             ))?;
         }
 
-        *table.contact_mut(&ids[1]).unwrap().state_mut() = ContactState::Invalid;
+        *table.contact_mut(&ids[1]).unwrap().state_mut() =
+            ContactState::Invalid(NotViaStateList::default());
         assert_eq!(
             table.contact(&ids[1]).unwrap().state(),
-            &ContactState::Invalid,
+            &ContactState::Invalid(NotViaStateList::default()),
             "1100... is invalid",
         );
 

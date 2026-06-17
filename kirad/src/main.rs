@@ -19,6 +19,7 @@ use signal_hook_tokio::Signals;
 #[cfg(feature = "small_buckets")]
 const BUCKET_SIZE: usize = 3;
 #[cfg(not(feature = "small_buckets"))]
+// for large networks the recommendation is 40
 const BUCKET_SIZE: usize = 20;
 
 #[derive(Parser, Debug)]
@@ -93,9 +94,13 @@ async fn main() {
     // Setup tracing environment
     {
         use tracing::Level;
+        #[cfg(any(feature = "otel", feature = "tokio-console"))]
+        use tracing_subscriber::filter::LevelFilter;
+        #[cfg(feature = "tokio-console")]
+        use tracing_subscriber::filter::Targets;
         use tracing_subscriber::{
             Layer,
-            filter::{EnvFilter, FilterExt, LevelFilter, Targets, filter_fn},
+            filter::{EnvFilter, FilterExt, filter_fn},
             layer::SubscriberExt,
             util::SubscriberInitExt,
         };

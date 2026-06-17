@@ -65,6 +65,10 @@ impl NodeId {
         node_id: Self::MAX_UVAL,
     };
 
+    pub const fn from_const(inner: u128) -> Self {
+        Self { node_id: inner }
+    }
+
     /// Creates a random [NodeId].
     pub fn random() -> Self {
         // generated [NodeId] is guaranteed to not be equal to [NodeId::UNDEFINED] or [NodeId::ALL_NODES].

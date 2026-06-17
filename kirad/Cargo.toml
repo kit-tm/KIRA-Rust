@@ -10,7 +10,7 @@ edition.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["tokio-console", "api", "swagger_doc"]
+default = ["api", "swagger_doc"]
 api = ["kira-lib/api"]
 swagger_doc = ["kira-lib/swagger_doc"]
 # default routing table bucket size: 3
