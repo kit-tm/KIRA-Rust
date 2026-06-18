@@ -4,7 +4,6 @@ import shutil
 import subprocess
 from pathlib import Path
 
-import prctl
 import pytest
 from kira_common.paths import REPO_ROOT
 from kira_nest.nest.node import KIRANode
@@ -15,10 +14,6 @@ TOPOS_DIR = REPO_ROOT / "tests" / "topos"
 assert TOPOS_DIR.exists(), "kira-test topos not found"
 
 TOPOS = os.environ.get("KIRA_TOPOS")
-
-
-def _drop_caps():
-    prctl.cap_permitted.limit()
 
 
 def built_kirad_binary(
