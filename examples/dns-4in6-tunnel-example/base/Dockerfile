@@ -1,4 +1,4 @@
-FROM kira:latest
+FROM kirad:latest
 
 # install service dependencies
 RUN apt install -y python3 python3-requests jq python3-dnslib dnsutils python3-pip

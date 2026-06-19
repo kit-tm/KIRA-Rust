@@ -5,7 +5,7 @@ from mininet.log import info, warn, setLogLevel
 
 setLogLevel('info')
 
-KIRA_IMAGE = "kira:latest"
+KIRA_IMAGE = "kirad:latest"
 
 DCMD = "/usr/bin/supervisord -c /etc/supervisord.conf"
 SYSCTLS = {
