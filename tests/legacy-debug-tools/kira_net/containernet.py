@@ -44,7 +44,7 @@ class KIRAContainernetNode(KIRANode):
             nid = nid[:14]
             environment.append(f"NODE_ID={nid.hex()}")
 
-        cmd = "/usr/bin/bash -c '[ -f /usr/bin/supervisord ] && /usr/bin/supervisord -c /etc/supervisord.conf"
+        cmd = "/usr/bin/supervisord -c /etc/supervisor/supervisord.conf"
 
         self._container = self._net.addDocker(
             self._cannonical_name,

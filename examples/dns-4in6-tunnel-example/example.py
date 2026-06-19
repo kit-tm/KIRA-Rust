@@ -12,7 +12,7 @@ BASE_KIRA_IMAGE = "kira-example-base:latest"
 CLIENT_KIRA_IMAGE = "kira-example-client:latest"
 SERVER_KIRA_IMAGE = "kira-example-server:latest"
 
-DCMD = "/usr/bin/supervisord -c /etc/supervisord.conf"
+DCMD = "/usr/bin/supervisord -c /etc/supervisor/supervisord.conf"
 SYSCTLS = {
     'net.ipv6.conf.default.disable_ipv6': 0,
     'net.ipv6.conf.all.forwarding': 1,

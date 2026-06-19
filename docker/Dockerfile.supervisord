@@ -39,10 +39,9 @@ RUN apt update && \
         ${ADD_PACKAGES} \
     && rm -rf /var/lib/apt/lists/*
 
-# setup supervisord
-RUN mkdir -p /var/log/supervisor
-COPY docker/supervisord.conf /etc/supervisord.conf
-COPY docker/kirad.conf /etc/supervisord.d/kirad.conf
+# Setup supervisord (https://docs.docker.com/engine/containers/multi-service_container/#use-a-process-manager)
+COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY docker/kirad.conf /etc/supervisor/conf.d
 
 WORKDIR /kirad
 
@@ -57,4 +56,4 @@ EXPOSE 8080/tcp
 
 
 # start supervisord
-ENTRYPOINT ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
+ENTRYPOINT ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]
