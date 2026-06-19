@@ -1,5 +1,4 @@
 ARG BASE_IMAGE="ubuntu:latest"
-ARG ADD_PACKAGES="curl net-tools iproute2 iputils-ping nano tcpdump bash strace iperf"
 
 FROM rust:latest AS chef
 RUN cargo install cargo-chef
@@ -32,6 +31,7 @@ FROM $BASE_IMAGE
 # Install required packages:
 #   - nftables: Used by native fast forwarding implementation of kirad
 #   - supervisor: Process management similar to init systems (systemd)
+ARG ADD_PACKAGES="curl net-tools iproute2 iputils-ping nano tcpdump bash strace iperf"
 RUN apt update && \
     apt install -y \
         nftables \
