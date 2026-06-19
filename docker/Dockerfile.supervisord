@@ -50,8 +50,11 @@ WORKDIR /kirad
 COPY --from=builder /kirad/target/x86_64-unknown-linux-musl/release/kirad ./
 COPY kirad/conf/nftables.conf ./
 
+WORKDIR /
+
 # kirad api
 EXPOSE 8080/tcp 
+
 
 # start supervisord
 ENTRYPOINT ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
