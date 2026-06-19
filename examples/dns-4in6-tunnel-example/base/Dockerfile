@@ -14,4 +14,3 @@ COPY dns-registration.sh dns-registration.sh
 # copy v4 tunnel setup script
 COPY dns-v4-tunnel-setup.conf /etc/supervisord.d/dns-v4-tunnel-setup.conf
 COPY dns-v4-tunnel-setup.sh dns-v4-tunnel-setup.sh
-
