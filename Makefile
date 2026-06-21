@@ -85,7 +85,7 @@ build-image-small-k:
 	docker build -t kirad:small-k -f docker/Dockerfile.supervisord --build-arg FEATURES="small_buckets,api" .
 
 build-image-dns-dht:
-	docker build -t kira-dns-dht examples/dns-4in6-tunnel-example/base
+	docker build -t kira-dns-dht --build-context kirad:latest=docker-image://kirad:small-k examples/dns-4in6-tunnel-example/base
 
 
 cargo-%:
