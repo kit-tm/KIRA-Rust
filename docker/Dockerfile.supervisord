@@ -28,10 +28,17 @@ RUN strip -s /kirad/target/x86_64-unknown-linux-musl/release/kirad
 
 FROM $BASE_IMAGE
 
+# NOTE: Containers used for Containernet require additional packages.
+# Ensure that the following packages are listed under `ADD_PACKAGES`:
+#   - net-tools
+#   - iproute2
+#   - iputils-ping
+# https://github.com/containernet/containernet/wiki#tested-images
+ARG ADD_PACKAGES="curl net-tools iproute2 iputils-ping nano tcpdump bash strace iperf"
+
 # Install required packages:
 #   - nftables: Used by native fast forwarding implementation of kirad
 #   - supervisor: Process management similar to init systems (systemd)
-ARG ADD_PACKAGES="curl net-tools iproute2 iputils-ping nano tcpdump bash strace iperf"
 RUN apt update && \
     apt install -y \
         nftables \
