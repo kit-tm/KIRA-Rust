@@ -496,17 +496,22 @@ where
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
         match event {
-            UseCaseEvent::Contact(ContactEvent::Updated { new, old }) if new.id() == old.id() => {
-                // contact was invalidated
-                if new.is_invalid() && old.is_valid() {
-                    self.start_rediscovery(context, *new)?;
-                }
-            }
-            UseCaseEvent::Contact(ContactEvent::Removed(contact)) => {
-                if let Some((backoff, removed_timers, removed_nonces)) =
-                    self.rediscoveries.remove(contact.id())
-                {
-                    log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got removed from routing table [backoff_state: {}, timers: {:?}, nonces: {:?}]", contact.id(), backoff, removed_timers, removed_nonces);
+            UseCaseEvent::Contact(contact_event) => {
+                match *contact_event {
+                    ContactEvent::Updated { new, old } if new.id() == old.id() => {
+                        // contact was invalidated
+                        if new.is_invalid() && old.is_valid() {
+                            self.start_rediscovery(context, *new)?;
+                        }
+                    }
+                    ContactEvent::Removed(contact) => {
+                        if let Some((backoff, removed_timers, removed_nonces)) =
+                            self.rediscoveries.remove(contact.id())
+                        {
+                            log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got removed from routing table [backoff_state: {}, timers: {:?}, nonces: {:?}]", contact.id(), backoff, removed_timers, removed_nonces);
+                        }
+                    }
+                    _ => {}
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::FindNodeRsp(rsp), _) => {

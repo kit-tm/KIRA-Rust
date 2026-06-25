@@ -95,7 +95,7 @@ where
                     UpdatedBucket(bucket) => ContactEvent::BucketUpdated(bucket),
                     NewBucket(bucket) => ContactEvent::NewBucket(bucket),
                 };
-                runtime.broadcast_event(contact_event);
+                runtime.broadcast_event(Box::new(contact_event));
             });
         }
         routing_table.add_observer(|event| log::trace!(target: "routing_table", "{event}"));

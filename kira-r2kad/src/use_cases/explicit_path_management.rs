@@ -357,67 +357,72 @@ where
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
         match (event, &self.state) {
-            // ========== Contact Updates ==========
-            (UseCaseEvent::Contact(ContactEvent::New(contact)), _)
-                if contact.path().unwrap().size() > VICINITY_RADIUS =>
-            {
-                // new contact outside vicinity requires path setup
-                self.send_setup_req(context, &contact);
-            }
-            (UseCaseEvent::Contact(ContactEvent::Updated { new, old }), _) => {
-                match (
-                    new.state(),
-                    old.state(),
-                    new.path().unwrap().size() > VICINITY_RADIUS,
-                    old.path().unwrap().size() > VICINITY_RADIUS,
-                ) {
-                    (ContactState::Valid, ContactState::Invalid(_), true, _)
-                    | (ContactState::Valid, ContactState::Rediscovering(_), true, _) => {
-                        // Contacts becomes valid
-                        self.send_setup_req(context, &new);
-                    }
-                    (ContactState::Valid, ContactState::Valid, true, false) => {
-                        // Contacts path changes from in vicinity to out of vicinity
-                        self.send_setup_req(context, &new);
-                    }
-                    (ContactState::Valid, ContactState::Valid, true, true)
-                        if old.path() != new.path() =>
+            // ========== Contact Events ==========
+            (UseCaseEvent::Contact(contact_event), _) => {
+                match *contact_event {
+                    ContactEvent::New(contact)
+                        if contact.path().unwrap().size() > VICINITY_RADIUS =>
                     {
-                        // path changes outside the vicinity
-                        self.send_setup_req(context, &new);
-                        self.send_teardown_req(context, &old);
+                        // new contact outside vicinity requires path setup
+                        self.send_setup_req(context, &contact);
                     }
-                    (ContactState::Valid, &ContactState::Valid, false, true) => {
-                        // Contacts path changed from out of vicinity to inside vicinity
-                        self.send_teardown_req(context, &old);
-                    }
-                    (
-                        ContactState::Invalid(_),
-                        ContactState::Valid,
-                        new_outside_vicinity,
-                        old_outside_vicinity,
-                    ) => {
-                        // Contact gets invalid
-                        if new_outside_vicinity {
-                            self.send_teardown_req(context, &old);
+                    ContactEvent::Updated { new, old } => {
+                        match (
+                            new.state(),
+                            old.state(),
+                            new.path().unwrap().size() > VICINITY_RADIUS,
+                            old.path().unwrap().size() > VICINITY_RADIUS,
+                        ) {
+                            (ContactState::Valid, ContactState::Invalid(_), true, _)
+                            | (ContactState::Valid, ContactState::Rediscovering(_), true, _) => {
+                                // Contacts becomes valid
+                                self.send_setup_req(context, &new);
+                            }
+                            (ContactState::Valid, ContactState::Valid, true, false) => {
+                                // Contacts path changes from in vicinity to out of vicinity
+                                self.send_setup_req(context, &new);
+                            }
+                            (ContactState::Valid, ContactState::Valid, true, true)
+                                if old.path() != new.path() =>
+                            {
+                                // path changes outside the vicinity
+                                self.send_setup_req(context, &new);
+                                self.send_teardown_req(context, &old);
+                            }
+                            (ContactState::Valid, &ContactState::Valid, false, true) => {
+                                // Contacts path changed from out of vicinity to inside vicinity
+                                self.send_teardown_req(context, &old);
+                            }
+                            (
+                                ContactState::Invalid(_),
+                                ContactState::Valid,
+                                new_outside_vicinity,
+                                old_outside_vicinity,
+                            ) => {
+                                // Contact gets invalid
+                                if new_outside_vicinity {
+                                    self.send_teardown_req(context, &old);
+                                }
+                                if old_outside_vicinity && old.path() != new.path() {
+                                    self.send_teardown_req(context, &new);
+                                }
+                            }
+                            _ => {
+                                // Ignored Cases:
+                                // 1. Contact changes while being invalid
+                                // 2. Contact changes inside vicinity
+                                // 3. Contact changes outside vicinity without path change
+                                // 4. Contact gets valid inside vincity
+                            }
                         }
-                        if old_outside_vicinity && old.path() != new.path() {
-                            self.send_teardown_req(context, &new);
-                        }
                     }
-                    _ => {
-                        // Ignored Cases:
-                        // 1. Contact changes while being invalid
-                        // 2. Contact changes inside vicinity
-                        // 3. Contact changes outside vicinity without path change
-                        // 4. Contact gets valid inside vincity
+                    ContactEvent::Removed(contact)
+                        if contact.path().unwrap().size() > VICINITY_RADIUS =>
+                    {
+                        self.send_teardown_req(context, &contact);
                     }
+                    _ => {}
                 }
-            }
-            (UseCaseEvent::Contact(ContactEvent::Removed(contact)), _)
-                if contact.path().unwrap().size() > VICINITY_RADIUS =>
-            {
-                self.send_teardown_req(context, &contact);
             }
             // ========== Timers ==========
             (
