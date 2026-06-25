@@ -131,19 +131,21 @@ where
         context: &C,
         contact: Contact,
     ) -> Result<(), FailureHandlingError> {
-        let closest_via_contacts = context
-            .routing_table()
-            .closest(
-                context.root_id(),
-                self.config.number_via_contacts.get(),
-                self.config.grouping_bits,
-            )
-            .expect("invalid config");
 
         let ContactState::Invalid(notviastatelist) = contact.state() else {
             log::error!(target: "failure_handling:", "start_rediscovery called but contact state is not invalid");
             return Err(FailureHandlingError::WrongContactState);
         };
+
+        let closest_via_contacts = context
+            .routing_table()
+            .closest(
+                contact.id(),
+                self.config.number_via_contacts.get(),
+                self.config.grouping_bits,
+            )
+            .expect("invalid config");
+
 
         // Send updates to id-wise neighbors in case a direct link to a ULN failed
         // TODO Updates should be sent by a separate method and
