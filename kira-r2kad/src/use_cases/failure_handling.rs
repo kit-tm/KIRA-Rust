@@ -131,15 +131,6 @@ where
         context: &C,
         contact: Contact,
     ) -> Result<(), FailureHandlingError> {
-        let closest_via_contacts = context
-            .routing_table()
-            .closest(
-                context.root_id(),
-                self.config.number_via_contacts.get(),
-                self.config.grouping_bits,
-            )
-            .expect("invalid config");
-
         let ContactState::Invalid(notviastatelist) = contact.state() else {
             log::error!(target: "failure_handling:", "start_rediscovery called but contact state is not invalid");
             return Err(FailureHandlingError::WrongContactState);
@@ -150,10 +141,19 @@ where
         // when direct links have failed and otherwise after some time
         // for now we sent Unreachable from here
         if contact.is_uln() {
+            let closest_own_contacts = context
+                .routing_table()
+                .closest(
+                    context.root_id(),
+                    self.config.number_via_contacts.get(),
+                    self.config.grouping_bits,
+                )
+                .expect("invalid config");
+
             let mut updates = HashMap::new();
             updates.insert(contact.clone(), RouteUpdateActionType::Unreachable);
             // only use the self.config.failure_notification_radius.get() first contacts of
-            for (_, closest_overlay_neighbor) in closest_via_contacts
+            for (_, closest_overlay_neighbor) in closest_own_contacts
                 .iter()
                 .take(self.config.failure_notification_radius.get())
             {
@@ -179,6 +179,15 @@ where
                     .send_message(update_route_message, context.uln_table().deref());
             }
         }
+
+        let closest_via_contacts = context
+            .routing_table()
+            .closest(
+                contact.id(),
+                self.config.number_via_contacts.get(),
+                self.config.grouping_bits,
+            )
+            .expect("invalid config");
 
         // send two rediscovery requests in parallel
         for (_, closest_contact) in closest_via_contacts
