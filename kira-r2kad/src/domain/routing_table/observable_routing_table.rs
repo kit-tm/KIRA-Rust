@@ -240,6 +240,10 @@ where
         self.inner.contains_with(id, f)
     }
 
+    fn is_close_contact(&self, id: &NodeId) -> bool {
+        self.inner.is_close_contact(id)
+    }
+
     fn split_bucket(&mut self, id: &NodeId) -> Result<usize, BucketSplitError> {
         let bucket_old = self.inner.bucket(id).clone();
         let index = self.inner.split_bucket(id)?;

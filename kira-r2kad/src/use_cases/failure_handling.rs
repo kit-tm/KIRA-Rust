@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::num::{NonZeroU8, NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::ops::Deref;
+use std::time::Duration;
 use tracing::{Level, instrument};
 
 use derive_more::derive::{Display, Error};
@@ -16,21 +17,36 @@ use crate::messaging::{
     ReqRspMessage, RouteUpdateActionType, UpdateRouteReq, WireFormatMessage,
 };
 use crate::use_cases::{
-    ContactEvent, EventHandler, ReactiveUseCaseState, UseCase, UseCaseContext, UseCaseEvent,
-    UseCaseRuntime,
+    ContactEvent, EventHandler, ReactiveUseCaseState, TimerId, UseCase, UseCaseContext,
+    UseCaseEvent, UseCaseRuntime,
 };
-use crate::utils::errors::{AddNonceError, InsertionError};
+use crate::utils::InflightReqMap;
+use crate::utils::errors::InsertionError;
 use crate::utils::rediscovery_timeout_interval::{Distance, RediscoveryTimeoutInterval};
-use crate::utils::{BackoffMap, ExponentialBackoff};
+
+const REDISCOVERY_WAITTIME_ULN: Duration = Duration::from_millis(100);
+const REDISCOVERY_WAITTIME_CLOSEST_NEIGHBORS: Duration = Duration::from_millis(500);
+const REDISCOVERY_WAITTIME_CONTACT_WITH_ULN: Duration = Duration::from_millis(1000);
+const REDISCOVERY_WAITTIME_OTHER: Duration = Duration::from_millis(2000);
+const REDISCOVERY_TIMEOUT_MAX: Duration = Duration::from_millis(250);
 
 /// Configuration for use case [FailureHandling].
+///
+/// From the draft: The actual rediscovery messages are sent after different
+/// randomly chosen waiting times from an interval [0.5tp, 1.5tp]. The mean
+/// value t_p is set as follows: for invalidated ULNs 100ms, affected ID-wise
+/// near contacts (in the deepest buckets) 500ms, for contacts affected by the
+/// failure of a link to a ULN 1s and for all other affected contacts 2s.
 ///
 /// Defaults:
 ///
 /// - Overlay neighbors to notify via `UpdateRouteReq`: 3.
 /// - Number of Bits grouped for calculation of closeness for overlay neighbors: 1 Bit.
-/// - Intervall used for calculation of random timeout: `[0.5 t, 1.5 t]`, t = 500ms (overlay neighbor),
-///   t = 1s (underlay neighbor), t = 2s (otherwise).
+/// - Intervall used for calculation of random timeout: `[0.5 t, 1.5 t]`,
+///   t = 100ms (direct underlay neighbor)
+///   t = 500ms (closest id-wise overlay neighbors),
+///   t = 1s (contact affected by ULN failure),
+///   t = 2s (all other contacts).
 /// - Max retries for exponential backoff: 5.
 #[derive(Debug)]
 pub struct FailureHandlingConfig {
@@ -44,7 +60,7 @@ pub struct FailureHandlingConfig {
     /// for exponential backoff.
     pub backoff_timeout_interval: RediscoveryTimeoutInterval,
     /// Number of times the rediscovery sends `FindNodeReq`s for a single failed contact.
-    pub backoff_max_retries: NonZeroU32,
+    pub max_retry_rounds: NonZeroU32,
     /// Number of parallel rediscoveries
     pub rediscovery_parallelism: NonZeroUsize,
 }
@@ -56,7 +72,7 @@ impl Default for FailureHandlingConfig {
             grouping_bits: NonZeroU8::new(1).unwrap(),
             number_via_contacts: NonZeroUsize::new(20).unwrap(),
             backoff_timeout_interval: RediscoveryTimeoutInterval::default(),
-            backoff_max_retries: NonZeroU32::new(5).unwrap(),
+            max_retry_rounds: NonZeroU32::new(5).unwrap(),
             rediscovery_parallelism: NonZeroUsize::new(2).unwrap(),
         }
     }
@@ -72,7 +88,7 @@ pub struct FailureHandling<C, const BUCKET_SIZE: usize> {
     _pd: PhantomData<C>,
     state: ReactiveUseCaseState,
     config: FailureHandlingConfig,
-    rediscoveries: BackoffMap,
+    rediscoveries: InflightReqMap,
 }
 
 impl<C, const BUCKET_SIZE: usize> FailureHandling<C, BUCKET_SIZE> {
@@ -81,7 +97,7 @@ impl<C, const BUCKET_SIZE: usize> FailureHandling<C, BUCKET_SIZE> {
             _pd: Default::default(),
             state: ReactiveUseCaseState::Idle,
             config,
-            rediscoveries: BackoffMap::default(),
+            rediscoveries: InflightReqMap::default(),
         }
     }
 }
@@ -94,6 +110,18 @@ where
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     C::VicinityGraph: VicinityGraph,
 {
+    // returns the default rediscovery wait times according to different contacts types
+    fn get_rediscovery_wait_time(&self, context: &C, contact: &Contact) -> Duration {
+        match contact {
+            contact if contact.is_uln() => REDISCOVERY_WAITTIME_ULN,
+            contact if context.routing_table().is_close_contact(contact.id()) => {
+                REDISCOVERY_WAITTIME_CLOSEST_NEIGHBORS
+            }
+            contact if contact.has_broken_first_hop() => REDISCOVERY_WAITTIME_CONTACT_WITH_ULN,
+            _ => REDISCOVERY_WAITTIME_OTHER,
+        }
+    }
+
     // this should be called only from immediate error msgs, because the NotVia is using the current time
     fn invalidate_contacts_containing_link(&self, context: &C, failedlink: &Link) {
         for mut contact in context.routing_table_mut().iter_mut() {
@@ -124,109 +152,123 @@ where
         Distance::Others
     }
 
-    /// Sends UpdateRouteReq to own closest overlay neighbors, sends first FindNodeReq and
-    /// initializes RediscoveryState.
-    fn start_rediscovery(
+    /// extracts the next [no_of_via_contacts] eligible via contacts from the Rediscovery state of the given [contact_id]
+    /// returns None if contact is not in the expected Resdicovery state or the via contact list is empty or no usable via contact found
+    fn extract_eligible_via_contacts(
         &mut self,
         context: &C,
-        contact: Contact,
-    ) -> Result<(), FailureHandlingError> {
-        let closest_via_contacts = context
-            .routing_table()
-            .closest(
-                context.root_id(),
-                self.config.number_via_contacts.get(),
-                self.config.grouping_bits,
-            )
-            .expect("invalid config");
-
-        let ContactState::Invalid(notviastatelist) = contact.state() else {
-            log::error!(target: "failure_handling:", "start_rediscovery called but contact state is not invalid");
-            return Err(FailureHandlingError::WrongContactState);
+        contact_id: &NodeId,
+        no_of_via_contacts: usize,
+    ) -> Option<Vec<NodeId>> {
+        // extract the next via contacts
+        // find next useful via contact from the list
+        let mut next_via_contact_ids: Vec<NodeId> = Vec::new();
+        let mut processed_via_contacts: usize = 0;
+        // get contact for rediscovery state
+        if let Some(contact) = context.routing_table().contact(contact_id) {
+            // if contact state is still rediscovering get next via contacts to try
+            if let ContactState::Rediscovering(rds) = contact.state() {
+                // contact is still in rediscovering
+                // get next via contacts from list that exists and is valid (note that this is then removed from the list in rds)
+                let via_contact_list = rds.get_via_contact_list();
+                let via_contact_list_iter = via_contact_list.iter().enumerate();
+                 for (idx, next_via_contact_id) in via_contact_list_iter {
+                    processed_via_contacts = idx + 1;
+                    if context
+                        .routing_table()
+                        .contains_with(next_via_contact_id, |c| c.is_valid())
+                    {
+                        next_via_contact_ids.push(*next_via_contact_id);
+                    }
+                    if next_via_contact_ids.len() == no_of_via_contacts {
+                        break;
+                    }
+                }
+            } else {
+                // contact exists but is not in rediscovery state anymore, so simply ignore this timeout or message
+                return None;
+            }
+        } else {
+            // if contact does not exist anymore then terminate Rediscovery
+            return None;
         };
 
-        // Send updates to id-wise neighbors in case a direct link to a ULN failed
-        // TODO Updates should be sent by a separate method and
-        // when direct links have failed and otherwise after some time
-        // for now we sent Unreachable from here
-        if contact.is_uln() {
-            let mut updates = HashMap::new();
-            updates.insert(contact.clone(), RouteUpdateActionType::Unreachable);
-            // only use the self.config.failure_notification_radius.get() first contacts of
-            for (_, closest_overlay_neighbor) in closest_via_contacts
-                .iter()
-                .take(self.config.failure_notification_radius.get())
-            {
-                let update_route_message = UpdateRouteReq {
-                    common_header: CommonHeader::new(
-                        ProtocolMessageKind::UpdateRouteReq,
-                        *context.root_id(),
-                        *contact.id(),
-                        None,
-                        Some(From::from(*context.uln_table().state_seq_nr())),
-                        context.uln_table().size(),
-                    ),
-                    not_via: From::from(notviastatelist.clone()),
-                    contact_actions: updates.clone(),
-                    source_route: SourceRoute::new(
-                        *context.root_id(),
-                        closest_overlay_neighbor.path().unwrap().clone(),
-                    ),
-                };
-
-                context
-                    .runtime()
-                    .send_message(update_route_message, context.uln_table().deref());
-            }
+        // now we need to delete the processed entries from the via contact list in a separate pass
+        // due to mutable borrow
+        if processed_via_contacts > 0
+            && let ContactState::Rediscovering(rds_mut) = context
+                .routing_table_mut()
+                .contact_mut(contact_id)
+                .unwrap() // is safe heredue to code above
+                .state_mut()
+        {
+            rds_mut.drop_from_next_via_contact_id(processed_via_contacts);
         }
 
-        // send two rediscovery requests in parallel
-        for (_, closest_contact) in closest_via_contacts
-            .iter()
-            .take(self.config.rediscovery_parallelism.get())
-        {
-            // Add rediscovery state before sending find node in case of error
-            let start_duration = self
-                .config
-                .backoff_timeout_interval
-                .next_duration(self.get_distance_to(context, contact.id()));
-            let mut exponential_backoff = ExponentialBackoff::with_default_base(
-                self.config.backoff_max_retries.get(),
-                start_duration,
-            );
-            let timer_duration = exponential_backoff
-                .next()
-                .expect("configuration was invalid");
+        if !next_via_contact_ids.is_empty() {
+            return Some(next_via_contact_ids);
+        }
 
+        None
+    }
+
+    fn send_rediscovery_for_contact(&mut self, context: &C, contact_id: &NodeId) {
+        // extracts up to (usuallly) two via contacts from the Rediscovery State
+        let Some(closest_via_contacts) = self.extract_eligible_via_contacts(
+            context,
+            contact_id,
+            self.config.rediscovery_parallelism.get(),
+        ) else {
+            // if we have no via contacts for whatever reason, we cannot send anything
+            return;
+        };
+
+        // extract notviastate list from contact state
+        let notviastate_list = match context
+            .routing_table()
+            .contact(contact_id)
+            .unwrap()
+            .state()
+        {
+            ContactState::Rediscovering(rds) => rds.get_notviastate_list().clone(),
+            _ => NotViaStateList::default(),
+        };
+
+        // send two rediscovery requests in parallel
+        for via_contact_id in closest_via_contacts.iter() {
+            // Add rediscovery state before sending find node in case of error
             let nonce = {
                 let mut nonce = Nonce::random();
-                let mut timer_id = context.runtime().register_timer(timer_duration);
+                // TODO maybe use measured RTT instead of fixed timeout
+                let mut timer_id = context.runtime().register_timer(REDISCOVERY_TIMEOUT_MAX);
 
                 // TODO this should use the state in the Rediscovering state
-                while let Err(e) = self.rediscoveries.insert(
-                    (*contact.id(), timer_id, nonce),
-                    exponential_backoff.clone(),
-                ) {
+                while let Err(e) = self.rediscoveries.insert((*contact_id, timer_id, nonce)) {
                     match e {
                         InsertionError::DuplicateNonce => nonce = Nonce::random(),
                         InsertionError::DuplicateTimer => {
                             log::warn!(target: "failure_handling", "runtime emitted duplicate timer id {} [{:?}]", timer_id, self.rediscoveries);
-                            timer_id = context.runtime().register_timer(timer_duration)
+                            timer_id = context.runtime().register_timer(REDISCOVERY_TIMEOUT_MAX);
                         }
                     }
                 }
 
-                log::trace!(target: "failure_handling", "Created rediscovery entry for {} [backoff: {}, nonce: {:?}]", contact.id(), exponential_backoff, nonce);
+                log::trace!(target: "failure_handling", "Created rediscovery entry for {} [timeout: {:#?}, nonce: {:?}]", contact_id, REDISCOVERY_TIMEOUT_MAX, nonce);
 
                 nonce
             };
 
-            // send a findNodeReq for rediscovery
+            let rtable = context.routing_table();
+            let via_contact = rtable
+                .contact(via_contact_id)
+                .expect("Contact should still be present in Routingtable");
+
+            // send a findNodeReq for rediscovery to the via contact with target of the contact to be rediscovered
             let find_node_request = ReqRspMessage {
                 common_header: CommonHeader::new(
                     ProtocolMessageKind::FindNodeReq,
                     *context.root_id(),
-                    *closest_contact.id(),
+                    *via_contact_id,
                     Some(nonce.into()),
                     Some(From::from(*context.uln_table().state_seq_nr())),
                     context.uln_table().size(),
@@ -234,12 +276,12 @@ where
                 data: FindNodeReqData {
                     exact: true,
                     neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
-                    target: *contact.id(),
+                    target: *contact_id,
                 },
-                not_via: From::from(notviastatelist.clone()),
+                not_via: From::from(notviastate_list.clone()),
                 source_route: SourceRoute::new(
                     *context.root_id(),
-                    closest_contact.path().unwrap().clone(),
+                    via_contact.path().unwrap().clone(),
                 ),
             };
 
@@ -248,8 +290,77 @@ where
                 .runtime()
                 .send_message(find_node_request, context.uln_table().deref());
 
-            log::trace!(target: "failure_handling", "Sent rediscovery find node for {} to {} [retry {} of {}]", contact.id(), closest_contact.id(), exponential_backoff.current_retries, exponential_backoff.max_retries);
+            log::trace!(target: "failure_handling", "Sent rediscovery find node for {} to {}", contact_id, via_contact.id());
         }
+    }
+
+    fn send_updates(&mut self, context: &C, contact: &Contact, notviastatelist: &NotViaStateList) {
+        let closest_own_contacts = context
+            .routing_table()
+            .closest(
+                context.root_id(),
+                self.config.number_via_contacts.get(),
+                self.config.grouping_bits,
+            )
+            .expect("invalid config");
+
+        let mut updates = HashMap::new();
+        updates.insert(contact.clone(), RouteUpdateActionType::Unreachable);
+        // only use the self.config.failure_notification_radius.get() first contacts of
+        for (_, closest_overlay_neighbor) in closest_own_contacts
+            .iter()
+            .take(self.config.failure_notification_radius.get())
+        {
+            let update_route_message = UpdateRouteReq {
+                common_header: CommonHeader::new(
+                    ProtocolMessageKind::UpdateRouteReq,
+                    *context.root_id(),
+                    *contact.id(),
+                    None,
+                    Some(From::from(*context.uln_table().state_seq_nr())),
+                    context.uln_table().size(),
+                ),
+                not_via: From::from(notviastatelist.clone()),
+                contact_actions: updates.clone(),
+                source_route: SourceRoute::new(
+                    *context.root_id(),
+                    closest_overlay_neighbor.path().unwrap().clone(),
+                ),
+            };
+
+            context
+                .runtime()
+                .send_message(update_route_message, context.uln_table().deref());
+        }
+    }
+
+    /// Sends UpdateRouteReq to own closest overlay neighbors,
+    /// initializes RediscoveryState and sends first FindNodeReq
+    fn start_rediscovery(
+        &mut self,
+        context: &C,
+        contact: Contact,
+    ) -> Result<(), FailureHandlingError> {
+        let ContactState::Invalid(notviastatelist) = contact.state() else {
+            log::error!(target: "failure_handling:", "start_rediscovery called but contact state is not invalid");
+            return Err(FailureHandlingError::WrongContactState);
+        };
+
+        // Send updates to id-wise neighbors in case a direct link to a ULN failed
+        // Updates should be sent when direct links have failed and
+        // otherwise after some time for now we sent Unreachable from here
+        if contact.is_uln() {
+            self.send_updates(context, &contact, notviastatelist);
+        }
+
+        let closest_via_contacts = context
+            .routing_table()
+            .closest(
+                contact.id(),
+                self.config.number_via_contacts.get(),
+                self.config.grouping_bits,
+            )
+            .expect("invalid config");
 
         // contact state changes to Rediscovering
         context
@@ -258,12 +369,12 @@ where
             .expect("contact should still be present in RT")
             .start_rediscovering(
                 notviastatelist.clone(),
-                closest_via_contacts
-                    .iter()
-                    .skip(self.config.rediscovery_parallelism.get())
-                    .map(|(_, x)| *x.id())
-                    .collect(),
+                closest_via_contacts.iter().map(|(_, x)| *x.id()).collect(),
             );
+
+        // start sending the first rediscovery messages in parallel
+        // TODO make this scheduled
+        self.send_rediscovery_for_contact(context, contact.id());
 
         Ok(())
     }
@@ -274,48 +385,90 @@ where
     fn handle_rediscovery_failure(
         &mut self,
         context: &C,
-        node_id: &NodeId,
+        nonce: Option<Nonce>,
+        timer_id: Option<TimerId>,
     ) -> Result<(), FailureHandlingError> {
-        // find next useful via contact from the list
-        let mut next_via_contact_id = None;
-        let mut checked_via_contacts: usize = 0;
-        if let Some(contact) = context.routing_table().contact(node_id) {
-            if let ContactState::Rediscovering(rds) = contact.state() {
-                // get next via contact from list that exists and is valid
-                if let Some(result) =
-                    rds.get_via_contact_list()
-                        .iter()
-                        .enumerate()
-                        .find(|(_idx, nid)| {
-                            context.routing_table().contains_with(nid, |c| c.is_valid())
-                        })
-                {
-                    next_via_contact_id = Some(*result.1);
-                    checked_via_contacts = result.0 + 1; // need to add one to index
+        // we remove the entry from inflight requests
+        let node_id = match (nonce, timer_id) {
+            (None, None) => panic!(
+                "internal error: handle_rediscovery must be called either with message nonce or timer timeout"
+            ),
+            (Some(nonce), None) | (Some(nonce), Some(_)) => {
+                if self.rediscoveries.nonce_exists(&nonce) {
+                    self.rediscoveries.remove_by_nonce(nonce).expect("internal error: handle_rediscovery: rediscoveries entry should be present").0
                 } else {
-                    // nothing found, need to clear the whole list then
-                    checked_via_contacts = rds.get_via_contact_list().len();
+                    // unknown noce for us, just return
+                    return Ok(());
                 }
             }
-        } else {
-            // if contact does not exist anymore or is not in Rediscovering state, terminate Rediscovery
-            return Ok(());
+            (None, Some(timer_id)) => {
+                if self.rediscoveries.timer_exists(&timer_id) {
+                    self.rediscoveries.remove_by_timer(&timer_id).expect("internal error: handle_rediscovery: rediscoveries entry should be present").0
+                } else {
+                    // unknown timer for us, just return
+                    return Ok(());
+                }
+            }
         };
 
-        // we need to remove any tried not via contacts from the rds state first
-        // a second pass is required due to mutable borrow
-        if checked_via_contacts > 0
-            && let ContactState::Rediscovering(rds) = context
-                .routing_table_mut()
-                .contact_mut(node_id)
-                .unwrap()
-                .state_mut()
-        {
-            // now pop as many next via contacts that have been skipped
-            while checked_via_contacts > 0 && rds.get_next_via_contact_id().is_some() {
-                checked_via_contacts -= 1;
+        // it may be the case that the node has been removed from the routing table
+        if !context.routing_table().contains(&node_id) {
+            return Ok(());
+        }
+
+        let next_via_contact_id: Option<NodeId>;
+        // find next useful via contact from the list
+        // we only need to send one more out since this is the reaction to a previous rediscovery
+        // extracts up to (usuallly) two via contacts from the Rediscovery State
+        match self.extract_eligible_via_contacts(context, &node_id, 1) {
+            Some(mut closest_via_contacts) => {
+                next_via_contact_id = closest_via_contacts.pop();
             }
-            assert!(checked_via_contacts == 0); // must be true, otherwise list is too short
+            None => {
+                // nothing more to probe or contact in wrong state etc.
+                // refill via contact list for another round
+                let new_via_contact_list = context
+                    .routing_table()
+                    .closest(
+                        &node_id,
+                        self.config.number_via_contacts.get(),
+                        self.config.grouping_bits,
+                    )
+                    .expect("invalid config")
+                    .iter()
+                    .map(|(_, x)| *x.id())
+                    .collect();
+
+                if let Some(mut contact) = context.routing_table_mut().contact_mut(&node_id)
+                    && let ContactState::Rediscovering(rds) = contact.state_mut()
+                {
+                    // no usable contact found, try next round
+                    if rds.retry_counter < self.config.max_retry_rounds.get() as u8 {
+                        rds.retry_counter += 1;
+                        // refill not via contacts
+                        rds.set_via_contact_list(new_via_contact_list);
+                    } else {
+                        // retry counter reached maximum value
+                        // set contact state to dead if there is no other rediscovery in flight
+                        if !self.rediscoveries.exists(&node_id) {
+                            log::debug!(target: "failure_handling", "Rediscovery of {node_id} failed. Removing from routing table");
+                            contact.set_state(ContactState::Dead);
+                        }
+                        return Ok(());
+                    }
+                } else {
+                    // contact not in state rediscovering, nothing to do here
+                    return Ok(());
+                }
+
+                if let Some(mut next_via_contact_vec) =
+                    self.extract_eligible_via_contacts(context, &node_id, 1)
+                {
+                    next_via_contact_id = next_via_contact_vec.pop();
+                } else {
+                    return Ok(());
+                }
+            }
         }
 
         // if there is no usable next via contact, we'll stop
@@ -324,42 +477,22 @@ where
         }
         // now that we are sure that the id exists, reuse name as value
         let next_via_contact_id = next_via_contact_id.unwrap();
-        // TODO the exponential backoff needs to be checked
         // TODO different waiting times need to be implemented
-        let backoff = self.rediscoveries.get_mut(node_id);
-        assert!(
-            backoff.is_some(),
-            "handle_rediscovery_failure should only be called for nodes with running rediscovery"
-        );
-        let next_duration = backoff.unwrap().next();
-        if next_duration.is_none() {
-            log::debug!(target: "failure_handling", "Rediscovery of {node_id} failed. Removing from routing table");
-            context.uln_table_mut().remove(node_id);
-            context.routing_table_mut().remove(node_id);
-            self.rediscoveries.remove(node_id);
-            return Ok(());
-        }
-        let next_duration = next_duration.unwrap();
 
         // Start new find node
-        let timer_id = context.runtime().register_timer(next_duration);
-
-        let response = self.rediscoveries.replace_timer_for(*node_id, timer_id);
-        if response.is_err() {
-            log::warn!(target: "failure_handling", "runtime emitted duplicate timer id {} [{:#?}]", timer_id, self.rediscoveries);
-            self.state = ReactiveUseCaseState::Error;
-            return Err(FailureHandlingError::DuplicateTimerId);
-        }
+        let timer_id = context.runtime().register_timer(REDISCOVERY_TIMEOUT_MAX);
 
         let nonce = {
             let mut nonce = Nonce::random();
 
-            while let Err(e) = self.rediscoveries.add_nonce_for_node(*node_id, nonce) {
+            while let Err(e) = self.rediscoveries.insert((node_id, timer_id, nonce)) {
                 match e {
-                    AddNonceError::UnknownNode => {
-                        panic!("handle_rediscovery_failure was called with unknown node")
+                    InsertionError::DuplicateTimer => {
+                        log::warn!(target: "failure_handling", "runtime emitted duplicate timer id {} [{:#?}]", timer_id, self.rediscoveries);
+                        self.state = ReactiveUseCaseState::Error;
+                        return Err(FailureHandlingError::DuplicateTimerId);
                     }
-                    AddNonceError::DuplicateNonce => nonce = Nonce::random(),
+                    InsertionError::DuplicateNonce => nonce = Nonce::random(),
                 }
             }
 
@@ -367,7 +500,7 @@ where
         };
 
         // extract notviastate list from contact state
-        let notviastate_list = match context.routing_table().contact(node_id).unwrap().state() {
+        let notviastate_list = match context.routing_table().contact(&node_id).unwrap().state() {
             ContactState::Rediscovering(rds) => rds.get_notviastate_list().clone(),
             _ => NotViaStateList::default(),
         };
@@ -384,7 +517,7 @@ where
             data: FindNodeReqData {
                 exact: true,
                 neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
-                target: *node_id,
+                target: node_id,
             },
             not_via: From::from(notviastate_list.clone()),
             source_route: SourceRoute::new(
@@ -404,10 +537,14 @@ where
             .runtime()
             .send_message(find_node_request, context.uln_table().deref());
 
+        let current_retries = match context.routing_table().contact(&node_id).unwrap().state() {
+            ContactState::Rediscovering(rds) => rds.retry_counter,
+            _ => {
+                panic!("handle rediscovery failure: contact should be in Rediscovering state");
+            }
+        };
         // Just some logging, if logging is disabled this will be eliminated through dead code elimination
-        if let Some(exponential_backoff) = self.rediscoveries.get(node_id) {
-            log::trace!(target: "failure_handling", "Sent rediscovery find node for {} to {} [retry {} of {}]", node_id, next_via_contact_id, exponential_backoff.current_retries, exponential_backoff.max_retries);
-        }
+        log::trace!(target: "failure_handling", "Sent rediscovery find node for {} to {} [round {} of {}]", node_id, next_via_contact_id, current_retries, self.config.max_retry_rounds.get());
 
         Ok(())
     }
@@ -505,46 +642,37 @@ where
                         }
                     }
                     ContactEvent::Removed(contact) => {
-                        if let Some((backoff, removed_timers, removed_nonces)) =
-                            self.rediscoveries.remove(contact.id())
-                        {
-                            log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got removed from routing table [backoff_state: {}, timers: {:?}, nonces: {:?}]", contact.id(), backoff, removed_timers, removed_nonces);
-                        }
+                        // a contact may be removed by being replaced by a better contact while in rediscovery
+                        self.rediscoveries.remove_by_id(contact.id());
+                        log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got removed from routing table", contact.id());
                     }
                     _ => {}
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::FindNodeRsp(rsp), _) => {
-                if let Some((backoff, timers, nonces)) =
-                    self.rediscoveries.remove_by_nonce(rsp.msg_id().into())
-                {
-                    log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got a successful answer [backoff_state: {}, timers: {:?}, nonce: {:?}]", rsp.source_route.source(), backoff, timers, nonces);
+                if let Some((_, timer)) = self.rediscoveries.remove_by_nonce(rsp.msg_id().into()) {
+                    log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got a successful answer [timer: {:?}, nonce: {:?}]", rsp.source_route.source(), timer, rsp.msg_id());
                     log::debug!(target: "failure_handling", "Rediscovery of {} was successful!", rsp.source());
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::Error(rsp), _) => {
-                if let Some(node) = self
-                    .rediscoveries
-                    .get_node_for_nonce(rsp.msg_id().into())
-                    .cloned()
-                {
-                    self.rediscoveries.remove_nonce(rsp.msg_id().into());
-                    self.handle_rediscovery_failure(context, &node)?;
-                }
-                // Anyways NotVia Data has to be added for failed link
+                // NotVia Data has to be added for failed link and contacts need to be invalidated
                 if let ReqRspMessage {
-                    data: ErrorData::SegmentFailure { failed_link, .. },
+                    data:
+                        ErrorData::SegmentFailure {
+                            ref failed_link, ..
+                        },
                     ..
                 } = rsp
                 {
                     log::trace!(target: "failure_handling", "checking for affected contacts with failed link {failed_link:?}");
-                    self.invalidate_contacts_containing_link(context, &failed_link);
+                    self.invalidate_contacts_containing_link(context, failed_link);
                 }
+
+                self.handle_rediscovery_failure(context, Some(rsp.msg_id().into()), None)?;
             }
             UseCaseEvent::Timer(id) => {
-                if let Some(node) = self.rediscoveries.get_node_for_timer(&id).cloned() {
-                    self.handle_rediscovery_failure(context, &node)?;
-                }
+                self.handle_rediscovery_failure(context, None, Some(id))?;
             }
             UseCaseEvent::UnderlayUpdate(UnderlayNeighborUpdate::UnderlayNeighborDown(ulnid)) => {
                 self.invalidate_affected_contacts(context, ulnid);

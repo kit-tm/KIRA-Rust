@@ -42,6 +42,9 @@ pub trait UseCaseRuntime {
     /// Get the current time.
     fn current_time(&self) -> Instant;
 
+    /// removes a pending timer if it exists,
+    fn remove_timer(&self, timer_id: TimerId);
+
     /// Sends a [ProtocolMessage] to a different peer.
     ///
     /// The message will be routed via the underlay neighbor
@@ -108,6 +111,9 @@ impl<UR: UseCaseRuntime, D: Deref<Target = UR>> UseCaseRuntime for D {
         self.deref().current_time()
     }
 
+    fn remove_timer(&self, timer_id: TimerId) {
+        self.deref().remove_timer(timer_id)
+    }
     fn send_message_via<P: Into<ProtocolMessage>>(
         &self,
         protocol_message: P,

@@ -73,6 +73,10 @@ impl Contact {
         &mut self.state
     }
 
+    pub fn set_state(&mut self, contact_state: ContactState) {
+        self.state = contact_state;
+    }
+
     pub fn start_rediscovering(
         &mut self,
         notviastate_list: NotViaStateList,
@@ -90,6 +94,35 @@ impl Contact {
         match self.path_collection.active_path() {
             Some(path) => (*path).size() == 1,
             None => false,
+        }
+    }
+
+    /// Returns if the [Contact] has a failed ULN in its former active path
+    pub fn has_broken_first_hop(&self) -> bool {
+        match self.state {
+            ContactState::Invalid(ref notvia_state_list) => {
+                if let Some(path) = self.path_collection.active_path() {
+                    notvia_state_list
+                        .nvs_list
+                        .iter()
+                        .find(|nvs| nvs.link.contains(path.first()))
+                        .is_some()
+                } else {
+                    false
+                }
+            }
+            ContactState::Rediscovering(ref rds) => {
+                if let Some(path) = self.path_collection.active_path() {
+                    rds.get_notviastate_list()
+                        .nvs_list
+                        .iter()
+                        .find(|nvs| nvs.link.contains(path.first()))
+                        .is_some()
+                } else {
+                    false
+                }
+            }
+            _ => false,
         }
     }
 
@@ -177,7 +210,7 @@ impl Contact {
                 path_candidate.is_better_than(active_path)
             }
             ContactState::Rediscovering(_) => true,
-            ContactState::Dead => false,
+            ContactState::Dead => false, // not sure that this is sensible
         };
 
         if path_suitable {

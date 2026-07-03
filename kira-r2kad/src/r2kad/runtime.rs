@@ -176,6 +176,19 @@ impl UseCaseRuntime for R2KadRuntime {
         id
     }
 
+    /// removes a pending timer if it exists
+    /// returns:
+    ///  - None: if timer with timer_id could not be found
+    ///  - true: if timer with timer_id has been removed
+    ///  - false: if timer is present but has not been removed; this typically is the case if the timer is the currently active timer (the first in the queue)
+    //  WARN: This method runs in O(#timers).
+    fn remove_timer(&self, timer_id: TimerId) {
+        self.timers
+            .write()
+            .unwrap()
+            .retain(|timer| timer.id != timer_id);
+    }
+
     fn register_periodic_timer(&self, duration: Duration) -> TimerId {
         let timer_id = self.register_timer(duration);
 
