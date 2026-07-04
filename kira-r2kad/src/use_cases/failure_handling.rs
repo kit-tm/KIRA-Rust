@@ -659,7 +659,7 @@ where
                 self.handle_rediscovery_failure(context, Some(rsp.msg_id().into()), None)?;
             }
             UseCaseEvent::Timer(id) => {
-                if let Some(contact_id) = self.scheduled_rediscoveries.get(&id).copied() {
+                if let Some(contact_id) = self.scheduled_rediscoveries.remove(&id) {
                     // start sending the first rediscovery messages in parallel
                     self.send_rediscovery_for_contact(context, &contact_id);
                 } else {

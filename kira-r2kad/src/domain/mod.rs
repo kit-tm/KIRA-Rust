@@ -46,6 +46,7 @@ pub mod vicinity;
 /// Considering `X = Age(10)` and `Y = Age(20)` then `X < Y == true`.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[display("{}ms",self.0)]
 pub struct Age(u64);
 
 impl From<u64> for Age {
@@ -152,7 +153,7 @@ impl From<(NodeId, NodeId)> for Link {
 /// When a node gets deleted, all the not via data mentioning it will be removed.
 #[derive(Debug, Clone, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[display("NotVia {link} {age}ms")]
+#[display("NotVia {link} {age}")]
 pub struct NotVia {
     pub link: Link,
     pub age: Age,
