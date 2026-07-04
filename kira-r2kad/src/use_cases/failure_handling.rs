@@ -22,7 +22,7 @@ use crate::use_cases::{
 };
 use crate::utils::InflightReqMap;
 use crate::utils::errors::InsertionError;
-use crate::utils::rediscovery_timeout_interval::{Distance, RediscoveryTimeoutInterval};
+use crate::utils::rediscovery_timeout_interval::RediscoveryTimeoutInterval;
 
 const REDISCOVERY_WAITTIME_ULN: Duration = Duration::from_millis(100);
 const REDISCOVERY_WAITTIME_CLOSEST_NEIGHBORS: Duration = Duration::from_millis(500);
@@ -89,6 +89,7 @@ pub struct FailureHandling<C, const BUCKET_SIZE: usize> {
     state: ReactiveUseCaseState,
     config: FailureHandlingConfig,
     rediscoveries: InflightReqMap,
+    scheduled_rediscoveries: HashMap<TimerId, NodeId>,
 }
 
 impl<C, const BUCKET_SIZE: usize> FailureHandling<C, BUCKET_SIZE> {
@@ -98,6 +99,7 @@ impl<C, const BUCKET_SIZE: usize> FailureHandling<C, BUCKET_SIZE> {
             state: ReactiveUseCaseState::Idle,
             config,
             rediscoveries: InflightReqMap::default(),
+            scheduled_rediscoveries: HashMap::new(),
         }
     }
 }
@@ -136,22 +138,6 @@ where
         }
     }
 
-    fn get_distance_to(&self, context: &C, id: &NodeId) -> Distance {
-        if context.uln_table().contains(id) {
-            return Distance::UnderlayNeighbor;
-        }
-
-        let mut closest = context
-            .routing_table()
-            .closest(context.root_id(), BUCKET_SIZE, self.config.grouping_bits)
-            .expect("grouping should be valid");
-        if closest.drain(..).any(|(_, contact)| contact.id() == id) {
-            return Distance::OverlayNeighbor;
-        }
-
-        Distance::Others
-    }
-
     /// extracts the next [no_of_via_contacts] eligible via contacts from the Rediscovery state of the given [contact_id]
     /// returns None if contact is not in the expected Resdicovery state or the via contact list is empty or no usable via contact found
     fn extract_eligible_via_contacts(
@@ -172,7 +158,7 @@ where
                 // get next via contacts from list that exists and is valid (note that this is then removed from the list in rds)
                 let via_contact_list = rds.get_via_contact_list();
                 let via_contact_list_iter = via_contact_list.iter().enumerate();
-                 for (idx, next_via_contact_id) in via_contact_list_iter {
+                for (idx, next_via_contact_id) in via_contact_list_iter {
                     processed_via_contacts = idx + 1;
                     if context
                         .routing_table()
@@ -224,12 +210,7 @@ where
         };
 
         // extract notviastate list from contact state
-        let notviastate_list = match context
-            .routing_table()
-            .contact(contact_id)
-            .unwrap()
-            .state()
-        {
+        let notviastate_list = match context.routing_table().contact(contact_id).unwrap().state() {
             ContactState::Rediscovering(rds) => rds.get_notviastate_list().clone(),
             _ => NotViaStateList::default(),
         };
@@ -334,6 +315,14 @@ where
         }
     }
 
+    // schedule rediscovery for contact
+    fn schedule_rediscovery(&mut self, context: &C, contact: &Contact) {
+        let timer_id = context
+            .runtime()
+            .register_timer(self.get_rediscovery_wait_time(context, contact));
+        self.scheduled_rediscoveries.insert(timer_id, *contact.id());
+    }
+
     /// Sends UpdateRouteReq to own closest overlay neighbors,
     /// initializes RediscoveryState and sends first FindNodeReq
     fn start_rediscovery(
@@ -372,9 +361,7 @@ where
                 closest_via_contacts.iter().map(|(_, x)| *x.id()).collect(),
             );
 
-        // start sending the first rediscovery messages in parallel
-        // TODO make this scheduled
-        self.send_rediscovery_for_contact(context, contact.id());
+        self.schedule_rediscovery(context, &contact);
 
         Ok(())
     }
@@ -672,7 +659,13 @@ where
                 self.handle_rediscovery_failure(context, Some(rsp.msg_id().into()), None)?;
             }
             UseCaseEvent::Timer(id) => {
-                self.handle_rediscovery_failure(context, None, Some(id))?;
+                if let Some(contact_id) = self.scheduled_rediscoveries.get(&id).copied() {
+                    // start sending the first rediscovery messages in parallel
+                    self.send_rediscovery_for_contact(context, &contact_id);
+                } else {
+                    // it is potentially a timeout
+                    self.handle_rediscovery_failure(context, None, Some(id))?;
+                }
             }
             UseCaseEvent::UnderlayUpdate(UnderlayNeighborUpdate::UnderlayNeighborDown(ulnid)) => {
                 self.invalidate_affected_contacts(context, ulnid);
