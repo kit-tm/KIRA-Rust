@@ -10,10 +10,26 @@
     - apk add --no-cache musl-dev git # necessary for building and downloading dependencies
   interruptible: true
 
-  cache: []
-
   variables:
-    CARGO_HOME: $CI_PROJECT_DIR/.cargo_home
+    CARGO_HOME: $CI_PROJECT_DIR/.cargo_home # move to cacheable directory
+    RUSTC_WRAPPER: sccache
+    SCCACHE_SERVER_UDS: /sccache/sccache.socket
+  cache: &cargo_cache
+    key:
+      files: # fresh cache on dependency-changes (don't cache unused dependencies)
+        - Cargo.toml
+        - Cargo.lock
+      prefix: cargo_cache
+    paths:
+      - target/ # build artifacts
+      - "$CI_PROJECT_DIR/.cargo_home/.crates.toml"
+      - "$CI_PROJECT_DIR/.cargo_home/.crates2.json"
+      - "$CI_PROJECT_DIR/.cargo_home/bin/"
+      - "$CI_PROJECT_DIR/.cargo_home/registry/index/"
+      - "$CI_PROJECT_DIR/.cargo_home/registry/cache/"
+      - "$CI_PROJECT_DIR/.cargo_home/git/db/"
+      - "$CI_PROJECT_DIR/.cargo_home/advisory-dbs"
+    policy: pull # only update cache by specific jobs
 
 # rust job that is run if rust code changed by a merge request
 .rust-ci-rules:
@@ -74,6 +90,10 @@ rust-checks:
     - .rust-defaults
     - .rust-ci-rules
 
+  cache:
+    <<: *cargo_cache
+    policy: pull-push
+  
   # fail-fast if packages can't be compiled
   script:
     - cargo check --workspace --all-targets --all-features
@@ -99,6 +119,10 @@ rust-tests:
     - .rust-defaults
     - .rust-ci-rules
 
+  cache:
+    <<: *cargo_cache
+    policy: pull-push
+
   before_script:
     - apk add --no-cache musl-dev git
     - cargo install cargo-nextest --locked
@@ -111,6 +135,11 @@ rust-doctests:
   extends:
     - .rust-defaults
     - .rust-ci-rules
+
+  cache:
+    <<: *cargo_cache
+    policy: pull-push
+
   needs:
     - job: rust-tests # ensure cache propagation
       optional: true
@@ -124,6 +153,10 @@ build-kirad:
   extends:
     - .rust-defaults
     - .rust-ci-rules
+
+  cache:
+    <<: *cargo_cache
+    policy: pull-push
 
   script:
     - cargo build --package kirad
@@ -187,3 +220,7 @@ rust-audit:
   rules:
     - !reference [.rust-ci-rules, rules] # merge rules
     - if: $CI_PIPELINE_SOURCE == "schedule" # scheduled nightly runs
+
+  cache:
+    <<: *cargo_cache
+    policy: pull-push
