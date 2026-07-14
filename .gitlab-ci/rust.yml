@@ -13,7 +13,7 @@
   variables:
     CARGO_HOME: $CI_PROJECT_DIR/.cargo_home # move to cacheable directory
     RUSTC_WRAPPER: sccache
-    SCCACHE_SERVER_UDS: /sccache/sccache.socket
+    SCCACHE_SERVER_UDS: /run/sccache/sccache.socket
   cache: &cargo_cache
     key:
       files: # fresh cache on dependency-changes (don't cache unused dependencies)
