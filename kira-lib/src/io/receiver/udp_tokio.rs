@@ -162,7 +162,7 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
                 log::trace!(target: "message_receiver", "Ignoring message from us");
                 continue;
             }
-            log::trace!(target: "message_receiver", "Received {:?} from {}", &message, received_from);
+            log::trace!(target: "message_receiver", "Received {:?} from {}", message, received_from);
 
             let neighbor = UnderlayNeighbor::new(*received_from.ip(), interface_id);
             let ulnid = match self.underlay_handle.register_neighbor(neighbor).await {
