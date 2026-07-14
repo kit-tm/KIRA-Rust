@@ -7,7 +7,7 @@
 .rust-defaults:
   image: rust:alpine # more nimble than rust:latest
   before_script:
-    - apk add --no-cache musl-dev git # necessary for building and downloading dependencies
+    - apk add --no-cache musl-dev git sccache # necessary for building and downloading dependencies
   interruptible: true
 
   variables:
