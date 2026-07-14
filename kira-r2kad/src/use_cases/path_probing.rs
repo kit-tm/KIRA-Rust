@@ -345,25 +345,25 @@ where
                     self.invalidate_contact_for_timer(context, timer_id);
                 }
             }
-            UseCaseEvent::Message(ProtocolMessage::ProbeRsp(req), _) => {
-                if self.is_tracked_message(&req.msg_id().into()) {
-                    let ReqRspMessage {
-                        common_header,
-                        source_route,
-                        ..
-                    } = req;
-                    let source = *source_route.source();
-                    let nonce = Nonce::from(common_header.msg_id());
+            UseCaseEvent::Message(ProtocolMessage::ProbeRsp(req), _)
+                if self.is_tracked_message(&req.msg_id().into()) =>
+            {
+                let ReqRspMessage {
+                    common_header,
+                    source_route,
+                    ..
+                } = req;
+                let source = *source_route.source();
+                let nonce = Nonce::from(common_header.msg_id());
 
-                    self.remove_from_tracked_messages(nonce);
+                self.remove_from_tracked_messages(nonce);
 
-                    log::trace!(target: "path_probing", "Probing {source} was successful!");
-                }
+                log::trace!(target: "path_probing", "Probing {source} was successful!");
             }
-            UseCaseEvent::Message(ProtocolMessage::Error(req), _) => {
-                if self.is_tracked_message(&req.msg_id().into()) {
-                    self.invalidate_contact_for_message(context, req.msg_id().into());
-                }
+            UseCaseEvent::Message(ProtocolMessage::Error(req), _)
+                if self.is_tracked_message(&req.msg_id().into()) =>
+            {
+                self.invalidate_contact_for_message(context, req.msg_id().into());
             }
             UseCaseEvent::Message(ProtocolMessage::ProbeReq(req), _) => {
                 self.send_probe_rsp(context, req);

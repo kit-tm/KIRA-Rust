@@ -343,10 +343,10 @@ where
     ) -> Result<Self::Value, Self::Error> {
         match (event, &self.state) {
             // ========== Contact Updates ==========
-            (UseCaseEvent::Contact(ContactEvent::New(contact)), _) => {
-                if contact.path().size() > VICINITY_RADIUS {
-                    self.send_setup_req(context, &contact);
-                }
+            (UseCaseEvent::Contact(ContactEvent::New(contact)), _)
+                if contact.path().size() > VICINITY_RADIUS =>
+            {
+                self.send_setup_req(context, &contact);
             }
             (UseCaseEvent::Contact(ContactEvent::Updated { new, old }), _) => {
                 match (
@@ -397,10 +397,10 @@ where
                     }
                 }
             }
-            (UseCaseEvent::Contact(ContactEvent::Removed(contact)), _) => {
-                if contact.path().size() > VICINITY_RADIUS {
-                    self.send_teardown_req(context, &contact);
-                }
+            (UseCaseEvent::Contact(ContactEvent::Removed(contact)), _)
+                if contact.path().size() > VICINITY_RADIUS =>
+            {
+                self.send_teardown_req(context, &contact);
             }
             // ========== Timers ==========
             (
