@@ -22,7 +22,7 @@ spec:
   variables:
     CARGO_HOME: $CI_PROJECT_DIR/.cargo_home # move to cacheable directory
     RUSTC_WRAPPER: sccache
-    SCCACHE_SERVER_UDS: /run/sccache/sccache.socket
+    SCCACHE_REDIS_ENDPOINT: redis+unix://localhost/run/valkey/valkey-server.sock
     SCCACHE_BASEDIRS: $CI_PROJECT_DIR
   cache: &cargo_cache
     key:
