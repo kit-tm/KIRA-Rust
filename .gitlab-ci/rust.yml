@@ -14,21 +14,13 @@
     CARGO_HOME: $CI_PROJECT_DIR/.cargo_home # move to cacheable directory
     RUSTC_WRAPPER: sccache
     SCCACHE_SERVER_UDS: /run/sccache/sccache.socket
+    SCCACHE_BASEDIRS: $CI_PROJECT_DIR
   cache: &cargo_cache
     key:
       files: # fresh cache on dependency-changes (don't cache unused dependencies)
         - Cargo.toml
         - Cargo.lock
       prefix: cargo_cache
-    paths:
-      - target/ # build artifacts
-      - "$CI_PROJECT_DIR/.cargo_home/.crates.toml"
-      - "$CI_PROJECT_DIR/.cargo_home/.crates2.json"
-      - "$CI_PROJECT_DIR/.cargo_home/bin/"
-      - "$CI_PROJECT_DIR/.cargo_home/registry/index/"
-      - "$CI_PROJECT_DIR/.cargo_home/registry/cache/"
-      - "$CI_PROJECT_DIR/.cargo_home/git/db/"
-      - "$CI_PROJECT_DIR/.cargo_home/advisory-dbs"
     policy: pull # only update cache by specific jobs
 
 # rust job that is run if rust code changed by a merge request
