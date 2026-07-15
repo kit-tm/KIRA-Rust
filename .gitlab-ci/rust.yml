@@ -30,6 +30,18 @@ spec:
         - Cargo.toml
         - Cargo.lock
       prefix: cargo_cache
+    paths:
+      # Build artifacts in /target are cached by sccache's Redis endpoint
+      # Caching of Cargo home in CI: https://doc.rust-lang.org/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
+      # Crucially we don't cache the extracted dependencies in registry/src
+      - "$CI_PROJECT_DIR/.cargo_home/.crates.toml"
+      - "$CI_PROJECT_DIR/.cargo_home/.crates2.json"
+      - "$CI_PROJECT_DIR/.cargo_home/bin/"            # installed binaries
+      - "$CI_PROJECT_DIR/.cargo_home/registry/index/" # registry crate meta
+      - "$CI_PROJECT_DIR/.cargo_home/registry/cache/" # downloaded dependencies
+      - "$CI_PROJECT_DIR/.cargo_home/git/db/"         # cloned git dependencies
+
+      - "$CI_PROJECT_DIR/.cargo_home/advisory-dbs"    # cargo-audit advisories
     policy: pull # only update cache by specific jobs
 
 # rust job that is run if rust code changed by a merge request
