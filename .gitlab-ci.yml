@@ -4,6 +4,10 @@ spec:
       type: boolean
       default: false
       description: "Set to true to build release artifacts"
+    debug_mode:
+      type: boolean
+      default: false
+      description: "Run debug jobs of the pipeline"
 
 ---
 
@@ -22,8 +26,11 @@ spec:
 
 include:
   - local: '.gitlab-ci/rust.yml'
+    inputs:
+      debug_mode: $[[ inputs.debug_mode ]]
 
 stages:
+  - debug         # pipeline debug jobs
   - lint          # fast lints
   - check         # in-depth code checks
   - test          # unit-, integration, doc-tests

@@ -1,3 +1,12 @@
+spec:
+  inputs:
+    debug_mode:
+      type: boolean
+      default: false
+      description: "Run debug jobs of the pipeline"
+
+---
+
 .rust_paths: &rust_paths
   - "**/*.rs"
   - "**/Cargo.toml"
@@ -50,6 +59,22 @@
 # =============================================== #
 #               RUST-JOBS                         #
 # =============================================== #
+
+rust-pause-pipeline:
+  stage: debug
+  extends:
+    - .rust-defaults
+    - .rust-ci-rules
+  inputs:
+    delay_secs:
+      type: number
+      default: 600
+  rules:
+    - if: '"$[[ inputs.debug_mode ]]" == "true"'
+      when: manual
+  script:
+    - echo "Pipeline paused. Sleeping for ${{ job.inputs.delay_secs }} seconds..."
+    - sleep ${{ job.inputs.delay_secs }} 
 
 rustfmt:
   stage: lint
