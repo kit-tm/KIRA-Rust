@@ -9,7 +9,7 @@ use std::{
 };
 
 use crate::{
-    domain::{NodeId, NotVia, Path, RoutingTable, ULNTable, UnderlayNeighborId},
+    domain::{Contact, NodeId, Path, RoutingTable, ULNTable, UnderlayNeighborId},
     messaging::{
         CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage,
         dht::{FetchReqData, LHTInput, StoreReqData},
@@ -95,8 +95,8 @@ where
         .next_hop(&overlay_destination, NonZeroU8::MIN)
         .expect("Shared Prefix Grouping should be valid");
 
-    let path = if let Some(closest_node) = closest_node {
-        closest_node.path().clone()
+    let path = if let Some(path) = closest_node.map(Contact::into_path).flatten() {
+        path
     } else {
         tracing::warn!(target: "distributed_hash_table", "Node is isolated!");
         // send message via loopback because of the isolation we are the closest node
@@ -114,7 +114,7 @@ where
             Some(u32::from(*context.uln_table().state_seq_nr())),
             context.uln_table().size(),
         ),
-        not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+        not_via: None,
         data,
         source_route,
     }
@@ -184,7 +184,7 @@ pub(crate) fn send_store_req<C, const BUCKET_SIZE: usize>(
             Some(u32::from(*context.uln_table().state_seq_nr())),
             context.uln_table().size(),
         ),
-        not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+        not_via: None,
         data,
         source_route,
     };

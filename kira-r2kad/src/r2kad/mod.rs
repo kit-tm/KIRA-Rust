@@ -2,12 +2,7 @@
 
 use derive_more::derive::{Display, Error};
 use std::{
-    collections::{HashMap, HashSet},
-    fmt::Debug,
-    marker::PhantomData,
-    ops::Deref,
-    sync::Arc,
-    time::Instant,
+    collections::HashMap, fmt::Debug, marker::PhantomData, ops::Deref, sync::Arc, time::Instant,
 };
 use tracing::{Level, Span, field, instrument};
 
@@ -40,7 +35,7 @@ use runtime::R2KadRuntime;
 
 pub struct Builder<C, const BUCKET_SIZE: usize> {
     context: PhantomData<C>,
-    root_id: Option<NodeId>, // None => random
+    root_id: Option<NodeId>, // the node's NodeID None => random
     pipeline_config: R2KadPipelineConfig,
     current_time: Instant,
 }
@@ -100,7 +95,7 @@ where
                     UpdatedBucket(bucket) => ContactEvent::BucketUpdated(bucket),
                     NewBucket(bucket) => ContactEvent::NewBucket(bucket),
                 };
-                runtime.broadcast_event(contact_event);
+                runtime.broadcast_event(Box::new(contact_event));
             });
         }
         routing_table.add_observer(|event| log::trace!(target: "routing_table", "{event}"));
@@ -136,7 +131,6 @@ where
             runtime,
             insertion_strategy,
             uln_table,
-            not_via_state: HashSet::default(),
             vicinity_graph,
         });
 

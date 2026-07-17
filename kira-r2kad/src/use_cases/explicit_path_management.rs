@@ -11,8 +11,8 @@ use crate::domain::protocol_event::forwarding::{
     PathIdEntry, PathIdForwardingEntry, PathIdTableUpdate,
 };
 use crate::domain::{
-    Contact, ContactState, NodeId, NotVia, Path, PathId, RoutingTable, ULNTable,
-    UnderlayNeighborId, VICINITY_RADIUS, hasher::Hasher,
+    Contact, ContactState, NodeId, Path, PathId, RoutingTable, ULNTable, UnderlayNeighborId,
+    VICINITY_RADIUS, hasher::Hasher,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -94,7 +94,11 @@ where
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
 {
     fn send_setup_req(&self, context: &C, contact: &Contact) {
-        let source_route = SourceRoute::new(*context.root_id(), contact.path().clone());
+        // just in case the contact has been invalidated meanwhile
+        if !contact.is_valid() {
+            return;
+        }
+        let source_route = SourceRoute::new(*context.root_id(), contact.path().unwrap().clone());
         let message = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::PathSetupReq,
@@ -105,7 +109,7 @@ where
                 context.uln_table().size(),
             ),
             data: PathSetupReqData,
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route,
         };
         context
@@ -114,7 +118,13 @@ where
     }
 
     fn send_probe_req(&self, context: &C, contact: &Contact) {
-        let source_route = SourceRoute::new(*context.root_id(), contact.path().clone());
+        let source_route = SourceRoute::new(
+            *context.root_id(),
+            contact
+                .path()
+                .expect("ProbeReq for refreshing contact should be called for valid contacts only")
+                .clone(),
+        );
         let message = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::ProbeReq,
@@ -125,7 +135,7 @@ where
                 context.uln_table().size(),
             ),
             data: ProbeReqData,
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route,
         };
         context
@@ -134,7 +144,10 @@ where
     }
 
     fn send_teardown_req(&self, context: &C, contact: &Contact) {
-        let source_route = SourceRoute::new(*context.root_id(), contact.path().clone());
+        let Some(active_path) = contact.path() else {
+            return;
+        };
+        let source_route = SourceRoute::new(*context.root_id(), active_path.clone());
         let message = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::PathTeardownReq,
@@ -145,7 +158,7 @@ where
                 context.uln_table().size(),
             ),
             data: PathTeardownReqData,
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route,
         };
         context
@@ -188,7 +201,9 @@ where
     fn perform_refresh(&mut self, context: &C) {
         for contact in context.routing_table().iter() {
             // don't probe invalid or vicinity contacts
-            if contact.state() != &ContactState::Valid || contact.path().size() <= VICINITY_RADIUS {
+            if contact.state() != &ContactState::Valid
+                || contact.path().unwrap().size() <= VICINITY_RADIUS
+            {
                 continue;
             }
 
@@ -342,65 +357,72 @@ where
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
         match (event, &self.state) {
-            // ========== Contact Updates ==========
-            (UseCaseEvent::Contact(ContactEvent::New(contact)), _)
-                if contact.path().size() > VICINITY_RADIUS =>
-            {
-                self.send_setup_req(context, &contact);
-            }
-            (UseCaseEvent::Contact(ContactEvent::Updated { new, old }), _) => {
-                match (
-                    new.state(),
-                    old.state(),
-                    new.path().size() > VICINITY_RADIUS,
-                    old.path().size() > VICINITY_RADIUS,
-                ) {
-                    (ContactState::Valid, ContactState::Invalid, true, _) => {
-                        // Contacts becomes valid
-                        self.send_setup_req(context, &new);
-                    }
-                    (ContactState::Valid, ContactState::Valid, true, false) => {
-                        // Contacts path changes from in vicinity to out of vicinity
-                        self.send_setup_req(context, &new);
-                    }
-                    (ContactState::Valid, ContactState::Valid, true, true)
-                        if old.path() != new.path() =>
+            // ========== Contact Events ==========
+            (UseCaseEvent::Contact(contact_event), _) => {
+                match *contact_event {
+                    ContactEvent::New(contact)
+                        if contact.path().unwrap().size() > VICINITY_RADIUS =>
                     {
-                        // path changes outside the vicinity
-                        self.send_setup_req(context, &new);
-                        self.send_teardown_req(context, &old);
+                        // new contact outside vicinity requires path setup
+                        self.send_setup_req(context, &contact);
                     }
-                    (ContactState::Valid, &ContactState::Valid, false, true) => {
-                        // Contacts path changed from out of vicinity to inside vicinity
-                        self.send_teardown_req(context, &old);
-                    }
-                    (
-                        ContactState::Invalid,
-                        ContactState::Valid,
-                        new_outside_vicinity,
-                        old_outside_vicinity,
-                    ) => {
-                        // Contact gets invalid
-                        if new_outside_vicinity {
-                            self.send_teardown_req(context, &old);
+                    ContactEvent::Updated { new, old } => {
+                        match (
+                            new.state(),
+                            old.state(),
+                            new.path().unwrap().size() > VICINITY_RADIUS,
+                            old.path().unwrap().size() > VICINITY_RADIUS,
+                        ) {
+                            (ContactState::Valid, ContactState::Invalid(_), true, _)
+                            | (ContactState::Valid, ContactState::Rediscovering(_), true, _) => {
+                                // Contacts becomes valid
+                                self.send_setup_req(context, &new);
+                            }
+                            (ContactState::Valid, ContactState::Valid, true, false) => {
+                                // Contacts path changes from in vicinity to out of vicinity
+                                self.send_setup_req(context, &new);
+                            }
+                            (ContactState::Valid, ContactState::Valid, true, true)
+                                if old.path() != new.path() =>
+                            {
+                                // path changes outside the vicinity
+                                self.send_setup_req(context, &new);
+                                self.send_teardown_req(context, &old);
+                            }
+                            (ContactState::Valid, &ContactState::Valid, false, true) => {
+                                // Contacts path changed from out of vicinity to inside vicinity
+                                self.send_teardown_req(context, &old);
+                            }
+                            (
+                                ContactState::Invalid(_),
+                                ContactState::Valid,
+                                new_outside_vicinity,
+                                old_outside_vicinity,
+                            ) => {
+                                // Contact gets invalid
+                                if new_outside_vicinity {
+                                    self.send_teardown_req(context, &old);
+                                }
+                                if old_outside_vicinity && old.path() != new.path() {
+                                    self.send_teardown_req(context, &new);
+                                }
+                            }
+                            _ => {
+                                // Ignored Cases:
+                                // 1. Contact changes while being invalid
+                                // 2. Contact changes inside vicinity
+                                // 3. Contact changes outside vicinity without path change
+                                // 4. Contact gets valid inside vincity
+                            }
                         }
-                        if old_outside_vicinity && old.path() != new.path() {
-                            self.send_teardown_req(context, &new);
-                        }
                     }
-                    _ => {
-                        // Ignored Cases:
-                        // 1. Contact changes while being invalid
-                        // 2. Contact changes inside vicinity
-                        // 3. Contact changes outside vicinity without path change
-                        // 4. Contact gets valid inside vincity
+                    ContactEvent::Removed(contact)
+                        if contact.path().unwrap().size() > VICINITY_RADIUS =>
+                    {
+                        self.send_teardown_req(context, &contact);
                     }
+                    _ => {}
                 }
-            }
-            (UseCaseEvent::Contact(ContactEvent::Removed(contact)), _)
-                if contact.path().size() > VICINITY_RADIUS =>
-            {
-                self.send_teardown_req(context, &contact);
             }
             // ========== Timers ==========
             (UseCaseEvent::Timer(timer), EPMState::Running { cleanup_timer, .. })

@@ -552,6 +552,10 @@ graph [
     target 38
   ]
   edge [
+    source 2
+    target 29
+  ]
+  edge [
     source 3
     target 16
   ]
@@ -689,7 +693,7 @@ graph [
   ]
   edge [
     source 12
-    target 40
+    target 37
   ]
   edge [
     source 12

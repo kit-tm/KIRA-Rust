@@ -1,11 +1,10 @@
 //! [UseCaseContext] related structures and traits.
 
 use std::cell::{Ref, RefMut};
-use std::collections::HashSet;
 
 pub use sync_context::SyncContext;
 
-use crate::domain::{NodeId, NotViaState};
+use crate::domain::NodeId;
 
 pub mod sync_context;
 
@@ -16,7 +15,6 @@ pub struct ContextConfig<RT, RU, IS, UN, VG> {
     pub runtime: RU,
     pub insertion_strategy: IS,
     pub uln_table: UN,
-    pub not_via_state: HashSet<NotViaState>,
     pub vicinity_graph: VG,
 }
 
@@ -58,10 +56,6 @@ pub trait UseCaseContext {
     fn uln_table_mut(&self) -> RefMut<'_, Self::UnderlayNeighborTable>;
 
     fn runtime(&self) -> &Self::Runtime;
-
-    fn not_via_state(&self) -> Ref<'_, HashSet<NotViaState>>;
-
-    fn not_via_state_mut(&self) -> RefMut<'_, HashSet<NotViaState>>;
 
     fn vicinity_graph(&self) -> Ref<'_, Self::VicinityGraph>;
 

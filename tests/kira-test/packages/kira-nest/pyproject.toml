@@ -15,7 +15,6 @@ dependencies = [
   "scipy==1.15.3",
   "term-image==0.7.2",
   "matplotlib==3.10.3",
-  "python-prctl==1.8.1",
 ]
 
 [project.scripts]

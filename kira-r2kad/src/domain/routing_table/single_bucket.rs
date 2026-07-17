@@ -8,7 +8,7 @@ use crate::domain::observable_routing_table::NonObservableRoutingTable;
 use crate::domain::routing_table::sorter_xor;
 use crate::domain::{
     AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, GroupingError, NodeId,
-    ReplacementError, RoutingTable, SharedPrefix, hasher::Hasher,
+    NotViaStateList, ReplacementError, RoutingTable, SharedPrefix, hasher::Hasher,
 };
 
 /// A [RoutingTable] with a single not splittable [Bucket].
@@ -84,6 +84,17 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
 
     fn contains(&self, id: &NodeId) -> bool {
         self.bucket.contains(id)
+    }
+
+    fn contains_with<F>(&self, id: &NodeId, f: F) -> bool
+    where
+        F: Fn(&Contact) -> bool,
+    {
+        if let Some(c) = self.bucket.get(id) {
+            f(c)
+        } else {
+            false
+        }
     }
 
     /// Emits an [BucketSplitError::MaxBucketsReached] every time.
@@ -247,10 +258,11 @@ mod tests {
             ))?;
         }
 
-        *table.contact_mut(&ids[1]).unwrap().state_mut() = ContactState::Invalid;
+        *table.contact_mut(&ids[1]).unwrap().state_mut() =
+            ContactState::Invalid(NotViaStateList::default());
         assert_eq!(
             table.contact(&ids[1]).unwrap().state(),
-            &ContactState::Invalid,
+            &ContactState::Invalid(NotViaStateList::default()),
             "1100... is invalid",
         );
 

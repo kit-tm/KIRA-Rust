@@ -19,6 +19,7 @@ use signal_hook_tokio::Signals;
 #[cfg(feature = "small_buckets")]
 const BUCKET_SIZE: usize = 3;
 #[cfg(not(feature = "small_buckets"))]
+// for large networks the recommendation is 40
 const BUCKET_SIZE: usize = 20;
 
 #[derive(Parser, Debug)]

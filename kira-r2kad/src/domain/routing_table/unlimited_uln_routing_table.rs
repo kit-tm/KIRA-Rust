@@ -124,6 +124,17 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
         self.un_contacts.contains_key(id) || self.inner.contains(id)
     }
 
+    fn contains_with<F>(&self, id: &NodeId, f: F) -> bool
+    where
+        F: Fn(&Contact) -> bool,
+    {
+        if let Some(contact) = self.un_contacts.get(id) {
+            f(contact)
+        } else {
+            self.inner.contains_with(id, f)
+        }
+    }
+
     fn split_bucket(&mut self, id: &NodeId) -> Result<usize, BucketSplitError> {
         self.inner.split_bucket(id)
     }
@@ -214,7 +225,8 @@ mod tests {
 
     use crate::domain::unlimited_uln_routing_table::UnlimitedULNRoutingTable;
     use crate::domain::{
-        Contact, ContactState, FlatRoutingTable, NodeId, Path, RoutingTable, SafeStateSeqNr,
+        Contact, ContactState, FlatRoutingTable, NodeId, NotViaStateList, Path, RoutingTable,
+        SafeStateSeqNr,
     };
 
     #[test]
@@ -269,7 +281,7 @@ mod tests {
             Path::from([NodeId::with_msb(4)]),
             SafeStateSeqNr::try_from(1).unwrap(),
         );
-        *invalid_contact.state_mut() = ContactState::Invalid;
+        *invalid_contact.state_mut() = ContactState::Invalid(NotViaStateList::default());
 
         let contacts = vec![
             invalid_contact,
@@ -315,7 +327,7 @@ mod tests {
             Path::from([NodeId::with_msb(2)]),
             SafeStateSeqNr::try_from(1).unwrap(),
         );
-        *invalid_contact.state_mut() = ContactState::Invalid;
+        *invalid_contact.state_mut() = ContactState::Invalid(NotViaStateList::default());
 
         let contacts = vec![
             invalid_contact,
@@ -400,13 +412,13 @@ mod tests {
             Path::from([NodeId::with_msb(2)]),
             SafeStateSeqNr::try_from(1).unwrap(),
         );
-        *invalid_neighbor.state_mut() = ContactState::Invalid;
+        *invalid_neighbor.state_mut() = ContactState::Invalid(NotViaStateList::default());
 
         let mut invalid_contact = Contact::new(
             Path::from([NodeId::with_msb(2), NodeId::with_msb(4)]),
             SafeStateSeqNr::try_from(1).unwrap(),
         );
-        *invalid_contact.state_mut() = ContactState::Invalid;
+        *invalid_contact.state_mut() = ContactState::Invalid(NotViaStateList::default());
 
         let contacts = vec![invalid_neighbor, invalid_contact];
 
@@ -448,10 +460,11 @@ mod tests {
                 .unwrap();
         }
 
-        *table.contact_mut(&ids[1]).unwrap().state_mut() = ContactState::Invalid;
+        *table.contact_mut(&ids[1]).unwrap().state_mut() =
+            ContactState::Invalid(NotViaStateList::default());
         assert_eq!(
             table.contact(&ids[1]).unwrap().state(),
-            &ContactState::Invalid,
+            &ContactState::Invalid(NotViaStateList::default()),
             "1100... is invalid",
         );
 

@@ -259,7 +259,10 @@ where
         context: &C,
         contact: &Contact,
     ) -> Result<NodeIdEntry, DeriveFwdEntriesError> {
-        let next_hop = *contact.path().first();
+        let next_hop = *contact
+            .path()
+            .expect("contact is expected to have an active path")
+            .first();
         let next_hop = context
             .uln_table()
             .get(&next_hop)
@@ -269,7 +272,9 @@ where
         if context.uln_table().contains_key(contact.id()) && !contact.is_uln() {
             log::warn!(target: "derive_fwd_table_entries", 
                 "Contact {contact:?} is not a underlay neighbor but listed in ULNTable -> may overwrite previous route unintentionally!");
-            return Err(DeriveFwdEntriesError::NonUNInULNTable(contact.clone()));
+            return Err(DeriveFwdEntriesError::NonUNInULNTable(Box::new(
+                contact.clone(),
+            )));
         }
 
         if contact.is_uln() {
@@ -281,7 +286,7 @@ where
             Ok(NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry {
                 destination: NodeIdSubnet::new(*contact.id()),
                 next_hop,
-                out_path_id: self.config.hasher.hash(contact.path()),
+                out_path_id: self.config.hasher.hash(contact.path().unwrap()),
             }))
         }
     }
@@ -301,13 +306,11 @@ where
 
         // Proximity Neighbor Selection:
         // Select contact with shortest path in bucket as prefix entry
-        let Some(closest) = iter.min_by_key(|c| c.path().size()) else {
-            assert_eq!(
-                bucket.iter().count(),
-                0,
-                "no PNS of bucket indicates empty bucket"
-            );
-
+        let Some(closest) = iter.filter(|c| c.is_valid()).min_by_key(|c| {
+            c.path()
+                .expect("valid contact should have an active path")
+                .size()
+        }) else {
             tracing::trace!(
                 target: "derive_fwd_table_entries",
                 %bucket_index,
@@ -323,7 +326,7 @@ where
         let subnet = NodeIdSubnet::try_new(closest.id().prefix(prefix_len), prefix_len)
             .expect("should be valid prefix length");
 
-        let next_hop = *closest.path().first();
+        let next_hop = *closest.path().unwrap().first();
         let next_hop = context
             .uln_table()
             .get(&next_hop)
@@ -339,7 +342,7 @@ where
             NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry {
                 destination: subnet,
                 next_hop,
-                out_path_id: self.config.hasher.hash(closest.path()),
+                out_path_id: self.config.hasher.hash(closest.path().unwrap()),
             })
         };
 
@@ -381,9 +384,12 @@ where
         context: &C,
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
-        match event {
+        let UseCaseEvent::Contact(contact_event) = event else {
+            return Ok(());
+        };
+        match *contact_event {
             // FIXME: create NodeId entry on receiving PathSetupRsp
-            UseCaseEvent::Contact(ContactEvent::New(contact)) => {
+            ContactEvent::New(contact) => {
                 let _span = tracing::debug_span!(
                     target: "derive_fwd_table_entries",
                     "create_entry",
@@ -394,7 +400,7 @@ where
                 .entered();
                 self.create_node_id_entry(context, contact)?;
             }
-            UseCaseEvent::Contact(ContactEvent::Removed(contact)) => {
+            ContactEvent::Removed(contact) => {
                 let _span = tracing::debug_span!(
                     target: "derive_fwd_table_entries",
                     "remove_entry",
@@ -405,7 +411,7 @@ where
                 .entered();
                 self.remove_node_id_entry(context, contact.id())?;
             }
-            UseCaseEvent::Contact(ContactEvent::Updated { new, old }) => {
+            ContactEvent::Updated { new, old } => {
                 let updated_span = tracing::debug_span!(
                     target: "derive_fwd_table_entries",
                     "process_contact_update",
@@ -415,7 +421,7 @@ where
                 .entered();
 
                 match (new.state(), old.state()) {
-                    (ContactState::Invalid, ContactState::Valid) if new.id() == old.id() => {
+                    (ContactState::Invalid(_), ContactState::Valid) if new.id() == old.id() => {
                         updated_span.record("kind", "contact_invalidation");
 
                         let _span = tracing::debug_span!(
@@ -428,7 +434,7 @@ where
                         .entered();
                         self.remove_node_id_entry(context, new.id())?;
                     }
-                    (ContactState::Invalid, ContactState::Valid) => {
+                    (ContactState::Invalid(_), ContactState::Valid) => {
                         updated_span.record("kind", "contact_invalidation_by_displacement");
                         tracing::warn!(
                             target: "derive_fwd_table_entries",
@@ -458,7 +464,8 @@ where
                         .entered();
                         self.remove_node_id_entry(context, old.id())?;
                     }
-                    (ContactState::Valid, ContactState::Invalid) => {
+                    (ContactState::Valid, ContactState::Invalid(_))
+                    | (ContactState::Valid, ContactState::Rediscovering(_)) => {
                         updated_span.record("kind", "contact_validation");
 
                         let _span = tracing::debug_span!(
@@ -469,7 +476,7 @@ where
                             kind = "NodeId",
                         )
                         .entered();
-                        self.create_node_id_entry(context, new)?;
+                        self.create_node_id_entry(context, *new)?;
                     }
                     (ContactState::Valid, ContactState::Valid) if new.path() != old.path() => {
                         if new.id() == old.id() {
@@ -484,7 +491,7 @@ where
                                 kind = "NodeId",
                             )
                             .entered();
-                            self.update_node_id_entry(context, new)?;
+                            self.update_node_id_entry(context, *new)?;
                         } else {
                             // Contact got substituted for another destination
                             // probably due to proximity neighbor selection
@@ -508,13 +515,13 @@ where
                                 kind = "NodeId",
                             )
                             .entered();
-                            self.create_node_id_entry(context, new)?;
+                            self.create_node_id_entry(context, *new)?;
                         }
                     }
                     _ => {}
                 }
             }
-            UseCaseEvent::Contact(ContactEvent::BucketUpdated(bucket)) => {
+            ContactEvent::BucketUpdated(bucket) => {
                 let _span = tracing::debug_span!(
                     target: "derive_fwd_table_entries",
                     "update_bucket_entries",
@@ -525,7 +532,7 @@ where
                 .entered();
                 self.update_bucket(context, bucket)?;
             }
-            UseCaseEvent::Contact(ContactEvent::NewBucket(bucket)) => {
+            ContactEvent::NewBucket(bucket) => {
                 let _span = tracing::debug_span!(
                     target: "derive_fwd_table_entries",
                     "update_bucket_entries",
@@ -536,7 +543,6 @@ where
                 .entered();
                 self.update_bucket(context, bucket)?;
             }
-            _ => {}
         }
 
         Ok(())
@@ -581,14 +587,12 @@ pub enum DeriveFwdEntriesError {
     #[display("Neighbor listed in contacts path not in ULNTable: {_0}")]
     NeighborNotInULNTable(NodeId),
     #[display("Contact is not a underlay neighbor but listed in ULNTable: {_0}")]
-    NonUNInULNTable(Contact),
+    NonUNInULNTable(Box<Contact>),
 }
 impl Error for DeriveFwdEntriesError {}
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
     use crate::Output;
     use crate::context::ContextConfig;
     use crate::context::SyncContext;
@@ -647,7 +651,6 @@ mod tests {
                 uln_table,
                 insertion_strategy: (),
                 runtime,
-                not_via_state: HashSet::default(),
                 vicinity_graph: (),
             });
 
@@ -658,7 +661,8 @@ mod tests {
             assert!(use_case.start(&sync_context).is_ok(), "starting failed");
             let _ = sync_context.runtime().output();
 
-            let event = UseCaseEvent::Contact(ContactEvent::New(vicinity_contact.clone()));
+            let event =
+                UseCaseEvent::Contact(Box::new(ContactEvent::New(vicinity_contact.clone())));
             let handle_result = use_case.handle_event(&sync_context, event);
             assert!(
                 handle_result.is_ok(),
@@ -695,7 +699,7 @@ mod tests {
             assert_eq!(
                 encap_entry.out_path_id,
                 //Hasher::Sha1.hash(vicinity_contact.path().into_iter().skip(1))
-                Hasher::Sha1.hash(vicinity_contact.path().into_iter())
+                Hasher::Sha1.hash(vicinity_contact.path().unwrap().into_iter())
             );
 
             let path_id_update = output.iter().find_map(|o| {
@@ -766,7 +770,6 @@ mod tests {
                 uln_table,
                 insertion_strategy: (),
                 runtime,
-                not_via_state: HashSet::default(),
                 vicinity_graph: (),
             });
 
@@ -777,7 +780,7 @@ mod tests {
             assert!(use_case.start(&sync_context).is_ok(), "starting failed");
             let _ = sync_context.runtime().output();
 
-            let event = UseCaseEvent::Contact(ContactEvent::New(neighbor.clone()));
+            let event = UseCaseEvent::Contact(Box::new(ContactEvent::New(neighbor.clone())));
             let handle_result = use_case.handle_event(&sync_context, event);
             assert!(
                 handle_result.is_ok(),
@@ -884,7 +887,6 @@ mod tests {
                 uln_table,
                 insertion_strategy: (),
                 runtime,
-                not_via_state: HashSet::default(),
                 vicinity_graph: (),
             });
 
@@ -895,7 +897,8 @@ mod tests {
             assert!(use_case.start(&sync_context).is_ok(), "starting failed");
             let _ = sync_context.runtime().output();
 
-            let event = UseCaseEvent::Contact(ContactEvent::Removed(vicinity_contact.clone()));
+            let event =
+                UseCaseEvent::Contact(Box::new(ContactEvent::Removed(vicinity_contact.clone())));
             let handle_result = use_case.handle_event(&sync_context, event);
             assert!(
                 handle_result.is_ok(),
@@ -997,7 +1000,6 @@ mod tests {
                 uln_table,
                 insertion_strategy: (),
                 runtime,
-                not_via_state: HashSet::default(),
                 vicinity_graph: (),
             });
 
@@ -1019,13 +1021,13 @@ mod tests {
             );
 
             let mut new_in_path = Path::from(root_id);
-            new_in_path.extend(new_contact.path().clone());
-            let new_out_path_id = Hasher::Sha1.hash(new_contact.path());
+            new_in_path.extend(new_contact.path().unwrap().clone());
+            let new_out_path_id = Hasher::Sha1.hash(new_contact.path().unwrap());
 
-            let event = UseCaseEvent::Contact(ContactEvent::Updated {
-                new: new_contact.clone(),
-                old: vicinity_contact.clone(),
-            });
+            let event = UseCaseEvent::Contact(Box::new(ContactEvent::Updated {
+                new: Box::new(new_contact.clone()),
+                old: Box::new(vicinity_contact.clone()),
+            }));
             let handle_result = use_case.handle_event(&sync_context, event);
             assert!(
                 handle_result.is_ok(),

@@ -32,8 +32,11 @@ pub enum RoutingTableEvent<const BUCKET_SIZE: usize> {
     #[display("NewContact [{_0}]")]
     NewContact(Contact),
     /// An existing [Contact] was updated.
-    #[display("UpdatedContact [{old} => {new}]")]
-    UpdatedContact { new: Contact, old: Contact },
+    #[display("UpdatedContact [{} => {}]",*old,*new)]
+    UpdatedContact {
+        new: Box<Contact>,
+        old: Box<Contact>,
+    },
     /// A [Contact] was removed from the [RoutingTable].
     #[display("RemovedContact [{_0}]")]
     RemovedContact(Contact),
@@ -99,6 +102,7 @@ fn notify_all<const BUCKET_SIZE: usize>(
     // Skip update events that only update the age
     if let RoutingTableEvent::UpdatedContact { old, new } = &event
         && old.path() == new.path()
+        && old.proposed_path() == new.proposed_path()
         && old.state_seq_nr() == new.state_seq_nr()
         && old.state() == new.state()
     {
@@ -203,8 +207,8 @@ where
     fn replace(&mut self, id: &NodeId, with: Contact) -> Result<Contact, ReplacementError> {
         let replaced = self.inner.replace(id, with.clone())?;
         self.notify_all(RoutingTableEvent::UpdatedContact {
-            new: with,
-            old: replaced.clone(),
+            new: Box::new(with),
+            old: Box::new(replaced.clone()),
         });
         Ok(replaced)
     }
@@ -227,6 +231,13 @@ where
 
     fn contains(&self, id: &NodeId) -> bool {
         self.inner.contains(id)
+    }
+
+    fn contains_with<F>(&self, id: &NodeId, f: F) -> bool
+    where
+        F: Fn(&Contact) -> bool,
+    {
+        self.inner.contains_with(id, f)
     }
 
     fn split_bucket(&mut self, id: &NodeId) -> Result<usize, BucketSplitError> {
@@ -369,6 +380,7 @@ where
     }
 }
 
+// When the ContactWriteGuard is dropped, all observers are notified
 impl<C, const BUCKET_SIZE: usize> Drop for ContactWriteGuard<'_, C, BUCKET_SIZE>
 where
     C: DerefMut<Target = Contact>,
@@ -378,8 +390,8 @@ where
             notify_all(
                 self.observers,
                 RoutingTableEvent::UpdatedContact {
-                    new: self.contact.clone(),
-                    old: self.original.clone(),
+                    new: Box::new(self.contact.clone()),
+                    old: Box::new(self.original.clone()),
                 },
             );
         }
@@ -393,7 +405,8 @@ mod tests {
     use crate::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
     use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
-        Contact, ContactState, NodeId, Path, RoutingTable, SafeStateSeqNr, Timestamp,
+        Contact, ContactState, NodeId, NotViaStateList, Path, RoutingTable, SafeStateSeqNr,
+        Timestamp,
     };
 
     #[test]
@@ -466,8 +479,8 @@ mod tests {
         assert!(add_result.is_ok());
         assert!(
             (events.read().unwrap()).contains(&RoutingTableEvent::UpdatedContact {
-                old: contact,
-                new: new_contact
+                old: Box::new(contact),
+                new: Box::new(new_contact)
             })
         );
     }
@@ -495,12 +508,12 @@ mod tests {
             let contact = observable.contact_mut(contact.id());
             assert!(contact.is_some());
             let mut contact = contact.unwrap();
-            *contact.state_mut() = ContactState::Invalid;
+            *contact.state_mut() = ContactState::Invalid(NotViaStateList::default());
             *contact.last_seen_mut() = timestamp;
         }
 
         let mut updated_contact = contact.clone();
-        *updated_contact.state_mut() = ContactState::Invalid;
+        *updated_contact.state_mut() = ContactState::Invalid(NotViaStateList::default());
         *updated_contact.last_seen_mut() = timestamp;
 
         assert!(
@@ -508,8 +521,8 @@ mod tests {
                 .read()
                 .unwrap()
                 .contains(&RoutingTableEvent::UpdatedContact {
-                    new: updated_contact,
-                    old: contact,
+                    new: Box::new(updated_contact),
+                    old: Box::new(contact),
                 }),
             "{events:?}"
         );

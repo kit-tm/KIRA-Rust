@@ -10,7 +10,7 @@ use std::ops::Deref;
 use tracing::{Level, instrument};
 
 use crate::domain::dht::{DEFAULT_TIMEOUT, RedundancyFactor};
-use crate::domain::{NodeId, Path, RoutingTable, ULNTable, UnderlayNeighborId, dht};
+use crate::domain::{Contact, NodeId, Path, RoutingTable, ULNTable, UnderlayNeighborId, dht};
 use crate::messaging::dht::{FetchReqData, LHTInput, StoreReqData};
 use crate::messaging::{
     FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage, SourceRoute,
@@ -505,7 +505,11 @@ where
                     context,
                     payload,
                     SourceRoute::from_reversed(source_route),
-                    rtable.contacts.into_iter().map(Path::from).collect(),
+                    rtable
+                        .contacts
+                        .into_iter()
+                        .filter_map(Contact::into_path)
+                        .collect(),
                     nonce,
                     restore,
                 );
@@ -752,7 +756,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
     use tokio::sync::mpsc;
 
     use crate::Output;
@@ -787,7 +790,6 @@ mod tests {
             uln_table,
             insertion_strategy: (),
             runtime,
-            not_via_state: HashSet::default(),
             vicinity_graph: (),
         });
 
@@ -839,7 +841,7 @@ mod tests {
                 0,
             ),
             data: rtable,
-            not_via: HashSet::default(),
+            not_via: None,
             source_route: SourceRoute::from(handle),
         };
 
@@ -877,7 +879,7 @@ mod tests {
             data: StoreRspData {
                 status: Ok(StoreOk::Created),
             },
-            not_via: HashSet::default(),
+            not_via: None,
             source_route: SourceRoute::from(handle),
         };
 
@@ -915,7 +917,6 @@ mod tests {
             uln_table,
             insertion_strategy: (),
             runtime,
-            not_via_state: HashSet::default(),
             vicinity_graph: (),
         });
 
@@ -957,7 +958,7 @@ mod tests {
             data: FetchRspData {
                 data: Ok(vec![value.clone()]),
             },
-            not_via: HashSet::default(),
+            not_via: None,
             source_route: SourceRoute::from(handle),
         };
 
@@ -1001,7 +1002,6 @@ mod tests {
             uln_table,
             insertion_strategy: (),
             runtime,
-            not_via_state: HashSet::default(),
             vicinity_graph: (),
         });
 

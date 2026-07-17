@@ -11,7 +11,7 @@ use std::ops::Deref;
 
 use crate::domain::dht::{DEFAULT_TIMEOUT, RedundancyFactor};
 use crate::domain::{
-    Age, Contact, ContactState, GroupingError, NodeId, NotVia, Path, RoutingTable, ULNTable,
+    Age, Contact, ContactState, GroupingError, NodeId, Path, RoutingTable, ULNTable,
     UnderlayNeighborId, dht,
 };
 use crate::messaging::dht::{
@@ -322,7 +322,7 @@ where
                 context.uln_table().size(),
             ),
             data: StoreRspData { status: store_res },
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route,
         };
 
@@ -351,7 +351,7 @@ where
                 context.uln_table().size(),
             ),
             data: ErrorData::DeadEnd,
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route,
         };
 
@@ -385,7 +385,7 @@ where
                 context.uln_table().size(),
             ),
             data: FetchRspData { data },
-            not_via: context.not_via_state().iter().map(NotVia::from).collect(),
+            not_via: None,
             source_route,
         };
 
@@ -534,7 +534,7 @@ where
                     "invalid next overlay overlay hop"
                 );
 
-                let path: Path = next_overlay_hop.into();
+                let path = next_overlay_hop.into_path().unwrap();
                 message.source_route.extend(path);
                 message.source_route.advance();
 
@@ -644,7 +644,7 @@ where
                     "invalid next overlay overlay hop"
                 );
 
-                let path: Path = next_overlay_hop.into();
+                let path = next_overlay_hop.into_path().unwrap();
                 message.source_route.extend(path);
                 message.source_route.advance();
 
@@ -1024,23 +1024,24 @@ where
                     context,
                     &key,
                     source_route,
-                    rtable.contacts.into_iter().map(Path::from).collect(),
+                    rtable
+                        .contacts
+                        .into_iter()
+                        .filter_map(Contact::into_path)
+                        .collect(),
                 );
             }
             // ========== Republish values ==========
-            (UseCaseEvent::Contact(ContactEvent::New(contact)), _) => {
-                self.republish_to_contact_if_closer(context, contact)
-            }
-            (UseCaseEvent::Contact(ContactEvent::Updated { new, old }), _)
-                if new.state() == &ContactState::Valid && old.state() != &ContactState::Valid =>
-            {
-                self.republish_to_contact_if_closer(context, new);
-            }
-            (UseCaseEvent::Contact(ContactEvent::Updated { new, old }), _)
-                if new.state() == &ContactState::Valid && new.id() != old.id() =>
-            {
-                self.republish_to_contact_if_closer(context, new);
-            }
+            (UseCaseEvent::Contact(contact_event), _) => match *contact_event {
+                ContactEvent::New(contact) => self.republish_to_contact_if_closer(context, contact),
+                ContactEvent::Updated { new, old } if new.is_valid() && !old.is_valid() => {
+                    self.republish_to_contact_if_closer(context, *new);
+                }
+                ContactEvent::Updated { new, old } if new.is_valid() && new.id() != old.id() => {
+                    self.republish_to_contact_if_closer(context, *new);
+                }
+                _ => {}
+            },
             // ========== API Calls ==========
             (UseCaseEvent::API(ApiEvent::LocalHashTable(callback)), _) => {
                 let table_dump = self
@@ -1093,7 +1094,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
     use std::rc::Rc;
     use std::time::Duration;
     use std::time::Instant;
@@ -1131,7 +1131,6 @@ mod tests {
             uln_table,
             insertion_strategy: (),
             runtime,
-            not_via_state: HashSet::default(),
             vicinity_graph: (),
         });
 
@@ -1156,7 +1155,7 @@ mod tests {
                 0,
             ),
             data,
-            not_via: HashSet::default(),
+            not_via: None,
             source_route,
         };
 
@@ -1200,7 +1199,6 @@ mod tests {
             uln_table,
             insertion_strategy: (),
             runtime: runtime.clone(),
-            not_via_state: HashSet::default(),
             vicinity_graph: (),
         });
 
@@ -1273,7 +1271,6 @@ mod tests {
             uln_table,
             insertion_strategy: (),
             runtime,
-            not_via_state: HashSet::default(),
             vicinity_graph: (),
         });
 
@@ -1295,7 +1292,7 @@ mod tests {
                 0,
             ),
             data,
-            not_via: HashSet::default(),
+            not_via: None,
             source_route: SourceRoute::from(root_id),
         };
 
