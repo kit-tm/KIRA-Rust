@@ -1109,6 +1109,7 @@ mod tests {
         CommonHeader, ProtocolMessageKind, ReqRspMessage, WireFormatMessage,
     };
     use crate::messaging::{ProtocolMessage, SourceRoute};
+    use crate::runtime::R2KadRuntime;
     use crate::runtime::testing::TestingUseCaseRuntime;
     use crate::use_cases::{EventHandler, UseCase, UseCaseEvent};
 
@@ -1184,7 +1185,7 @@ mod tests {
         crate::tests::init();
 
         let now = Instant::now();
-        let runtime = Rc::from(TestingUseCaseRuntime::default());
+        let runtime = Rc::from(R2KadRuntime::default()); // multiple distinct timers required
         runtime.set_current_time(now);
 
         let root_id = NodeId::with_lsb(1);
@@ -1202,6 +1203,7 @@ mod tests {
 
         let config = DistributedHashTableConfig {
             key_value_timeout: Duration::from_secs(2),
+            collect_interval: Duration::from_secs(1),
             ..DistributedHashTableConfig::default()
         };
         let mut dht = DistributedHashTable::<_, SingleValueHashTable, 20>::new(config).unwrap();
@@ -1221,17 +1223,24 @@ mod tests {
         // wait for one second and fire garbage collection timer
         let now = now + Duration::from_secs(1);
         runtime.set_current_time(now);
-        dht.handle_event(&sync_context, runtime.timer()).unwrap();
+        while let Some(tid) = runtime.next_timer() {
+            dht.handle_event(&sync_context, UseCaseEvent::Timer(tid))
+                .unwrap();
+        }
         // value should shouldn't expire after one second (but after two)
         assert!(dht.hash_table.fetch(&key).is_ok());
 
         // key-value pair expires
+        println!("EXPIRE HERE >>>");
         let now = now + Duration::from_secs(3);
         runtime.set_current_time(now);
 
         // fire timer
         // key-value pair should now be evicted
-        dht.handle_event(&sync_context, runtime.timer()).unwrap();
+        while let Some(tid) = runtime.next_timer() {
+            dht.handle_event(&sync_context, UseCaseEvent::Timer(tid))
+                .unwrap();
+        }
 
         // value should be gone
         assert!(dht.hash_table.fetch(&key).is_err());
@@ -1242,9 +1251,9 @@ mod tests {
         crate::tests::init();
 
         let runtime = TestingUseCaseRuntime::default();
-        let root_id = NodeId::with_lsb(1);
-        let neighbor_id = NodeId::with_lsb(10);
-        let destination_id = NodeId::with_lsb(20);
+        let root_id = NodeId::with_lsb(0x01);
+        let neighbor_id = NodeId::with_lsb(0x30);
+        let destination_id = NodeId::with_lsb(0x20);
 
         let mut routing_table = SingleBucketRT::<20>::new(root_id);
         routing_table

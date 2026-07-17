@@ -240,7 +240,8 @@ mod tests {
         );
 
         let fetch_result = table.fetch(&key).unwrap();
-        let fetched_values: Vec<_> = fetch_result.into_iter().collect();
+        let mut fetched_values: Vec<_> = fetch_result.into_iter().collect();
+        fetched_values.sort();
         assert_eq!(fetched_values.len(), 2);
         assert_eq!(*fetched_values[0], val1);
         assert_eq!(*fetched_values[1], val2);

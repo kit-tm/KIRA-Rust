@@ -781,8 +781,23 @@ mod tests {
 
         let runtime = TestingUseCaseRuntime::default();
         let root_id = NodeId::with_lsb(1);
-        let routing_table = SingleBucketRT::<20>::new(root_id);
-        let uln_table = InMemoryULNTable::new();
+        let neighbor_id = NodeId::with_lsb(2);
+        let mut routing_table = SingleBucketRT::<20>::new(root_id);
+        routing_table
+            .insert(Contact::new(
+                Path::from(neighbor_id),
+                SafeStateSeqNr::try_from(1).unwrap(),
+            ))
+            .unwrap();
+
+        let mut uln_table = InMemoryULNTable::new();
+        uln_table.insert(
+            neighbor_id,
+            UnderlayNeighborId {
+                interface_id: 1.try_into().unwrap(),
+                connection_id: 0.into(),
+            },
+        );
 
         let sync_context = SyncContext::new(ContextConfig {
             root_id,
@@ -796,7 +811,7 @@ mod tests {
         let mut injector = DistributedHashTableInjector::<_, 20>::default();
         injector.start(&sync_context).unwrap();
 
-        let handle = NodeId::with_lsb(100);
+        let handle = neighbor_id;
         let data = LHTInput::from(vec![1, 2, 3]);
         let (tx, mut rx) = mpsc::unbounded_channel();
 
@@ -826,15 +841,11 @@ mod tests {
             };
 
         // 2. Respond with FindNodeRsp
-        let closest_contact =
-            Contact::new(Path::from(handle), SafeStateSeqNr::try_from(1).unwrap());
-        let rtable = RTableData {
-            contacts: vec![closest_contact.clone()],
-        };
+        let rtable = RTableData { contacts: vec![] };
         let rsp = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::FindNodeRsp,
-                handle,
+                neighbor_id,
                 root_id,
                 Some(nonce),
                 None,
@@ -842,7 +853,7 @@ mod tests {
             ),
             data: rtable,
             not_via: None,
-            source_route: SourceRoute::from(handle),
+            source_route: SourceRoute::from(Path::try_from(vec![neighbor_id, root_id]).unwrap()),
         };
 
         injector
@@ -933,16 +944,15 @@ mod tests {
 
         injector.handle_event(&sync_context, inject_event).unwrap();
 
-        // 1. Should have sent FetchReq
-        let output: Vec<_> = sync_context.runtime().output().collect();
+        // 1. Should have sent FetchReq (broadcast because isolated)
+        let output: Vec<_> = sync_context.runtime().broadcast().collect();
         assert_eq!(output.len(), 1);
-        let nonce =
-            if let Output::SendProtocolMessage(ProtocolMessage::FetchReq(req), _) = &output[0] {
-                assert_eq!(req.data.handle, handle);
-                req.msg_id()
-            } else {
-                panic!("Expected FetchReq, got {:?}", output[0]);
-            };
+        let nonce = if let UseCaseEvent::Message(ProtocolMessage::FetchReq(req), _) = &output[0] {
+            assert_eq!(req.data.handle, handle);
+            req.msg_id()
+        } else {
+            panic!("Expected FetchReq, got {:?}", output[0]);
+        };
 
         // 2. Respond with FetchRsp
         let value = LHTInput::from(vec![1, 2, 3]);
