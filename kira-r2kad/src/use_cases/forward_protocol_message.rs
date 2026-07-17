@@ -186,6 +186,10 @@ where
             ErrorData::SegmentFailure {
                 failed_link: link, ..
             } => {
+                // we ignore any weird message that includes ourselves in notvia information
+                if link.contains(context.root_id()) {
+                    return;
+                }
                 let mut routing_table = context.routing_table_mut();
 
                 // a segment failure is recent (minus RTT/2), probably update the timestamp

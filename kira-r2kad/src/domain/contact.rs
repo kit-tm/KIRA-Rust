@@ -216,7 +216,13 @@ impl Contact {
         if path_suitable {
             // if path candidate has been validated (stems from a message's source route), we can also replace the active path directly
             if path_candidate.is_valid() {
-                self.path_collection.set_active_path(path_candidate.clone());
+                if let Some(proposed_path) = self.path_collection.proposed_path()
+                    && path_candidate == proposed_path
+                {
+                    self.path_collection.set_proposed_to_active();
+                } else {
+                    self.path_collection.set_active_path(path_candidate.clone());
+                }
                 self.state = ContactState::Valid;
                 return true;
             }

@@ -257,6 +257,11 @@ impl Path {
                     < self.path_hasher().hash(&other_path.ids) ^ AnchorNodeId.get())
     }
 
+    /// returns true if this path is same
+    pub fn is_same_path_as(&self, other_path: &Path) -> bool {
+        self.ids == other_path.ids
+    }
+
     /// get path state
     pub fn get_state(&self) -> PathState {
         self.path_state
