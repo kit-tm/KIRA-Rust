@@ -544,8 +544,7 @@ where
                     next_overlay_hop = %message.destination(),
                     uln = %message
                         .source_route
-                        .next_hop()
-                        .expect("should have next hop after extending to next overlay hop"),
+                        .current_hop(),
                     "Route StoreReq to next overlay hop by key-based routing",
                 );
 
@@ -654,8 +653,7 @@ where
                     next_overlay_hop = %message.destination(),
                     uln = %message
                         .source_route
-                        .next_hop()
-                        .expect("should have next hop after extending to next overlay hop"),
+                        .current_hop(),
                     "Route FetchReq to next overlay hop",
                 );
 
