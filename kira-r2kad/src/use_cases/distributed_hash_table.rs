@@ -452,7 +452,6 @@ where
     #[instrument(
         level = Level::DEBUG,
         target = "distributed_hash_table",
-        "distributed_hash_table",
         skip_all,
         fields(
             key = %message.data.handle,
@@ -571,7 +570,6 @@ where
     #[instrument(
         level = Level::DEBUG,
         target = "distributed_hash_table",
-        "distributed_hash_table",
         skip_all,
         fields(
             key = %message.data.handle,
@@ -765,6 +763,11 @@ where
         }
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        target = "distributed_hash_table",
+        skip(self, context),
+    )]
     fn init_republish_key(&mut self, context: &C, key: NodeId) {
         let destination = key;
         let redundancy = self.config.redundancy_factor.resolve(BUCKET_SIZE);
@@ -783,6 +786,11 @@ where
         );
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        target = "distributed_hash_table",
+        skip(self, context),
+    )]
     fn republish_key(
         &self,
         context: &C,
@@ -849,6 +857,11 @@ where
     H::StoreErr: Into<StoreErr>,
     H::FetchErr: Into<FetchErr>,
 {
+    #[instrument(
+        level = Level::TRACE,
+        target = "distributed_hash_table",
+        skip(self, context),
+    )]
     fn garbage_collection(&mut self, context: &C) {
         let now = context.runtime().current_time();
         let keys = self
