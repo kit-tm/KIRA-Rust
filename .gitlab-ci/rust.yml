@@ -252,6 +252,25 @@ build-rustdoc:
       - doc/rustdoc
     expire_in: 1 day
 
+rust-pause-pipeline-after-build:
+  stage: build
+  extends:
+    - .rust-defaults
+    - .rust-ci-rules
+  inputs:
+    delay_secs:
+      type: number
+      default: 600
+  needs:
+    - job: build-kirad
+      optional: true
+
+  rules:
+    - if: '"$[[ inputs.debug_mode ]]" == "true"'
+      when: manual
+  script:
+    - echo "Pipeline paused. Sleeping for ${{ job.inputs.delay_secs }} seconds..."
+    - sleep ${{ job.inputs.delay_secs }} 
 
 rust-audit:
   stage: security
