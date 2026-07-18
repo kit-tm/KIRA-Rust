@@ -8,7 +8,7 @@ use derive_more::derive::Display;
 
 use crate::domain::{Contact, Link, NodeId, NotViaList, StateSeqNr, state_seq_nr};
 use crate::messaging::dht::{
-    DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreReqData, StoreRspData,
+    FetchReqData, FetchRspData, LHTInput, LHTOutput, StoreReqData, StoreRspData,
 };
 use crate::messaging::source_route::SourceRoute;
 use std::fmt;
@@ -290,10 +290,10 @@ pub enum ProtocolMessage {
     // TODO: add Rsp for Setup and Teardown and handle them accordingly
     UpdateRouteReq(UpdateRouteReq),
     Error(ReqRspMessage<ErrorData>),
-    StoreReq(ReqRspMessage<StoreReqData<DefaultLHTInput>>),
+    StoreReq(ReqRspMessage<StoreReqData<LHTInput>>),
     StoreRsp(ReqRspMessage<StoreRspData>),
     FetchReq(ReqRspMessage<FetchReqData>),
-    FetchRsp(ReqRspMessage<FetchRspData<DefaultLHTOutput>>),
+    FetchRsp(ReqRspMessage<FetchRspData<LHTOutput>>),
 }
 
 impl ProtocolMessage {
@@ -460,16 +460,6 @@ impl ProtocolMessage {
         }
     }
 
-    // TODO: write documentation how to use
-    // and why other "overlay" messages are not listed here
-    pub fn overlay_destination(&self) -> Option<&NodeId> {
-        match self {
-            Self::StoreReq(req) => Some(&req.data.handle),
-            Self::FetchReq(req) => Some(&req.data.handle),
-            _ => None,
-        }
-    }
-
     /// Current hop of the message.
     ///
     /// Is only [Option::None] if the message has no source route (ULNHello).
@@ -539,8 +529,19 @@ impl<T: Debug> ReqRspMessage<T> {
         self.source_route.source()
     }
 
-    /// Next hop destination of the request.
+    /// Next overlay hop destination of the request.
+    ///
+    /// Essentially this is the destination of the source route.
     pub fn destination(&self) -> &NodeId {
+        // TODO: coherent renaming of methods destination methdos
+        // to distinguish between current overlay hop "destination" and final destination
+        //
+        // Currently we have multiple ambiguous destination methods:
+        //
+        // - `ReqRspMessage::destination`: overlay destination
+        // - `ProtocolMessage::destination`: overlay destination (or None on ULNHello)
+        // - `WireFormatMessage::dest_id`: final intended destination
+        //      can differ from current overlay hop destination if forwarded via multiple overlay hops
         self.source_route.destination()
     }
 }
@@ -781,29 +782,5 @@ impl ReqRspMessage<ErrorData> {
 impl From<ReqRspMessage<ErrorData>> for ProtocolMessage {
     fn from(message: ReqRspMessage<ErrorData>) -> Self {
         Self::Error(message)
-    }
-}
-
-impl From<ReqRspMessage<StoreReqData<DefaultLHTInput>>> for ProtocolMessage {
-    fn from(message: ReqRspMessage<StoreReqData<DefaultLHTInput>>) -> Self {
-        Self::StoreReq(message)
-    }
-}
-
-impl From<ReqRspMessage<StoreRspData>> for ProtocolMessage {
-    fn from(message: ReqRspMessage<StoreRspData>) -> Self {
-        Self::StoreRsp(message)
-    }
-}
-
-impl From<ReqRspMessage<FetchReqData>> for ProtocolMessage {
-    fn from(message: ReqRspMessage<FetchReqData>) -> Self {
-        Self::FetchReq(message)
-    }
-}
-
-impl From<ReqRspMessage<FetchRspData<DefaultLHTOutput>>> for ProtocolMessage {
-    fn from(message: ReqRspMessage<FetchRspData<DefaultLHTOutput>>) -> Self {
-        Self::FetchRsp(message)
     }
 }

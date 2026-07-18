@@ -39,6 +39,10 @@ impl PathCollection {
         self.active_path.as_ref()
     }
 
+    pub fn into_active_path(self) -> Option<Path> {
+        self.active_path
+    }
+
     pub fn active_path_mut(&mut self) -> Option<&mut Path> {
         self.active_path.as_mut()
     }

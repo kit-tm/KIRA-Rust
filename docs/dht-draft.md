@@ -88,7 +88,7 @@ classDiagram
 ```
 #### Anmerkungen: ####
 
-- Erweiterung `ProtocolMessage` nur durch `DHTReqRspMessage`, damit einheitliches Verhalten in Use-Cases für DHT-Nachrichten erreicht werden kann (z.B. forwarding)
+- Erweiterung `ProtocolMessage` nur durch `DHTReqRspMessage`, damit einheitliches Verhalten in Use Cases für DHT-Nachrichten erreicht werden kann (z.B. forwarding)
 
 ## Neue Use Cases ##
 

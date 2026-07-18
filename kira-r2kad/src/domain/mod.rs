@@ -1,8 +1,12 @@
 //! Domain Layer of the KIRA software design.
 
+use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
+use std::time::{Duration, Instant};
+
 pub use bucket::*;
 pub use contact::*;
-use derive_more::derive::Display;
+use derive_more::{Display, From};
 pub use insertion_strategy::*;
 pub use node_id::*;
 pub use path::cycle_remover::*;
@@ -14,9 +18,6 @@ pub use path_id::*;
 pub use routing_table::flat_routing_table::*;
 pub use routing_table::*;
 pub use state_seq_nr::*;
-use std::collections::HashSet;
-use std::hash::{Hash, Hasher};
-use std::time::{Duration, Instant};
 pub use underlay::*;
 pub use underlay_neighbor_table::*;
 pub use vicinity::*;
@@ -44,14 +45,14 @@ pub mod vicinity;
 ///
 /// As [Age] specifies a timestamp in milliseconds a greater value represents a larger age.
 /// Considering `X = Age(10)` and `Y = Age(20)` then `X < Y == true`.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Display)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Display, From)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[display("{}ms",self.0)]
 pub struct Age(u64);
 
-impl From<u64> for Age {
-    fn from(value: u64) -> Self {
-        Self(value)
+impl From<Age> for std::time::Duration {
+    fn from(Age(age_ms): Age) -> Self {
+        std::time::Duration::from_millis(age_ms)
     }
 }
 

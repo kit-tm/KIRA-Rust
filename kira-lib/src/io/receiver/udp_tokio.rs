@@ -142,7 +142,7 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
 
             // FIXME: ignore scope_id 0 (probably caused by ipv6 attached to lo)
             let Some(interface_id) = NonZeroU32::new(received_from.scope_id()) else {
-                log::warn!(target: "message_receiver", "Ignoring message with scope_id 0");
+                log::trace!(target: "message_receiver", "Ignoring message with scope_id 0");
                 continue;
             };
             let interface_id = interface_id.into();

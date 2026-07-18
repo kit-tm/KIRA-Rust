@@ -6,9 +6,7 @@ use std::ops::Deref;
 use std::time::Instant;
 use tracing::{Level, instrument};
 
-use crate::domain::{
-    GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, UnderlayNeighborSource,
-};
+use crate::domain::{GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage};
 use crate::use_cases::inject_messages::errors::InjectMessageError;
@@ -46,9 +44,11 @@ mod std_extension {
 #[derive(Debug, Eq, PartialEq)]
 pub enum InjectionResult {
     /// The injected [ProtocolMessage] was answered.
-    Answered(Box<(ProtocolMessage, UnderlayNeighborSource)>),
+    Answered(Box<ProtocolMessage>),
     /// The node is isolated and the message couldn't be injected.
     Isolated,
+    /// No response was received in time for the [ProtocolMessage].
+    Timeout,
 }
 
 /// Configuration for message injection in general.
@@ -192,17 +192,14 @@ where
 
                 self.nonces.insert(nonce, context.runtime().current_time());
             }
-            UseCaseEvent::Message(message, interface) => {
+            UseCaseEvent::Message(message, _) => {
                 if let Some(Some(instant)) =
                     message.msg_id().map(|nonce| self.nonces.remove(&nonce))
                 {
                     let elapsed = instant.elapsed();
-                    if let Err(e) =
-                        self.injection_result_sender
-                            .send_result(InjectionResult::Answered(Box::new((
-                                message.clone(),
-                                interface,
-                            ))))
+                    if let Err(e) = self
+                        .injection_result_sender
+                        .send_result(InjectionResult::Answered(Box::new(message.clone())))
                     {
                         log::error!(target: "inject_messages", "Sending answered result failed: {e}");
                         return Err(InjectMessageError::SendResultFailed);

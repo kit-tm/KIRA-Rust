@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 use std::marker::PhantomData;
-use std::num::NonZeroU8;
 use std::ops::{Deref, DerefMut};
 use tracing::{Level, instrument};
 
@@ -433,68 +432,19 @@ where
 
         // Current hop has to be us
         if source_route.current_hop() != context.root_id() {
-            log::warn!(
+            tracing::warn!(
                 target: "forward_protocol_message",
-                "Current hop of message {} is not us [{:?}]",
-                source_route.current_hop(),
-                message
+                current_hop = %source_route.current_hop(),
+                protocol_message = ?message,
+                "Current hop of message is not us",
             );
             return HandlingResult::Handled;
         }
 
-        let mut next_hop = source_route.next_hop();
-
-        // source route finished
-        if next_hop.is_none() {
-            let overlay_destination = message.overlay_destination();
-            // is directed to us -> nothing to forward
-            if overlay_destination.is_none() {
-                return HandlingResult::NotHandled;
-            }
-
-            log::debug!(
-                target: "forward_protocol_message",
-                "Searching next overlay hop for message [{message:?}]"
-            );
-
-            // Overlay Routing
-            // TODO: add unit tests
-            // fixme isolated error if only a single node is used
-            // fixme remove cycles in SourceRoute on the way back?
-            // fixme respect NotVia? [lib/src/use_cases/handle_overlay_discovery.rs:141]
-            let overlay_destination = overlay_destination.unwrap();
-
-            // intended overlay destination is us -> nothing to forward
-            if overlay_destination == context.root_id() {
-                return HandlingResult::NotHandled;
-            }
-
-            // TODO: support other shared_prefix_grouping via config
-            let closest_node = context
-                .routing_table()
-                .next_hop(overlay_destination, NonZeroU8::MIN)
-                .expect("Shared Prefix Grouping should be valid");
-
-            // closest known overlay hop is us -> nothing to forward,
-            if closest_node.is_none() {
-                log::debug!(
-                    target: "forward_protocol_message",
-                    "Final destination of overlay message is us [{message:?}]"
-                );
-                return HandlingResult::NotHandled;
-            }
-
-            let next_contact = closest_node.unwrap();
-
-            // extend source route to next hop
-            if let Some(sr) = message.source_route_mut() {
-                sr.extend(next_contact.path().unwrap().clone())
-            }
-            next_hop = message.source_route().and_then(SourceRoute::next_hop);
-
-            log::trace!(target: "forward_protocol_message", "Forwarding overlay message to next hop [{message:?}]");
-        }
-        let next_hop = next_hop.unwrap();
+        let Some(next_hop) = source_route.next_hop() else {
+            // source route finished
+            return HandlingResult::NotHandled;
+        };
 
         // From here on the message is assumed to be for us
 

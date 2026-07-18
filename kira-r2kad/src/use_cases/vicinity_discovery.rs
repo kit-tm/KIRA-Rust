@@ -101,8 +101,8 @@ pub struct InterfaceState {
     hello_interval: Duration,
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
 /// Information about the pending response to a request.
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct RequestState {
     kind: ProtocolMessageKind,
     timeouts: usize,
@@ -887,7 +887,7 @@ where
                 match observed_ssn {
                     StateSeqNr::Invalid => {
                         panic!(
-                            "Received invalid StateSeqNr from underlay neighbor in VicinityDiscovery use-case"
+                            "Received invalid StateSeqNr from underlay neighbor in VicinityDiscovery use case"
                         )
                     }
                     StateSeqNr::Reset => {
@@ -1568,7 +1568,7 @@ where
                         timer_hooks
                             .insert(hello_timer_id, TimerHook::SendInterfaceHello(interface));
                     }
-                    None => {} // timer of other use-case
+                    None => {} // timer of other use case
                 }
 
                 Ok(())

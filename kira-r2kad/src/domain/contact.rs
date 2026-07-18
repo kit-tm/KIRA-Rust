@@ -247,6 +247,11 @@ impl Contact {
         self.path_collection.active_path()
     }
 
+    /// Returns the active [Path] of the [Contact].
+    pub fn into_path(self) -> Option<Path> {
+        self.path_collection.into_active_path()
+    }
+
     /// Returns the proposed [Path] of the [Contact].
     pub fn proposed_path(&self) -> Option<&Path> {
         self.path_collection.proposed_path()
