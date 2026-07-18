@@ -95,7 +95,7 @@ where
         .next_hop(&overlay_destination, NonZeroU8::MIN)
         .expect("Shared Prefix Grouping should be valid");
 
-    let path = if let Some(path) = closest_node.map(Contact::into_path).flatten() {
+    let path = if let Some(path) = closest_node.and_then(Contact::into_path) {
         path
     } else {
         tracing::warn!(target: "distributed_hash_table", "Node is isolated!");

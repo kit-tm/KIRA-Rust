@@ -552,7 +552,7 @@ where
                     callback,
                 )?;
             }
-            _ => unreachable!("Response Hook and Message Kind where previously validated"),
+            _ => unreachable!("Response Hook and Message Kind were previously validated"),
         }
 
         Ok(())
