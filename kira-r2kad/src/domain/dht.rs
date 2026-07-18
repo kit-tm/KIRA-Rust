@@ -149,7 +149,7 @@ pub(crate) fn send_store_req_kbr<C, const BUCKET_SIZE: usize>(
     );
 
     let message = ProtocolMessage::StoreReq(message);
-    if message.destination().unwrap() == context.root_id() {
+    if message.current_hop().unwrap() == context.root_id() {
         context
             .runtime()
             .broadcast_event(BroadcastableUseCaseEvent::Message(message));
@@ -198,7 +198,7 @@ pub(crate) fn send_store_req<C, const BUCKET_SIZE: usize>(
     );
 
     let message = ProtocolMessage::StoreReq(message);
-    if message.destination().unwrap() == context.root_id() {
+    if message.current_hop().unwrap() == context.root_id() {
         context
             .runtime()
             .broadcast_event(BroadcastableUseCaseEvent::Message(message));
@@ -241,7 +241,7 @@ where
 
     let message = ProtocolMessage::FetchReq(message);
     // TODO: remove duplicated code
-    if message.destination().unwrap() == context.root_id() {
+    if message.current_hop().unwrap() == context.root_id() {
         context
             .runtime()
             .broadcast_event(BroadcastableUseCaseEvent::Message(message));

@@ -330,7 +330,7 @@ where
             ?protocol_message,
             "Sending FindNodeReq",
         );
-        if protocol_message.destination().unwrap() == context.root_id() {
+        if protocol_message.current_hop().unwrap() == context.root_id() {
             context
                 .runtime()
                 .broadcast_event(BroadcastableUseCaseEvent::Message(protocol_message));

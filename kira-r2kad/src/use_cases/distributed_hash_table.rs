@@ -328,7 +328,7 @@ where
 
         let protocol_message = ProtocolMessage::from(rsp);
         tracing::trace!(target: "distributed_hash_table", ?protocol_message, "Sending StoreRsp");
-        if protocol_message.destination().unwrap() == context.root_id() {
+        if protocol_message.current_hop().unwrap() == context.root_id() {
             context
                 .runtime()
                 .broadcast_event(BroadcastableUseCaseEvent::Message(protocol_message));
@@ -357,7 +357,7 @@ where
 
         let protocol_message = ProtocolMessage::from(rsp);
         tracing::trace!(target: "distributed_hash_table", ?protocol_message, "Sending DeadEnd Error");
-        if protocol_message.destination().unwrap() == context.root_id() {
+        if protocol_message.current_hop().unwrap() == context.root_id() {
             context
                 .runtime()
                 .broadcast_event(BroadcastableUseCaseEvent::Message(protocol_message));
@@ -391,7 +391,7 @@ where
 
         let protocol_message = ProtocolMessage::from(rsp);
         tracing::trace!(target: "distributed_hash_table", ?protocol_message, "Sending FetchRsp");
-        if protocol_message.destination().unwrap() == context.root_id() {
+        if protocol_message.current_hop().unwrap() == context.root_id() {
             context
                 .runtime()
                 .broadcast_event(BroadcastableUseCaseEvent::Message(protocol_message));
@@ -435,7 +435,7 @@ where
             ?protocol_message,
             "Sending FindNodeReq",
         );
-        if protocol_message.destination().unwrap() == context.root_id() {
+        if protocol_message.current_hop().unwrap() == context.root_id() {
             context
                 .runtime()
                 .broadcast_event(BroadcastableUseCaseEvent::Message(protocol_message));
