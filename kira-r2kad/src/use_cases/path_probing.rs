@@ -165,7 +165,7 @@ where
         };
         context
             .runtime()
-            .send_message(message, context.uln_table().deref());
+            .send_message(message, context.uln_table().deref(), context.root_id());
 
         requests_in_flight.insert(nonce, (*contact.id(), context.runtime().current_time()));
 
@@ -205,7 +205,7 @@ where
         };
         context
             .runtime()
-            .send_message(message, context.uln_table().deref());
+            .send_message(message, context.uln_table().deref(), context.root_id());
 
         let timeout_timer = context
             .runtime()
@@ -301,7 +301,7 @@ where
         };
         context
             .runtime()
-            .send_message(message, context.uln_table().deref());
+            .send_message(message, context.uln_table().deref(), context.root_id());
 
         log::trace!(target: "path_probing", "Sent probe rsp to {source}");
     }

@@ -70,6 +70,10 @@ impl UseCaseRuntime for TestingUseCaseRuntime {
         self.timer_id.into()
     }
 
+    fn remove_timer(&self, _timer_id: TimerId) {
+        // just a NOOP
+    }
+
     fn register_periodic_timer(&self, _duration: Duration) -> TimerId {
         *self.timers.borrow_mut() += 1;
         self.timer_id.into()

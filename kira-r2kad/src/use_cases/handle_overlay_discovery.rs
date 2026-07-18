@@ -289,9 +289,11 @@ where
                 ),
             };
 
-            context
-                .runtime()
-                .send_message(outgoing_message, context.uln_table().deref());
+            context.runtime().send_message(
+                outgoing_message,
+                context.uln_table().deref(),
+                context.root_id(),
+            );
         }
 
         Ok(())

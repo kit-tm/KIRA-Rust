@@ -26,8 +26,8 @@ use crate::messaging::{
     ReqRspMessage, WireFormatMessage,
 };
 use crate::use_cases::{
-    ApiEvent, BroadcastableUseCaseEvent, ContactEvent, EventHandler, NeverError, TimerId, UseCase,
-    UseCaseContext, UseCaseEvent, UseCaseRuntime, UseCaseState,
+    ApiEvent, ContactEvent, EventHandler, NeverError, TimerId, UseCase, UseCaseContext,
+    UseCaseEvent, UseCaseRuntime, UseCaseState,
 };
 
 /// Default interval between garbage collections of the [LocalHashTable].
@@ -326,18 +326,10 @@ where
             source_route,
         };
 
-        let protocol_message = ProtocolMessage::from(rsp);
-        tracing::trace!(target: "distributed_hash_table", ?protocol_message, "Sending StoreRsp");
-        if protocol_message.current_hop().unwrap() == context.root_id() {
-            context
-                .runtime()
-                .broadcast_event(BroadcastableUseCaseEvent::Message(protocol_message));
-            return;
-        }
-
+        tracing::trace!(target: "distributed_hash_table", protocol_message = ?rsp, "Sending StoreRsp");
         context
             .runtime()
-            .send_message(protocol_message, context.uln_table().deref());
+            .send_message(rsp, context.uln_table().deref(), context.root_id());
     }
 
     fn send_dead_end(context: &C, msgid: u64, source_route: SourceRoute) {
@@ -355,18 +347,10 @@ where
             source_route,
         };
 
-        let protocol_message = ProtocolMessage::from(rsp);
-        tracing::trace!(target: "distributed_hash_table", ?protocol_message, "Sending DeadEnd Error");
-        if protocol_message.current_hop().unwrap() == context.root_id() {
-            context
-                .runtime()
-                .broadcast_event(BroadcastableUseCaseEvent::Message(protocol_message));
-            return;
-        }
-
+        tracing::trace!(target: "distributed_hash_table", protocol_message = ?rsp, "Sending DeadEnd Error");
         context
             .runtime()
-            .send_message(protocol_message, context.uln_table().deref());
+            .send_message(rsp, context.uln_table().deref(), context.root_id());
     }
 
     fn send_fetch_rsp(
@@ -389,18 +373,10 @@ where
             source_route,
         };
 
-        let protocol_message = ProtocolMessage::from(rsp);
-        tracing::trace!(target: "distributed_hash_table", ?protocol_message, "Sending FetchRsp");
-        if protocol_message.current_hop().unwrap() == context.root_id() {
-            context
-                .runtime()
-                .broadcast_event(BroadcastableUseCaseEvent::Message(protocol_message));
-            return;
-        }
-
+        tracing::trace!(target: "distributed_hash_table", protocol_message = ?rsp, "Sending FetchRsp");
         context
             .runtime()
-            .send_message(protocol_message, context.uln_table().deref());
+            .send_message(rsp, context.uln_table().deref(), context.root_id());
     }
 
     fn send_find_node_req(context: &C, destination: NodeId, k: NonZeroUsize, nonce: Nonce) {
@@ -416,7 +392,7 @@ where
             }
         };
 
-        let protocol_message: ProtocolMessage = dht::construct_req_rsp_msg_kbr(
+        let req = dht::construct_req_rsp_msg_kbr(
             context,
             ProtocolMessageKind::FindNodeReq,
             nonce,
@@ -426,25 +402,17 @@ where
                 neighborhood: NonZeroU64::new(neighbors).unwrap(),
                 target: destination,
             },
-        )
-        .into();
+        );
 
         tracing::debug!(
             target: "distributed_hash_table",
             %nonce,
-            ?protocol_message,
+            protocol_message = ?req,
             "Sending FindNodeReq",
         );
-        if protocol_message.current_hop().unwrap() == context.root_id() {
-            context
-                .runtime()
-                .broadcast_event(BroadcastableUseCaseEvent::Message(protocol_message));
-            return;
-        }
-
         context
             .runtime()
-            .send_message(protocol_message, context.uln_table().deref());
+            .send_message(req, context.uln_table().deref(), context.root_id());
     }
 
     // ========== Handle Message Responses ==========
@@ -547,9 +515,11 @@ where
                     "Route StoreReq to next overlay hop by key-based routing",
                 );
 
-                context
-                    .runtime()
-                    .send_message(message, context.uln_table().deref())
+                context.runtime().send_message(
+                    message,
+                    context.uln_table().deref(),
+                    context.root_id(),
+                )
             }
             None => {
                 tracing::debug!(
@@ -655,9 +625,11 @@ where
                     "Route FetchReq to next overlay hop",
                 );
 
-                context
-                    .runtime()
-                    .send_message(message, context.uln_table().deref())
+                context.runtime().send_message(
+                    message,
+                    context.uln_table().deref(),
+                    context.root_id(),
+                )
             }
             None => {
                 tracing::debug!(

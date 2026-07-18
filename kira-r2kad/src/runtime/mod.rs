@@ -42,6 +42,9 @@ pub trait UseCaseRuntime {
     /// Get the current time.
     fn current_time(&self) -> Instant;
 
+    /// removes a pending timer if it exists,
+    fn remove_timer(&self, timer_id: TimerId);
+
     /// Sends a [ProtocolMessage] to a different peer.
     ///
     /// The message will be routed via the underlay neighbor
@@ -54,30 +57,42 @@ pub trait UseCaseRuntime {
 
     /// Convenient method to send a [ProtocolMessage].
     ///
-    /// If the next hop is not in the `un_table` (underlay neighbor table)
-    /// or the even is not source-routed like [ULNHello messages](crate::messaging::ProtocolMessage::ULNHello)
-    /// the event is delivered by broadcasting to all interfaces.
+    /// The method automatically decided on the `destination` of the [ProtocolMessage]
+    /// based on the [`current_hop`] with the following notable exceptions:
+    /// 1. [ProtocolMessage] that are not source-routed[^source-routed] are delivered [by broadcast].
+    /// 2. The message is delivered by [_local broadcast_] if the [`current_hop`]
+    ///    is the `root_id`.
+    /// 3. The message is _dropped_ and a warning is logged
+    ///    if the [`current_hop`] is not in the `uln_table` (underlay neighbor table)
+    ///    
+    /// [ULNHello]: crate::messaging::ProtocolMessage::ULNHello
+    /// [`current_hop`]: crate::messaging::ProtocolMessage::current_hop
+    /// [by broadcast]: UnderlayNeighborDestination::Broadcast
+    /// [_local broadcast_]: UseCaseRuntime::broadcast_event
+    /// [^source-routed]: Notably [ULNHello].
     fn send_message<P: Into<ProtocolMessage>>(
         &self,
         protocol_message: P,
-        ulntable: &impl Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+        uln_table: &impl Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+        root_id: &NodeId,
     ) {
         let protocol_message: ProtocolMessage = protocol_message.into();
-        let underlay_dest = protocol_message
-            .current_hop()
-            .and_then(|next_hop| {
-                let uln_dest = ulntable.get(next_hop);
-                if uln_dest.is_none() {
+        let underlay_dest = match protocol_message.current_hop() {
+            None => UnderlayNeighborDestination::Broadcast,
+            Some(next_hop) if next_hop == root_id => return self.broadcast_event(protocol_message),
+            Some(next_hop) => {
+                let Some(uln_dest) = uln_table.get(next_hop) else {
                     tracing::warn!(
                         %next_hop,
-                        reason = "dest_next_hop_unknown",
-                        "Fallback to broadcast message delivery"
+                        reason = "uln_dest of next hop unknown",
+                        ?protocol_message,
+                        "Dropping message"
                     );
-                }
-                uln_dest
-            })
-            .copied()
-            .into();
+                    return;
+                };
+                (*uln_dest).into()
+            }
+        };
 
         self.send_message_via(protocol_message, underlay_dest);
     }
@@ -108,6 +123,9 @@ impl<UR: UseCaseRuntime, D: Deref<Target = UR>> UseCaseRuntime for D {
         self.deref().current_time()
     }
 
+    fn remove_timer(&self, timer_id: TimerId) {
+        self.deref().remove_timer(timer_id)
+    }
     fn send_message_via<P: Into<ProtocolMessage>>(
         &self,
         protocol_message: P,

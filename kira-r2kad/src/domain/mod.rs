@@ -301,4 +301,17 @@ impl RediscoveryState {
     pub fn get_next_via_contact_id(&mut self) -> Option<NodeId> {
         self.rev_via_contact_list.pop()
     }
+
+    // drops the "first" len elements (equivalent to calling len times pop())
+    pub fn drop_from_next_via_contact_id(&mut self, len: usize) {
+        if len <= self.rev_via_contact_list.len() {
+            self.rev_via_contact_list
+                .truncate(self.rev_via_contact_list.len() - len);
+        }
+    }
+
+    pub fn set_via_contact_list(&mut self, via_contact_list: Vec<NodeId>) {
+        assert!(self.rev_via_contact_list.is_empty());
+        self.rev_via_contact_list = via_contact_list.into_iter().rev().collect();
+    }
 }

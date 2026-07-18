@@ -118,6 +118,9 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     where
         F: Fn(&Contact) -> bool;
 
+    /// Returns if a [Contact] with a given [NodeId] is among the closest contacts (either in deepest or second deepest bucket)
+    fn is_close_contact(&self, id: &NodeId) -> bool;
+
     /// Attempts to split the [Bucket] the id should be located in.
     /// The [Contact]s in the [Bucket] will be inserted in the appropriate [Bucket]s.
     ///

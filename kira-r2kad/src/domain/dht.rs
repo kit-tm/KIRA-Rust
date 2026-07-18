@@ -158,7 +158,7 @@ pub(crate) fn send_store_req_kbr<C, const BUCKET_SIZE: usize>(
 
     context
         .runtime()
-        .send_message(message, context.uln_table().deref());
+        .send_message(message, context.uln_table().deref(), context.root_id());
 }
 
 /// Send a StoreReq.
@@ -207,7 +207,7 @@ pub(crate) fn send_store_req<C, const BUCKET_SIZE: usize>(
 
     context
         .runtime()
-        .send_message(message, context.uln_table().deref());
+        .send_message(message, context.uln_table().deref(), context.root_id());
 }
 
 /// Send a FetchReq that is routed by key-based routing.
@@ -250,6 +250,6 @@ where
 
     context
         .runtime()
-        .send_message(message, context.uln_table().deref());
+        .send_message(message, context.uln_table().deref(), context.root_id());
     Ok(())
 }

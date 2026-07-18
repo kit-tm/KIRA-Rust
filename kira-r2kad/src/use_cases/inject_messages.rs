@@ -158,7 +158,7 @@ where
                 }
                 let source_route = closest_route.unwrap();
 
-                log::trace!(target: "inject_messages", "Sending FindNodeReq from {} with target {}", source_route.source(), &data.target);
+                log::trace!(target: "inject_messages", "Sending FindNodeReq from {} with target {}", source_route.source(), data.target);
 
                 let nonce = nonce.unwrap_or_else(|| {
                     // generate distinct nonce
@@ -184,9 +184,11 @@ where
                     source_route,
                 });
 
-                context
-                    .runtime()
-                    .send_message(message, context.uln_table().deref());
+                context.runtime().send_message(
+                    message,
+                    context.uln_table().deref(),
+                    context.root_id(),
+                );
 
                 self.nonces.insert(nonce, context.runtime().current_time());
             }

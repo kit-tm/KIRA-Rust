@@ -114,7 +114,7 @@ where
         };
         context
             .runtime()
-            .send_message(message, context.uln_table().deref());
+            .send_message(message, context.uln_table().deref(), context.root_id());
     }
 
     fn send_probe_req(&self, context: &C, contact: &Contact) {
@@ -140,7 +140,7 @@ where
         };
         context
             .runtime()
-            .send_message(message, context.uln_table().deref());
+            .send_message(message, context.uln_table().deref(), context.root_id());
     }
 
     fn send_teardown_req(&self, context: &C, contact: &Contact) {
@@ -163,7 +163,7 @@ where
         };
         context
             .runtime()
-            .send_message(message, context.uln_table().deref());
+            .send_message(message, context.uln_table().deref(), context.root_id());
     }
 
     // Only deletes paths setup by others.

@@ -171,7 +171,7 @@ where
                 // The via route to this contact is already configured.
                 // To avoid unnecessary reconfiguration we don't configure the via route again.
                 if prefix_length == 128 {
-                    log::trace!(target: "native_fwd_table", "Trying to replace route to {:?} via {:?}", &out_path_id, &next_hop);
+                    log::trace!(target: "native_fwd_table", "Trying to replace route to {:?} via {:?}", out_path_id, next_hop);
                     let next_hop = self
                         .underlay_information_provider
                         .get_information(next_hop)
@@ -180,7 +180,7 @@ where
                     self.netlink
                         .replace_via_route(out_path_id, &next_hop)
                         .await
-                        .unwrap_or_else(|err|{log::error!(target: "native_fwd_table", "Failed to replace route to {:?} via {:?} error={}", &out_path_id, &next_hop, err)});
+                        .unwrap_or_else(|err|{log::error!(target: "native_fwd_table", "Failed to replace route to {:?} via {:?} error={}", out_path_id, next_hop, err)});
                 }
             }
         }

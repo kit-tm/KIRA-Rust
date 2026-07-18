@@ -182,6 +182,11 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
         }
     }
 
+    fn is_close_contact(&self, id: &NodeId) -> bool {
+        let bucket_index = self.get_bucket_index(id);
+        (bucket_index + 1) == self.buckets.len() || (bucket_index + 2) == self.buckets.len()
+    }
+
     #[tracing::instrument(
         level = Level::TRACE,
         target = "routing_table::flat_routing_table",

@@ -135,6 +135,10 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
         }
     }
 
+    fn is_close_contact(&self, id: &NodeId) -> bool {
+        self.inner.is_close_contact(id)
+    }
+
     fn split_bucket(&mut self, id: &NodeId) -> Result<usize, BucketSplitError> {
         self.inner.split_bucket(id)
     }

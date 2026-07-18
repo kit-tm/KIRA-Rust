@@ -1,4 +1,4 @@
-use crate::domain::Path;
+use crate::domain::{Path, PathState};
 
 use derive_more::derive::Display;
 use std::hash::{Hash, Hasher};
@@ -55,7 +55,17 @@ impl PathCollection {
         self.proposed_path.as_ref()
     }
 
+    // this should only be called after path validation of the proposed path
     pub fn set_proposed_to_active(&mut self) {
+        if let Some(active_path) = self.active_path()
+            && active_path.is_valid()
+        {
+            self.move_active_to_alternative();
+        }
+        self.proposed_path
+            .as_mut()
+            .unwrap()
+            .set_state(PathState::Valid);
         self.active_path = self.proposed_path.take();
     }
 
@@ -82,7 +92,21 @@ impl PathCollection {
 
 impl PartialEq for PathCollection {
     fn eq(&self, other: &Self) -> bool {
-        self.active_path == other.active_path && self.proposed_path == other.proposed_path
+        // alternative paths should be ignore as well as other path attributes
+        match (
+            self.active_path.as_ref(),
+            other.active_path.as_ref(),
+            self.proposed_path.as_ref(),
+            other.proposed_path.as_ref(),
+        ) {
+            (None, None, None, None) => true,
+            (Some(sa), Some(oa), Some(sp), Some(op)) => {
+                sa.is_same_path_as(oa) && sp.is_same_path_as(op)
+            }
+            (Some(sa), Some(oa), None, None) => sa.is_same_path_as(oa),
+            (None, None, Some(sp), Some(op)) => sp.is_same_path_as(op),
+            _ => false,
+        }
     }
 }
 
@@ -170,7 +194,7 @@ mod tests {
         pc.set_proposed_path(p.clone());
         pc.set_proposed_to_active();
         if let Some(r) = pc.active_path() {
-            assert!(*r == p);
+            assert!(r.is_same_path_as(&p));
             assert!(pc.proposed_path.is_none());
         } else {
             panic!("active path assumed to be not None");
@@ -194,7 +218,7 @@ mod tests {
         pc.move_active_to_alternative();
         assert!(pc.active_path().is_none());
         if let Some(r) = pc.first_alternative_path() {
-            assert!(*r == p);
+            assert!(r.is_same_path_as(&p));
         } else {
             panic!("at least one alternative path must be present");
         }
@@ -206,32 +230,40 @@ mod tests {
         pc.set_active_path(r.clone());
         pc.move_active_to_alternative();
         let mut alt_paths_it = pc.alternative_paths.iter();
-        assert_eq!(
-            *alt_paths_it
+        assert!(
+            alt_paths_it
                 .next()
-                .expect("alternative path 1 should be present"),
-            Some(p)
+                .expect("alternative path 1 should be present")
+                .as_ref()
+                .unwrap()
+                .is_same_path_as(&p)
         );
-        assert_eq!(
-            *alt_paths_it
+        assert!(
+            alt_paths_it
                 .next()
-                .expect("alternative path 2 should be present"),
-            Some(q)
+                .expect("alternative path 2 should be present")
+                .as_ref()
+                .unwrap()
+                .is_same_path_as(&q)
         );
-        assert_eq!(
-            *alt_paths_it
+        assert!(
+            alt_paths_it
                 .next()
-                .expect("alternative path 3 should be present"),
-            Some(r)
+                .expect("alternative path 3 should be present")
+                .as_ref()
+                .unwrap()
+                .is_same_path_as(&r)
         );
         assert_eq!(alt_paths_it.next(), None);
         pc.set_active_path(s.clone());
         pc.move_active_to_alternative();
-        assert_eq!(
-            *pc.alternative_paths
+        assert!(
+            pc.alternative_paths
                 .last()
-                .expect("last alternative path should not be None"),
-            Some(s)
+                .expect("last alternative path should not be None")
+                .as_ref()
+                .unwrap()
+                .is_same_path_as(&s)
         );
     }
 }

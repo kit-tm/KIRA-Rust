@@ -337,9 +337,11 @@ where
             return;
         }
 
-        context
-            .runtime()
-            .send_message(protocol_message, context.uln_table().deref());
+        context.runtime().send_message(
+            protocol_message,
+            context.uln_table().deref(),
+            context.root_id(),
+        );
     }
 
     /// **DHT Redundancy**: locate *k* closest nodes to the key to send them store RPCs.

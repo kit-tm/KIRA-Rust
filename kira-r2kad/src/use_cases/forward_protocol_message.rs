@@ -185,6 +185,10 @@ where
             ErrorData::SegmentFailure {
                 failed_link: link, ..
             } => {
+                // we ignore any weird message that includes ourselves in notvia information
+                if link.contains(context.root_id()) {
+                    return;
+                }
                 let mut routing_table = context.routing_table_mut();
 
                 // a segment failure is recent (minus RTT/2), probably update the timestamp
@@ -407,9 +411,11 @@ where
             source_route: SourceRoute::from_reversed(message.source_route().unwrap().clone()),
         };
 
-        context
-            .runtime()
-            .send_message(error_message, context.uln_table().deref());
+        context.runtime().send_message(
+            error_message,
+            context.uln_table().deref(),
+            context.root_id(),
+        );
     }
 
     /// Forwards the [ProtocolMessage] to the next hop.
@@ -457,7 +463,7 @@ where
         log::trace!(target: "forward_protocol_message", "Forwarding message {message:?}");
         context
             .runtime()
-            .send_message(message, context.uln_table().deref());
+            .send_message(message, context.uln_table().deref(), context.root_id());
         HandlingResult::Handled
     }
 }
