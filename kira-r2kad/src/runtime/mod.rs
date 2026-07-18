@@ -60,33 +60,38 @@ pub trait UseCaseRuntime {
     /// The method automatically decided on the `destination` of the [ProtocolMessage]
     /// based on the [`current_hop`] with the following notable exceptions:
     /// 1. [ProtocolMessage] that are not source-routed[^source-routed] are delivered [by broadcast].
-    /// 2. The message is _dropped_ and a warning is logged
+    /// 2. The message is delivered by [_local broadcast_] if the [`current_hop`]
+    ///    is the `root_id`.
+    /// 3. The message is _dropped_ and a warning is logged
     ///    if the [`current_hop`] is not in the `uln_table` (underlay neighbor table)
     ///    
     /// [ULNHello]: crate::messaging::ProtocolMessage::ULNHello
     /// [`current_hop`]: crate::messaging::ProtocolMessage::current_hop
     /// [by broadcast]: UnderlayNeighborDestination::Broadcast
-    /// [`root_id`]: UseCaseRuntime::root_id
+    /// [_local broadcast_]: UseCaseRuntime::broadcast_event
     /// [^source-routed]: Notably [ULNHello].
     fn send_message<P: Into<ProtocolMessage>>(
         &self,
         protocol_message: P,
         uln_table: &impl Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+        root_id: &NodeId,
     ) {
         let protocol_message: ProtocolMessage = protocol_message.into();
-        let underlay_dest = if let Some(next_hop) = protocol_message.current_hop() {
-            let Some(uln_dest) = uln_table.get(next_hop) else {
-                tracing::warn!(
-                    %next_hop,
-                    reason = "uln_dest of next hop unknown",
-                    ?protocol_message,
-                    "Dropping message"
-                );
-                return;
-            };
-            (*uln_dest).into()
-        } else {
-            UnderlayNeighborDestination::Broadcast
+        let underlay_dest = match protocol_message.current_hop() {
+            None => UnderlayNeighborDestination::Broadcast,
+            Some(next_hop) if next_hop == root_id => return self.broadcast_event(protocol_message),
+            Some(next_hop) => {
+                let Some(uln_dest) = uln_table.get(next_hop) else {
+                    tracing::warn!(
+                        %next_hop,
+                        reason = "uln_dest of next hop unknown",
+                        ?protocol_message,
+                        "Dropping message"
+                    );
+                    return;
+                };
+                (*uln_dest).into()
+            }
         };
 
         self.send_message_via(protocol_message, underlay_dest);

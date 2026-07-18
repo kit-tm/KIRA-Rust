@@ -28,8 +28,8 @@ use crate::messaging::{
     CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage, WireFormatMessage,
 };
 use crate::use_cases::{
-    ApiEvent, BroadcastableUseCaseEvent, ContactEvent, EventHandler, NeverError, TimerId, UseCase,
-    UseCaseContext, UseCaseEvent, UseCaseRuntime, UseCaseState,
+    ApiEvent, ContactEvent, EventHandler, NeverError, TimerId, UseCase, UseCaseContext,
+    UseCaseEvent, UseCaseRuntime, UseCaseState,
 };
 
 /// Default number of seconds between each garbage collection process.
@@ -202,17 +202,9 @@ where
 
         log::trace!(target: "distributed_hash_table", "Sending message: {rsp:?}");
 
-        let message = ProtocolMessage::StoreRsp(rsp);
-        if message.destination().unwrap() == context.root_id() {
-            context
-                .runtime()
-                .broadcast_event(BroadcastableUseCaseEvent::Message(message));
-            return;
-        }
-
         context
             .runtime()
-            .send_message(message, context.uln_table().deref());
+            .send_message(rsp, context.uln_table().deref(), context.root_id());
     }
 
     fn send_fetch_rsp(&mut self, context: &C, req: ReqRspMessage<FetchReqData>) {
@@ -236,17 +228,9 @@ where
 
         log::trace!(target: "distributed_hash_table", "Sending message: {rsp:?}");
 
-        let message = ProtocolMessage::FetchRsp(rsp);
-        if message.destination().unwrap() == context.root_id() {
-            context
-                .runtime()
-                .broadcast_event(BroadcastableUseCaseEvent::Message(message));
-            return;
-        }
-
         context
             .runtime()
-            .send_message(message, context.uln_table().deref());
+            .send_message(rsp, context.uln_table().deref(), context.root_id());
     }
 
     fn republish_to_contact_if_closer(&mut self, context: &C, contact: Contact) {

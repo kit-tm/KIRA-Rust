@@ -412,9 +412,11 @@ where
             source_route: SourceRoute::from_reversed(message.source_route().unwrap().clone()),
         };
 
-        context
-            .runtime()
-            .send_message(error_message, context.uln_table().deref());
+        context.runtime().send_message(
+            error_message,
+            context.uln_table().deref(),
+            context.root_id(),
+        );
     }
 
     /// Forwards the [ProtocolMessage] to the next hop.
@@ -511,7 +513,7 @@ where
         log::trace!(target: "forward_protocol_message", "Forwarding message {message:?}");
         context
             .runtime()
-            .send_message(message, context.uln_table().deref());
+            .send_message(message, context.uln_table().deref(), context.root_id());
         HandlingResult::Handled
     }
 }

@@ -118,7 +118,7 @@ where
 
         context
             .runtime()
-            .send_message(message, context.uln_table().deref());
+            .send_message(message, context.uln_table().deref(), context.root_id());
 
         Ok(())
     }

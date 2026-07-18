@@ -783,3 +783,27 @@ impl From<ReqRspMessage<ErrorData>> for ProtocolMessage {
         Self::Error(message)
     }
 }
+
+impl From<ReqRspMessage<StoreReqData<DefaultLHTInput>>> for ProtocolMessage {
+    fn from(message: ReqRspMessage<StoreReqData<DefaultLHTInput>>) -> Self {
+        Self::StoreReq(message)
+    }
+}
+
+impl From<ReqRspMessage<StoreRspData>> for ProtocolMessage {
+    fn from(message: ReqRspMessage<StoreRspData>) -> Self {
+        Self::StoreRsp(message)
+    }
+}
+
+impl From<ReqRspMessage<FetchReqData>> for ProtocolMessage {
+    fn from(message: ReqRspMessage<FetchReqData>) -> Self {
+        Self::FetchReq(message)
+    }
+}
+
+impl From<ReqRspMessage<FetchRspData<DefaultLHTOutput>>> for ProtocolMessage {
+    fn from(message: ReqRspMessage<FetchRspData<DefaultLHTOutput>>) -> Self {
+        Self::FetchRsp(message)
+    }
+}

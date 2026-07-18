@@ -3,14 +3,11 @@ use std::{collections::HashMap, fmt::Debug, num::NonZeroU8, ops::Deref};
 use crate::{
     domain::{NodeId, Path, RoutingTable, ULNTable, UnderlayNeighborId},
     messaging::{
-        CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage,
+        CommonHeader, Nonce, ProtocolMessageKind, ReqRspMessage,
         dht::{DefaultLHTInput, FetchReqData, StoreReqData},
         source_route::SourceRoute,
     },
-    use_cases::{
-        BroadcastableUseCaseEvent, UseCaseContext, UseCaseRuntime,
-        inject_messages::errors::InjectMessageError,
-    },
+    use_cases::{UseCaseContext, UseCaseRuntime, inject_messages::errors::InjectMessageError},
 };
 
 mod expiring;
@@ -92,17 +89,9 @@ pub(crate) fn send_store_req<C, const BUCKET_SIZE: usize>(
         message.data.handle
     );
 
-    let message = ProtocolMessage::StoreReq(message);
-    if message.destination().unwrap() == context.root_id() {
-        context
-            .runtime()
-            .broadcast_event(BroadcastableUseCaseEvent::Message(message));
-        return;
-    }
-
     context
         .runtime()
-        .send_message(message, context.uln_table().deref());
+        .send_message(message, context.uln_table().deref(), context.root_id());
 }
 
 pub(crate) fn send_fetch_req<C, const BUCKET_SIZE: usize>(
@@ -129,17 +118,8 @@ where
         message.data.handle
     );
 
-    let message = ProtocolMessage::FetchReq(message);
-    // TODO: remove duplicated code
-    if message.destination().unwrap() == context.root_id() {
-        context
-            .runtime()
-            .broadcast_event(BroadcastableUseCaseEvent::Message(message));
-        return Ok(());
-    }
-
     context
         .runtime()
-        .send_message(message, context.uln_table().deref());
+        .send_message(message, context.uln_table().deref(), context.root_id());
     Ok(())
 }

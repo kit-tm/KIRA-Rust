@@ -264,9 +264,11 @@ where
             };
 
             // send FindNodeReq message
-            context
-                .runtime()
-                .send_message(find_node_request, context.uln_table().deref());
+            context.runtime().send_message(
+                find_node_request,
+                context.uln_table().deref(),
+                context.root_id(),
+            );
 
             log::trace!(target: "failure_handling", "Sent rediscovery find node for {} to {}", contact_id, via_contact.id());
         }
@@ -306,9 +308,11 @@ where
                 ),
             };
 
-            context
-                .runtime()
-                .send_message(update_route_message, context.uln_table().deref());
+            context.runtime().send_message(
+                update_route_message,
+                context.uln_table().deref(),
+                context.root_id(),
+            );
         }
     }
 
@@ -517,9 +521,11 @@ where
             ),
         };
 
-        context
-            .runtime()
-            .send_message(find_node_request, context.uln_table().deref());
+        context.runtime().send_message(
+            find_node_request,
+            context.uln_table().deref(),
+            context.root_id(),
+        );
 
         let current_retries = match context.routing_table().contact(&node_id).unwrap().state() {
             ContactState::Rediscovering(rds) => rds.retry_counter,
