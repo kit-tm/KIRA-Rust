@@ -151,34 +151,32 @@ where
         let mut next_via_contact_ids: Vec<NodeId> = Vec::new();
         let mut processed_via_contacts: usize = 0;
         // get contact for rediscovery state
-        if let Some(contact) = context.routing_table().contact(contact_id) {
-            // if contact state is still rediscovering get next via contacts to try
-            if let ContactState::Rediscovering(rds) = contact.state() {
-                // contact is still in rediscovering
-                // get next via contacts from list that exists and is valid (note that this is then removed from the list in rds)
-                let via_contact_list = rds.get_via_contact_list();
-                let via_contact_list_iter = via_contact_list.iter().enumerate();
-                for (idx, next_via_contact_id) in via_contact_list_iter {
-                    processed_via_contacts = idx + 1;
-                    if context
-                        .routing_table()
-                        .contains_with(next_via_contact_id, |c| c.is_valid())
-                    {
-                        next_via_contact_ids.push(*next_via_contact_id);
-                    }
-                    if next_via_contact_ids.len() == no_of_via_contacts {
-                        break;
-                    }
+        // if contact does not exist anymore then terminate Rediscovery
+        let rt = context.routing_table();
+        let contact = rt.contact(contact_id)?;
+        // if contact state is still rediscovering get next via contacts to try
+        if let ContactState::Rediscovering(rds) = contact.state() {
+            // contact is still in rediscovering
+            // get next via contacts from list that exists and is valid (note that this is then removed from the list in rds)
+            let via_contact_list = rds.get_via_contact_list();
+            let via_contact_list_iter = via_contact_list.iter().enumerate();
+            for (idx, next_via_contact_id) in via_contact_list_iter {
+                processed_via_contacts = idx + 1;
+                if context
+                    .routing_table()
+                    .contains_with(next_via_contact_id, |c| c.is_valid())
+                {
+                    next_via_contact_ids.push(*next_via_contact_id);
                 }
-            } else {
-                // contact exists but is not in rediscovery state anymore, so simply ignore this timeout or message
-                return None;
+                if next_via_contact_ids.len() == no_of_via_contacts {
+                    break;
+                }
             }
-        } else {
-            // if contact does not exist anymore then terminate Rediscovery
-            return None;
-        };
-
+        }
+        else {
+            // contact exists but is not in rediscovery state anymore, so simply ignore this timeout or message
+            return None
+        }
         // now we need to delete the processed entries from the via contact list in a separate pass
         // due to mutable borrow
         if processed_via_contacts > 0
