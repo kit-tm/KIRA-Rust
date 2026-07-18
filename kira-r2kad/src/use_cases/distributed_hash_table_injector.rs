@@ -311,7 +311,7 @@ where
             }
         };
 
-        let message: ProtocolMessage = dht::construct_req_rsp_msg_kbr(
+        let protocol_message: ProtocolMessage = dht::construct_req_rsp_msg_kbr(
             context,
             ProtocolMessageKind::FindNodeReq,
             nonce,
@@ -327,19 +327,19 @@ where
         tracing::debug!(
             target: "distributed_hash_table",
             %nonce,
-            ?message,
+            ?protocol_message,
             "Sending FindNodeReq",
         );
-        if message.destination().unwrap() == context.root_id() {
+        if protocol_message.destination().unwrap() == context.root_id() {
             context
                 .runtime()
-                .broadcast_event(BroadcastableUseCaseEvent::Message(message));
+                .broadcast_event(BroadcastableUseCaseEvent::Message(protocol_message));
             return;
         }
 
         context
             .runtime()
-            .send_message(message, context.uln_table().deref());
+            .send_message(protocol_message, context.uln_table().deref());
     }
 
     /// **DHT Redundancy**: locate *k* closest nodes to the key to send them store RPCs.
@@ -498,9 +498,9 @@ where
                     );
                 }
 
-                // FIXME: If node with key exists, FindeNodeReq(exact=False)
+                // FIXME: If node with key exists, FindNodeReq(exact=False)
                 // returns a hop before. The actual closest node therefor isn't
-                // the source of the FindeNodeRsp.
+                // the source of the FindNodeRsp.
                 self.init_redundant_store(
                     context,
                     payload,

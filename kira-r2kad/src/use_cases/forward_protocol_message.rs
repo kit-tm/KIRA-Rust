@@ -426,11 +426,11 @@ where
 
         // Current hop has to be us
         if source_route.current_hop() != context.root_id() {
-            log::warn!(
+            tracing::warn!(
                 target: "forward_protocol_message",
-                "Current hop of message {} is not us [{:?}]",
-                source_route.current_hop(),
-                message
+                current_hop = %source_route.current_hop(),
+                protocol_message = ?message,
+                "Current hop of message is not us",
             );
             return HandlingResult::Handled;
         }

@@ -326,18 +326,18 @@ where
             source_route,
         };
 
-        let message = ProtocolMessage::from(rsp);
-        tracing::trace!(target: "distributed_hash_table", ?message, "Sending StoreRsp");
-        if message.destination().unwrap() == context.root_id() {
+        let protocol_message = ProtocolMessage::from(rsp);
+        tracing::trace!(target: "distributed_hash_table", ?protocol_message, "Sending StoreRsp");
+        if protocol_message.destination().unwrap() == context.root_id() {
             context
                 .runtime()
-                .broadcast_event(BroadcastableUseCaseEvent::Message(message));
+                .broadcast_event(BroadcastableUseCaseEvent::Message(protocol_message));
             return;
         }
 
         context
             .runtime()
-            .send_message(message, context.uln_table().deref());
+            .send_message(protocol_message, context.uln_table().deref());
     }
 
     fn send_dead_end(context: &C, msgid: u64, source_route: SourceRoute) {
@@ -355,18 +355,18 @@ where
             source_route,
         };
 
-        let message = ProtocolMessage::from(rsp);
-        tracing::trace!(target: "distributed_hash_table", ?message, "Sending DeadEnd Error");
-        if message.destination().unwrap() == context.root_id() {
+        let protocol_message = ProtocolMessage::from(rsp);
+        tracing::trace!(target: "distributed_hash_table", ?protocol_message, "Sending DeadEnd Error");
+        if protocol_message.destination().unwrap() == context.root_id() {
             context
                 .runtime()
-                .broadcast_event(BroadcastableUseCaseEvent::Message(message));
+                .broadcast_event(BroadcastableUseCaseEvent::Message(protocol_message));
             return;
         }
 
         context
             .runtime()
-            .send_message(message, context.uln_table().deref());
+            .send_message(protocol_message, context.uln_table().deref());
     }
 
     fn send_fetch_rsp(
@@ -389,18 +389,18 @@ where
             source_route,
         };
 
-        let message = ProtocolMessage::from(rsp);
-        tracing::trace!(target: "distributed_hash_table", ?message, "Sending FetchRsp");
-        if message.destination().unwrap() == context.root_id() {
+        let protocol_message = ProtocolMessage::from(rsp);
+        tracing::trace!(target: "distributed_hash_table", ?protocol_message, "Sending FetchRsp");
+        if protocol_message.destination().unwrap() == context.root_id() {
             context
                 .runtime()
-                .broadcast_event(BroadcastableUseCaseEvent::Message(message));
+                .broadcast_event(BroadcastableUseCaseEvent::Message(protocol_message));
             return;
         }
 
         context
             .runtime()
-            .send_message(message, context.uln_table().deref());
+            .send_message(protocol_message, context.uln_table().deref());
     }
 
     fn send_find_node_req(context: &C, destination: NodeId, k: NonZeroUsize, nonce: Nonce) {
@@ -416,7 +416,7 @@ where
             }
         };
 
-        let message: ProtocolMessage = dht::construct_req_rsp_msg_kbr(
+        let protocol_message: ProtocolMessage = dht::construct_req_rsp_msg_kbr(
             context,
             ProtocolMessageKind::FindNodeReq,
             nonce,
@@ -432,19 +432,19 @@ where
         tracing::debug!(
             target: "distributed_hash_table",
             %nonce,
-            ?message,
+            ?protocol_message,
             "Sending FindNodeReq",
         );
-        if message.destination().unwrap() == context.root_id() {
+        if protocol_message.destination().unwrap() == context.root_id() {
             context
                 .runtime()
-                .broadcast_event(BroadcastableUseCaseEvent::Message(message));
+                .broadcast_event(BroadcastableUseCaseEvent::Message(protocol_message));
             return;
         }
 
         context
             .runtime()
-            .send_message(message, context.uln_table().deref());
+            .send_message(protocol_message, context.uln_table().deref());
     }
 
     // ========== Handle Message Responses ==========
@@ -1021,7 +1021,7 @@ where
                 self.republish_key(
                     context,
                     &key,
-                    source_route,
+                    SourceRoute::from_reversed(source_route),
                     rtable
                         .contacts
                         .into_iter()
