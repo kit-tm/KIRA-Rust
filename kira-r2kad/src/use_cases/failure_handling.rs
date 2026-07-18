@@ -152,10 +152,10 @@ where
         let mut processed_via_contacts: usize = 0;
         // get contact for rediscovery state
         // if contact does not exist anymore then terminate Rediscovery
-        let rt = context.routing_table();
-        let contact = rt.contact(contact_id)?;
         // if contact state is still rediscovering get next via contacts to try
-        if let ContactState::Rediscovering(rds) = contact.state() {
+        if let ContactState::Rediscovering(rds) =
+            context.routing_table().contact(contact_id)?.state()
+        {
             // contact is still in rediscovering
             // get next via contacts from list that exists and is valid (note that this is then removed from the list in rds)
             let via_contact_list = rds.get_via_contact_list();

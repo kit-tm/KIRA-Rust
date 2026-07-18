@@ -57,30 +57,29 @@ pub trait UseCaseRuntime {
 
     /// Convenient method to send a [ProtocolMessage].
     ///
-    /// If the next hop is not in the `un_table` (underlay neighbor table)
-    /// or the even is not source-routed like [ULNHello messages](crate::messaging::ProtocolMessage::ULNHello)
-    /// the event is delivered by broadcasting to all interfaces.
+    /// If the next hop is not in the `uln_table` (underlay neighbor table)
+    /// or the even is source-routed like [ULNHello messages](crate::messaging::ProtocolMessage::ULNHello)
+    /// a warning is logged
     fn send_message<P: Into<ProtocolMessage>>(
         &self,
         protocol_message: P,
         ulntable: &impl Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     ) {
         let protocol_message: ProtocolMessage = protocol_message.into();
-        let underlay_dest = protocol_message
-            .current_hop()
-            .and_then(|next_hop| {
-                let uln_dest = ulntable.get(next_hop);
-                if uln_dest.is_none() {
-                    tracing::warn!(
-                        %next_hop,
-                        reason = "dest_next_hop_unknown",
-                        "Fallback to broadcast message delivery"
-                    );
-                }
-                uln_dest
-            })
-            .copied()
-            .into();
+        let underlay_dest = if let Some(next_hop) = protocol_message.current_hop() {
+            let Some(uln_dest) = ulntable.get(next_hop) else {
+                tracing::warn!(
+                    %next_hop,
+                    reason = "uln_dest of next hop unknown",
+                    ?protocol_message,
+                    "Dropping message"
+                );
+                return;
+            };
+            (*uln_dest).into()
+        } else {
+            UnderlayNeighborDestination::Broadcast
+        };
 
         self.send_message_via(protocol_message, underlay_dest);
     }
