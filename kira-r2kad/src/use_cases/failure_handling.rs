@@ -172,10 +172,9 @@ where
                     break;
                 }
             }
-        }
-        else {
+        } else {
             // contact exists but is not in rediscovery state anymore, so simply ignore this timeout or message
-            return None
+            return None;
         }
         // now we need to delete the processed entries from the via contact list in a separate pass
         // due to mutable borrow
