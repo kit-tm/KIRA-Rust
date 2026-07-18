@@ -18,7 +18,7 @@ pub mod single_value_hash_table;
 /// Nodes use a local hash table to store key-value pairs of the
 /// network-provided distributed hash table.
 ///
-/// The [`SimpleHashTable`] is a sample implementation.
+/// The [`SingleValueHashTable`] is a simple sample implementation.
 pub trait LocalHashTable {
     type StoreOk: Display;
     type StoreErr: Error;

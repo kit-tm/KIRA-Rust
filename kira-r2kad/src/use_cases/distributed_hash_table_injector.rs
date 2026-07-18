@@ -59,10 +59,10 @@ impl Default for DistributedHashTableInjectorConfig {
     ///     DistributedHashTableInjectorConfig,
     ///     DEFAULT_PERIODIC_RESTORE,
     /// };
-    /// use kira_r2kad::domain::dht::DEFAULT_TIMEOUT;
+    /// use kira_r2kad::domain::dht::{DEFAULT_TIMEOUT, RedundancyFactor};
     ///
     ///
-    /// let config = DistributedHashTableConfig::default();
+    /// let config = DistributedHashTableInjectorConfig::default();
     ///
     /// assert_eq!(config.periodic_restore, DEFAULT_PERIODIC_RESTORE);
     /// assert_eq!(config.redundancy_factor, RedundancyFactor::default());

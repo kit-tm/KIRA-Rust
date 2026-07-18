@@ -95,7 +95,7 @@ impl Default for DistributedHashTableConfig {
     ///     DEFAULT_REPUBLISH_SUPPRESSION_WINDOW,
     ///     DEFAULT_KEY_VALUE_TIMEOUT
     /// };
-    /// use kira_r2kad::domain::dht::DEFAULT_TIMEOUT;
+    /// use kira_r2kad::domain::dht::{DEFAULT_TIMEOUT, RedundancyFactor};
     /// use std::num::NonZeroU8;
     ///
     ///
@@ -1128,7 +1128,7 @@ mod tests {
             data: value.clone(),
             last_accessed_ms: None,
         };
-        let source_route = SourceRoute::from(root_id);
+        let source_route = SourceRoute::from(Path::try_from(vec![root_id, root_id]).unwrap());
         let msg = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::StoreReq,

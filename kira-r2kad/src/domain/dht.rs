@@ -47,7 +47,7 @@ impl RedundancyFactor {
     /// # Examples
     ///
     /// ```
-    /// # use kira_r2kad::use_cases::distributed_hash_table_injector::RedundancyFactor;
+    /// # use kira_r2kad::domain::dht::RedundancyFactor;
     ///
     /// let bucket_size = 20;
     /// let fixed = 42;
