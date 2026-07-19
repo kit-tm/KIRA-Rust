@@ -1,3 +1,28 @@
+spec:
+  inputs:
+    debug_mode:
+      type: boolean
+      default: false
+      description: "Run debug jobs of the pipeline"
+    sccache_dir:
+      type: string
+      description: "Cache directory of sccache"
+    sccache_cache_size:
+      type: number
+      default: 10
+      description: "Size of the cache directory of sccache in Gbyte"
+    common_job_tags:
+      type: array
+      description: "Tags required by all Jobs of the Rust pipeline (tags of job runner)"
+    rust_image:
+      type: string
+      default: rust:alpine # more nimble than rust:latest
+    rustc_wrapper:
+      type: string
+      default: sccache
+
+---
+
 .rust_paths: &rust_paths
   - "**/*.rs"
   - "**/Cargo.toml"
@@ -5,13 +30,18 @@
 
 # common rust job
 .rust-defaults:
-  image: rust:alpine # more nimble than rust:latest
+  image: $[[ inputs.rust_image ]]
   before_script:
-    - apk add --no-cache musl-dev git # necessary for building and downloading dependencies
+    - apk add --no-cache musl-dev git sccache # necessary for building and downloading dependencies
   interruptible: true
+  tags: $[[ inputs.common_job_tags ]]
 
   variables:
     CARGO_HOME: $CI_PROJECT_DIR/.cargo_home # move to cacheable directory
+    RUSTC_WRAPPER: $[[ inputs.rustc_wrapper ]]
+    SCCACHE_DIR: $[[ inputs.sccache_dir ]]
+    SCCACHE_CACHE_SIZE: "$[[ inputs.sccache_cache_size ]]G"
+    SCCACHE_BASEDIRS: $CI_PROJECT_DIR
   cache: &cargo_cache
     key:
       files: # fresh cache on dependency-changes (don't cache unused dependencies)
@@ -19,14 +49,17 @@
         - Cargo.lock
       prefix: cargo_cache
     paths:
-      - target/ # build artifacts
+      # Build artifacts in /target are cached by sccache
+      # Caching of Cargo home in CI: https://doc.rust-lang.org/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
+      # Crucially we don't cache the extracted dependencies in registry/src
       - "$CI_PROJECT_DIR/.cargo_home/.crates.toml"
       - "$CI_PROJECT_DIR/.cargo_home/.crates2.json"
-      - "$CI_PROJECT_DIR/.cargo_home/bin/"
-      - "$CI_PROJECT_DIR/.cargo_home/registry/index/"
-      - "$CI_PROJECT_DIR/.cargo_home/registry/cache/"
-      - "$CI_PROJECT_DIR/.cargo_home/git/db/"
-      - "$CI_PROJECT_DIR/.cargo_home/advisory-dbs"
+      - "$CI_PROJECT_DIR/.cargo_home/bin/"            # installed binaries
+      - "$CI_PROJECT_DIR/.cargo_home/registry/index/" # registry crate meta
+      - "$CI_PROJECT_DIR/.cargo_home/registry/cache/" # downloaded dependencies
+      - "$CI_PROJECT_DIR/.cargo_home/git/db/"         # cloned git dependencies
+
+      - "$CI_PROJECT_DIR/.cargo_home/advisory-dbs"    # cargo-audit advisories
     policy: pull # only update cache by specific jobs
 
 # rust job that is run if rust code changed by a merge request
@@ -56,6 +89,22 @@
 # =============================================== #
 #               RUST-JOBS                         #
 # =============================================== #
+
+rust-pause-pipeline:
+  stage: debug
+  extends:
+    - .rust-defaults
+    - .rust-ci-rules
+  inputs:
+    delay_secs:
+      type: number
+      default: 600
+  rules:
+    - if: '"$[[ inputs.debug_mode ]]" == "true"'
+      when: manual
+  script:
+    - echo "Pipeline paused. Sleeping for ${{ job.inputs.delay_secs }} seconds..."
+    - sleep ${{ job.inputs.delay_secs }} 
 
 rustfmt:
   stage: lint
@@ -91,7 +140,7 @@ rust-checks:
   cache:
     <<: *cargo_cache
     policy: pull-push
-
+  
   # fail-fast if packages can't be compiled
   script:
     - cargo check --workspace --all-targets --all-features
@@ -106,6 +155,7 @@ clippy:
     - job: rust-checks # running if cargo check fails doesn't make sense
       optional: true
   before_script:
+    - apk add --no-cache musl-dev git sccache
     - rustup component add clippy
   script:
     - cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -122,7 +172,7 @@ rust-tests:
     policy: pull-push
 
   before_script:
-    - apk add --no-cache musl-dev git
+    - apk add --no-cache musl-dev git sccache
     - cargo install cargo-nextest --locked
   script:
     - cargo nextest run --workspace --all-features --all-targets
@@ -137,6 +187,7 @@ rust-doctests:
   cache:
     <<: *cargo_cache
     policy: pull-push
+
   needs:
     - job: rust-tests # ensure cache propagation
       optional: true
@@ -167,7 +218,7 @@ build-kirad-release:
     - .force_release_build_artifacts
 
   before_script:
-    - apk add --no-cache musl-dev git tar
+    - apk add --no-cache musl-dev git sccache tar
     - rustup target add $TARGET_TRIPLE
   script:
     - cargo build --release --package kirad --target $TARGET_TRIPLE
@@ -201,6 +252,25 @@ build-rustdoc:
       - doc/rustdoc
     expire_in: 1 day
 
+rust-pause-pipeline-after-build:
+  stage: build
+  extends:
+    - .rust-defaults
+    - .rust-ci-rules
+  inputs:
+    delay_secs:
+      type: number
+      default: 600
+  needs:
+    - job: build-kirad
+      optional: true
+
+  rules:
+    - if: '"$[[ inputs.debug_mode ]]" == "true"'
+      when: manual
+  script:
+    - echo "Pipeline paused. Sleeping for ${{ job.inputs.delay_secs }} seconds..."
+    - sleep ${{ job.inputs.delay_secs }} 
 
 rust-audit:
   stage: security
@@ -209,7 +279,7 @@ rust-audit:
     - .rust-ci-rules
 
   before_script:
-    - apk add --no-cache musl-dev git
+    - apk add --no-cache musl-dev git sccache
     - cargo install cargo-audit --locked
   script:
     - cargo audit

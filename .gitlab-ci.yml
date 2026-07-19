@@ -4,6 +4,13 @@ spec:
       type: boolean
       default: false
       description: "Set to true to build release artifacts"
+    debug_mode:
+      type: boolean
+      default: false
+      description: "Run debug jobs of the pipeline"
+    rustc_wrapper:
+      type: string
+      default: sccache
 
 ---
 
@@ -22,8 +29,16 @@ spec:
 
 include:
   - local: '.gitlab-ci/rust.yml'
+    inputs:
+      debug_mode: $[[ inputs.debug_mode ]]
+      rustc_wrapper: $[[ inputs.rustc_wrapper ]]
+      sccache_dir: /sccache
+      common_job_tags:
+        - rust
+        - sccache
 
 stages:
+  - debug         # pipeline debug jobs
   - lint          # fast lints
   - check         # in-depth code checks
   - test          # unit-, integration, doc-tests
