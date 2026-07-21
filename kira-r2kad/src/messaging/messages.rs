@@ -6,7 +6,6 @@ use std::num::NonZeroU64;
 
 use derive_more::derive::Display;
 
-
 use crate::domain::{Contact, Link, NodeId, NotViaList, StateSeqNr, state_seq_nr};
 
 #[cfg(feature = "binrw")]
@@ -177,7 +176,6 @@ impl CommonObjectHeader {
         }
     }
 }
-
 
 pub const RTABLE_REQUEST_TYPE_NONE: u8 = 0x00;
 pub const RTABLE_REQUEST_TYPE_CONTACTS_ONLY: u8 = 0x01;

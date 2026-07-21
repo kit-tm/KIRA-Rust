@@ -3,8 +3,8 @@ use kira_r2kad::domain::{Contact, NodeId, Path, SafeStateSeqNr};
 use kira_r2kad::messaging::dht::{FetchReqData, FetchRspData, StoreOk, StoreReqData, StoreRspData};
 use kira_r2kad::messaging::source_route::SourceRoute;
 use kira_r2kad::messaging::{
-    CommonHeader, ErrorData, FindNodeReqData, KiraMsgFlagsBit, ProtocolMessage,
-    PathSetupReqData, PathTeardownReqData, ProbeReqData, ProbeRspData, ProtocolMessageKind,
+    CommonHeader, ErrorData, FindNodeReqData, KiraMsgFlagsBit, PathSetupReqData,
+    PathTeardownReqData, ProbeReqData, ProbeRspData, ProtocolMessage, ProtocolMessageKind,
     QueryRouteReqData, QueryRouteType, RTableData, ReqRspMessage, RouteUpdateActionType,
     UpdateRouteReq,
 };
@@ -263,7 +263,10 @@ fn binrw_disc_rsp() {
         panic!("unexpected message type");
     };
     assert_eq!(decoded_rsp.data.contacts[0].id(), contact.id());
-    assert_eq!(decoded_rsp.data.contacts[0].state_seq_nr(), contact.state_seq_nr());
+    assert_eq!(
+        decoded_rsp.data.contacts[0].state_seq_nr(),
+        contact.state_seq_nr()
+    );
 }
 
 #[test]
@@ -312,7 +315,10 @@ fn binrw_query_route_rsp() {
         panic!("unexpected message type");
     };
     assert_eq!(decoded_rsp.data.contacts[0].id(), contact.id());
-    assert_eq!(decoded_rsp.data.contacts[0].state_seq_nr(), contact.state_seq_nr());
+    assert_eq!(
+        decoded_rsp.data.contacts[0].state_seq_nr(),
+        contact.state_seq_nr()
+    );
 }
 
 #[test]
@@ -361,7 +367,10 @@ fn binrw_find_node_rsp() {
         panic!("unexpected message type");
     };
     assert_eq!(decoded_rsp.data.contacts[0].id(), contact.id());
-    assert_eq!(decoded_rsp.data.contacts[0].state_seq_nr(), contact.state_seq_nr());
+    assert_eq!(
+        decoded_rsp.data.contacts[0].state_seq_nr(),
+        contact.state_seq_nr()
+    );
 }
 
 #[test]
@@ -413,7 +422,10 @@ fn binrw_update_route_req() {
     //Contact Timestamp/Utc made Problems, thats why we use multiple asserts instead of eq for the whole struct
     assert_eq!(decoded_req.common_header.msg_type(), header.msg_type());
     assert_eq!(decoded_req.common_header.msg_id(), header.msg_id());
-    assert_eq!(decoded_req.common_header.state_seq_num(), header.state_seq_num());
+    assert_eq!(
+        decoded_req.common_header.state_seq_num(),
+        header.state_seq_num()
+    );
     assert!(decoded_req.not_via.is_some_and(|v| v.is_empty()));
     assert_eq!(decoded_req.source_route.source(), header.src_node_id());
     assert_eq!(decoded_req.source_route.destination(), header.dest_id());
@@ -494,7 +506,9 @@ fn binrw_probe_req() {
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW.serialize(&mut buf, &msg).expect("serialize");
+    ProtocolMessageFormat::BINRW
+        .serialize(&mut buf, &msg)
+        .expect("serialize");
 
     println!("Serialized ProbeReq:");
     for byte in &buf {
@@ -534,7 +548,9 @@ fn binrw_probe_rsp() {
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW.serialize(&mut buf, &msg).expect("serialize");
+    ProtocolMessageFormat::BINRW
+        .serialize(&mut buf, &msg)
+        .expect("serialize");
 
     println!("Serialized ProbeRsp:");
     for byte in &buf {
@@ -574,7 +590,9 @@ fn binrw_path_setup_req() {
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW.serialize(&mut buf, &msg).expect("serialize");
+    ProtocolMessageFormat::BINRW
+        .serialize(&mut buf, &msg)
+        .expect("serialize");
 
     println!("Serialized PathSetupReq:");
     for byte in &buf {
@@ -614,7 +632,9 @@ fn binrw_path_teardown_req() {
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW.serialize(&mut buf, &msg).expect("serialize");
+    ProtocolMessageFormat::BINRW
+        .serialize(&mut buf, &msg)
+        .expect("serialize");
 
     println!("Serialized PathTeardownReq:");
     for byte in &buf {
@@ -651,13 +671,19 @@ fn binrw_store_req() {
 
     let msg = ProtocolMessage::StoreReq(ReqRspMessage {
         common_header: header.clone(),
-        data: StoreReqData { handle, data , last_accessed_ms: None},
+        data: StoreReqData {
+            handle,
+            data,
+            last_accessed_ms: None,
+        },
         not_via: Some(HashSet::new()),
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW.serialize(&mut buf, &msg).expect("serialize");
+    ProtocolMessageFormat::BINRW
+        .serialize(&mut buf, &msg)
+        .expect("serialize");
 
     println!("Serialized StoreReq:");
     for byte in &buf {
@@ -701,7 +727,9 @@ fn binrw_store_rsp() {
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW.serialize(&mut buf, &msg).expect("serialize");
+    ProtocolMessageFormat::BINRW
+        .serialize(&mut buf, &msg)
+        .expect("serialize");
 
     println!("Serialized StoreRsp:");
     for byte in &buf {
@@ -742,7 +770,9 @@ fn binrw_fetch_req() {
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW.serialize(&mut buf, &msg).expect("serialize");
+    ProtocolMessageFormat::BINRW
+        .serialize(&mut buf, &msg)
+        .expect("serialize");
 
     println!("Serialized FetchReq:");
     for byte in &buf {
@@ -784,7 +814,9 @@ fn binrw_fetch_rsp() {
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW.serialize(&mut buf, &msg).expect("serialize");
+    ProtocolMessageFormat::BINRW
+        .serialize(&mut buf, &msg)
+        .expect("serialize");
 
     println!("Serialized FetchRsp:");
     for byte in &buf {

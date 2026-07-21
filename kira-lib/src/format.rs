@@ -1,7 +1,7 @@
 //! Concrete serialization and deserialization implementation of
 //! [ProtocolMessages](ProtocolMessage) on a closed set of supported formats.
 
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::io::{Error as IoError, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::num::NonZeroU64;
@@ -20,22 +20,21 @@ const FETCH_STATUS_NOT_FOUND: u8 = 0x01;
 use binrw::{self, BinRead, BinWrite};
 use kira_r2kad::domain::{Contact, Link, NodeId, NotVia, Path, SafeStateSeqNr};
 use kira_r2kad::messaging::dht::{
-    LHTInput, LHTOutput, FetchErr, FetchReqData, FetchRspData, StoreOk, StoreErr,
-    StoreReqData, StoreRspData,
+    FetchErr, FetchReqData, FetchRspData, LHTInput, LHTOutput, StoreErr, StoreOk, StoreReqData,
+    StoreRspData,
 };
 use kira_r2kad::messaging::source_route::SourceRoute;
 use kira_r2kad::messaging::{
-    CommonHeader, CommonObjectHeader, ErrorData, FindNodeReqData, PathSetupReqData,
-    PathTeardownReqData, ProbeReqData, ProbeRspData, ProtocolMessage,
-    ProtocolObjectType, QueryRouteReqData, QueryRouteType, RTableData, RTableRequestTypeValue,
-    ReqRspMessage, UpdateRouteReq, KiraMsgFlagsBit, RouteUpdateActionType,
-    PROTOCOL_MSG_KIND_ULN_HELLO, PROTOCOL_MSG_KIND_ULN_DISC_REQ, PROTOCOL_MSG_KIND_ULN_DISC_RSP,
+    CommonHeader, CommonObjectHeader, ErrorData, FindNodeReqData, KiraMsgFlagsBit,
+    PROTOCOL_MSG_KIND_ERROR, PROTOCOL_MSG_KIND_FETCH_REQ, PROTOCOL_MSG_KIND_FETCH_RSP,
     PROTOCOL_MSG_KIND_FIND_NODE_REQ, PROTOCOL_MSG_KIND_FIND_NODE_RSP,
-    PROTOCOL_MSG_KIND_QUERY_ROUTE_REQ, PROTOCOL_MSG_KIND_QUERY_ROUTE_RSP,
-    PROTOCOL_MSG_KIND_PROBE_REQ, PROTOCOL_MSG_KIND_PROBE_RSP,
-    PROTOCOL_MSG_KIND_ERROR, PROTOCOL_MSG_KIND_PATH_SETUP_REQ, PROTOCOL_MSG_KIND_PATH_TEARDOWN_REQ,
-    PROTOCOL_MSG_KIND_STORE_REQ, PROTOCOL_MSG_KIND_STORE_RSP, PROTOCOL_MSG_KIND_FETCH_REQ,
-    PROTOCOL_MSG_KIND_FETCH_RSP, PROTOCOL_MSG_KIND_UPDATE_ROUTE_REQ
+    PROTOCOL_MSG_KIND_PATH_SETUP_REQ, PROTOCOL_MSG_KIND_PATH_TEARDOWN_REQ,
+    PROTOCOL_MSG_KIND_PROBE_REQ, PROTOCOL_MSG_KIND_PROBE_RSP, PROTOCOL_MSG_KIND_QUERY_ROUTE_REQ,
+    PROTOCOL_MSG_KIND_QUERY_ROUTE_RSP, PROTOCOL_MSG_KIND_STORE_REQ, PROTOCOL_MSG_KIND_STORE_RSP,
+    PROTOCOL_MSG_KIND_ULN_DISC_REQ, PROTOCOL_MSG_KIND_ULN_DISC_RSP, PROTOCOL_MSG_KIND_ULN_HELLO,
+    PROTOCOL_MSG_KIND_UPDATE_ROUTE_REQ, PathSetupReqData, PathTeardownReqData, ProbeReqData,
+    ProbeRspData, ProtocolMessage, ProtocolObjectType, QueryRouteReqData, QueryRouteType,
+    RTableData, RTableRequestTypeValue, ReqRspMessage, RouteUpdateActionType, UpdateRouteReq,
 };
 #[cfg(any(
     feature = "format-json",
@@ -165,7 +164,7 @@ fn deserialize_binrw<R: Read>(mut reader: R) -> Result<ProtocolMessage, Box<dyn 
         PROTOCOL_MSG_KIND_PATH_TEARDOWN_REQ => deserialize_path_teardown_req(header, &mut reader),
 
         PROTOCOL_MSG_KIND_ERROR => deserialize_error(header, &mut reader),
-        
+
         PROTOCOL_MSG_KIND_STORE_REQ => deserialize_store_req(header, &mut reader),
         PROTOCOL_MSG_KIND_STORE_RSP => deserialize_store_rsp(header, &mut reader),
         PROTOCOL_MSG_KIND_FETCH_REQ => deserialize_fetch_req(header, &mut reader),
@@ -377,7 +376,6 @@ fn deserialize_fetch_rsp<R: Read>(
         ProtocolMessage::FetchRsp,
     )
 }
-
 
 #[cfg(feature = "format-binrw")]
 fn deserialize_req_rsp_no_data<R: Read, T: std::fmt::Debug, M>(
@@ -945,8 +943,8 @@ fn parse_req_rsp_payload_from_bytes(
                     )));
                 }
 
-                let index = u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())?
-                    as usize;
+                let index =
+                    u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())? as usize;
                 payload_consumed += 2;
 
                 let remaining = object_length - 2;
@@ -1116,7 +1114,7 @@ fn serialize_binrw<W: Write>(
         ProtocolMessage::StoreReq(req) => serialize_store_req(writer, req),
         ProtocolMessage::StoreRsp(req) => serialize_store_rsp(writer, req),
         ProtocolMessage::FetchReq(req) => serialize_fetch_req(writer, req),
-        ProtocolMessage::FetchRsp(req) => serialize_fetch_rsp(writer, req),        
+        ProtocolMessage::FetchRsp(req) => serialize_fetch_rsp(writer, req),
         /*_ => Err(Box::new(IoError::new(
             ErrorKind::Unsupported,
             "currently not supported by binrw ",
@@ -1188,7 +1186,7 @@ fn write_error_data<W: Write>(writer: &mut W, data: &ErrorData) -> Result<usize,
             let object_length = 1 + (NodeId::SIZE * 3);
             write_common_object_header(
                 writer,
-                CommonObjectHeader::new(ProtocolObjectType::ErrorData, (object_length )as u16),
+                CommonObjectHeader::new(ProtocolObjectType::ErrorData, (object_length) as u16),
             )?;
 
             writer.write_all(&[ERROR_SEGMENT_FAILURE])?;
@@ -1280,10 +1278,7 @@ fn write_store_req_data_object<W: Write>(
     let object_length = NodeId::SIZE + 2 + data_len;
     write_common_object_header(
         writer,
-        CommonObjectHeader::new(
-            ProtocolObjectType::StoreReqData,
-            object_length as u16,
-        ),
+        CommonObjectHeader::new(ProtocolObjectType::StoreReqData, object_length as u16),
     )?;
 
     writer.write_all(&data.handle.to_be_bytes())?;
@@ -1300,7 +1295,7 @@ fn write_store_rsp_data_object<W: Write>(
 ) -> Result<usize, IoError> {
     write_common_object_header(
         writer,
-    CommonObjectHeader::new(ProtocolObjectType::StoreRspData, 1),
+        CommonObjectHeader::new(ProtocolObjectType::StoreRspData, 1),
     )?;
 
     let status = match &data.status {
@@ -1308,11 +1303,11 @@ fn write_store_rsp_data_object<W: Write>(
         Ok(StoreOk::Inserted) => STORE_STATUS_INSERTED,
         Ok(StoreOk::Updated) => STORE_STATUS_UPDATED,
         Err(StoreErr::UnexpectedError(msg)) => {
-        return Err(IoError::new(
-            ErrorKind::InvalidData,
-            format!("Cannot serialize StoreErr: {msg}"),
-        ));
-        },
+            return Err(IoError::new(
+                ErrorKind::InvalidData,
+                format!("Cannot serialize StoreErr: {msg}"),
+            ));
+        }
     };
     writer.write_all(&[status])?;
 
@@ -1326,10 +1321,7 @@ fn write_fetch_req_data_object<W: Write>(
 ) -> Result<usize, IoError> {
     write_common_object_header(
         writer,
-        CommonObjectHeader::new(
-            ProtocolObjectType::FetchReqData,
-            NodeId::SIZE as u16,
-        ),
+        CommonObjectHeader::new(ProtocolObjectType::FetchReqData, NodeId::SIZE as u16),
     )?;
     writer.write_all(&data.handle.to_be_bytes())?;
     Ok(3 + NodeId::SIZE)
@@ -1370,10 +1362,7 @@ fn write_fetch_rsp_data_object<W: Write>(
 
             write_common_object_header(
                 writer,
-                CommonObjectHeader::new(
-                    ProtocolObjectType::FetchRspData,
-                    object_length as u16,
-                ),
+                CommonObjectHeader::new(ProtocolObjectType::FetchRspData, object_length as u16),
             )?;
 
             writer.write_all(&[FETCH_STATUS_OK])?;
@@ -1717,7 +1706,7 @@ fn parse_rtable_update_info_from_bytes(
                         return Err(Box::new(IoError::new(
                             ErrorKind::InvalidData,
                             format!("unknown rtable update action {:#x}", other),
-                        )))
+                        )));
                     }
                 };
 
