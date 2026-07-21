@@ -6,14 +6,12 @@ use std::num::NonZeroU64;
 
 use derive_more::derive::Display;
 
-<<<<<<< HEAD
+
 use crate::domain::{Contact, Link, NodeId, NotViaList, StateSeqNr, state_seq_nr};
-=======
+
 #[cfg(feature = "binrw")]
 use binrw::{BinRead, BinWrite};
 
-use crate::domain::{Contact, Link, NodeId, NotVia, StateSeqNr, state_seq_nr};
->>>>>>> a3b1f94 (Implemented BinRW functionality for ULNHello, added test)
 use crate::messaging::dht::{
     FetchReqData, FetchRspData, LHTInput, LHTOutput, StoreReqData, StoreRspData,
 };
