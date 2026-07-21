@@ -1,6 +1,6 @@
 use kira_lib::format::ProtocolMessageFormat;
 use kira_r2kad::domain::{Contact, NodeId, Path, SafeStateSeqNr};
-use kira_r2kad::messaging::dht::{FetchReqData, FetchRspData, StoreOK, StoreReqData, StoreRspData};
+use kira_r2kad::messaging::dht::{FetchReqData, FetchRspData, StoreOk, StoreReqData, StoreRspData};
 use kira_r2kad::messaging::source_route::SourceRoute;
 use kira_r2kad::messaging::{
     CommonHeader, ErrorData, FindNodeReqData, KiraMsgFlagsBit, ProtocolMessage,
@@ -67,7 +67,7 @@ fn binrw_discreq() {
         data: RTableData {
             contacts: vec![contact.clone()],
         },
-        not_via: HashSet::new(),
+        not_via: Some(HashSet::new()),
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
     };
 
@@ -105,7 +105,7 @@ fn binrw_discreq() {
     assert_eq!(hdr.src_node_degree(), header.src_node_degree());
     assert!(hdr.msg_length() >= 55u16);
 
-    assert!(decoded_req.not_via.is_empty());
+    assert!(decoded_req.not_via.as_ref().is_some_and(|v| v.is_empty()));
 
     let got = &decoded_req.data.contacts[0];
     assert_eq!(got.id(), contact.id());
@@ -133,7 +133,7 @@ fn binrw_query_route_req() {
         data: QueryRouteReqData {
             query_type: QueryRouteType::UnderlayNeighbors,
         },
-        not_via: HashSet::new(),
+        not_via: Some(HashSet::new()),
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
     };
 
@@ -186,7 +186,7 @@ fn binrw_find_node_req() {
             neighborhood: NonZeroU64::new(3).unwrap(),
             target: *header.dest_id(),
         },
-        not_via: HashSet::new(),
+        not_via: Some(HashSet::new()),
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
     };
 
@@ -239,7 +239,7 @@ fn binrw_disc_rsp() {
         data: RTableData {
             contacts: vec![contact.clone()],
         },
-        not_via: HashSet::new(),
+        not_via: Some(HashSet::new()),
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
     });
 
@@ -288,7 +288,7 @@ fn binrw_query_route_rsp() {
         data: RTableData {
             contacts: vec![contact.clone()],
         },
-        not_via: HashSet::new(),
+        not_via: Some(HashSet::new()),
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
     });
 
@@ -337,7 +337,7 @@ fn binrw_find_node_rsp() {
         data: RTableData {
             contacts: vec![contact.clone()],
         },
-        not_via: HashSet::new(),
+        not_via: Some(HashSet::new()),
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
     });
 
@@ -386,7 +386,7 @@ fn binrw_update_route_req() {
 
     let msg = ProtocolMessage::UpdateRouteReq(UpdateRouteReq {
         common_header: header.clone(),
-        not_via: HashSet::new(),
+        not_via: Some(HashSet::new()),
         contact_actions: contact_actions.clone(),
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
     });
@@ -414,7 +414,7 @@ fn binrw_update_route_req() {
     assert_eq!(decoded_req.common_header.msg_type(), header.msg_type());
     assert_eq!(decoded_req.common_header.msg_id(), header.msg_id());
     assert_eq!(decoded_req.common_header.state_seq_num(), header.state_seq_num());
-    assert!(decoded_req.not_via.is_empty());
+    assert!(decoded_req.not_via.is_some_and(|v| v.is_empty()));
     assert_eq!(decoded_req.source_route.source(), header.src_node_id());
     assert_eq!(decoded_req.source_route.destination(), header.dest_id());
     assert_eq!(decoded_req.contact_actions.len(), 1);
@@ -443,7 +443,7 @@ fn binrw_error_dead_end() {
     let msg = ProtocolMessage::Error(ReqRspMessage {
         common_header: header.clone(),
         data: ErrorData::DeadEnd,
-        not_via: HashSet::new(),
+        not_via: Some(HashSet::new()),
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
     });
 
@@ -467,7 +467,7 @@ fn binrw_error_dead_end() {
     };
 
     assert!(matches!(decoded_error.data, ErrorData::DeadEnd));
-    assert!(decoded_error.not_via.is_empty());
+    assert!(decoded_error.not_via.is_some_and(|v| v.is_empty()));
     assert_eq!(decoded_error.common_header.msg_type(), header.msg_type());
     assert_eq!(decoded_error.common_header.msg_id(), header.msg_id());
     assert_eq!(decoded_error.source_route.source(), header.src_node_id());
@@ -489,7 +489,7 @@ fn binrw_probe_req() {
     let msg = ProtocolMessage::ProbeReq(ReqRspMessage {
         common_header: header.clone(),
         data: ProbeReqData,
-        not_via: HashSet::new(),
+        not_via: Some(HashSet::new()),
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
     });
 
@@ -529,7 +529,7 @@ fn binrw_probe_rsp() {
     let msg = ProtocolMessage::ProbeRsp(ReqRspMessage {
         common_header: header.clone(),
         data: ProbeRspData,
-        not_via: HashSet::new(),
+        not_via: Some(HashSet::new()),
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
     });
 
@@ -569,7 +569,7 @@ fn binrw_path_setup_req() {
     let msg = ProtocolMessage::PathSetupReq(ReqRspMessage {
         common_header: header.clone(),
         data: PathSetupReqData,
-        not_via: HashSet::new(),
+        not_via: Some(HashSet::new()),
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
     });
 
@@ -609,7 +609,7 @@ fn binrw_path_teardown_req() {
     let msg = ProtocolMessage::PathTeardownReq(ReqRspMessage {
         common_header: header.clone(),
         data: PathTeardownReqData,
-        not_via: HashSet::new(),
+        not_via: Some(HashSet::new()),
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
     });
 
@@ -651,8 +651,8 @@ fn binrw_store_req() {
 
     let msg = ProtocolMessage::StoreReq(ReqRspMessage {
         common_header: header.clone(),
-        data: StoreReqData { handle, data },
-        not_via: HashSet::new(),
+        data: StoreReqData { handle, data , last_accessed_ms: None},
+        not_via: Some(HashSet::new()),
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
     });
 
@@ -675,6 +675,7 @@ fn binrw_store_req() {
 
     assert_eq!(decoded_req.common_header.msg_id(), header.msg_id());
     assert_eq!(decoded_req.data.handle, handle);
+    assert_eq!(decoded_req.data.last_accessed_ms, None);
     assert_eq!(&*decoded_req.data.data, &[0x01u8, 0x02, 0x03]);
 }
 
@@ -693,9 +694,9 @@ fn binrw_store_rsp() {
     let msg = ProtocolMessage::StoreRsp(ReqRspMessage {
         common_header: header.clone(),
         data: StoreRspData {
-            status: Ok(StoreOK::Inserted),
+            status: Ok(StoreOk::Inserted),
         },
-        not_via: HashSet::new(),
+        not_via: Some(HashSet::new()),
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
     });
 
@@ -717,7 +718,7 @@ fn binrw_store_rsp() {
     };
 
     assert_eq!(decoded_rsp.common_header.msg_id(), header.msg_id());
-    assert!(matches!(decoded_rsp.data.status, Ok(StoreOK::Inserted)));
+    assert!(matches!(decoded_rsp.data.status, Ok(StoreOk::Inserted)));
 }
 
 #[test]
@@ -736,7 +737,7 @@ fn binrw_fetch_req() {
     let msg = ProtocolMessage::FetchReq(ReqRspMessage {
         common_header: header.clone(),
         data: FetchReqData { handle },
-        not_via: HashSet::new(),
+        not_via: Some(HashSet::new()),
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
     });
 
@@ -778,7 +779,7 @@ fn binrw_fetch_rsp() {
         data: FetchRspData {
             data: Ok(vec![Arc::from(vec![0x0a, 0x0b]), Arc::from(vec![0x0c])]),
         },
-        not_via: HashSet::new(),
+        not_via: Some(HashSet::new()),
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
     });
 

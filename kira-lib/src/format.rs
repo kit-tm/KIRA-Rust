@@ -20,7 +20,7 @@ const FETCH_STATUS_NOT_FOUND: u8 = 0x01;
 use binrw::{self, BinRead, BinWrite};
 use kira_r2kad::domain::{Contact, Link, NodeId, NotVia, Path, SafeStateSeqNr};
 use kira_r2kad::messaging::dht::{
-    DefaultLHTInput, DefaultLHTOutput, FetchErr, FetchReqData, FetchRspData, StoreOK,
+    LHTInput, LHTOutput, FetchErr, FetchReqData, FetchRspData, StoreOk, StoreErr,
     StoreReqData, StoreRspData,
 };
 use kira_r2kad::messaging::source_route::SourceRoute;
@@ -207,7 +207,7 @@ fn deserialize_error<R: Read>(
     Ok(ProtocolMessage::Error(ReqRspMessage {
         common_header: header,
         data,
-        not_via: parsed.not_via,
+        not_via: Option::from(parsed.not_via),
         source_route,
     }))
 }
@@ -395,7 +395,7 @@ where
     Ok(msg_type(ReqRspMessage {
         common_header: header,
         data,
-        not_via: parsed.not_via,
+        not_via: Option::from(parsed.not_via),
         source_route,
     }))
 }
@@ -419,7 +419,7 @@ where
     Ok(msg_type(ReqRspMessage {
         common_header: header,
         data,
-        not_via: parsed.not_via,
+        not_via: Option::from(parsed.not_via),
         source_route,
     }))
 }
@@ -427,7 +427,7 @@ where
 #[cfg(feature = "format-binrw")]
 fn parse_store_req_data_from_bytes(
     payload: &[u8],
-) -> Result<StoreReqData<DefaultLHTInput>, Box<dyn Error>> {
+) -> Result<StoreReqData<LHTInput>, Box<dyn Error>> {
     let mut payload_cursor = binrw::io::Cursor::new(payload);
     let payload_len = payload.len();
     let mut payload_consumed = 0;
@@ -474,6 +474,7 @@ fn parse_store_req_data_from_bytes(
                 return Ok(StoreReqData {
                     handle: NodeId::from(handle),
                     data: Arc::from(data),
+                    last_accessed_ms: None, // last_accessed_ms is not included in the wire format for store-req-data, TODO?
                 });
             }
             _ => {
@@ -522,9 +523,9 @@ fn parse_store_rsp_data_from_bytes(payload: &[u8]) -> Result<StoreRspData, Box<d
 
                 let status = u8::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
                 let status = match status {
-                    STORE_STATUS_CREATED => Ok(StoreOK::Created),
-                    STORE_STATUS_INSERTED => Ok(StoreOK::Inserted),
-                    STORE_STATUS_UPDATED => Ok(StoreOK::Updated),
+                    STORE_STATUS_CREATED => Ok(StoreOk::Created),
+                    STORE_STATUS_INSERTED => Ok(StoreOk::Inserted),
+                    STORE_STATUS_UPDATED => Ok(StoreOk::Updated),
                     other => {
                         return Err(Box::new(IoError::new(
                             ErrorKind::InvalidData,
@@ -603,7 +604,7 @@ fn parse_fetch_req_data_from_bytes(payload: &[u8]) -> Result<FetchReqData, Box<d
 #[cfg(feature = "format-binrw")]
 fn parse_fetch_rsp_data_from_bytes(
     payload: &[u8],
-) -> Result<FetchRspData<DefaultLHTOutput>, Box<dyn Error>> {
+) -> Result<FetchRspData<LHTOutput>, Box<dyn Error>> {
     let mut payload_cursor = binrw::io::Cursor::new(payload);
     let payload_len = payload.len();
     let mut payload_consumed = 0;
@@ -724,7 +725,7 @@ fn deserialize_uln_disc_rsp<R: Read>(
         data: RTableData {
             contacts: parsed.contacts,
         },
-        not_via: parsed.not_via,
+        not_via: Option::from(parsed.not_via),
         source_route,
     }))
 }
@@ -751,7 +752,7 @@ fn deserialize_uln_disc_req<R: Read>(
         data: RTableData {
             contacts: parsed.contacts,
         },
-        not_via: parsed.not_via,
+        not_via: Option::from(parsed.not_via),
         source_route,
     }))
 }
@@ -784,7 +785,7 @@ fn deserialize_query_route_req<R: Read>(
     Ok(ProtocolMessage::QueryRouteReq(ReqRspMessage {
         common_header: header,
         data: QueryRouteReqData { query_type },
-        not_via: parsed.not_via,
+        not_via: Option::from(parsed.not_via),
         source_route,
     }))
 }
@@ -802,7 +803,7 @@ fn deserialize_query_route_rsp<R: Read>(
         data: RTableData {
             contacts: parsed.contacts,
         },
-        not_via: parsed.not_via,
+        not_via: Option::from(parsed.not_via),
         source_route,
     }))
 }
@@ -837,7 +838,7 @@ fn deserialize_find_node_req<R: Read>(
             neighborhood,
             target,
         },
-        not_via: parsed.not_via,
+        not_via: Option::from(parsed.not_via),
         source_route,
     }))
 }
@@ -855,7 +856,7 @@ fn deserialize_find_node_rsp<R: Read>(
         data: RTableData {
             contacts: parsed.contacts,
         },
-        not_via: parsed.not_via,
+        not_via: Option::from(parsed.not_via),
         source_route,
     }))
 }
@@ -872,7 +873,7 @@ fn deserialize_update_route_req<R: Read>(
 
     Ok(ProtocolMessage::UpdateRouteReq(UpdateRouteReq {
         common_header: header,
-        not_via: parsed.not_via,
+        not_via: Option::from(parsed.not_via),
         contact_actions,
         source_route,
     }))
@@ -993,11 +994,16 @@ fn parse_req_rsp_payload_from_bytes(
 
                 let entries = object_length / 32;
                 for _ in 0..entries {
+                    use kira_r2kad::domain::Age;
+
                     let mut src = [0u8; NodeId::SIZE];
                     let mut dst = [0u8; NodeId::SIZE];
                     payload_cursor.read_exact(&mut src)?;
                     payload_cursor.read_exact(&mut dst)?;
-                    not_via.insert(NotVia::Link(Link::new(NodeId::from(src), NodeId::from(dst))));
+                    let link = Link::new(NodeId::from(src), NodeId::from(dst));
+                    let age = Age::from(0);
+                    let new_entry = NotVia::from((link, age));
+                    not_via.insert(new_entry);
                 }
                 payload_consumed += object_length;
             }
@@ -1110,10 +1116,11 @@ fn serialize_binrw<W: Write>(
         ProtocolMessage::StoreReq(req) => serialize_store_req(writer, req),
         ProtocolMessage::StoreRsp(req) => serialize_store_rsp(writer, req),
         ProtocolMessage::FetchReq(req) => serialize_fetch_req(writer, req),
-        ProtocolMessage::FetchRsp(req) => serialize_fetch_rsp(writer, req),        _ => Err(Box::new(IoError::new(
+        ProtocolMessage::FetchRsp(req) => serialize_fetch_rsp(writer, req),        
+        /*_ => Err(Box::new(IoError::new(
             ErrorKind::Unsupported,
             "currently not supported by binrw ",
-        ))),
+        ))),*/
     }
 }
 
@@ -1197,7 +1204,7 @@ fn write_error_data<W: Write>(writer: &mut W, data: &ErrorData) -> Result<usize,
 #[cfg(feature = "format-binrw")]
 fn serialize_store_req<W: Write>(
     writer: W,
-    req: &ReqRspMessage<StoreReqData<DefaultLHTInput>>,
+    req: &ReqRspMessage<StoreReqData<LHTInput>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     serialize_req_rsp_with_data_obj(writer, req, write_store_req_data_object)
 }
@@ -1221,7 +1228,7 @@ fn serialize_fetch_req<W: Write>(
 #[cfg(feature = "format-binrw")]
 fn serialize_fetch_rsp<W: Write>(
     writer: W,
-    req: &ReqRspMessage<FetchRspData<DefaultLHTOutput>>,
+    req: &ReqRspMessage<FetchRspData<LHTOutput>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     serialize_req_rsp_with_data_obj(writer, req, write_fetch_rsp_data_object)
 }
@@ -1260,7 +1267,7 @@ where
 #[cfg(feature = "format-binrw")]
 fn write_store_req_data_object<W: Write>(
     writer: &mut W,
-    data: &StoreReqData<DefaultLHTInput>,
+    data: &StoreReqData<LHTInput>,
 ) -> Result<usize, IoError> {
     let data_len = data.data.len();
     if data_len > u16::MAX as usize {
@@ -1297,10 +1304,15 @@ fn write_store_rsp_data_object<W: Write>(
     )?;
 
     let status = match &data.status {
-        Ok(StoreOK::Created) => STORE_STATUS_CREATED,
-        Ok(StoreOK::Inserted) => STORE_STATUS_INSERTED,
-        Ok(StoreOK::Updated) => STORE_STATUS_UPDATED,
-        Err(other) => match *other {},
+        Ok(StoreOk::Created) => STORE_STATUS_CREATED,
+        Ok(StoreOk::Inserted) => STORE_STATUS_INSERTED,
+        Ok(StoreOk::Updated) => STORE_STATUS_UPDATED,
+        Err(StoreErr::UnexpectedError(msg)) => {
+        return Err(IoError::new(
+            ErrorKind::InvalidData,
+            format!("Cannot serialize StoreErr: {msg}"),
+        ));
+        },
     };
     writer.write_all(&[status])?;
 
@@ -1326,7 +1338,7 @@ fn write_fetch_req_data_object<W: Write>(
 #[cfg(feature = "format-binrw")]
 fn write_fetch_rsp_data_object<W: Write>(
     writer: &mut W,
-    data: &FetchRspData<DefaultLHTOutput>,
+    data: &FetchRspData<LHTOutput>,
 ) -> Result<usize, IoError> {
     match &data.data {
         Ok(values) => {
@@ -1578,12 +1590,17 @@ fn collect_route_nodes(source_route: &SourceRoute) -> Result<Vec<NodeId>, IoErro
 #[cfg(feature = "format-binrw")]
 fn write_notvialist_object<W: Write>(
     writer: &mut W,
-    not_via: &HashSet<NotVia>,
+    not_via: &Option<HashSet<NotVia>>,
 ) -> Result<usize, IoError> {
     let mut links: Vec<Link> = Vec::new();
-    for entry in not_via {
-        let NotVia::Link(link) = entry;
-        links.push(link.clone());
+    match not_via {
+        Some(not_via_set) => {
+            for entry in not_via_set {
+                let link = entry.link.clone();
+                links.push(link);
+            }
+        }
+        None => {}
     }
 
     if links.is_empty() {
@@ -1710,7 +1727,6 @@ fn parse_rtable_update_info_from_bytes(
                 entries_consumed += NodeId::SIZE + 4 + 1;
             }
 
-            payload_consumed += object_length;
             return Ok(result);
         } else {
             payload_cursor.seek(SeekFrom::Current(object_length as i64))?;
