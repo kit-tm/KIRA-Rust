@@ -38,7 +38,7 @@ fn binrw_hello() {
 
     println!("Serialized ULNHello:");
 
-    for (_i, byte) in buf.iter().enumerate() {
+    for byte in buf.iter() {
         print!("{:02x} ", byte);
     }
     println!();
@@ -144,7 +144,7 @@ fn binrw_query_route_req() {
 
     println!("Serialized QueryRouteReq:");
 
-    for (_i, byte) in buf.iter().enumerate() {
+    for byte in buf.iter() {
         print!("{:02x} ", byte);
     }
     println!();
@@ -197,7 +197,7 @@ fn binrw_find_node_req() {
 
     println!("Serialized FindNodeReq:");
 
-    for (_i, byte) in buf.iter().enumerate() {
+    for byte in buf.iter() {
         print!("{:02x} ", byte);
     }
     println!();
@@ -250,7 +250,7 @@ fn binrw_disc_rsp() {
 
     println!("Serialized ULNDiscRsp:");
 
-    for (_i, byte) in buf.iter().enumerate() {
+    for byte in buf.iter() {
         print!("{:02x} ", byte);
     }
     println!();
@@ -302,7 +302,7 @@ fn binrw_query_route_rsp() {
 
     println!("Serialized QueryRouteRsp:");
 
-    for (_i, byte) in buf.iter().enumerate() {
+    for byte in buf.iter() {
         print!("{:02x} ", byte);
     }
     println!();
@@ -354,7 +354,7 @@ fn binrw_find_node_rsp() {
 
     println!("Serialized FindNodeRsp:");
 
-    for (_i, byte) in buf.iter().enumerate() {
+    for byte in buf.iter() {
         print!("{:02x} ", byte);
     }
     println!();
