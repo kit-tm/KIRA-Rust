@@ -39,7 +39,13 @@ futures = { workspace = true }
 log = { workspace = true }
 kira-r2kad = { path = "../kira-r2kad", features = ["serde"] }
 kira-forwarding = { path = "../kira-forwarding", default-features = false }
-tokio = { workspace = true, features = ["rt", "time", "tracing", "sync"] }
+tokio = { workspace = true, features = [
+  "rt",
+  "time",
+  "tracing",
+  "sync",
+  "macros",
+] }
 netlink-packet-core = { workspace = true }
 netlink-packet-route = { workspace = true }
 netlink-proto = { workspace = true }
@@ -61,7 +67,7 @@ itertools = { version = "0.13.0", optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 trait-variant = { workspace = true }
 
-binrw = { workspace = true, optional = true}
+binrw = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow = "1.0.88"

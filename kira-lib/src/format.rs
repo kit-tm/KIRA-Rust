@@ -50,12 +50,12 @@ pub enum ProtocolMessageFormat {
     None,
 }
 
+#[cfg(feature = "format-binrw")]
 impl Default for ProtocolMessageFormat {
     /// Defaults to [Self::BINRW].
     ///
     /// You must explicitly enable a [ProtocolMessageFormat] if wanted.
     fn default() -> Self {
-        #[cfg(feature = "format-binrw")]
         Self::BINRW
     }
 }
