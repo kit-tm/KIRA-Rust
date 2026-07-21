@@ -50,7 +50,7 @@ git clone git@gitlab.kit.edu:kit/tm/telematics/kira/kira-rust.git
 |:---------------------------|:----------------------------------------------|:------------------------------------------------------------------------------------------------------------------|
 | Build (release)            | `make build-release`, `cargo build --release` | Compiles the daemon with release profile and creates an executable                                                |
 | Build (docker)             | `make build-images`                           | Compiles and builds scratch and benchmark docker images (no rust install required)                                |
-| Install Daemon             | `make install`                                | Compiles the daemon with release profile and installs it in the system                                            |
+| Install Daemon             | `sudo make install`                           | Compiles the daemon with release profile and installs it in the system                                            |
 
 ### Dependencies
 
@@ -70,8 +70,8 @@ To Run the task on a physical host we recommend using the provided
 
 ### Installation
 
-1. `make install`: install the daemon and its files to the system
-2. `systemctl daemon-reload`: make systemd pickup newly installed unit files
+1. `make build-release`: Build the release version of `kirad`
+2. `sudo make install`: install the daemon and its files to the system
 
 #### Manage all interfaces
 

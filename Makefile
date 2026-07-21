@@ -13,52 +13,54 @@ BIN_DIR = $(PREFIX)/bin
 SHARE_DIR = $(PREFIX)/share/$(PKGNAME)
 
 
-.PHONY: build build-release install uninstall test doc
-
 default: build
 
+.PHONY: build
 build:
 	cargo build
 
-build-release:
+$(BIN_PATH):
 	cargo build --release
 
+.PHONY: build-release
+build-release: # force rebuild of release binary
+	cargo build --release
 
-.PHONY: install-bin install-data
-install: install-bin install-data
+.PHONY: install
+install: $(PKG_PREFIX)/kirad.service $(PKG_PREFIX)/kirad@.service $(DATA_PREFIX)/nftables.conf $(BIN_PATH)
+	$(INSTALL) -m 755 -d $(SYSTEMD_DIR)
+	$(INSTALL) -m 644 $(PKG_PREFIX)/kirad.service $(SYSTEMD_DIR)/kirad.service
+	$(INSTALL) -m 644 $(PKG_PREFIX)/kirad@.service $(SYSTEMD_DIR)/kirad@.service
+	systemctl daemon-reload
 
-install-bin: build-release
+	$(INSTALL) -m 755 -d $(SHARE_DIR)
+	$(INSTALL) -m 644 $(DATA_PREFIX)/nftables.conf $(SHARE_DIR)/nftables.conf
+
 	$(INSTALL) -m 755 $(BIN_PATH) $(BIN_DIR)
 
 $(PKG_PREFIX)/%: $(PKG_PREFIX)/%.m4
 	m4 -D BIN_DIR=$(BIN_DIR) -D SHARE_DIR=$(SHARE_DIR) $< > $@
 
-install-data: $(PKG_PREFIX)/kirad.service $(PKG_PREFIX)/kirad@.service $(DATA_PREFIX)/nftables.conf
-	mkdir -p $(SYSTEMD_DIR)
-	$(INSTALL) -m 644 $(PKG_PREFIX)/kirad.service $(SYSTEMD_DIR)/kirad.service
-	$(INSTALL) -m 644 $(PKG_PREFIX)/kirad@.service $(SYSTEMD_DIR)/kirad@.service
-
-	mkdir -p $(SHARE_DIR)
-	$(INSTALL) -m 644 $(DATA_PREFIX)/nftables.conf $(SHARE_DIR)/nftables.conf
-
-.PHONY: uninstall-bin uninstall-data
-uninstall: uninstall-bin uninstall-data
-
-uninstall-bin:
+.PHONY: uninstall
+uninstall:
 	rm $(BIN_DIR)/kirad
 
-uninstall-data:
 	rm $(SYSTEMD_DIR)/kirad.service
 	rm $(SYSTEMD_DIR)/kirad@.service
+	systemctl daemon-reload
+
 	rm -r $(SHARE_DIR)/
 
 
+
 DOCFLAGS = --all-features --open --no-deps
+.PHONY: doc
 doc: lib-doc r2kad-doc forwarding-doc
 %-doc:
 	cargo doc --package=kira-$* $(DOCFLAGS)
 
 
+.PHONY: test
 test: test-lib test-r2kad test-forwarding 
 test-%:
 	cargo test --package=kira-$*
