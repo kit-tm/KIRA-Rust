@@ -79,12 +79,12 @@ pub enum ProtocolMessageFormat {
 }
 
 impl Default for ProtocolMessageFormat {
-    /// Defaults to [Self::CBOR].
+    /// Defaults to [Self::BINRW].
     ///
     /// You must explicitly enable a [ProtocolMessageFormat] if wanted.
     fn default() -> Self {
-        #[cfg(feature = "format-cbor")]
-        Self::CBOR
+        #[cfg(feature = "format-binrw")]
+        Self::BINRW
     }
 }
 
