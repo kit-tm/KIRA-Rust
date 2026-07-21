@@ -948,7 +948,7 @@ fn parse_req_rsp_payload_from_bytes(
                 payload_consumed += 2;
 
                 let remaining = object_length - 2;
-                if remaining % NodeId::SIZE != 0 {
+                if !remaining.is_multiple_of(NodeId::SIZE) {
                     return Err(Box::new(IoError::new(
                         ErrorKind::InvalidData,
                         "source route object has invalid length",
@@ -983,7 +983,7 @@ fn parse_req_rsp_payload_from_bytes(
                 source_route = Some(sr);
             }
             ProtocolObjectType::NotViaList => {
-                if object_length % 32 != 0 {
+                if !object_length.is_multiple_of(32) {
                     return Err(Box::new(IoError::new(
                         ErrorKind::InvalidData,
                         "notvialist object has invalid length",
@@ -1006,7 +1006,7 @@ fn parse_req_rsp_payload_from_bytes(
                 payload_consumed += object_length;
             }
             ProtocolObjectType::ContactList => {
-                if object_length % 24 != 0 {
+                if !object_length.is_multiple_of(24) {
                     return Err(Box::new(IoError::new(
                         ErrorKind::InvalidData,
                         "contactlist object has invalid length",
@@ -1582,14 +1582,11 @@ fn write_notvialist_object<W: Write>(
     not_via: &Option<HashSet<NotVia>>,
 ) -> Result<usize, IoError> {
     let mut links: Vec<Link> = Vec::new();
-    match not_via {
-        Some(not_via_set) => {
-            for entry in not_via_set {
-                let link = entry.link.clone();
-                links.push(link);
-            }
+    if let Some(not_via_set) = not_via {
+        for entry in not_via_set {
+            let link = entry.link.clone();
+            links.push(link);
         }
-        None => {}
     }
 
     if links.is_empty() {
