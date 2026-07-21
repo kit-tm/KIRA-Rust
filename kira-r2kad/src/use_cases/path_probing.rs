@@ -241,8 +241,10 @@ where
             assert!(nonce.is_some(), "called invalidate without timer existence");
             let nonce = nonce.unwrap();
             let contact_ts_tuple = requests_in_flight.remove(&nonce);
-            let (contacts_id, _) = contact_ts_tuple
-                .expect("It's assumed that for every timer entry a request entry exists");
+            let Some((contacts_id, _)) = contact_ts_tuple else {
+                // it may be that the contact has been removed meanwhile
+                return;
+            };
             let mut lock = context.routing_table_mut();
             match lock.contact_mut(&contacts_id) {
                 Some(mut contact) => {
@@ -550,14 +552,28 @@ where
                 self.send_probe_rsp(context, req);
             }
             UseCaseEvent::Contact(contact_event) => {
-                if let ContactEvent::Updated { new, old } = *contact_event {
-                    // in case there is a new proposed path present, schedule probing for proposed path in case it is not a ULN
-                    if old.proposed_path().is_none()
-                        && new.proposed_path().is_some()
-                        && new.proposed_path().unwrap().size() > 1
-                    {
-                        self.schedule_path_probe_req(context, &new);
+                match *contact_event {
+                    ContactEvent::Updated { new, old } => {
+                        // in case there is a new proposed path present, schedule probing for proposed path in case it is not a ULN
+                        if old.proposed_path().is_none()
+                            && new.proposed_path().is_some()
+                            && new.proposed_path().unwrap().size() > 1
+                        {
+                            self.schedule_path_probe_req(context, &new);
+                        }
                     }
+                    ContactEvent::Removed(contact) => {
+                        // remove from scheduled requests then
+                        if let PathProbingState::Running {
+                            scheduled_probe_requests,
+                            ..
+                        } = &mut self.state
+                        {
+                            scheduled_probe_requests.remove(contact.id());
+                            // inflight requests will either trigger timeout or a response coming back later
+                        }
+                    }
+                    _ => {}
                 }
             }
             _ => {}
