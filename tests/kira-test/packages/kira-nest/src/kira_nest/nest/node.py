@@ -132,8 +132,6 @@ class KIRANode(Node):
         self.config: NodeConfig = config
         self.__node_id: NodeID | None = None
 
-        # TODO: start node
-
     def exec(
         self, cmd: str, env_vars: dict | None = None, logfile: Any = None
     ) -> Popen:
@@ -166,8 +164,10 @@ class KIRANode(Node):
         log_path.mkdir(parents=True, exist_ok=True)
         return log_path
 
-    def start(self, binary: pathlib.Path, *args: str) -> Popen:
-        logfile = self.log_path / f"{self}.log"
+    def start(
+        self, binary: pathlib.Path, wrapper: str | None = None, *args: str
+    ) -> Popen:
+        logfile = self.log_path / f"{self:02}.log"
         env_vars = os.environ.copy()
         env_vars["RUST_LOG_STYLE"] = "never"
         env_vars["NO_COLOR"] = "1"
@@ -179,8 +179,9 @@ class KIRANode(Node):
             open(logfile, "w") as f,
             importlib.resources.as_file(NFTABLES_CONF) as nftables_conf,
         ):
+            wrapper = f"{wrapper} -- " if wrapper else ""
             return self.exec(
-                f"'{binary}' --root-id '{self.config.node_id}'"
+                f"{wrapper}'{binary}' --root-id '{self.config.node_id}'"
                 f" --nftables-conf {nftables_conf} {arg} && exit",
                 logfile=f,
                 env_vars=env_vars,

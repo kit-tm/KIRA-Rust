@@ -1,4 +1,6 @@
 import argparse
+import logging
+import subprocess
 import sys
 from pathlib import Path
 
@@ -11,6 +13,10 @@ from kira_nest.unshare import probe_netns_cap, unshare_emulation
 ERR_CMD_FAILED = 1
 ERR_UNSHARE_FAILED = 2
 ERR_PERM = 3
+
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -33,6 +39,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=REPO_ROOT / "target" / "debug" / "kirad",
         type=Path,
         help="path to kirad binary",
+    )
+    parser.add_argument(
+        "--flamegraph",
+        nargs="*",
+        help="Create flamegraph for node with tid",
     )
     parser.add_argument(
         "filename",
@@ -68,7 +79,7 @@ def run_shell() -> None:
 
     # Create and run the test
 
-    test = KIRATest[str](graph, kirad_binary=args.binary)
+    test = KIRATest[str](graph, kirad_binary=args.binary, perf=args.flamegraph)
     shell = DebugShell(test, unshared)
     shell.quiet = args.quiet
 
@@ -88,6 +99,25 @@ def run_shell() -> None:
     else:
         # interactive
         shell.cmdloop()
+
+    # Directly generating the svg with flamegraph
+    # doesn't work because of the ungraceful stop by NeST
+    # => perf then generate flamegraph
+    if args.flamegraph:
+        logger.info("Generating flamegraphs")
+        for tid in args.flamegraph:
+            node = test.topology.nodes[tid]
+            subprocess.run(
+                [
+                    "flamegraph",
+                    "-o",
+                    f"log/flamegraph-{node}.svg",
+                    "--perfdata",
+                    f"log/perf-{node}.data",
+                    "--subtitle",
+                    "kirad@k18",
+                ]
+            )
 
     exit_code = ERR_CMD_FAILED if shell.failure else 0
     sys.exit(exit_code)
