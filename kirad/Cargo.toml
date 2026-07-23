@@ -87,20 +87,9 @@ name = "kirad"
 maintainer = "Roland Bless <roland.bless@kit.edu>"
 copyright = "Karlsruhe Institute of Technology (c) 2026. All rights reserved."
 license-file = ["../LICENSE", "4"]
-depends = "$auto, nftables"
+depends = "$auto"
 extended-description = ""
 section = "net"
-assets = [
-  [
-    "target/release/kirad",
-    "/usr/bin/kirad",
-    "755",
-  ],
-  [
-    "conf/nftables.conf",
-    "/usr/share/kira/nftables.conf",
-    "644",
-  ],
-]
+assets = [["target/release/kirad", "/usr/bin/kirad", "755"]]
 maintainer-scripts = "../pkg/"
-systemd-units = { enable = false } #, enable = false, start = false }
+systemd-units = { enable = false }                                             #, enable = false, start = false }

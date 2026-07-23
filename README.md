@@ -71,12 +71,6 @@ git clone git@gitlab.kit.edu:kit/tm/telematics/kira/kira-rust.git
 - [dpkg-shlibdeps](https://pkgs.org/search/?q=%2Fusr%2Fbin%2Fdpkg-shlibdeps):
   Build Debian packages.
 
-
-### Runtime Dependencies
-
-- _Userspace_ utilities of [nftables](https://wiki.nftables.org/wiki-nftables/index.php/Main_Page#Installing_nftables):
-  The daemon must have access to the `nft` utility to load the [`nftables.conf`](kirad/conf/nftables.conf).
-
 ## Running on physical hosts
 
 To run the task on a physical host we recommend using the provided
@@ -123,6 +117,9 @@ You should install the following additional dependencies for development:
   make sure your Rust code conforms the set style guide.
 - [rust-analyzer](https://rust-analyzer.github.io/book/installation.html):
   Language server for your favorite IDE (optional).
+- _Userspace_ utilities of [nftables](https://wiki.nftables.org/wiki-nftables/index.php/Main_Page#Installing_nftables):
+  [`kira-test`] uses the `nft` utility to query to current state of the forwarding tier;
+  Generally handy for debugging the forwarding tier.
 
 If you want to contribute to the Python-based emulation powered by [NeST]
 at [`kira-test`](tests/kira-test), you should additionally install the used

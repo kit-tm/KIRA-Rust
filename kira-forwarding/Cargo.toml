@@ -13,6 +13,7 @@ nft = ["netlink"]
 netlink = [
   "netlink-proto",
   "netlink-packet-core",
+  "netlink-packet-netfilter",
   "netlink-packet-route",
   "netlink-packet-utils",
   "futures",
@@ -27,6 +28,7 @@ tracing = { workspace = true, features = ["attributes"] }
 derive_more = { workspace = true }
 netlink-proto = { workspace = true, optional = true }
 netlink-packet-core = { workspace = true, optional = true }
+netlink-packet-netfilter = { workspace = true, optional = true }
 netlink-packet-route = { workspace = true, optional = true }
 netlink-packet-utils = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }

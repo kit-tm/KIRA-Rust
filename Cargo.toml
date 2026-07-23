@@ -51,11 +51,13 @@ futures = "0.3"
 hex = "0.4"
 # Logging facade supporting many concrete implementations in binaries
 log = "0.4"
+netlink-packet-core = "0.9"
+# Updating Nftables
+netlink-packet-netfilter = "0.4"
 # Fetching link status using netlink protocol on Linux
-netlink-packet-core = "0.8.1"
-netlink-packet-route = "0.31"
+netlink-packet-route = "0.33"
 netlink-packet-utils = "0.6"
-netlink-proto = "0.12"
+netlink-proto = "0.14.1"
 # Random NodeId generation
 rand = "0.10.2"
 # Rust message pack support for serde
