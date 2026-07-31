@@ -21,7 +21,12 @@ dependencies = [
 nesttest = "kira_nest.nest.shell:run_shell"
 
 [dependency-groups]
-dev = ["pytest>=9.0.1", "ruff>=0.14.5", "pyright>=1.1.407"]
+dev = [
+  "pytest>=9.0.1",
+  "pytest-randomly>=4.1.0",
+  "ruff>=0.14.5",
+  "pyright>=1.1.407",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.11,<0.10.0"]

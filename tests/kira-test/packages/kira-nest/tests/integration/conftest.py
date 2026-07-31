@@ -2,11 +2,13 @@ import logging
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
 from kira_common.paths import REPO_ROOT
 from kira_nest.nest.node import KIRANode
+from nest.topology import Address
 
 logger = logging.Logger(__name__)
 
@@ -103,3 +105,91 @@ def kira_topo(request) -> Path:
 @pytest.fixture(autouse=True)
 def kira_logs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setenv(KIRANode.ENV_LOG_PATH, str(tmp_path / "log"))
+
+
+class ConnectivityHelpers:
+    def __init__(self, subtests):
+        self.subtests = subtests
+
+    def retry_sweep(
+        self,
+        test,
+        check_func,
+        test_msg="check",
+        fail_msg=None,
+        max_attempts=3,
+        verbose_traceroute_on_fail=True,
+        cool_down=1.0,
+    ):
+        """
+        Sweeps through all node pairs, retrying failing checks across multiple passes.
+        """
+        if fail_msg is None:
+            fail_msg = test_msg.capitalize()
+
+        node_list = list(test.topology.nodes)
+        pairs = [(src, dst) for src in node_list for dst in node_list]
+        pending = list(pairs)
+
+        for attempt in range(max_attempts):
+            print(
+                f"\n--- {test_msg.upper()} Sweep Attempt {attempt + 1}/{max_attempts} ---"
+            )
+            next_pending = []
+            for src, dst in pending:
+                if check_func(src, dst):
+                    print(
+                        f"  [SUCCESS] {src} -> {dst} passed on attempt {attempt + 1}",
+                    )
+                    continue
+                print(f"  [FAILED]  {src} -> {dst} failed, will retry")
+                next_pending.append((src, dst))
+
+            pending = next_pending
+            if not pending:
+                print(
+                    f"  [INFO] All checks passed early on attempt {attempt + 1}!",
+                )
+                break
+            if attempt < max_attempts - 1:
+                time.sleep(cool_down)
+
+        print(f"\n--- Finalizing {test_msg} Subtest Reports ---", flush=True)
+        for src, dst in pairs:
+            with self.subtests.test(msg=test_msg, src=str(src), dst=str(dst)):
+                success = (src, dst) not in pending
+                if verbose_traceroute_on_fail and not success:
+                    test.traceroute(src, dst, verbose=True)
+                assert success, (
+                    f"{fail_msg} {src} -> {dst} failed after {max_attempts} attempts"
+                )
+
+        return pending
+
+    def checkup_timeout(self, test, timeout=1):
+        up_timeout = time.time() + timeout
+        for n in test.topology.nodes:
+            with self.subtests.test(msg="checkup", n=str(n)):
+                while not n.is_up():
+                    if time.time() > up_timeout:
+                        break
+                    time.sleep(0.05)
+                assert n.is_up(), f"Node {n} failed to come up within {timeout} second"
+
+    @staticmethod
+    def ping_check(src, dst):
+        if src == dst:
+            return True
+        ip_dst = Address(str(dst.node_id.to_node_ip()))
+        return src.ping(ip_dst, packets=1, verbose=0, timeout=1)
+
+    @staticmethod
+    def traceroute_check(test, src, dst):
+        if src == dst:
+            return True
+        return test.traceroute(src, dst, verbose=False)
+
+
+@pytest.fixture
+def conn_helpers(subtests):
+    return ConnectivityHelpers(subtests)
