@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import socket
 import sys
@@ -1034,6 +1035,36 @@ class DebugShell[T](Cmd):
                 print()
                 print("To further investigate failures type: VICINITY <nid>")
             self._cmd_failed()
+
+    @property
+    def _closest_to(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description=("Get the closest node to a key (SHA1).")
+        )
+        parser.add_argument(
+            "key",
+            type=str,
+        )
+        return parser
+
+    @with_argparser("_closest_to")
+    def do_closest_to(self, args: argparse.Namespace) -> None:
+        hash_key = hashlib.sha1(args.key.encode("utf-8")).digest()[: NodeID.LENGTH]
+        key_int = int.from_bytes(hash_key, byteorder="big")
+
+        print(f"SHA-1 Hash: {key_int:0{NodeID.LENGTH}x}")
+        print(f"    {key_int:0{NodeID.LENGTH * 8}b}")
+        print()
+
+        distances = {
+            node: key_int ^ int.from_bytes(node.node_id, byteorder="big")
+            for node in self.test.topology.nodes
+        }
+        distances = sorted(distances.items(), key=lambda i: i[1])
+
+        print("XOR-Distances:")
+        for n, d in distances:
+            print(f"{n:>3} {d:0{NodeID.LENGTH * 8}b}")
 
     @property
     def _netns_parser(self) -> argparse.ArgumentParser:

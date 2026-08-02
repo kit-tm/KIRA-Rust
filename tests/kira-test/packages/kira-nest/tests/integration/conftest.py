@@ -132,29 +132,29 @@ class ConnectivityHelpers:
         pending = list(pairs)
 
         for attempt in range(max_attempts):
-            print(
+            logger.debug(
                 f"\n--- {test_msg.upper()} Sweep Attempt {attempt + 1}/{max_attempts} ---"
             )
             next_pending = []
             for src, dst in pending:
                 if check_func(src, dst):
-                    print(
+                    logger.debug(
                         f"  [SUCCESS] {src} -> {dst} passed on attempt {attempt + 1}",
                     )
                     continue
-                print(f"  [FAILED]  {src} -> {dst} failed, will retry")
+                logger.debug(f"  [FAILED]  {src} -> {dst} failed, will retry")
                 next_pending.append((src, dst))
 
             pending = next_pending
             if not pending:
-                print(
+                logger.debug(
                     f"  [INFO] All checks passed early on attempt {attempt + 1}!",
                 )
                 break
             if attempt < max_attempts - 1:
                 time.sleep(cool_down)
 
-        print(f"\n--- Finalizing {test_msg} Subtest Reports ---", flush=True)
+        logger.debug(f"\n--- Finalizing {test_msg} Subtest Reports ---")
         for src, dst in pairs:
             with self.subtests.test(msg=test_msg, src=str(src), dst=str(dst)):
                 success = (src, dst) not in pending
