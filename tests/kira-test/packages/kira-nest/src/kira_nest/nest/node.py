@@ -422,7 +422,10 @@ class KIRANode(Node):
             return None
 
         # find all paths
-        r_path = re.compile(r"Path\s+{\s+ids:\s+\[([\s\w(:),]+)\]", flags=re.MULTILINE)
+        r_path = re.compile(
+            r"active_path:\s+Some\(\s+Path\s+{\s+ids:\s+\[([\s\w(:),]+)\]",
+            flags=re.MULTILINE,
+        )
         r_nid = re.compile(r"NodeId\(([\w]+)\),")
 
         for path_match in r_path.finditer(routing_table):
