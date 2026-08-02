@@ -1072,10 +1072,10 @@ class DebugShell[T](Cmd):
 
     @with_argparser("_closest_to")
     def do_closest_to(self, args: argparse.Namespace) -> None:
-        hash_key = hashlib.sha1(args.key.encode("utf-8")).digest()[: NodeID.LENGTH]
+        hash_key = hashlib.sha256(args.key.encode("utf-8")).digest()[: NodeID.LENGTH]
         key_int = int.from_bytes(hash_key, byteorder="big")
 
-        print(f"SHA-1 Hash: {key_int:0{NodeID.LENGTH}x}")
+        print(f"SHA-256 Hash: {key_int:0{NodeID.LENGTH}x}")
         print(f"    {key_int:0{NodeID.LENGTH * 8}b}")
         print()
 
