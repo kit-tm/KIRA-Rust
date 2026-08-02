@@ -10,7 +10,7 @@ from kira_common.paths import REPO_ROOT
 from kira_nest.nest.node import KIRANode
 from nest.topology import Address
 
-logger = logging.Logger(__name__)
+logger = logging.getLogger(__name__)
 
 TOPOS_DIR = REPO_ROOT / "tests" / "topos"
 assert TOPOS_DIR.exists(), "kira-test topos not found"

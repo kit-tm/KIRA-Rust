@@ -91,7 +91,7 @@ def test_dynamic_mst(kirad_small_k, kira_topo, subtests, conn_helpers):
     graph = test.topology.topology
 
     # Fail all links not part of MST based on random weights
-    for u, v in graph:
+    for u, v in graph.edges:
         graph[u][v]["mst_random_weight"] = random.random()
     mst = nx.minimum_spanning_tree(graph, weight="mst_random_weight")
 
@@ -102,10 +102,12 @@ def test_dynamic_mst(kirad_small_k, kira_topo, subtests, conn_helpers):
 
     ### Fail Links ###
 
+    print("Failing links not part of MST:")
     for u, v, link in test.topology.links:
         if (u, v) not in mst.edges():
-            print(f"Failing link {u} -- {v} (not part of MST")
+            print(f"{u:>2} -✗- {v:>2}")
             link.down()
+    print()
 
     print(f"Waiting {CONVERGENCE_GRACE_SECS} seconds for network to converge...")
     time.sleep(CONVERGENCE_GRACE_SECS)
@@ -125,10 +127,12 @@ def test_dynamic_mst(kirad_small_k, kira_topo, subtests, conn_helpers):
 
     ### Restore Links ###
 
+    print("Restoring all links:")
     for u, v, link in test.topology.links:
         if (u, v) not in mst.edges():
-            print(f"Restore link {u} -- {v}")
+            print(f"{u:>2} -✔- {v:>2}")
             link.up()
+    print()
 
     print(f"Waiting {CONVERGENCE_GRACE_SECS} seconds for network to converge...")
     time.sleep(CONVERGENCE_GRACE_SECS)
