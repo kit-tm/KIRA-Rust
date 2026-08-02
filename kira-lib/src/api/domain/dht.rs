@@ -168,6 +168,7 @@ impl From<LHTOutput> for FetchRsp {
 pub struct LocalHashTable(pub HashMap<String, Vec<String>>);
 
 #[derive(Serialize, Debug, Clone)]
+#[cfg_attr(feature = "swagger_doc", derive(ToSchema))]
 pub enum DHTErr {
     FormatError(ApiFormatErr),
     SendError,
@@ -181,6 +182,7 @@ pub enum DHTErr {
 }
 
 #[derive(Serialize, Debug, Clone)]
+#[cfg_attr(feature = "swagger_doc", derive(ToSchema))]
 pub enum ApiFormatErr {
     HexFormatError,
     BoolFormatError,

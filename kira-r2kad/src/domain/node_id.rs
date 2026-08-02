@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::RngExt as _;
 use serde;
 use serde::de::{self, Visitor};
 use std::cmp::Ordering;

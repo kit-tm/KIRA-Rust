@@ -1,7 +1,7 @@
 use std::num::NonZeroU8;
 use std::ops::IndexMut;
 
-use rand::Rng;
+use rand::RngExt as _;
 use tracing::{Level, field};
 
 use crate::domain::{

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::time::{Duration, Instant};
 
-use rand::Rng;
+use rand::RngExt as _;
 
 use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
 use crate::domain::{NodeId, UnderlayNeighborDestination, UnderlayNeighborId};

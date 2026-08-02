@@ -1,6 +1,6 @@
 use std::num::NonZeroU8;
 
-use rand::Rng;
+use rand::RngExt as _;
 use tracing::Level;
 
 use crate::domain::ContactState;
