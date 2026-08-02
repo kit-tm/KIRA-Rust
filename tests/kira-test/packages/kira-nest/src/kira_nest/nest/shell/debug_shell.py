@@ -308,6 +308,29 @@ class DebugShell[T](Cmd):
         print(res)
 
     @property
+    def _contacts_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description="Contacts and their paths of a node."
+        )
+        parser.add_argument(
+            "node",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+            help="identifier of a node",
+        )
+        return parser
+
+    @with_argparser("_contacts_parser")
+    def do_contacts(self, args: argparse.Namespace) -> None:
+        node: KIRANode = args.node
+
+        for path in node.paths_routing_table() or []:
+            contact = self.test.topology.nodes.get(path[-1]) or "???"
+            path_str = self.test._display_path(path)
+
+            print(f"{contact:>3} ==> {path_str}")
+
+    @property
     def _uln_table_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(
             description="Dumps the underlay neighbor table of a node."
@@ -953,7 +976,7 @@ class DebugShell[T](Cmd):
         )
         return parser
 
-    @with_argparser("_checkup_parser")
+    @with_argparser("_check_parser")
     def do_check(self, args: argparse.Namespace) -> None:  # noqa: PLR0915, PLR0912
         node = args.node
         nodes = self.test.topology.nodes if node is None else iter([node])
