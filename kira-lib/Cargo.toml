@@ -59,8 +59,6 @@ trait-variant = { workspace = true }
 
 [dev-dependencies]
 anyhow = "1.0.104"
-ntest = "0.9.5"
-petgraph = { version = "0.8.3", features = ["serde", "serde-1"] }
 tokio = { workspace = true, features = [
   "macros",
   "rt",
