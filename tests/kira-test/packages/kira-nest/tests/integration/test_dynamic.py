@@ -5,25 +5,22 @@ import networkx as nx
 from kira_nest.nest.test import KIRATest
 from nest.topology import Address
 
-CONVERGENCE_GRACE_SECS = 20
+CONVERGENCE_GRACE_SECS = 3
 
 
-def test_dynamic_one_isolated_failure(kirad_small_k, kira_topo, subtests, conn_helpers):
+def test_dynamic_isolated_node_failure(
+    kirad_small_k, kira_topo, subtests, conn_helpers
+):
     test = KIRATest[str](kira_topo, kirad_binary=kirad_small_k)
     node_list = list(test.topology.nodes)
 
-    # Pick 30 % of the nodes randomly (but max 10) and fail them _individually_.
-    candidates = random.sample(node_list, min(round(0.3 * len(node_list)), 10))
+    # Pick 30 % of the nodes randomly and fail them _individually_.
+    candidates = random.sample(node_list, round(0.3 * len(node_list)))
 
     conn_helpers.checkup_timeout(test, timeout=1)
     conn_helpers.retry_sweep(test, conn_helpers.ping_check, test_msg="ping")
 
     ### Network is assumed to be running okay here ###
-
-    def ping_check_isolated(src, dst, isolated_node):
-        if isolated_node in (src, dst):
-            return True  # skip isolated tid
-        return conn_helpers.ping_check(src, dst)
 
     # Not isolated in subtests because broken network on previous test is likely
     # affecting consecutive test
@@ -36,7 +33,8 @@ def test_dynamic_one_isolated_failure(kirad_small_k, kira_topo, subtests, conn_h
 
         ### Isolate node ###
 
-        for _, link in test.topology.links[isolated_tid, ...]:
+        for v, link in test.topology.links[isolated_tid, ...]:
+            print(f"{isolated_tid:>2} -✗- {v:>2}")
             link.down()
 
         print(f"Waiting {CONVERGENCE_GRACE_SECS} seconds for network to converge...")
@@ -59,13 +57,14 @@ def test_dynamic_one_isolated_failure(kirad_small_k, kira_topo, subtests, conn_h
         # Ping functionality should remain unaffected for other nodes in the network
         conn_helpers.retry_sweep(
             test,
-            lambda s, d: ping_check_isolated(s, d, isolated_node),  # noqa: B023
+            conn_helpers.ping_check,
             test_msg=f"ping (isolated {isolated_node})",
         )
 
         ### Reconnect node ###
 
-        for _, link in test.topology.links[isolated_tid, ...]:
+        for v, link in test.topology.links[isolated_tid, ...]:
+            print(f"{isolated_tid:>2} -✔- {v:>2}")
             link.up()
 
         print(f"Waiting {CONVERGENCE_GRACE_SECS} seconds for network to converge...")
@@ -82,8 +81,123 @@ def test_dynamic_one_isolated_failure(kirad_small_k, kira_topo, subtests, conn_h
         conn_helpers.retry_sweep(
             test,
             conn_helpers.ping_check,
-            test_msg=f"ping (after restored connectivity of {isolated_node}",
+            test_msg=f"ping after restored connectivity of {isolated_node}",
         )
+
+
+def test_dynamic_random_link_failure(kirad_small_k, kira_topo, subtests, conn_helpers):
+    test = KIRATest[str](kira_topo, kirad_binary=kirad_small_k)
+    links_list = list(test.topology.links)
+
+    # Pick 30 % of the links randomly and fail them _individually_.
+    candidates = random.sample(links_list, round(0.3 * len(links_list)))
+
+    conn_helpers.checkup_timeout(test, timeout=1)
+    conn_helpers.retry_sweep(test, conn_helpers.ping_check, test_msg="ping")
+
+    ### Network is assumed to be running okay here ###
+
+    # Not isolated in subtests because broken network on previous test is likely
+    # affecting consecutive test
+
+    for u, v, link in candidates:
+        # Down link
+        print(f"{u:>2} -✗- {v:>2}")
+        link.down()
+
+        print(f"Waiting {CONVERGENCE_GRACE_SECS} seconds for network to converge...")
+        time.sleep(CONVERGENCE_GRACE_SECS)
+
+        for n in test.topology.nodes:
+            with subtests.test(
+                msg=f"checkup after link failure {u:>2} -✗- {v:>2}", n=str(n)
+            ):
+                assert n.is_up()
+
+        # Ping functionality should remain unaffected for nodes in the network
+        conn_helpers.retry_sweep(
+            test,
+            conn_helpers.ping_check,
+            test_msg=f"ping after link failure {u:>2} -✗- {v:>2}",
+        )
+
+        ### Reconnect link ###
+        print(f"{u:>2} -✔- {v:>2}")
+        link.up()
+
+        print(f"Waiting {CONVERGENCE_GRACE_SECS} seconds for network to converge...")
+        time.sleep(CONVERGENCE_GRACE_SECS)
+
+        for n in test.topology.nodes:
+            with subtests.test(
+                msg=f"checkup after corrected link failure {u:>2} -✔- {v:>2}",
+                n=str(n),
+            ):
+                assert n.is_up()
+
+        # Connectivity is reinstated
+        conn_helpers.retry_sweep(
+            test,
+            conn_helpers.ping_check,
+            test_msg=f"ping after corrected link failure {u:>2} -✔- {v:>2}",
+        )
+
+
+def test_dynamic_random_link_failures(kirad_small_k, kira_topo, subtests, conn_helpers):
+    test = KIRATest[str](kira_topo, kirad_binary=kirad_small_k)
+    links_list = list(test.topology.links)
+
+    # Pick 30 % of the links randomly and fail them _at the same time_.
+    candidates = random.sample(links_list, round(0.3 * len(links_list)))
+
+    conn_helpers.checkup_timeout(test, timeout=1)
+    conn_helpers.retry_sweep(test, conn_helpers.ping_check, test_msg="ping")
+
+    ### Network is assumed to be running okay here ###
+
+    # Not isolated in subtests because broken network on previous test is likely
+    # affecting consecutive test
+
+    # Down links
+    for u, v, link in candidates:
+        print(f"{u:>2} -✗- {v:>2}")
+        link.down()
+
+    print(f"Waiting {CONVERGENCE_GRACE_SECS} seconds for network to converge...")
+    time.sleep(CONVERGENCE_GRACE_SECS)
+
+    for n in test.topology.nodes:
+        with subtests.test(msg="checkup after link failures", n=str(n)):
+            assert n.is_up()
+
+    # Ping functionality should remain unaffected for nodes in the network
+    conn_helpers.retry_sweep(
+        test,
+        conn_helpers.ping_check,
+        test_msg="ping after link failures",
+    )
+
+    ### Reconnect links ###
+    for u, v, link in candidates:
+        print(f"{u:>2} -✔- {v:>2}")
+        link.up()
+
+    print(f"Waiting {CONVERGENCE_GRACE_SECS} seconds for network to converge...")
+    time.sleep(CONVERGENCE_GRACE_SECS)
+
+    for n in test.topology.nodes:
+        with subtests.test(
+            msg="checkup after corrected link failures",
+            n=str(n),
+        ):
+            assert n.is_up()
+
+    # Connectivity is reinstated
+    conn_helpers.retry_sweep(
+        test,
+        conn_helpers.ping_check,
+        test_msg="ping after corrected link failures",
+    )
 
 
 def test_dynamic_mst(kirad_small_k, kira_topo, subtests, conn_helpers):

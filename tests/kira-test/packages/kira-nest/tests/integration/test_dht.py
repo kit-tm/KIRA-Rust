@@ -13,6 +13,7 @@ def test_dht_store_fetch(kirad_small_k, kira_topo, conn_helpers, subtests):
     # Network appears functional
     conn_helpers.checkup_timeout(test, timeout=1)
     conn_helpers.retry_sweep(test, conn_helpers.ping_check, test_msg="ping")
+    comps = dict(test.topology.connected_components())
 
     for key in KEYS:
         # Choice random nodes as store/fetch targets
@@ -20,6 +21,7 @@ def test_dht_store_fetch(kirad_small_k, kira_topo, conn_helpers, subtests):
 
         # Pick 30 % of the nodes randomly (max 30)
         ns_fetch = random.sample(node_list, min(round(0.3 * len(node_list)), 30))
+        ns_fetch = filter(lambda n_fetch: comps[n_fetch] == comps[n_store], ns_fetch)
 
         with subtests.test(msg="store", src=str(n_store), key=key, value=VALUE):
             store_res = n_store.api.store(key, VALUE)

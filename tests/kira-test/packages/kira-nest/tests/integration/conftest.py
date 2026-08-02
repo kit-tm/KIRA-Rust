@@ -120,6 +120,7 @@ class ConnectivityHelpers:
         max_attempts=3,
         verbose_traceroute_on_fail=True,
         cool_down=1.0,
+        respect_connected_components=True,
     ):
         """
         Sweeps through all node pairs, retrying failing checks across multiple passes.
@@ -127,8 +128,19 @@ class ConnectivityHelpers:
         if fail_msg is None:
             fail_msg = test_msg.capitalize()
 
-        node_list = list(test.topology.nodes)
-        pairs = [(src, dst) for src in node_list for dst in node_list]
+        topology = test.topology
+        node_list = list(topology.nodes)
+        # Only apply check function to two nodes in the same connected component
+        if respect_connected_components:
+            conn = dict(topology.connected_components())
+            pairs = [
+                (src, dst)
+                for src in node_list
+                for dst in node_list
+                if conn[src] == conn[dst]
+            ]
+        else:
+            pairs = [(src, dst) for src in node_list for dst in node_list]
         pending = list(pairs)
 
         for attempt in range(max_attempts):
