@@ -39,7 +39,6 @@ tokio = { workspace = true, features = ["rt", "time", "tracing", "sync"] }
 netlink-packet-core = { workspace = true }
 netlink-packet-route = { workspace = true }
 netlink-proto = { workspace = true }
-rtnetlink = { workspace = true }
 # REST server backend
 axum = { version = "0.8.9", features = ["json"], optional = true }
 serde = { workspace = true, optional = true }
@@ -60,7 +59,6 @@ trait-variant = { workspace = true }
 
 [dev-dependencies]
 anyhow = "1.0.104"
-log4rs = "1.4.0"
 ntest = "0.9.5"
 petgraph = { version = "0.8.3", features = ["serde", "serde-1"] }
 tokio = { workspace = true, features = [

@@ -53,7 +53,6 @@ netlink-packet-core = "0.8.1"
 netlink-packet-route = "0.31"
 netlink-packet-utils = "0.6"
 netlink-proto = "0.12"
-rtnetlink = "0.21"
 # Random NodeId generation
 rand = "0.10.2"
 # Rust message pack support for serde
