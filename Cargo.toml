@@ -32,8 +32,6 @@ edition = "2024"
 # a custom implementation.
 
 [workspace.dependencies]
-# For Time Computations in general
-chrono = "0.4.38"
 serde_cbor = "0.11.2"
 # Conveniently derive Display
 derive_more = { version = "2.1.1", features = [

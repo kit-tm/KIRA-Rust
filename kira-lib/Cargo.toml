@@ -30,7 +30,6 @@ path = "src/lib.rs"
 
 
 [dependencies]
-chrono = { workspace = true }
 derive_more = { workspace = true }
 futures = { workspace = true }
 log = { workspace = true }
@@ -61,7 +60,6 @@ trait-variant = { workspace = true }
 
 [dev-dependencies]
 anyhow = "1.0.104"
-chrono = { workspace = true }
 log4rs = "1.4.0"
 ntest = "0.9.5"
 petgraph = { version = "0.8.3", features = ["serde", "serde-1"] }
