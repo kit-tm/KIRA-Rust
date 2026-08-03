@@ -23,14 +23,11 @@ def test_dynamic_isolated_node_failure(
 
     ### Network is assumed to be running okay here ###
 
-    # Not isolated in subtests because broken network on previous test is likely
-    # affecting consecutive test
-
     for isolated_node in candidates:
         isolated_tid = test.topology.tid(isolated_node)
         assert isolated_tid is not None
-        ip_tid = isolated_node.node_id.to_node_ip()
-        ip_tid = Address(str(ip_tid))
+        ip_nip = isolated_node.node_id.to_node_ip()
+        ip_nip = Address(str(ip_nip))
 
         ### Isolate node ###
 
@@ -44,16 +41,16 @@ def test_dynamic_isolated_node_failure(
         # Node is isolated and still running
         for n in test.topology.nodes:
             with subtests.test(
-                msg=f"checkup after isolation of {isolated_node}", n=str(n)
+                msg="checkup after isolation", n=str(n), isolated_node=isolated_node
             ):
                 assert n.is_up()
         for src in test.topology.nodes:
             with subtests.test(
-                msg=f"ping isolated {isolated_node}",
+                msg="ping isolated (fail)",
                 src=str(src),
                 dst=isolated_node,
             ):
-                assert not src.ping(ip_tid, packets=1, verbose=0), "fail ping isolated"
+                assert not src.ping(ip_nip, packets=1, verbose=0), "fail ping isolated"
 
         # Ping functionality should remain unaffected for other nodes in the network
         conn_helpers.retry_sweep(
@@ -73,8 +70,9 @@ def test_dynamic_isolated_node_failure(
 
         for n in test.topology.nodes:
             with subtests.test(
-                msg=f"checkup after restored connectivity of {isolated_node}",
+                msg="checkup after node recovered",
                 n=str(n),
+                recovered_node=isolated_node,
             ):
                 assert n.is_up()
 
@@ -83,7 +81,7 @@ def test_dynamic_isolated_node_failure(
             test,
             conn_helpers.ping_check,
             max_attempts=RETRIES,
-            test_msg=f"ping after restored connectivity of {isolated_node}",
+            test_msg=f"ping (restored {isolated_node})",
         )
 
 
@@ -99,9 +97,6 @@ def test_dynamic_random_link_failure(kirad_small_k, kira_topo, subtests, conn_he
 
     ### Network is assumed to be running okay here ###
 
-    # Not isolated in subtests because broken network on previous test is likely
-    # affecting consecutive test
-
     for u, v, link in candidates:
         # Down link
         print()
@@ -112,7 +107,7 @@ def test_dynamic_random_link_failure(kirad_small_k, kira_topo, subtests, conn_he
         time.sleep(CONVERGENCE_GRACE_SECS)
 
         for n in test.topology.nodes:
-            with subtests.test(msg=f"checkup after link failure {u} -✗- {v}", n=str(n)):
+            with subtests.test(msg="checkup", link_failure=f"{u} -✗- {v}", n=str(n)):
                 assert n.is_up()
 
         # Ping functionality should remain unaffected for nodes in the network
@@ -120,7 +115,7 @@ def test_dynamic_random_link_failure(kirad_small_k, kira_topo, subtests, conn_he
             test,
             conn_helpers.ping_check,
             max_attempts=RETRIES,
-            test_msg=f"ping after link failure {u} -✗- {v}",
+            test_msg=f"ping (link failure: {u} -✗- {v})",
         )
 
         ### Reconnect link ###
@@ -132,7 +127,8 @@ def test_dynamic_random_link_failure(kirad_small_k, kira_topo, subtests, conn_he
 
         for n in test.topology.nodes:
             with subtests.test(
-                msg=f"checkup after corrected link failure {u} -✔- {v}",
+                msg="checkup",
+                restored_link=f"{u} -✔- {v}",
                 n=str(n),
             ):
                 assert n.is_up()
@@ -142,7 +138,7 @@ def test_dynamic_random_link_failure(kirad_small_k, kira_topo, subtests, conn_he
             test,
             conn_helpers.ping_check,
             max_attempts=RETRIES,
-            test_msg=f"ping after corrected link failure {u} -✔- {v}",
+            test_msg=f"ping (link restored: {u} -✔- {v})",
         )
 
 
@@ -158,9 +154,6 @@ def test_dynamic_random_link_failures(kirad_small_k, kira_topo, subtests, conn_h
 
     ### Network is assumed to be running okay here ###
 
-    # Not isolated in subtests because broken network on previous test is likely
-    # affecting consecutive test
-
     # Down links
     for u, v, link in candidates:
         print()
@@ -171,7 +164,7 @@ def test_dynamic_random_link_failures(kirad_small_k, kira_topo, subtests, conn_h
     time.sleep(CONVERGENCE_GRACE_SECS)
 
     for n in test.topology.nodes:
-        with subtests.test(msg="checkup after link failures", n=str(n)):
+        with subtests.test(msg="checkup (links failed)", n=str(n)):
             assert n.is_up()
 
     # Ping functionality should remain unaffected for nodes in the network
@@ -179,7 +172,7 @@ def test_dynamic_random_link_failures(kirad_small_k, kira_topo, subtests, conn_h
         test,
         conn_helpers.ping_check,
         max_attempts=RETRIES,
-        test_msg="ping after link failures",
+        test_msg="ping (links failed)",
     )
 
     ### Reconnect links ###
@@ -193,7 +186,7 @@ def test_dynamic_random_link_failures(kirad_small_k, kira_topo, subtests, conn_h
 
     for n in test.topology.nodes:
         with subtests.test(
-            msg="checkup after corrected link failures",
+            msg="checkup (links restored)",
             n=str(n),
         ):
             assert n.is_up()
@@ -203,7 +196,7 @@ def test_dynamic_random_link_failures(kirad_small_k, kira_topo, subtests, conn_h
         test,
         conn_helpers.ping_check,
         max_attempts=RETRIES,
-        test_msg="ping after corrected link failures",
+        test_msg="ping (links restored)",
     )
 
 
