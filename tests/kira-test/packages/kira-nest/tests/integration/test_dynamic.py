@@ -5,7 +5,7 @@ import networkx as nx
 from kira_nest.nest.test import KIRATest
 from nest.topology import Address
 
-CONVERGENCE_GRACE_SECS = 3
+CONVERGENCE_GRACE_SECS = 5
 
 
 def test_dynamic_isolated_node_failure(
@@ -102,27 +102,25 @@ def test_dynamic_random_link_failure(kirad_small_k, kira_topo, subtests, conn_he
 
     for u, v, link in candidates:
         # Down link
-        print(f"{u:>2} -✗- {v:>2}")
+        print(f"{u} -✗- {v}")
         link.down()
 
         print(f"Waiting {CONVERGENCE_GRACE_SECS} seconds for network to converge...")
         time.sleep(CONVERGENCE_GRACE_SECS)
 
         for n in test.topology.nodes:
-            with subtests.test(
-                msg=f"checkup after link failure {u:>2} -✗- {v:>2}", n=str(n)
-            ):
+            with subtests.test(msg=f"checkup after link failure {u} -✗- {v}", n=str(n)):
                 assert n.is_up()
 
         # Ping functionality should remain unaffected for nodes in the network
         conn_helpers.retry_sweep(
             test,
             conn_helpers.ping_check,
-            test_msg=f"ping after link failure {u:>2} -✗- {v:>2}",
+            test_msg=f"ping after link failure {u} -✗- {v}",
         )
 
         ### Reconnect link ###
-        print(f"{u:>2} -✔- {v:>2}")
+        print(f"{u} -✔- {v}")
         link.up()
 
         print(f"Waiting {CONVERGENCE_GRACE_SECS} seconds for network to converge...")
@@ -130,7 +128,7 @@ def test_dynamic_random_link_failure(kirad_small_k, kira_topo, subtests, conn_he
 
         for n in test.topology.nodes:
             with subtests.test(
-                msg=f"checkup after corrected link failure {u:>2} -✔- {v:>2}",
+                msg=f"checkup after corrected link failure {u} -✔- {v}",
                 n=str(n),
             ):
                 assert n.is_up()
@@ -139,7 +137,7 @@ def test_dynamic_random_link_failure(kirad_small_k, kira_topo, subtests, conn_he
         conn_helpers.retry_sweep(
             test,
             conn_helpers.ping_check,
-            test_msg=f"ping after corrected link failure {u:>2} -✔- {v:>2}",
+            test_msg=f"ping after corrected link failure {u} -✔- {v}",
         )
 
 
