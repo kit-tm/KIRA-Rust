@@ -122,25 +122,28 @@ class DebugShell[T](Cmd):
         failed = args.failed or self.quiet
         verbose = 2 if args.verbose else 0
 
+        conn = dict(self.test.topology.connected_components())
         for x in self.test.topology.nodes:
             for y in self.test.topology.nodes:
-                if x != y:
+                if x == y or conn[x] != conn[y]:
+                    continue
+
+                if not self.quiet:
+                    print(f"Pinging {x:>3} --> {y:>3} ...", end="\r")
+                ip_y = y.node_id.to_node_ip()
+                ip_y = Address(str(ip_y))
+                ping_failed = not x.ping(ip_y, packets=1, verbose=verbose)
+
+                if verbose == 0:
+                    if ping_failed:
+                        print(f"Pinging {x:>3} --> {y:>3} ✗   ", flush=True)
+                        self._cmd_failed()
+                        continue
+
                     if not self.quiet:
-                        print(f"Pinging {x:>3} --> {y:>3} ...", end="\r")
-                    ip_y = y.node_id.to_node_ip()
-                    ip_y = Address(str(ip_y))
-                    ping_failed = not x.ping(ip_y, packets=1, verbose=verbose)
-
-                    if verbose == 0:
-                        if ping_failed:
-                            print(f"Pinging {x:>3} --> {y:>3} ✗   ", flush=True)
-                            self._cmd_failed()
-                            continue
-
-                        if not self.quiet:
-                            # overwrite line if failed
-                            end = "\r" if failed else "\n"
-                            print(f"Pinging {x:>3} --> {y:>3} ✓  ", end=end, flush=True)
+                        # overwrite line if failed
+                        end = "\r" if failed else "\n"
+                        print(f"Pinging {x:>3} --> {y:>3} ✓  ", end=end, flush=True)
 
     @property
     def _exec_parser(self) -> argparse.ArgumentParser:
@@ -556,6 +559,9 @@ class DebugShell[T](Cmd):
         parser.add_argument(
             "-v", "--verbose", action="store_true", help="print successful traceroutes"
         )
+        parser.add_argument(
+            "-f", "--failed", action="store_true", help="display only failed traces"
+        )
 
         return parser
 
@@ -564,13 +570,22 @@ class DebugShell[T](Cmd):
         src = args.source
         dst = args.destination
 
-        srcs = iter([src]) if src is not None else iter(self.test.topology.nodes)
-        dsts = iter([dst]) if dst is not None else iter(self.test.topology.nodes)
+        specific_trace = src is not None and dst is not None
+        srcs = [src] if src is not None else self.test.topology.nodes
+        dsts = [dst] if dst is not None else self.test.topology.nodes
+        conn = dict(self.test.topology.connected_components())
 
         for src in srcs:
             for dst in dsts:
+                if conn[src] != conn[dst] and not specific_trace:
+                    continue
+
+                if not self.quiet and not args.verbose:
+                    print(f"{src:>3} --> {dst:>3} ...", end="\r")
                 success = self.test.traceroute(src, dst, verbose=args.verbose)
-                print(f"{src} -> {dst} {success}")
+                end = "\r" if args.failed and success else "\n"
+                success = "✓   " if success else "✗   "
+                print(f"{src:>3} --> {dst:>3} {success}", end=end, flush=True)
 
                 # only show unsuccessful traceroutes
                 if not success and not args.verbose:
