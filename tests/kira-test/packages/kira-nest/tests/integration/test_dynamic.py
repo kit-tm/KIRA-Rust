@@ -6,6 +6,7 @@ from kira_nest.nest.test import KIRATest
 from nest.topology import Address
 
 CONVERGENCE_GRACE_SECS = 5
+RETRIES = 5  # we retry pings 5 times because dynamic scenario may not have converged fully in edge cases
 
 
 def test_dynamic_isolated_node_failure(
@@ -81,6 +82,7 @@ def test_dynamic_isolated_node_failure(
         conn_helpers.retry_sweep(
             test,
             conn_helpers.ping_check,
+            max_attempts=RETRIES,
             test_msg=f"ping after restored connectivity of {isolated_node}",
         )
 
@@ -102,6 +104,7 @@ def test_dynamic_random_link_failure(kirad_small_k, kira_topo, subtests, conn_he
 
     for u, v, link in candidates:
         # Down link
+        print()
         print(f"{u} -✗- {v}")
         link.down()
 
@@ -116,6 +119,7 @@ def test_dynamic_random_link_failure(kirad_small_k, kira_topo, subtests, conn_he
         conn_helpers.retry_sweep(
             test,
             conn_helpers.ping_check,
+            max_attempts=RETRIES,
             test_msg=f"ping after link failure {u} -✗- {v}",
         )
 
@@ -137,6 +141,7 @@ def test_dynamic_random_link_failure(kirad_small_k, kira_topo, subtests, conn_he
         conn_helpers.retry_sweep(
             test,
             conn_helpers.ping_check,
+            max_attempts=RETRIES,
             test_msg=f"ping after corrected link failure {u} -✔- {v}",
         )
 
@@ -158,6 +163,7 @@ def test_dynamic_random_link_failures(kirad_small_k, kira_topo, subtests, conn_h
 
     # Down links
     for u, v, link in candidates:
+        print()
         print(f"{u:>2} -✗- {v:>2}")
         link.down()
 
@@ -172,11 +178,13 @@ def test_dynamic_random_link_failures(kirad_small_k, kira_topo, subtests, conn_h
     conn_helpers.retry_sweep(
         test,
         conn_helpers.ping_check,
+        max_attempts=RETRIES,
         test_msg="ping after link failures",
     )
 
     ### Reconnect links ###
     for u, v, link in candidates:
+        print()
         print(f"{u:>2} -✔- {v:>2}")
         link.up()
 
@@ -194,6 +202,7 @@ def test_dynamic_random_link_failures(kirad_small_k, kira_topo, subtests, conn_h
     conn_helpers.retry_sweep(
         test,
         conn_helpers.ping_check,
+        max_attempts=RETRIES,
         test_msg="ping after corrected link failures",
     )
 
@@ -234,7 +243,10 @@ def test_dynamic_mst(kirad_small_k, kira_topo, subtests, conn_helpers):
 
     # Ping functionality should remain unaffected (MST afterall)
     conn_helpers.retry_sweep(
-        test, conn_helpers.ping_check, test_msg="ping (mst failure)"
+        test,
+        conn_helpers.ping_check,
+        max_attempts=RETRIES,
+        test_msg="ping (mst failure)",
     )
 
     ### Restore Links ###
@@ -259,5 +271,8 @@ def test_dynamic_mst(kirad_small_k, kira_topo, subtests, conn_helpers):
 
     # Ping functionality unaffected
     conn_helpers.retry_sweep(
-        test, conn_helpers.ping_check, test_msg="ping (mst restore)"
+        test,
+        conn_helpers.ping_check,
+        max_attempts=RETRIES,
+        test_msg="ping (mst restore)",
     )
