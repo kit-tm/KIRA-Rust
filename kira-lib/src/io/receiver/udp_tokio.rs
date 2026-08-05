@@ -5,12 +5,10 @@
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
-use std::ops::DerefMut;
 use std::sync::Arc;
 
 use kira_r2kad::domain::NodeId;
 use tokio::net::UdpSocket;
-use tokio::sync::RwLock;
 
 use super::*;
 use crate::domain::underlay::UnderlayNeighbor;
@@ -33,7 +31,7 @@ const MTU_BYTES: usize = 65536;
 #[derive(derive_more::Debug)]
 pub struct UdpReceiver {
     #[debug(skip)]
-    buffer: RwLock<[u8; MTU_BYTES]>,
+    buffer: Box<[u8; MTU_BYTES]>,
     socket: Arc<UdpSocket>,
     format: ProtocolMessageFormat,
     underlay_handle: UnderlayObserverHandle,
@@ -45,7 +43,7 @@ impl Clone for UdpReceiver {
     /// Clones the [UdpReceiver] with a new buffer.
     fn clone(&self) -> Self {
         Self {
-            buffer: RwLock::new([0u8; MTU_BYTES]),
+            buffer: Box::new([0u8; MTU_BYTES]),
             socket: Arc::clone(&self.socket),
             format: self.format,
             underlay_handle: self.underlay_handle.clone(),
@@ -94,7 +92,7 @@ impl UdpReceiver {
         root_id: NodeId,
     ) -> Self {
         Self {
-            buffer: RwLock::new([0u8; MTU_BYTES]),
+            buffer: Box::new([0u8; MTU_BYTES]),
             socket,
             format,
             underlay_handle,
@@ -125,10 +123,11 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
     #[tracing::instrument(level = "debug", target = "message_receiver")]
     async fn recv(&mut self) -> Option<Result<(ProtocolMessage, UnderlayNeighborId), RecvError>> {
         let socket = Arc::clone(&self.socket);
-        let mut buffer = self.buffer.write().await;
-
         loop {
-            let (received_bytes, received_from) = match socket.recv_from(buffer.deref_mut()).await {
+            let (received_bytes, received_from) = match socket
+                .recv_from(self.buffer.as_mut_slice())
+                .await
+            {
                 Ok(received) => received,
                 Err(e) => {
                     log::error!(target: "message_receiver", "Failed to receive data from socket: {e}");
@@ -153,7 +152,7 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
                 continue;
             }
 
-            let Some(message) = self.deserialize(&buffer[..received_bytes]) else {
+            let Some(message) = self.deserialize(&self.buffer[..received_bytes]) else {
                 log::error!(target: "message_receiver", "Deserialization of received message failed");
                 continue;
             };
