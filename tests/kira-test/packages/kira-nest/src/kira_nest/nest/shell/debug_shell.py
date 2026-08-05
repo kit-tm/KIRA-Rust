@@ -57,10 +57,16 @@ class DebugShell[T](Cmd):
     print_cmd = False  # set -x
     quiet = False
 
-    def __init__(self, test: KIRATest[T], unshared: bool = False) -> None:
+    def __init__(
+        self,
+        test: KIRATest[T],
+        unshared: bool = False,
+        post_process_log_files: bool = False,
+    ) -> None:
         super().__init__()
         self.test = test
         self.imager = KIRAImager(test)
+        self.post_process_log_files = post_process_log_files
 
         base = f"{YELLOW}ntest{RESET}"
         prefix = (
@@ -107,6 +113,24 @@ class DebugShell[T](Cmd):
             return replace_with
 
         return self._replace_re.sub(replace, string)
+
+    def process_log_file(
+        self, input_path: Path, output_path: Path | None = None, encoding: str = "utf-8"
+    ) -> Path:
+        input_file = Path(input_path)
+        output_file = Path(output_path) if output_path else input_file
+
+        # Use a temporary file necessary on overwriting
+        temp_file = output_file.with_suffix(output_file.suffix + ".tmp")
+        with (
+            input_file.open(encoding=encoding, errors="replace") as infile,
+            temp_file.open("w", encoding=encoding) as outfile,
+        ):
+            for line in infile:
+                processed_line = self.sub_nid_name(line)
+                outfile.write(processed_line)
+        temp_file.replace(output_file)
+        return output_file
 
     _pingall_parser = argparse.ArgumentParser()
     _pingall_parser.add_argument(
@@ -1150,7 +1174,7 @@ class DebugShell[T](Cmd):
 
         for node in self.test.topology.nodes:
             netns_name = node.id
-            p = Popen(f"ip netns pids {netns_name}", shell=True, stdout=PIPE)
+            p = Popen(["ip", "netns", "pids", netns_name], stdout=PIPE)
             stdout, _ = p.communicate()
             if p.returncode == 0 and stdout:
                 pids = stdout.decode().strip().split()
@@ -1159,6 +1183,9 @@ class DebugShell[T](Cmd):
                     _ = Popen(
                         f"ip netns exec {netns_name} {kill_cmd}", shell=True
                     ).communicate()
+
+            if self.post_process_log_files:
+                self.process_log_file(node.logfile)
 
         # TODO: still partially broken, python processes are not killed for some reason
 

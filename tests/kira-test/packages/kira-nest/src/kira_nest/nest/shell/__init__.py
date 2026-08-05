@@ -41,6 +41,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="path to kirad binary",
     )
     parser.add_argument(
+        "-l",
+        "--log-proccesing",
+        action="store_true",
+        help="Enable post processing of log files, substituting node-ids with node tids",
+    )
+    parser.add_argument(
         "--flamegraph",
         nargs="*",
         help="Create flamegraph for node with tid",
@@ -80,7 +86,9 @@ def run_shell() -> None:
     # Create and run the test
 
     test = KIRATest[str](graph, kirad_binary=args.binary, perf=args.flamegraph)
-    shell = DebugShell(test, unshared)
+    shell = DebugShell(
+        test, unshared=unshared, post_process_log_files=args.log_proccesing
+    )
     shell.quiet = args.quiet
 
     if args.filename is not None:
@@ -116,7 +124,8 @@ def run_shell() -> None:
                     f"log/perf-{node}.data",
                     "--subtitle",
                     "kirad@k18",
-                ]
+                ],
+                check=False,
             )
 
     exit_code = ERR_CMD_FAILED if shell.failure else 0

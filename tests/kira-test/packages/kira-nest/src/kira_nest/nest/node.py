@@ -154,20 +154,19 @@ class KIRANode(Node):
     def api(self) -> KIRANodeApi:
         return KIRANodeApi(self)
 
-    @property
-    def log_path(self) -> pathlib.Path:
+    @cached_property
+    def logfile(self) -> pathlib.Path:
         raw_log_path = os.environ.get(self.ENV_LOG_PATH)
         if raw_log_path is None:
             log_path = pathlib.Path("log").resolve()
         else:
             log_path = pathlib.Path(raw_log_path).resolve()
         log_path.mkdir(parents=True, exist_ok=True)
-        return log_path
+        return log_path / f"{self:02}.log"
 
     def start(
         self, binary: pathlib.Path, wrapper: str | None = None, *args: str
     ) -> Popen:
-        logfile = self.log_path / f"{self:02}.log"
         env_vars = os.environ.copy()
         env_vars["RUST_LOG_STYLE"] = "never"
         env_vars["NO_COLOR"] = "1"
@@ -176,7 +175,7 @@ class KIRANode(Node):
 
         arg: str = " ".join(args)
         with (
-            open(logfile, "w") as f,
+            open(self.logfile, "w") as f,
             importlib.resources.as_file(NFTABLES_CONF) as nftables_conf,
         ):
             wrapper = f"{wrapper} -- " if wrapper else ""
