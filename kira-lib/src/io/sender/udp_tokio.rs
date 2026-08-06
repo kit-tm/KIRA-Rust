@@ -27,25 +27,6 @@ pub struct UdpSender {
 }
 
 impl UdpSender {
-    /// Create a new [UdpSender].
-    ///
-    /// This will automatically create and manage an [UdpSocket].
-    pub async fn new(
-        socket_port: u16,
-        //broadcast_port: u16,
-        underlay_handle: UnderlayObserverHandle,
-        format: ProtocolMessageFormat,
-    ) -> io::Result<Self> {
-        let udp_socket =
-            UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?;
-        udp_socket.join_multicast_v6(&ALL_KIRA_NODES, 0)?;
-
-        let socket = Arc::new(udp_socket);
-
-        log::info!(target: "message_sender", "established UDP socket at port {socket_port}, message encoding {format:?}");
-        Self::from_socket(socket, format, underlay_handle)
-    }
-
     pub(crate) fn from_socket(
         socket: Arc<UdpSocket>,
         format: ProtocolMessageFormat,

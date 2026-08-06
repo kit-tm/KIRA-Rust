@@ -14,7 +14,6 @@ use tokio::net::UdpSocket;
 use super::*;
 use crate::domain::underlay::UnderlayNeighbor;
 use crate::format::ProtocolMessageFormat;
-use crate::io::ALL_KIRA_NODES;
 use crate::underlay::UnderlayObserverHandle;
 use crate::underlay::handle::UnderlayObserverHandleError;
 use crate::underlay::information_base::UnderlayNeighborInterfaceDownError;
@@ -55,33 +54,6 @@ impl Clone for UdpReceiver {
 }
 
 impl UdpReceiver {
-    /// Creates a new [UdpReceiver].
-    ///
-    /// Initializes the internally used [UdpSocket].
-    pub async fn new(
-        socket_port: u16,
-        format: ProtocolMessageFormat,
-        underlay_handle: UnderlayObserverHandle,
-        excluded_interfaces: HashSet<InterfaceId>,
-        root_id: NodeId,
-    ) -> tokio::io::Result<Self> {
-        let udp_socket =
-            UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?;
-        if let Err(err) = udp_socket.join_multicast_v6(&ALL_KIRA_NODES, 0) {
-            log::trace!(target: "message_receiver", "Error joining multicast group: {err:?}");
-        }
-
-        let socket = Arc::new(udp_socket);
-
-        Ok(Self::from_socket(
-            socket,
-            format,
-            underlay_handle,
-            excluded_interfaces,
-            root_id,
-        ))
-    }
-
     /// Creates a new [UdpReceiver] from a given socket.
     pub(crate) fn from_socket(
         socket: Arc<UdpSocket>,
