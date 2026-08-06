@@ -194,7 +194,7 @@ class KIRATopology[T: str | int]:
 
     def __post_init__(self):
         # init config
-        for tid, raw_cfg in self.topology.nodes(data=self._CONFIG_ID):
+        for tid, raw_cfg in self.topology.nodes(data=self._CONFIG_ID, default={}):
             cfg = NodeConfig(**raw_cfg)
             self.topology.nodes[tid][self._CONFIG_ID] = cfg
 
