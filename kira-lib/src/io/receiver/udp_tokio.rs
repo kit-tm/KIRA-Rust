@@ -8,6 +8,7 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use kira_r2kad::domain::NodeId;
+use kira_r2kad::messaging::ProtocolMessageKind;
 use tokio::net::UdpSocket;
 
 use super::*;
@@ -57,8 +58,6 @@ impl UdpReceiver {
     /// Creates a new [UdpReceiver].
     ///
     /// Initializes the internally used [UdpSocket].
-    ///
-    /// To bind the receiver to a random free interface, use `socket_port = 0`.
     pub async fn new(
         socket_port: u16,
         format: ProtocolMessageFormat,
@@ -91,6 +90,12 @@ impl UdpReceiver {
         excluded_interfaces: HashSet<InterfaceId>,
         root_id: NodeId,
     ) -> Self {
+        // Don't receive multicast ULNHello the node sent itself.
+        if let Err(err) = socket.set_multicast_loop_v6(false) {
+            tracing::warn!(%err, "Failed to disable multicast IPv6 loopback");
+            // no error since we still drop them if received
+        }
+
         Self {
             buffer: Box::new([0u8; MTU_BYTES]),
             socket,
@@ -157,8 +162,16 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
                 continue;
             };
 
-            if message.source() == &self.root_id {
-                log::trace!(target: "message_receiver", "Ignoring message from us");
+            if message.kind() == ProtocolMessageKind::ULNHello && message.source() == &self.root_id
+            {
+                // IPV6_MULTICAST_LOOP should be set
+                std::hint::cold_path();
+                tracing::warn!(
+                    target: "message_receiver",
+                    ?message,
+                    reason = "Ignoring ULNHello from us",
+                    "Dropping message",
+                );
                 continue;
             }
             log::trace!(target: "message_receiver", "Received {:?} from {}", message, received_from);
