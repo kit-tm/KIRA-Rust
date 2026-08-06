@@ -82,7 +82,7 @@ impl UdpReceiver {
         let deserialized = match self.format.deserialize(buffer) {
             Ok(message) => message,
             Err(e) => {
-                log::error!(target: "message_receiver", "Received invalid serialized message: {e}");
+                tracing::error!(target: "message_receiver", err=%e, "Received invalid serialized message");
                 return None;
             }
         };
@@ -91,34 +91,45 @@ impl UdpReceiver {
     }
 
     /// Returns the actually bound local address.
-    pub fn local_addr(&self) -> tokio::io::Result<SocketAddr> {
+    pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
         self.socket.local_addr()
     }
 }
 
 impl AsyncProtocolMessageReceiver for UdpReceiver {
-    #[tracing::instrument(level = "debug", target = "message_receiver")]
+    #[tracing::instrument(
+        level = tracing::Level::DEBUG,
+        target = "message_receiver",
+        fields(
+            message = tracing::field::Empty
+        )
+    )]
     async fn recv(&mut self) -> Option<Result<(ProtocolMessage, UnderlayNeighborId), RecvError>> {
         let socket = Arc::clone(&self.socket);
         loop {
-            let (received_bytes, received_from) = match socket
-                .recv_from(self.buffer.as_mut_slice())
-                .await
-            {
-                Ok(received) => received,
-                Err(e) => {
-                    log::error!(target: "message_receiver", "Failed to receive data from socket: {e}");
-                    return Some(Err(RecvError::IoError(Box::new(e))));
-                }
-            };
+            let (received_bytes, received_from) =
+                match socket.recv_from(self.buffer.as_mut_slice()).await {
+                    Ok(received) => received,
+                    Err(e) => {
+                        tracing::error!(
+                        target: "message_receiver",
+                        io_error=%e,
+                        "Failed to receive data from socket");
+                        return Some(Err(RecvError::IoError(Box::new(e))));
+                    }
+                };
             let received_from = match received_from {
                 SocketAddr::V6(addr) => addr,
-                addr => panic!("Received Non-IPv6 Packet from {addr}"),
+                addr => unreachable!("Received Non-IPv6 Packet from {addr}"),
             };
 
-            // FIXME: ignore scope_id 0 (probably caused by ipv6 attached to lo)
             let Some(interface_id) = NonZeroU32::new(received_from.scope_id()) else {
-                log::trace!(target: "message_receiver", "Ignoring message with scope_id 0");
+                // non-link-local or loopback interface
+                tracing::trace!(
+                    target: "message_receiver",
+                    reason = "Ignoring message with scope_id 0",
+                    "Dropping message",
+                );
                 continue;
             };
             let interface_id = interface_id.into();
@@ -126,13 +137,22 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
             // ignore incoming messages from excluded interfaces
             // otherwise it will error determining the ulnid
             if self.excluded_interfaces.contains(&interface_id) {
+                tracing::trace!(
+                    target: "message_receiver",
+                    %interface_id,
+                    reason = "Received on ignored interface",
+                    "Dropping message"
+                );
                 continue;
             }
 
             let Some(message) = self.deserialize(&self.buffer[..received_bytes]) else {
-                log::error!(target: "message_receiver", "Deserialization of received message failed");
                 continue;
             };
+            let span = tracing::Span::current();
+            if !span.is_disabled() {
+                span.record("message", format!("{message:?}"));
+            }
 
             if message.kind() == ProtocolMessageKind::ULNHello && message.source() == &self.root_id
             {
@@ -146,20 +166,23 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
                 );
                 continue;
             }
-            log::trace!(target: "message_receiver", "Received {:?} from {}", message, received_from);
 
             let neighbor = UnderlayNeighbor::new(*received_from.ip(), interface_id);
             let ulnid = match self.underlay_handle.register_neighbor(neighbor).await {
                 Ok(ulnid) => ulnid,
                 Err(UnderlayObserverHandleError::SenderClosed(e)) => {
-                    log::error!(target: "message_receiver", "underlay handle sender closed: {e}");
+                    tracing::error!(target: "message_receiver", err=%e, "Underlay handle sender closed");
                     // fatal error if we can't query underlay observer anymore
                     return Some(Err(RecvError::Closed));
                 }
                 Err(UnderlayObserverHandleError::InterfaceDown(
                     UnderlayNeighborInterfaceDownError(id),
                 )) => {
-                    log::warn!(target: "message_receiver", "interface ({id}) down before able to determine underlay neighbor id of received message: {message:?}");
+                    tracing::warn!(
+                        target: "message_receiver",
+                        interface_id=%id,
+                        "Interface down before able to determine underlay neighbor id of message"
+                    );
 
                     let mut ids = HashSet::with_capacity(1);
                     ids.insert(id);
