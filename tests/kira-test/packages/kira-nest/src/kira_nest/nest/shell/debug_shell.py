@@ -1192,6 +1192,15 @@ class DebugShell[T](Cmd):
         self.close()
         return True
 
+    def onecmd(self, line: str) -> bool:
+        """Intercept command execution to catch and display unhandled exceptions."""
+        try:
+            return super().onecmd(line)
+        except Exception as e:
+            print(f"Error: {e}")
+            self._cmd_failed()
+            return False  # Return False to keep the loop running
+
     def cmdloop(self, intro: Any | None = None) -> None:
         try:
             super().cmdloop(intro)
