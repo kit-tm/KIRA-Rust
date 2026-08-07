@@ -102,7 +102,7 @@ class KIRATopologyNodeView[T: str | int]:
     @__getitem__.register
     def by_nid(self, key: NodeID) -> KIRATopologyNode:
         for tid, cfg in self._inner.configs():
-            if NodeID.fromhex(cfg.node_id) == key:
+            if cfg.node_id == key:
                 return self[tid]
         raise KeyError
 
