@@ -37,7 +37,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
         nargs="*",
         type=str,
         default=[],
-        help="Topology IDS of the nodes to randomize (leave empty for all nodes)",
+        help="Topology IDs of the nodes to randomize (leave empty for all nodes)",
+    )
+
+    conf_prune = transformations.add_parser("prune", help="Prune configs of nodes")
+    conf_prune.add_argument(
+        "nodes",
+        nargs="*",
+        type=str,
+        default=[],
+        help=(
+            "Topology IDs of the nodes that should get their config pruned "
+            "(leave empty for all nodes)"
+        ),
     )
 
     return parser
@@ -46,10 +58,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def handle_randomize(args: argparse.Namespace, graph: nx.Graph) -> None:
     nodes = args.nodes if args.nodes else graph.nodes
     for tid, cfg in graph.nodes(data="config"):
-        assert type(cfg) is NodeConfig
+        assert isinstance(cfg, NodeConfig)
         if tid in nodes:
             eprint(f"Randomizing NodeID of '{tid}' ...")
-            cfg.node_id = NodeID.random()
+            cfg.node_id = NodeID.random()  # pyright: ignore
+
+
+def handle_prune(args: argparse.Namespace, graph: nx.Graph) -> None:
+    nodes = args.nodes if args.nodes else graph.nodes
+    for tid, data in graph.nodes(data=True):
+        if tid in nodes and "config" in data:
+            eprint(f"Pruning Config of '{tid}' ...")
+            del data["config"]
 
 
 def alter_gml_config() -> None:
@@ -71,13 +91,17 @@ def alter_gml_config() -> None:
     eprint("Applying transformations ...")
     if args.transformation == "randomize":
         handle_randomize(args, graph)
+    elif args.transformation == "prune":
+        handle_prune(args, graph)
     else:
         raise NotImplementedError(f"Unknown transformation: {args.transformation}")
 
     # 4. Convert NodeConfig to dict
     for tid, cfg in graph.nodes(data="config"):
-        assert type(cfg) is NodeConfig
+        if cfg is None:
+            continue
 
+        assert type(cfg) is NodeConfig
         graph.nodes[tid]["config"] = cfg.asdict()
 
     eprint()
