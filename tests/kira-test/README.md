@@ -28,6 +28,7 @@ the nesttest in unshare(2) isolation.
 This can be achieved using tmpfiles.d(5):
 ```sh
 printf "d /run/netns 0755 root root -\n" | sudo install -m 0644 /dev/stdin /etc/tmpfiles.d/netns.conf
+sudo systemd-tmpfiles --create /etc/tmpfiles.d/netns.conf
 ```
 
 **Note:** Currently, unshare(2) isolation of nesttest isn't supported if you want to collect OpenTelemetry data
