@@ -7,8 +7,8 @@ authors = [
   { name = "Julius Rüberg", email = "julius.rueberg@student.kit.edu" },
   { name = "Jakob Müllner ", email = "uifnz@student.kit.edu" },
 ]
-dependencies = ["kira-nest"]
 requires-python = ">=3.12"
+dependencies = ["kira-nest", "kira-gml"]
 
 [dependency-groups]
 dev = ["pytest>=9.0.1", "pytest-randomly>=4.1.0", "ruff>=0.14.5"]
@@ -19,6 +19,7 @@ members = ["packages/*"]
 [tool.uv.sources]
 kira-nest = { workspace = true }
 kira-common = { workspace = true }
+kira-gml = { workspace = true }
 
 [[tool.uv.index]]
 name = "gitlab"
