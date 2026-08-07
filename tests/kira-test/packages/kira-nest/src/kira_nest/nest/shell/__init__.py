@@ -22,7 +22,13 @@ logger.setLevel(logging.INFO)
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Nest Test Script")
-    parser.add_argument("test_gml", type=str, help="The gml file")
+    parser.add_argument(
+        "test_gml",
+        type=str,
+        nargs="?",
+        default="-",
+        help="The gml file path or '-' for stdin",
+    )
     parser.add_argument(
         "--otel",
         action="store_true",
@@ -73,7 +79,12 @@ def run_shell() -> None:
         random.seed(args.seed)
 
     # Load the configuration from the GML file
-    graph: nx.Graph = nx.readwrite.read_gml(args.test_gml)
+    graph: nx.Graph
+    if args.test_gml == "-":
+        graph = nx.readwrite.read_gml(sys.stdin.buffer)
+    else:
+        graph = nx.readwrite.read_gml(args.test_gml)
+
     if not args.otel:
         # run emulation completely isolated from host Linux system
         # this allows us to run NeST without CAP_SYS_ADMIN (needed for netns creation)
@@ -112,8 +123,16 @@ def run_shell() -> None:
                 break
             print()
         shell.do_exit("")
+    elif args.test_gml == "-":
+        # Ensure interactive repl still works although stdin was used to pipe
+        try:
+            with open("/dev/tty") as tty:
+                sys.stdin = tty
+                shell.cmdloop()
+        finally:
+            # restore to default
+            sys.stdin = sys.__stdin__
     else:
-        # interactive
         shell.cmdloop()
 
     # Directly generating the svg with flamegraph
