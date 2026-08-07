@@ -121,6 +121,7 @@ class ConnectivityHelpers:
         verbose_traceroute_on_fail=True,
         cool_down=1.0,
         respect_connected_components=True,
+        gate=True,
     ):
         """
         Sweeps through all node pairs, retrying failing checks across multiple passes.
@@ -176,17 +177,25 @@ class ConnectivityHelpers:
                     f"{fail_msg} {src} -> {dst} failed after {max_attempts} attempts"
                 )
 
+        if gate:
+            assert not pending, "Gated retry sweep should not fail on subtests"
+
         return pending
 
-    def checkup_timeout(self, test, timeout=1):
+    def checkup_timeout(self, test, timeout=1, gate=True):
+        failed = False
         up_timeout = time.time() + timeout
         for n in test.topology.nodes:
             with self.subtests.test(msg="checkup", n=str(n)):
                 while not n.is_up():
                     if time.time() > up_timeout:
+                        failed = True
                         break
                     time.sleep(0.05)
                 assert n.is_up(), f"Node {n} failed to come up within {timeout} second"
+
+        if gate:
+            assert not failed, "All nodes have to be up"
 
     @staticmethod
     def ping_check(src, dst):
