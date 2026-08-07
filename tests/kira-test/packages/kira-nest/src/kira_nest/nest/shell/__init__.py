@@ -1,5 +1,6 @@
 import argparse
 import logging
+import random
 import subprocess
 import sys
 from pathlib import Path
@@ -57,12 +58,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Commands to execute non-interactively",
         type=argparse.FileType("r"),
     )
+    parser.add_argument(
+        "--seed", type=int, default=None, help="Random seed for reproducibility"
+    )
     return parser
 
 
 def run_shell() -> None:
     parser = build_arg_parser()
     args = parser.parse_args()
+    if args.seed:
+        random.seed(args.seed)
 
     # Load the configuration from the GML file
     graph: nx.Graph = nx.readwrite.read_gml(args.test_gml)
