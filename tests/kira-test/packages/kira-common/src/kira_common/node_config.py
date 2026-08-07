@@ -13,21 +13,12 @@ class NodeConfig:
         otel: bool = False,
     ):
         if node_id is None:
-            nid = NodeID.random()
-            self.node_id = nid.hex()
-            self.ipv6 = nid.to_node_ip().compressed
+            self.node_id = NodeID.random()
         else:
-            # Ensure validity of provided node_id
-            nid = NodeID.fromhex(node_id)
-            self.node_id = node_id
+            self.node_id = NodeID.fromhex(node_id)
 
-        if ipv6 is None:
-            self.ipv6 = nid.to_node_ip().compressed
-        else:
-            assert NodeIP(ipv6) == nid.to_node_ip(), (
-                "ipv6 doesn't match provided node_id"
-            )
-            self.ipv6 = ipv6
+        if ipv6 is not None:
+            assert NodeIP(ipv6) == self.ipv6, "ipv6 doesn't match provided node_id"
 
         if name is None:
             self.name = f"d{type(self)._name_counter}"
@@ -37,3 +28,15 @@ class NodeConfig:
 
         self.image = image
         self.otel = otel
+
+    @property
+    def ipv6(self) -> NodeIP:
+        return self.node_id.to_node_ip()
+
+    def asdict(self) -> dict[str, str | int]:
+        return {
+            "node_id": self.node_id.hex(),  # don't store derivable IPv6
+            "name": self.name,
+            "image": self.image,
+            "otel": self.otel,
+        }

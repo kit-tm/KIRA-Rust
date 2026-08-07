@@ -245,7 +245,7 @@ class KIRANode(Node):
         # WARNING: Restarting KIRA daemon with different ID
         # will result in outdated information
         self.__node_id = self.api.node_id()
-        return self.__node_id or NodeID.fromhex(self.config.node_id)
+        return self.__node_id or self.config.node_id
 
     @singledispatchmethod
     def next_ip(self, ip: KiraIP) -> KiraIP | None:

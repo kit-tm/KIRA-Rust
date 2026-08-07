@@ -71,8 +71,8 @@ class KIRATest[T]:  # T = topology id type, usually int or str
             ny = self.topology.nodes[y]
 
             if_x, if_y = connect(nx, ny, f"n{x}n{y}", f"n{y}n{x}")
-            if_x.set_address(nx.config.ipv6)
-            if_y.set_address(ny.config.ipv6)
+            if_x.set_address(nx.config.ipv6.compressed)
+            if_y.set_address(ny.config.ipv6.compressed)
 
             # safe interfaces for later
             self.topology.links[x, y] = KIRALink(if_x, if_y)
