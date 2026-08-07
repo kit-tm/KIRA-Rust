@@ -79,11 +79,11 @@ class DebugShell[T](Cmd):
     @cached_property
     def _replacement_map(self) -> dict[str, str]:
         replacement_map = {}
-        for tid, node_cfg in self.test.topology.configs():
-            nid = node_cfg.node_id
-            ipv6 = node_cfg.ipv6
+        for _, node_cfg in self.test.topology.configs():
+            nid = node_cfg.node_id.hex()
+            ipv6 = node_cfg.ipv6.compressed
             short_nid = nid[:8]
-            replacement = f"${tid}$"
+            replacement = f"${node_cfg.name}$"
 
             replacement_map[nid] = f"{replacement:<{len(nid)}}"
             replacement_map[short_nid] = f"{replacement:<{len(short_nid)}}"
