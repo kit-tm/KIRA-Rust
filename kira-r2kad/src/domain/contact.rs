@@ -217,7 +217,7 @@ impl Contact {
             // if path candidate has been validated (stems from a message's source route), we can also replace the active path directly
             if path_candidate.is_valid() {
                 if let Some(proposed_path) = self.path_collection.proposed_path()
-                    && path_candidate == proposed_path
+                    && path_candidate.is_same_path_as(proposed_path)
                 {
                     self.path_collection.set_proposed_to_active();
                 } else {
@@ -255,6 +255,15 @@ impl Contact {
     /// Returns the proposed [Path] of the [Contact].
     pub fn proposed_path(&self) -> Option<&Path> {
         self.path_collection.proposed_path()
+    }
+
+    pub fn proposed_path_mut(&mut self) -> Option<&mut Path> {
+        self.path_collection.proposed_path_mut()
+    }
+
+    /// Returns the proposed [Path] of the [Contact].
+    pub fn clear_proposed_path(&mut self) {
+        self.path_collection.clear_proposed_path()
     }
 
     /// Set the active [Path] of the [Contact].

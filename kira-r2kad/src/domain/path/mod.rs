@@ -149,6 +149,14 @@ impl FromIterator<NodeId> for Result<Path, EmptyPathError> {
 }
 
 impl Path {
+    // set path to None and clear everything else
+    pub fn clear(&mut self) {
+        self.ids.clear();
+        self.path_state = Default::default();
+        self.last_validated = None;
+        self.last_path_refresh = None;
+    }
+
     /// Reverses the [Path] in-place.
     pub fn reverse(&mut self) {
         self.ids.reverse();

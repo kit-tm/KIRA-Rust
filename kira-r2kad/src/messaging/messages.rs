@@ -22,7 +22,7 @@ pub struct Nonce(u64);
 
 impl fmt::Display for Nonce {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{:x}", self.0)
     }
 }
 

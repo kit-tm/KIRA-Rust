@@ -513,13 +513,31 @@ where
 
                 // in case we have a contact we validate it explicitly (currently this is done in forward_messages already)
                 let mut rt = context.routing_table_mut();
-                if let Some(mut contact) = rt.contact_mut(&source)
-                    && let Some(active_path) = contact.path_mut()
-                    && *active_path == rev_source_route
-                {
-                    assert!(active_path.is_valid());
-                    active_path.set_state(crate::domain::PathState::Valid);
-                    active_path.update_last_validated();
+                if let Some(mut contact) = rt.contact_mut(&source) {
+                    if let Some(active_path) = contact.path_mut()
+                        && *active_path == rev_source_route
+                    {
+                        // this probe message confirms the active path
+                        assert!(active_path.is_valid());
+                        active_path.set_state(crate::domain::PathState::Valid);
+                        active_path.update_last_validated();
+
+                        // if same path exists as proposed path, remove it
+                        if let Some(proposed_path) = contact.proposed_path()
+                            && *proposed_path == rev_source_route
+                        {
+                            contact.clear_proposed_path();
+                        }
+                    } else {
+                        // either no active path exists or it is different from the ProbeRsp rev_source_route
+                        if let Some(proposed_path) = contact.proposed_path_mut()
+                            && *proposed_path == rev_source_route
+                        {
+                            // this probe message confirms the proposed path
+                            proposed_path.set_state(crate::domain::PathState::Valid);
+                            proposed_path.update_last_validated();
+                        }
+                    }
                 }
                 self.remove_from_tracked_messages(nonce);
 
