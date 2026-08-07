@@ -67,3 +67,7 @@ ignore = [
 "**/__init__.py" = [
   "F401", # unused import
 ]
+
+# Workaround for [NeST#285](https://gitlab.com/nitk-nest/nest/-/work_items/285)
+[tool.pytest.ini_options]
+addopts = "-p no:unraisableexception"
