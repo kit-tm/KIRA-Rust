@@ -45,7 +45,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "-l",
         "--log-proccesing",
         action="store_true",
-        help="Enable post processing of log files, substituting node-ids with node tids",
+        help=(
+            "Enable post processing of log files, substituting node-ids with node tids"
+        ),
     )
     parser.add_argument(
         "--flamegraph",

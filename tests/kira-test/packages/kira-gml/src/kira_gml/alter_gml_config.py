@@ -3,9 +3,9 @@ import argparse
 import random
 import sys
 
-from kira_common.domain import NodeID
 import networkx as nx
 from kira_common import NodeConfig
+from kira_common.domain import NodeID
 
 from kira_gml import eprint
 

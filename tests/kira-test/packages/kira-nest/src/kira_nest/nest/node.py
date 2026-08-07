@@ -165,7 +165,10 @@ class KIRANode(Node):
         return log_path / f"{self:02}.log"
 
     def start(
-        self, binary: pathlib.Path, wrapper: str | None = None, *args: str
+        self,
+        binary: pathlib.Path,
+        *args: str,
+        wrapper: str | None = None,
     ) -> Popen:
         env_vars = os.environ.copy()
         env_vars["RUST_LOG_STYLE"] = "never"

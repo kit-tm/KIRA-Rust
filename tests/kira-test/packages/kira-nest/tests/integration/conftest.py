@@ -146,7 +146,8 @@ class ConnectivityHelpers:
 
         for attempt in range(max_attempts):
             logger.debug(
-                f"\n--- {test_msg.upper()} Sweep Attempt {attempt + 1}/{max_attempts} ---"
+                f"\n--- {test_msg.upper()} "
+                f"Sweep Attempt {attempt + 1}/{max_attempts} ---"
             )
             next_pending = []
             for src, dst in pending:

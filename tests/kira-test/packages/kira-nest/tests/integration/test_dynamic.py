@@ -6,7 +6,9 @@ from kira_nest.nest.test import KIRATest
 from nest.topology import Address
 
 CONVERGENCE_GRACE_SECS = 5
-RETRIES = 5  # we retry pings 5 times because dynamic scenario may not have converged fully in edge cases
+# we retry pings 5 times because dynamic scenario may
+# not have converged fully after 3 tries in edge cases
+RETRIES = 5
 
 
 def test_dynamic_isolated_node_failure(

@@ -87,10 +87,13 @@ class KIRATest[T]:  # T = topology id type, usually int or str
                 self.setup_otel(node)
 
             if perf and tid in perf:
-                wrapper = f"perf record -F 997 --call-graph dwarf,64000 -g -o log/perf-{node}.data"
+                wrapper = (
+                    "perf record -F 997 --call-graph dwarf,64000 "
+                    f"-g -o log/perf-{node}.data"
+                )
             else:
                 wrapper = None
-            kira_process = node.start(kirad_binary, wrapper=wrapper, *args)
+            kira_process = node.start(kirad_binary, *args, wrapper=wrapper)
             self.processes.append(kira_process)
 
     def setup_otel(self, node: KIRANode) -> None:

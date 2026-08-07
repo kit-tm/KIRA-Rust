@@ -60,6 +60,10 @@ ignore = [
   "ANN",     # type annotations
   "PLR2004", # magic numbers
 ]
+"packages/*/conftest.py" = [
+  "ANN",     # type annotations
+  "PLR2004", # magic numbers
+]
 "**/__init__.py" = [
   "F401", # unused import
 ]
