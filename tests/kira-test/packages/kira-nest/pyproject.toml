@@ -11,10 +11,10 @@ requires-python = ">=3.12"
 dependencies = [
   "kira-common",
   "nest @ git+https://gitlab.com/Toorero/nest.git@feature/cap_sys_admin", # https://gitlab.com/nitk-nest/nest/-/work_items/283
-  "networkx==3.4.2",
-  "scipy==1.15.3",
+  "networkx==3.6.1",
+  "scipy==1.18.0",
   "term-image==0.7.2",
-  "matplotlib==3.10.3",
+  "matplotlib==3.11.1",
 ]
 
 [project.scripts]
@@ -22,12 +22,12 @@ nesttest = "kira_nest.nest.shell:run_shell"
 
 [dependency-groups]
 dev = [
-  "pytest>=9.0.1",
+  "pytest>=9.1.0",
   "pytest-randomly>=4.1.0",
-  "ruff>=0.14.5",
+  "ruff>=0.16.2",
   "pyright>=1.1.407",
 ]
 
 [build-system]
-requires = ["uv_build>=0.9.11,<0.10.0"]
+requires = ["uv_build>=0.9.11,<0.13.0"]
 build-backend = "uv_build"
