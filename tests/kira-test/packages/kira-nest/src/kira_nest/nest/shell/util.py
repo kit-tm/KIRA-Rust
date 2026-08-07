@@ -25,7 +25,7 @@ def with_argparser[S, R](
             static_parser = copy.deepcopy(parser)
 
             # set function (do_ prefix stripped) as program name for correct help
-            static_parser.prog = f.__name__.split("_")[-1]
+            static_parser.prog = f.__name__.removeprefix("do_")
             active_parser = static_parser
         else:
             active_parser = None
@@ -38,7 +38,7 @@ def with_argparser[S, R](
                     # dynamically look up parser
                     active_parser = getattr(self, parser)
 
-                    active_parser.prog = f.__name__.split("_")[-1]
+                    active_parser.prog = f.__name__.removeprefix("do_")
                     wrapper.__doc__ = active_parser.format_help()
                 else:
                     raise ValueError("Unable to obtain active ArgumentParser")
@@ -92,7 +92,7 @@ def init_argparser[C](cls: C) -> C:
                 continue
 
             parser: ArgumentParser = getattr(self, f._parser)
-            parser.prog = f.__name__.split("_")[-1]
+            parser.prog = f.__name__.removeprefix("do_")
             f.__doc__ = parser.format_help()
 
     cls.__init__ = init_wrapper  # pyright: ignore
