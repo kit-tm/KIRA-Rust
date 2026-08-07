@@ -168,7 +168,7 @@ fn extract_dht_handle(params: &mut HashMap<String, String>) -> Result<domain::dh
     post,
     path = "/dht",
     responses(domain::dht::StoreOK, DHTErr),
-    request_body(content = [u8], description = "The value to store in the DHT"),
+    request_body(content = [u8], description = "Value to store in the DHT"),
     params(
         (
             "key" = Option < String >,
@@ -229,15 +229,17 @@ async fn store_dht_data(
     get,
     path = "/dht",
     responses(
-        (status = 200, description = "The list of values stored in the DHT under that key. Encoded as base64.", example = json!(["QmFyMTIzCg=="]), body = domain::dht::FetchRsp), 
-        (status = "4XX", description = "An error during DHT fetch", body = DHTErr)),
+        (status = 200, description = "List of values stored in the DHT at the key encoded as base64", body = domain::dht::FetchRsp, example = json!(["QmFyMTIzCg=="])),
+        (status = 400, description = "An error during DHT fetch", body = DHTErr)
+    ),
     params(
         (
-            "key" = Option < String >,
+            "key" = Option<String>,
             Query,
-            description = "Fetches the value(s) stored in the DHT under key <key>!",
-            example = json ! ("Foo123")
-        ))
+            description = "Determines location to fetch",
+            example = json!("Foo123")
+        ),
+    )
 ))]
 async fn fetch_dht_data(
     State(state): State<crate::api::ApiState>,
@@ -285,8 +287,8 @@ async fn fetch_dht_data(
         (
             status = 200,
             body = inline(domain::dht::LocalHashTable),
-            example = json ! ([("35986033727C2B8E1A10AA488216", ["SGVsbG8gV29ybGQ", "SSdtIGEgdGVhcG90"])].into_iter().collect::< HashMap < _, _ >> ()),
-            description = "Dumps the whole local hash table by encoding the handle as a HexString and the data as Base64."
+            description = "Dumps the whole local hash table by encoding the handle as a HexString and the data as Base64.",
+            example = json ! ([("35986033727C2B8E1A10AA488216", ["SGVsbG8gV29ybGQ", "SSdtIGEgdGVhcG90"])].into_iter().collect::< HashMap < _, _ >> ())
         )
     )
 ))]

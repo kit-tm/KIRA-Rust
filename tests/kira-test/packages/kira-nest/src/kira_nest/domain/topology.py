@@ -6,6 +6,7 @@ from functools import cached_property, singledispatchmethod
 from types import EllipsisType
 from typing import ClassVar, overload
 
+import networkx as nx
 from kira_common.domain import NodeID, NodeIP
 from kira_common.node_config import NodeConfig
 from networkx import Graph
@@ -193,7 +194,7 @@ class KIRATopology[T: str | int]:
 
     def __post_init__(self):
         # init config
-        for tid, raw_cfg in self.topology.nodes(data=self._CONFIG_ID):
+        for tid, raw_cfg in self.topology.nodes(data=self._CONFIG_ID, default={}):
             cfg = NodeConfig(**raw_cfg)
             self.topology.nodes[tid][self._CONFIG_ID] = cfg
 
@@ -226,3 +227,21 @@ class KIRATopology[T: str | int]:
 
     def edges(self) -> OutEdgeView:
         return self.topology.edges
+
+    def connected_components(self) -> Iterator[tuple[KIRANode, int]]:
+        """Computes and yields the connected components of the topology.
+
+        This method filters out any links that are currently marked as down
+        using a restricted networkx view, evaluates the remaining connected
+        components, and assigns each node to its respective component ID.
+
+        Yields:
+            tuple[KIRANode, int]: A tuple containing the `KIRANode` instance
+            and its integer component identifier (ID).
+        """
+
+        down_edges = list((u, v) for u, v, link in self.links if link.is_down())
+        graph = nx.restricted_view(self.topology, [], down_edges)
+        for comp_id, component in enumerate(nx.connected_components(graph)):
+            for node in component:
+                yield self.nodes[node], comp_id

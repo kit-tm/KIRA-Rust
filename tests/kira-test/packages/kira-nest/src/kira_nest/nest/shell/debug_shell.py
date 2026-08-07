@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import socket
 import sys
@@ -56,10 +57,16 @@ class DebugShell[T](Cmd):
     print_cmd = False  # set -x
     quiet = False
 
-    def __init__(self, test: KIRATest[T], unshared: bool = False) -> None:
+    def __init__(
+        self,
+        test: KIRATest[T],
+        unshared: bool = False,
+        post_process_log_files: bool = False,
+    ) -> None:
         super().__init__()
         self.test = test
         self.imager = KIRAImager(test)
+        self.post_process_log_files = post_process_log_files
 
         base = f"{YELLOW}ntest{RESET}"
         prefix = (
@@ -107,6 +114,24 @@ class DebugShell[T](Cmd):
 
         return self._replace_re.sub(replace, string)
 
+    def process_log_file(
+        self, input_path: Path, output_path: Path | None = None, encoding: str = "utf-8"
+    ) -> Path:
+        input_file = Path(input_path)
+        output_file = Path(output_path) if output_path else input_file
+
+        # Use a temporary file necessary on overwriting
+        temp_file = output_file.with_suffix(output_file.suffix + ".tmp")
+        with (
+            input_file.open(encoding=encoding, errors="replace") as infile,
+            temp_file.open("w", encoding=encoding) as outfile,
+        ):
+            for line in infile:
+                processed_line = self.sub_nid_name(line)
+                outfile.write(processed_line)
+        temp_file.replace(output_file)
+        return output_file
+
     _pingall_parser = argparse.ArgumentParser()
     _pingall_parser.add_argument(
         "-f", "--failed", action="store_true", help="display only failed pings"
@@ -121,25 +146,28 @@ class DebugShell[T](Cmd):
         failed = args.failed or self.quiet
         verbose = 2 if args.verbose else 0
 
+        conn = dict(self.test.topology.connected_components())
         for x in self.test.topology.nodes:
             for y in self.test.topology.nodes:
-                if x != y:
+                if x == y or conn[x] != conn[y]:
+                    continue
+
+                if not self.quiet:
+                    print(f"Pinging {x:>3} --> {y:>3} ...", end="\r")
+                ip_y = y.node_id.to_node_ip()
+                ip_y = Address(str(ip_y))
+                ping_failed = not x.ping(ip_y, packets=1, verbose=verbose)
+
+                if verbose == 0:
+                    if ping_failed:
+                        print(f"Pinging {x:>3} --> {y:>3} ✗   ", flush=True)
+                        self._cmd_failed()
+                        continue
+
                     if not self.quiet:
-                        print(f"Pinging {x:>3} --> {y:>3} ...", end="\r")
-                    ip_y = y.node_id.to_node_ip()
-                    ip_y = Address(str(ip_y))
-                    ping_failed = not x.ping(ip_y, packets=1, verbose=verbose)
-
-                    if verbose == 0:
-                        if ping_failed:
-                            print(f"Pinging {x:>3} --> {y:>3} ✗   ", flush=True)
-                            self._cmd_failed()
-                            continue
-
-                        if not self.quiet:
-                            # overwrite line if failed
-                            end = "\r" if failed else "\n"
-                            print(f"Pinging {x:>3} --> {y:>3} ✓  ", end=end, flush=True)
+                        # overwrite line if failed
+                        end = "\r" if failed else "\n"
+                        print(f"Pinging {x:>3} --> {y:>3} ✓  ", end=end, flush=True)
 
     @property
     def _exec_parser(self) -> argparse.ArgumentParser:
@@ -305,6 +333,29 @@ class DebugShell[T](Cmd):
             return
         res = self.sub_nid_name(res)
         print(res)
+
+    @property
+    def _contacts_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description="Contacts and their paths of a node."
+        )
+        parser.add_argument(
+            "node",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+            help="identifier of a node",
+        )
+        return parser
+
+    @with_argparser("_contacts_parser")
+    def do_contacts(self, args: argparse.Namespace) -> None:
+        node: KIRANode = args.node
+
+        for path in node.paths_routing_table() or []:
+            contact = self.test.topology.nodes.get(path[-1]) or "???"
+            path_str = self.test._display_path(path)
+
+            print(f"{contact:>3} ==> {path_str}")
 
     @property
     def _uln_table_parser(self) -> argparse.ArgumentParser:
@@ -532,6 +583,9 @@ class DebugShell[T](Cmd):
         parser.add_argument(
             "-v", "--verbose", action="store_true", help="print successful traceroutes"
         )
+        parser.add_argument(
+            "-f", "--failed", action="store_true", help="display only failed traces"
+        )
 
         return parser
 
@@ -540,13 +594,22 @@ class DebugShell[T](Cmd):
         src = args.source
         dst = args.destination
 
-        srcs = iter([src]) if src is not None else iter(self.test.topology.nodes)
-        dsts = iter([dst]) if dst is not None else iter(self.test.topology.nodes)
+        specific_trace = src is not None and dst is not None
+        srcs = [src] if src is not None else self.test.topology.nodes
+        dsts = [dst] if dst is not None else self.test.topology.nodes
+        conn = dict(self.test.topology.connected_components())
 
         for src in srcs:
             for dst in dsts:
+                if conn[src] != conn[dst] and not specific_trace:
+                    continue
+
+                if not self.quiet and not args.verbose:
+                    print(f"{src:>3} --> {dst:>3} ...", end="\r")
                 success = self.test.traceroute(src, dst, verbose=args.verbose)
-                print(f"{src} -> {dst} {success}")
+                end = "\r" if args.failed and success else "\n"
+                success = "✓   " if success else "✗   "
+                print(f"{src:>3} --> {dst:>3} {success}", end=end, flush=True)
 
                 # only show unsuccessful traceroutes
                 if not success and not args.verbose:
@@ -952,7 +1015,7 @@ class DebugShell[T](Cmd):
         )
         return parser
 
-    @with_argparser("_checkup_parser")
+    @with_argparser("_check_parser")
     def do_check(self, args: argparse.Namespace) -> None:  # noqa: PLR0915, PLR0912
         node = args.node
         nodes = self.test.topology.nodes if node is None else iter([node])
@@ -1036,6 +1099,36 @@ class DebugShell[T](Cmd):
             self._cmd_failed()
 
     @property
+    def _closest_to(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description=("Get the closest node to a key (SHA1).")
+        )
+        parser.add_argument(
+            "key",
+            type=str,
+        )
+        return parser
+
+    @with_argparser("_closest_to")
+    def do_closest_to(self, args: argparse.Namespace) -> None:
+        hash_key = hashlib.sha256(args.key.encode("utf-8")).digest()[: NodeID.LENGTH]
+        key_int = int.from_bytes(hash_key, byteorder="big")
+
+        print(f"SHA-256 Hash: {key_int:0{NodeID.LENGTH}x}")
+        print(f"    {key_int:0{NodeID.LENGTH * 8}b}")
+        print()
+
+        distances = {
+            node: key_int ^ int.from_bytes(node.node_id, byteorder="big")
+            for node in self.test.topology.nodes
+        }
+        distances = sorted(distances.items(), key=lambda i: i[1])
+
+        print("XOR-Distances:")
+        for n, d in distances:
+            print(f"{n:>3} {d:0{NodeID.LENGTH * 8}b}")
+
+    @property
     def _netns_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(
             description=("Get the network namespace name of a node.")
@@ -1081,7 +1174,7 @@ class DebugShell[T](Cmd):
 
         for node in self.test.topology.nodes:
             netns_name = node.id
-            p = Popen(f"ip netns pids {netns_name}", shell=True, stdout=PIPE)
+            p = Popen(["ip", "netns", "pids", netns_name], stdout=PIPE)
             stdout, _ = p.communicate()
             if p.returncode == 0 and stdout:
                 pids = stdout.decode().strip().split()
@@ -1091,10 +1184,22 @@ class DebugShell[T](Cmd):
                         f"ip netns exec {netns_name} {kill_cmd}", shell=True
                     ).communicate()
 
+            if self.post_process_log_files:
+                self.process_log_file(node.logfile)
+
         # TODO: still partially broken, python processes are not killed for some reason
 
         self.close()
         return True
+
+    def onecmd(self, line: str) -> bool:
+        """Intercept command execution to catch and display unhandled exceptions."""
+        try:
+            return super().onecmd(line)
+        except Exception as e:
+            print(f"Error: {e}")
+            self._cmd_failed()
+            return False  # Return False to keep the loop running
 
     def cmdloop(self, intro: Any | None = None) -> None:
         try:

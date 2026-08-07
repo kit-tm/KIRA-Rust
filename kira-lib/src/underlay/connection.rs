@@ -24,13 +24,14 @@ use netlink_proto::Connection;
 use netlink_proto::ConnectionHandle;
 use netlink_proto::sys::AsyncSocket;
 use netlink_proto::sys::SocketAddr;
-use rtnetlink::constants::RTMGRP_LINK;
 use tracing::{instrument, trace_span};
 
 use super::handle::UnderlayObserverHandleRequest;
 use super::information_base::UnderlayInformationBase;
 use super::*;
 use crate::domain::underlay::{Interface, InterfaceId, UnderlayNeighborUpdate};
+
+const RTMGRP_LINK: u32 = 1; // to not depend on rtnetlink just for this constant
 
 type RtNetlinkReceiver = UnboundedReceiver<(NetlinkMessage<RouteNetlinkMessage>, SocketAddr)>;
 /// [Connection] to Netlink which receives updates to [Interfaces](Interface) of the underlay.

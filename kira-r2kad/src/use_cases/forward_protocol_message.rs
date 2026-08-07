@@ -234,7 +234,7 @@ where
                 {
                     contact
                         .set_invalid(NotViaStateList::from(NotViaState::from((**entry).clone())));
-                    log::debug!(target: "forward_protocol_message", "Invalidated contact {} based on not-via data of {}", contact.id(), source);
+                    tracing::debug!(target: "forward_protocol_message", %source, invalidated_contact = %contact.id(), "Invalidated contact based on not-via data");
                     continue;
                 }
             }
@@ -330,6 +330,12 @@ where
     /// 2. [NotVia] to invalidate all effected [Contacts](Contact).
     /// 3. [Path] to the source of the message to update the [RoutingTable] and [ULNTable].
     /// 4. [RTableData] to discover, improve of fix existing [Contacts](Contact) in the [RoutingTable].
+    #[instrument(
+        level = Level::DEBUG,
+        target = "forward_protocol_message",
+        skip_all,
+        fields(message)
+    )]
     fn extract_message_info(
         &self,
         context: &C,
@@ -423,44 +429,60 @@ where
     /// Returns if the message was forwarded.
     /// This information is used to abort the processing of forwarded messages
     /// by subsequent invoked [UseCases](UseCase).
+    #[instrument(
+        level = Level::DEBUG,
+        target = "forward_protocol_message",
+        skip_all,
+        fields(
+            message,
+            current_hop = tracing::field::Empty,
+        )
+        ret(level = Level::TRACE),
+    )]
     fn handle_forwarding(&self, context: &C, mut message: ProtocolMessage) -> HandlingResult {
-        let source_route = message.source_route().cloned();
+        let source_route = message.source_route_mut();
         if source_route.is_none() {
             return HandlingResult::NotHandled;
         }
         let source_route = source_route.unwrap();
+        let span = tracing::Span::current();
+        if !span.is_disabled() {
+            span.record("current_hop", format!("{}", source_route.current_hop()));
+        }
 
         // Current hop has to be us
         if source_route.current_hop() != context.root_id() {
             tracing::warn!(
                 target: "forward_protocol_message",
-                current_hop = %source_route.current_hop(),
-                protocol_message = ?message,
                 "Current hop of message is not us",
             );
             return HandlingResult::Handled;
         }
 
         let Some(next_hop) = source_route.next_hop() else {
-            // source route finished
+            tracing::debug!(
+                target: "forward_protocol_message",
+                "SourceRoute finished",
+            );
             return HandlingResult::NotHandled;
         };
 
         // From here on the message is assumed to be for us
 
         // Next hop is not a underlay neighbor -> Error -> Drop
-        let neighbor_ulnid = context.uln_table().get(next_hop).cloned();
-        if neighbor_ulnid.is_none() {
+        if context.uln_table().get(next_hop).is_none() {
+            tracing::debug!(
+                target: "forward_protocol_message",
+                reason = "Next hop is not an underlay neighbor",
+                "Dropping message and returning an error"
+            );
             self.handle_next_hop_failed(context, message);
             return HandlingResult::Handled;
         }
 
-        // Advance source route and send on ulnid
-        // Checked route before
-        if let Some(route) = message.source_route_mut() {
-            route.advance();
-        }
-        log::trace!(target: "forward_protocol_message", "Forwarding message {message:?}");
+        // Advance source route
+        tracing::debug!(target: "forward_protocol_message", %next_hop, "Forwarding message to next hop");
+        source_route.advance();
         context
             .runtime()
             .send_message(message, context.uln_table().deref(), context.root_id());

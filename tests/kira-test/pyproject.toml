@@ -7,11 +7,11 @@ authors = [
   { name = "Julius Rüberg", email = "julius.rueberg@student.kit.edu" },
   { name = "Jakob Müllner ", email = "uifnz@student.kit.edu" },
 ]
-requires-python = "~=3.12.0" # Python 3.12.X
-dependencies = ["kira-nest"]
+requires-python = ">=3.12"
+dependencies = ["kira-nest", "kira-gml"]
 
 [dependency-groups]
-dev = ["pytest>=9.0.1", "ruff>=0.14.5", "ty>=0.0.2"]
+dev = ["pytest>=9.0.1", "pytest-randomly>=4.1.0", "ruff>=0.14.5"]
 
 [tool.uv.workspace]
 members = ["packages/*"]
@@ -19,6 +19,7 @@ members = ["packages/*"]
 [tool.uv.sources]
 kira-nest = { workspace = true }
 kira-common = { workspace = true }
+kira-gml = { workspace = true }
 
 [[tool.uv.index]]
 name = "gitlab"
@@ -59,6 +60,14 @@ ignore = [
   "ANN",     # type annotations
   "PLR2004", # magic numbers
 ]
+"packages/*/conftest.py" = [
+  "ANN",     # type annotations
+  "PLR2004", # magic numbers
+]
 "**/__init__.py" = [
   "F401", # unused import
 ]
+
+# Workaround for [NeST#285](https://gitlab.com/nitk-nest/nest/-/work_items/285)
+[tool.pytest.ini_options]
+addopts = "-p no:unraisableexception"
