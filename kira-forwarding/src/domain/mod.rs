@@ -2,7 +2,7 @@
 
 #[doc(inline)]
 pub use kira_r2kad::domain::{
-    underlay::UnderlayNeighborId, InterfaceId, NodeId, NodeIdSubnet, PathId,
+    InterfaceId, NodeId, NodeIdSubnet, PathId, underlay::UnderlayNeighborId,
 };
 
 pub mod r2kad {

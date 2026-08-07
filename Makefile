@@ -61,7 +61,7 @@ doc: lib-doc r2kad-doc forwarding-doc
 
 
 .PHONY: test
-test: test-lib test-r2kad test-forwarding 
+test: test-lib test-r2kad test-forwarding
 test-%:
 	cargo test --package=kira-$*
 

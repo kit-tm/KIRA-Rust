@@ -1,15 +1,15 @@
 # KIRA Implementation
 
 This repository collects the different repositories used for the implementation
-of the scalable zero-touch routing architecture [KIRA](https://s.kit.edu/KIRA) 
-in Rust started by Moritz Hepp (2022) at the [Institute of Telematics](https://telematics.tm.kit.edu) 
-at [KIT](https://www.kit.edu/). This implementation supplies a routing daemon 
+of the scalable zero-touch routing architecture [KIRA](https://s.kit.edu/KIRA)
+in Rust started by Moritz Hepp (2022) at the [Institute of Telematics](https://telematics.tm.kit.edu)
+at [KIT](https://www.kit.edu/). This implementation supplies a routing daemon
 that provides IPv6 connectivity without configuration as well as a distributed
-hash table that can be used to provide a simple key-value store to map names 
-to IPv6 addresses. The IPv6 addresses are currently randomly generated from 
-the [ULA](https://datatracker.ietf.org/doc/html/rfc4193) address realm and 
-are as such not routable on the Internet. As KIRA is designed to be a routing 
-solution for control planes it deliberately uses ULAs for now. 
+hash table that can be used to provide a simple key-value store to map names
+to IPv6 addresses. The IPv6 addresses are currently randomly generated from
+the [ULA](https://datatracker.ietf.org/doc/html/rfc4193) address realm and
+are as such not routable on the Internet. As KIRA is designed to be a routing
+solution for control planes it deliberately uses ULAs for now.
 
 ## Implementation Status
 **This implementation is in version 0.0.0 (pre-MVP) and therefore is still work-in-progress in many parts.**
@@ -57,9 +57,9 @@ git clone git@gitlab.kit.edu:kit/tm/telematics/kira/kira-rust.git
 Some of the above tasks require some dependencies to be installed to run them.
 Here are the instructions to install them.
 
-- [docker](https://docs.docker.com/get-docker/): To run benchmarks and build docker images. 
+- [docker](https://docs.docker.com/get-docker/): To run benchmarks and build docker images.
   Additionaly one has to [configure the docker daemon to support IPv6](https://docs.docker.com/config/daemon/ipv6/).
-- [Rust](https://www.rust-lang.org/) 
+- [Rust](https://www.rust-lang.org/)
 - _Userspace_ utilities of [nftables](https://wiki.nftables.org/wiki-nftables/index.php/Main_Page#Installing_nftables).
   Specifically the daemon must have access to the `nft` utility.
 

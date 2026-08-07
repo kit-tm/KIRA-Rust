@@ -72,7 +72,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run_shell() -> None:
+def run_shell() -> None:  # noqa: PLR0912
     parser = build_arg_parser()
     args = parser.parse_args()
     if args.seed:

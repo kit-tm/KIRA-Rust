@@ -11,16 +11,16 @@ def generate_new_node(match):
     indent_node = match.group(1)
     indent_ipv6 = match.group(2)
     ipv6_prefix = match.group(3)
-    
+
     # Generate a new secure 28-character (14-byte) random hex string
     new_id = secrets.token_hex(14)
-    
+
     # Split the new ID into chunks of 4 characters for the IPv6 address
     chunks = [new_id[i:i+4] for i in range(0, 28, 4)]
-    
+
     # Reconstruct the IPv6 address using the original prefix
     new_ipv6 = f"{ipv6_prefix}:{':'.join(chunks)}"
-    
+
     # Return the formatted replacement string
     return f'{indent_node}node_id "{new_id}"\n{indent_ipv6}ipv6 "{new_ipv6}"'
 
@@ -29,9 +29,9 @@ def main():
     if len(sys.argv) < 2:
         print("Usage: python update_config.py <input_filename>")
         sys.exit(1)
-        
+
     input_filename = sys.argv[1]
-    
+
     # Check if the file actually exists
     if not os.path.isfile(input_filename):
         print(f"Error: The file '{input_filename}' does not exist.")

@@ -270,7 +270,7 @@ where
             .ok_or(DeriveFwdEntriesError::NeighborNotInULNTable(next_hop))?;
 
         if context.uln_table().contains_key(contact.id()) && !contact.is_uln() {
-            log::warn!(target: "derive_fwd_table_entries", 
+            log::warn!(target: "derive_fwd_table_entries",
                 "Contact {contact:?} is not a underlay neighbor but listed in ULNTable -> may overwrite previous route unintentionally!");
             return Err(DeriveFwdEntriesError::NonUNInULNTable(Box::new(
                 contact.clone(),

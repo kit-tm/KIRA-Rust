@@ -64,6 +64,6 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int, default=0, help="seed for the rng")
     parser.add_argument('--failure', action='store_true', help="whether to add a failure event")
     args = parser.parse_args()
-    
+
 
     main(args)

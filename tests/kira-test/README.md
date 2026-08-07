@@ -1,6 +1,6 @@
 # Introduction
 
-This is a Python project managed by [uv] for testing the behaviour of the 
+This is a Python project managed by [uv] for testing the behaviour of the
 `kirad` Rust daemon in emulated topologies using the [NeST] framework.
 
 # Dependencies

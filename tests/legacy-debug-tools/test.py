@@ -24,7 +24,7 @@ class TestBase:
     pass
 
 class ConnectivityTest(TestBase):
-    def run(config, net): 
+    def run(config, net):
         passed = True
         for n1 in config.nodes:
             n1 = config.nodes[n1]
@@ -54,7 +54,7 @@ class TestRunner:
     def run(self):
         net = Containernet()
         try:
-           self.create(net) 
+           self.create(net)
            net.start()
 
            # run test pipeline
@@ -121,7 +121,7 @@ class TestRunner:
 
 def main(args):
     G = nx.readwrite.read_gml(args.test_gml)
-    
+
     for node in G.nodes:
         G.nodes[node]["config"] = NodeConfig(**G.nodes[node]["config"])
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# This script takes a set of hostnames (in ENV "V4_TUNNEL_HOSTS" separated by colons) and sets up a 4in6 tunnel to each of them 
+# This script takes a set of hostnames (in ENV "V4_TUNNEL_HOSTS" separated by colons) and sets up a 4in6 tunnel to each of them
 #
 # Prerequisites: local IPv4 in KIRA_IPV4
 #

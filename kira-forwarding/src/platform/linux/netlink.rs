@@ -6,8 +6,8 @@ use std::net::Ipv6Addr;
 use std::num::NonZeroU32;
 
 use netlink_packet_core::{
-    ErrorMessage, NetlinkHeader, NetlinkMessage, NetlinkPayload, NLM_F_ACK, NLM_F_CREATE,
-    NLM_F_EXCL, NLM_F_REPLACE, NLM_F_REQUEST,
+    ErrorMessage, NLM_F_ACK, NLM_F_CREATE, NLM_F_EXCL, NLM_F_REPLACE, NLM_F_REQUEST, NetlinkHeader,
+    NetlinkMessage, NetlinkPayload,
 };
 use netlink_packet_route::address::{AddressAttribute, AddressHeader, AddressMessage};
 use netlink_packet_route::link::{
@@ -19,7 +19,7 @@ use netlink_packet_route::route::{
     RouteLwTunnelEncap, RouteMessage, RouteProtocol,
 };
 use netlink_packet_route::{AddressFamily, RouteNetlinkMessage};
-use netlink_proto::{sys::SocketAddr, ConnectionHandle};
+use netlink_proto::{ConnectionHandle, sys::SocketAddr};
 
 use crate::domain::{InterfaceId, NodeId, NodeIdSubnet, PathId};
 use crate::underlay::UnderlayNeighborInformation;

@@ -111,7 +111,7 @@ class ConnectivityHelpers:
     def __init__(self, subtests):
         self.subtests = subtests
 
-    def retry_sweep(
+    def retry_sweep(  # noqa: PLR0917
         self,
         test,
         check_func,

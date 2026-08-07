@@ -9,7 +9,7 @@ TopologyId in the displayed Jeager traces.
 
 ## Running
 
-If you want to use [`nesttest.py`](../nesttest.py) you can invoke the helper 
+If you want to use [`nesttest.py`](../nesttest.py) you can invoke the helper
 script in a similar fashion as you'd invoke [`nesttest.py`](../nesttest.py):
 
 ```sh
@@ -21,7 +21,7 @@ using Docker Compose and NeSt respectively.
 
 ### Building kirad
 
-For this to work you have to ensure that kirad is build with [OpenTelemetry](https://opentelemetry.io/) support. 
+For this to work you have to ensure that kirad is build with [OpenTelemetry](https://opentelemetry.io/) support.
 You have to enable the `otel` feature flag on _build time_:
 
 ```sh

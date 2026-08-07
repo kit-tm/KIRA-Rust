@@ -104,7 +104,7 @@ rust-pause-pipeline:
       when: manual
   script:
     - echo "Pipeline paused. Sleeping for ${{ job.inputs.delay_secs }} seconds..."
-    - sleep ${{ job.inputs.delay_secs }} 
+    - sleep ${{ job.inputs.delay_secs }}
 
 rustfmt:
   stage: lint
@@ -140,7 +140,7 @@ rust-checks:
   cache:
     <<: *cargo_cache
     policy: pull-push
-  
+
   # fail-fast if packages can't be compiled
   script:
     - cargo check --workspace --all-targets --all-features
@@ -270,7 +270,7 @@ rust-pause-pipeline-after-build:
       when: manual
   script:
     - echo "Pipeline paused. Sleeping for ${{ job.inputs.delay_secs }} seconds..."
-    - sleep ${{ job.inputs.delay_secs }} 
+    - sleep ${{ job.inputs.delay_secs }}
 
 rust-audit:
   stage: security

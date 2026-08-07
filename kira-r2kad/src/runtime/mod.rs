@@ -64,7 +64,7 @@ pub trait UseCaseRuntime {
     ///    is the `root_id`.
     /// 3. The message is _dropped_ and a warning is logged
     ///    if the [`current_hop`] is not in the `uln_table` (underlay neighbor table)
-    ///    
+    ///
     /// [ULNHello]: crate::messaging::ProtocolMessage::ULNHello
     /// [`current_hop`]: crate::messaging::ProtocolMessage::current_hop
     /// [by broadcast]: UnderlayNeighborDestination::Broadcast

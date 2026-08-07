@@ -8,11 +8,11 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::net::Ipv6Addr;
 
-use futures::channel::mpsc::UnboundedReceiver;
 use futures::StreamExt;
+use futures::channel::mpsc::UnboundedReceiver;
 use netlink_packet_route::RouteNetlinkMessage;
 use netlink_proto::ConnectionHandle;
-use tracing::{field, Level, Span};
+use tracing::{Level, Span, field};
 
 use crate::domain::{
     DecapsulationDestination, NodeIdEncapsulationEntry, NodeIdForwardingEntry,
@@ -63,10 +63,10 @@ impl<I> NativeFwdTables<I> {
             let mut netlink = netlink.clone();
             async move {
                 while let Some(update) = underlay_updates.next().await {
-                    if let UnderlayNeighborUpdate::InterfaceUp(id) = update {
-                        if let Err(e) = netlink.attach_node_id_ip(&root_id, id).await {
-                            log::error!(target: "native_fwd_table", "Attaching to interface {id:?} faile: {e}");
-                        }
+                    if let UnderlayNeighborUpdate::InterfaceUp(id) = update
+                        && let Err(e) = netlink.attach_node_id_ip(&root_id, id).await
+                    {
+                        log::error!(target: "native_fwd_table", "Attaching to interface {id:?} faile: {e}");
                     }
                 }
             }
