@@ -11,6 +11,10 @@ spec:
     rustc_wrapper:
       type: string
       default: sccache
+    rust_version:
+      type: string
+      default: 1.97
+      description: "Version of Rust"
 
 ---
 
@@ -32,6 +36,7 @@ include:
     inputs:
       debug_mode: $[[ inputs.debug_mode ]]
       rustc_wrapper: $[[ inputs.rustc_wrapper ]]
+      rust_image: rust:$[[ inputs.rust_version ]]-alpine
       sccache_dir: /sccache
       common_job_tags:
         - rust
