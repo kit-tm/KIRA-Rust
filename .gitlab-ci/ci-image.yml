@@ -12,19 +12,13 @@ spec:
     image_default_tag:
       type: string
       default: $CI_DEFAULT_BRANCH
-    dind_job_tags:
+    buildkit_job_tags:
       type: array
-      default: [dind-runner]
-      description: "Tags selecting a runner capable of docker-in-docker builds"
-    docker_version:
-      type: string
-      default: "29"
-      description: "Version of the docker (dind) images used to build the CI image"
-
+      default: [buildkit-runner]
+      description: "Tags selecting a runner capable of BuildKit rootless rootless builds"
 ---
 
 variables:
-    DOCKER_TLS_CERTDIR: "/certs"
     RUST_CI_IMAGE: $[[ inputs.rust_image ]]
     RUST_CI_IMAGE_DEFAULT: $[[ inputs.rust_image_default ]]
     RUST_VERSION: $[[ inputs.rust_version ]]
@@ -35,23 +29,25 @@ variables:
 
 build-rust-ci-image:
   stage: .pre
-  image: docker:$[[ inputs.docker_version ]]
-  services:
-    - docker:$[[ inputs.docker_version ]]-dind
-  tags: $[[ inputs.dind_job_tags ]]
+  image:
+    name: moby/buildkit:rootless
+    entrypoint: [""]
+  tags: $[[ inputs.buildkit_job_tags ]]
   interruptible: true
   variables:
+    BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
+  before_script:
+    - mkdir -p ~/.docker
+    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > ~/.docker/config.json
   script:
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    # Use default image as caching
-    - docker pull "$RUST_CI_IMAGE_DEFAULT" || true
-    - docker build
-        --cache-from "$RUST_CI_IMAGE_DEFAULT"
-        --build-arg "RUST_VERSION=$RUST_VERSION"
-        -f docker/Dockerfile.ci
-        -t "$RUST_CI_IMAGE"
-        .
-    - docker push "$RUST_CI_IMAGE"
+    - |
+      buildctl-daemonless.sh build \
+        --frontend dockerfile.v0 \
+        --local context=. \
+        --local dockerfile=docker \
+        --opt filename=Dockerfile.ci \
+        --import-cache "type=registry,ref=${RUST_CI_IMAGE_DEFAULT}" \
+        --output "type=image,name=${RUST_CI_IMAGE},push=true"
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes: *rust_image_paths
