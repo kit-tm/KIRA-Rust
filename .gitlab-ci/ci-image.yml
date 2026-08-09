@@ -1,0 +1,62 @@
+spec:
+  inputs:
+    rust_version:
+      type: string
+      description: "Version of Rust baked into the CI image (passed as build-arg)"
+    rust_image:
+      type: string
+      description: "Publish name of the Rust CI image"
+    rust_image_default:
+      type: string
+      description: "Fallback Rust CI image (caching)"
+    image_default_tag:
+      type: string
+      default: $CI_DEFAULT_BRANCH
+    dind_job_tags:
+      type: array
+      default: [dind-runner]
+      description: "Tags selecting a runner capable of docker-in-docker builds"
+    docker_version:
+      type: string
+      default: "29"
+      description: "Version of the docker (dind) images used to build the CI image"
+
+---
+
+variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    RUST_CI_IMAGE: $[[ inputs.rust_image ]]
+    RUST_CI_IMAGE_DEFAULT: $[[ inputs.rust_image_default ]]
+    RUST_VERSION: $[[ inputs.rust_version ]]
+
+.rust_image_paths: &rust_image_paths
+  - docker/Dockerfile.ci
+  - .gitlab-ci/ci-image.yml
+
+build-rust-ci-image:
+  stage: .pre
+  image: docker:$[[ inputs.docker_version ]]
+  services:
+    - docker:$[[ inputs.docker_version ]]-dind
+  tags: $[[ inputs.dind_job_tags ]]
+  interruptible: true
+  variables:
+  script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    # Use default image as caching
+    - docker pull "$RUST_CI_IMAGE_DEFAULT" || true
+    - docker build
+        --cache-from "$RUST_CI_IMAGE_DEFAULT"
+        --build-arg "RUST_VERSION=$RUST_VERSION"
+        -f docker/Dockerfile.ci
+        -t "$RUST_CI_IMAGE"
+        .
+    - docker push "$RUST_CI_IMAGE"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: *rust_image_paths
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *rust_image_paths
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: manual
+      allow_failure: true

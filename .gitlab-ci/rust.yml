@@ -16,7 +16,10 @@ spec:
       description: "Tags required by all Jobs of the Rust pipeline (tags of job runner)"
     rust_image:
       type: string
-      default: rust:alpine # more nimble than rust:latest
+      default: rust:alpine # prebuilt CI image (docker/Dockerfile.ci)
+      description: >
+        "Image with all required tooling baked in"
+        "(musl-dev, git, sccache, tar, clippy, nightly rustfmt, cargo-nextest, cargo-audit)"
     rustc_wrapper:
       type: string
       default: sccache
@@ -31,8 +34,6 @@ spec:
 # common rust job
 .rust-defaults:
   image: $[[ inputs.rust_image ]]
-  before_script:
-    - apk add --no-cache musl-dev git sccache # necessary for building and downloading dependencies
   interruptible: true
   tags: $[[ inputs.common_job_tags ]]
 
@@ -113,9 +114,6 @@ rustfmt:
     - .rust-ci-rules
   cache: [] # no cache needed for simple formatting
 
-  before_script:
-    - rustup toolchain install nightly
-    - rustup component add rustfmt --toolchain nightly
   script:
     - cargo +nightly fmt --all --check
 
@@ -158,9 +156,6 @@ clippy:
   needs:
     - job: rust-checks
       optional: true
-  before_script:
-    - apk add --no-cache musl-dev git sccache
-    - rustup component add clippy
   script:
     - cargo clippy --workspace --all-targets --all-features -- -D warnings
 
@@ -171,14 +166,6 @@ rust-tests:
     - .rust-defaults
     - .rust-ci-rules
 
-  # Persist cargo-nexttest installation and its dependencies
-  cache:
-    <<: *cargo_cache
-    policy: pull-push
-
-  before_script:
-    - apk add --no-cache musl-dev git sccache
-    - cargo install cargo-nextest --locked
   script:
     - cargo nextest run --workspace --all-features --all-targets
 
@@ -203,7 +190,6 @@ build-kirad:
     - cargo build --package kirad
 
 build-kirad-release:
-  image: rust:alpine
   stage: build
   extends:
     - .rust-defaults
@@ -211,7 +197,6 @@ build-kirad-release:
     - .force_release_build_artifacts
 
   before_script:
-    - apk add --no-cache musl-dev git sccache tar
     - rustup target add $TARGET_TRIPLE
   script:
     - cargo build --release --package kirad --target $TARGET_TRIPLE
@@ -271,9 +256,6 @@ rust-audit:
     - .rust-defaults
     - .rust-ci-rules
 
-  before_script:
-    - apk add --no-cache musl-dev git sccache
-    - cargo install cargo-audit --locked
   script:
     - cargo audit
 
@@ -281,7 +263,7 @@ rust-audit:
     - !reference [.rust-ci-rules, rules] # merge rules
     - if: $CI_PIPELINE_SOURCE == "schedule" # scheduled nightly runs
 
-  # Persist advisories and cargo-audit
+  # Persist advisory database (updates daily)
   cache:
     <<: *cargo_cache
     policy: pull-push
