@@ -1,28 +1,73 @@
 //! Manage links, addresses and routes using Netlink.
 
-use derive_more::derive::{Display, Error, From};
+use std::{
+    net::Ipv6Addr,
+    num::NonZeroU32,
+};
+
+use derive_more::derive::{
+    Display,
+    Error,
+    From,
+};
 use futures::StreamExt;
-use std::net::Ipv6Addr;
-use std::num::NonZeroU32;
-
 use netlink_packet_core::{
-    ErrorMessage, NLM_F_ACK, NLM_F_CREATE, NLM_F_EXCL, NLM_F_REPLACE, NLM_F_REQUEST, NetlinkHeader,
-    NetlinkMessage, NetlinkPayload,
+    ErrorMessage,
+    NLM_F_ACK,
+    NLM_F_CREATE,
+    NLM_F_EXCL,
+    NLM_F_REPLACE,
+    NLM_F_REQUEST,
+    NetlinkHeader,
+    NetlinkMessage,
+    NetlinkPayload,
 };
-use netlink_packet_route::address::{AddressAttribute, AddressHeader, AddressMessage};
-use netlink_packet_route::link::{
-    AfSpecInet6, AfSpecUnspec, In6AddrGenMode, InfoData, InfoGre6, InfoKind, LinkAttribute,
-    LinkFlags, LinkHeader, LinkInfo, LinkMessage,
+use netlink_packet_route::{
+    AddressFamily,
+    RouteNetlinkMessage,
+    address::{
+        AddressAttribute,
+        AddressHeader,
+        AddressMessage,
+    },
+    link::{
+        AfSpecInet6,
+        AfSpecUnspec,
+        In6AddrGenMode,
+        InfoData,
+        InfoGre6,
+        InfoKind,
+        LinkAttribute,
+        LinkFlags,
+        LinkHeader,
+        LinkInfo,
+        LinkMessage,
+    },
+    route::{
+        RouteAddress,
+        RouteAttribute,
+        RouteHeader,
+        RouteIp6Tunnel,
+        RouteLwEnCapType,
+        RouteLwTunnelEncap,
+        RouteMessage,
+        RouteProtocol,
+    },
 };
-use netlink_packet_route::route::{
-    RouteAddress, RouteAttribute, RouteHeader, RouteIp6Tunnel, RouteLwEnCapType,
-    RouteLwTunnelEncap, RouteMessage, RouteProtocol,
+use netlink_proto::{
+    ConnectionHandle,
+    sys::SocketAddr,
 };
-use netlink_packet_route::{AddressFamily, RouteNetlinkMessage};
-use netlink_proto::{ConnectionHandle, sys::SocketAddr};
 
-use crate::domain::{InterfaceId, NodeId, NodeIdSubnet, PathId};
-use crate::underlay::UnderlayNeighborInformation;
+use crate::{
+    domain::{
+        InterfaceId,
+        NodeId,
+        NodeIdSubnet,
+        PathId,
+    },
+    underlay::UnderlayNeighborInformation,
+};
 
 #[derive(Debug, Clone)]
 /// Manages links, addresses and routes using Netlink for the

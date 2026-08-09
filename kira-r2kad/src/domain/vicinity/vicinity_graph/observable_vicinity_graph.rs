@@ -3,7 +3,11 @@ use std::fmt::Debug;
 use derive_more::Display;
 
 use super::VicinityGraph;
-use crate::domain::{NodeId, Path, SafeStateSeqNr};
+use crate::domain::{
+    NodeId,
+    Path,
+    SafeStateSeqNr,
+};
 
 #[derive(Debug, Display, Clone)]
 pub enum VicinityGraphEvent {

@@ -1,21 +1,56 @@
-use std::collections::HashMap;
-use std::marker::PhantomData;
-use std::ops::Deref;
-use std::time::{Duration, Instant};
-use tracing::{Level, instrument};
+use std::{
+    collections::HashMap,
+    marker::PhantomData,
+    ops::Deref,
+    time::{
+        Duration,
+        Instant,
+    },
+};
 
-use crate::domain::{
-    Contact, ContactState, DEFAULT_BUCKET_SIZE, Link, NodeId, NotViaState, NotViaStateList, Path,
-    RoutingTable, Timestamp, ULNTable, UnderlayNeighborId,
+use tracing::{
+    Level,
+    instrument,
 };
-use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{
-    CommonHeader, ErrorData, Nonce, ProbeReqData, ProbeRspData, ProtocolMessage,
-    ProtocolMessageKind, ReqRspMessage, WireFormatMessage,
-};
-use crate::use_cases::{
-    ContactEvent, EventHandler, NeverError, TimerId, UseCase, UseCaseContext, UseCaseEvent,
-    UseCaseRuntime, UseCaseState,
+
+use crate::{
+    domain::{
+        Contact,
+        ContactState,
+        DEFAULT_BUCKET_SIZE,
+        Link,
+        NodeId,
+        NotViaState,
+        NotViaStateList,
+        Path,
+        RoutingTable,
+        Timestamp,
+        ULNTable,
+        UnderlayNeighborId,
+    },
+    messaging::{
+        CommonHeader,
+        ErrorData,
+        Nonce,
+        ProbeReqData,
+        ProbeRspData,
+        ProtocolMessage,
+        ProtocolMessageKind,
+        ReqRspMessage,
+        WireFormatMessage,
+        source_route::SourceRoute,
+    },
+    use_cases::{
+        ContactEvent,
+        EventHandler,
+        NeverError,
+        TimerId,
+        UseCase,
+        UseCaseContext,
+        UseCaseEvent,
+        UseCaseRuntime,
+        UseCaseState,
+    },
 };
 
 /// Configuration for [PathProbing] [UseCase].

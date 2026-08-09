@@ -1,29 +1,72 @@
-use crate::messaging::WireFormatMessage;
-use std::cmp::min;
-use std::collections::{HashMap, HashSet, hash_map};
-use std::fmt::Debug;
-use std::marker::PhantomData;
-use std::num::NonZeroU8;
-use std::ops::Deref;
-use std::time::Duration;
-use tracing::{Level, field, instrument};
-
-use derive_more::derive::{Display, Error};
-
-use crate::domain::{
-    Contact, DEFAULT_BUCKET_SIZE, InterfaceId, NodeId, Path, RoutingTable, SafeStateSeqNr,
-    StateSeqNr, ULNTable,
-    UnderlayNeighborDestination::{Broadcast, Multicast, UnderlayNeighbor},
-    UnderlayNeighborId, UnderlayNeighborSource, UnderlayNeighborUpdate, VICINITY_RADIUS,
-    VicinityGraph,
+use std::{
+    cmp::min,
+    collections::{
+        HashMap,
+        HashSet,
+        hash_map,
+    },
+    fmt::Debug,
+    marker::PhantomData,
+    num::NonZeroU8,
+    ops::Deref,
+    time::Duration,
 };
-use crate::messaging::{
-    CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, QueryRouteReqData, QueryRouteType,
-    RTableData, ReqRspMessage, source_route::SourceRoute,
+
+use derive_more::derive::{
+    Display,
+    Error,
 };
-use crate::use_cases::{
-    ApiEvent, EventHandler, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime,
-    UseCaseState, VicinityEvent,
+use tracing::{
+    Level,
+    field,
+    instrument,
+};
+
+use crate::{
+    domain::{
+        Contact,
+        DEFAULT_BUCKET_SIZE,
+        InterfaceId,
+        NodeId,
+        Path,
+        RoutingTable,
+        SafeStateSeqNr,
+        StateSeqNr,
+        ULNTable,
+        UnderlayNeighborDestination::{
+            Broadcast,
+            Multicast,
+            UnderlayNeighbor,
+        },
+        UnderlayNeighborId,
+        UnderlayNeighborSource,
+        UnderlayNeighborUpdate,
+        VICINITY_RADIUS,
+        VicinityGraph,
+    },
+    messaging::{
+        CommonHeader,
+        Nonce,
+        ProtocolMessage,
+        ProtocolMessageKind,
+        QueryRouteReqData,
+        QueryRouteType,
+        RTableData,
+        ReqRspMessage,
+        WireFormatMessage,
+        source_route::SourceRoute,
+    },
+    use_cases::{
+        ApiEvent,
+        EventHandler,
+        TimerId,
+        UseCase,
+        UseCaseContext,
+        UseCaseEvent,
+        UseCaseRuntime,
+        UseCaseState,
+        VicinityEvent,
+    },
 };
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]

@@ -1,37 +1,71 @@
 //! Implementation of the protocol instance R²/KAD.
 
-use derive_more::derive::{Display, Error};
 use std::{
-    collections::HashMap, fmt::Debug, marker::PhantomData, ops::Deref, sync::Arc, time::Instant,
+    collections::HashMap,
+    fmt::Debug,
+    marker::PhantomData,
+    ops::Deref,
+    sync::Arc,
+    time::Instant,
 };
-use tracing::{Level, Span, field, instrument};
+
+use derive_more::derive::{
+    Display,
+    Error,
+};
+use tracing::{
+    Level,
+    Span,
+    field,
+    instrument,
+};
 
 mod pipeline;
 pub(crate) mod runtime;
 use pipeline::R2KadPipeline;
+use runtime::R2KadRuntime;
 
 #[doc(inline)]
-pub use crate::domain::protocol_event::{Input, Output};
-
+pub use crate::domain::protocol_event::{
+    Input,
+    Output,
+};
 use crate::{
     context::ContextConfig,
     domain::{
-        FlatRoutingTable, InMemoryULNTable, InOrderCycleRemover, InsertionStrategy, NodeId,
-        ObservableULNTable, RoutingTable, ShortestFirstPathSimplifier, ULNTable, UNSStrategy,
-        UnderlayNeighborId, VicinityGraph,
+        FlatRoutingTable,
+        InMemoryULNTable,
+        InOrderCycleRemover,
+        InsertionStrategy,
+        NodeId,
+        ObservableULNTable,
+        RoutingTable,
+        ShortestFirstPathSimplifier,
+        ULNTable,
+        UNSStrategy,
+        UnderlayNeighborId,
+        VicinityGraph,
         observable_routing_table::ObservableRoutingTable,
         observable_underlay_neighbor_table::ULNTableEvent,
         unlimited_uln_routing_table::UnlimitedULNRoutingTable,
         vicinity_graph::{
-            ObservableVicinityGraph, PetVicinityGraph,
+            ObservableVicinityGraph,
+            PetVicinityGraph,
             observable_vicinity_graph::VicinityGraphEvent,
         },
     },
-    r2kad::pipeline::{R2KadPipelineConfig, UseCaseStartupError, UseCaseStateError},
+    r2kad::pipeline::{
+        R2KadPipelineConfig,
+        UseCaseStartupError,
+        UseCaseStateError,
+    },
     runtime::UseCaseRuntime,
-    use_cases::{ContactEvent, UseCaseContext, VicinityEvent},
+    use_cases::{
+        ContactEvent,
+        UseCaseContext,
+        VicinityEvent,
+    },
 };
-use runtime::R2KadRuntime;
 
 pub struct Builder<C, const BUCKET_SIZE: usize> {
     context: PhantomData<C>,

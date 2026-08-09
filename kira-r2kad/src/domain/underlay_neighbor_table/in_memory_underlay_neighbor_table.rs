@@ -1,7 +1,17 @@
-use std::collections::{HashMap, hash_map::Entry};
-use std::ops::Deref;
+use std::{
+    collections::{
+        HashMap,
+        hash_map::Entry,
+    },
+    ops::Deref,
+};
 
-use crate::domain::{NodeId, SafeStateSeqNr, ULNTable, UnderlayNeighborId};
+use crate::domain::{
+    NodeId,
+    SafeStateSeqNr,
+    ULNTable,
+    UnderlayNeighborId,
+};
 
 /// A underlay neighbor table backed by a [HashMap].
 ///
@@ -99,8 +109,8 @@ impl ULNTable for InMemoryULNTable {
 }
 
 impl<'a> IntoIterator for &'a InMemoryULNTable {
-    type Item = (&'a NodeId, &'a UnderlayNeighborId);
     type IntoIter = std::collections::hash_map::Iter<'a, NodeId, UnderlayNeighborId>;
+    type Item = (&'a NodeId, &'a UnderlayNeighborId);
 
     fn into_iter(self) -> Self::IntoIter {
         self.map.iter()
@@ -109,8 +119,10 @@ impl<'a> IntoIterator for &'a InMemoryULNTable {
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests;
-    use super::*;
+    use super::{
+        super::tests,
+        *,
+    };
 
     #[test]
     fn ssn_on_insert() {

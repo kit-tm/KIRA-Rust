@@ -1,8 +1,13 @@
 //! Concrete serialization and deserialization implementation of
 //! [ProtocolMessages](ProtocolMessage) on a closed set of supported formats.
 
-use std::error::Error;
-use std::io::{Read, Write};
+use std::{
+    error::Error,
+    io::{
+        Read,
+        Write,
+    },
+};
 
 use kira_r2kad::messaging::ProtocolMessage;
 #[cfg(any(

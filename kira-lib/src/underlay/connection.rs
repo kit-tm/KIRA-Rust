@@ -3,33 +3,64 @@
 //! The main struct is the [UnderlayObserverConnection] which drives the progress
 //! of the Netlink [Connection](RtNetlinkConnection).
 
-use std::collections::HashSet;
-use std::future::Future;
-use std::num::NonZeroU32;
-use std::pin::Pin;
-use std::task::Poll;
-
-use futures::channel::mpsc::{UnboundedReceiver, unbounded};
-use futures::{FutureExt, SinkExt, StreamExt};
-
-use netlink_packet_core::{
-    NLM_F_DUMP, NLM_F_REQUEST, NetlinkHeader, NetlinkMessage, NetlinkPayload,
+use std::{
+    collections::HashSet,
+    future::Future,
+    num::NonZeroU32,
+    pin::Pin,
+    task::Poll,
 };
-use netlink_packet_route::link::{AfSpecInet6, AfSpecUnspec, LinkMessage};
+
+use futures::{
+    FutureExt,
+    SinkExt,
+    StreamExt,
+    channel::mpsc::{
+        UnboundedReceiver,
+        unbounded,
+    },
+};
+use netlink_packet_core::{
+    NLM_F_DUMP,
+    NLM_F_REQUEST,
+    NetlinkHeader,
+    NetlinkMessage,
+    NetlinkPayload,
+};
 use netlink_packet_route::{
     RouteNetlinkMessage,
-    link::{LinkAttribute, LinkLayerType, State},
+    link::{
+        AfSpecInet6,
+        AfSpecUnspec,
+        LinkAttribute,
+        LinkLayerType,
+        LinkMessage,
+        State,
+    },
 };
-use netlink_proto::Connection;
-use netlink_proto::ConnectionHandle;
-use netlink_proto::sys::AsyncSocket;
-use netlink_proto::sys::SocketAddr;
-use tracing::{instrument, trace_span};
+use netlink_proto::{
+    Connection,
+    ConnectionHandle,
+    sys::{
+        AsyncSocket,
+        SocketAddr,
+    },
+};
+use tracing::{
+    instrument,
+    trace_span,
+};
 
-use super::handle::UnderlayObserverHandleRequest;
-use super::information_base::UnderlayInformationBase;
-use super::*;
-use crate::domain::underlay::{Interface, InterfaceId, UnderlayNeighborUpdate};
+use super::{
+    handle::UnderlayObserverHandleRequest,
+    information_base::UnderlayInformationBase,
+    *,
+};
+use crate::domain::underlay::{
+    Interface,
+    InterfaceId,
+    UnderlayNeighborUpdate,
+};
 
 const RTMGRP_LINK: u32 = 1; // to not depend on rtnetlink just for this constant
 

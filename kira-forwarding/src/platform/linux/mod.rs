@@ -1,5 +1,9 @@
 //! Linux specific platform module
-use std::{ffi::OsStr, net::Ipv6Addr, process::Command};
+use std::{
+    ffi::OsStr,
+    net::Ipv6Addr,
+    process::Command,
+};
 
 #[cfg(feature = "nft")]
 pub mod netlink;

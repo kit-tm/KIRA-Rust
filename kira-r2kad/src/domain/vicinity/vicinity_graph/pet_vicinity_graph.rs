@@ -1,15 +1,33 @@
 //! A [VicinityGraph] implementation supported by [petgraph].
 
-use std::{collections::HashMap, hash::RandomState};
+use std::{
+    collections::HashMap,
+    hash::RandomState,
+};
 
-use derive_more::derive::{Display, Error};
+use derive_more::derive::{
+    Display,
+    Error,
+};
 use petgraph::{
-    algo::{all_simple_paths, astar, dijkstra},
+    algo::{
+        all_simple_paths,
+        astar,
+        dijkstra,
+    },
     prelude::UnGraphMap,
 };
 
-use super::{Entry, VicinityGraph};
-use crate::domain::{NodeId, Path, SafeStateSeqNr, VICINITY_RADIUS};
+use super::{
+    Entry,
+    VicinityGraph,
+};
+use crate::domain::{
+    NodeId,
+    Path,
+    SafeStateSeqNr,
+    VICINITY_RADIUS,
+};
 
 /// Graph which generates all [Path]s from a given root [NodeId].
 #[derive(Debug, Clone)]
@@ -213,6 +231,7 @@ impl VicinityGraph for PetVicinityGraph {
     fn vicinity_changed(&self) -> bool {
         self.graph_changed
     }
+
     /// this should be called if precomputed paths have been calculated
     fn vicinity_processed(&mut self) {
         self.graph_changed = false;
@@ -221,8 +240,10 @@ impl VicinityGraph for PetVicinityGraph {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashSet;
-    use std::time::Instant;
+    use std::{
+        collections::HashSet,
+        time::Instant,
+    };
 
     use super::*;
 

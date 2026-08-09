@@ -1,21 +1,32 @@
 use std::{
     collections::{
-        HashMap, HashSet,
-        hash_map::Entry::{Occupied, Vacant},
+        HashMap,
+        HashSet,
+        hash_map::Entry::{
+            Occupied,
+            Vacant,
+        },
     },
     sync::Arc,
     time::Instant,
 };
 
-use super::EntryMeta;
-use super::LocalHashTable;
-
-use crate::{
-    domain::{DEFAULT_BUCKET_SIZE, NodeId},
-    messaging::dht,
+use derive_more::{
+    Display,
+    Error,
 };
 
-use derive_more::{Display, Error};
+use super::{
+    EntryMeta,
+    LocalHashTable,
+};
+use crate::{
+    domain::{
+        DEFAULT_BUCKET_SIZE,
+        NodeId,
+    },
+    messaging::dht,
+};
 
 /// A hash table which can hold multiple value per key.
 ///
@@ -28,9 +39,9 @@ pub struct ComplexHashTable<const BUCKET_SIZE: usize = DEFAULT_BUCKET_SIZE> {
 }
 
 impl LocalHashTable for ComplexHashTable {
-    type StoreOk = StoreOk;
-    type StoreErr = StoreErr;
     type FetchErr = FetchErr;
+    type StoreErr = StoreErr;
+    type StoreOk = StoreOk;
 
     fn store(&mut self, key: NodeId, value: Arc<[u8]>) -> Result<Self::StoreOk, Self::StoreErr> {
         Ok(match self.inner.entry(key) {
@@ -179,8 +190,12 @@ impl EntryMeta for Entry {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{
+        Duration,
+        Instant,
+    };
+
     use super::*;
-    use std::time::{Duration, Instant};
 
     #[test]
     fn test_store_and_fetch_new_entry() {

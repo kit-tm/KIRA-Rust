@@ -2,18 +2,37 @@
 //!
 //! The main struct is the [UnderlayObserverHandle].
 
-use derive_more::derive::{Display, Error, From};
-use futures::SinkExt;
-use futures::channel::mpsc::{SendError, UnboundedSender};
-use futures::channel::oneshot;
-use kira_forwarding::underlay::{UnderlayInformationProvider, UnderlayNeighborInformation};
-
-use crate::domain::underlay::{InterfaceId, UnderlayNeighbor, UnderlayNeighborId};
-use crate::underlay::information_base::UnderlayNeighborInterfaceDownError;
+use derive_more::derive::{
+    Display,
+    Error,
+    From,
+};
+use futures::{
+    SinkExt,
+    channel::{
+        mpsc::{
+            SendError,
+            UnboundedSender,
+        },
+        oneshot,
+    },
+};
+use kira_forwarding::underlay::{
+    UnderlayInformationProvider,
+    UnderlayNeighborInformation,
+};
 
 // docs
 #[allow(unused_imports)]
 use super::*;
+use crate::{
+    domain::underlay::{
+        InterfaceId,
+        UnderlayNeighbor,
+        UnderlayNeighborId,
+    },
+    underlay::information_base::UnderlayNeighborInterfaceDownError,
+};
 
 /// Sender used by the [UnderlayObserverHandle]
 /// to send request to the [UnderlayObserverConnection].
@@ -159,9 +178,8 @@ pub enum ProvidingInfoError {
 }
 
 impl UnderlayInformationProvider for UnderlayObserverHandle {
-    type Information = UnderlayNeighborInformation;
-
     type Error = ProvidingInfoError;
+    type Information = UnderlayNeighborInformation;
 
     async fn get_information(
         &mut self,

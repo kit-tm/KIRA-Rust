@@ -1,9 +1,23 @@
-use derive_more::{Display, Error};
-use std::{cmp::Ordering, num::NonZeroU8, ops::DerefMut};
+use std::{
+    cmp::Ordering,
+    num::NonZeroU8,
+    ops::DerefMut,
+};
+
+use derive_more::{
+    Display,
+    Error,
+};
 use tracing::Level;
 
 use crate::domain::{
-    Bucket, Contact, GroupingError, NodeId, ReplacementError, SharedPrefix, hasher::Hasher,
+    Bucket,
+    Contact,
+    GroupingError,
+    NodeId,
+    ReplacementError,
+    SharedPrefix,
+    hasher::Hasher,
 };
 
 pub mod flat_routing_table;
@@ -375,7 +389,10 @@ fn sorter_xor((a, _): &PrefixContact, (b, _): &PrefixContact) -> Ordering {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{Path, SafeStateSeqNr};
+    use crate::domain::{
+        Path,
+        SafeStateSeqNr,
+    };
 
     fn test_next_hop_isolated_impl<RT>(table_factory: impl FnOnce(NodeId) -> RT)
     where

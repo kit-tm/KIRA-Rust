@@ -1,21 +1,47 @@
-use derive_more::derive::Display;
-use std::collections::HashMap;
-use std::error::Error;
-use std::marker::PhantomData;
-use std::ops::Deref;
-use tracing::{Level, field, instrument};
+use std::{
+    collections::HashMap,
+    error::Error,
+    marker::PhantomData,
+    ops::Deref,
+};
 
-use crate::domain::protocol_event::forwarding::{
-    DecapsulationDestination, NodeIdEncapsulationEntry, NodeIdEntry, NodeIdForwardingEntry,
-    NodeIdTableUpdate, PathIdDecapsulationEntry, PathIdEntry, PathIdTableUpdate,
+use derive_more::derive::Display;
+use tracing::{
+    Level,
+    field,
+    instrument,
 };
-use crate::domain::{
-    Contact, ContactState, NodeId, NodeIdSubnet, Path, RoutingTable, UnderlayNeighborId,
-    hasher::Hasher,
-};
-use crate::runtime::UseCaseRuntime;
-use crate::use_cases::{
-    ContactEvent, EventHandler, UseCase, UseCaseContext, UseCaseEvent, UseCaseState,
+
+use crate::{
+    domain::{
+        Contact,
+        ContactState,
+        NodeId,
+        NodeIdSubnet,
+        Path,
+        RoutingTable,
+        UnderlayNeighborId,
+        hasher::Hasher,
+        protocol_event::forwarding::{
+            DecapsulationDestination,
+            NodeIdEncapsulationEntry,
+            NodeIdEntry,
+            NodeIdForwardingEntry,
+            NodeIdTableUpdate,
+            PathIdDecapsulationEntry,
+            PathIdEntry,
+            PathIdTableUpdate,
+        },
+    },
+    runtime::UseCaseRuntime,
+    use_cases::{
+        ContactEvent,
+        EventHandler,
+        UseCase,
+        UseCaseContext,
+        UseCaseEvent,
+        UseCaseState,
+    },
 };
 
 /// Configuration for [DeriveFwdTableEntries] use case.
@@ -593,23 +619,29 @@ impl Error for DeriveFwdEntriesError {}
 
 #[cfg(test)]
 mod tests {
-    use crate::Output;
-    use crate::context::ContextConfig;
-    use crate::context::SyncContext;
-    use crate::domain::SafeStateSeqNr;
-    use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
-    use crate::domain::single_bucket::SingleBucketRT;
-    use crate::runtime::testing::TestingUseCaseRuntime;
-
     use super::*;
+    use crate::{
+        Output,
+        context::{
+            ContextConfig,
+            SyncContext,
+        },
+        domain::{
+            SafeStateSeqNr,
+            protocol_event::forwarding::ForwardingTablesUpdate,
+            single_bucket::SingleBucketRT,
+        },
+        runtime::testing::TestingUseCaseRuntime,
+    };
 
     mod vicinity {
         //! Tests that DeriveFwdEntries will not change any paths inside the vicinity
 
-        use crate::domain::ConnectionId;
-        use crate::domain::InterfaceId;
-
         use super::*;
+        use crate::domain::{
+            ConnectionId,
+            InterfaceId,
+        };
 
         #[test]
         fn vicinity_contact_added() {

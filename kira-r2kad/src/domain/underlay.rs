@@ -1,9 +1,16 @@
 //! Definitions for the routing protocol to interact with the underlay network.
 
-use derive_more::derive::{Display, From};
 use std::{
     fmt::Display,
-    num::{NonZeroU32, TryFromIntError},
+    num::{
+        NonZeroU32,
+        TryFromIntError,
+    },
+};
+
+use derive_more::derive::{
+    Display,
+    From,
 };
 
 /// Represents a **connection** to an underlay neighbor.

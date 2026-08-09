@@ -1,8 +1,15 @@
 //! Events for interaction with the fast forwarding functionality of KIRA.
 
-use derive_more::derive::{Display, From};
+use derive_more::derive::{
+    Display,
+    From,
+};
 
-use crate::domain::{NodeIdSubnet, PathId, UnderlayNeighborId};
+use crate::domain::{
+    NodeIdSubnet,
+    PathId,
+    UnderlayNeighborId,
+};
 
 /// An update request to the fast forwarding functionality.
 #[derive(Debug, Clone, Display, From)]

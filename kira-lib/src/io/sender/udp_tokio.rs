@@ -2,17 +2,24 @@
 //!
 //! The main struct for receiving [ProtocolMessages](ProtocolMessage) is the [UdpSender].
 
-use std::io;
-use std::net::{SocketAddr, SocketAddrV6};
-use std::sync::Arc;
+use std::{
+    io,
+    net::{
+        SocketAddr,
+        SocketAddrV6,
+    },
+    sync::Arc,
+};
 
 use tokio::net::UdpSocket;
 use tracing::Level;
 
 use super::*;
-use crate::format::ProtocolMessageFormat;
-use crate::io::ALL_KIRA_NODES;
-use crate::underlay::UnderlayObserverHandle;
+use crate::{
+    format::ProtocolMessageFormat,
+    io::ALL_KIRA_NODES,
+    underlay::UnderlayObserverHandle,
+};
 
 /// Defaults to sending the request to multicast if neighbor is not present (which should not
 /// happen for physical neighbors).

@@ -1,19 +1,46 @@
-use std::collections::HashMap;
-use std::marker::PhantomData;
-use std::num::NonZeroU8;
-use std::ops::Deref;
-use tracing::{Level, instrument};
+use std::{
+    collections::HashMap,
+    marker::PhantomData,
+    num::NonZeroU8,
+    ops::Deref,
+};
 
-use crate::domain::{
-    Contact, DEFAULT_BUCKET_SIZE, GroupingError, NodeId, NotViaList, RoutingTable, StateSeqNr,
-    ULNTable, UnderlayNeighborId,
+use tracing::{
+    Level,
+    instrument,
 };
-use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{
-    CommonHeader, ErrorData, FindNodeReqData, ProtocolMessage, ProtocolMessageKind, RTableData,
-    ReqRspMessage, WireFormatMessage,
+
+use crate::{
+    domain::{
+        Contact,
+        DEFAULT_BUCKET_SIZE,
+        GroupingError,
+        NodeId,
+        NotViaList,
+        RoutingTable,
+        StateSeqNr,
+        ULNTable,
+        UnderlayNeighborId,
+    },
+    messaging::{
+        CommonHeader,
+        ErrorData,
+        FindNodeReqData,
+        ProtocolMessage,
+        ProtocolMessageKind,
+        RTableData,
+        ReqRspMessage,
+        WireFormatMessage,
+        source_route::SourceRoute,
+    },
+    use_cases::{
+        EventHandler,
+        NeverError,
+        UseCaseContext,
+        UseCaseEvent,
+        UseCaseRuntime,
+    },
 };
-use crate::use_cases::{EventHandler, NeverError, UseCaseContext, UseCaseEvent, UseCaseRuntime};
 
 #[derive(Debug)]
 pub struct OverlayDiscoveryConfig {

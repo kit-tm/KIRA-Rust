@@ -1,14 +1,17 @@
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    ops::Deref,
+};
+
 use derive_more::Display;
 
-use crate::domain::NodeId;
-use crate::domain::SafeStateSeqNr;
-use crate::domain::UnderlayNeighborId;
-
 use super::ULNTable;
-
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::ops::Deref;
+use crate::domain::{
+    NodeId,
+    SafeStateSeqNr,
+    UnderlayNeighborId,
+};
 
 #[derive(Debug, Display, Clone)]
 pub enum ULNTableEvent {
@@ -119,11 +122,17 @@ impl<UN: ULNTable> ULNTable for ObservableULNTable<UN> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
-
-    use crate::domain::{ConnectionId, InMemoryULNTable, InterfaceId};
+    use std::sync::{
+        Arc,
+        Mutex,
+    };
 
     use super::*;
+    use crate::domain::{
+        ConnectionId,
+        InMemoryULNTable,
+        InterfaceId,
+    };
 
     fn init_observer() -> (Arc<Mutex<bool>>, ObservableULNTable<InMemoryULNTable>) {
         let emitted = Arc::new(Mutex::new(false));

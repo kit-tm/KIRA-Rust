@@ -114,9 +114,10 @@ rustfmt:
   cache: [] # no cache needed for simple formatting
 
   before_script:
-    - rustup component add rustfmt
+    - rustup toolchain install nightly
+    - rustup component add rustfmt --toolchain nightly
   script:
-    - cargo fmt --all --check
+    - cargo +nightly fmt --all --check
 
 rustdoc:
   stage: lint

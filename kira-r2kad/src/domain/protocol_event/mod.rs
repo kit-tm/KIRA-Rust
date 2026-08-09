@@ -2,13 +2,24 @@
 
 pub mod forwarding;
 
-use crate::domain::underlay::{
-    UnderlayNeighborDestination, UnderlayNeighborId, UnderlayNeighborUpdate,
-};
-use crate::messaging::{Nonce, ProtocolMessage};
-use crate::use_cases::{ApiEvent, InjectionMessageData, UseCaseEvent};
-
 use forwarding::ForwardingTablesUpdate;
+
+use crate::{
+    domain::underlay::{
+        UnderlayNeighborDestination,
+        UnderlayNeighborId,
+        UnderlayNeighborUpdate,
+    },
+    messaging::{
+        Nonce,
+        ProtocolMessage,
+    },
+    use_cases::{
+        ApiEvent,
+        InjectionMessageData,
+        UseCaseEvent,
+    },
+};
 
 /// Events to externally control the [R2Kad](crate::R2Kad) protocol instance.
 #[derive(Debug, Clone)]

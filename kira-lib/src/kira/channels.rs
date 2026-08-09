@@ -22,15 +22,26 @@
 //!   not represented in channels but type contracts by the forwarding tier.
 //!   (see: [kira_forwarding::underlay])
 
-use tokio::sync::mpsc::error::SendError;
-use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::Span;
-
 use kira_forwarding::domain::r2kad::ForwardingTablesUpdate;
-use kira_r2kad::domain::protocol_event::DebugEvent;
-use kira_r2kad::domain::{UnderlayNeighborDestination, UnderlayNeighborId, UnderlayNeighborUpdate};
-use kira_r2kad::messaging::ProtocolMessage;
-pub use kira_r2kad::{Input, Output};
+pub use kira_r2kad::{
+    Input,
+    Output,
+};
+use kira_r2kad::{
+    domain::{
+        UnderlayNeighborDestination,
+        UnderlayNeighborId,
+        UnderlayNeighborUpdate,
+        protocol_event::DebugEvent,
+    },
+    messaging::ProtocolMessage,
+};
+use tokio::sync::mpsc::{
+    Receiver,
+    Sender,
+    error::SendError,
+};
+use tracing::Span;
 
 /// [Receiver] of [ProtocolMessages](ProtocolMessage) and the source [UnderlayNeighborId].
 ///

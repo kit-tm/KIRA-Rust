@@ -1,17 +1,46 @@
-use std::collections::HashMap;
-use std::marker::PhantomData;
-use std::num::{NonZeroU8, NonZeroUsize};
-use std::ops::Deref;
-use tracing::{Level, instrument};
-
-use crate::domain::{
-    Contact, ContactState, Link, NodeId, NotViaState, NotViaStateList, RoutingTable, Timestamp,
-    ULNTable, UnderlayNeighborId,
+use std::{
+    collections::HashMap,
+    marker::PhantomData,
+    num::{
+        NonZeroU8,
+        NonZeroUsize,
+    },
+    ops::Deref,
 };
-use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{CommonHeader, ProtocolMessageKind, RouteUpdateActionType, UpdateRouteReq};
-use crate::use_cases::{
-    ContactEvent, EventHandler, NeverError, UseCaseContext, UseCaseEvent, UseCaseRuntime,
+
+use tracing::{
+    Level,
+    instrument,
+};
+
+use crate::{
+    domain::{
+        Contact,
+        ContactState,
+        Link,
+        NodeId,
+        NotViaState,
+        NotViaStateList,
+        RoutingTable,
+        Timestamp,
+        ULNTable,
+        UnderlayNeighborId,
+    },
+    messaging::{
+        CommonHeader,
+        ProtocolMessageKind,
+        RouteUpdateActionType,
+        UpdateRouteReq,
+        source_route::SourceRoute,
+    },
+    use_cases::{
+        ContactEvent,
+        EventHandler,
+        NeverError,
+        UseCaseContext,
+        UseCaseEvent,
+        UseCaseRuntime,
+    },
 };
 
 /// Configuration for contact update handling.

@@ -1,6 +1,9 @@
-use crate::domain::NodeId;
-use crate::domain::path_id::PathId;
 use std::fmt::Debug;
+
+use crate::domain::{
+    NodeId,
+    path_id::PathId,
+};
 
 /// Enum collecting all supported hash algorithms for configuration of use cases which calculate
 /// [PathId]s from a series of [NodeId]s.

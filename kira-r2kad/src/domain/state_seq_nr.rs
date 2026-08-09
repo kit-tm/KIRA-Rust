@@ -1,7 +1,15 @@
-use derive_more::{Display, Error, From};
 use std::{
     num::NonZeroU32,
-    ops::{Add, AddAssign},
+    ops::{
+        Add,
+        AddAssign,
+    },
+};
+
+use derive_more::{
+    Display,
+    Error,
+    From,
 };
 
 pub const INVALID_SSN: u32 = u32::MIN;

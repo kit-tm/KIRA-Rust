@@ -1,16 +1,33 @@
-use std::collections::binary_heap::PeekMut;
-use std::collections::{BinaryHeap, HashMap, VecDeque};
-use std::sync::{Mutex, RwLock};
-use std::time::{Duration, Instant};
+use std::{
+    collections::{
+        BinaryHeap,
+        HashMap,
+        VecDeque,
+        binary_heap::PeekMut,
+    },
+    sync::{
+        Mutex,
+        RwLock,
+    },
+    time::{
+        Duration,
+        Instant,
+    },
+};
 
-use crate::Output;
-use crate::domain::UnderlayNeighborDestination;
-use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
-use crate::runtime::UseCaseRuntime;
-use crate::use_cases::BroadcastableUseCaseEvent;
 use crate::{
+    Output,
+    domain::{
+        UnderlayNeighborDestination,
+        protocol_event::forwarding::ForwardingTablesUpdate,
+    },
     messaging::ProtocolMessage,
-    use_cases::{TimerId, UseCaseEvent},
+    runtime::UseCaseRuntime,
+    use_cases::{
+        BroadcastableUseCaseEvent,
+        TimerId,
+        UseCaseEvent,
+    },
 };
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -253,9 +270,12 @@ impl UseCaseRuntime for R2KadRuntime {
 
 #[cfg(test)]
 mod test {
+    use std::{
+        collections::HashSet,
+        time::Duration,
+    };
+
     use super::*;
-    use std::collections::HashSet;
-    use std::time::Duration;
 
     #[test]
     fn runtime_is_empty_on_new() {
