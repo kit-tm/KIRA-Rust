@@ -137,6 +137,7 @@ rust-checks:
     - .rust-defaults
     - .rust-ci-rules
 
+  # Cache dependencies downloaded
   cache:
     <<: *cargo_cache
     policy: pull-push
@@ -151,8 +152,10 @@ clippy:
     - .rust-defaults
     - .rust-ci-rules
 
+  # 1.) Running if cargo-check fails doesn't make sense
+  # 2.) Ensure cache propagation from cargo-check
   needs:
-    - job: rust-checks # running if cargo check fails doesn't make sense
+    - job: rust-checks
       optional: true
   before_script:
     - apk add --no-cache musl-dev git sccache
@@ -167,6 +170,7 @@ rust-tests:
     - .rust-defaults
     - .rust-ci-rules
 
+  # Persist cargo-nexttest installation and its dependencies
   cache:
     <<: *cargo_cache
     policy: pull-push
@@ -184,14 +188,6 @@ rust-doctests:
     - .rust-defaults
     - .rust-ci-rules
 
-  cache:
-    <<: *cargo_cache
-    policy: pull-push
-
-  needs:
-    - job: rust-tests # ensure cache propagation
-      optional: true
-
   script:
     - cargo test --workspace --all-features --doc
 
@@ -201,10 +197,6 @@ build-kirad:
   extends:
     - .rust-defaults
     - .rust-ci-rules
-
-  cache:
-    <<: *cargo_cache
-    policy: pull-push
 
   script:
     - cargo build --package kirad
@@ -288,6 +280,7 @@ rust-audit:
     - !reference [.rust-ci-rules, rules] # merge rules
     - if: $CI_PIPELINE_SOURCE == "schedule" # scheduled nightly runs
 
+  # Persist advisories and cargo-audit
   cache:
     <<: *cargo_cache
     policy: pull-push
