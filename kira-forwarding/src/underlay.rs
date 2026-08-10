@@ -3,7 +3,10 @@
 
 use std::net::Ipv6Addr;
 
-use crate::domain::{InterfaceId, UnderlayNeighborId};
+use crate::domain::{
+    InterfaceId,
+    UnderlayNeighborId,
+};
 
 /// Provides implementations of the forwarding layer with information about the generic [UnderlayNeighborId].
 #[trait_variant::make(UnderlayInformationProvider: Send)]

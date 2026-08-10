@@ -1,10 +1,21 @@
-use std::cmp::Ordering;
-use std::hash::{Hash, Hasher};
+use std::{
+    cmp::Ordering,
+    hash::{
+        Hash,
+        Hasher,
+    },
+};
 
 use derive_more::derive::Display;
 
 use crate::domain::{
-    Age, NodeId, NotViaStateList, Path, RediscoveryState, SafeStateSeqNr, Timestamp,
+    Age,
+    NodeId,
+    NotViaStateList,
+    Path,
+    RediscoveryState,
+    SafeStateSeqNr,
+    Timestamp,
     pathcollection::PathCollection,
 };
 

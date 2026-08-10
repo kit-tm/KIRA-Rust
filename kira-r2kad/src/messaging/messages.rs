@@ -1,17 +1,35 @@
 //! Data types for all protocol messages and wrapped in the central enumeration [ProtocolMessage].
 
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::num::NonZeroU64;
+use std::{
+    collections::HashMap,
+    fmt,
+    fmt::Debug,
+    num::NonZeroU64,
+};
 
 use derive_more::derive::Display;
 
-use crate::domain::{Contact, Link, NodeId, NotViaList, StateSeqNr, state_seq_nr};
-use crate::messaging::dht::{
-    FetchReqData, FetchRspData, LHTInput, LHTOutput, StoreReqData, StoreRspData,
+use crate::{
+    domain::{
+        Contact,
+        Link,
+        NodeId,
+        NotViaList,
+        StateSeqNr,
+        state_seq_nr,
+    },
+    messaging::{
+        dht::{
+            FetchReqData,
+            FetchRspData,
+            LHTInput,
+            LHTOutput,
+            StoreReqData,
+            StoreRspData,
+        },
+        source_route::SourceRoute,
+    },
 };
-use crate::messaging::source_route::SourceRoute;
-use std::fmt;
 //use ciborium::{ser,de};
 
 /// Randomly generated number to uniquely identify a protocol message and its
@@ -596,6 +614,7 @@ impl<T: Debug> WireFormatMessage for ReqRspMessage<T> {
     fn common_header(&self) -> &CommonHeader {
         &self.common_header
     }
+
     fn common_header_mut(&mut self) -> &mut CommonHeader {
         &mut self.common_header
     }
@@ -664,6 +683,7 @@ impl WireFormatMessage for UpdateRouteReq {
     fn common_header(&self) -> &CommonHeader {
         &self.common_header
     }
+
     fn common_header_mut(&mut self) -> &mut CommonHeader {
         &mut self.common_header
     }

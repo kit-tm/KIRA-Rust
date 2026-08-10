@@ -1,12 +1,27 @@
-use std::{fmt::Debug, marker::PhantomData, ops::Deref as _};
-
-use tracing::{Level, instrument};
-
-use crate::domain::{
-    AddError, Contact, ContactState, InsertionError, NodeId, PathCycleRemover, RoutingTable,
+use std::{
+    fmt::Debug,
+    marker::PhantomData,
+    ops::Deref as _,
 };
 
-use super::{PathSimplifier, ULNTable};
+use tracing::{
+    Level,
+    instrument,
+};
+
+use super::{
+    PathSimplifier,
+    ULNTable,
+};
+use crate::domain::{
+    AddError,
+    Contact,
+    ContactState,
+    InsertionError,
+    NodeId,
+    PathCycleRemover,
+    RoutingTable,
+};
 
 /// Signals if a change to the [Path](crate::domain::path::Path) of a contact happened.
 ///

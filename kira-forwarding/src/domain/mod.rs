@@ -2,7 +2,11 @@
 
 #[doc(inline)]
 pub use kira_r2kad::domain::{
-    InterfaceId, NodeId, NodeIdSubnet, PathId, underlay::UnderlayNeighborId,
+    InterfaceId,
+    NodeId,
+    NodeIdSubnet,
+    PathId,
+    underlay::UnderlayNeighborId,
 };
 
 pub mod r2kad {
@@ -13,6 +17,9 @@ pub mod r2kad {
 
 #[doc(inline)]
 pub use kira_r2kad::domain::protocol_event::forwarding::{
-    DecapsulationDestination, NodeIdEncapsulationEntry, NodeIdForwardingEntry,
-    PathIdDecapsulationEntry, PathIdForwardingEntry,
+    DecapsulationDestination,
+    NodeIdEncapsulationEntry,
+    NodeIdForwardingEntry,
+    PathIdDecapsulationEntry,
+    PathIdForwardingEntry,
 };

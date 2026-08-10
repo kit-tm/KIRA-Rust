@@ -10,39 +10,70 @@
 
 pub mod channels;
 
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::marker::PhantomData;
-use std::ops::Deref;
-use std::sync::Mutex;
-use std::time::Instant;
-
-use channels::{R2KadInputChannels, R2KadOutputChannels};
-use futures::StreamExt;
-use kira_r2kad::domain::VicinityGraph;
-use tokio::sync::mpsc;
-use tokio::task::yield_now;
-use tokio::time;
-use tracing::{Instrument, Level, debug_span, info_span, instrument};
-
-use kira_forwarding::tables::{AsyncNodeIdTable, AsyncPathIdTable, handle_r2kad_request};
-use kira_r2kad::context::UseCaseContext;
-use kira_r2kad::runtime::UseCaseRuntime;
-use kira_r2kad::{
-    domain::{InsertionStrategy, NodeId, RoutingTable, ULNTable, UnderlayNeighborId},
-    runtime::R2KadRuntime,
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    marker::PhantomData,
+    ops::Deref,
+    sync::Mutex,
+    time::Instant,
 };
 
+use channels::{
+    R2KadInputChannels,
+    R2KadOutputChannels,
+};
+use futures::StreamExt;
 pub use kira_forwarding::AsyncForwardingTables;
+use kira_forwarding::tables::{
+    AsyncNodeIdTable,
+    AsyncPathIdTable,
+    handle_r2kad_request,
+};
 pub use kira_r2kad::r2kad::R2Kad;
+use kira_r2kad::{
+    context::UseCaseContext,
+    domain::{
+        InsertionStrategy,
+        NodeId,
+        RoutingTable,
+        ULNTable,
+        UnderlayNeighborId,
+        VicinityGraph,
+    },
+    runtime::{
+        R2KadRuntime,
+        UseCaseRuntime,
+    },
+};
+use tokio::{
+    sync::mpsc,
+    task::yield_now,
+    time,
+};
+use tracing::{
+    Instrument,
+    Level,
+    debug_span,
+    info_span,
+    instrument,
+};
 
 #[cfg(feature = "api")]
 use crate::api;
-use crate::io::receiver::AsyncProtocolMessageReceiver;
-use crate::io::receiver::error::RecvError;
-use crate::io::sender::AsyncProtocolMessageSender;
-use crate::io::sender::error::SenderError;
-use crate::underlay::UnderlayNeighborUpdatesRx;
+use crate::{
+    io::{
+        receiver::{
+            AsyncProtocolMessageReceiver,
+            error::RecvError,
+        },
+        sender::{
+            AsyncProtocolMessageSender,
+            error::SenderError,
+        },
+    },
+    underlay::UnderlayNeighborUpdatesRx,
+};
 
 /// Buffer sizes of channels used to connect components.
 mod buffer_size {

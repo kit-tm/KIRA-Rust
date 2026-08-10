@@ -1,18 +1,43 @@
-use std::collections::HashMap;
-use std::error::Error;
-use std::marker::PhantomData;
-use std::num::NonZeroU8;
-use std::ops::Deref;
-use std::time::Instant;
-use tracing::{Level, instrument};
+use std::{
+    collections::HashMap,
+    error::Error,
+    marker::PhantomData,
+    num::NonZeroU8,
+    ops::Deref,
+    time::Instant,
+};
 
-use crate::domain::{GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
-use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage};
-use crate::use_cases::inject_messages::errors::InjectMessageError;
-use crate::use_cases::{
-    EventHandler, InjectionMessageData, ReactiveUseCaseState, UseCase, UseCaseContext,
-    UseCaseEvent, UseCaseRuntime,
+use tracing::{
+    Level,
+    instrument,
+};
+
+use crate::{
+    domain::{
+        GroupingError,
+        NodeId,
+        RoutingTable,
+        ULNTable,
+        UnderlayNeighborId,
+    },
+    messaging::{
+        CommonHeader,
+        Nonce,
+        ProtocolMessage,
+        ProtocolMessageKind,
+        ReqRspMessage,
+        source_route::SourceRoute,
+    },
+    use_cases::{
+        EventHandler,
+        InjectionMessageData,
+        ReactiveUseCaseState,
+        UseCase,
+        UseCaseContext,
+        UseCaseEvent,
+        UseCaseRuntime,
+        inject_messages::errors::InjectMessageError,
+    },
 };
 
 /// Sender for [InjectionResult]s.
@@ -27,7 +52,10 @@ pub trait InjectionResultSender: Clone {
 mod std_extension {
     use std::sync::mpsc;
 
-    use crate::use_cases::inject_messages::{InjectionResult, InjectionResultSender};
+    use crate::use_cases::inject_messages::{
+        InjectionResult,
+        InjectionResultSender,
+    };
 
     impl InjectionResultSender for mpsc::Sender<InjectionResult> {
         type Error = mpsc::SendError<InjectionResult>;
@@ -234,8 +262,12 @@ where
 }
 
 pub mod errors {
-    use derive_more::{Display, Error};
     use std::fmt::Debug;
+
+    use derive_more::{
+        Display,
+        Error,
+    };
 
     #[derive(Debug, Display, Error)]
     pub enum InjectMessageError {

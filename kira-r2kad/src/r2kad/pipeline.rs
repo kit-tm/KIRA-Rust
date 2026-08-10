@@ -1,19 +1,18 @@
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::ops::Deref;
-
-use derive_more::derive::{Display, Error};
-use tracing::{Level, span};
-
-use crate::context::UseCaseContext;
-use crate::domain::dht::hash_table::ComplexHashTable;
-use crate::domain::{
-    InsertionStrategy, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, VicinityGraph,
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    ops::Deref,
 };
-use crate::runtime::UseCaseRuntime;
-use crate::use_cases::handle_api::HandleApi;
-use crate::use_cases::handle_contact_update::HandleContactUpdate;
-use crate::use_cases::handle_overlay_discovery::HandleOverlayDiscovery;
+
+use derive_more::derive::{
+    Display,
+    Error,
+};
+use tracing::{
+    Level,
+    span,
+};
+
 use crate::use_cases::{
     EventHandler,
     UseCase,
@@ -31,7 +30,26 @@ use crate::use_cases::{
     random_overlay_discovery::RandomOverlayDiscovery,
     vicinity_discovery::VicinityDiscovery,
 };
-use crate::use_cases::{HandlingResult, UseCaseState};
+use crate::{
+    context::UseCaseContext,
+    domain::{
+        InsertionStrategy,
+        NodeId,
+        RoutingTable,
+        ULNTable,
+        UnderlayNeighborId,
+        VicinityGraph,
+        dht::hash_table::ComplexHashTable,
+    },
+    runtime::UseCaseRuntime,
+    use_cases::{
+        HandlingResult,
+        UseCaseState,
+        handle_api::HandleApi,
+        handle_contact_update::HandleContactUpdate,
+        handle_overlay_discovery::HandleOverlayDiscovery,
+    },
+};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct R2KadPipelineConfig {

@@ -1,9 +1,11 @@
 //! Abstractions of the local hash table.
 
-use std::error::Error;
-use std::fmt::Display;
-use std::sync::Arc;
-use std::time::Instant;
+use std::{
+    error::Error,
+    fmt::Display,
+    sync::Arc,
+    time::Instant,
+};
 
 pub use complex_hash_table::ComplexHashTable;
 pub use single_value_hash_table::SingleValueHashTable;

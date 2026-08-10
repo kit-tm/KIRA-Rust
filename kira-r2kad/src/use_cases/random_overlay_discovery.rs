@@ -1,18 +1,47 @@
-use std::collections::HashMap;
-use std::marker::PhantomData;
-use std::num::{NonZeroU8, NonZeroU64};
-use std::ops::Deref;
-use std::time::Duration;
-use tracing::{Level, instrument};
+use std::{
+    collections::HashMap,
+    marker::PhantomData,
+    num::{
+        NonZeroU8,
+        NonZeroU64,
+    },
+    ops::Deref,
+    time::Duration,
+};
 
-use derive_more::derive::{Display, Error};
+use derive_more::derive::{
+    Display,
+    Error,
+};
+use tracing::{
+    Level,
+    instrument,
+};
 
-use crate::domain::{GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
-use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{CommonHeader, FindNodeReqData, ProtocolMessageKind, ReqRspMessage};
-use crate::runtime::UseCaseRuntime;
-use crate::use_cases::{
-    EventHandler, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseState,
+use crate::{
+    domain::{
+        GroupingError,
+        NodeId,
+        RoutingTable,
+        ULNTable,
+        UnderlayNeighborId,
+    },
+    messaging::{
+        CommonHeader,
+        FindNodeReqData,
+        ProtocolMessageKind,
+        ReqRspMessage,
+        source_route::SourceRoute,
+    },
+    runtime::UseCaseRuntime,
+    use_cases::{
+        EventHandler,
+        TimerId,
+        UseCase,
+        UseCaseContext,
+        UseCaseEvent,
+        UseCaseState,
+    },
 };
 
 #[derive(Debug, Copy, Clone)]

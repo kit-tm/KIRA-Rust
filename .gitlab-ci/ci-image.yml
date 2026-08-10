@@ -1,0 +1,58 @@
+spec:
+  inputs:
+    rust_version:
+      type: string
+      description: "Version of Rust baked into the CI image (passed as build-arg)"
+    rust_image:
+      type: string
+      description: "Publish name of the Rust CI image"
+    rust_image_default:
+      type: string
+      description: "Fallback Rust CI image (caching)"
+    image_default_tag:
+      type: string
+      default: $CI_DEFAULT_BRANCH
+    buildkit_job_tags:
+      type: array
+      default: [buildkit-runner]
+      description: "Tags selecting a runner capable of BuildKit rootless rootless builds"
+---
+
+variables:
+    RUST_CI_IMAGE: $[[ inputs.rust_image ]]
+    RUST_CI_IMAGE_DEFAULT: $[[ inputs.rust_image_default ]]
+    RUST_VERSION: $[[ inputs.rust_version ]]
+
+.rust_image_paths: &rust_image_paths
+  - docker/Dockerfile.ci
+  - .gitlab-ci/ci-image.yml
+
+build-rust-ci-image:
+  stage: .pre
+  image:
+    name: moby/buildkit:rootless
+    entrypoint: [""]
+  tags: $[[ inputs.buildkit_job_tags ]]
+  interruptible: true
+  variables:
+    BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
+  before_script:
+    - mkdir -p ~/.docker
+    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > ~/.docker/config.json
+  script:
+    - |
+      buildctl-daemonless.sh build \
+        --frontend dockerfile.v0 \
+        --local context=. \
+        --local dockerfile=docker \
+        --opt filename=Dockerfile.ci \
+        --import-cache "type=registry,ref=${RUST_CI_IMAGE_DEFAULT}" \
+        --output "type=image,name=${RUST_CI_IMAGE},push=true"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: *rust_image_paths
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *rust_image_paths
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: manual
+      allow_failure: true

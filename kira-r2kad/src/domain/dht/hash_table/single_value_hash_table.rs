@@ -1,12 +1,25 @@
-use std::collections::hash_map::Entry::Vacant;
-use std::collections::{HashMap, hash_map::Entry::Occupied};
-use std::iter;
-use std::sync::Arc;
-use std::time::Instant;
+use std::{
+    collections::{
+        HashMap,
+        hash_map::Entry::{
+            Occupied,
+            Vacant,
+        },
+    },
+    iter,
+    sync::Arc,
+    time::Instant,
+};
 
-use derive_more::{Display, Error};
+use derive_more::{
+    Display,
+    Error,
+};
 
-use super::{EntryMeta, LocalHashTable};
+use super::{
+    EntryMeta,
+    LocalHashTable,
+};
 use crate::domain::NodeId;
 
 /// A hash table which stores _one_ value per entry.
@@ -21,9 +34,9 @@ pub struct SingleValueHashTable {
 }
 
 impl LocalHashTable for SingleValueHashTable {
-    type StoreOk = StoreOk;
-    type StoreErr = HashTableErr;
     type FetchErr = HashTableErr;
+    type StoreErr = HashTableErr;
+    type StoreOk = StoreOk;
 
     fn store(&mut self, key: NodeId, value: Arc<[u8]>) -> Result<Self::StoreOk, Self::StoreErr> {
         let entry = self.inner.entry(key);
@@ -161,9 +174,15 @@ impl EntryMeta for Entry {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        collections::HashSet,
+        time::{
+            Duration,
+            Instant,
+        },
+    };
+
     use super::*;
-    use std::collections::HashSet;
-    use std::time::{Duration, Instant};
 
     #[test]
     fn test_store_and_fetch_new_entry() {

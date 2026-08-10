@@ -1,16 +1,35 @@
 //! Implementations of the use cases.
 
 use core::error::Error;
-use derive_more::derive::{Display, From};
-use std::fmt::Debug;
-use std::ops::Deref;
+use std::{
+    fmt::Debug,
+    ops::Deref,
+};
+
+use derive_more::derive::{
+    Display,
+    From,
+};
 use tokio::sync::mpsc; // use tokio::sync::oneshot;
 
-use crate::domain::{Contact, NodeId, UnderlayNeighborSource, UnderlayNeighborUpdate};
-use crate::messaging::dht::{LHTInput, LHTOutput};
-use crate::messaging::messages::ProtocolMessage;
-use crate::messaging::{FindNodeReqData, Nonce};
-use crate::use_cases::inject_messages::InjectionResult;
+use crate::{
+    domain::{
+        Contact,
+        NodeId,
+        UnderlayNeighborSource,
+        UnderlayNeighborUpdate,
+    },
+    messaging::{
+        FindNodeReqData,
+        Nonce,
+        dht::{
+            LHTInput,
+            LHTOutput,
+        },
+        messages::ProtocolMessage,
+    },
+    use_cases::inject_messages::InjectionResult,
+};
 
 pub mod derive_fwd_table_entries;
 pub mod distributed_hash_table;

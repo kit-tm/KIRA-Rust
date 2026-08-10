@@ -4,12 +4,17 @@ pub mod entry;
 pub mod observable_vicinity_graph;
 pub mod pet_vicinity_graph;
 
+use std::error::Error;
+
 pub use entry::Entry;
 pub use observable_vicinity_graph::ObservableVicinityGraph;
 pub use pet_vicinity_graph::PetVicinityGraph;
 
-use crate::domain::{NodeId, Path, SafeStateSeqNr};
-use std::error::Error;
+use crate::domain::{
+    NodeId,
+    Path,
+    SafeStateSeqNr,
+};
 
 pub trait VicinityGraph {
     type Error: Error;

@@ -1,23 +1,51 @@
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::marker::PhantomData;
-use std::num::{NonZeroU8, NonZeroU32, NonZeroU64};
-use std::ops::Deref;
-use std::time::Duration;
-use tracing::{Level, instrument};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    marker::PhantomData,
+    num::{
+        NonZeroU8,
+        NonZeroU32,
+        NonZeroU64,
+    },
+    ops::Deref,
+    time::Duration,
+};
 
 use derive_more::Display;
+use tracing::{
+    Level,
+    instrument,
+};
 
-use crate::domain::{GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId};
-use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{
-    CommonHeader, FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage,
+use crate::{
+    domain::{
+        GroupingError,
+        NodeId,
+        RoutingTable,
+        ULNTable,
+        UnderlayNeighborId,
+    },
+    messaging::{
+        CommonHeader,
+        FindNodeReqData,
+        Nonce,
+        ProtocolMessage,
+        ProtocolMessageKind,
+        ReqRspMessage,
+        source_route::SourceRoute,
+    },
+    runtime::UseCaseRuntime,
+    use_cases::{
+        EventHandler,
+        TimerId,
+        UseCase,
+        UseCaseContext,
+        UseCaseEvent,
+        UseCaseState,
+        VicinityEvent,
+    },
+    utils::ExponentialBackoff,
 };
-use crate::runtime::UseCaseRuntime;
-use crate::use_cases::{
-    EventHandler, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseState, VicinityEvent,
-};
-use crate::utils::ExponentialBackoff;
 
 /// Overlay Discovery Configuration.
 ///

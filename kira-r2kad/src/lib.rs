@@ -64,7 +64,11 @@ pub mod use_cases;
 pub mod utils;
 
 #[doc(inline)]
-pub use crate::r2kad::{Input, Output, R2Kad};
+pub use crate::r2kad::{
+    Input,
+    Output,
+    R2Kad,
+};
 
 #[cfg(test)]
 #[allow(dead_code)]

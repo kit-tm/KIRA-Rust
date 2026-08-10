@@ -1,13 +1,20 @@
-use derive_more::Error;
-use derive_more::with_trait::Display;
+use std::{
+    ops::Index,
+    slice::SliceIndex,
+    sync::OnceLock,
+};
 
-use std::ops::Index;
-use std::slice::SliceIndex;
-
-use crate::domain::{NodeId, Timestamp, hasher::Hasher};
-use std::sync::OnceLock;
+use derive_more::{
+    Error,
+    with_trait::Display,
+};
 
 use super::Link;
+use crate::domain::{
+    NodeId,
+    Timestamp,
+    hasher::Hasher,
+};
 
 pub mod cycle_remover;
 pub mod in_order_cycle_remover;
@@ -85,6 +92,7 @@ pub struct EmptyPathError;
 
 impl TryFrom<&[NodeId]> for Path {
     type Error = EmptyPathError;
+
     fn try_from(slice: &[NodeId]) -> Result<Self, Self::Error> {
         if slice.is_empty() {
             return Err(EmptyPathError);
@@ -161,6 +169,7 @@ impl Path {
     pub fn reverse(&mut self) {
         self.ids.reverse();
     }
+
     /// Size of the [Path] in numbers of Nodes.
     ///
     /// Is usually always > 0 as Path has to contain the [Contact](crate::domain::Contact)s NodeId at the
@@ -172,10 +181,12 @@ impl Path {
         );
         self.ids.len()
     }
+
     /// Returns if the [Path] contains the [NodeId].
     pub fn contains(&self, id: &NodeId) -> bool {
         self.ids.contains(id)
     }
+
     /// Returns if the [Path] contains the [Link].
     pub fn contains_link(&self, link: &Link) -> bool {
         self.ids
@@ -186,26 +197,31 @@ impl Path {
                     || (first == link.second() && second == link.first())
             })
     }
+
     /// Returns the first entry in the [Path].
     pub fn first(&self) -> &NodeId {
         self.ids
             .first()
             .expect("Invalid access to first element on empty path")
     }
+
     /// Returns the second entry in the [Path].
     pub fn second(&self) -> Option<&NodeId> {
         self.ids.get(1)
     }
+
     /// Returns the last entry in the [Path].
     pub fn last(&self) -> &NodeId {
         self.ids
             .last()
             .expect("Invalid access to last element on empty path")
     }
+
     /// Pushs a [NodeId] to the end of the [Path].
     pub fn push(&mut self, id: NodeId) {
         self.ids.push(id);
     }
+
     /// Remove all entries inside the interval [start_index, end_index).
     /// Note that the end_index is excluded.
     fn remove_in(&mut self, start_index: usize, end_index: usize) {
@@ -391,8 +407,8 @@ where
 // ============ Iteration ============
 
 impl IntoIterator for Path {
-    type Item = NodeId;
     type IntoIter = std::vec::IntoIter<Self::Item>;
+    type Item = NodeId;
 
     fn into_iter(self) -> Self::IntoIter {
         self.ids.into_iter()
@@ -400,8 +416,8 @@ impl IntoIterator for Path {
 }
 
 impl<'a> IntoIterator for &'a Path {
-    type Item = &'a NodeId;
     type IntoIter = std::slice::Iter<'a, NodeId>;
+    type Item = &'a NodeId;
 
     fn into_iter(self) -> Self::IntoIter {
         self.ids.iter()
@@ -410,7 +426,10 @@ impl<'a> IntoIterator for &'a Path {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::{NodeId, Path};
+    use crate::domain::{
+        NodeId,
+        Path,
+    };
 
     #[test]
     fn index_smoke_test() {

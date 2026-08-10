@@ -18,6 +18,31 @@ spec:
 
 ---
 
+variables:
+  CI_IMAGE_TAG: $CI_DEFAULT_BRANCH
+
+.rust_image_paths: &rust_image_paths
+  - docker/Dockerfile.ci
+  - .gitlab-ci/ci-image.yml
+
+workflow:
+  rules:
+    # Overwritten CI image tag by $CI_COMMIT_REF_SLUG on changes to the image
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: *rust_image_paths
+      variables:
+        CI_IMAGE_TAG: $CI_COMMIT_REF_SLUG
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *rust_image_paths
+      variables:
+        CI_IMAGE_TAG: $CI_COMMIT_REF_SLUG
+
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "web"
+
 .semver_release_rule:
   rules:
     # matches semver release tags "v1.2.3"
@@ -32,11 +57,17 @@ spec:
       when: always
 
 include:
+  - local: '.gitlab-ci/ci-image.yml'
+    inputs:
+      rust_version: $[[ inputs.rust_version ]]
+      rust_image: $CI_REGISTRY_IMAGE/rust-ci:$CI_IMAGE_TAG
+      rust_image_default: $CI_REGISTRY_IMAGE/rust-ci:$CI_DEFAULT_BRANCH
+
   - local: '.gitlab-ci/rust.yml'
     inputs:
       debug_mode: $[[ inputs.debug_mode ]]
       rustc_wrapper: $[[ inputs.rustc_wrapper ]]
-      rust_image: rust:$[[ inputs.rust_version ]]-alpine
+      rust_image: $CI_REGISTRY_IMAGE/rust-ci:$CI_IMAGE_TAG
       sccache_dir: /sccache
       common_job_tags:
         - rust
@@ -67,7 +98,7 @@ no-checks:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: always
 
-# TODO: build and release docker containers on release
+# TODO: Build and release docker images on release
 
 
 release:

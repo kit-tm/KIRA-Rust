@@ -1,6 +1,9 @@
 use std::collections::VecDeque;
 
-use crate::domain::{NodeId, Path};
+use crate::domain::{
+    NodeId,
+    Path,
+};
 
 /// Source Route of a message all the way back to its origin.
 ///
@@ -196,9 +199,11 @@ impl From<NodeId> for SourceRoute {
 
 #[cfg(test)]
 mod tests {
-    use super::SourceRoute;
-
-    use super::{NodeId, Path};
+    use super::{
+        NodeId,
+        Path,
+        SourceRoute,
+    };
 
     #[test]
     fn source_route_basics() {

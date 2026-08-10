@@ -1,13 +1,27 @@
-use std::{collections::HashMap, num::NonZeroU8};
+use std::{
+    collections::HashMap,
+    num::NonZeroU8,
+};
 
 use rand::RngExt as _;
 use tracing::Level;
 
 use crate::domain::{
-    AddError, Bucket, BucketSplitError, Contact, ContactState, FlatRoutingTable, GroupingError,
-    NodeId, ReplacementError, RoutingTable,
+    AddError,
+    Bucket,
+    BucketSplitError,
+    Contact,
+    ContactState,
+    FlatRoutingTable,
+    GroupingError,
+    NodeId,
+    ReplacementError,
+    RoutingTable,
     hasher::Hasher,
-    routing_table::{PrefixContact, sorter_xor},
+    routing_table::{
+        PrefixContact,
+        sorter_xor,
+    },
 };
 
 /// A routing table which uses an additional data structure to store all
@@ -47,8 +61,8 @@ impl<const BUCKET_SIZE: usize, const ACC: u8> From<FlatRoutingTable<BUCKET_SIZE,
 impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
     for UnlimitedULNRoutingTable<BUCKET_SIZE, ACC>
 {
-    type ContactWriteGuard = &'a mut Contact;
     type BucketIter = std::slice::Iter<'a, Bucket<BUCKET_SIZE>>;
+    type ContactWriteGuard = &'a mut Contact;
 
     fn root(&self) -> &NodeId {
         self.inner.root()
@@ -227,10 +241,16 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
 mod tests {
     use std::num::NonZeroU8;
 
-    use crate::domain::unlimited_uln_routing_table::UnlimitedULNRoutingTable;
     use crate::domain::{
-        Contact, ContactState, FlatRoutingTable, NodeId, NotViaStateList, Path, RoutingTable,
+        Contact,
+        ContactState,
+        FlatRoutingTable,
+        NodeId,
+        NotViaStateList,
+        Path,
+        RoutingTable,
         SafeStateSeqNr,
+        unlimited_uln_routing_table::UnlimitedULNRoutingTable,
     };
 
     #[test]

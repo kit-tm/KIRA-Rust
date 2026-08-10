@@ -1,28 +1,72 @@
-use std::collections::{HashMap, HashSet};
-use std::marker::PhantomData;
-use std::num::{NonZeroU8, NonZeroU32, NonZeroU64, NonZeroUsize};
-use std::ops::Deref;
-use std::time::Duration;
-use tracing::{Level, instrument};
+use std::{
+    collections::{
+        HashMap,
+        HashSet,
+    },
+    marker::PhantomData,
+    num::{
+        NonZeroU8,
+        NonZeroU32,
+        NonZeroU64,
+        NonZeroUsize,
+    },
+    ops::Deref,
+    time::Duration,
+};
 
-use derive_more::derive::{Display, Error};
+use derive_more::derive::{
+    Display,
+    Error,
+};
+use tracing::{
+    Level,
+    instrument,
+};
 
-use crate::domain::{
-    Contact, ContactState, Link, NodeId, NotViaState, NotViaStateList, RoutingTable, Timestamp,
-    ULNTable, UnderlayNeighborId, UnderlayNeighborUpdate, VicinityGraph,
+use crate::{
+    domain::{
+        Contact,
+        ContactState,
+        Link,
+        NodeId,
+        NotViaState,
+        NotViaStateList,
+        RoutingTable,
+        Timestamp,
+        ULNTable,
+        UnderlayNeighborId,
+        UnderlayNeighborUpdate,
+        VicinityGraph,
+    },
+    messaging::{
+        CommonHeader,
+        ErrorData,
+        FindNodeReqData,
+        Nonce,
+        ProtocolMessage,
+        ProtocolMessageKind,
+        ReqRspMessage,
+        RouteUpdateActionType,
+        UpdateRouteReq,
+        WireFormatMessage,
+        source_route::SourceRoute,
+    },
+    use_cases::{
+        ContactEvent,
+        EventHandler,
+        ReactiveUseCaseState,
+        TimerId,
+        UseCase,
+        UseCaseContext,
+        UseCaseEvent,
+        UseCaseRuntime,
+    },
+    utils::{
+        InflightReqMap,
+        errors::InsertionError,
+        rediscovery_timeout_interval::RediscoveryTimeoutInterval,
+    },
 };
-use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{
-    CommonHeader, ErrorData, FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageKind,
-    ReqRspMessage, RouteUpdateActionType, UpdateRouteReq, WireFormatMessage,
-};
-use crate::use_cases::{
-    ContactEvent, EventHandler, ReactiveUseCaseState, TimerId, UseCase, UseCaseContext,
-    UseCaseEvent, UseCaseRuntime,
-};
-use crate::utils::InflightReqMap;
-use crate::utils::errors::InsertionError;
-use crate::utils::rediscovery_timeout_interval::RediscoveryTimeoutInterval;
 
 const REDISCOVERY_WAITTIME_ULN: Duration = Duration::from_millis(100);
 const REDISCOVERY_WAITTIME_CLOSEST_NEIGHBORS: Duration = Duration::from_millis(500);

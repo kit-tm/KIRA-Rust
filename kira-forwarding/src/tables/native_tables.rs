@@ -2,30 +2,54 @@
 //!
 //! The main struct of this module is [NativeFwdTables].
 
-use std::collections::HashMap;
-use std::ffi::OsStr;
-use std::fmt::Debug;
-use std::future::Future;
-use std::net::Ipv6Addr;
+use std::{
+    collections::HashMap,
+    ffi::OsStr,
+    fmt::Debug,
+    future::Future,
+    net::Ipv6Addr,
+};
 
-use futures::StreamExt;
-use futures::channel::mpsc::UnboundedReceiver;
+use futures::{
+    StreamExt,
+    channel::mpsc::UnboundedReceiver,
+};
+use kira_r2kad::domain::UnderlayNeighborUpdate;
 use netlink_packet_route::RouteNetlinkMessage;
 use netlink_proto::ConnectionHandle;
-use tracing::{Level, Span, field};
+use tracing::{
+    Level,
+    Span,
+    field,
+};
 
-use crate::domain::{
-    DecapsulationDestination, NodeIdEncapsulationEntry, NodeIdForwardingEntry,
-    PathIdDecapsulationEntry, PathIdForwardingEntry,
+use crate::{
+    domain::{
+        DecapsulationDestination,
+        InterfaceId,
+        NodeId,
+        NodeIdEncapsulationEntry,
+        NodeIdForwardingEntry,
+        NodeIdSubnet,
+        PathId,
+        PathIdDecapsulationEntry,
+        PathIdForwardingEntry,
+        UnderlayNeighborId,
+    },
+    netlink::ForwardingRtNetlink,
+    platform,
+    tables::{
+        AsyncForwardingTables,
+        AsyncNodeIdTable,
+        AsyncPathIdTable,
+        NodeIdEntry,
+        PathIdEntry,
+    },
+    underlay::{
+        UnderlayInformationProvider,
+        UnderlayNeighborInformation,
+    },
 };
-use crate::domain::{InterfaceId, NodeId, NodeIdSubnet, PathId, UnderlayNeighborId};
-use crate::netlink::ForwardingRtNetlink;
-use crate::platform;
-use crate::tables::{
-    AsyncForwardingTables, AsyncNodeIdTable, AsyncPathIdTable, NodeIdEntry, PathIdEntry,
-};
-use crate::underlay::{UnderlayInformationProvider, UnderlayNeighborInformation};
-use kira_r2kad::domain::UnderlayNeighborUpdate;
 
 /// Native linux [AsyncForwardingTables] implementation backed by nftables and linux routing tables.
 ///
@@ -369,8 +393,9 @@ where
 
 #[allow(missing_docs)]
 pub mod error {
-    use derive_more::derive::Display;
     use std::error::Error;
+
+    use derive_more::derive::Display;
 
     #[derive(Debug, Display)]
     pub enum FwdTableError {
