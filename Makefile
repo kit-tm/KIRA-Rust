@@ -26,6 +26,18 @@ $(BIN_PATH):
 build-release: # force rebuild of release binary
 	cargo build --release
 
+
+DOCFLAGS = --all-features --open --no-deps
+.PHONY: doc
+doc: lib-doc r2kad-doc forwarding-doc
+%-doc:
+	cargo doc --package=kira-$* $(DOCFLAGS)
+
+
+# Compile m4 files
+$(PKG_PREFIX)/%: $(PKG_PREFIX)/%.m4
+	m4 -D BIN_DIR=$(BIN_DIR) -D SHARE_DIR=$(SHARE_DIR) $< > $@
+
 .PHONY: install
 install: $(PKG_PREFIX)/kirad.service $(PKG_PREFIX)/kirad@.service $(DATA_PREFIX)/nftables.conf $(BIN_PATH)
 	$(INSTALL) -m 755 -d $(SYSTEMD_DIR)
@@ -38,9 +50,6 @@ install: $(PKG_PREFIX)/kirad.service $(PKG_PREFIX)/kirad@.service $(DATA_PREFIX)
 
 	$(INSTALL) -m 755 $(BIN_PATH) $(BIN_DIR)
 
-$(PKG_PREFIX)/%: $(PKG_PREFIX)/%.m4
-	m4 -D BIN_DIR=$(BIN_DIR) -D SHARE_DIR=$(SHARE_DIR) $< > $@
-
 .PHONY: uninstall
 uninstall:
 	rm $(BIN_DIR)/kirad
@@ -50,31 +59,6 @@ uninstall:
 	systemctl daemon-reload
 
 	rm -r $(SHARE_DIR)/
-
-
-
-DOCFLAGS = --all-features --open --no-deps
-.PHONY: doc
-doc: lib-doc r2kad-doc forwarding-doc
-%-doc:
-	cargo doc --package=kira-$* $(DOCFLAGS)
-
-
-.PHONY: test
-test: test-lib test-r2kad test-forwarding
-test-%:
-	cargo test --package=kira-$*
-
-
-.PHONY: jaeger jaeger-clean clean-logs
-jaeger:
-	docker compose -f tests/jaeger/compose.yaml up --wait
-
-jaeger-clean:
-	docker compose -f tests/jaeger/compose.yaml down -v
-
-clean-logs: jaeger-clean
-	find -type f -name "k*.log" -delete
 
 
 .PHONY: build-image-supervisord build-image-small-k build-image-dns-dht
@@ -101,3 +85,20 @@ build-debian-%: cargo-cross $(PKG_PREFIX)/kirad.service $(PKG_PREFIX)/kirad@.ser
 .PHONY: pkg-debian-%
 pkg-debian-%: build-debian-% cargo-cargo-deb
 	cargo deb --target $*-unknown-linux-musl -p kirad --no-build --no-strip
+
+
+.PHONY: test
+test: test-lib test-r2kad test-forwarding
+test-%:
+	cargo test --package=kira-$*
+
+
+.PHONY: jaeger jaeger-clean clean-logs
+jaeger:
+	docker compose -f tests/jaeger/compose.yaml up --wait
+
+jaeger-clean:
+	docker compose -f tests/jaeger/compose.yaml down -v
+
+clean-logs: jaeger-clean
+	find -type f -name "k*.log" -delete
