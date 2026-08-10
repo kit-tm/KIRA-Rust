@@ -3,7 +3,6 @@ name = "kira-lib"
 version = "0.1.0"
 description = "KIRA integration library"
 license.workspace = true
-license-file.workspace = true
 authors.workspace = true
 homepage.workspace = true
 edition.workspace = true

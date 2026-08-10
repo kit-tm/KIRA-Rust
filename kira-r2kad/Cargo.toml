@@ -3,7 +3,6 @@ name = "kira-r2kad"
 version = "0.1.0"
 description = "A R²/KAD sans-i/o implementation"
 license.workspace = true
-license-file.workspace = true
 authors.workspace = true
 homepage.workspace = true
 edition.workspace = true
