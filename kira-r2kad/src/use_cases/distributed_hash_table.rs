@@ -504,7 +504,7 @@ where
 
                     self.hash_table
                         .meta_mut(&key)
-                        .expect("metadata present for succesfully stored key-value pair")
+                        .expect("metadata present for successfully stored key-value pair")
                         .access(last_accessed);
 
                     // Republish StoreReq are fire and forget: Don't respond with StoreRsp
@@ -513,7 +513,7 @@ where
                 Ok(ok) => {
                     self.hash_table
                         .meta_mut(&key)
-                        .expect("metadata present for succesfully stored key-value pair")
+                        .expect("metadata present for successfully stored key-value pair")
                         .access(context.runtime().current_time());
 
                     Ok(ok.into())
@@ -601,7 +601,7 @@ where
                 // record access
                 self.hash_table
                     .meta_mut(key)
-                    .expect("metadata present for succesfully stored key-value pair")
+                    .expect("metadata present for successfully stored key-value pair")
                     .access(context.runtime().current_time());
 
                 tracing::debug!(
@@ -713,8 +713,8 @@ where
                     tracing::debug!(
                         target: "distributed_hash_table",
                         %key,
-                        reason = "republish not supressed",
-                        republish_supress_window_ms = self.config.republish_suppression_window.as_millis(),
+                        reason = "republish not suppressed",
+                        republish_suppress_window_ms = self.config.republish_suppression_window.as_millis(),
                         not_republished_ms = not_republished.as_millis(),
                         "Republish key",
                     );
@@ -723,9 +723,9 @@ where
                     tracing::trace!(
                         target: "distributed_hash_table",
                         %key,
-                        republish_supress_window_ms = self.config.republish_suppression_window.as_millis(),
+                        republish_suppress_window_ms = self.config.republish_suppression_window.as_millis(),
                         not_republished_ms = not_republished.as_millis(),
-                        "Republish key supressed",
+                        "Republish key suppressed",
                     );
                     false
                 }

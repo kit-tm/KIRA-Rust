@@ -294,7 +294,7 @@ mod test {
         assert_eq!(
             ulnib.register_neighbor(UnderlayNeighbor::new(LL_IPV6, down_interface)),
             Err(UnderlayNeighborInterfaceDownError(down_interface)),
-            "shouldn't succesfully insert on interface not previously upped"
+            "shouldn't successfully insert on interface not previously upped"
         );
     }
 

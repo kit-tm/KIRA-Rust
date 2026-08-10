@@ -12,5 +12,5 @@ Only the CBOR format can be dissected at this point of time.
 ## Usage
 
 Open your captured traffic file. The R²/KAD protocol should be detected automatically
-if the default port wasn't changed. Otherwise you can manually decode the UDP paylod
+if the default port wasn't changed. Otherwise you can manually decode the UDP payload
 with the `R2KAD` protocol.

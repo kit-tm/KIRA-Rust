@@ -86,7 +86,7 @@ const REDISCOVERY_TIMEOUT_MAX: Duration = Duration::from_millis(250);
 ///
 /// - Overlay neighbors to notify via `UpdateRouteReq`: 3.
 /// - Number of Bits grouped for calculation of closeness for overlay neighbors: 1 Bit.
-/// - Intervall used for calculation of random timeout: `[0.5 t, 1.5 t]`,
+/// - Interval used for calculation of random timeout: `[0.5 t, 1.5 t]`,
 ///   t = 100ms (direct underlay neighbor)
 ///   t = 500ms (closest id-wise overlay neighbors),
 ///   t = 1s (contact affected by ULN failure),
@@ -100,7 +100,7 @@ pub struct FailureHandlingConfig {
     pub grouping_bits: NonZeroU8,
     /// Number of contacts to try for rediscovery (normally same as bucket size)
     pub number_via_contacts: NonZeroUsize,
-    /// Intervall used to generate random timeout durations based on distance to failing contact
+    /// Interval used to generate random timeout durations based on distance to failing contact
     /// for exponential backoff.
     pub backoff_timeout_interval: RediscoveryTimeoutInterval,
     /// Number of times the rediscovery sends `FindNodeReq`s for a single failed contact.
@@ -240,7 +240,7 @@ where
     }
 
     fn send_rediscovery_for_contact(&mut self, context: &C, contact_id: &NodeId) {
-        // extracts up to (usuallly) two via contacts from the Rediscovery State
+        // extracts up to (usually) two via contacts from the Rediscovery State
         let Some(closest_via_contacts) = self.extract_eligible_via_contacts(
             context,
             contact_id,
@@ -451,7 +451,7 @@ where
         let next_via_contact_id: Option<NodeId>;
         // find next useful via contact from the list
         // we only need to send one more out since this is the reaction to a previous rediscovery
-        // extracts up to (usuallly) two via contacts from the Rediscovery State
+        // extracts up to (usually) two via contacts from the Rediscovery State
         match self.extract_eligible_via_contacts(context, &node_id, 1) {
             Some(mut closest_via_contacts) => {
                 next_via_contact_id = closest_via_contacts.pop();

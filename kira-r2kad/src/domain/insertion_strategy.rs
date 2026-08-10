@@ -108,7 +108,7 @@ where
 
         // don't replace path with longer path if ssn is same
         // if paths have the same length the XOR metric is used to determine possible replacement
-        // if given path is somehow an improvement (contact vailidity is considered as well) it will be set as new proposed path
+        // if given path is somehow an improvement (contact validity is considered as well) it will be set as new proposed path
         if existing.state_seq_nr() <= contact.state_seq_nr() {
             if existing.assess_path_candidate_and_update(
                 contact.path().expect("contact is expected to have a path"),
@@ -221,7 +221,7 @@ where
     ) -> InsertionStrategyResult {
         // perform some sanity checks
 
-        // valid contacts stem from source route, unkown contacts from RTable objects
+        // valid contacts stem from source route, unknown contacts from RTable objects
         if !(contact.is_valid() || *contact.state() == ContactState::Unknown) {
             tracing::trace!(
                 target: "routing_table",

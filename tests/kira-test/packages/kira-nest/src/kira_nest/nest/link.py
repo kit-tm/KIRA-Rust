@@ -13,8 +13,8 @@ class KIRALink:
     _interface_x: Interface
     _interface_y: Interface
 
-    def __init__(self, inteface_x: Interface, interface_y: Interface) -> None:
-        self._interface_x = inteface_x
+    def __init__(self, interface_x: Interface, interface_y: Interface) -> None:
+        self._interface_x = interface_x
         self._interface_y = interface_y
 
         # just to be sure

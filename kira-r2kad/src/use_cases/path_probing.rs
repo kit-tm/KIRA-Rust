@@ -312,7 +312,7 @@ where
                         failed_link,
                         Timestamp::now(),
                     )));
-                    log::warn!(target: "path_probing", "Invalidated contact {} because ot segment failure", contact.id())
+                    log::warn!(target: "path_probing", "Invalidated contact {} because of segment failure", contact.id())
                 }
                 None => {
                     log::warn!(target: "path_probing", "Removed timeout for non existent contact {contacts_id}")

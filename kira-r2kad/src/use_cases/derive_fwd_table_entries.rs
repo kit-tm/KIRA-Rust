@@ -763,7 +763,7 @@ mod tests {
             assert_eq!(
                 fwd_updates.len(),
                 2, // +1 for prefix update
-                "Addtional forwarding updates present: {fwd_updates:#?}"
+                "Additional forwarding updates present: {fwd_updates:#?}"
             );
         }
 
@@ -875,7 +875,7 @@ mod tests {
             assert_eq!(
                 fwd_updates.len(),
                 2, // +1 for prefix update
-                "Addtional forwarding updates present: {fwd_updates:#?}"
+                "Additional forwarding updates present: {fwd_updates:#?}"
             );
         }
 
@@ -987,7 +987,7 @@ mod tests {
             assert_eq!(
                 fwd_updates.len(),
                 2, // +1 for prefix update
-                "Addtional forwarding updates present: {fwd_updates:#?}"
+                "Additional forwarding updates present: {fwd_updates:#?}"
             );
         }
 
@@ -1141,7 +1141,7 @@ mod tests {
             assert_eq!(
                 fwd_updates.len(),
                 2, // +1 for prefix update
-                "Addtional forwarding updates present: {fwd_updates:#?}"
+                "Additional forwarding updates present: {fwd_updates:#?}"
             );
         }
     }

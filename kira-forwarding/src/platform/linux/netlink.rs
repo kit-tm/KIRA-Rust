@@ -90,7 +90,7 @@ pub enum ForwardingRtNetlinkError {
     #[display("Delivering the netlink request failed: {_0}")]
     NetlinkRequestDeliveryFailure(netlink_proto::Error<RouteNetlinkMessage>),
     #[display("Received netlink error as response: {_0:?}")]
-    /// The netlink socket responed with an [ErrorMessage] to the request.
+    /// The netlink socket responded with an [ErrorMessage] to the request.
     NetlinkResponseError(#[error(ignore)] ErrorMessage),
 }
 

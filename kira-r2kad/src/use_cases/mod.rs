@@ -252,7 +252,7 @@ impl UseCaseState for ReactiveUseCaseState {
 
 /// Error provided as goto Error for [UseCase]s when no error can occur.
 #[derive(Debug, Eq, PartialEq, Clone, Display)]
-#[display("This error can never occure because it's a zero-variant enum")]
+#[display("This error can never occur because it's a zero-variant enum")]
 pub enum NeverError {}
 
 impl Error for NeverError {}

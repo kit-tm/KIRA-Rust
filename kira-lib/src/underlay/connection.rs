@@ -140,7 +140,7 @@ impl UnderlayObserverConnection {
             // Send the request
             log::debug!(target: "underlay_observer::connection", "Sending initial request: {msg:?}");
             let request = rt_handle.request(msg, SocketAddr::new(0, 0));
-            let mut response = request.expect("request should complete succesfully");
+            let mut response = request.expect("request should complete successfully");
 
             // Relay all the messages received in response
             while let Some(message) = response.next().await {
@@ -183,7 +183,7 @@ impl UnderlayObserverConnection {
         log::trace!(target: "underlay_observer::connection", "polling connection");
         if let Some(Poll::Ready(_)) = self.connection.as_mut().map(|c| c.poll_unpin(cx)) {
             let _ = self.connection.take();
-            log::trace!(target: "underlay_observer::connection", "netlink_proto connection closed poll_conection done");
+            log::trace!(target: "underlay_observer::connection", "netlink_proto connection closed poll_connection done");
         }
     }
 

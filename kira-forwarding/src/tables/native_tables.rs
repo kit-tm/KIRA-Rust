@@ -90,7 +90,7 @@ impl<I> NativeFwdTables<I> {
                     if let UnderlayNeighborUpdate::InterfaceUp(id) = update
                         && let Err(e) = netlink.attach_node_id_ip(&root_id, id).await
                     {
-                        log::error!(target: "native_fwd_table", "Attaching to interface {id:?} faile: {e}");
+                        log::error!(target: "native_fwd_table", "Attaching to interface {id:?} failed: {e}");
                     }
                 }
             }

@@ -62,7 +62,7 @@ def built_kirad_binary(
     )
     assert target_kirad.exists(), "kirad not build"
 
-    # copy file to tempory destination to avoid overwrites by successive cargo builds
+    # copy file to temporary destination to avoid overwrites by successive cargo builds
     kirad_dest = tmp_bin_dir / f"kirad{id_suffix}"
     shutil.copy2(target_kirad, kirad_dest)
 

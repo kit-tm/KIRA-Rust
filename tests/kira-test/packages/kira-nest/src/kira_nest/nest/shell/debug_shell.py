@@ -914,7 +914,7 @@ class DebugShell[T](Cmd):
                 print(f"{unknown:>3}")
                 self._cmd_failed()
         else:
-            print("All vicinity nodes where discoverd.")
+            print("All vicinity nodes where discovered.")
         print()
 
         unknown_edges = topo_node.unknown_vicinity_edges(node)

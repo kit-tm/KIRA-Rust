@@ -194,10 +194,10 @@ pub mod error {
 
     #[derive(Debug, Display, Error)]
     /// Error for [InMemoryFwdTables] used collectively
-    /// in the [AyncNodeIdTable] and the [AsyncPathIdTable] trait implementation.
+    /// in the [AsyncNodeIdTable] and the [AsyncPathIdTable] trait implementation.
     ///
     /// [InMemoryFwdTables]: super::InMemoryFwdTables
-    /// [AyncNodeIdTable]: super::super::AsyncNodeIdTable
+    /// [AsyncNodeIdTable]: super::super::AsyncNodeIdTable
     /// [AsyncPathIdTable]: super::super::AsyncPathIdTable
     pub enum FwdTableError {
         #[display("Entry  already exists")]

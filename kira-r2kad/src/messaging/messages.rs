@@ -551,7 +551,7 @@ impl<T: Debug> ReqRspMessage<T> {
     ///
     /// Essentially this is the destination of the source route.
     pub fn destination(&self) -> &NodeId {
-        // TODO: coherent renaming of methods destination methdos
+        // TODO: coherent renaming of methods destination methods
         // to distinguish between current overlay hop "destination" and final destination
         //
         // Currently we have multiple ambiguous destination methods:

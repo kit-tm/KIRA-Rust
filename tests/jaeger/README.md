@@ -37,7 +37,7 @@ from the Firefox add-on store. Alternatively you could use [Tampermonkey](https:
 Afterwards simply install the [`node-to-topo.user.js`](./node-to-topo.user.js) using
 the provided add-on menus.
 
-You should now be greated with a blue cog on the bottom right corner where
+You should now be greeted with a blue cog on the bottom right corner where
 you can input your custom substitution mapping. This can be obtained
 if you're using [`nesttest.py`](../nesttest.py) by simply copying the command
 output of

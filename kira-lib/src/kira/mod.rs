@@ -144,7 +144,7 @@ where
         // forwarding tables
         let (fwtables_tx, mut fwtables_rx) = mpsc::channel(buffer_size::FORWARDING);
         tokio::task::Builder::new()
-            .name("KIRA: Fowarding Tables Channel").spawn(async move {
+            .name("KIRA: Forwarding Tables Channel").spawn(async move {
             loop {
                 let Some((req, kira_span)) = fwtables_rx.recv().await else {
                     break;

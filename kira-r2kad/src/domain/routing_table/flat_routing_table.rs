@@ -694,7 +694,7 @@ mod tests {
                 .is_ok(),
             "no split required on bucket BUCKET_SIZE=2"
         );
-        assert_eq!(table.buckets.len(), 1, "really, no split happend");
+        assert_eq!(table.buckets.len(), 1, "really, no split happened");
 
         // try to add node into full bucket should not work
         assert_eq!(

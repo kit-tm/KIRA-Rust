@@ -234,8 +234,8 @@ impl Display for DHTErr {
             Self::SendError => write!(f, "Error sending request."),
             Self::Isolated => write!(f, "Node is isolated."),
             Self::ReceiveError => write!(f, "Receive Error."),
-            Self::Timeout => write!(f, "Timout of request."),
-            Self::RPCTimeout => write!(f, "Timout of request (RPC)."),
+            Self::Timeout => write!(f, "Timeout of request."),
+            Self::RPCTimeout => write!(f, "Timeout of request (RPC)."),
             Self::MessageReceiveMismatch => {
                 write!(f, "Response message received isn't expected type.")
             }

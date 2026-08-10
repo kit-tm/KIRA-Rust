@@ -15,7 +15,7 @@ class DefaultNodeConfig(object):
     dns: Optional[List[str]] = None
 
     sysctls: Dict[str, int] = field(default_factory=lambda: dict())
-    enviroments: Dict[str, str] = field(default_factory=lambda: dict())
+    environments: Dict[str, str] = field(default_factory=lambda: dict())
 
     seed: InitVar[int] = "1234"
     debug_level: InitVar[str] = "debug"
@@ -32,7 +32,7 @@ class DefaultNodeConfig(object):
         # self.sysctls.setdefault('net.ipv6.conf.eth0.disable_ipv6', 1)
         self.sysctls.setdefault("net.ipv6.conf.all.forwarding", 1)
 
-        self.enviroments.setdefault("RUST_LOG", debug_level)
+        self.environments.setdefault("RUST_LOG", debug_level)
         self.rng = Random(seed)
 
     def save_in_graph(self, G: Graph):
@@ -56,7 +56,7 @@ class NodeConfig(object):
     dns: Optional[List[str]] = None
 
     sysctls: Optional[Dict[str, int]] = None
-    enviroments: Optional[Dict[str, str]] = None
+    environments: Optional[Dict[str, str]] = None
 
     ip_v4: InitVar[IPv4Address] = None
     debug_level: InitVar[Optional[str]] = None
@@ -97,16 +97,16 @@ class NodeConfig(object):
         else:
             self.sysctls = {**default.sysctls, **self.sysctls}
 
-        if self.enviroments is None:
-            self.enviroments = default.enviroments
+        if self.environments is None:
+            self.environments = default.environments
         else:
-            self.enviroments = {**default.enviroments, **self.enviroments}
+            self.environments = {**default.environments, **self.environments}
 
         if ip_v4 is not None:
-            self.enviroments["KIRA_IPV4"] = ip_v4
+            self.environments["KIRA_IPV4"] = ip_v4
 
         if debug_level is not None:
-            self.enviroments["RUST_LOG"] = debug_level
+            self.environments["RUST_LOG"] = debug_level
 
     def save_in_graph(self, G: Graph, label):
         # TODO: ensure defaults are saved prior

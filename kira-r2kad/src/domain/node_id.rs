@@ -722,10 +722,10 @@ mod tests {
         );
 
         let first = NodeId::from(0x1234_5678_9a3f_0000_0000_0000_1101u128);
-        let secnd = NodeId::from(0x1234_5678_9a4f_0000_0000_0000_1101u128);
+        let second = NodeId::from(0x1234_5678_9a4f_0000_0000_0000_1101u128);
         assert_eq!(
             first
-                .shared_prefix_len(&secnd, NonZeroU8::new(1).unwrap())
+                .shared_prefix_len(&second, NonZeroU8::new(1).unwrap())
                 .map(SharedPrefix::into_bit_len),
             Ok(41)
         );

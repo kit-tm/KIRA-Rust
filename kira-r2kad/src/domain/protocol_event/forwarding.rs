@@ -16,11 +16,11 @@ use crate::domain::{
 pub enum ForwardingTablesUpdate {
     /// Update request to the NodeIdForwardingTable.
     ///
-    /// The NodeIdForwardingTable consists out of [NodeIdEntrys](NodeIdEntry).
+    /// The NodeIdForwardingTable consists out of [NodeIdEntries](NodeIdEntry).
     NodeIdTableUpdate(NodeIdTableUpdate),
     /// Update request to the [PathId]-forwarding-table.
     ///
-    /// The PathIdForwardingTable consists out of [PathIdEntrys](PathIdEntry).
+    /// The PathIdForwardingTable consists out of [PathIdEntries](PathIdEntry).
     PathIdTableUpdate(PathIdTableUpdate),
 }
 

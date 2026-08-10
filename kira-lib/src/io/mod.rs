@@ -28,7 +28,7 @@ pub enum SocketCreationErr {
     #[display("Failed to bind socket to address {_1}")]
     BindFailed(io::Error, SocketAddr),
     /// Failed to join [`ALL_KIRA_NODES`] multicast address.
-    #[display("Error joining ALL-KIRA-NODES mulicast group")]
+    #[display("Error joining ALL-KIRA-NODES multicast group")]
     MulticastJoinFailed(io::Error),
 }
 

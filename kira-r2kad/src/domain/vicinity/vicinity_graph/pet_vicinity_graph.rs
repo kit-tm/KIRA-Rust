@@ -316,7 +316,7 @@ mod test {
         let updated_ssn = SafeStateSeqNr::try_from(2).unwrap();
         let now = Instant::now();
         let synched_ssn = initial_ssn;
-        let inital_entry = {
+        let initial_entry = {
             let mut initial_entry = Entry::new(initial_ssn);
             initial_entry.update_last_seen(now);
             initial_entry.update_synched_ssn(synched_ssn);
@@ -326,7 +326,7 @@ mod test {
         // prep graph with existing link to insert_node
         let mut graph = PetVicinityGraph::new(root_id);
         graph.graph.add_edge(root_id, insert_node, ());
-        graph.entries.insert(insert_node, inital_entry);
+        graph.entries.insert(insert_node, initial_entry);
 
         // same ssn should leave other data "unharmed"
         {
