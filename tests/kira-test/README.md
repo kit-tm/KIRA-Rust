@@ -1,6 +1,6 @@
 # Introduction
 
-This is a Python project managed by [uv] for testing the behaviour of the
+This is a Python project managed by [uv] for testing the behavior of the
 `kirad` Rust daemon in emulated topologies using the [NeST] framework.
 
 # Dependencies
@@ -19,7 +19,7 @@ This _only_ includes dependencies not managed by [uv].
 You can test topologies interactively using a shell called _nesttest_.
 To start the shell run the following command
 ```sh
-uv --project=./tests/kira-test run nesttest
+uv --project=./tests/kira-test run nesttest tests/topos/minimal.gml
 ```
 
 It is recommended to automatically create the directory `/var/run/netns` on boot.
@@ -64,7 +64,7 @@ All tools are capable of reading from `stdin` and writing to `stdout` as applica
 For instance, generating a Newman–Watts–Strogatz small-world graph
 with at least three connected components, saving it to `random.gml`
 while also displaying it to the terminal using `kitten icat`[^kitty]:
-```
+```sh
 uv --project=tests/kira-test run generate_random_gml watts -c 3 --seed 42 \
     | tee random.gml \
     | uv --project=tests/kira-test run show_graph \
@@ -74,21 +74,20 @@ uv --project=tests/kira-test run generate_random_gml watts -c 3 --seed 42 \
 Note that `generate_random_gml` by itself doesn't generate _any_ node configs.
 If you use the generated topology in _nesttest_, new NodeIds will be
 generated on every startup, unless you specify a seed for reproducibility:
-```
+```sh
 uv --project=tests/kira-test run generate_random_gml erdos \
     | uv --project=tests/kira-test run nesttest --seed 1234
-
 ```
 
 To bake in static NodeIds you can use the `alter_gml_config` utility like this:
-```
+```sh
 uv --project=tests/kira-test run generate_random_gml erdos \
     | uv --project=tests/kira-test run alter_gml_config --seed 0000 - randomize > random_backed_config.gml
 ```
 
 You can use `alter_gml_config` also to remove the configs of all or some nodes
 on existing files, or randomize the NodeIds:
-```
+```sh
 uv --project=tests/kira-test run alter_gml_config tests/topos/tiny.gml prune 1 > tiny_pruned.gml
 uv --project=tests/kira-test run alter_gml_config tests/topos/tiny.gml randomize > tiny_random.gml
 ```
