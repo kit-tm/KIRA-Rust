@@ -90,11 +90,14 @@ build-image-dns-dht:
 	docker build -t kira-dns-dht examples/dns-4in6-tunnel-example/base
 
 
+.PHONY: cargo-%
 cargo-%:
 	@command -v $* >/dev/null || cargo install $*
 
-build-debian-%: cargo-cross
+.PHONY: build-debian-%
+build-debian-%: cargo-cross $(PKG_PREFIX)/kirad.service $(PKG_PREFIX)/kirad@.service
 	cross build --target $*-unknown-linux-musl --release
 
+.PHONY: pkg-debian-%
 pkg-debian-%: build-debian-% cargo-cargo-deb
-	cargo deb --target $*-unknown-linux-musl -p kirad --no-build
+	cargo deb --target $*-unknown-linux-musl -p kirad --no-build --no-strip

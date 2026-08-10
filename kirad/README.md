@@ -1,7 +1,7 @@
 # KIRA Routing Daemon Implementation
 
 Rust crate representing the binary implementation of the KIRA routing daemon.
-For overall instructions please see the overall [README](../README.md).
+For overall instructions please see the repo's [README](../README.md).
 
 ## Test Framework
 
