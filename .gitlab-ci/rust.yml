@@ -193,8 +193,9 @@ build-kirad-release:
   stage: build
   extends:
     - .rust-defaults
-    - .semver_release_rule
-    - .force_release_build_artifacts
+  rules:
+    - !reference [.semver_release_rule, rules]
+    - !reference [.force_release_build_artifacts, rules]
 
   before_script:
     - rustup target add $TARGET_TRIPLE
@@ -217,8 +218,11 @@ build-rustdoc:
   stage: build
   extends:
     - .rust-defaults
-    - .semver_release_rule
-    - .force_release_build_artifacts
+  rules:
+    - !reference [.semver_release_rule, rules]
+    - !reference [.force_release_build_artifacts, rules]
+  variables:
+      RUSTDOCFLAGS: "-Dwarnings" # prohibit publishing of incomplete rustdoc
 
   script:
     - cargo doc --workspace --no-deps
