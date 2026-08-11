@@ -9,9 +9,9 @@ from networkx import Graph
 @dataclass
 class DefaultNodeConfig(object):
     name: str = "default"
-    docker_image: str = "kira"
+    docker_image: str = "kirad"
     api_port: int = 8080
-    dcmd: str = "/usr/bin/supervisord -c /etc/supervisord.conf"
+    dcmd: str = "/usr/bin/supervisord -c /etc/supervisor/supervisord.conf"
     dns: Optional[List[str]] = None
 
     sysctls: Dict[str, int] = field(default_factory=lambda: dict())

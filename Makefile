@@ -65,13 +65,13 @@ uninstall:
 build-images: build-image-supervisord build-image-small-k build-image-dns-dht
 
 build-image-supervisord:
-	docker build -t kira -f docker/Dockerfile.supervisord .
+	docker build -t kirad -f docker/Dockerfile.supervisord .
 
 build-image-small-k:
-	docker build -t kira-small-k -f docker/Dockerfile.supervisord --build-arg FEATURES="small_buckets,api" .
+	docker build -t kirad:small-k -f docker/Dockerfile.supervisord --build-arg FEATURES="small_buckets,api" .
 
 build-image-dns-dht:
-	docker build -t kira-dns-dht examples/dns-4in6-tunnel-example/base
+	docker build -t kira-dns-dht --build-context kirad:latest=docker-image://kirad:small-k examples/dns-4in6-tunnel-example/base
 
 
 .PHONY: cargo-%
