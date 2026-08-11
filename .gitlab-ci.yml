@@ -132,11 +132,11 @@ release:
            "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kirad/${CI_COMMIT_TAG}/kirad-x86_64-unknown-linux-musl.tar.gz"
 
   needs:
-    - build-rustdoc
-    - build-kirad-release
-    - release-image-supervisord
-    - release-image-small-k
-    - release-image-dns-dht
+    - rustdoc (release)
+    - kirad (release)
+    - image supervisord
+    - image small-k
+    - image kira-dns-dht
 
   release:
     name: "Release $CI_COMMIT_TAG"

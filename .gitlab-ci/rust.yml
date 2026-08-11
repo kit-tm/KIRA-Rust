@@ -89,11 +89,7 @@ spec:
     - !reference [.rust-only-ci-rules, rules]
 
 
-# =============================================== #
-#               RUST-JOBS                         #
-# =============================================== #
-
-rust-pause-pipeline:
+pause pipeline (rust):
   stage: debug
   extends:
     - .rust-defaults
@@ -108,6 +104,8 @@ rust-pause-pipeline:
   script:
     - echo "Pipeline paused. Sleeping for ${{ job.inputs.delay_secs }} seconds..."
     - sleep ${{ job.inputs.delay_secs }}
+
+### Lint ###
 
 rustfmt:
   stage: lint
@@ -131,8 +129,9 @@ rustdoc:
   variables:
     RUSTDOCFLAGS: "-Dwarnings" # fail on warnings like failed links
 
+### Check ###
 
-rust-checks:
+cargo-check:
   stage: check
   extends:
     - .rust-defaults
@@ -156,13 +155,14 @@ clippy:
   # 1.) Running if cargo-check fails doesn't make sense
   # 2.) Ensure cache propagation from cargo-check
   needs:
-    - job: rust-checks
+    - job: cargo-check
       optional: true
   script:
     - cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+### Test ###
 
-rust-tests:
+rust tests:
   stage: test
   extends:
     - .rust-defaults
@@ -172,7 +172,7 @@ rust-tests:
     - cargo nextest run --workspace --all-features --all-targets
 
 # doctests unsupported in nextest (https://github.com/nextest-rs/nextest/issues/16)
-rust-doctests:
+rust doctests:
   stage: test
   extends:
     - .rust-defaults
@@ -181,8 +181,9 @@ rust-doctests:
   script:
     - cargo test --workspace --all-features --doc
 
+### Build ###
 
-build-kirad:
+kirad:
   stage: build
   extends:
     - .rust-defaults
@@ -191,7 +192,7 @@ build-kirad:
   script:
     - cargo build --package kirad
 
-build-kirad-release:
+kirad (release):
   stage: build
   extends:
     - .rust-defaults
@@ -214,7 +215,7 @@ build-kirad-release:
       - kirad-$TARGET_TRIPLE.tar.gz
     expire_in: 1 day
 
-build-rustdoc:
+rustdoc (release):
   stage: build
   extends:
     - .rust-defaults
@@ -232,8 +233,8 @@ build-rustdoc:
       - doc/rustdoc
     expire_in: 1 day
 
-release-image-supervisord:
-  stage: release
+image supervisord:
+  stage: build
   extends:
     - .buildkit-base
     - .semver_release_rule_forcible
@@ -248,8 +249,8 @@ release-image-supervisord:
         --export-cache type=inline \
         --import-cache "type=registry,ref=$CI_REGISTRY_IMAGE/kirad:latest"
 
-release-image-small-k:
-  stage: release
+image small-k:
+  stage: build
   extends:
     - .buildkit-base
     - .semver_release_rule_forcible
@@ -265,8 +266,8 @@ release-image-small-k:
         --export-cache type=inline \
         --import-cache "type=registry,ref=$CI_REGISTRY_IMAGE/kirad:small-k"
 
-release-image-dns-dht:
-  stage: release
+image kira-dns-dht:
+  stage: build
   extends:
     - .buildkit-base
     - .semver_release_rule_forcible
@@ -281,9 +282,9 @@ release-image-dns-dht:
         --export-cache type=inline \
         --import-cache "type=registry,ref=$CI_REGISTRY_IMAGE/kira-dns-dht:latest"
   needs:
-    - job: release-image-small-k # kirad image used as base is kirad:small-k
+    - job: image small-k # kirad image used as base is kirad:small-k
 
-rust-pause-pipeline-after-build:
+pause pipeline after build (rust):
   stage: build
   extends:
     - .rust-defaults
@@ -293,7 +294,7 @@ rust-pause-pipeline-after-build:
       type: number
       default: 600
   needs:
-    - job: build-kirad
+    - job: kirad
       optional: true
 
   rules:
@@ -303,7 +304,7 @@ rust-pause-pipeline-after-build:
     - echo "Pipeline paused. Sleeping for ${{ job.inputs.delay_secs }} seconds..."
     - sleep ${{ job.inputs.delay_secs }}
 
-rust-audit:
+cargo-audit:
   stage: security
   extends:
     - .rust-defaults
