@@ -202,7 +202,9 @@ kirad (release):
     - rustup target add $TARGET_TRIPLE
   script:
     - cargo build --release --package kirad --target $TARGET_TRIPLE
-    - tar -czvf kirad-$TARGET_TRIPLE.tar.gz LICENSE -C kirad conf -C ../target/$TARGET_TRIPLE/release kirad
+    - m4 -D BIN_DIR=/usr/local/bin -D SHARE_DIR=/usr/local/share pkg/kirad.service.m4 > kirad.service
+    - m4 -D BIN_DIR=/usr/local/bin -D SHARE_DIR=/usr/local/share/kirad pkg/kirad@.service.m4 > kirad@.service
+    - tar -czvf kirad-$TARGET_TRIPLE.tar.gz LICENSE kirad.service kirad@.service -C kirad conf -C ../target/$TARGET_TRIPLE/release kirad
 
   parallel:
     matrix:

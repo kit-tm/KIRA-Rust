@@ -58,7 +58,7 @@ git clone git@gitlab.kit.edu:kit/tm/telematics/kira/kira-rust.git
 | Code Documentation         | `make doc`                                    | Generates and views the documentation of all Rust packages                                                        |
 | Install Daemon             | `make install`                                | Compiles the daemon with release profile and installs it system-wide                                              |
 | Uninstall Daemon           | `make uninstall`                              | Removes the daemon installation from the system                                                                   |
-| Debian Package             | `make pkg-debian-<TARGET>`                    | Build a Debian package for the target architecture[^arch] (targets: `x64_64`, `aarch64`)                          |
+| Debian Package             | `make pkg-debian-<TARGET>`                    | Build a Debian package for the target architecture[^arch] (targets: `x86_64`, `aarch64`)                          |
 
 ### Dependencies
 

@@ -10,11 +10,13 @@ FROM rust:${RUST_VERSION}-alpine
 #  - musl-dev: C headers/libs for the musl target
 #  - git:      required by cargo for git dependencies and by CI itself
 #  - sccache:  compiler cache used via RUSTC_WRAPPER
-#  - tar:      packaging of release artifacts (build-kirad-release)
+#  - m4:       creation of service files for release
+#  - tar:      packaging of release artifacts
 RUN apk add --no-cache \
         musl-dev \
         git \
         sccache \
+        m4 \
         tar
 
 # Stable toolchain components
