@@ -88,12 +88,12 @@ section = "net"
 assets = [
   [
     "target/release/kirad",
-    "/usr/local/bin/kirad",
+    "/usr/bin/kirad",
     "755",
   ],
   [
     "conf/nftables.conf",
-    "/usr/local/share/kira/nftables.conf",
+    "/usr/share/kira/nftables.conf",
     "644",
   ],
 ]

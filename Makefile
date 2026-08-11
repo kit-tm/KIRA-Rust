@@ -33,10 +33,13 @@ doc: lib-doc r2kad-doc forwarding-doc
 %-doc:
 	cargo doc --package=kira-$* $(DOCFLAGS)
 
-
 # Compile m4 files
-$(PKG_PREFIX)/%: $(PKG_PREFIX)/%.m4
+$(PKG_PREFIX)/%: $(PKG_PREFIX)/%.m4 FORCE
 	m4 -D BIN_DIR=$(BIN_DIR) -D SHARE_DIR=$(SHARE_DIR) $< > $@
+# Always compile m4 files to ensure propagation of current BIN_DIR and SHARE_DIR
+# Workaround as GNU Make doesn't support wildcard patterns in .PHONY
+.PHONY: FORCE
+FORCE:
 
 .PHONY: install
 install: $(PKG_PREFIX)/kirad.service $(PKG_PREFIX)/kirad@.service $(DATA_PREFIX)/nftables.conf $(BIN_PATH)
@@ -79,6 +82,7 @@ cargo-%:
 	@command -v $* >/dev/null || cargo install $*
 
 .PHONY: build-debian-%
+build-debian-%: override PREFIX = /usr
 build-debian-%: cargo-cross $(PKG_PREFIX)/kirad.service $(PKG_PREFIX)/kirad@.service
 	cross build --target $*-unknown-linux-musl --release
 
