@@ -63,11 +63,8 @@ spec:
       - "$CI_PROJECT_DIR/.cargo_home/advisory-dbs"    # cargo-audit advisories
     policy: pull # only update cache by specific jobs
 
-# rust job that is run if rust code changed by a merge request
-.rust-ci-rules:
-  extends: .semver_release_rule
+.rust-only-ci-rules:
   rules:
-    - !reference [.semver_release_rule, rules] # merge rules
     # always run on main
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: always
@@ -85,6 +82,11 @@ spec:
         compare_to: $CI_DEFAULT_BRANCH
     - if: $CI_PIPELINE_SOURCE == "web"
 
+.rust-ci-rules:
+  extends: .semver_release_rule
+  rules: # merge rules
+    - !reference [.semver_release_rule, rules]
+    - !reference [.rust-only-ci-rules, rules]
 
 
 # =============================================== #
@@ -121,7 +123,7 @@ rustdoc:
   stage: lint
   extends:
     - .rust-defaults
-    - .rust-ci-rules
+    - .rust-only-ci-rules
 
   script:
     - cargo doc --workspace --no-deps
@@ -184,7 +186,7 @@ build-kirad:
   stage: build
   extends:
     - .rust-defaults
-    - .rust-ci-rules
+    - .rust-only-ci-rules
 
   script:
     - cargo build --package kirad
