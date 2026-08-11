@@ -193,9 +193,7 @@ build-kirad-release:
   stage: build
   extends:
     - .rust-defaults
-  rules:
-    - !reference [.semver_release_rule, rules]
-    - !reference [.force_release_build_artifacts, rules]
+    - .semver_release_rule_forcible
 
   before_script:
     - rustup target add $TARGET_TRIPLE
@@ -218,9 +216,7 @@ build-rustdoc:
   stage: build
   extends:
     - .rust-defaults
-  rules:
-    - !reference [.semver_release_rule, rules]
-    - !reference [.force_release_build_artifacts, rules]
+    - .semver_release_rule_forcible
   variables:
       RUSTDOCFLAGS: "-Dwarnings" # prohibit publishing of incomplete rustdoc
 
@@ -233,6 +229,57 @@ build-rustdoc:
     paths:
       - doc/rustdoc
     expire_in: 1 day
+
+release-image-supervisord:
+  stage: release
+  extends:
+    - .buildkit-base
+    - .semver_release_rule_forcible
+  script:
+    - |
+      buildctl-daemonless.sh build \
+        --frontend dockerfile.v0 \
+        --local context=. \
+        --local dockerfile=docker \
+        --opt filename=Dockerfile.supervisord \
+        --output "type=image,\"name=$CI_REGISTRY_IMAGE/kirad:$CI_COMMIT_TAG,$CI_REGISTRY_IMAGE/kirad:latest\",push=true" \
+        --export-cache type=inline \
+        --import-cache "type=registry,ref=$CI_REGISTRY_IMAGE/kirad:latest"
+
+release-image-small-k:
+  stage: release
+  extends:
+    - .buildkit-base
+    - .semver_release_rule_forcible
+  script:
+    - |
+      buildctl-daemonless.sh build \
+        --frontend dockerfile.v0 \
+        --local context=. \
+        --local dockerfile=docker \
+        --opt filename=Dockerfile.supervisord \
+        --opt build-arg:FEATURES="small_buckets,api" \
+        --output "type=image,\"name=$CI_REGISTRY_IMAGE/kirad:$CI_COMMIT_TAG-small-k,$CI_REGISTRY_IMAGE/kirad:small-k\",push=true" \
+        --export-cache type=inline \
+        --import-cache "type=registry,ref=$CI_REGISTRY_IMAGE/kirad:small-k"
+
+release-image-dns-dht:
+  stage: release
+  extends:
+    - .buildkit-base
+    - .semver_release_rule_forcible
+  script:
+    - |
+      buildctl-daemonless.sh build \
+        --frontend dockerfile.v0 \
+        --local context=examples/dns-4in6-tunnel-example/base \
+        --local dockerfile=examples/dns-4in6-tunnel-example/base \
+        --opt "context:kirad=docker-image://$CI_REGISTRY_IMAGE/kirad:$CI_COMMIT_TAG-small-k" \
+        --output "type=image,\"name=$CI_REGISTRY_IMAGE/kira-dns-dht:$CI_COMMIT_TAG,$CI_REGISTRY_IMAGE/kira-dns-dht:latest\",push=true" \
+        --export-cache type=inline \
+        --import-cache "type=registry,ref=$CI_REGISTRY_IMAGE/kira-dns-dht:latest"
+  needs:
+    - job: release-image-small-k # kirad image used as base is kirad:small-k
 
 rust-pause-pipeline-after-build:
   stage: build

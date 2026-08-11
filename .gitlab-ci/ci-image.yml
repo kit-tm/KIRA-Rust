@@ -12,10 +12,6 @@ spec:
     image_default_tag:
       type: string
       default: $CI_DEFAULT_BRANCH
-    buildkit_job_tags:
-      type: array
-      default: [buildkit-runner]
-      description: "Tags selecting a runner capable of BuildKit rootless rootless builds"
 ---
 
 variables:
@@ -29,16 +25,7 @@ variables:
 
 build-rust-ci-image:
   stage: .pre
-  image:
-    name: moby/buildkit:rootless
-    entrypoint: [""]
-  tags: $[[ inputs.buildkit_job_tags ]]
-  interruptible: true
-  variables:
-    BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
-  before_script:
-    - mkdir -p ~/.docker
-    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > ~/.docker/config.json
+  extends: .buildkit-base
   script:
     - |
       buildctl-daemonless.sh build \
