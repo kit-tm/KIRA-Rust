@@ -1,7 +1,11 @@
-use crate::domain::{NodeId, SafeStateSeqNr, UnderlayNeighborId};
-
 pub use in_memory_underlay_neighbor_table::InMemoryULNTable;
 pub use observable_underlay_neighbor_table::ObservableULNTable;
+
+use crate::domain::{
+    NodeId,
+    SafeStateSeqNr,
+    UnderlayNeighborId,
+};
 
 pub mod in_memory_underlay_neighbor_table;
 pub mod observable_underlay_neighbor_table;
@@ -33,10 +37,11 @@ pub trait ULNTable {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::ConnectionId;
-    use crate::domain::InterfaceId;
-
     use super::*;
+    use crate::domain::{
+        ConnectionId,
+        InterfaceId,
+    };
 
     pub fn ssn_on_insert<P: ULNTable>(mut table: P) {
         let id = NodeId::ZERO;

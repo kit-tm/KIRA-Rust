@@ -1,23 +1,60 @@
-use std::collections::HashMap;
-use std::fmt::Debug;
-
-use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
-use tracing::{Level, instrument};
-
-use crate::domain::{
-    Contact, InOrderCycleRemover, InsertionStrategy, InsertionStrategyResult, Link, NodeId, NotVia,
-    NotViaList, NotViaState, NotViaStateList, Path, PathCycleRemover, PathState, RoutingTable,
-    Timestamp, ULNTable, UnderlayNeighborId, UnderlayNeighborSource, VicinityGraph,
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    marker::PhantomData,
+    ops::{
+        Deref,
+        DerefMut,
+    },
 };
-use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{
-    CommonHeader, ErrorData, ProtocolMessage, ProtocolMessageKind, RTableData, ReqRspMessage,
-    RouteUpdateActionType,
+
+use tracing::{
+    Level,
+    instrument,
 };
-use crate::use_cases::{
-    EventHandler, HandlingResult, NeverError, ReactiveUseCaseState, UseCase, UseCaseContext,
-    UseCaseEvent, UseCaseRuntime,
+
+use crate::{
+    domain::{
+        Contact,
+        InOrderCycleRemover,
+        InsertionStrategy,
+        InsertionStrategyResult,
+        Link,
+        NodeId,
+        NotVia,
+        NotViaList,
+        NotViaState,
+        NotViaStateList,
+        Path,
+        PathCycleRemover,
+        PathState,
+        RoutingTable,
+        Timestamp,
+        ULNTable,
+        UnderlayNeighborId,
+        UnderlayNeighborSource,
+        VicinityGraph,
+    },
+    messaging::{
+        CommonHeader,
+        ErrorData,
+        ProtocolMessage,
+        ProtocolMessageKind,
+        RTableData,
+        ReqRspMessage,
+        RouteUpdateActionType,
+        source_route::SourceRoute,
+    },
+    use_cases::{
+        EventHandler,
+        HandlingResult,
+        NeverError,
+        ReactiveUseCaseState,
+        UseCase,
+        UseCaseContext,
+        UseCaseEvent,
+        UseCaseRuntime,
+    },
 };
 
 /// Extracts different kinds of information out of incoming [ProtocolMessage]s before

@@ -26,6 +26,21 @@ $(BIN_PATH):
 build-release: # force rebuild of release binary
 	cargo build --release
 
+
+DOCFLAGS = --all-features --open --no-deps
+.PHONY: doc
+doc: lib-doc r2kad-doc forwarding-doc
+%-doc:
+	cargo doc --package=kira-$* $(DOCFLAGS)
+
+# Compile m4 files
+$(PKG_PREFIX)/%: $(PKG_PREFIX)/%.m4 FORCE
+	m4 -D BIN_DIR=$(BIN_DIR) -D SHARE_DIR=$(SHARE_DIR) $< > $@
+# Always compile m4 files to ensure propagation of current BIN_DIR and SHARE_DIR
+# Workaround as GNU Make doesn't support wildcard patterns in .PHONY
+.PHONY: FORCE
+FORCE:
+
 .PHONY: install
 install: $(PKG_PREFIX)/kirad.service $(PKG_PREFIX)/kirad@.service $(DATA_PREFIX)/nftables.conf $(BIN_PATH)
 	$(INSTALL) -m 755 -d $(SYSTEMD_DIR)
@@ -38,9 +53,6 @@ install: $(PKG_PREFIX)/kirad.service $(PKG_PREFIX)/kirad@.service $(DATA_PREFIX)
 
 	$(INSTALL) -m 755 $(BIN_PATH) $(BIN_DIR)
 
-$(PKG_PREFIX)/%: $(PKG_PREFIX)/%.m4
-	m4 -D BIN_DIR=$(BIN_DIR) -D SHARE_DIR=$(SHARE_DIR) $< > $@
-
 .PHONY: uninstall
 uninstall:
 	rm $(BIN_DIR)/kirad
@@ -52,16 +64,35 @@ uninstall:
 	rm -r $(SHARE_DIR)/
 
 
+.PHONY: build-image-supervisord build-image-small-k build-image-dns-dht
+build-images: build-image-supervisord build-image-small-k build-image-dns-dht
 
-DOCFLAGS = --all-features --open --no-deps
-.PHONY: doc
-doc: lib-doc r2kad-doc forwarding-doc
-%-doc:
-	cargo doc --package=kira-$* $(DOCFLAGS)
+build-image-supervisord:
+	docker build -t kirad -f docker/Dockerfile.supervisord .
+
+build-image-small-k:
+	docker build -t kirad:small-k -f docker/Dockerfile.supervisord --build-arg FEATURES="small_buckets,api" .
+
+build-image-dns-dht:
+	docker build -t kira-dns-dht --build-context kirad:latest=docker-image://kirad:small-k examples/dns-4in6-tunnel-example/base
+
+
+.PHONY: cargo-%
+cargo-%:
+	@command -v $* >/dev/null || cargo install $*
+
+.PHONY: build-debian-%
+build-debian-%: override PREFIX = /usr
+build-debian-%: cargo-cross $(PKG_PREFIX)/kirad.service $(PKG_PREFIX)/kirad@.service
+	cross build --target $*-unknown-linux-musl --release
+
+.PHONY: pkg-debian-%
+pkg-debian-%: build-debian-% cargo-cargo-deb
+	cargo deb --target $*-unknown-linux-musl -p kirad --no-build --no-strip
 
 
 .PHONY: test
-test: test-lib test-r2kad test-forwarding 
+test: test-lib test-r2kad test-forwarding
 test-%:
 	cargo test --package=kira-$*
 
@@ -75,26 +106,3 @@ jaeger-clean:
 
 clean-logs: jaeger-clean
 	find -type f -name "k*.log" -delete
-
-
-.PHONY: build-image-supervisord build-image-small-k build-image-dns-dht
-build-images: build-image-supervisord build-image-small-k build-image-dns-dht
-
-build-image-supervisord:
-	docker build -t kira -f docker/Dockerfile.supervisord .
-
-build-image-small-k:
-	docker build -t kira-small-k -f docker/Dockerfile.supervisord --build-arg FEATURES="small_buckets,api" .
-
-build-image-dns-dht:
-	docker build -t kira-dns-dht examples/dns-4in6-tunnel-example/base
-
-
-cargo-%:
-	@command -v $* >/dev/null || cargo install $*
-
-build-debian-%: cargo-cross
-	cross build --target $*-unknown-linux-musl --release
-
-pkg-debian-%: build-debian-% cargo-cargo-deb
-	cargo deb --target $*-unknown-linux-musl -p kirad --no-build

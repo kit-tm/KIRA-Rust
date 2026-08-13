@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 
-use crate::domain::NodeId;
-use crate::messaging::Nonce;
-use crate::use_cases::TimerId;
-use crate::utils::ExponentialBackoff;
+use crate::{
+    domain::NodeId,
+    messaging::Nonce,
+    use_cases::TimerId,
+    utils::ExponentialBackoff,
+};
 
 /// Data structure to keep track of the exponential backoff of contacts.
 ///
@@ -166,7 +168,10 @@ impl BackoffMap {
 }
 
 pub mod errors {
-    use derive_more::{Display, Error};
+    use derive_more::{
+        Display,
+        Error,
+    };
 
     #[derive(Debug, Display, Error)]
     pub enum InsertionError {

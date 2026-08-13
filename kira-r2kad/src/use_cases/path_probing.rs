@@ -1,21 +1,56 @@
-use std::collections::HashMap;
-use std::marker::PhantomData;
-use std::ops::Deref;
-use std::time::{Duration, Instant};
-use tracing::{Level, instrument};
+use std::{
+    collections::HashMap,
+    marker::PhantomData,
+    ops::Deref,
+    time::{
+        Duration,
+        Instant,
+    },
+};
 
-use crate::domain::{
-    Contact, ContactState, DEFAULT_BUCKET_SIZE, Link, NodeId, NotViaState, NotViaStateList, Path,
-    RoutingTable, Timestamp, ULNTable, UnderlayNeighborId,
+use tracing::{
+    Level,
+    instrument,
 };
-use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{
-    CommonHeader, ErrorData, Nonce, ProbeReqData, ProbeRspData, ProtocolMessage,
-    ProtocolMessageKind, ReqRspMessage, WireFormatMessage,
-};
-use crate::use_cases::{
-    ContactEvent, EventHandler, NeverError, TimerId, UseCase, UseCaseContext, UseCaseEvent,
-    UseCaseRuntime, UseCaseState,
+
+use crate::{
+    domain::{
+        Contact,
+        ContactState,
+        DEFAULT_BUCKET_SIZE,
+        Link,
+        NodeId,
+        NotViaState,
+        NotViaStateList,
+        Path,
+        RoutingTable,
+        Timestamp,
+        ULNTable,
+        UnderlayNeighborId,
+    },
+    messaging::{
+        CommonHeader,
+        ErrorData,
+        Nonce,
+        ProbeReqData,
+        ProbeRspData,
+        ProtocolMessage,
+        ProtocolMessageKind,
+        ReqRspMessage,
+        WireFormatMessage,
+        source_route::SourceRoute,
+    },
+    use_cases::{
+        ContactEvent,
+        EventHandler,
+        NeverError,
+        TimerId,
+        UseCase,
+        UseCaseContext,
+        UseCaseEvent,
+        UseCaseRuntime,
+        UseCaseState,
+    },
 };
 
 /// Configuration for [PathProbing] [UseCase].
@@ -277,7 +312,7 @@ where
                         failed_link,
                         Timestamp::now(),
                     )));
-                    log::warn!(target: "path_probing", "Invalidated contact {} because ot segment failure", contact.id())
+                    log::warn!(target: "path_probing", "Invalidated contact {} because of segment failure", contact.id())
                 }
                 None => {
                     log::warn!(target: "path_probing", "Removed timeout for non existent contact {contacts_id}")

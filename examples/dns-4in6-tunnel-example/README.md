@@ -2,19 +2,19 @@
 
 Setup with inline explanations is in [example.py](./example.py)
 
-This examples features 3 types of nodes: 
+This examples features 3 types of nodes:
 - base (image: `kira-example-base`)
 - server (image: `kira-example-client`)
     - additionally runs a REST-API with a dice-roll endpoint
 - client (image: `kira-example-server`)
     - additionally runs repeated queries to the REST-API
 
-## Building and running 
+## Building and running
 ### Dependencies
 - Ubuntu 20.04
-- Installed docker 
+- Installed docker
 - Installed [Containernet](https://containernet.github.io/#installation)
-  Additionaly one has to configure the docker daemon to enable ipv6: [like instructed here](https://docs.docker.com/config/daemon/ipv6/).
+  Additionally one has to configure the docker daemon to enable ipv6: [like instructed here](https://docs.docker.com/config/daemon/ipv6/).
 - Built base kira image: `kira` (`make build-image-supervisord` in repo root)
 
 ### Building
@@ -38,7 +38,7 @@ d4 curl -6 -v http://roll.kira.internal/ # s1.kira.internal also works
 
 This should fail as `d1` has no v4 tunnel setup:
 ```
-d4 curl -4 -v http://roll.kira.internal/ 
+d4 curl -4 -v http://roll.kira.internal/
 ```
 
 Client `c1` has though:

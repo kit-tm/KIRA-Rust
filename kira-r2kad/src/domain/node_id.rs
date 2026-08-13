@@ -1,15 +1,30 @@
-use rand::RngExt as _;
-use serde;
-use serde::de::{self, Visitor};
-use std::cmp::Ordering;
-use std::fmt;
-use std::fmt::{Debug, Formatter, LowerHex, UpperHex};
-use std::net::Ipv6Addr;
-use std::num::NonZeroU8;
-use std::ops::BitXor;
-use std::str::FromStr;
+use std::{
+    cmp::Ordering,
+    fmt,
+    fmt::{
+        Debug,
+        Formatter,
+        LowerHex,
+        UpperHex,
+    },
+    net::Ipv6Addr,
+    num::NonZeroU8,
+    ops::BitXor,
+    str::FromStr,
+};
 
-use derive_more::with_trait::{Display, Error};
+use derive_more::with_trait::{
+    Display,
+    Error,
+};
+use rand::RngExt as _;
+use serde::{
+    self,
+    de::{
+        self,
+        Visitor,
+    },
+};
 
 /// A NodeId with default SIZE of 112 Bits (14 Byte) as default value as proposed in the Internet-Draft (protocol specification).
 ///
@@ -28,42 +43,37 @@ pub struct NodeId {
 
 /// Constant initializers and functions related to them.
 impl NodeId {
-    /// The byte size of a [NodeId].
-    ///
-    /// The length of the [NodeId] is a global parameter not to be
-    /// altered among nodes unlike the bucket size (**k**).
-    pub const SIZE: usize = 14;
-    /// The size of a [NodeId] in bits.
-    pub const BITS: u8 = 112;
-    /// Length in Characters of the short output format for [NodeId]s.
-    // const SHORT_OUTPUT_LENGTH: usize = 8;
-    /// Maximum value and mask to set the highest 16 bit to 0
-    const MAX_UVAL: u128 = 0x0000ffff_ffffffff_ffffffff_ffffffff;
-    /// undefined is all zeros
-    const UNDEFINED_UVAL: u128 = 0u128;
-    const ALL_NODES_UVAL: u128 = NodeId::MAX_UVAL;
-
-    /// A [NodeId] with the numerical value of 0.
-    pub const ZERO: Self = Self { node_id: 0u128 };
-
-    /// A [NodeId] with the undefined value.
-    pub const UNDEFINED: Self = Self {
-        node_id: Self::UNDEFINED_UVAL,
-    };
-
     pub const ALL_NODES: Self = Self {
         node_id: Self::ALL_NODES_UVAL,
     };
-
-    /// [NodeId] with the numerical value of 1.
-    pub const ONE: Self = Self { node_id: 1u128 };
-
+    const ALL_NODES_UVAL: u128 = NodeId::MAX_UVAL;
+    /// The size of a [NodeId] in bits.
+    pub const BITS: u8 = 112;
     /// The maximum representable [NodeId] for the given Byte size.
     ///
     /// This is equal to all bits in a [NodeId] == 1.
     pub const MAX: Self = Self {
         node_id: Self::MAX_UVAL,
     };
+    /// Length in Characters of the short output format for [NodeId]s.
+    // const SHORT_OUTPUT_LENGTH: usize = 8;
+    /// Maximum value and mask to set the highest 16 bit to 0
+    const MAX_UVAL: u128 = 0x0000ffff_ffffffff_ffffffff_ffffffff;
+    /// [NodeId] with the numerical value of 1.
+    pub const ONE: Self = Self { node_id: 1u128 };
+    /// The byte size of a [NodeId].
+    ///
+    /// The length of the [NodeId] is a global parameter not to be
+    /// altered among nodes unlike the bucket size (**k**).
+    pub const SIZE: usize = 14;
+    /// A [NodeId] with the undefined value.
+    pub const UNDEFINED: Self = Self {
+        node_id: Self::UNDEFINED_UVAL,
+    };
+    /// undefined is all zeros
+    const UNDEFINED_UVAL: u128 = 0u128;
+    /// A [NodeId] with the numerical value of 0.
+    pub const ZERO: Self = Self { node_id: 0u128 };
 
     pub const fn from_const(inner: u128) -> Self {
         Self { node_id: inner }
@@ -550,13 +560,14 @@ impl From<&NodeId> for Ipv6Addr {
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
-    use std::num::NonZeroU8;
-    use std::str::FromStr;
-
-    use crate::domain::SharedPrefix;
+    use std::{
+        error::Error,
+        num::NonZeroU8,
+        str::FromStr,
+    };
 
     use super::NodeId;
+    use crate::domain::SharedPrefix;
 
     #[test]
     fn prefix_one() {
@@ -711,10 +722,10 @@ mod tests {
         );
 
         let first = NodeId::from(0x1234_5678_9a3f_0000_0000_0000_1101u128);
-        let secnd = NodeId::from(0x1234_5678_9a4f_0000_0000_0000_1101u128);
+        let second = NodeId::from(0x1234_5678_9a4f_0000_0000_0000_1101u128);
         assert_eq!(
             first
-                .shared_prefix_len(&secnd, NonZeroU8::new(1).unwrap())
+                .shared_prefix_len(&second, NonZeroU8::new(1).unwrap())
                 .map(SharedPrefix::into_bit_len),
             Ok(41)
         );

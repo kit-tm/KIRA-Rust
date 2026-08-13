@@ -9,10 +9,10 @@ DOCKER_CLIENT = docker.from_env(version="auto", max_pool_size=20)
 def load_replacements(idmap_file):
     with open(idmap_file, 'r') as f:
         replacements = json.load(f)
-        
+
     # Invert the dict to map node_id to node_number
     replacements = {v: k for k, v in replacements.items()}
-    
+
     # Extend the replacements dict with the IPv6 addresses
     for node_id in list(replacements.keys()):
         ip_address = node_id_to_ip(node_id)

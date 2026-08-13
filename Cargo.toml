@@ -25,6 +25,7 @@ authors = [
 
 homepage = "https://gitlab.kit.edu/kit/tm/telematics/kira/kira-rust"
 edition = "2024"
+license = "MIT"
 
 # All dependencies are well picked and although just a few have versions 1.x
 # they are considered stable enough to use in production by the Rust Community.

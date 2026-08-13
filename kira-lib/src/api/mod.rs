@@ -2,29 +2,44 @@
 
 pub(crate) mod domain;
 
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::str::FromStr;
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    str::FromStr,
+    sync::Arc,
+};
 
-use axum::body::Bytes;
-use axum::extract::{Query, State};
-use axum::routing::{get, post};
-use axum::{Json, Router};
-
-use kira_r2kad::domain::protocol_event::DebugEvent;
+use axum::{
+    Json,
+    Router,
+    body::Bytes,
+    extract::{
+        Query,
+        State,
+    },
+    routing::{
+        get,
+        post,
+    },
+};
+use domain::dht::DHTErr;
+use kira_r2kad::{
+    domain::protocol_event::DebugEvent,
+    messaging::ProtocolMessage,
+    use_cases::{
+        ApiEvent,
+        InjectionMessageData,
+        inject_messages::InjectionResult,
+    },
+};
+use tokio::{
+    sync::mpsc,
+    time::timeout,
+};
 #[cfg(feature = "swagger_doc")]
 use utoipa::OpenApi;
 #[cfg(feature = "swagger_doc")]
 use utoipa_swagger_ui::SwaggerUi;
-
-use domain::dht::DHTErr;
-use tokio::sync::mpsc;
-use tokio::time::timeout;
-
-use kira_r2kad::messaging::ProtocolMessage;
-use kira_r2kad::use_cases::inject_messages::InjectionResult;
-use kira_r2kad::use_cases::{ApiEvent, InjectionMessageData};
 
 /// Starts a REST API-server based on the provided [ApiConfig].
 ///

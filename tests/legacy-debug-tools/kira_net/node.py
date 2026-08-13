@@ -85,7 +85,7 @@ class KIRANode(object):
             self.prune()
 
         environment = []
-        # rust log from system enviroment
+        # rust log from system environment
         log_level = os.environ.get("RUST_LOG", "debug")
         environment.append(f"RUST_LOG={log_level}")
         if nid is not None:

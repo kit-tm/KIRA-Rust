@@ -4,10 +4,19 @@
 
 use std::collections::HashMap;
 
-use crate::domain::PathId;
-use crate::domain::{NodeId, NodeIdSubnet};
-use crate::tables::{
-    AsyncForwardingTables, AsyncNodeIdTable, AsyncPathIdTable, NodeIdEntry, PathIdEntry,
+use crate::{
+    domain::{
+        NodeId,
+        NodeIdSubnet,
+        PathId,
+    },
+    tables::{
+        AsyncForwardingTables,
+        AsyncNodeIdTable,
+        AsyncPathIdTable,
+        NodeIdEntry,
+        PathIdEntry,
+    },
 };
 
 /// In-Memory [AsyncForwardingTables] implementation backed by [HashMap]s.
@@ -178,14 +187,17 @@ impl Extend<PathIdEntry> for InMemoryFwdTables {
 pub mod error {
     //! Errors for [InMemoryFwdTables](super::InMemoryFwdTables).
 
-    use derive_more::derive::{Display, Error};
+    use derive_more::derive::{
+        Display,
+        Error,
+    };
 
     #[derive(Debug, Display, Error)]
     /// Error for [InMemoryFwdTables] used collectively
-    /// in the [AyncNodeIdTable] and the [AsyncPathIdTable] trait implementation.
+    /// in the [AsyncNodeIdTable] and the [AsyncPathIdTable] trait implementation.
     ///
     /// [InMemoryFwdTables]: super::InMemoryFwdTables
-    /// [AyncNodeIdTable]: super::super::AsyncNodeIdTable
+    /// [AsyncNodeIdTable]: super::super::AsyncNodeIdTable
     /// [AsyncPathIdTable]: super::super::AsyncPathIdTable
     pub enum FwdTableError {
         #[display("Entry  already exists")]

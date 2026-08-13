@@ -2,10 +2,16 @@
 
 use std::{
     io,
-    net::{Ipv6Addr, SocketAddr},
+    net::{
+        Ipv6Addr,
+        SocketAddr,
+    },
 };
 
-use derive_more::{Display, Error};
+use derive_more::{
+    Display,
+    Error,
+};
 
 pub mod receiver;
 pub mod sender;
@@ -22,7 +28,7 @@ pub enum SocketCreationErr {
     #[display("Failed to bind socket to address {_1}")]
     BindFailed(io::Error, SocketAddr),
     /// Failed to join [`ALL_KIRA_NODES`] multicast address.
-    #[display("Error joining ALL-KIRA-NODES mulicast group")]
+    #[display("Error joining ALL-KIRA-NODES multicast group")]
     MulticastJoinFailed(io::Error),
 }
 
@@ -30,17 +36,28 @@ pub enum SocketCreationErr {
 /// using async [tokio] channels.
 #[cfg(feature = "udp-tokio")]
 pub mod udp {
-    use kira_r2kad::domain::{InterfaceId, NodeId};
-    use std::collections::HashSet;
-    use std::net::SocketAddr;
-    use std::sync::Arc;
+    use std::{
+        collections::HashSet,
+        net::SocketAddr,
+        sync::Arc,
+    };
 
+    use kira_r2kad::domain::{
+        InterfaceId,
+        NodeId,
+    };
     use tokio::net::UdpSocket;
 
-    use crate::format::ProtocolMessageFormat;
-    use crate::io::{ALL_KIRA_NODES, SocketCreationErr};
-    use crate::io::{receiver::udp_tokio::UdpReceiver, sender::udp_tokio::UdpSender};
-    use crate::underlay::UnderlayObserverHandle;
+    use crate::{
+        format::ProtocolMessageFormat,
+        io::{
+            ALL_KIRA_NODES,
+            SocketCreationErr,
+            receiver::udp_tokio::UdpReceiver,
+            sender::udp_tokio::UdpSender,
+        },
+        underlay::UnderlayObserverHandle,
+    };
 
     /// Creates a asynchronous I/O Channel consisting of one [UdpSender] and
     /// one [UdpReceiver] with UDP implementations.

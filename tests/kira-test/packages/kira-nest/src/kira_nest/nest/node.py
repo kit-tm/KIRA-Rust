@@ -438,7 +438,7 @@ class KIRANode(Node):
             )
 
     def contacts(self) -> Iterator[NodeID] | None:
-        """Returns an interator over all contacts in the routing table."""
+        """Returns an iterator over all contacts in the routing table."""
         paths_rt = self.paths_routing_table()
         if paths_rt is None:
             return None

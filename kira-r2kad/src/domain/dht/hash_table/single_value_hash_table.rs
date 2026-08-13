@@ -1,12 +1,25 @@
-use std::collections::hash_map::Entry::Vacant;
-use std::collections::{HashMap, hash_map::Entry::Occupied};
-use std::iter;
-use std::sync::Arc;
-use std::time::Instant;
+use std::{
+    collections::{
+        HashMap,
+        hash_map::Entry::{
+            Occupied,
+            Vacant,
+        },
+    },
+    iter,
+    sync::Arc,
+    time::Instant,
+};
 
-use derive_more::{Display, Error};
+use derive_more::{
+    Display,
+    Error,
+};
 
-use super::{EntryMeta, LocalHashTable};
+use super::{
+    EntryMeta,
+    LocalHashTable,
+};
 use crate::domain::NodeId;
 
 /// A hash table which stores _one_ value per entry.
@@ -21,9 +34,9 @@ pub struct SingleValueHashTable {
 }
 
 impl LocalHashTable for SingleValueHashTable {
-    type StoreOk = StoreOk;
-    type StoreErr = HashTableErr;
     type FetchErr = HashTableErr;
+    type StoreErr = HashTableErr;
+    type StoreOk = StoreOk;
 
     fn store(&mut self, key: NodeId, value: Arc<[u8]>) -> Result<Self::StoreOk, Self::StoreErr> {
         let entry = self.inner.entry(key);
@@ -161,9 +174,15 @@ impl EntryMeta for Entry {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        collections::HashSet,
+        time::{
+            Duration,
+            Instant,
+        },
+    };
+
     use super::*;
-    use std::collections::HashSet;
-    use std::time::{Duration, Instant};
 
     #[test]
     fn test_store_and_fetch_new_entry() {
@@ -285,15 +304,15 @@ mod tests {
             "Entry initially shouldn't have been accessed"
         );
 
-        let inital_access_time = Instant::now();
-        let second_access_time = inital_access_time + Duration::from_secs(10);
-        let time_past = inital_access_time - Duration::from_secs(10);
+        let initial_access_time = Instant::now();
+        let second_access_time = initial_access_time + Duration::from_secs(10);
+        let time_past = initial_access_time - Duration::from_secs(10);
 
         assert!(
-            entry.access(inital_access_time),
+            entry.access(initial_access_time),
             "Failed to record initial access"
         );
-        assert_eq!(entry.last_access(), Some(inital_access_time));
+        assert_eq!(entry.last_access(), Some(initial_access_time));
 
         assert!(
             entry.access(second_access_time),
@@ -346,15 +365,15 @@ mod tests {
             "Entry initially shouldn't have been republished"
         );
 
-        let inital_republish_time = Instant::now();
-        let second_republish_time = inital_republish_time + Duration::from_secs(10);
-        let time_past = inital_republish_time - Duration::from_secs(10);
+        let initial_republish_time = Instant::now();
+        let second_republish_time = initial_republish_time + Duration::from_secs(10);
+        let time_past = initial_republish_time - Duration::from_secs(10);
 
         assert!(
-            entry.republished(inital_republish_time),
+            entry.republished(initial_republish_time),
             "Failed to record initial republish"
         );
-        assert_eq!(entry.last_republish(), Some(inital_republish_time));
+        assert_eq!(entry.last_republish(), Some(initial_republish_time));
 
         assert!(
             entry.republished(second_republish_time),

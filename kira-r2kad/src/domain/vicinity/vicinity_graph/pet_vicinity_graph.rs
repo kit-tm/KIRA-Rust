@@ -1,15 +1,33 @@
 //! A [VicinityGraph] implementation supported by [petgraph].
 
-use std::{collections::HashMap, hash::RandomState};
+use std::{
+    collections::HashMap,
+    hash::RandomState,
+};
 
-use derive_more::derive::{Display, Error};
+use derive_more::derive::{
+    Display,
+    Error,
+};
 use petgraph::{
-    algo::{all_simple_paths, astar, dijkstra},
+    algo::{
+        all_simple_paths,
+        astar,
+        dijkstra,
+    },
     prelude::UnGraphMap,
 };
 
-use super::{Entry, VicinityGraph};
-use crate::domain::{NodeId, Path, SafeStateSeqNr, VICINITY_RADIUS};
+use super::{
+    Entry,
+    VicinityGraph,
+};
+use crate::domain::{
+    NodeId,
+    Path,
+    SafeStateSeqNr,
+    VICINITY_RADIUS,
+};
 
 /// Graph which generates all [Path]s from a given root [NodeId].
 #[derive(Debug, Clone)]
@@ -213,6 +231,7 @@ impl VicinityGraph for PetVicinityGraph {
     fn vicinity_changed(&self) -> bool {
         self.graph_changed
     }
+
     /// this should be called if precomputed paths have been calculated
     fn vicinity_processed(&mut self) {
         self.graph_changed = false;
@@ -221,8 +240,10 @@ impl VicinityGraph for PetVicinityGraph {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashSet;
-    use std::time::Instant;
+    use std::{
+        collections::HashSet,
+        time::Instant,
+    };
 
     use super::*;
 
@@ -295,7 +316,7 @@ mod test {
         let updated_ssn = SafeStateSeqNr::try_from(2).unwrap();
         let now = Instant::now();
         let synched_ssn = initial_ssn;
-        let inital_entry = {
+        let initial_entry = {
             let mut initial_entry = Entry::new(initial_ssn);
             initial_entry.update_last_seen(now);
             initial_entry.update_synched_ssn(synched_ssn);
@@ -305,7 +326,7 @@ mod test {
         // prep graph with existing link to insert_node
         let mut graph = PetVicinityGraph::new(root_id);
         graph.graph.add_edge(root_id, insert_node, ());
-        graph.entries.insert(insert_node, inital_entry);
+        graph.entries.insert(insert_node, initial_entry);
 
         // same ssn should leave other data "unharmed"
         {

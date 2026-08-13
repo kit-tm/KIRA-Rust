@@ -1,6 +1,14 @@
-use std::fmt::{Debug, Display, Formatter, LowerHex, UpperHex};
-use std::net::Ipv6Addr;
-use std::str::FromStr;
+use std::{
+    fmt::{
+        Debug,
+        Display,
+        Formatter,
+        LowerHex,
+        UpperHex,
+    },
+    net::Ipv6Addr,
+    str::FromStr,
+};
 
 use digest::Digest;
 use tracing::Level;

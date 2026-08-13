@@ -1,11 +1,24 @@
-use std::fmt::Debug;
-use std::marker::PhantomData;
-use tracing::{Level, instrument};
+use std::{
+    fmt::Debug,
+    marker::PhantomData,
+};
 
-use derive_more::derive::{Display, Error};
+use derive_more::derive::{
+    Display,
+    Error,
+};
 use tokio::sync::mpsc::error::SendError;
+use tracing::{
+    Level,
+    instrument,
+};
 
-use super::{EventHandler, UseCaseContext, UseCaseEvent, UseCaseRuntime};
+use super::{
+    EventHandler,
+    UseCaseContext,
+    UseCaseEvent,
+    UseCaseRuntime,
+};
 
 #[derive(Debug)]
 pub struct HandleApi<C> {
@@ -37,9 +50,7 @@ where
     C::UnderlayNeighborTable: Debug,
 {
     type Context = C;
-
     type Error = CallbackChannelError;
-
     type Value = ();
 
     #[instrument(

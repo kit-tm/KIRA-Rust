@@ -2,17 +2,28 @@
 //!
 //! The main struct is the [UnderlayInformationBase].
 
-pub use super::connection::UnderlayObserverConnection;
-pub use super::handle::UnderlayObserverHandle;
+use std::collections::{
+    HashMap,
+    HashSet,
+    hash_map::Entry,
+};
+
+use derive_more::derive::{
+    Display,
+    Error,
+};
 use kira_forwarding::underlay::UnderlayNeighborInformation;
 
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
-
-use derive_more::derive::{Display, Error};
-
+pub use super::{
+    connection::UnderlayObserverConnection,
+    handle::UnderlayObserverHandle,
+};
 use crate::domain::underlay::{
-    ConnectionId, Interface, InterfaceId, UnderlayNeighbor, UnderlayNeighborId,
+    ConnectionId,
+    Interface,
+    InterfaceId,
+    UnderlayNeighbor,
+    UnderlayNeighborId,
 };
 
 /// Interface of [UnderlayNeighbor] identified by the [InterfaceId] is down.
@@ -216,9 +227,8 @@ mod test {
 
     use std::net::Ipv6Addr;
 
-    use crate::domain::underlay::EthAddr;
-
     use super::*;
+    use crate::domain::underlay::EthAddr;
 
     const LL_IPV6: Ipv6Addr = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
     const MAC: EthAddr = [0x00, 0x00, 0x5E, 0x00, 0x53, 0x00];
@@ -284,7 +294,7 @@ mod test {
         assert_eq!(
             ulnib.register_neighbor(UnderlayNeighbor::new(LL_IPV6, down_interface)),
             Err(UnderlayNeighborInterfaceDownError(down_interface)),
-            "shouldn't succesfully insert on interface not previously upped"
+            "shouldn't successfully insert on interface not previously upped"
         );
     }
 

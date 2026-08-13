@@ -49,7 +49,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "-l",
-        "--log-proccesing",
+        "--log-processing",
         action="store_true",
         help=(
             "Enable post processing of log files, substituting node-ids with node tids"
@@ -72,7 +72,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run_shell() -> None:
+def run_shell() -> None:  # noqa: PLR0912
     parser = build_arg_parser()
     args = parser.parse_args()
     if args.seed:
@@ -106,7 +106,7 @@ def run_shell() -> None:
 
     test = KIRATest[str](graph, kirad_binary=args.binary, perf=args.flamegraph)
     shell = DebugShell(
-        test, unshared=unshared, post_process_log_files=args.log_proccesing
+        test, unshared=unshared, post_process_log_files=args.log_processing
     )
     shell.quiet = args.quiet
 

@@ -1,25 +1,69 @@
 use core::time::Duration;
-use derive_more::Display;
-
-use std::collections::HashMap;
-use std::collections::hash_map::Entry::Occupied;
-use std::fmt::Debug;
-use std::marker::PhantomData;
-use std::num::{NonZeroU64, NonZeroUsize};
-use std::ops::Deref;
-use tracing::{Level, instrument};
-
-use crate::domain::dht::{DEFAULT_TIMEOUT, RedundancyFactor};
-use crate::domain::{Contact, NodeId, Path, RoutingTable, ULNTable, UnderlayNeighborId, dht};
-use crate::messaging::dht::{FetchReqData, LHTInput, StoreReqData};
-use crate::messaging::{
-    FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage, SourceRoute,
+use std::{
+    collections::{
+        HashMap,
+        hash_map::Entry::Occupied,
+    },
+    fmt::Debug,
+    marker::PhantomData,
+    num::{
+        NonZeroU64,
+        NonZeroUsize,
+    },
+    ops::Deref,
 };
-use crate::use_cases::inject_messages::{InjectionResult, errors::InjectMessageError};
-use crate::use_cases::{
-    BroadcastableUseCaseEvent, EventHandler, FetchInjectData, InjectionMessageData,
-    OneshotInjectMessageCallback, StoreInjectData, TimerId, UseCase, UseCaseContext, UseCaseEvent,
-    UseCaseRuntime, UseCaseState,
+
+use derive_more::Display;
+use tracing::{
+    Level,
+    instrument,
+};
+
+use crate::{
+    domain::{
+        Contact,
+        NodeId,
+        Path,
+        RoutingTable,
+        ULNTable,
+        UnderlayNeighborId,
+        dht,
+        dht::{
+            DEFAULT_TIMEOUT,
+            RedundancyFactor,
+        },
+    },
+    messaging::{
+        FindNodeReqData,
+        Nonce,
+        ProtocolMessage,
+        ProtocolMessageKind,
+        ReqRspMessage,
+        SourceRoute,
+        dht::{
+            FetchReqData,
+            LHTInput,
+            StoreReqData,
+        },
+    },
+    use_cases::{
+        BroadcastableUseCaseEvent,
+        EventHandler,
+        FetchInjectData,
+        InjectionMessageData,
+        OneshotInjectMessageCallback,
+        StoreInjectData,
+        TimerId,
+        UseCase,
+        UseCaseContext,
+        UseCaseEvent,
+        UseCaseRuntime,
+        UseCaseState,
+        inject_messages::{
+            InjectionResult,
+            errors::InjectMessageError,
+        },
+    },
 };
 
 /// Default number of seconds between two attempts to restore an existing value.
@@ -760,22 +804,46 @@ where
 mod tests {
     use tokio::sync::mpsc;
 
-    use crate::Output;
-    use crate::context::ContextConfig;
-    use crate::context::SyncContext;
-    use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::underlay::UnderlayNeighborSource;
-    use crate::domain::underlay_neighbor_table::in_memory_underlay_neighbor_table::InMemoryULNTable;
-    use crate::domain::{Contact, NodeId, Path, SafeStateSeqNr};
-    use crate::messaging::dht::{FetchRspData, LHTInput, StoreOk, StoreRspData};
-    use crate::messaging::messages::{
-        CommonHeader, ProtocolMessageKind, RTableData, ReqRspMessage, WireFormatMessage,
-    };
-    use crate::messaging::{ProtocolMessage, SourceRoute};
-    use crate::runtime::testing::TestingUseCaseRuntime;
-    use crate::use_cases::{EventHandler, UseCase, UseCaseEvent};
-
     use super::*;
+    use crate::{
+        Output,
+        context::{
+            ContextConfig,
+            SyncContext,
+        },
+        domain::{
+            Contact,
+            NodeId,
+            Path,
+            SafeStateSeqNr,
+            single_bucket::SingleBucketRT,
+            underlay::UnderlayNeighborSource,
+            underlay_neighbor_table::in_memory_underlay_neighbor_table::InMemoryULNTable,
+        },
+        messaging::{
+            ProtocolMessage,
+            SourceRoute,
+            dht::{
+                FetchRspData,
+                LHTInput,
+                StoreOk,
+                StoreRspData,
+            },
+            messages::{
+                CommonHeader,
+                ProtocolMessageKind,
+                RTableData,
+                ReqRspMessage,
+                WireFormatMessage,
+            },
+        },
+        runtime::testing::TestingUseCaseRuntime,
+        use_cases::{
+            EventHandler,
+            UseCase,
+            UseCaseEvent,
+        },
+    };
 
     #[test]
     fn test_store_injection_lifecycle() {

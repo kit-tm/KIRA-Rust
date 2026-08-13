@@ -1,28 +1,67 @@
-use std::collections::HashMap;
-use std::collections::hash_map::Entry::{Occupied, Vacant};
-use std::marker::PhantomData;
-use std::ops::Deref;
-use std::time::{Duration, Instant};
+use std::{
+    collections::{
+        HashMap,
+        hash_map::Entry::{
+            Occupied,
+            Vacant,
+        },
+    },
+    marker::PhantomData,
+    ops::Deref,
+    time::{
+        Duration,
+        Instant,
+    },
+};
 
-use derive_more::derive::{Display, Error};
-use tracing::{Level, instrument};
+use derive_more::derive::{
+    Display,
+    Error,
+};
+use tracing::{
+    Level,
+    instrument,
+};
 
-use crate::domain::protocol_event::forwarding::{
-    PathIdEntry, PathIdForwardingEntry, PathIdTableUpdate,
-};
-use crate::domain::{
-    Contact, ContactState, NodeId, Path, PathId, RoutingTable, ULNTable, UnderlayNeighborId,
-    VICINITY_RADIUS, hasher::Hasher,
-};
-use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{
-    CommonHeader, PathSetupReqData, PathTeardownReqData, ProbeReqData, ProtocolMessage,
-    ProtocolMessageKind, ReqRspMessage,
-};
-use crate::runtime::UseCaseRuntime;
-use crate::use_cases::{
-    ContactEvent, EventHandler, HandlingResult, TimerId, UseCase, UseCaseContext, UseCaseEvent,
-    UseCaseState,
+use crate::{
+    domain::{
+        Contact,
+        ContactState,
+        NodeId,
+        Path,
+        PathId,
+        RoutingTable,
+        ULNTable,
+        UnderlayNeighborId,
+        VICINITY_RADIUS,
+        hasher::Hasher,
+        protocol_event::forwarding::{
+            PathIdEntry,
+            PathIdForwardingEntry,
+            PathIdTableUpdate,
+        },
+    },
+    messaging::{
+        CommonHeader,
+        PathSetupReqData,
+        PathTeardownReqData,
+        ProbeReqData,
+        ProtocolMessage,
+        ProtocolMessageKind,
+        ReqRspMessage,
+        source_route::SourceRoute,
+    },
+    runtime::UseCaseRuntime,
+    use_cases::{
+        ContactEvent,
+        EventHandler,
+        HandlingResult,
+        TimerId,
+        UseCase,
+        UseCaseContext,
+        UseCaseEvent,
+        UseCaseState,
+    },
 };
 
 /// Configuration for [ExplicitPathManagement] use case.

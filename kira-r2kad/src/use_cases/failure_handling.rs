@@ -1,29 +1,74 @@
-use std::collections::{HashMap, HashSet};
-use std::marker::PhantomData;
-use std::num::{NonZeroU8, NonZeroU32, NonZeroU64, NonZeroUsize};
-use std::ops::Deref;
-use std::time::Duration;
-use tracing::{Level, instrument};
-
-use derive_more::derive::{Display, Error};
-
-use crate::domain::{
-    Contact, ContactState, Link, NodeId, NotVia, NotViaState, NotViaStateList, RoutingTable,
-    Timestamp, ULNTable, UnderlayNeighborId, UnderlayNeighborUpdate, VicinityGraph,
+use std::{
+    collections::{
+        HashMap,
+        HashSet,
+    },
+    marker::PhantomData,
+    num::{
+        NonZeroU8,
+        NonZeroU32,
+        NonZeroU64,
+        NonZeroUsize,
+    },
+    ops::Deref,
+    time::Duration,
 };
-use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{
-    CommonHeader, ErrorData, FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageKind,
-    ReqRspMessage, RouteUpdateActionType, UpdateRouteReq, WireFormatMessage,
-};
-use crate::use_cases::{
-    ContactEvent, EventHandler, ReactiveUseCaseState, TimerId, UseCase, UseCaseContext,
-    UseCaseEvent, UseCaseRuntime,
-};
-use crate::utils::{ExponentialBackoff, InflightReqMap};
 
-use crate::utils::errors::InsertionError;
-use crate::utils::rediscovery_timeout_interval::RediscoveryTimeoutInterval;
+use derive_more::derive::{
+    Display,
+    Error,
+};
+use tracing::{
+    Level,
+    instrument,
+};
+
+use crate::{
+    domain::{
+        Contact,
+        ContactState,
+        Link,
+        NodeId,
+        NotVia,
+        NotViaState,
+        NotViaStateList,
+        RoutingTable,
+        Timestamp,
+        ULNTable,
+        UnderlayNeighborId,
+        UnderlayNeighborUpdate,
+        VicinityGraph,
+    },
+    messaging::{
+        CommonHeader,
+        ErrorData,
+        FindNodeReqData,
+        Nonce,
+        ProtocolMessage,
+        ProtocolMessageKind,
+        ReqRspMessage,
+        RouteUpdateActionType,
+        UpdateRouteReq,
+        WireFormatMessage,
+        source_route::SourceRoute,
+    },
+    use_cases::{
+        ContactEvent,
+        EventHandler,
+        ReactiveUseCaseState,
+        TimerId,
+        UseCase,
+        UseCaseContext,
+        UseCaseEvent,
+        UseCaseRuntime,
+    },
+    utils::{
+        ExponentialBackoff,
+        InflightReqMap,
+        errors::InsertionError,
+        rediscovery_timeout_interval::RediscoveryTimeoutInterval,
+    },
+};
 
 const REDISCOVERY_WAITTIME_RATELIMIT: Duration = Duration::from_millis(100);
 const REDISCOVERY_WAITTIME_ULN: Duration = Duration::from_millis(100);
@@ -44,7 +89,7 @@ const REDISCOVERY_TIMEOUT_MAX: Duration = Duration::from_millis(250);
 ///
 /// - Overlay neighbors to notify via `UpdateRouteReq`: 3.
 /// - Number of Bits grouped for calculation of closeness for overlay neighbors: 1 Bit.
-/// - Intervall used for calculation of random timeout: `[0.5 t, 1.5 t]`,
+/// - Interval used for calculation of random timeout: `[0.5 t, 1.5 t]`,
 ///   t = 100ms (direct underlay neighbor)
 ///   t = 500ms (closest id-wise overlay neighbors),
 ///   t = 1s (contact affected by ULN failure),
@@ -58,7 +103,7 @@ pub struct FailureHandlingConfig {
     pub grouping_bits: NonZeroU8,
     /// Number of contacts to try for rediscovery (normally same as bucket size)
     pub number_via_contacts: NonZeroUsize,
-    /// Intervall used to generate random timeout durations based on distance to failing contact
+    /// Interval used to generate random timeout durations based on distance to failing contact
     /// for exponential backoff.
     pub backoff_timeout_interval: RediscoveryTimeoutInterval,
     /// Number of times the rediscovery sends `FindNodeReq`s for a single failed contact.
@@ -255,7 +300,7 @@ where
     }
 
     fn send_rediscovery_for_contact(&mut self, context: &C, contact_id: &NodeId) {
-        // extracts up to (usuallly) two via contacts from the Rediscovery State
+        // extracts up to (usually) two via contacts from the Rediscovery State
         let Some(closest_via_contacts) = self.extract_eligible_via_contacts(
             context,
             contact_id,
@@ -480,7 +525,7 @@ where
         let next_via_contact_id: Option<NodeId>;
         // find next useful via contact from the list
         // we only need to send one more out since this is the reaction to a previous rediscovery
-        // extracts up to (usuallly) two via contacts from the Rediscovery State
+        // extracts up to (usually) two via contacts from the Rediscovery State
         match self.extract_eligible_via_contacts(context, &node_id, 1) {
             Some(mut closest_via_contacts) => {
                 next_via_contact_id = closest_via_contacts.pop();

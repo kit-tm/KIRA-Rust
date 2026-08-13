@@ -12,7 +12,7 @@ BASE_KIRA_IMAGE = "kira-example-base:latest"
 CLIENT_KIRA_IMAGE = "kira-example-client:latest"
 SERVER_KIRA_IMAGE = "kira-example-server:latest"
 
-DCMD = "/usr/bin/supervisord -c /etc/supervisord.conf"
+DCMD = "/usr/bin/supervisord -c /etc/supervisor/supervisord.conf"
 SYSCTLS = {
     'net.ipv6.conf.default.disable_ipv6': 0,
     'net.ipv6.conf.all.forwarding': 1,
@@ -44,8 +44,8 @@ def setup(net):
 
     info('*** Adding docker containers\n')
 
-    # nodes configured with 4in6 tunnels:           tunnelipv4                       hostnames of remote endpoints         register as roll.kira.internal  
-    #                                                vvvvvvv                         vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv    vvvvvvvvvvvvvvvvvvv 
+    # nodes configured with 4in6 tunnels:           tunnelipv4                       hostnames of remote endpoints         register as roll.kira.internal
+    #                                                vvvvvvv                         vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv    vvvvvvvvvvvvvvvvvvv
     server = addDocker(net, 's1', SERVER_KIRA_IMAGE, "10.0.0.1", {"V4_TUNNEL_HOSTS": "c1.kira.internal:c2.kira.internal", "DNS_NAMES": "roll"})
     client1 = addDocker(net, 'c1', CLIENT_KIRA_IMAGE, "10.0.0.2", {"V4_TUNNEL_HOSTS": "s1.kira.internal"})
     client2 = addDocker(net, 'c2', CLIENT_KIRA_IMAGE, "10.0.0.3", {"V4_TUNNEL_HOSTS": "s1.kira.internal"})

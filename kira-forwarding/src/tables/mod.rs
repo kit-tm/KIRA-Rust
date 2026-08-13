@@ -4,12 +4,19 @@ pub mod in_memory_tables;
 #[cfg(feature = "nft")]
 pub mod native_tables;
 
-use crate::domain::r2kad::{
-    self,
-    ForwardingTablesUpdate::{NodeIdTableUpdate, PathIdTableUpdate},
-    NodeIdEntry, PathIdEntry,
+use crate::domain::{
+    NodeIdSubnet,
+    PathId,
+    r2kad::{
+        self,
+        ForwardingTablesUpdate::{
+            NodeIdTableUpdate,
+            PathIdTableUpdate,
+        },
+        NodeIdEntry,
+        PathIdEntry,
+    },
 };
-use crate::domain::{NodeIdSubnet, PathId};
 
 /// CRUD access interface to the forwarding table based on [NodeIds](crate::domain::NodeId).
 #[trait_variant::make(AsyncNodeIdTable: Send)]

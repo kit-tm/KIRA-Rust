@@ -1,17 +1,30 @@
 //! Interface definition and implementation for use case interaction with a runtime.
 
-use std::collections::HashMap;
-use std::ops::Deref;
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    ops::Deref,
+    time::{
+        Duration,
+        Instant,
+    },
+};
 
 use rand::RngExt as _;
 
-use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
-use crate::domain::{NodeId, UnderlayNeighborDestination, UnderlayNeighborId};
-use crate::messaging::ProtocolMessage;
-use crate::use_cases::{BroadcastableUseCaseEvent, TimerId};
-
 pub use crate::r2kad::runtime::R2KadRuntime;
+use crate::{
+    domain::{
+        NodeId,
+        UnderlayNeighborDestination,
+        UnderlayNeighborId,
+        protocol_event::forwarding::ForwardingTablesUpdate,
+    },
+    messaging::ProtocolMessage,
+    use_cases::{
+        BroadcastableUseCaseEvent,
+        TimerId,
+    },
+};
 
 #[cfg(test)]
 pub mod testing;
@@ -64,7 +77,7 @@ pub trait UseCaseRuntime {
     ///    is the `root_id`.
     /// 3. The message is _dropped_ and a warning is logged
     ///    if the [`current_hop`] is not in the `uln_table` (underlay neighbor table)
-    ///    
+    ///
     /// [ULNHello]: crate::messaging::ProtocolMessage::ULNHello
     /// [`current_hop`]: crate::messaging::ProtocolMessage::current_hop
     /// [by broadcast]: UnderlayNeighborDestination::Broadcast
@@ -126,6 +139,7 @@ impl<UR: UseCaseRuntime, D: Deref<Target = UR>> UseCaseRuntime for D {
     fn remove_timer(&self, timer_id: TimerId) {
         self.deref().remove_timer(timer_id)
     }
+
     fn send_message_via<P: Into<ProtocolMessage>>(
         &self,
         protocol_message: P,

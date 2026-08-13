@@ -1,22 +1,37 @@
 //! Domain Layer of the KIRA software design.
 
-use std::collections::HashSet;
-use std::hash::{Hash, Hasher};
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashSet,
+    hash::{
+        Hash,
+        Hasher,
+    },
+    time::{
+        Duration,
+        Instant,
+    },
+};
 
 pub use bucket::*;
 pub use contact::*;
-use derive_more::{Display, From};
+use derive_more::{
+    Display,
+    From,
+};
 pub use insertion_strategy::*;
 pub use node_id::*;
-pub use path::cycle_remover::*;
-pub use path::in_order_cycle_remover::*;
-pub use path::shortest_first_path_simplifier::*;
-pub use path::simplifier::*;
-pub use path::*;
+pub use path::{
+    cycle_remover::*,
+    in_order_cycle_remover::*,
+    shortest_first_path_simplifier::*,
+    simplifier::*,
+    *,
+};
 pub use path_id::*;
-pub use routing_table::flat_routing_table::*;
-pub use routing_table::*;
+pub use routing_table::{
+    flat_routing_table::*,
+    *,
+};
 pub use state_seq_nr::*;
 pub use underlay::*;
 pub use underlay_neighbor_table::*;

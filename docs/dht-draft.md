@@ -1,6 +1,6 @@
 # Entwurf DHT #
 
-## Grundsätzliches zum Entwurf ## 
+## Grundsätzliches zum Entwurf ##
 
 - kein Anspruch reines UML zu sein (u.a. Template Typen, Enums anders)
 - als Workaround für einen [Mermaid Bug](https://github.com/mermaid-js/mermaid/issues/4578)
@@ -54,7 +54,7 @@ classDiagram
             NotFoundErr
             TimeOut
         }
-        
+
         class DHTData
         class Single
         class Slice
@@ -70,7 +70,7 @@ classDiagram
     DHTData <|-- Single
     DHTData <|-- Slice
     DHTData <|-- List
-    
+
     namespace messaging {
         class ProtocolMessage { <<enumeration>> }
         class ReqRspMessage {
@@ -83,8 +83,8 @@ classDiagram
     namespace domain {
         class NodeId {
             + bytes
-        } 
-    } 
+        }
+    }
 ```
 #### Anmerkungen: ####
 
@@ -121,20 +121,20 @@ classDiagram
         class DistributedHashTableConfig {
             + collect_interval: Duration
         }
-        
+
         class HashTable["HashTable≤H,D≥"] {
             <<interface>>
             store(handle: H, data: D)
             fetch(handle: H) Some~D~
             delete(handle: H)
         }
-        
+
         class Expiring["Expiring≤C≥"]{
             <<interface>>
             expire()
             expire_with_strategy(strategy: TimeoutStrategy~C~)
         }
-        
+
         class TimeoutStrategy["TimeoutStrategy≤C≥"] {
             <<interface>>
             is_timed_out(context: C, time: Instant) bool
@@ -144,7 +144,7 @@ classDiagram
             + is_timed_Out(context: (), time: Instant) bool
             ConstTimeoutStrategy(expireAfter: Duration) bool
         }
-        
+
         class ExpiringHashTable["ExpiringHashTable≤H,D≥"] {
             <<interface>>
         }
@@ -152,9 +152,9 @@ classDiagram
     ExpiringHashTable --|> HashTable: «bind» H, D
     ExpiringHashTable --|> Expiring: «bind» H
     TimeoutStrategy <|.. ConstTimeoutStrategy: «bind» ()
-    
+
     DHTReqRspMessage <.. DistributedHashTable
-    
+
     DistributedHashTable --> "1 config" DistributedHashTableConfig
     note for DistributedHashTable "verarbeitet eingehende DHT Anfragen"
     UseCaseState <|.. DHTState
@@ -210,7 +210,7 @@ classDiagram
             + periodicRestore: Duration
             + send_timeout: Duration
         }
-        
+
         class HashMap["HashMap≤NodeId,D≥"]
     }
     DistributedHashTableInjector --> "1 config" DistributedHashTableInjectorConfig

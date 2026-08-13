@@ -1,8 +1,8 @@
 [package]
 name = "kirad"
 version = "0.1.0"
-description = "A kira routing daemon"
-license = ""
+description = "A KIRA routing daemon"
+license.workspace = true
 authors.workspace = true
 homepage.workspace = true
 edition.workspace = true
@@ -79,20 +79,23 @@ opentelemetry-semantic-conventions = { version = "0.32.1", optional = true }
 
 [package.metadata.deb]
 name = "kirad"
+maintainer = "Roland Bless <roland.bless@kit.edu>"
+copyright = "Karlsruhe Institute of Technology (c) 2026. All rights reserved."
+license-file = ["../LICENSE", "4"]
+depends = "$auto, nftables"
+extended-description = ""
 section = "net"
-depends = "$auto, iproute2, nftables"
-copyright = "Karlsruhe Institute of Technology (c) 2024. All rights reserved."
-maintainer-scripts = "../pkg/"
 assets = [
   [
     "target/release/kirad",
-    "/usr/local/bin/kirad",
+    "/usr/bin/kirad",
     "755",
   ],
   [
     "conf/nftables.conf",
-    "/usr/local/share/kira/nftables.conf",
+    "/usr/share/kira/nftables.conf",
     "644",
   ],
 ]
+maintainer-scripts = "../pkg/"
 systemd-units = { enable = false } #, enable = false, start = false }

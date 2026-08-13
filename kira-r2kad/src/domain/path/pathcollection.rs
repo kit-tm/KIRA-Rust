@@ -1,7 +1,14 @@
-use crate::domain::{Path, PathState};
+use std::hash::{
+    Hash,
+    Hasher,
+};
 
 use derive_more::derive::Display;
-use std::hash::{Hash, Hasher};
+
+use crate::domain::{
+    Path,
+    PathState,
+};
 
 const MAX_ALTERNATIVE_PATHS: usize = 3;
 

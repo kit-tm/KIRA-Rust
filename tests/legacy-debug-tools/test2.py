@@ -14,7 +14,7 @@ setLogLevel("info")
 
 from common import NodeConfig
 
-DCMD = "/usr/bin/supervisord -c /etc/supervisord.conf"
+DCMD = "/usr/bin/supervisord -c /etc/supervisor/supervisord.conf"
 SYSCTLS = {
     'net.ipv6.conf.default.disable_ipv6': 0,
     'net.ipv6.conf.all.forwarding': 1,
@@ -24,7 +24,7 @@ class TestBase:
     pass
 
 class ConnectivityTest(TestBase):
-    def run(config, net): 
+    def run(config, net):
         passed = True
         for n1 in config.nodes:
             n1 = config.nodes[n1]
@@ -43,7 +43,7 @@ class ConnectivityTest(TestBase):
         p = n1["container"].popen(f"ping -c 1 -W 1 {n2['config'].ipv6}".split())
         p.wait()
         return p.returncode == 0
-        
+
 
 class TestRunner:
     def __init__(self, config):
@@ -52,26 +52,26 @@ class TestRunner:
     def run(self):
         net = Containernet()
         try:
-            self.create(net) 
+            self.create(net)
             net.start()
-         
+
             input("Press Enter to start the connectivity test")
-            
+
             if ConnectivityTest.run(self.topology, net):
                 info("ConnectivityTest passed!")
                 CLI(net)
             else:
                 warn("ConnectivityTest failed!")
                 CLI(net)
-            
+
             failing_links = list((x,y) for x, y, data in self.topology.edges.data() if "fail" in data)
             if len(failing_links) != 0:
                 for x, y in failing_links:
                    info(f"Setting link {x}<->{y} down!")
                    net.configLinkStatus(f"k{x}",f"k{y}", "down")
- 
+
                 time.sleep(10)
- 
+
                 if ConnectivityTest.run(self.topology, net):
                     info("ConnectivityTest passed!")
                     CLI(net)
@@ -81,9 +81,9 @@ class TestRunner:
                 for x, y in failing_links:
                    info(f"Setting link {x}<->{y} up!")
                    net.configLinkStatus(f"k{x}",f"k{y}", "up")
- 
+
                 time.sleep(10)
- 
+
                 if ConnectivityTest.run(self.topology, net):
                     info("ConnectivityTest passed!")
                     CLI(net)
@@ -132,7 +132,7 @@ class TestRunner:
 
 def main(args):
     G = nx.readwrite.read_gml(args.test_gml)
-    
+
     for node in G.nodes:
         G.nodes[node]["config"] = NodeConfig(**G.nodes[node]["config"])
 

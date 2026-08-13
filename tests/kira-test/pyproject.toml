@@ -11,7 +11,7 @@ requires-python = ">=3.12"
 dependencies = ["kira-nest", "kira-gml"]
 
 [dependency-groups]
-dev = ["pytest>=9.0.1", "pytest-randomly>=4.1.0", "ruff>=0.14.5"]
+dev = ["pytest>=9.1.0", "pytest-randomly>=4.1.0", "ruff>=0.16.2"]
 
 [tool.uv.workspace]
 members = ["packages/*"]

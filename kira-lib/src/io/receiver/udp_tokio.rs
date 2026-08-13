@@ -2,21 +2,29 @@
 //!
 //! The main struct for receiving [ProtocolMessages](ProtocolMessage) is the [UdpReceiver].
 
-use std::collections::HashSet;
-use std::net::SocketAddr;
-use std::num::NonZeroU32;
-use std::sync::Arc;
+use std::{
+    collections::HashSet,
+    net::SocketAddr,
+    num::NonZeroU32,
+    sync::Arc,
+};
 
-use kira_r2kad::domain::NodeId;
-use kira_r2kad::messaging::ProtocolMessageKind;
+use kira_r2kad::{
+    domain::NodeId,
+    messaging::ProtocolMessageKind,
+};
 use tokio::net::UdpSocket;
 
 use super::*;
-use crate::domain::underlay::UnderlayNeighbor;
-use crate::format::ProtocolMessageFormat;
-use crate::underlay::UnderlayObserverHandle;
-use crate::underlay::handle::UnderlayObserverHandleError;
-use crate::underlay::information_base::UnderlayNeighborInterfaceDownError;
+use crate::{
+    domain::underlay::UnderlayNeighbor,
+    format::ProtocolMessageFormat,
+    underlay::{
+        UnderlayObserverHandle,
+        handle::UnderlayObserverHandleError,
+        information_base::UnderlayNeighborInterfaceDownError,
+    },
+};
 
 /// Maximum Transmission Unit (MTU). In general the MTU is actually smaller due to
 /// network restrictions. But to be safe we use this.
