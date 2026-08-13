@@ -1,6 +1,9 @@
 //! [UseCaseContext] related structures and traits.
 
-use std::cell::{Ref, RefMut};
+use std::cell::{
+    Ref,
+    RefMut,
+};
 
 pub use sync_context::SyncContext;
 

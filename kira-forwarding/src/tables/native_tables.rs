@@ -2,30 +2,54 @@
 //!
 //! The main struct of this module is [NativeFwdTables].
 
-use std::collections::HashMap;
-use std::ffi::OsStr;
-use std::fmt::Debug;
-use std::future::Future;
-use std::net::Ipv6Addr;
+use std::{
+    collections::HashMap,
+    ffi::OsStr,
+    fmt::Debug,
+    future::Future,
+    net::Ipv6Addr,
+};
 
-use futures::channel::mpsc::UnboundedReceiver;
-use futures::StreamExt;
+use futures::{
+    StreamExt,
+    channel::mpsc::UnboundedReceiver,
+};
+use kira_r2kad::domain::UnderlayNeighborUpdate;
 use netlink_packet_route::RouteNetlinkMessage;
 use netlink_proto::ConnectionHandle;
-use tracing::{field, Level, Span};
+use tracing::{
+    Level,
+    Span,
+    field,
+};
 
-use crate::domain::{
-    DecapsulationDestination, NodeIdEncapsulationEntry, NodeIdForwardingEntry,
-    PathIdDecapsulationEntry, PathIdForwardingEntry,
+use crate::{
+    domain::{
+        DecapsulationDestination,
+        InterfaceId,
+        NodeId,
+        NodeIdEncapsulationEntry,
+        NodeIdForwardingEntry,
+        NodeIdSubnet,
+        PathId,
+        PathIdDecapsulationEntry,
+        PathIdForwardingEntry,
+        UnderlayNeighborId,
+    },
+    netlink::ForwardingRtNetlink,
+    platform,
+    tables::{
+        AsyncForwardingTables,
+        AsyncNodeIdTable,
+        AsyncPathIdTable,
+        NodeIdEntry,
+        PathIdEntry,
+    },
+    underlay::{
+        UnderlayInformationProvider,
+        UnderlayNeighborInformation,
+    },
 };
-use crate::domain::{InterfaceId, NodeId, NodeIdSubnet, PathId, UnderlayNeighborId};
-use crate::netlink::ForwardingRtNetlink;
-use crate::platform;
-use crate::tables::{
-    AsyncForwardingTables, AsyncNodeIdTable, AsyncPathIdTable, NodeIdEntry, PathIdEntry,
-};
-use crate::underlay::{UnderlayInformationProvider, UnderlayNeighborInformation};
-use kira_r2kad::domain::UnderlayNeighborUpdate;
 
 /// Native linux [AsyncForwardingTables] implementation backed by nftables and linux routing tables.
 ///
@@ -63,10 +87,10 @@ impl<I> NativeFwdTables<I> {
             let mut netlink = netlink.clone();
             async move {
                 while let Some(update) = underlay_updates.next().await {
-                    if let UnderlayNeighborUpdate::InterfaceUp(id) = update {
-                        if let Err(e) = netlink.attach_node_id_ip(&root_id, id).await {
-                            log::error!(target: "native_fwd_table", "Attaching to interface {id:?} faile: {e}");
-                        }
+                    if let UnderlayNeighborUpdate::InterfaceUp(id) = update
+                        && let Err(e) = netlink.attach_node_id_ip(&root_id, id).await
+                    {
+                        log::error!(target: "native_fwd_table", "Attaching to interface {id:?} failed: {e}");
                     }
                 }
             }
@@ -369,8 +393,9 @@ where
 
 #[allow(missing_docs)]
 pub mod error {
-    use derive_more::derive::Display;
     use std::error::Error;
+
+    use derive_more::derive::Display;
 
     #[derive(Debug, Display)]
     pub enum FwdTableError {

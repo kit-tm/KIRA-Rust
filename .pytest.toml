@@ -1,0 +1,3 @@
+[pytest]
+# Workaround for [NeST#285](https://gitlab.com/nitk-nest/nest/-/work_items/285)
+addopts = ["-p", "no:unraisableexception"]

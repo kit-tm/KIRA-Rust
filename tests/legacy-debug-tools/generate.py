@@ -7,7 +7,7 @@ from dataclasses import asdict
 from common import NodeConfig
 
 class TestConfigGenerator:
-    def __init__(self, n=10, m=20, image: str = "kira", seed: int = 0):
+    def __init__(self, n=10, m=20, image: str = "kirad", seed: int = 0):
         self.seed = seed
         self._rng = random.Random(seed)
         self.image = image
@@ -57,13 +57,13 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Test Scenario Generation Script')
     parser.add_argument('name', type=str, help="The name of the test")
-    parser.add_argument('--img', dest="image", type=str, default="kira", help="Docker image used by the node containers")
+    parser.add_argument('--img', dest="image", type=str, default="kirad", help="Docker image used by the node containers")
     parser.add_argument('--out-dir', dest="out_dir", type=str, default="./", help="Where to output the gml file")
     parser.add_argument('-n', type=int, default=10, help="number of nodes")
     parser.add_argument('-m', type=int, default=20, help="number of edges")
     parser.add_argument('--seed', type=int, default=0, help="seed for the rng")
     parser.add_argument('--failure', action='store_true', help="whether to add a failure event")
     args = parser.parse_args()
-    
+
 
     main(args)

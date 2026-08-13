@@ -1,9 +1,20 @@
-use std::{fmt::Formatter, iter::FusedIterator, num::NonZeroU8};
+use std::{
+    fmt::Formatter,
+    iter::FusedIterator,
+    num::NonZeroU8,
+};
 
-use derive_more::Error;
-use derive_more::with_trait::Display;
+use derive_more::{
+    Error,
+    with_trait::Display,
+};
 
-use crate::domain::{Contact, ContactState, NodeId, SharedPrefix};
+use crate::domain::{
+    Contact,
+    ContactState,
+    NodeId,
+    SharedPrefix,
+};
 
 /// The default size for all buckets in the routing table.
 ///
@@ -239,8 +250,8 @@ impl<const SIZE: usize> Display for Bucket<SIZE> {
 }
 
 impl<'a, const SIZE: usize> IntoIterator for &'a mut Bucket<SIZE> {
-    type Item = &'a mut Contact;
     type IntoIter = IntoIter<&'a mut Contact>;
+    type Item = &'a mut Contact;
 
     fn into_iter(self) -> Self::IntoIter {
         IntoIter(self.contacts.iter_mut().flatten().rev().collect())
@@ -248,8 +259,8 @@ impl<'a, const SIZE: usize> IntoIterator for &'a mut Bucket<SIZE> {
 }
 
 impl<'a, const SIZE: usize> IntoIterator for &'a Bucket<SIZE> {
-    type Item = &'a Contact;
     type IntoIter = IntoIter<&'a Contact>;
+    type Item = &'a Contact;
 
     fn into_iter(self) -> Self::IntoIter {
         IntoIter(self.contacts.iter().flatten().rev().collect())
@@ -257,8 +268,8 @@ impl<'a, const SIZE: usize> IntoIterator for &'a Bucket<SIZE> {
 }
 
 impl<const SIZE: usize> IntoIterator for Bucket<SIZE> {
-    type Item = Contact;
     type IntoIter = IntoIter<Contact>;
+    type Item = Contact;
 
     fn into_iter(self) -> Self::IntoIter {
         let mut inner = Vec::from_iter(self.contacts.into_iter().flatten());
@@ -284,7 +295,14 @@ impl<I> FusedIterator for IntoIter<I> {}
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::{Bucket, Contact, NodeId, Path, ReplacementError, SafeStateSeqNr};
+    use crate::domain::{
+        Bucket,
+        Contact,
+        NodeId,
+        Path,
+        ReplacementError,
+        SafeStateSeqNr,
+    };
 
     #[test]
     fn insert_test() {

@@ -1,11 +1,20 @@
 //! Data types for messages used to interact with the distributed hash table.
 
-use crate::domain::Age;
-use crate::domain::NodeId;
-use crate::messaging::ProtocolMessage;
-use crate::messaging::ReqRspMessage;
-use std::fmt::Debug;
-use std::sync::Arc;
+use std::{
+    fmt::Debug,
+    sync::Arc,
+};
+
+use crate::{
+    domain::{
+        Age,
+        NodeId,
+    },
+    messaging::{
+        ProtocolMessage,
+        ReqRspMessage,
+    },
+};
 
 pub type LHTInput = Arc<[u8]>;
 pub type LHTOutput = Vec<Arc<[u8]>>;

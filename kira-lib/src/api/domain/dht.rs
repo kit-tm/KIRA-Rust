@@ -1,21 +1,58 @@
-use crate::api::domain::NodeId;
-use axum::http;
-use axum::response::{IntoResponse, Response};
-use base64::Engine;
-use base64::prelude::BASE64_STANDARD;
+use std::{
+    collections::{
+        BTreeMap,
+        HashMap,
+    },
+    fmt::{
+        Display,
+        Formatter,
+    },
+    time::Duration,
+};
+
+use axum::{
+    http,
+    response::{
+        IntoResponse,
+        Response,
+    },
+};
+use base64::{
+    Engine,
+    prelude::BASE64_STANDARD,
+};
 #[cfg(feature = "swagger_doc")]
 use itertools::Itertools;
-use kira_r2kad::messaging::dht::{FetchErr, LHTInput, LHTOutput, StoreErr};
-use kira_r2kad::use_cases::{FetchInjectData, StoreInjectData};
+use kira_r2kad::{
+    messaging::dht::{
+        FetchErr,
+        LHTInput,
+        LHTOutput,
+        StoreErr,
+    },
+    use_cases::{
+        FetchInjectData,
+        StoreInjectData,
+    },
+};
 use serde::Serialize;
-use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap};
-use std::fmt::{Display, Formatter};
-use std::time::Duration;
+use sha2::{
+    Digest,
+    Sha256,
+};
 #[cfg(feature = "swagger_doc")]
-use utoipa::openapi::{RefOr, ResponseBuilder, ResponsesBuilder};
+use utoipa::openapi::{
+    RefOr,
+    ResponseBuilder,
+    ResponsesBuilder,
+};
 #[cfg(feature = "swagger_doc")]
-use utoipa::{ToResponse, ToSchema};
+use utoipa::{
+    ToResponse,
+    ToSchema,
+};
+
+use crate::api::domain::NodeId;
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -168,6 +205,7 @@ impl From<LHTOutput> for FetchRsp {
 pub struct LocalHashTable(pub HashMap<String, Vec<String>>);
 
 #[derive(Serialize, Debug, Clone)]
+#[cfg_attr(feature = "swagger_doc", derive(ToSchema))]
 pub enum DHTErr {
     FormatError(ApiFormatErr),
     SendError,
@@ -181,6 +219,7 @@ pub enum DHTErr {
 }
 
 #[derive(Serialize, Debug, Clone)]
+#[cfg_attr(feature = "swagger_doc", derive(ToSchema))]
 pub enum ApiFormatErr {
     HexFormatError,
     BoolFormatError,
@@ -195,8 +234,8 @@ impl Display for DHTErr {
             Self::SendError => write!(f, "Error sending request."),
             Self::Isolated => write!(f, "Node is isolated."),
             Self::ReceiveError => write!(f, "Receive Error."),
-            Self::Timeout => write!(f, "Timout of request."),
-            Self::RPCTimeout => write!(f, "Timout of request (RPC)."),
+            Self::Timeout => write!(f, "Timeout of request."),
+            Self::RPCTimeout => write!(f, "Timeout of request (RPC)."),
             Self::MessageReceiveMismatch => {
                 write!(f, "Response message received isn't expected type.")
             }

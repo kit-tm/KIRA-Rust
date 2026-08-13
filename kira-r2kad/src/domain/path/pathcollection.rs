@@ -1,7 +1,14 @@
-use crate::domain::{Path, PathState};
+use std::hash::{
+    Hash,
+    Hasher,
+};
 
 use derive_more::derive::Display;
-use std::hash::{Hash, Hasher};
+
+use crate::domain::{
+    Path,
+    PathState,
+};
 
 const MAX_ALTERNATIVE_PATHS: usize = 3;
 
@@ -55,11 +62,30 @@ impl PathCollection {
         self.proposed_path.as_ref()
     }
 
+    pub fn proposed_path_mut(&mut self) -> Option<&mut Path> {
+        self.proposed_path.as_mut()
+    }
+
+    pub fn clear_proposed_path(&mut self) {
+        self.proposed_path = None;
+    }
+
     // this should only be called after path validation of the proposed path
     pub fn set_proposed_to_active(&mut self) {
         if let Some(active_path) = self.active_path()
             && active_path.is_valid()
         {
+            // in case proposed and active are identical, just update last seen
+            // of active path and delete proposed path
+            if active_path.is_same_path_as(
+                self.proposed_path.as_ref().expect(
+                    "set_proposed_to_active() should only be called if proposed path is set",
+                ),
+            ) {
+                self.active_path.as_mut().unwrap().update_last_validated();
+                self.proposed_path = None;
+                return;
+            }
             self.move_active_to_alternative();
         }
         self.proposed_path

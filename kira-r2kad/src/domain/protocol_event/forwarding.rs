@@ -1,19 +1,26 @@
 //! Events for interaction with the fast forwarding functionality of KIRA.
 
-use derive_more::derive::{Display, From};
+use derive_more::derive::{
+    Display,
+    From,
+};
 
-use crate::domain::{NodeIdSubnet, PathId, UnderlayNeighborId};
+use crate::domain::{
+    NodeIdSubnet,
+    PathId,
+    UnderlayNeighborId,
+};
 
 /// An update request to the fast forwarding functionality.
 #[derive(Debug, Clone, Display, From)]
 pub enum ForwardingTablesUpdate {
     /// Update request to the NodeIdForwardingTable.
     ///
-    /// The NodeIdForwardingTable consists out of [NodeIdEntrys](NodeIdEntry).
+    /// The NodeIdForwardingTable consists out of [NodeIdEntries](NodeIdEntry).
     NodeIdTableUpdate(NodeIdTableUpdate),
     /// Update request to the [PathId]-forwarding-table.
     ///
-    /// The PathIdForwardingTable consists out of [PathIdEntrys](PathIdEntry).
+    /// The PathIdForwardingTable consists out of [PathIdEntries](PathIdEntry).
     PathIdTableUpdate(PathIdTableUpdate),
 }
 

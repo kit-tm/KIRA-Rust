@@ -1,9 +1,10 @@
 //! Traits and implementations for sending [ProtocolMessages](kira_r2kad::messaging::ProtocolMessage).
 
 use error::*;
-
-pub use kira_r2kad::domain::UnderlayNeighborDestination;
-pub use kira_r2kad::messaging::messages::ProtocolMessage;
+pub use kira_r2kad::{
+    domain::UnderlayNeighborDestination,
+    messaging::messages::ProtocolMessage,
+};
 
 #[cfg(feature = "udp-tokio")]
 pub mod udp_tokio;
@@ -51,9 +52,15 @@ pub trait LocalAsyncProtocolMessageSender {
 
 /// Errors for message senders.
 pub mod error {
-    use derive_more::derive::{Display, Error};
-    use std::error::Error;
-    use std::io;
+    use std::{
+        error::Error,
+        io,
+    };
+
+    use derive_more::derive::{
+        Display,
+        Error,
+    };
 
     /// Error type for [AsyncProtocolMessageSender](super::AsyncProtocolMessageSender).
     #[derive(Debug, Display, Error)]

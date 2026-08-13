@@ -1,0 +1,31 @@
+# Dedicated CI image for the Rust pipeline (.gitlab-ci/rust.yml).
+#
+# Built by the `build-rust-ci-image` job (see .gitlab-ci/ci-image.yml).
+# Image is only rebuilt when this file (or the build job definition) changes.
+
+ARG RUST_VERSION=1.97
+FROM rust:${RUST_VERSION}-alpine
+
+# System packages:
+#  - musl-dev: C headers/libs for the musl target
+#  - git:      required by cargo for git dependencies and by CI itself
+#  - sccache:  compiler cache used via RUSTC_WRAPPER
+#  - m4:       creation of service files for release
+#  - tar:      packaging of release artifacts
+RUN apk add --no-cache \
+        musl-dev \
+        git \
+        sccache \
+        m4 \
+        tar
+
+# Stable toolchain components
+RUN rustup component add clippy
+
+# Nightly rustfmt
+RUN rustup toolchain install nightly --profile minimal --component rustfmt
+
+# Cargo tooling
+RUN cargo install cargo-nextest --locked \
+ && cargo install cargo-audit --locked \
+ && rm -rf /usr/local/cargo/registry

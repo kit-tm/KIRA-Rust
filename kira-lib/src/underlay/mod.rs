@@ -7,15 +7,23 @@ pub mod information_base;
 use std::collections::HashSet;
 
 pub use connection::UnderlayObserverConnection;
+use futures::channel::mpsc::{
+    UnboundedReceiver,
+    UnboundedSender,
+    unbounded,
+};
 pub use handle::UnderlayObserverHandle;
 use netlink_packet_route::RouteNetlinkMessage;
+use netlink_proto::{
+    ConnectionHandle,
+    new_connection,
+    sys::protocols::NETLINK_ROUTE,
+};
 
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
-
-use netlink_proto::sys::protocols::NETLINK_ROUTE;
-use netlink_proto::{ConnectionHandle, new_connection};
-
-use crate::domain::underlay::{InterfaceId, UnderlayNeighborUpdate};
+use crate::domain::underlay::{
+    InterfaceId,
+    UnderlayNeighborUpdate,
+};
 
 /// Sender of [UnderlayNeighborUpdates](UnderlayNeighborUpdate).
 pub type UnderlayNeighborUpdatesTx = UnboundedSender<UnderlayNeighborUpdate>;

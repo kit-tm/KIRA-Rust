@@ -1,4 +1,8 @@
-use crate::domain::{Path, RoutingTable, ULNTable};
+use crate::domain::{
+    Path,
+    RoutingTable,
+    ULNTable,
+};
 
 /// An algorithm to simplify/shorten a [Path] with the information given in a
 /// [RoutingTable] and [ULNTable].

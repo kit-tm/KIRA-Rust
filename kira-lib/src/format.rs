@@ -6,6 +6,13 @@ pub mod binrw;
 
 use std::error::Error;
 use std::io::{Read, Write};
+use std::{
+    error::Error,
+    io::{
+        Read,
+        Write,
+    },
+};
 
 use kira_r2kad::messaging::ProtocolMessage;
 #[cfg(any(

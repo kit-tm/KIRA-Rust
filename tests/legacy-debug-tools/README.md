@@ -94,7 +94,7 @@ In this folder are tools to automatically construct and manage topologies.
 All tools can use the provided docker images of the routing daemon
 which can be found in [`../docker`](../docker).
 
-To get an overview of the arguments required and optional simply run `demo.py --help` 
+To get an overview of the arguments required and optional simply run `demo.py --help`
 
 The main operations are:
 
@@ -103,7 +103,7 @@ The main operations are:
 3. `start`: Start all containers
 4. `stop`: Stop all containers
 
-## Backends 
+## Backends
 
 There are two backends supported to create the networks.
 
@@ -122,7 +122,7 @@ Use the docker backend if you want to do so.
 - pip modules: `pip install docker networkx`
 - routing daemon docker image (use `make build-images`)
 
-## Standalone 
+## Standalone
 
 This backend does not need any external dependencies apart from docker to run.
 In contrast to the Containernet backend, this backend uses vanilla docker
@@ -157,7 +157,7 @@ Edit `/etc/docker/daemon.json` to at least include `default-address-pools` for I
 This is sadly required since it wasn't possible to automatically obtain
 link-local IPv6-addresses without also obtaining a global unicast address.
 
-Keep in mind that `2001:db8/32` addresses are only intended to be used in 
+Keep in mind that `2001:db8/32` addresses are only intended to be used in
 internal examples and documentations by the IANA, which is OK here,
 since we don't use them anyway.
 

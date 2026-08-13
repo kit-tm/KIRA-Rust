@@ -1,21 +1,35 @@
 //! Data types for all protocol messages and wrapped in the central enumeration [ProtocolMessage].
 
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::num::NonZeroU64;
+use std::{
+    collections::HashMap,
+    fmt,
+    fmt::Debug,
+    num::NonZeroU64,
+};
 
 use derive_more::derive::Display;
 
-use crate::domain::{Contact, Link, NodeId, NotViaList, StateSeqNr, state_seq_nr};
-
-#[cfg(feature = "binrw")]
-use binrw::{BinRead, BinWrite};
-
-use crate::messaging::dht::{
-    FetchReqData, FetchRspData, LHTInput, LHTOutput, StoreReqData, StoreRspData,
+use crate::{
+    domain::{
+        Contact,
+        Link,
+        NodeId,
+        NotViaList,
+        StateSeqNr,
+        state_seq_nr,
+    },
+    messaging::{
+        dht::{
+            FetchReqData,
+            FetchRspData,
+            LHTInput,
+            LHTOutput,
+            StoreReqData,
+            StoreRspData,
+        },
+        source_route::SourceRoute,
+    },
 };
-use crate::messaging::source_route::SourceRoute;
-use std::fmt;
 //use ciborium::{ser,de};
 
 /// Randomly generated number to uniquely identify a protocol message and its
@@ -26,7 +40,7 @@ pub struct Nonce(u64);
 
 impl fmt::Display for Nonce {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{:x}", self.0)
     }
 }
 
@@ -688,7 +702,7 @@ impl<T: Debug> ReqRspMessage<T> {
     ///
     /// Essentially this is the destination of the source route.
     pub fn destination(&self) -> &NodeId {
-        // TODO: coherent renaming of methods destination methdos
+        // TODO: coherent renaming of methods destination methods
         // to distinguish between current overlay hop "destination" and final destination
         //
         // Currently we have multiple ambiguous destination methods:
@@ -751,6 +765,7 @@ impl<T: Debug> WireFormatMessage for ReqRspMessage<T> {
     fn common_header(&self) -> &CommonHeader {
         &self.common_header
     }
+
     fn common_header_mut(&mut self) -> &mut CommonHeader {
         &mut self.common_header
     }
@@ -819,6 +834,7 @@ impl WireFormatMessage for UpdateRouteReq {
     fn common_header(&self) -> &CommonHeader {
         &self.common_header
     }
+
     fn common_header_mut(&mut self) -> &mut CommonHeader {
         &mut self.common_header
     }

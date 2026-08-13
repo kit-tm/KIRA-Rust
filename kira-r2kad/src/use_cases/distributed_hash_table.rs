@@ -1,33 +1,81 @@
 use core::time::Duration;
+use std::{
+    collections::{
+        HashMap,
+        hash_map::Entry::Occupied,
+    },
+    fmt::Debug,
+    marker::PhantomData,
+    num::{
+        NonZeroU8,
+        NonZeroU64,
+        NonZeroUsize,
+    },
+    ops::Deref,
+};
+
 use derive_more::Display;
-use tracing::{Level, instrument};
-
-use std::collections::HashMap;
-use std::collections::hash_map::Entry::Occupied;
-use std::fmt::Debug;
-use std::marker::PhantomData;
-use std::num::{NonZeroU8, NonZeroU64, NonZeroUsize};
-use std::ops::Deref;
-
-use crate::domain::dht::{DEFAULT_TIMEOUT, RedundancyFactor};
-use crate::domain::{
-    Age, Contact, ContactState, GroupingError, NodeId, Path, RoutingTable, ULNTable,
-    UnderlayNeighborId, dht,
-};
-use crate::messaging::dht::{
-    FetchErr, FetchReqData, FetchRspData, LHTInput, LHTOutput, StoreErr, StoreOk, StoreReqData,
-    StoreResult, StoreRspData,
+use tracing::{
+    Level,
+    instrument,
 };
 
-use crate::domain::dht::hash_table::{EntryMeta, LocalHashTable};
-use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{
-    CommonHeader, ErrorData, FindNodeReqData, Nonce, ProtocolMessage, ProtocolMessageKind,
-    ReqRspMessage, WireFormatMessage,
-};
-use crate::use_cases::{
-    ApiEvent, ContactEvent, EventHandler, NeverError, TimerId, UseCase, UseCaseContext,
-    UseCaseEvent, UseCaseRuntime, UseCaseState,
+use crate::{
+    domain::{
+        Age,
+        Contact,
+        ContactState,
+        GroupingError,
+        NodeId,
+        Path,
+        RoutingTable,
+        ULNTable,
+        UnderlayNeighborId,
+        dht,
+        dht::{
+            DEFAULT_TIMEOUT,
+            RedundancyFactor,
+            hash_table::{
+                EntryMeta,
+                LocalHashTable,
+            },
+        },
+    },
+    messaging::{
+        CommonHeader,
+        ErrorData,
+        FindNodeReqData,
+        Nonce,
+        ProtocolMessage,
+        ProtocolMessageKind,
+        ReqRspMessage,
+        WireFormatMessage,
+        dht::{
+            FetchErr,
+            FetchReqData,
+            FetchRspData,
+            LHTInput,
+            LHTOutput,
+            StoreErr,
+            StoreOk,
+            StoreReqData,
+            StoreResult,
+            StoreRspData,
+        },
+        source_route::SourceRoute,
+    },
+    use_cases::{
+        ApiEvent,
+        ContactEvent,
+        EventHandler,
+        NeverError,
+        TimerId,
+        UseCase,
+        UseCaseContext,
+        UseCaseEvent,
+        UseCaseRuntime,
+        UseCaseState,
+    },
 };
 
 /// Default interval between garbage collections of the [LocalHashTable].
@@ -456,7 +504,7 @@ where
 
                     self.hash_table
                         .meta_mut(&key)
-                        .expect("metadata present for succesfully stored key-value pair")
+                        .expect("metadata present for successfully stored key-value pair")
                         .access(last_accessed);
 
                     // Republish StoreReq are fire and forget: Don't respond with StoreRsp
@@ -465,7 +513,7 @@ where
                 Ok(ok) => {
                     self.hash_table
                         .meta_mut(&key)
-                        .expect("metadata present for succesfully stored key-value pair")
+                        .expect("metadata present for successfully stored key-value pair")
                         .access(context.runtime().current_time());
 
                     Ok(ok.into())
@@ -553,7 +601,7 @@ where
                 // record access
                 self.hash_table
                     .meta_mut(key)
-                    .expect("metadata present for succesfully stored key-value pair")
+                    .expect("metadata present for successfully stored key-value pair")
                     .access(context.runtime().current_time());
 
                 tracing::debug!(
@@ -665,8 +713,8 @@ where
                     tracing::debug!(
                         target: "distributed_hash_table",
                         %key,
-                        reason = "republish not supressed",
-                        republish_supress_window_ms = self.config.republish_suppression_window.as_millis(),
+                        reason = "republish not suppressed",
+                        republish_suppress_window_ms = self.config.republish_suppression_window.as_millis(),
                         not_republished_ms = not_republished.as_millis(),
                         "Republish key",
                     );
@@ -675,9 +723,9 @@ where
                     tracing::trace!(
                         target: "distributed_hash_table",
                         %key,
-                        republish_supress_window_ms = self.config.republish_suppression_window.as_millis(),
+                        republish_suppress_window_ms = self.config.republish_suppression_window.as_millis(),
                         not_republished_ms = not_republished.as_millis(),
-                        "Republish key supressed",
+                        "Republish key suppressed",
                     );
                     false
                 }
@@ -1077,28 +1125,59 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
-    use std::time::Duration;
-    use std::time::Instant;
-
-    use crate::Output;
-    use crate::context::ContextConfig;
-    use crate::context::SyncContext;
-    use crate::domain::dht::hash_table::SingleValueHashTable;
-    use crate::domain::single_bucket::SingleBucketRT;
-    use crate::domain::underlay::{UnderlayNeighborId, UnderlayNeighborSource};
-    use crate::domain::underlay_neighbor_table::in_memory_underlay_neighbor_table::InMemoryULNTable;
-    use crate::domain::{Contact, NodeId, Path, SafeStateSeqNr};
-    use crate::messaging::dht::{LHTInput, StoreOk, StoreReqData};
-    use crate::messaging::messages::{
-        CommonHeader, ProtocolMessageKind, ReqRspMessage, WireFormatMessage,
+    use std::{
+        rc::Rc,
+        time::{
+            Duration,
+            Instant,
+        },
     };
-    use crate::messaging::{ProtocolMessage, SourceRoute};
-    use crate::runtime::R2KadRuntime;
-    use crate::runtime::testing::TestingUseCaseRuntime;
-    use crate::use_cases::{EventHandler, UseCase, UseCaseEvent};
 
     use super::*;
+    use crate::{
+        Output,
+        context::{
+            ContextConfig,
+            SyncContext,
+        },
+        domain::{
+            Contact,
+            NodeId,
+            Path,
+            SafeStateSeqNr,
+            dht::hash_table::SingleValueHashTable,
+            single_bucket::SingleBucketRT,
+            underlay::{
+                UnderlayNeighborId,
+                UnderlayNeighborSource,
+            },
+            underlay_neighbor_table::in_memory_underlay_neighbor_table::InMemoryULNTable,
+        },
+        messaging::{
+            ProtocolMessage,
+            SourceRoute,
+            dht::{
+                LHTInput,
+                StoreOk,
+                StoreReqData,
+            },
+            messages::{
+                CommonHeader,
+                ProtocolMessageKind,
+                ReqRspMessage,
+                WireFormatMessage,
+            },
+        },
+        runtime::{
+            R2KadRuntime,
+            testing::TestingUseCaseRuntime,
+        },
+        use_cases::{
+            EventHandler,
+            UseCase,
+            UseCaseEvent,
+        },
+    };
 
     #[test]
     fn test_store_req_at_destination() {

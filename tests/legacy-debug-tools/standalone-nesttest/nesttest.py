@@ -334,7 +334,7 @@ class KIRANode(Node):
             yield hops
 
     def contacts(self) -> Iterator[bytes] | None:
-        """Returns an interator over all contacts in the routing table."""
+        """Returns an iterator over all contacts in the routing table."""
         paths_rt = self.paths_rt()
         if paths_rt is None:
             return None
@@ -414,8 +414,8 @@ class KIRALink:
     _interface_x: Interface
     _interface_y: Interface
 
-    def __init__(self, inteface_x: Interface, interface_y: Interface):
-        self._interface_x = inteface_x
+    def __init__(self, interface_x: Interface, interface_y: Interface):
+        self._interface_x = interface_x
         self._interface_y = interface_y
 
         # just to be sure
@@ -1593,7 +1593,7 @@ class DebugShell[T](Cmd):
                     print(f"{unknown:>3}")
                     self._cmd_failed()
             else:
-                print("All vicinity nodes where discoverd.")
+                print("All vicinity nodes where discovered.")
         else:
             print("ERR: checking on (un)known vicinity of the node.")
             self._cmd_failed()

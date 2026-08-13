@@ -1,22 +1,42 @@
-use derive_more::From;
-
 use std::{
     collections::HashMap,
     fmt::Debug,
-    num::{NonZeroU8, NonZeroUsize},
+    num::{
+        NonZeroU8,
+        NonZeroUsize,
+    },
     ops::Deref,
     time::Duration,
 };
 
+use derive_more::From;
+
 use crate::{
-    domain::{Contact, NodeId, Path, RoutingTable, ULNTable, UnderlayNeighborId},
+    domain::{
+        Contact,
+        NodeId,
+        Path,
+        RoutingTable,
+        ULNTable,
+        UnderlayNeighborId,
+    },
     messaging::{
-        CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage,
-        dht::{FetchReqData, LHTInput, StoreReqData},
+        CommonHeader,
+        Nonce,
+        ProtocolMessage,
+        ProtocolMessageKind,
+        ReqRspMessage,
+        dht::{
+            FetchReqData,
+            LHTInput,
+            StoreReqData,
+        },
         source_route::SourceRoute,
     },
     use_cases::{
-        BroadcastableUseCaseEvent, UseCaseContext, UseCaseRuntime,
+        BroadcastableUseCaseEvent,
+        UseCaseContext,
+        UseCaseRuntime,
         inject_messages::errors::InjectMessageError,
     },
 };

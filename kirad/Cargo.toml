@@ -1,8 +1,8 @@
 [package]
 name = "kirad"
 version = "0.1.0"
-description = "A kira routing daemon"
-license = ""
+description = "A KIRA routing daemon"
+license.workspace = true
 authors.workspace = true
 homepage.workspace = true
 edition.workspace = true
@@ -36,9 +36,8 @@ name = "kirad"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4.5.17", features = ["derive", "env"] }
+clap = { version = "4.6.5", features = ["derive", "env"] }
 derive_more = { workspace = true }
-chrono = { workspace = true }
 
 kira-lib = { path = "../kira-lib", default-features = false, features = [
   "format-binrw",
@@ -52,8 +51,8 @@ kira-r2kad = { path = "../kira-r2kad", default-features = false, features = [
 ] }
 
 futures = { workspace = true }
-signal-hook = "0.3.17"
-signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
+signal-hook = "0.4.4"
+signal-hook-tokio = { version = "0.4", features = ["futures-v0_3"] }
 tokio = { workspace = true, default-features = true, features = [
   "macros",
   "rt",
@@ -61,39 +60,42 @@ tokio = { workspace = true, default-features = true, features = [
   "signal",
   "tracing",
 ] }
-itertools = { version = "0.13.0", optional = true }
+itertools = { version = "0.15", optional = true }
 
 log = { workspace = true }
 tracing = { workspace = true, features = ["attributes"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 # tokio debug console
-console-subscriber = { version = "0.4.0", optional = true }
+console-subscriber = { version = "0.5", optional = true }
 # opentelemetry
-tracing-opentelemetry = { version = "0.31.0", optional = true }
-opentelemetry = { version = "0.30.0", optional = true }
+tracing-opentelemetry = { version = "0.33", optional = true }
+opentelemetry = { version = "0.32", optional = true }
 # opentelemetry tracer
-opentelemetry_sdk = { version = "0.30.0", optional = true }
+opentelemetry_sdk = { version = "0.32.1", optional = true }
 # batched tracer export to OTel instance using OTLP format
-opentelemetry-otlp = { version = "0.30.0", optional = true }
-opentelemetry-semantic-conventions = { version = "0.30.0", optional = true }
+opentelemetry-otlp = { version = "0.32", optional = true }
+opentelemetry-semantic-conventions = { version = "0.32.1", optional = true }
 
 
 [package.metadata.deb]
 name = "kirad"
+maintainer = "Roland Bless <roland.bless@kit.edu>"
+copyright = "Karlsruhe Institute of Technology (c) 2026. All rights reserved."
+license-file = ["../LICENSE", "4"]
+depends = "$auto, nftables"
+extended-description = ""
 section = "net"
-depends = "$auto, iproute2, nftables"
-copyright = "Karlsruhe Institute of Technology (c) 2024. All rights reserved."
-maintainer-scripts = "../pkg/"
 assets = [
   [
     "target/release/kirad",
-    "/usr/local/bin/kirad",
+    "/usr/bin/kirad",
     "755",
   ],
   [
     "conf/nftables.conf",
-    "/usr/local/share/kira/nftables.conf",
+    "/usr/share/kira/nftables.conf",
     "644",
   ],
 ]
+maintainer-scripts = "../pkg/"
 systemd-units = { enable = false } #, enable = false, start = false }

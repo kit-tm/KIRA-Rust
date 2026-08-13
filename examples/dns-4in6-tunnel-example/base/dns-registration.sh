@@ -1,8 +1,8 @@
 #!/bin/bash
 # This is a service that sends DNS Update Queries to a local DNS Server
 #
-# It registers under its own hostname (e.g. r2kad-n1) in the zone kira.internal (or the env variable KIRA_DNS_ZONE) 
-# In the default settings this results in an A and an AAAA to r2kad-n1.kira.internal 
+# It registers under its own hostname (e.g. r2kad-n1) in the zone kira.internal (or the env variable KIRA_DNS_ZONE)
+# In the default settings this results in an A and an AAAA to r2kad-n1.kira.internal
 # Further names are read from the environment variable DNS_NAMES (separated by colons)
 # It uses the NODE_IP attached to the kira network interface for the AAAA record as well as the IPv4 stored in the KIRA_IPV4 env variable
 
@@ -17,8 +17,8 @@ DNS_ZONE="${KIRA_DNS_ZONE:-kira.internal}"
 NAMES="${HOSTNAME}.${DNS_ZONE}"
 
 IFS=:
-for NAME in ${DNS_NAMES}; do 
-    NAMES="${NAMES} ${NAME}.${DNS_ZONE}" 
+for NAME in ${DNS_NAMES}; do
+    NAMES="${NAMES} ${NAME}.${DNS_ZONE}"
 done
 
 

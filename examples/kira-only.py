@@ -5,9 +5,9 @@ from mininet.log import info, warn, setLogLevel
 
 setLogLevel('info')
 
-KIRA_IMAGE = "kira:latest"
+KIRA_IMAGE = "kirad:latest"
 
-DCMD = "/usr/bin/supervisord -c /etc/supervisord.conf"
+DCMD = "/usr/bin/supervisord -c /etc/supervisor/supervisord.conf"
 SYSCTLS = {
     'net.ipv6.conf.default.disable_ipv6': 0,
     'net.ipv6.conf.all.forwarding': 1,

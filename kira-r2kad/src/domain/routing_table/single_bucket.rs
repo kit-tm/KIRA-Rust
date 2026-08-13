@@ -1,14 +1,24 @@
 use std::num::NonZeroU8;
 
-use rand::Rng;
+use rand::RngExt as _;
 use tracing::Level;
 
-use crate::domain::ContactState;
-use crate::domain::observable_routing_table::NonObservableRoutingTable;
-use crate::domain::routing_table::sorter_xor;
 use crate::domain::{
-    AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, GroupingError, NodeId,
-    NotViaStateList, ReplacementError, RoutingTable, SharedPrefix, hasher::Hasher,
+    AddError,
+    Bucket,
+    BucketInsertionError,
+    BucketSplitError,
+    Contact,
+    ContactState,
+    GroupingError,
+    NodeId,
+    NotViaStateList,
+    ReplacementError,
+    RoutingTable,
+    SharedPrefix,
+    hasher::Hasher,
+    observable_routing_table::NonObservableRoutingTable,
+    routing_table::sorter_xor,
 };
 
 /// A [RoutingTable] with a single not splittable [Bucket].
@@ -36,8 +46,8 @@ impl<const BUCKET_SIZE: usize> SingleBucketRT<BUCKET_SIZE> {
 }
 
 impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucketRT<BUCKET_SIZE> {
-    type ContactWriteGuard = &'a mut Contact;
     type BucketIter = std::iter::Once<&'a Bucket<BUCKET_SIZE>>;
+    type ContactWriteGuard = &'a mut Contact;
 
     fn root(&self) -> &NodeId {
         &self.root_id
@@ -172,8 +182,8 @@ impl<const BUCKET_SIZE: usize> NonObservableRoutingTable<'_, BUCKET_SIZE>
 }
 
 impl<'a, const BUCKET_SIZE: usize> IntoIterator for &'a SingleBucketRT<BUCKET_SIZE> {
-    type Item = &'a Contact;
     type IntoIter = crate::domain::bucket::IntoIter<&'a Contact>;
+    type Item = &'a Contact;
 
     fn into_iter(self) -> Self::IntoIter {
         (&self.bucket).into_iter()
@@ -181,8 +191,8 @@ impl<'a, const BUCKET_SIZE: usize> IntoIterator for &'a SingleBucketRT<BUCKET_SI
 }
 
 impl<'a, const BUCKET_SIZE: usize> IntoIterator for &'a mut SingleBucketRT<BUCKET_SIZE> {
-    type Item = &'a mut Contact;
     type IntoIter = crate::domain::bucket::IntoIter<&'a mut Contact>;
+    type Item = &'a mut Contact;
 
     fn into_iter(self) -> Self::IntoIter {
         (&mut self.bucket).into_iter()
@@ -191,10 +201,13 @@ impl<'a, const BUCKET_SIZE: usize> IntoIterator for &'a mut SingleBucketRT<BUCKE
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::error::Error;
 
-    use crate::domain::{Path, SafeStateSeqNr};
+    use super::*;
+    use crate::domain::{
+        Path,
+        SafeStateSeqNr,
+    };
 
     #[test]
     fn test_closest_single() -> Result<(), Box<dyn Error>> {

@@ -1,8 +1,14 @@
-use std::cell::{Ref, RefCell, RefMut};
+use std::cell::{
+    Ref,
+    RefCell,
+    RefMut,
+};
 
-use crate::context::ContextConfig;
-use crate::domain::NodeId;
-use crate::use_cases::UseCaseContext;
+use crate::{
+    context::ContextConfig,
+    domain::NodeId,
+    use_cases::UseCaseContext,
+};
 
 /// Implements a [UseCaseContext] which can only be used in a single threaded synchronous environment.
 #[derive(Debug)]
@@ -16,9 +22,9 @@ pub struct SyncContext<RT, RU, IS, UN, VG> {
 }
 
 impl<RT, RU, IS, UN, VG> UseCaseContext for SyncContext<RT, RU, IS, UN, VG> {
+    type InsertionStrategy = IS;
     type RoutingTable = RT;
     type Runtime = RU;
-    type InsertionStrategy = IS;
     type UnderlayNeighborTable = UN;
     type VicinityGraph = VG;
 

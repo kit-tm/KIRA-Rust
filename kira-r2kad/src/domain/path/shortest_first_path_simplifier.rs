@@ -1,5 +1,10 @@
-use crate::domain::simplifier::PathSimplifier;
-use crate::domain::{ContactState, Path, RoutingTable, ULNTable};
+use crate::domain::{
+    ContactState,
+    Path,
+    RoutingTable,
+    ULNTable,
+    simplifier::PathSimplifier,
+};
 
 #[derive(Debug)]
 pub struct ShortestFirstPathSimplifier;

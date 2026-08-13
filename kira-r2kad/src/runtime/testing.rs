@@ -1,15 +1,25 @@
-use std::cell::RefCell;
-use std::time::Duration;
-use std::time::Instant;
+use std::{
+    cell::RefCell,
+    time::{
+        Duration,
+        Instant,
+    },
+};
 
-use crate::Output;
-use crate::domain::UnderlayNeighborDestination;
-use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
-use crate::messaging::ProtocolMessage;
-use crate::runtime::UseCaseRuntime;
-use crate::use_cases::BroadcastableUseCaseEvent;
-use crate::use_cases::TimerId;
-use crate::use_cases::UseCaseEvent;
+use crate::{
+    Output,
+    domain::{
+        UnderlayNeighborDestination,
+        protocol_event::forwarding::ForwardingTablesUpdate,
+    },
+    messaging::ProtocolMessage,
+    runtime::UseCaseRuntime,
+    use_cases::{
+        BroadcastableUseCaseEvent,
+        TimerId,
+        UseCaseEvent,
+    },
+};
 
 #[derive(Debug, Default)]
 pub struct TestingUseCaseRuntime {

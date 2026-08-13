@@ -18,4 +18,8 @@ pub mod tables;
 pub mod underlay;
 
 #[doc(inline)]
-pub use tables::{AsyncForwardingTables, AsyncNodeIdTable, AsyncPathIdTable};
+pub use tables::{
+    AsyncForwardingTables,
+    AsyncNodeIdTable,
+    AsyncPathIdTable,
+};

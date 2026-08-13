@@ -42,6 +42,7 @@ class KIRATest[T]:  # T = topology id type, usually int or str
         self,
         config: Graph | pathlib.Path,
         kirad_binary: pathlib.Path = pathlib.Path("./target/debug/kirad"),
+        perf: set[T] | None = None,
         otel_ip: IPv4Network | None = None,
     ) -> None:
         self._otel_ip = otel_ip or IPv4Network("10.42.0.0/24")
@@ -70,8 +71,8 @@ class KIRATest[T]:  # T = topology id type, usually int or str
             ny = self.topology.nodes[y]
 
             if_x, if_y = connect(nx, ny, f"n{x}n{y}", f"n{y}n{x}")
-            if_x.set_address(nx.config.ipv6)
-            if_y.set_address(ny.config.ipv6)
+            if_x.set_address(nx.config.ipv6.compressed)
+            if_y.set_address(ny.config.ipv6.compressed)
 
             # safe interfaces for later
             self.topology.links[x, y] = KIRALink(if_x, if_y)
@@ -85,7 +86,14 @@ class KIRATest[T]:  # T = topology id type, usually int or str
                 args.append("--open-telemetry")
                 self.setup_otel(node)
 
-            kira_process = node.start(kirad_binary, *args)
+            if perf and tid in perf:
+                wrapper = (
+                    "perf record -F 997 --call-graph dwarf,64000 "
+                    f"-g -o log/perf-{node}.data"
+                )
+            else:
+                wrapper = None
+            kira_process = node.start(kirad_binary, *args, wrapper=wrapper)
             self.processes.append(kira_process)
 
     def setup_otel(self, node: KIRANode) -> None:

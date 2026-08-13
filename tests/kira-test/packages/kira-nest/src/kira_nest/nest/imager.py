@@ -86,7 +86,7 @@ class KIRAImager[T]:
         known_vicinity = tnode.known_vicinity(node)
         unknown_vicinity = tnode.unknown_vicinity(node)
         known_edges = tnode.known_vicinity_edges(node)
-        unknow_edges = tnode.unknown_vicinity_edges(node)
+        unknown_edges = tnode.unknown_vicinity_edges(node)
 
         # draw other parts with their defaults first
         nx.draw_networkx(self.test.topology.topology, pos=self._pos, font_color="w")
@@ -120,7 +120,7 @@ class KIRAImager[T]:
         nx.draw_networkx_edges(
             self.test.topology.topology,
             pos=self._pos,
-            edgelist=list(unknow_edges),
+            edgelist=list(unknown_edges),
             edge_color=COLOR_MISSING_VICINITY_EDGE,
             width=2,
         )

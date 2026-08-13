@@ -10,7 +10,10 @@ use std::net::Ipv6Addr;
 
 use kira_forwarding::underlay::UnderlayNeighborInformation;
 pub use kira_r2kad::domain::{
-    ConnectionId, InterfaceId, UnderlayNeighborId, UnderlayNeighborUpdate,
+    ConnectionId,
+    InterfaceId,
+    UnderlayNeighborId,
+    UnderlayNeighborUpdate,
 };
 
 /// Ethernet Address.

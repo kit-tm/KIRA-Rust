@@ -1,14 +1,31 @@
-use std::num::NonZeroU8;
-use std::ops::IndexMut;
+use std::{
+    num::NonZeroU8,
+    ops::IndexMut,
+};
 
-use rand::Rng;
-use tracing::{Level, field};
+use rand::RngExt as _;
+use tracing::{
+    Level,
+    field,
+};
 
 use crate::domain::{
-    AddError, Bucket, BucketInsertionError, BucketSplitError, Contact, DEFAULT_BUCKET_SIZE,
-    GroupingError, NodeId, ReplacementError, RoutingTable, SharedPrefix,
+    AddError,
+    Bucket,
+    BucketInsertionError,
+    BucketSplitError,
+    Contact,
+    DEFAULT_BUCKET_SIZE,
+    GroupingError,
+    NodeId,
+    ReplacementError,
+    RoutingTable,
+    SharedPrefix,
     hasher::Hasher,
-    routing_table::{PrefixContact, sorter_xor},
+    routing_table::{
+        PrefixContact,
+        sorter_xor,
+    },
 };
 
 pub const DEFAULT_ACCELERATION: u8 = 1;
@@ -113,8 +130,8 @@ impl<const BUCKET_SIZE: usize, const ACC: u8> FlatRoutingTable<BUCKET_SIZE, ACC>
 impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
     for FlatRoutingTable<BUCKET_SIZE, ACC>
 {
-    type ContactWriteGuard = &'a mut Contact;
     type BucketIter = std::slice::Iter<'a, Bucket<BUCKET_SIZE>>;
+    type ContactWriteGuard = &'a mut Contact;
 
     fn root(&self) -> &NodeId {
         &self.root
@@ -544,10 +561,19 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::{cmp::Ordering, collections::HashSet, error::Error};
+    use std::{
+        cmp::Ordering,
+        collections::HashSet,
+        error::Error,
+    };
 
-    use crate::domain::{ContactState, NotViaStateList, Path, SafeStateSeqNr};
+    use super::*;
+    use crate::domain::{
+        ContactState,
+        NotViaStateList,
+        Path,
+        SafeStateSeqNr,
+    };
 
     fn sorted_xor<C>((a, _): &(SharedPrefix, C), (b, _): &(SharedPrefix, C)) -> bool {
         assert_ne!(a, b, "duplicate contacts");
@@ -668,7 +694,7 @@ mod tests {
                 .is_ok(),
             "no split required on bucket BUCKET_SIZE=2"
         );
-        assert_eq!(table.buckets.len(), 1, "really, no split happend");
+        assert_eq!(table.buckets.len(), 1, "really, no split happened");
 
         // try to add node into full bucket should not work
         assert_eq!(

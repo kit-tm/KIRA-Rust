@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from hashlib import sha1
 from ipaddress import IPv6Address, IPv6Network
 from typing import Any, Self
@@ -48,6 +49,10 @@ class NodeID(bytes):
 
     def to_node_ip(self) -> NodeIP:
         return NodeIP(self.PRFX + self)
+
+    @classmethod
+    def random(cls) -> Self:
+        return cls(random.randbytes(cls.LENGTH))
 
     def __str__(self) -> str:
         return self.hex()
