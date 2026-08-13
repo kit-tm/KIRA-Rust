@@ -23,8 +23,12 @@ use crate::{
     domain::{
         Contact,
         NodeId,
+        Nonce,
         Path,
+        ProtocolMessage,
+        ProtocolMessageKind,
         RoutingTable,
+        SourceRoute,
         ULNTable,
         UnderlayNeighborId,
         dht,
@@ -32,18 +36,14 @@ use crate::{
             DEFAULT_TIMEOUT,
             RedundancyFactor,
         },
-    },
-    messaging::{
-        FindNodeReqData,
-        Nonce,
-        ProtocolMessage,
-        ProtocolMessageKind,
-        ReqRspMessage,
-        SourceRoute,
-        dht::{
-            FetchReqData,
-            LHTInput,
-            StoreReqData,
+        protocol_message::{
+            FindNodeReqData,
+            ReqRspMessage,
+            dht::{
+                FetchReqData,
+                LHTInput,
+                StoreReqData,
+            },
         },
     },
     use_cases::{
@@ -815,27 +815,25 @@ mod tests {
             Contact,
             NodeId,
             Path,
-            SafeStateSeqNr,
-            UnderlayNeighborSource,
-            routing_table::SingleBucketRT,
-            underlay_neighbor_table::InMemoryULNTable,
-        },
-        messaging::{
             ProtocolMessage,
+            SafeStateSeqNr,
             SourceRoute,
-            dht::{
-                FetchRspData,
-                LHTInput,
-                StoreOk,
-                StoreRspData,
-            },
-            messages::{
+            UnderlayNeighborSource,
+            protocol_message::{
                 CommonHeader,
                 ProtocolMessageKind,
                 RTableData,
                 ReqRspMessage,
                 WireFormatMessage,
+                dht::{
+                    FetchRspData,
+                    LHTInput,
+                    StoreOk,
+                    StoreRspData,
+                },
             },
+            routing_table::SingleBucketRT,
+            underlay_neighbor_table::InMemoryULNTable,
         },
         runtime::testing::TestingUseCaseRuntime,
         use_cases::{

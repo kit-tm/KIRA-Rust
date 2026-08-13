@@ -1,4 +1,4 @@
-//! Traits and implementations for receiving [ProtocolMessages](kira_r2kad::messaging::ProtocolMessage).
+//! Traits and implementations for receiving [ProtocolMessages](kira_r2kad::domain::ProtocolMessage).
 
 use std::{
     task::Poll,
@@ -10,12 +10,10 @@ use futures::{
     FutureExt,
     Stream,
 };
-pub use kira_r2kad::{
-    domain::{
-        InterfaceId,
-        UnderlayNeighborId,
-    },
-    messaging::messages::ProtocolMessage,
+pub use kira_r2kad::domain::{
+    InterfaceId,
+    ProtocolMessage,
+    UnderlayNeighborId,
 };
 
 #[cfg(feature = "udp-tokio")]

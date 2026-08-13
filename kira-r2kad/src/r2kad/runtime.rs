@@ -19,9 +19,9 @@ use crate::{
     Output,
     domain::{
         ForwardingTablesUpdate,
+        ProtocolMessage,
         UnderlayNeighborDestination,
     },
-    messaging::ProtocolMessage,
     runtime::UseCaseRuntime,
     use_cases::{
         BroadcastableUseCaseEvent,

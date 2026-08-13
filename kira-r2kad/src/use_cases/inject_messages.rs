@@ -16,17 +16,17 @@ use crate::{
     domain::{
         GroupingError,
         NodeId,
-        RoutingTable,
-        ULNTable,
-        UnderlayNeighborId,
-    },
-    messaging::{
-        CommonHeader,
         Nonce,
         ProtocolMessage,
         ProtocolMessageKind,
-        ReqRspMessage,
-        source_route::SourceRoute,
+        RoutingTable,
+        SourceRoute,
+        ULNTable,
+        UnderlayNeighborId,
+        protocol_message::{
+            CommonHeader,
+            ReqRspMessage,
+        },
     },
     use_cases::{
         EventHandler,

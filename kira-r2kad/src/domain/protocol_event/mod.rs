@@ -10,14 +10,16 @@ pub use forwarding::{
 };
 
 use crate::{
-    domain::underlay::{
-        UnderlayNeighborDestination,
-        UnderlayNeighborId,
-        UnderlayNeighborUpdate,
-    },
-    messaging::{
-        Nonce,
-        ProtocolMessage,
+    domain::{
+        protocol_message::{
+            Nonce,
+            ProtocolMessage,
+        },
+        underlay::{
+            UnderlayNeighborDestination,
+            UnderlayNeighborId,
+            UnderlayNeighborUpdate,
+        },
     },
     use_cases::{
         ApiEvent,

@@ -15,23 +15,23 @@ use crate::{
     domain::{
         Contact,
         NodeId,
+        Nonce,
         Path,
         RoutingTable,
+        SourceRoute,
         ULNTable,
         UnderlayNeighborId,
-    },
-    messaging::{
-        CommonHeader,
-        Nonce,
-        ProtocolMessage,
-        ProtocolMessageKind,
-        ReqRspMessage,
-        dht::{
-            FetchReqData,
-            LHTInput,
-            StoreReqData,
+        protocol_message::{
+            CommonHeader,
+            ProtocolMessage,
+            ProtocolMessageKind,
+            ReqRspMessage,
+            dht::{
+                FetchReqData,
+                LHTInput,
+                StoreReqData,
+            },
         },
-        source_route::SourceRoute,
     },
     use_cases::{
         BroadcastableUseCaseEvent,

@@ -84,9 +84,15 @@ pub enum RoutingTableEvent<const BUCKET_SIZE: usize> {
 /// A simple way to implement A [RoutingTableEvent] is by using a closure.
 ///
 /// ```rust
-/// # use kira_r2kad::domain::{Bucket, Contact, FlatRoutingTable, Path, RoutingTable,
-/// # SafeStateSeqNr, NodeId};
-/// # use kira_r2kad::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
+/// # use kira_r2kad::domain::{
+/// #     Bucket, Contact,
+/// #     Path, RoutingTable,
+/// #     SafeStateSeqNr, NodeId,
+/// #     routing_table::{
+/// #         FlatRoutingTable, ObservableRoutingTable,
+/// #         observable_routing_table::RoutingTableEvent,
+/// #     },
+/// # };
 /// let mut observable_rt = ObservableRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
 ///
 /// // A simple debug logger

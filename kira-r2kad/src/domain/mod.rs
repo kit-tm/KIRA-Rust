@@ -32,6 +32,14 @@ pub mod insertion_strategy;
 #[doc(inline)]
 pub use insertion_strategy::InsertionStrategy;
 
+pub mod protocol_message;
+#[doc(inline)]
+pub use protocol_message::{
+    Nonce,
+    ProtocolMessage,
+    ProtocolMessageKind,
+};
+
 mod node_id;
 pub use node_id::*;
 
@@ -52,6 +60,9 @@ pub use protocol_event::*;
 pub mod routing_table;
 #[doc(inline)]
 pub use routing_table::RoutingTable;
+
+mod source_route;
+pub use source_route::*;
 
 mod state_seq_nr;
 pub use state_seq_nr::*;
