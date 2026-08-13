@@ -1,5 +1,5 @@
 use kira_lib::format::ProtocolMessageFormat;
-use kira_r2kad::domain::{Contact, NodeId, Path, SafeStateSeqNr};
+use kira_r2kad::domain::{Age, Contact, NodeId, Path, SafeStateSeqNr};
 use kira_r2kad::messaging::dht::{FetchReqData, FetchRspData, StoreOk, StoreReqData, StoreRspData};
 use kira_r2kad::messaging::source_route::SourceRoute;
 use kira_r2kad::messaging::{
@@ -674,7 +674,7 @@ fn binrw_store_req() {
         data: StoreReqData {
             handle,
             data,
-            last_accessed_ms: None,
+            last_accessed_ms: Some(Age::from(1234)),
         },
         not_via: Some(HashSet::new()),
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
@@ -701,7 +701,7 @@ fn binrw_store_req() {
 
     assert_eq!(decoded_req.common_header.msg_id(), header.msg_id());
     assert_eq!(decoded_req.data.handle, handle);
-    assert_eq!(decoded_req.data.last_accessed_ms, None);
+    assert_eq!(decoded_req.data.last_accessed_ms, Some(Age::from(1234)));
     assert_eq!(&*decoded_req.data.data, &[0x01u8, 0x02, 0x03]);
 }
 

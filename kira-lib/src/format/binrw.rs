@@ -8,7 +8,7 @@ use std::io::{Error as IoError, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::num::NonZeroU64;
 use std::sync::Arc;
 
-use kira_r2kad::domain::{Contact, Link, NodeId, NotVia, Path, SafeStateSeqNr};
+use kira_r2kad::domain::{Age, Contact, Link, NodeId, NotVia, Path, SafeStateSeqNr};
 use kira_r2kad::messaging::dht::{
     FetchErr, FetchReqData, FetchRspData, LHTInput, LHTOutput, StoreErr, StoreOk, StoreReqData,
     StoreRspData,
@@ -382,7 +382,9 @@ fn parse_store_req_data_from_bytes(
 
                 let data_len =
                     u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())? as usize;
-                if object_length != NodeId::SIZE + 2 + data_len {
+                let min_len = NodeId::SIZE + 2 + data_len;
+                let max_len = min_len + 8;
+                if object_length != min_len && object_length != max_len {
                     return Err(Box::new(IoError::new(
                         ErrorKind::InvalidData,
                         "invalid store-req-data object length",
@@ -392,10 +394,17 @@ fn parse_store_req_data_from_bytes(
                 let mut data = vec![0u8; data_len];
                 payload_cursor.read_exact(&mut data)?;
 
+                let last_accessed_ms = if object_length == min_len {
+                    None
+                } else {
+                    let age_ms = u64::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
+                    Some(Age::from(age_ms))
+                };
+
                 return Ok(StoreReqData {
                     handle: NodeId::from(handle),
                     data: Arc::from(data),
-                    last_accessed_ms: None, // last_accessed_ms is not included in the wire format for store-req-data, TODO?
+                    last_accessed_ms,
                 });
             }
             _ => {
@@ -1134,7 +1143,8 @@ fn write_store_req_data_object<W: Write>(
         ));
     }
 
-    let object_length = NodeId::SIZE + 2 + data_len;
+    let age_len = data.last_accessed_ms.map_or(0, |_| 8);
+    let object_length = NodeId::SIZE + 2 + data_len + age_len;
     write_common_object_header(
         writer,
         CommonObjectHeader::new(ProtocolObjectType::StoreReqData, object_length as u16),
@@ -1143,6 +1153,16 @@ fn write_store_req_data_object<W: Write>(
     writer.write_all(&data.handle.to_be_bytes())?;
     writer.write_all(&(data_len as u16).to_be_bytes())?;
     writer.write_all(&data.data)?;
+
+    if let Some(age) = data.last_accessed_ms {
+        let age_ms = u64::try_from(std::time::Duration::from(age).as_millis()).map_err(|_| {
+            IoError::new(
+                ErrorKind::InvalidInput,
+                "last_accessed_ms overflowed u64 milliseconds",
+            )
+        })?;
+        writer.write_all(&age_ms.to_be_bytes())?;
+    }
 
     Ok(3 + object_length)
 }
