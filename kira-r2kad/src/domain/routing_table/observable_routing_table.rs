@@ -14,18 +14,20 @@ use std::{
 use derive_more::derive::Display;
 
 use crate::domain::{
-    AddError,
     Bucket,
-    BucketSplitError,
     Contact,
-    FlatRoutingTable,
     GroupingError,
     NodeId,
-    ReplacementError,
     RoutingTable,
     SharedPrefix,
     hasher::Hasher,
-    unlimited_uln_routing_table::UnlimitedULNRoutingTable,
+    routing_table::{
+        AddError,
+        BucketSplitError,
+        FlatRoutingTable,
+        ReplacementError,
+        UnlimitedULNRoutingTable,
+    },
 };
 
 /// An Event emitted by the [ObservableRoutingTable].
@@ -435,11 +437,13 @@ mod tests {
         RoutingTable,
         SafeStateSeqNr,
         Timestamp,
-        observable_routing_table::{
-            ObservableRoutingTable,
-            RoutingTableEvent,
+        routing_table::{
+            observable_routing_table::{
+                ObservableRoutingTable,
+                RoutingTableEvent,
+            },
+            single_bucket::SingleBucketRT,
         },
-        single_bucket::SingleBucketRT,
     };
 
     #[test]

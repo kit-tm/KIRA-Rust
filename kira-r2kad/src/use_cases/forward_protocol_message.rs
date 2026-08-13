@@ -16,9 +16,7 @@ use tracing::{
 use crate::{
     domain::{
         Contact,
-        InOrderCycleRemover,
         InsertionStrategy,
-        InsertionStrategyResult,
         Link,
         NodeId,
         NotVia,
@@ -26,7 +24,6 @@ use crate::{
         NotViaState,
         NotViaStateList,
         Path,
-        PathCycleRemover,
         PathState,
         RoutingTable,
         Timestamp,
@@ -34,6 +31,11 @@ use crate::{
         UnderlayNeighborId,
         UnderlayNeighborSource,
         VicinityGraph,
+        insertion_strategy::InsertionStrategyResult,
+        path::{
+            InOrderCycleRemover,
+            PathCycleRemover,
+        },
     },
     messaging::{
         CommonHeader,

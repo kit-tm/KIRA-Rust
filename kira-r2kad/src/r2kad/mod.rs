@@ -26,29 +26,35 @@ use pipeline::R2KadPipeline;
 use runtime::R2KadRuntime;
 
 #[doc(inline)]
-pub use crate::domain::protocol_event::{
+pub use crate::domain::{
     Input,
     Output,
 };
 use crate::{
     context::ContextConfig,
     domain::{
-        FlatRoutingTable,
-        InMemoryULNTable,
-        InOrderCycleRemover,
         InsertionStrategy,
         NodeId,
-        ObservableULNTable,
         RoutingTable,
-        ShortestFirstPathSimplifier,
         ULNTable,
-        UNSStrategy,
         UnderlayNeighborId,
         VicinityGraph,
-        observable_routing_table::ObservableRoutingTable,
-        observable_underlay_neighbor_table::ULNTableEvent,
-        unlimited_uln_routing_table::UnlimitedULNRoutingTable,
-        vicinity_graph::{
+        insertion_strategy::UNSStrategy,
+        path::{
+            InOrderCycleRemover,
+            ShortestFirstPathSimplifier,
+        },
+        routing_table::{
+            FlatRoutingTable,
+            ObservableRoutingTable,
+            UnlimitedULNRoutingTable,
+        },
+        underlay_neighbor_table::{
+            InMemoryULNTable,
+            ObservableULNTable,
+            observable_underlay_neighbor_table::ULNTableEvent,
+        },
+        vicinity::vicinity_graph::{
             ObservableVicinityGraph,
             PetVicinityGraph,
             observable_vicinity_graph::VicinityGraphEvent,
@@ -121,7 +127,7 @@ where
             // this is why Arc<R2KadRuntime> is required
             let runtime = runtime.clone();
             routing_table.add_observer(move |event| {
-                use crate::domain::observable_routing_table::RoutingTableEvent::*;
+                use crate::domain::routing_table::observable_routing_table::RoutingTableEvent::*;
                 let contact_event = match event {
                     NewContact(contact) => ContactEvent::New(contact),
                     RemovedContact(contact) => ContactEvent::Removed(contact),

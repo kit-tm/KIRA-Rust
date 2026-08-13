@@ -300,8 +300,8 @@ mod tests {
         Contact,
         NodeId,
         Path,
-        ReplacementError,
         SafeStateSeqNr,
+        routing_table::ReplacementError,
     };
 
     #[test]

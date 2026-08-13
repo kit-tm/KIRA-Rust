@@ -2,55 +2,73 @@
 
 use std::{
     collections::HashSet,
-    hash::{
-        Hash,
-        Hasher,
-    },
+    hash::Hash,
     time::{
         Duration,
         Instant,
     },
 };
 
-pub use bucket::*;
-pub use contact::*;
 use derive_more::{
     Display,
     From,
 };
-pub use insertion_strategy::*;
-pub use node_id::*;
-pub use path::{
-    cycle_remover::*,
-    in_order_cycle_remover::*,
-    shortest_first_path_simplifier::*,
-    simplifier::*,
-    *,
-};
-pub use path_id::*;
-pub use routing_table::{
-    flat_routing_table::*,
-    *,
-};
-pub use state_seq_nr::*;
-pub use underlay::*;
-pub use underlay_neighbor_table::*;
-pub use vicinity::*;
 
 pub mod bucket;
-pub mod contact;
+#[doc(inline)]
+pub use bucket::{
+    Bucket,
+    DEFAULT_BUCKET_SIZE,
+};
+mod contact;
+pub use contact::*;
+
 pub mod dht;
-pub mod hasher;
+
+mod hasher;
+pub use hasher::*;
+
 pub mod insertion_strategy;
-pub mod node_id;
+#[doc(inline)]
+pub use insertion_strategy::InsertionStrategy;
+
+mod node_id;
+pub use node_id::*;
+
 pub mod path;
-pub mod path_id;
+#[doc(inline)]
+pub use path::{
+    Path,
+    PathCollection,
+    PathState,
+};
+
+mod path_id;
+pub use path_id::*;
+
 pub mod protocol_event;
+pub use protocol_event::*;
+
 pub mod routing_table;
-pub mod state_seq_nr;
-pub mod underlay;
+#[doc(inline)]
+pub use routing_table::RoutingTable;
+
+mod state_seq_nr;
+pub use state_seq_nr::*;
+
+mod underlay;
+pub use underlay::*;
+
 pub mod underlay_neighbor_table;
+#[doc(inline)]
+pub use underlay_neighbor_table::ULNTable;
+
 pub mod vicinity;
+#[doc(inline)]
+pub use vicinity::{
+    VICINITY_RADIUS,
+    VicinityGraph,
+};
 
 /// Specifies in milliseconds the age of the routing information.
 ///
@@ -194,7 +212,7 @@ impl From<&NotViaState> for NotVia {
 }
 
 impl Hash for NotVia {
-    fn hash<H: Hasher>(&self, state: &mut H) {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.link.hash(state);
     }
 }
@@ -235,7 +253,7 @@ impl From<NotVia> for NotViaState {
 }
 
 impl Hash for NotViaState {
-    fn hash<H: Hasher>(&self, state: &mut H) {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.link.hash(state);
     }
 }

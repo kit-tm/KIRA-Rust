@@ -14,11 +14,11 @@ use derive_more::derive::Display;
 use crate::{
     domain::{
         Contact,
+        INVALID_SSN,
         Link,
         NodeId,
         NotViaList,
         StateSeqNr,
-        state_seq_nr,
     },
     messaging::{
         dht::{
@@ -162,7 +162,7 @@ impl CommonHeader {
             state_seq_num: if let Some(stateseqnumber) = stateseqnum {
                 stateseqnumber
             } else {
-                state_seq_nr::INVALID_SSN
+                INVALID_SSN
             },
             src_node_degree: if src_node_degree < u16::MAX as usize {
                 src_node_degree as u16

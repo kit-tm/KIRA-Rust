@@ -20,6 +20,7 @@ use crate::{
         pathcollection::PathCollection,
     },
     use_cases::failure_handling::RediscoveryState,
+    PathCollection,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq, Display, Default)]

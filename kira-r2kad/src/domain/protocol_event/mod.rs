@@ -2,7 +2,12 @@
 
 pub mod forwarding;
 
-use forwarding::ForwardingTablesUpdate;
+#[doc(inline)]
+pub use forwarding::{
+    ForwardingTablesUpdate,
+    NodeIdTableUpdate,
+    PathIdTableUpdate,
+};
 
 use crate::{
     domain::underlay::{

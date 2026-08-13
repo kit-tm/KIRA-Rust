@@ -9,8 +9,8 @@ use std::{
 use crate::{
     Output,
     domain::{
+        ForwardingTablesUpdate,
         UnderlayNeighborDestination,
-        protocol_event::forwarding::ForwardingTablesUpdate,
     },
     messaging::ProtocolMessage,
     runtime::UseCaseRuntime,

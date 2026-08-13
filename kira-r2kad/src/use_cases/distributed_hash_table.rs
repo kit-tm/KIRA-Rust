@@ -34,11 +34,9 @@ use crate::{
         dht,
         dht::{
             DEFAULT_TIMEOUT,
+            EntryMeta,
+            LocalHashTable,
             RedundancyFactor,
-            hash_table::{
-                EntryMeta,
-                LocalHashTable,
-            },
         },
     },
     messaging::{
@@ -1145,12 +1143,10 @@ mod tests {
             NodeId,
             Path,
             SafeStateSeqNr,
-            dht::hash_table::SingleValueHashTable,
-            single_bucket::SingleBucketRT,
-            underlay::{
-                UnderlayNeighborId,
-                UnderlayNeighborSource,
-            },
+            UnderlayNeighborId,
+            UnderlayNeighborSource,
+            dht::SingleValueHashTable,
+            routing_table::SingleBucketRT,
             underlay_neighbor_table::in_memory_underlay_neighbor_table::InMemoryULNTable,
         },
         messaging::{

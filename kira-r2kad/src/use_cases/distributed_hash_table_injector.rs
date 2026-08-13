@@ -816,9 +816,9 @@ mod tests {
             NodeId,
             Path,
             SafeStateSeqNr,
-            single_bucket::SingleBucketRT,
-            underlay::UnderlayNeighborSource,
-            underlay_neighbor_table::in_memory_underlay_neighbor_table::InMemoryULNTable,
+            UnderlayNeighborSource,
+            routing_table::SingleBucketRT,
+            underlay_neighbor_table::InMemoryULNTable,
         },
         messaging::{
             ProtocolMessage,

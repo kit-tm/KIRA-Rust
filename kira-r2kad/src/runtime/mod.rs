@@ -14,10 +14,10 @@ use rand::RngExt as _;
 pub use crate::r2kad::runtime::R2KadRuntime;
 use crate::{
     domain::{
+        ForwardingTablesUpdate,
         NodeId,
         UnderlayNeighborDestination,
         UnderlayNeighborId,
-        protocol_event::forwarding::ForwardingTablesUpdate,
     },
     messaging::ProtocolMessage,
     use_cases::{

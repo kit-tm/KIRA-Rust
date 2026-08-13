@@ -41,7 +41,8 @@ use crate::{
     },
 };
 
-pub mod hash_table;
+mod hash_table;
+pub use hash_table::*;
 
 /// Default timeout duration of RPCs by the DHT use cases.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);

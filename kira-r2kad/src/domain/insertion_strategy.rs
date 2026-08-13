@@ -9,18 +9,20 @@ use tracing::{
     instrument,
 };
 
-use super::{
-    PathSimplifier,
-    ULNTable,
-};
 use crate::domain::{
-    AddError,
     Contact,
     ContactState,
-    InsertionError,
     NodeId,
-    PathCycleRemover,
     RoutingTable,
+    ULNTable,
+    path::{
+        PathCycleRemover,
+        PathSimplifier,
+    },
+    routing_table::{
+        AddError,
+        InsertionError,
+    },
 };
 
 /// Signals if a change to the [Path](crate::domain::path::Path) of a contact happened.

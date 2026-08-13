@@ -1,6 +1,6 @@
 use crate::domain::{
     Path,
-    cycle_remover::PathCycleRemover,
+    path::cycle_remover::PathCycleRemover,
 };
 
 /// This algorithm iterates the [Path] from first to last [NodeId](crate::domain::node_id::NodeId).
@@ -49,10 +49,12 @@ impl PathCycleRemover for InOrderCycleRemover {
 #[cfg(test)]
 mod tests {
     use crate::domain::{
-        InOrderCycleRemover,
         NodeId,
         Path,
-        PathCycleRemover,
+        path::{
+            InOrderCycleRemover,
+            PathCycleRemover,
+        },
     };
 
     #[test]
