@@ -4,8 +4,6 @@
 #[cfg(feature = "format-binrw")]
 pub mod binrw;
 
-use std::error::Error;
-use std::io::{Read, Write};
 use std::{
     error::Error,
     io::{

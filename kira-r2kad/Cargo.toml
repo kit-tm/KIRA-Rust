@@ -16,6 +16,7 @@ sync-wrapper = []
 
 
 [dependencies]
+chrono = { workspace = true }
 derive_more = { workspace = true }
 # FIXME: don't explicitly use tokio mpsc as calllback channels for API probes and message injections
 tokio = { workspace = true, features = ["sync"] }
@@ -30,6 +31,7 @@ sha2 = { workspace = true, optional = true }
 sha3 = { workspace = true, optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 petgraph = "0.8.3"
+binrw = { workspace = true, optional = true }
 
 # Dependencies for examples, Benchmarks and Tests
 [dev-dependencies]
