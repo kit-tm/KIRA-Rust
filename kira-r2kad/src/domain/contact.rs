@@ -4,9 +4,11 @@ use std::hash::{Hash, Hasher};
 use derive_more::derive::Display;
 
 use crate::domain::{
-    Age, NodeId, NotViaStateList, Path, RediscoveryState, SafeStateSeqNr, Timestamp,
+    Age, Duration, NodeId, NotViaStateList, Path, SafeStateSeqNr, Timestamp,
     pathcollection::PathCollection,
 };
+
+use crate::use_cases::failure_handling::RediscoveryState;
 
 #[derive(Debug, Clone, Eq, PartialEq, Display, Default)]
 #[display("{_variant}")]
@@ -81,9 +83,15 @@ impl Contact {
         &mut self,
         notviastate_list: NotViaStateList,
         via_contact_list: Vec<NodeId>,
+        max_retries: u32,
+        start_duration: Duration,
     ) {
-        self.state =
-            ContactState::Rediscovering(RediscoveryState::new(notviastate_list, via_contact_list));
+        self.state = ContactState::Rediscovering(RediscoveryState::new(
+            notviastate_list,
+            via_contact_list,
+            max_retries,
+            start_duration,
+        ));
     }
 
     /// Returns if the [Contact] represents a underlay neighbor.
@@ -151,6 +159,10 @@ impl Contact {
         }
     }
 
+    pub fn is_dead(&self) -> bool {
+        self.state == ContactState::Dead
+    }
+
     pub fn is_valid(&self) -> bool {
         self.state == ContactState::Valid
     }
@@ -170,7 +182,7 @@ impl Contact {
             }
             ContactState::Rediscovering(ref mut rds) => {
                 for nvs in notviastate_list.nvs_list.iter() {
-                    rds.notviastate_list.nvs_list.insert(nvs.clone());
+                    rds.add_notvia(nvs.into());
                 }
             }
             _ => {

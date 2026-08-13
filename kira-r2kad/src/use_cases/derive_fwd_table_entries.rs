@@ -421,7 +421,10 @@ where
                 .entered();
 
                 match (new.state(), old.state()) {
-                    (ContactState::Invalid(_), ContactState::Valid) if new.id() == old.id() => {
+                    (ContactState::Invalid(_), ContactState::Valid)
+                    | (ContactState::Rediscovering(_), ContactState::Valid)
+                        if new.id() == old.id() =>
+                    {
                         updated_span.record("kind", "contact_invalidation");
 
                         let _span = tracing::debug_span!(

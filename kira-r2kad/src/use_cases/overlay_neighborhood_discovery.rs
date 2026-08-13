@@ -26,6 +26,8 @@ use crate::utils::ExponentialBackoff;
 pub struct ONDConfig<const BUCKET_SIZE: usize> {
     /// Default minimal [Duration] between subsequent sent FindNodeReq.
     pub send_timeout: Duration,
+    /// Default [Duration] between subsequent sent FindNodeReq for random exploration.
+    pub random_exploration_interval: Duration,
     /// Number of contacts in the overlay Neighborhood to include in the FindNodeReq
     /// and to be returned by the FindNodeRsp.
     pub overlay_neighborhood_size: NonZeroU64,
@@ -50,6 +52,7 @@ impl<const BUCKET_SIZE: usize> Default for ONDConfig<BUCKET_SIZE> {
         Self {
             // TODO: Useful timeout duration?
             send_timeout: Duration::from_millis(250),
+            random_exploration_interval: Duration::from_millis(400),
             overlay_neighborhood_size: NonZeroU64::new(BUCKET_SIZE.try_into().unwrap()).unwrap(),
             backoff_base: NonZeroU32::new(2).unwrap(),
             backoff_max_retries: NonZeroU32::new(10).unwrap(), // 0,25s*1024=256s = 4min 16s
@@ -270,8 +273,7 @@ where
                 target: "overlay_neighborhood_discovery",
                 "Contact is valid but its path goes through an invalid neighbor. Contact: {contact}, neighbor: {neighbor}"
             );
-            self.state = ONDState::Error;
-            return Err(ONDError::NeighborInconsistency);
+            return Ok(());
         }
 
         // compose FindNodeRequest to our own ID (Join)
@@ -313,6 +315,96 @@ where
 
         Ok(())
     }
+
+    /// Sends a new FindNodeReq with random target to explore the ID space for new and better contacts and routes
+    fn send_next_request_to_random_id(
+        &mut self,
+        context: &C,
+    ) -> Result<(), <Self as EventHandler>::Error> {
+        let current_timer_context = if let ONDState::Running { timer_contexts } = &mut self.state {
+            &mut timer_contexts[TimerType::RandomExploration as usize]
+        } else {
+            panic!("Called send_next_request_to_random_id in non-running state!");
+        };
+
+        // No need for randomized exploration if currently isolated
+        if context.uln_table().is_empty() {
+            log::warn!(target: "overlay_neighborhood_discovery",
+                       "No underlay neighbors present; Node is isolated"
+            );
+            // change to error state
+            // the use case will change to running again if not isolated anymore
+            self.state = ONDState::Isolated;
+            return Ok(());
+        }
+
+        let new_nonce = Nonce::random();
+        let random_id = NodeId::random();
+
+        let closest_contact_path = context
+            .routing_table()
+            .closest(&random_id, 1, self.config.shared_prefix_bits_grouping)
+            .expect("grouping was checked on initialization")
+            .first() // TODO: Proximity Neighbor Selection
+            .map(|(_, contact)| contact.path().unwrap()) // closest returns only valid contacts
+            .cloned();
+
+        // No one found -> overlay-wise isolated, but underlay neighbors are present
+        // this should never happen as the underlay neighbor are then the closest overlay neighbors
+        if closest_contact_path.is_none() {
+            log::warn!(
+                target: "overlay_neighborhood_discovery",
+                "Underlay neighbors are present, but no usable contacts; overlay probably not connected. RT: {:?}, NT: {:?}",
+                *context.routing_table(),
+                *context.uln_table()
+            );
+            return Ok(());
+        }
+
+        let closest_path = closest_contact_path.unwrap();
+
+        // Get interface of neighbor
+        let neighbor = closest_path.first();
+        let interface = context.uln_table().get(neighbor).cloned();
+        if interface.is_none() {
+            log::error!(
+                target: "overlay_neighborhood_discovery",
+                "Contact is valid but its path goes through an invalid neighbor. Contact: {}, neighbor: {}",
+                closest_path.last(),
+                neighbor
+            );
+            return Ok(());
+        }
+
+        let mut route = SourceRoute::from(closest_path);
+        route.push_front(*context.root_id());
+
+        let message = ReqRspMessage {
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::FindNodeReq,
+                *context.root_id(),
+                *route.destination(),
+                Some(new_nonce.into()),
+                Some(From::from(*context.uln_table().state_seq_nr())),
+                context.uln_table().size(),
+            ),
+            data: FindNodeReqData {
+                exact: false, // the closest node to random ID should reply
+                neighborhood: self.config.overlay_neighborhood_size,
+                target: random_id, //random ID
+            },
+            not_via: None,
+            source_route: route,
+        };
+        log::trace!(target: "overlay_neighborhood_discovery", "Sending message for random exploration {message:?}");
+
+        context
+            .runtime()
+            .send_message(message, context.uln_table().deref(), context.root_id());
+
+        current_timer_context.last_msg_state = Some((new_nonce, random_id));
+        Ok(())
+    }
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Display)]
@@ -344,10 +436,15 @@ where
         // the first messages should be sent after a small delay because this
         // node needs to learn its underlay vicinity first, before it can send
         // something meaningful to find its overlay neighbors
-        let timer_id = context.runtime().register_timer(self.config.send_timeout);
+        let join_timer_id = context.runtime().register_timer(self.config.send_timeout);
+        let random_exploration_timer_id = context
+            .runtime()
+            .register_periodic_timer(self.config.random_exploration_interval);
         if let ONDState::Running { timer_contexts, .. } = &mut self.state {
             // remember the just registered initial timer, however, timer_context is None
-            timer_contexts[TimerType::PeriodicJoin as usize].timer_id = Some(timer_id);
+            timer_contexts[TimerType::PeriodicJoin as usize].timer_id = Some(join_timer_id);
+            timer_contexts[TimerType::RandomExploration as usize].timer_id =
+                Some(random_exploration_timer_id);
         } else {
             panic!("State must not have changed from ONDState::Running!");
         };
@@ -399,14 +496,13 @@ where
                         if Some(join_timer_id)
                             == timer_contexts[TimerType::PeriodicJoin as usize].timer_id =>
                     {
-                        assert_eq!(received_timer_id, join_timer_id);
                         self.send_next_join_request(context)?;
                     }
                     rand_exploration_timer_id
                         if Some(rand_exploration_timer_id)
                             == timer_contexts[TimerType::RandomExploration as usize].timer_id =>
                     {
-                        todo!("call random exploration send method")
+                        self.send_next_request_to_random_id(context)?;
                     }
                     _ => {
                         // maybe a timeout for another use case, so simply ignore here
@@ -424,19 +520,23 @@ where
             ) => {
                 let recvd_nonce = Nonce::from(common_header.msg_id());
                 // need to extract latest nonce from timer state
-                // currently we do not care about responses to random exploration messages
+                // currently we do not care about tracking responses to random exploration messages
                 if let Some((latest_nonce, _)) =
                     timer_contexts[TimerType::PeriodicJoin as usize].last_msg_state
                     && latest_nonce == recvd_nonce
                 {
-                    log::warn!(
+                    log::debug!(
                         target: "overlay_neighborhood_discovery",
-                        "Received successful response for latest FindNodeReq (Join): msg_id={recvd_nonce}"
+                        "Received successful response for latest FindNodeReq (Join): msg_id={} src={}",
+                        recvd_nonce,
+                        common_header.src_node_id(),
                     );
                     // delete last msg state
                     timer_contexts[TimerType::PeriodicJoin as usize].last_msg_state = None;
                     // nothing else to do, because timer will trigger sending of the next join message
                 }
+                // TODO react on random exploration response: estimate number of nodes in the network and
+                // get statistics about failed requests (may be a hint about network stability)
             }
             // An error response was received
             (
@@ -476,9 +576,7 @@ where
                     return Ok(());
                 }
             }
-            // TODO ProbeOverlayNeighbors, ProbeContacts
             // TODO: send FindNodeReq if new Contact inserted in last bucket of RoutingTable: src/routing/r2kademlia/R2KademliaPolicyHandlers.cc:204
-            // TODO: randomly probe for new nodes: src/routing/r2kademlia/R2KademliaPeriodicTasks.cc:349
             // TODO: randomly probe for new path to contact with a FindNodeVia src/routing/r2kademlia/R2KademliaPeriodicTasks.cc:321
             _ => {}
         }

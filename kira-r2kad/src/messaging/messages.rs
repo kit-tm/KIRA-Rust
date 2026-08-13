@@ -1,7 +1,7 @@
 //! Data types for all protocol messages and wrapped in the central enumeration [ProtocolMessage].
 
 use std::collections::HashMap;
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use std::num::NonZeroU64;
 
 use derive_more::derive::Display;
@@ -11,18 +11,23 @@ use crate::messaging::dht::{
     FetchReqData, FetchRspData, LHTInput, LHTOutput, StoreReqData, StoreRspData,
 };
 use crate::messaging::source_route::SourceRoute;
-use std::fmt;
 //use ciborium::{ser,de};
 
 /// Randomly generated number to uniquely identify a protocol message and its
 /// response.
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Copy)]
+#[derive(Display, PartialEq, Eq, Clone, Hash, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[display("{:x}-{:x}", (self.0 >> 32) as u32, (self.0 & 0xffffffff) as u32)]
 pub struct Nonce(u64);
 
-impl fmt::Display for Nonce {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:x}", self.0)
+impl Debug for Nonce {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Nonce: {:x}-{:x}",
+            (self.0 >> 32) as u32,
+            (self.0 & 0xffffffff) as u32
+        )
     }
 }
 
@@ -80,8 +85,19 @@ pub enum ProtocolMessageKind {
 }
 
 /// Common Header Structure
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[display("v={} t={:0x} f={:0x} dst={} src={} dom={:x} msg-id={:x}-{:x} sseq={} deg={}",
+          self.version,
+          self.msg_type,
+          self.msg_flags,
+          self.dest_id,
+          self.src_node_id,
+          self.domain_id,
+          (self.msg_id >> 32) as u32, (self.msg_id & 0xffffffff) as u32,
+          self.state_seq_num,
+          self.src_node_degree,
+)]
 pub struct CommonHeader {
     version: u8,
     msg_type: u8,

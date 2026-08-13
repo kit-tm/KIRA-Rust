@@ -8,8 +8,8 @@ use tracing::{Level, instrument};
 use derive_more::derive::{Display, Error};
 
 use crate::domain::{
-    Contact, ContactState, Link, NodeId, NotViaState, NotViaStateList, RoutingTable, Timestamp,
-    ULNTable, UnderlayNeighborId, UnderlayNeighborUpdate, VicinityGraph,
+    Contact, ContactState, Link, NodeId, NotVia, NotViaState, NotViaStateList, RoutingTable,
+    Timestamp, ULNTable, UnderlayNeighborId, UnderlayNeighborUpdate, VicinityGraph,
 };
 use crate::messaging::source_route::SourceRoute;
 use crate::messaging::{
@@ -20,10 +20,12 @@ use crate::use_cases::{
     ContactEvent, EventHandler, ReactiveUseCaseState, TimerId, UseCase, UseCaseContext,
     UseCaseEvent, UseCaseRuntime,
 };
-use crate::utils::InflightReqMap;
+use crate::utils::{ExponentialBackoff, InflightReqMap};
+
 use crate::utils::errors::InsertionError;
 use crate::utils::rediscovery_timeout_interval::RediscoveryTimeoutInterval;
 
+const REDISCOVERY_WAITTIME_RATELIMIT: Duration = Duration::from_millis(100);
 const REDISCOVERY_WAITTIME_ULN: Duration = Duration::from_millis(100);
 const REDISCOVERY_WAITTIME_CLOSEST_NEIGHBORS: Duration = Duration::from_millis(500);
 const REDISCOVERY_WAITTIME_CONTACT_WITH_ULN: Duration = Duration::from_millis(1000);
@@ -78,6 +80,61 @@ impl Default for FailureHandlingConfig {
     }
 }
 
+#[derive(Debug, Clone, Eq, Display, PartialEq)]
+#[display("NotViaStateList {notviastate_list:#?} backoff: {backoff}")]
+pub struct RediscoveryState {
+    notviastate_list: NotViaStateList, // any broken links within the active path
+    rev_via_contact_list: Vec<NodeId>, // a list of NodeIds for contact (stored reversed so that we can pop)
+    pub backoff: ExponentialBackoff,
+}
+
+impl RediscoveryState {
+    pub fn new(
+        notviastate_list: NotViaStateList,
+        via_contact_list: Vec<NodeId>,
+        max_retries: u32,
+        start_duration: Duration,
+    ) -> Self {
+        Self {
+            notviastate_list,
+            rev_via_contact_list: via_contact_list.into_iter().rev().collect(),
+            backoff: ExponentialBackoff::new_random(2, max_retries, start_duration),
+        }
+    }
+
+    // adds a notvia link to the list
+    pub fn add_notvia(&mut self, not_via: NotVia) -> bool {
+        self.notviastate_list.nvs_list.insert(not_via.into())
+    }
+
+    pub fn get_notviastate_list(&self) -> &NotViaStateList {
+        &self.notviastate_list
+    }
+
+    // returns the via contact list in correct order (first element is next contact to try)
+    pub fn get_via_contact_list(&self) -> Vec<NodeId> {
+        self.rev_via_contact_list.iter().rev().cloned().collect()
+    }
+
+    // returns the via contact in XOR sorted order
+    pub fn get_next_via_contact_id(&mut self) -> Option<NodeId> {
+        self.rev_via_contact_list.pop()
+    }
+
+    // drops the "first" len elements (equivalent to calling len times pop())
+    pub fn drop_from_next_via_contact_id(&mut self, len: usize) {
+        if len <= self.rev_via_contact_list.len() {
+            self.rev_via_contact_list
+                .truncate(self.rev_via_contact_list.len() - len);
+        }
+    }
+
+    pub fn set_via_contact_list(&mut self, via_contact_list: Vec<NodeId>) {
+        assert!(self.rev_via_contact_list.is_empty());
+        self.rev_via_contact_list = via_contact_list.into_iter().rev().collect();
+    }
+}
+
 /// Use case which handles every type of node failure or link failure.
 ///
 /// ## Tasks
@@ -88,8 +145,9 @@ pub struct FailureHandling<C, const BUCKET_SIZE: usize> {
     _pd: PhantomData<C>,
     state: ReactiveUseCaseState,
     config: FailureHandlingConfig,
-    rediscoveries: InflightReqMap,
+    inflight_rediscoveries: InflightReqMap,
     scheduled_rediscoveries: HashMap<TimerId, NodeId>,
+    rate_limit_rediscoveries: HashMap<TimerId, NodeId>,
 }
 
 impl<C, const BUCKET_SIZE: usize> FailureHandling<C, BUCKET_SIZE> {
@@ -98,8 +156,9 @@ impl<C, const BUCKET_SIZE: usize> FailureHandling<C, BUCKET_SIZE> {
             _pd: Default::default(),
             state: ReactiveUseCaseState::Idle,
             config,
-            rediscoveries: InflightReqMap::default(),
+            inflight_rediscoveries: InflightReqMap::default(),
             scheduled_rediscoveries: HashMap::new(),
+            rate_limit_rediscoveries: HashMap::new(),
         }
     }
 }
@@ -221,17 +280,20 @@ where
                 let mut timer_id = context.runtime().register_timer(REDISCOVERY_TIMEOUT_MAX);
 
                 // TODO this should use the state in the Rediscovering state
-                while let Err(e) = self.rediscoveries.insert((*contact_id, timer_id, nonce)) {
+                while let Err(e) =
+                    self.inflight_rediscoveries
+                        .insert((*contact_id, timer_id, nonce))
+                {
                     match e {
                         InsertionError::DuplicateNonce => nonce = Nonce::random(),
                         InsertionError::DuplicateTimer => {
-                            log::warn!(target: "failure_handling", "runtime emitted duplicate timer id {} [{:?}]", timer_id, self.rediscoveries);
+                            log::warn!(target: "failure_handling", "runtime emitted duplicate timer id {} [{:?}]", timer_id, self.inflight_rediscoveries);
                             timer_id = context.runtime().register_timer(REDISCOVERY_TIMEOUT_MAX);
                         }
                     }
                 }
 
-                log::trace!(target: "failure_handling", "Created rediscovery entry for {} [timeout: {:#?}, nonce: {:?}]", contact_id, REDISCOVERY_TIMEOUT_MAX, nonce);
+                log::trace!(target: "failure_handling", "Created rediscovery entry for {} [timeout: {:#?}, nonce: {}]", contact_id, REDISCOVERY_TIMEOUT_MAX, nonce);
 
                 nonce
             };
@@ -317,10 +379,8 @@ where
     }
 
     // schedule rediscovery for contact
-    fn schedule_rediscovery(&mut self, context: &C, contact: &Contact) {
-        let timer_id = context
-            .runtime()
-            .register_timer(self.get_rediscovery_wait_time(context, contact));
+    fn schedule_rediscovery(&mut self, context: &C, contact: &Contact, wait_time: Duration) {
+        let timer_id = context.runtime().register_timer(wait_time);
         self.scheduled_rediscoveries.insert(timer_id, *contact.id());
     }
 
@@ -352,6 +412,7 @@ where
             )
             .expect("invalid config");
 
+        let initial_wait_time = self.get_rediscovery_wait_time(context, &contact);
         // contact state changes to Rediscovering
         context
             .routing_table_mut()
@@ -360,38 +421,50 @@ where
             .start_rediscovering(
                 notviastatelist.clone(),
                 closest_via_contacts.iter().map(|(_, x)| *x.id()).collect(),
+                self.config.max_retry_rounds.get(),
+                initial_wait_time,
             );
 
-        self.schedule_rediscovery(context, &contact);
+        self.schedule_rediscovery(context, &contact, initial_wait_time);
 
         Ok(())
     }
 
     /// This method is typically called either by an error message or a timeout for the corresponding request
-    /// If the nodes exponential backoff has not reached max retries yet a new find node will be sent
-    /// otherwise the contact gets removed.
+    /// If the exponential backoff has not reached max retries yet a new find node will be sent
+    /// (or a new round of rediscoveries will be scheduled), otherwise the contact gets removed.
     fn handle_rediscovery_failure(
         &mut self,
         context: &C,
-        nonce: Option<Nonce>,
+        msg_id: Option<Nonce>,
         timer_id: Option<TimerId>,
     ) -> Result<(), FailureHandlingError> {
         // we remove the entry from inflight requests
-        let node_id = match (nonce, timer_id) {
+        let node_id = match (msg_id, timer_id) {
             (None, None) => panic!(
-                "internal error: handle_rediscovery must be called either with message nonce or timer timeout"
+                "internal error: handle_rediscovery_failure must be called either with message msg_id or timer timeout"
             ),
-            (Some(nonce), None) | (Some(nonce), Some(_)) => {
-                if self.rediscoveries.nonce_exists(&nonce) {
-                    self.rediscoveries.remove_by_nonce(nonce).expect("internal error: handle_rediscovery: rediscoveries entry should be present").0
+            (Some(msg_id), None) | (Some(msg_id), Some(_)) => {
+                if self.inflight_rediscoveries.nonce_exists(&msg_id) {
+                    let node_id = self.inflight_rediscoveries.remove_by_nonce(msg_id).expect("internal error: handle_rediscovery_failure: inflight rediscoveries entry should be present").0;
+                    // in case the error message came back immediately, we limit the rate of the rediscoveries
+                    let new_timer_id = context
+                        .runtime()
+                        .register_timer(REDISCOVERY_WAITTIME_RATELIMIT);
+                    self.rate_limit_rediscoveries.insert(new_timer_id, node_id);
+                    return Ok(());
                 } else {
-                    // unknown noce for us, just return
+                    // unknown msg_id for us, just return
                     return Ok(());
                 }
             }
             (None, Some(timer_id)) => {
-                if self.rediscoveries.timer_exists(&timer_id) {
-                    self.rediscoveries.remove_by_timer(&timer_id).expect("internal error: handle_rediscovery: rediscoveries entry should be present").0
+                if self.inflight_rediscoveries.timer_exists(&timer_id) {
+                    self.inflight_rediscoveries.remove_by_timer(&timer_id).expect("internal error: handle_rediscovery_failure: inflight rediscoveries entry should be present").0
+                } else if self.rate_limit_rediscoveries.contains_key(&timer_id) {
+                    let node_id= self.rate_limit_rediscoveries.remove(&timer_id).expect("internal error: handle_rediscovery_failure: rate limit entry should be present");
+                    log::debug!(target: "failure_handling", "Rediscovery of {node_id} failed. Rate limit was enforced.");
+                    node_id
                 } else {
                     // unknown timer for us, just return
                     return Ok(());
@@ -427,25 +500,55 @@ where
                     .map(|(_, x)| *x.id())
                     .collect();
 
+                let schedule_next_round_duration: Option<Duration>;
                 if let Some(mut contact) = context.routing_table_mut().contact_mut(&node_id)
                     && let ContactState::Rediscovering(rds) = contact.state_mut()
                 {
-                    // no usable contact found, try next round
-                    if rds.retry_counter < self.config.max_retry_rounds.get() as u8 {
-                        rds.retry_counter += 1;
+                    // no usable contact found, probably try another round
+
+                    // if there is another rediscovery msg inflight we do nothing and
+                    // just return as the next msg or timeout will define the fate of the next round
+                    // we need to check this before increasing the backoff counter
+                    if self.inflight_rediscoveries.exists(&node_id)
+                        || self
+                            .rate_limit_rediscoveries
+                            .values()
+                            .find(|x| *x == &node_id)
+                            .is_some()
+                    {
+                        return Ok(());
+                    }
+
+                    schedule_next_round_duration = rds.backoff.next();
+                    if schedule_next_round_duration.is_some() {
+                        // in case this is the last inflight rediscovery msg, refill and reschedule
                         // refill not via contacts
                         rds.set_via_contact_list(new_via_contact_list);
+                        // scheduling a new round will be done after the outer if block
                     } else {
                         // retry counter reached maximum value
                         // set contact state to dead if there is no other rediscovery in flight
-                        if !self.rediscoveries.exists(&node_id) {
-                            log::debug!(target: "failure_handling", "Rediscovery of {node_id} failed. Removing from routing table");
+                        if !self.inflight_rediscoveries.exists(&node_id) {
+                            log::debug!(target: "failure_handling", "Rediscovery of {node_id} failed. Setting its state to: Dead");
                             contact.set_state(ContactState::Dead);
                         }
                         return Ok(());
                     }
                 } else {
                     // contact not in state rediscovering, nothing to do here
+                    return Ok(());
+                };
+
+                // schedule_next_round_duration will only be set in case the round was finished
+                if schedule_next_round_duration.is_some()
+                    && let Some(contact) = context.routing_table_mut().contact(&node_id)
+                {
+                    log::debug!(target: "failure_handling", "Rediscovery of {node_id} finished round. Waiting for {:?} to start next round", schedule_next_round_duration.unwrap());
+                    self.schedule_rediscovery(
+                        context,
+                        contact,
+                        schedule_next_round_duration.unwrap(),
+                    );
                     return Ok(());
                 }
 
@@ -465,26 +568,30 @@ where
         }
         // now that we are sure that the id exists, reuse name as value
         let next_via_contact_id = next_via_contact_id.unwrap();
-        // TODO different waiting times need to be implemented
 
         // Start new find node
+
+        // set timer for timeout
         let timer_id = context.runtime().register_timer(REDISCOVERY_TIMEOUT_MAX);
 
-        let nonce = {
-            let mut nonce = Nonce::random();
+        let msg_id = {
+            let mut msg_id = Nonce::random();
 
-            while let Err(e) = self.rediscoveries.insert((node_id, timer_id, nonce)) {
+            while let Err(e) = self
+                .inflight_rediscoveries
+                .insert((node_id, timer_id, msg_id))
+            {
                 match e {
                     InsertionError::DuplicateTimer => {
-                        log::warn!(target: "failure_handling", "runtime emitted duplicate timer id {} [{:#?}]", timer_id, self.rediscoveries);
+                        log::warn!(target: "failure_handling", "runtime emitted duplicate timer id {} [{:#?}]", timer_id, self.inflight_rediscoveries);
                         self.state = ReactiveUseCaseState::Error;
                         return Err(FailureHandlingError::DuplicateTimerId);
                     }
-                    InsertionError::DuplicateNonce => nonce = Nonce::random(),
+                    InsertionError::DuplicateNonce => msg_id = Nonce::random(),
                 }
             }
 
-            nonce
+            msg_id
         };
 
         // extract notviastate list from contact state
@@ -498,7 +605,7 @@ where
                 ProtocolMessageKind::FindNodeReq,
                 *context.root_id(),
                 next_via_contact_id,
-                Some(nonce.into()),
+                Some(msg_id.into()),
                 Some(From::from(*context.uln_table().state_seq_nr())),
                 context.uln_table().size(),
             ),
@@ -527,14 +634,15 @@ where
             context.root_id(),
         );
 
+        // the following is only necessary for subsequent the logging message
         let current_retries = match context.routing_table().contact(&node_id).unwrap().state() {
-            ContactState::Rediscovering(rds) => rds.retry_counter,
+            ContactState::Rediscovering(rds) => rds.backoff.current_retries,
             _ => {
                 panic!("handle rediscovery failure: contact should be in Rediscovering state");
             }
         };
         // Just some logging, if logging is disabled this will be eliminated through dead code elimination
-        log::trace!(target: "failure_handling", "Sent rediscovery find node for {} to {} [round {} of {}]", node_id, next_via_contact_id, current_retries, self.config.max_retry_rounds.get());
+        log::trace!(target: "failure_handling", "handle rediscovery failure: Sent rediscovery find node for {} to {} [round {} of {}]", node_id, next_via_contact_id, current_retries, self.config.max_retry_rounds.get());
 
         Ok(())
     }
@@ -626,6 +734,13 @@ where
             UseCaseEvent::Contact(contact_event) => {
                 match *contact_event {
                     ContactEvent::Updated { new, old } if new.id() == old.id() => {
+                        // contact is dead: remove from routing table
+                        if new.is_dead() {
+                            log::trace!(target: "failure_handling", "Contact {} is Dead, remove from routing table", new.id());
+                            // this should trigger ContactEvent::Removed
+                            context.routing_table_mut().remove(new.id());
+                            return Ok(());
+                        }
                         // contact was invalidated
                         if new.is_invalid() && old.is_valid() {
                             self.start_rediscovery(context, *new)?;
@@ -633,16 +748,20 @@ where
                     }
                     ContactEvent::Removed(contact) => {
                         // a contact may be removed by being replaced by a better contact while in rediscovery
-                        self.rediscoveries.remove_by_id(contact.id());
+                        self.inflight_rediscoveries.remove_by_id(contact.id());
                         log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got removed from routing table", contact.id());
                     }
                     _ => {}
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::FindNodeRsp(rsp), _) => {
-                if let Some((_, timer)) = self.rediscoveries.remove_by_nonce(rsp.msg_id().into()) {
-                    log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got a successful answer [timer: {:?}, nonce: {:?}]", rsp.source_route.source(), timer, rsp.msg_id());
+                if let Some((_, timer)) = self
+                    .inflight_rediscoveries
+                    .remove_by_nonce(rsp.msg_id().into())
+                {
+                    log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got a successful answer [timer: {:?}, nonce: {:?}]", rsp.source_route.source(), timer, Nonce::from(rsp.msg_id()));
                     log::debug!(target: "failure_handling", "Rediscovery of {} was successful!", rsp.source());
+                    //  since the contact state should have changed to Valid, the rediscovery process will stop automatically
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::Error(rsp), _) => {
