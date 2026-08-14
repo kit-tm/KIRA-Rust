@@ -2,8 +2,10 @@
 
 use std::{
     collections::HashMap,
-    fmt::Debug,
-    fmt::Formatter,
+    fmt::{
+        Debug,
+        Formatter,
+    },
     num::NonZeroU64,
 };
 

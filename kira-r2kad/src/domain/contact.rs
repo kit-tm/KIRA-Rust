@@ -9,17 +9,18 @@ use std::{
 
 use derive_more::derive::Display;
 
-use crate::domain::{
-    Age,
-    NodeId,
-    NotViaStateList,
-    Path,
-    SafeStateSeqNr,
-    Timestamp,
-    pathcollection::PathCollection,
+use crate::{
+    domain::{
+        Age,
+        NodeId,
+        NotViaStateList,
+        Path,
+        SafeStateSeqNr,
+        Timestamp,
+        pathcollection::PathCollection,
+    },
+    use_cases::failure_handling::RediscoveryState,
 };
-
-use crate::use_cases::failure_handling::RediscoveryState;
 
 #[derive(Debug, Clone, Eq, PartialEq, Display, Default)]
 #[display("{_variant}")]
