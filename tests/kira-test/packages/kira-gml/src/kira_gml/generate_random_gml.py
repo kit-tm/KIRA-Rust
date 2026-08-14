@@ -69,7 +69,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     # Model-specific parameters
     parser.add_argument(
-        "--p",
+        "-p",
         type=float,
         default=0.1,
         help=(
