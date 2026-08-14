@@ -1,7 +1,7 @@
 use std::{
     ops::Index,
     slice::SliceIndex,
-    sync::OnceLock,
+    sync::LazyLock,
 };
 
 use derive_more::{
@@ -22,16 +22,10 @@ pub mod pathcollection;
 pub mod shortest_first_path_simplifier;
 pub mod simplifier;
 
-/// this is a static variable that automatically gets initialized on its first use
-/// it represents a random NodeID that serves to prevent route flapping
-pub struct AnchorNodeId;
-
-impl AnchorNodeId {
-    pub fn get(&mut self) -> &'static NodeId {
-        static INSTANCE: OnceLock<NodeId> = OnceLock::new();
-        INSTANCE.get_or_init(NodeId::random)
-    }
-}
+/// This is a static variable that automatically gets initialized on its first use.
+///
+/// It represents a random [NodeId] that serves to prevent route flapping.
+static ANCHOR_NODE_ID: LazyLock<NodeId> = LazyLock::new(NodeId::random);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -272,13 +266,13 @@ impl Path {
         iter.next().is_none()
     }
 
-    /// returns true if this path is better (shorter or same length but closer to AnchorNodeId)
+    /// Returns true if this path is better (shorter or same length but closer to AnchorNodeId)
     pub fn is_better_than(&self, other_path: &Path) -> bool {
         debug_assert!(self.last() == other_path.last()); // paths should have the same destination
         self.ids.len() < other_path.ids.len()
             || (self.ids.len() == other_path.ids.len()
-                && (self.path_hasher().hash(&self.ids) ^ AnchorNodeId.get())
-                    < self.path_hasher().hash(&other_path.ids) ^ AnchorNodeId.get())
+                && (self.path_hasher().hash(&self.ids) ^ &*ANCHOR_NODE_ID)
+                    < self.path_hasher().hash(&other_path.ids) ^ &*ANCHOR_NODE_ID)
     }
 
     /// returns true if this path is same
