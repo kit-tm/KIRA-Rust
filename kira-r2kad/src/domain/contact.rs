@@ -25,14 +25,18 @@ use crate::{
 #[derive(Debug, Clone, Eq, PartialEq, Display, Default)]
 #[display("{_variant}")]
 /// [ContactState] starts normally in Unknown for contacts heard from other nodes.
-///
 pub enum ContactState {
     #[default]
-    Unknown, // when contact is initialized, its state is mostly unknown
-    Valid,                           // has a validated active path
-    Invalid(NotViaStateList),        // active path is not valid due to failed links
-    Rediscovering(RediscoveryState), // no valid path, but trying to rediscvoer
-    Dead, // contact not usable anymore (e.g., rediscovery failed finally)
+    /// When contact is initialized, its state is mostly unknown.
+    Unknown,
+    /// Has a validated active path.
+    Valid,
+    /// Active path is not valid due to failed links
+    Invalid(NotViaStateList),
+    /// No valid path, but trying to rediscover.
+    Rediscovering(RediscoveryState),
+    /// contact not usable anymore (e.g., rediscovery failed finally).
+    Dead,
 }
 
 /// A [Contact] as represented in the [RoutingTable](crate::domain::routing_table::RoutingTable).

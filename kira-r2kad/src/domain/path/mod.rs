@@ -31,10 +31,14 @@ static ANCHOR_NODE_ID: LazyLock<NodeId> = LazyLock::new(NodeId::random);
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum PathState {
     #[default]
-    Undefined, // initial state, path state not yet defined
-    Valid,    // path is valid (has been validated)
-    Faulty,   // path not usable but rediscovery is initiated
-    Checking, // path probably usable, but needs to be validated (e.g., for a proposed path)
+    /// Initial state, [PathState] not yet defined.
+    Undefined,
+    /// [Path] is valid (has been validated).
+    Valid,
+    /// [Path] not usable but rediscovery is initiated.
+    Faulty,
+    /// [Path] probably usable, but needs to be validated (e.g., for a proposed path).
+    Checking,
 }
 
 /// A Path of [NodeId]s.
@@ -43,18 +47,18 @@ pub enum PathState {
 ///
 /// # Invariant
 ///
-/// A valid [Path] is not empty at any time as it always contains the NodeId of the destination node at the end
+/// A valid [Path] is not empty at any time as it always contains the NodeId of the destination node at the end.
 /// Therefore some methods panic or return errors when constructing empty [Path]s.
-/// The last_validated timestamp is the instant when the path was successfully validated by a PathProbe or invalidated by an error
-/// The last_path_refresh timestamp is the instant when the path was successfully refreshed
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Path {
     ids: Vec<NodeId>,
     #[cfg_attr(feature = "serde", serde(skip))]
     path_state: PathState,
+    /// Instant when the path was successfully validated by a PathProbe or invalidated by an error.
     #[cfg_attr(feature = "serde", serde(skip))]
     last_validated: Option<Timestamp>, // update for last validation or invalidation
+    /// Instant when the path was successfully refreshed.
     #[cfg_attr(feature = "serde", serde(skip))]
     last_path_refresh: Option<Timestamp>,
 }
