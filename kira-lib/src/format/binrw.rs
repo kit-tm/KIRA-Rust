@@ -160,7 +160,10 @@ fn parse_error_data_from_bytes(payload: &[u8]) -> Result<ErrorData, Box<dyn Erro
         if payload_consumed + 3 + object_length > payload_len {
             return Err(Box::new(IoError::new(
                 ErrorKind::InvalidData,
-                "object length exceeds payload",
+                format!(
+                    "object length exceeds payload (object length = {}, payload length = {}, consumed = {})",
+                    object_length, payload_len, payload_consumed
+                ),
             )));
         }
 
@@ -171,7 +174,10 @@ fn parse_error_data_from_bytes(payload: &[u8]) -> Result<ErrorData, Box<dyn Erro
                 if object_length < 1 {
                     return Err(Box::new(IoError::new(
                         ErrorKind::InvalidData,
-                        "error-data object too short",
+                        format!(
+                            "error-data object too short (length = {}, expected at least 1)",
+                            object_length
+                        ),
                     )));
                 }
 
@@ -181,7 +187,10 @@ fn parse_error_data_from_bytes(payload: &[u8]) -> Result<ErrorData, Box<dyn Erro
                         if object_length != 1 {
                             return Err(Box::new(IoError::new(
                                 ErrorKind::InvalidData,
-                                "dead-end error-data object must be exactly 1 byte",
+                                format!(
+                                    "dead-end error-data object must be exactly 1 byte (length = {})",
+                                    object_length
+                                ),
                             )));
                         }
                         error_data = Some(ErrorData::DeadEnd);
@@ -191,7 +200,10 @@ fn parse_error_data_from_bytes(payload: &[u8]) -> Result<ErrorData, Box<dyn Erro
                         if object_length != expected_len {
                             return Err(Box::new(IoError::new(
                                 ErrorKind::InvalidData,
-                                "segment-failure error-data object has invalid length",
+                                format!(
+                                    "segment-failure error-data object has invalid length (length = {}, expected = {})",
+                                    object_length, expected_len
+                                ),
                             )));
                         }
 
@@ -226,7 +238,10 @@ fn parse_error_data_from_bytes(payload: &[u8]) -> Result<ErrorData, Box<dyn Erro
     error_data.ok_or_else(|| {
         Box::new(IoError::new(
             ErrorKind::InvalidData,
-            "missing error-data object in Error message",
+            format!(
+                "missing error-data object in Error message (consumed = {})",
+                payload_consumed
+            ),
         )) as Box<dyn Error>
     })
 }
@@ -363,7 +378,10 @@ fn parse_store_req_data_from_bytes(
         if payload_consumed + 3 + object_length > payload_len {
             return Err(Box::new(IoError::new(
                 ErrorKind::InvalidData,
-                "object length exceeds payload",
+                format!(
+                    "object length exceeds payload (object length = {}, payload length = {}, consumed = {})",
+                    object_length, payload_len, payload_consumed
+                ),
             )));
         }
         payload_consumed += 3;
@@ -373,7 +391,11 @@ fn parse_store_req_data_from_bytes(
                 if object_length < NodeId::SIZE + 2 {
                     return Err(Box::new(IoError::new(
                         ErrorKind::InvalidData,
-                        "store-req-data object too short",
+                        format!(
+                            "store-req-data object too short (length = {}, expected at least {})",
+                            object_length,
+                            NodeId::SIZE + 2
+                        ),
                     )));
                 }
 
@@ -387,7 +409,10 @@ fn parse_store_req_data_from_bytes(
                 if object_length != min_len && object_length != max_len {
                     return Err(Box::new(IoError::new(
                         ErrorKind::InvalidData,
-                        "invalid store-req-data object length",
+                        format!(
+                            "invalid store-req-data object length (length = {}, expected = {} or {})",
+                            object_length, min_len, max_len
+                        ),
                     )));
                 }
 
@@ -436,7 +461,10 @@ fn parse_store_rsp_data_from_bytes(payload: &[u8]) -> Result<StoreRspData, Box<d
         if payload_consumed + 3 + object_length > payload_len {
             return Err(Box::new(IoError::new(
                 ErrorKind::InvalidData,
-                "object length exceeds payload",
+                format!(
+                    "object length exceeds payload (object length = {}, payload length = {}, consumed = {})",
+                    object_length, payload_len, payload_consumed
+                ),
             )));
         }
         payload_consumed += 3;
@@ -446,7 +474,10 @@ fn parse_store_rsp_data_from_bytes(payload: &[u8]) -> Result<StoreRspData, Box<d
                 if object_length != 1 {
                     return Err(Box::new(IoError::new(
                         ErrorKind::InvalidData,
-                        "store-rsp-data object must be exactly 1 byte",
+                        format!(
+                            "store-rsp-data object must be exactly 1 byte (length = {})",
+                            object_length
+                        ),
                     )));
                 }
 
@@ -494,7 +525,10 @@ fn parse_fetch_req_data_from_bytes(payload: &[u8]) -> Result<FetchReqData, Box<d
         if payload_consumed + 3 + object_length > payload_len {
             return Err(Box::new(IoError::new(
                 ErrorKind::InvalidData,
-                "object length exceeds payload",
+                format!(
+                    "object length exceeds payload (object length = {}, payload length = {}, consumed = {})",
+                    object_length, payload_len, payload_consumed
+                ),
             )));
         }
         payload_consumed += 3;
@@ -504,7 +538,11 @@ fn parse_fetch_req_data_from_bytes(payload: &[u8]) -> Result<FetchReqData, Box<d
                 if object_length != NodeId::SIZE {
                     return Err(Box::new(IoError::new(
                         ErrorKind::InvalidData,
-                        "fetch-req-data object has invalid length",
+                        format!(
+                            "fetch-req-data object has invalid length (length = {}, expected = {})",
+                            object_length,
+                            NodeId::SIZE
+                        ),
                     )));
                 }
 
@@ -546,7 +584,10 @@ fn parse_fetch_rsp_data_from_bytes(
         if payload_consumed + 3 + object_length > payload_len {
             return Err(Box::new(IoError::new(
                 ErrorKind::InvalidData,
-                "object length exceeds payload",
+                format!(
+                    "object length exceeds payload (object length = {}, payload length = {}, consumed = {})",
+                    object_length, payload_len, payload_consumed
+                ),
             )));
         }
         payload_consumed += 3;
@@ -556,7 +597,10 @@ fn parse_fetch_rsp_data_from_bytes(
                 if object_length < 1 {
                     return Err(Box::new(IoError::new(
                         ErrorKind::InvalidData,
-                        "fetch-rsp-data object too short",
+                        format!(
+                            "fetch-rsp-data object too short (length = {}, expected at least 1)",
+                            object_length
+                        ),
                     )));
                 }
 
@@ -567,7 +611,10 @@ fn parse_fetch_rsp_data_from_bytes(
                         if object_length != 1 {
                             return Err(Box::new(IoError::new(
                                 ErrorKind::InvalidData,
-                                "fetch-rsp not-found object must be exactly 1 byte",
+                                format!(
+                                    "fetch-rsp not-found object must be exactly 1 byte (length = {})",
+                                    object_length
+                                ),
                             )));
                         }
                         return Ok(FetchRspData {
@@ -578,7 +625,10 @@ fn parse_fetch_rsp_data_from_bytes(
                         if object_length < 3 {
                             return Err(Box::new(IoError::new(
                                 ErrorKind::InvalidData,
-                                "fetch-rsp ok object too short",
+                                format!(
+                                    "fetch-rsp ok object too short (length = {}, expected at least 3)",
+                                    object_length
+                                ),
                             )));
                         }
 
@@ -598,7 +648,10 @@ fn parse_fetch_rsp_data_from_bytes(
                             if consumed_inside + entry_len > object_length {
                                 return Err(Box::new(IoError::new(
                                     ErrorKind::InvalidData,
-                                    "fetch-rsp entry exceeds object length",
+                                    format!(
+                                        "fetch-rsp entry exceeds object length (entry length = {}, object length = {})",
+                                        entry_len, object_length
+                                    ),
                                 )));
                             }
 
@@ -611,7 +664,10 @@ fn parse_fetch_rsp_data_from_bytes(
                         if consumed_inside != object_length {
                             return Err(Box::new(IoError::new(
                                 ErrorKind::InvalidData,
-                                "fetch-rsp-data object trailing bytes",
+                                format!(
+                                    "fetch-rsp-data object has trailing bytes (length = {}, consumed = {})",
+                                    object_length, consumed_inside
+                                ),
                             )));
                         }
 
@@ -635,7 +691,10 @@ fn parse_fetch_rsp_data_from_bytes(
 
     Err(Box::new(IoError::new(
         ErrorKind::InvalidData,
-        "missing fetch-rsp-data object",
+        format!(
+            "missing fetch-rsp-data object (consumed = {})",
+            payload_consumed
+        ),
     )))
 }
 
@@ -915,8 +974,9 @@ fn parse_req_rsp_payload_from_bytes(
                     let mut dst = [0u8; NodeId::SIZE];
                     payload_cursor.read_exact(&mut src)?;
                     payload_cursor.read_exact(&mut dst)?;
+                    let age_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
                     let link = Link::new(NodeId::from(src), NodeId::from(dst));
-                    let age = Age::from(0);
+                    let age = Age::from(u64::from(age_raw));
                     let new_entry = NotVia::from((link, age));
                     not_via.insert(new_entry);
                 }
@@ -937,6 +997,8 @@ fn parse_req_rsp_payload_from_bytes(
                     let contact_id = NodeId::from(id_bytes);
 
                     let ssn_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
+                    //TODO age and node degree?
+                    let _age_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?; // consume placeholder
                     let _node_degree =
                         u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
 
@@ -1525,7 +1587,10 @@ fn parse_rtable_update_info_from_bytes(
         if payload_consumed + 3 + object_length > payload_len {
             return Err(Box::new(IoError::new(
                 ErrorKind::InvalidData,
-                "object length exceeds payload",
+                format!(
+                    "object length exceeds payload (object length = {}, payload length = {}, consumed = {})",
+                    object_length, payload_len, payload_consumed
+                ),
             )));
         }
         payload_consumed += 3;
@@ -1534,7 +1599,11 @@ fn parse_rtable_update_info_from_bytes(
             if object_length < NodeId::SIZE + 5 {
                 return Err(Box::new(IoError::new(
                     ErrorKind::InvalidData,
-                    "rtable-update-info object too short",
+                    format!(
+                        "rtable-update-info object too short (length = {}, expected at least {})",
+                        object_length,
+                        NodeId::SIZE + 5
+                    ),
                 )));
             }
 
