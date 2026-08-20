@@ -166,12 +166,17 @@ where
                 next_hop,
             }) => {
                 log::trace!(target: "native_fwd_table", "Trying to replace neighbor route {destination} dst {next_hop:?}");
-                let out_interface = self
+                let Some(UnderlayNeighborInformation {
+                    interface_id: out_interface,
+                    ..
+                }) = self
                     .underlay_information_provider
                     .get_information(next_hop)
                     .await
-                    .expect("next_hop ulnid is known") // FIXME: panic, understand how this can be
-                    .interface_id;
+                    .expect("no error")
+                else {
+                    return Ok(());
+                };
                 let _ = self.interface_id_table.insert(*next_hop, out_interface);
 
                 self.netlink
@@ -200,6 +205,7 @@ where
                         .underlay_information_provider
                         .get_information(next_hop)
                         .await
+                        .expect("no error")
                         .expect("next_hop ulnid is known");
                     self.netlink
                         .replace_via_route(out_path_id, &next_hop)
@@ -312,6 +318,7 @@ where
                         .get_information(ulnid)
                         .await
                         .unwrap()
+                        .unwrap()
                         .ll_ipv6,
                     None,
                 )
@@ -329,6 +336,7 @@ where
                     .underlay_information_provider
                     .get_information(next_hop)
                     .await
+                    .unwrap()
                     .unwrap();
                 (out_path_id.into(), Some((next_hop, out_path_id.clone())))
             }
