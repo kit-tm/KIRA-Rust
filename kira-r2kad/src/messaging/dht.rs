@@ -1,27 +1,49 @@
 //! Data types for messages used to interact with the distributed hash table.
 
-use crate::domain::NodeId;
-use std::fmt::Debug;
-use std::sync::Arc;
+use std::{
+    fmt::Debug,
+    sync::Arc,
+};
 
-pub type DefaultLHTInput = Arc<[u8]>;
-pub type DefaultLHTOutput = Vec<Arc<[u8]>>;
+use crate::{
+    domain::{
+        Age,
+        NodeId,
+    },
+    messaging::{
+        ProtocolMessage,
+        ReqRspMessage,
+    },
+};
+
+pub type LHTInput = Arc<[u8]>;
+pub type LHTOutput = Vec<Arc<[u8]>>;
 
 /// Data struct representing a StoreReq protocol message.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct StoreReqData<D: Debug> {
+pub struct StoreReqData<D> {
     /// The handle with which the data can be retrieved later.
     pub handle: NodeId,
     /// The data to save with this request.
     pub data: D,
-    //store_duration: Duration,
+    /// Last time the key-value pair was accessed.
+    ///
+    /// This is set if a key-value pair is _republished_.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub last_accessed_ms: Option<Age>,
+}
+
+impl From<ReqRspMessage<StoreReqData<LHTInput>>> for ProtocolMessage {
+    fn from(message: ReqRspMessage<StoreReqData<LHTInput>>) -> Self {
+        ProtocolMessage::StoreReq(message)
+    }
 }
 
 /// Successful storage of hash table data.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub enum StoreOK {
+pub enum StoreOk {
     /// No previous data was stored under the specified handle.
     Created,
     /// Data was appended to existing data-entry.
@@ -36,12 +58,15 @@ pub enum StoreOK {
 /// since all store requests should succeed.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub enum StoreErr {}
+pub enum StoreErr {
+    /// An unexpected error occurred on storing a key-value pair in the DHT.
+    UnexpectedError(String),
+}
 
 /// The result returned by the store response.
 ///
 /// This result is wrapped in the [StoreRspData] struct.
-pub type StoreResult = Result<StoreOK, StoreErr>;
+pub type StoreResult = Result<StoreOk, StoreErr>;
 
 /// Data struct representing a StoreRsp protocol message.
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -51,12 +76,24 @@ pub struct StoreRspData {
     pub status: StoreResult,
 }
 
+impl From<ReqRspMessage<StoreRspData>> for ProtocolMessage {
+    fn from(message: ReqRspMessage<StoreRspData>) -> Self {
+        ProtocolMessage::StoreRsp(message)
+    }
+}
+
 /// Data struct representing a FetchReq protocol message.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct FetchReqData {
     /// Handle of which the sender wants to know the stored data.
     pub handle: NodeId,
+}
+
+impl From<ReqRspMessage<FetchReqData>> for ProtocolMessage {
+    fn from(message: ReqRspMessage<FetchReqData>) -> Self {
+        ProtocolMessage::FetchReq(message)
+    }
 }
 
 /// Errors that may occur on a FetchReq protocol message.
@@ -75,4 +112,10 @@ pub struct FetchRspData<D: Debug> {
     /// further describing the error that occurred while trying to fetch
     /// the data.
     pub data: Result<D, FetchErr>,
+}
+
+impl From<ReqRspMessage<FetchRspData<LHTOutput>>> for ProtocolMessage {
+    fn from(message: ReqRspMessage<FetchRspData<LHTOutput>>) -> Self {
+        ProtocolMessage::FetchRsp(message)
+    }
 }

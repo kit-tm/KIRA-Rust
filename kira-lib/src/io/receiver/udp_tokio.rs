@@ -2,23 +2,29 @@
 //!
 //! The main struct for receiving [ProtocolMessages](ProtocolMessage) is the [UdpReceiver].
 
-use std::collections::HashSet;
-use std::net::SocketAddr;
-use std::num::NonZeroU32;
-use std::ops::DerefMut;
-use std::sync::Arc;
+use std::{
+    collections::HashSet,
+    net::SocketAddr,
+    num::NonZeroU32,
+    sync::Arc,
+};
 
-use kira_r2kad::domain::NodeId;
+use kira_r2kad::{
+    domain::NodeId,
+    messaging::ProtocolMessageKind,
+};
 use tokio::net::UdpSocket;
-use tokio::sync::RwLock;
 
 use super::*;
-use crate::domain::underlay::UnderlayNeighbor;
-use crate::format::ProtocolMessageFormat;
-use crate::io::ALL_KIRA_NODES;
-use crate::underlay::UnderlayObserverHandle;
-use crate::underlay::handle::UnderlayObserverHandleError;
-use crate::underlay::information_base::UnderlayNeighborInterfaceDownError;
+use crate::{
+    domain::underlay::UnderlayNeighbor,
+    format::ProtocolMessageFormat,
+    underlay::{
+        UnderlayObserverHandle,
+        handle::UnderlayObserverHandleError,
+        information_base::UnderlayNeighborInterfaceDownError,
+    },
+};
 
 /// Maximum Transmission Unit (MTU). In general the MTU is actually smaller due to
 /// network restrictions. But to be safe we use this.
@@ -33,7 +39,7 @@ const MTU_BYTES: usize = 65536;
 #[derive(derive_more::Debug)]
 pub struct UdpReceiver {
     #[debug(skip)]
-    buffer: RwLock<[u8; MTU_BYTES]>,
+    buffer: Box<[u8; MTU_BYTES]>,
     socket: Arc<UdpSocket>,
     format: ProtocolMessageFormat,
     underlay_handle: UnderlayObserverHandle,
@@ -45,7 +51,7 @@ impl Clone for UdpReceiver {
     /// Clones the [UdpReceiver] with a new buffer.
     fn clone(&self) -> Self {
         Self {
-            buffer: RwLock::new([0u8; MTU_BYTES]),
+            buffer: Box::new([0u8; MTU_BYTES]),
             socket: Arc::clone(&self.socket),
             format: self.format,
             underlay_handle: self.underlay_handle.clone(),
@@ -56,35 +62,6 @@ impl Clone for UdpReceiver {
 }
 
 impl UdpReceiver {
-    /// Creates a new [UdpReceiver].
-    ///
-    /// Initializes the internally used [UdpSocket].
-    ///
-    /// To bind the receiver to a random free interface, use `socket_port = 0`.
-    pub async fn new(
-        socket_port: u16,
-        format: ProtocolMessageFormat,
-        underlay_handle: UnderlayObserverHandle,
-        excluded_interfaces: HashSet<InterfaceId>,
-        root_id: NodeId,
-    ) -> tokio::io::Result<Self> {
-        let udp_socket =
-            UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?;
-        if let Err(err) = udp_socket.join_multicast_v6(&ALL_KIRA_NODES, 0) {
-            log::trace!(target: "message_receiver", "Error joining multicast group: {err:?}");
-        }
-
-        let socket = Arc::new(udp_socket);
-
-        Ok(Self::from_socket(
-            socket,
-            format,
-            underlay_handle,
-            excluded_interfaces,
-            root_id,
-        ))
-    }
-
     /// Creates a new [UdpReceiver] from a given socket.
     pub(crate) fn from_socket(
         socket: Arc<UdpSocket>,
@@ -93,8 +70,14 @@ impl UdpReceiver {
         excluded_interfaces: HashSet<InterfaceId>,
         root_id: NodeId,
     ) -> Self {
+        // Don't receive multicast ULNHello the node sent itself.
+        if let Err(err) = socket.set_multicast_loop_v6(false) {
+            tracing::warn!(%err, "Failed to disable multicast IPv6 loopback");
+            // no error since we still drop them if received
+        }
+
         Self {
-            buffer: RwLock::new([0u8; MTU_BYTES]),
+            buffer: Box::new([0u8; MTU_BYTES]),
             socket,
             format,
             underlay_handle,
@@ -107,7 +90,7 @@ impl UdpReceiver {
         let deserialized = match self.format.deserialize(buffer) {
             Ok(message) => message,
             Err(e) => {
-                log::error!(target: "message_receiver", "Received invalid serialized message: {e}");
+                tracing::error!(target: "message_receiver", err=%e, "Received invalid serialized message");
                 return None;
             }
         };
@@ -116,33 +99,45 @@ impl UdpReceiver {
     }
 
     /// Returns the actually bound local address.
-    pub fn local_addr(&self) -> tokio::io::Result<SocketAddr> {
+    pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
         self.socket.local_addr()
     }
 }
 
 impl AsyncProtocolMessageReceiver for UdpReceiver {
-    #[tracing::instrument(level = "debug", target = "message_receiver")]
+    #[tracing::instrument(
+        level = tracing::Level::DEBUG,
+        target = "message_receiver",
+        fields(
+            message = tracing::field::Empty
+        )
+    )]
     async fn recv(&mut self) -> Option<Result<(ProtocolMessage, UnderlayNeighborId), RecvError>> {
         let socket = Arc::clone(&self.socket);
-        let mut buffer = self.buffer.write().await;
-
         loop {
-            let (received_bytes, received_from) = match socket.recv_from(buffer.deref_mut()).await {
-                Ok(received) => received,
-                Err(e) => {
-                    log::error!(target: "message_receiver", "Failed to receive data from socket: {e}");
-                    return Some(Err(RecvError::IoError(Box::new(e))));
-                }
-            };
+            let (received_bytes, received_from) =
+                match socket.recv_from(self.buffer.as_mut_slice()).await {
+                    Ok(received) => received,
+                    Err(e) => {
+                        tracing::error!(
+                        target: "message_receiver",
+                        io_error=%e,
+                        "Failed to receive data from socket");
+                        return Some(Err(RecvError::IoError(Box::new(e))));
+                    }
+                };
             let received_from = match received_from {
                 SocketAddr::V6(addr) => addr,
-                addr => panic!("Received Non-IPv6 Packet from {addr}"),
+                addr => unreachable!("Received Non-IPv6 Packet from {addr}"),
             };
 
-            // FIXME: ignore scope_id 0 (probably caused by ipv6 attached to lo)
             let Some(interface_id) = NonZeroU32::new(received_from.scope_id()) else {
-                log::warn!(target: "message_receiver", "Ignoring message with scope_id 0");
+                // non-link-local or loopback interface
+                tracing::trace!(
+                    target: "message_receiver",
+                    reason = "Ignoring message with scope_id 0",
+                    "Dropping message",
+                );
                 continue;
             };
             let interface_id = interface_id.into();
@@ -150,32 +145,52 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
             // ignore incoming messages from excluded interfaces
             // otherwise it will error determining the ulnid
             if self.excluded_interfaces.contains(&interface_id) {
+                tracing::trace!(
+                    target: "message_receiver",
+                    %interface_id,
+                    reason = "Received on ignored interface",
+                    "Dropping message"
+                );
                 continue;
             }
 
-            let Some(message) = self.deserialize(&buffer[..received_bytes]) else {
-                log::error!(target: "message_receiver", "Deserialization of received message failed");
+            let Some(message) = self.deserialize(&self.buffer[..received_bytes]) else {
                 continue;
             };
+            let span = tracing::Span::current();
+            if !span.is_disabled() {
+                span.record("message", format!("{message:?}"));
+            }
 
-            if message.source() == &self.root_id {
-                log::trace!(target: "message_receiver", "Ignoring message from us");
+            if message.kind() == ProtocolMessageKind::ULNHello && message.source() == &self.root_id
+            {
+                // IPV6_MULTICAST_LOOP should be set
+                std::hint::cold_path();
+                tracing::warn!(
+                    target: "message_receiver",
+                    ?message,
+                    reason = "Ignoring ULNHello from us",
+                    "Dropping message",
+                );
                 continue;
             }
-            log::trace!(target: "message_receiver", "Received {:?} from {}", &message, received_from);
 
             let neighbor = UnderlayNeighbor::new(*received_from.ip(), interface_id);
             let ulnid = match self.underlay_handle.register_neighbor(neighbor).await {
                 Ok(ulnid) => ulnid,
                 Err(UnderlayObserverHandleError::SenderClosed(e)) => {
-                    log::error!(target: "message_receiver", "underlay handle sender closed: {e}");
+                    tracing::error!(target: "message_receiver", err=%e, "Underlay handle sender closed");
                     // fatal error if we can't query underlay observer anymore
                     return Some(Err(RecvError::Closed));
                 }
                 Err(UnderlayObserverHandleError::InterfaceDown(
                     UnderlayNeighborInterfaceDownError(id),
                 )) => {
-                    log::warn!(target: "message_receiver", "interface ({id}) down before able to determine underlay neighbor id of received message: {message:?}");
+                    tracing::warn!(
+                        target: "message_receiver",
+                        interface_id=%id,
+                        "Interface down before able to determine underlay neighbor id of message"
+                    );
 
                     let mut ids = HashSet::with_capacity(1);
                     ids.insert(id);

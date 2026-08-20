@@ -2,29 +2,44 @@
 
 pub(crate) mod domain;
 
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::str::FromStr;
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    str::FromStr,
+    sync::Arc,
+};
 
-use axum::body::Bytes;
-use axum::extract::{Query, State};
-use axum::routing::{get, post};
-use axum::{Json, Router};
-
-use kira_r2kad::domain::protocol_event::DebugEvent;
+use axum::{
+    Json,
+    Router,
+    body::Bytes,
+    extract::{
+        Query,
+        State,
+    },
+    routing::{
+        get,
+        post,
+    },
+};
+use domain::dht::DHTErr;
+use kira_r2kad::{
+    domain::protocol_event::DebugEvent,
+    messaging::ProtocolMessage,
+    use_cases::{
+        ApiEvent,
+        InjectionMessageData,
+        inject_messages::InjectionResult,
+    },
+};
+use tokio::{
+    sync::mpsc,
+    time::timeout,
+};
 #[cfg(feature = "swagger_doc")]
 use utoipa::OpenApi;
 #[cfg(feature = "swagger_doc")]
 use utoipa_swagger_ui::SwaggerUi;
-
-use domain::dht::DHTErr;
-use tokio::sync::mpsc;
-use tokio::time::timeout;
-
-use kira_r2kad::messaging::ProtocolMessage;
-use kira_r2kad::use_cases::inject_messages::InjectionResult;
-use kira_r2kad::use_cases::{ApiEvent, InjectionMessageData};
 
 /// Starts a REST API-server based on the provided [ApiConfig].
 ///
@@ -168,7 +183,7 @@ fn extract_dht_handle(params: &mut HashMap<String, String>) -> Result<domain::dh
     post,
     path = "/dht",
     responses(domain::dht::StoreOK, DHTErr),
-    request_body(content = [u8], description = "The value to store in the DHT"),
+    request_body(content = [u8], description = "Value to store in the DHT"),
     params(
         (
             "key" = Option < String >,
@@ -215,10 +230,11 @@ async fn store_dht_data(
 
     match injection_result {
         InjectionResult::Answered(boxedtuple) => match *boxedtuple {
-            (ProtocolMessage::StoreRsp(payload), _) => Ok(payload.data.status?.into()),
+            ProtocolMessage::StoreRsp(payload) => Ok(payload.data.status?.into()),
             _ => Err(DHTErr::MessageReceiveMismatch),
         },
         InjectionResult::Isolated => Err(DHTErr::Isolated),
+        InjectionResult::Timeout => Err(DHTErr::RPCTimeout),
     }
 }
 
@@ -228,15 +244,17 @@ async fn store_dht_data(
     get,
     path = "/dht",
     responses(
-        (status = 200, description = "The list of values stored in the DHT under that key. Encoded as base64.", example = json!(["QmFyMTIzCg=="]), body = domain::dht::FetchRsp), 
-        (status = "4XX", description = "An error during DHT fetch", body = DHTErr)),
+        (status = 200, description = "List of values stored in the DHT at the key encoded as base64", body = domain::dht::FetchRsp, example = json!(["QmFyMTIzCg=="])),
+        (status = 400, description = "An error during DHT fetch", body = DHTErr)
+    ),
     params(
         (
-            "key" = Option < String >,
+            "key" = Option<String>,
             Query,
-            description = "Fetches the value(s) stored in the DHT under key <key>!",
-            example = json ! ("Foo123")
-        ))
+            description = "Determines location to fetch",
+            example = json!("Foo123")
+        ),
+    )
 ))]
 async fn fetch_dht_data(
     State(state): State<crate::api::ApiState>,
@@ -269,10 +287,11 @@ async fn fetch_dht_data(
 
     match injection_result {
         InjectionResult::Answered(boxedtuple) => match *boxedtuple {
-            (ProtocolMessage::FetchRsp(payload), _) => Ok(Json(payload.data.data?.into())),
+            ProtocolMessage::FetchRsp(payload) => Ok(Json(payload.data.data?.into())),
             _ => Err(DHTErr::MessageReceiveMismatch),
         },
         InjectionResult::Isolated => Err(DHTErr::Isolated),
+        InjectionResult::Timeout => Err(DHTErr::Timeout),
     }
 }
 
@@ -283,8 +302,8 @@ async fn fetch_dht_data(
         (
             status = 200,
             body = inline(domain::dht::LocalHashTable),
-            example = json ! ([("35986033727C2B8E1A10AA488216", ["SGVsbG8gV29ybGQ", "SSdtIGEgdGVhcG90"])].into_iter().collect::< HashMap < _, _ >> ()),
-            description = "Dumps the whole local hash table by encoding the handle as a HexString and the data as Base64."
+            description = "Dumps the whole local hash table by encoding the handle as a HexString and the data as Base64.",
+            example = json ! ([("35986033727C2B8E1A10AA488216", ["SGVsbG8gV29ybGQ", "SSdtIGEgdGVhcG90"])].into_iter().collect::< HashMap < _, _ >> ())
         )
     )
 ))]
@@ -304,7 +323,7 @@ async fn dump_local_hashtable(
     let local_ht = timeout(domain::dht::DEFAULT_TIMEOUT, rx.recv())
         .await
         .map(|received| received.ok_or(DHTErr::ReceiveError))
-        .map_err(|_| DHTErr::Timeout)???;
+        .map_err(|_| DHTErr::Timeout)??;
 
     let local_ht = local_ht
         .into_iter()

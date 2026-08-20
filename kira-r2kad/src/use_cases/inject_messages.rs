@@ -1,20 +1,43 @@
-use std::collections::HashMap;
-use std::error::Error;
-use std::marker::PhantomData;
-use std::num::NonZeroU8;
-use std::ops::Deref;
-use std::time::Instant;
-use tracing::{Level, instrument};
-
-use crate::domain::{
-    GroupingError, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, UnderlayNeighborSource,
+use std::{
+    collections::HashMap,
+    error::Error,
+    marker::PhantomData,
+    num::NonZeroU8,
+    ops::Deref,
+    time::Instant,
 };
-use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, ReqRspMessage};
-use crate::use_cases::inject_messages::errors::InjectMessageError;
-use crate::use_cases::{
-    EventHandler, InjectionMessageData, ReactiveUseCaseState, UseCase, UseCaseContext,
-    UseCaseEvent, UseCaseRuntime,
+
+use tracing::{
+    Level,
+    instrument,
+};
+
+use crate::{
+    domain::{
+        GroupingError,
+        NodeId,
+        RoutingTable,
+        ULNTable,
+        UnderlayNeighborId,
+    },
+    messaging::{
+        CommonHeader,
+        Nonce,
+        ProtocolMessage,
+        ProtocolMessageKind,
+        ReqRspMessage,
+        source_route::SourceRoute,
+    },
+    use_cases::{
+        EventHandler,
+        InjectionMessageData,
+        ReactiveUseCaseState,
+        UseCase,
+        UseCaseContext,
+        UseCaseEvent,
+        UseCaseRuntime,
+        inject_messages::errors::InjectMessageError,
+    },
 };
 
 /// Sender for [InjectionResult]s.
@@ -29,7 +52,10 @@ pub trait InjectionResultSender: Clone {
 mod std_extension {
     use std::sync::mpsc;
 
-    use crate::use_cases::inject_messages::{InjectionResult, InjectionResultSender};
+    use crate::use_cases::inject_messages::{
+        InjectionResult,
+        InjectionResultSender,
+    };
 
     impl InjectionResultSender for mpsc::Sender<InjectionResult> {
         type Error = mpsc::SendError<InjectionResult>;
@@ -46,9 +72,11 @@ mod std_extension {
 #[derive(Debug, Eq, PartialEq)]
 pub enum InjectionResult {
     /// The injected [ProtocolMessage] was answered.
-    Answered(Box<(ProtocolMessage, UnderlayNeighborSource)>),
+    Answered(Box<ProtocolMessage>),
     /// The node is isolated and the message couldn't be injected.
     Isolated,
+    /// No response was received in time for the [ProtocolMessage].
+    Timeout,
 }
 
 /// Configuration for message injection in general.
@@ -158,7 +186,7 @@ where
                 }
                 let source_route = closest_route.unwrap();
 
-                log::trace!(target: "inject_messages", "Sending FindNodeReq from {} with target {}", source_route.source(), &data.target);
+                log::trace!(target: "inject_messages", "Sending FindNodeReq from {} with target {}", source_route.source(), data.target);
 
                 let nonce = nonce.unwrap_or_else(|| {
                     // generate distinct nonce
@@ -184,23 +212,22 @@ where
                     source_route,
                 });
 
-                context
-                    .runtime()
-                    .send_message(message, context.uln_table().deref());
+                context.runtime().send_message(
+                    message,
+                    context.uln_table().deref(),
+                    context.root_id(),
+                );
 
                 self.nonces.insert(nonce, context.runtime().current_time());
             }
-            UseCaseEvent::Message(message, interface) => {
+            UseCaseEvent::Message(message, _) => {
                 if let Some(Some(instant)) =
                     message.msg_id().map(|nonce| self.nonces.remove(&nonce))
                 {
                     let elapsed = instant.elapsed();
-                    if let Err(e) =
-                        self.injection_result_sender
-                            .send_result(InjectionResult::Answered(Box::new((
-                                message.clone(),
-                                interface,
-                            ))))
+                    if let Err(e) = self
+                        .injection_result_sender
+                        .send_result(InjectionResult::Answered(Box::new(message.clone())))
                     {
                         log::error!(target: "inject_messages", "Sending answered result failed: {e}");
                         return Err(InjectMessageError::SendResultFailed);
@@ -235,8 +262,12 @@ where
 }
 
 pub mod errors {
-    use derive_more::{Display, Error};
     use std::fmt::Debug;
+
+    use derive_more::{
+        Display,
+        Error,
+    };
 
     #[derive(Debug, Display, Error)]
     pub enum InjectMessageError {

@@ -1,19 +1,31 @@
-use std::collections::HashSet;
-use std::ffi::OsString;
-use std::num::NonZeroU32;
+use std::{
+    collections::HashSet,
+    ffi::OsString,
+    num::NonZeroU32,
+};
 
 use clap::Parser;
 use futures::StreamExt;
-
-use kira_lib::Kira;
-use kira_lib::format::ProtocolMessageFormat;
-use kira_lib::io::udp::async_channel;
-use kira_lib::underlay::observe_underlay;
-use kira_r2kad::{R2Kad, context::SyncContext, domain::NodeId};
-
 use kira_forwarding::tables::native_tables::NativeFwdTables;
-
-use signal_hook::consts::{SIGHUP, SIGINT, SIGKILL, SIGPIPE, SIGQUIT, SIGTERM};
+use kira_lib::{
+    Kira,
+    format::ProtocolMessageFormat,
+    io::udp::async_channel,
+    underlay::observe_underlay,
+};
+use kira_r2kad::{
+    R2Kad,
+    context::SyncContext,
+    domain::NodeId,
+};
+use signal_hook::consts::{
+    SIGHUP,
+    SIGINT,
+    SIGKILL,
+    SIGPIPE,
+    SIGQUIT,
+    SIGTERM,
+};
 use signal_hook_tokio::Signals;
 
 #[cfg(feature = "small_buckets")]
@@ -100,7 +112,11 @@ async fn main() {
         use tracing_subscriber::filter::Targets;
         use tracing_subscriber::{
             Layer,
-            filter::{EnvFilter, FilterExt, filter_fn},
+            filter::{
+                EnvFilter,
+                FilterExt,
+                filter_fn,
+            },
             layer::SubscriberExt,
             util::SubscriberInitExt,
         };
@@ -152,9 +168,18 @@ async fn main() {
         // open telemetry export layer
         #[cfg(feature = "otel")]
         let reg = reg.with(if args.open_telemetry {
-            use opentelemetry::{KeyValue, trace::TracerProvider};
-            use opentelemetry_sdk::{resource::Resource, trace::SdkTracerProvider};
-            use opentelemetry_semantic_conventions::{SCHEMA_URL, attribute::SERVICE_VERSION};
+            use opentelemetry::{
+                KeyValue,
+                trace::TracerProvider,
+            };
+            use opentelemetry_sdk::{
+                resource::Resource,
+                trace::SdkTracerProvider,
+            };
+            use opentelemetry_semantic_conventions::{
+                SCHEMA_URL,
+                attribute::SERVICE_VERSION,
+            };
 
             let resource = Resource::builder()
                 .with_service_name(env!("CARGO_PKG_NAME"))

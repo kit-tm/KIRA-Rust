@@ -1,7 +1,14 @@
-use crate::domain::Path;
+use std::hash::{
+    Hash,
+    Hasher,
+};
 
 use derive_more::derive::Display;
-use std::hash::{Hash, Hasher};
+
+use crate::domain::{
+    Path,
+    PathState,
+};
 
 const MAX_ALTERNATIVE_PATHS: usize = 3;
 
@@ -39,6 +46,10 @@ impl PathCollection {
         self.active_path.as_ref()
     }
 
+    pub fn into_active_path(self) -> Option<Path> {
+        self.active_path
+    }
+
     pub fn active_path_mut(&mut self) -> Option<&mut Path> {
         self.active_path.as_mut()
     }
@@ -51,7 +62,36 @@ impl PathCollection {
         self.proposed_path.as_ref()
     }
 
+    pub fn proposed_path_mut(&mut self) -> Option<&mut Path> {
+        self.proposed_path.as_mut()
+    }
+
+    pub fn clear_proposed_path(&mut self) {
+        self.proposed_path = None;
+    }
+
+    // this should only be called after path validation of the proposed path
     pub fn set_proposed_to_active(&mut self) {
+        if let Some(active_path) = self.active_path()
+            && active_path.is_valid()
+        {
+            // in case proposed and active are identical, just update last seen
+            // of active path and delete proposed path
+            if active_path.is_same_path_as(
+                self.proposed_path.as_ref().expect(
+                    "set_proposed_to_active() should only be called if proposed path is set",
+                ),
+            ) {
+                self.active_path.as_mut().unwrap().update_last_validated();
+                self.proposed_path = None;
+                return;
+            }
+            self.move_active_to_alternative();
+        }
+        self.proposed_path
+            .as_mut()
+            .unwrap()
+            .set_state(PathState::Valid);
         self.active_path = self.proposed_path.take();
     }
 
@@ -78,7 +118,21 @@ impl PathCollection {
 
 impl PartialEq for PathCollection {
     fn eq(&self, other: &Self) -> bool {
-        self.active_path == other.active_path && self.proposed_path == other.proposed_path
+        // alternative paths should be ignore as well as other path attributes
+        match (
+            self.active_path.as_ref(),
+            other.active_path.as_ref(),
+            self.proposed_path.as_ref(),
+            other.proposed_path.as_ref(),
+        ) {
+            (None, None, None, None) => true,
+            (Some(sa), Some(oa), Some(sp), Some(op)) => {
+                sa.is_same_path_as(oa) && sp.is_same_path_as(op)
+            }
+            (Some(sa), Some(oa), None, None) => sa.is_same_path_as(oa),
+            (None, None, Some(sp), Some(op)) => sp.is_same_path_as(op),
+            _ => false,
+        }
     }
 }
 
@@ -166,7 +220,7 @@ mod tests {
         pc.set_proposed_path(p.clone());
         pc.set_proposed_to_active();
         if let Some(r) = pc.active_path() {
-            assert!(*r == p);
+            assert!(r.is_same_path_as(&p));
             assert!(pc.proposed_path.is_none());
         } else {
             panic!("active path assumed to be not None");
@@ -190,7 +244,7 @@ mod tests {
         pc.move_active_to_alternative();
         assert!(pc.active_path().is_none());
         if let Some(r) = pc.first_alternative_path() {
-            assert!(*r == p);
+            assert!(r.is_same_path_as(&p));
         } else {
             panic!("at least one alternative path must be present");
         }
@@ -202,32 +256,40 @@ mod tests {
         pc.set_active_path(r.clone());
         pc.move_active_to_alternative();
         let mut alt_paths_it = pc.alternative_paths.iter();
-        assert_eq!(
-            *alt_paths_it
+        assert!(
+            alt_paths_it
                 .next()
-                .expect("alternative path 1 should be present"),
-            Some(p)
+                .expect("alternative path 1 should be present")
+                .as_ref()
+                .unwrap()
+                .is_same_path_as(&p)
         );
-        assert_eq!(
-            *alt_paths_it
+        assert!(
+            alt_paths_it
                 .next()
-                .expect("alternative path 2 should be present"),
-            Some(q)
+                .expect("alternative path 2 should be present")
+                .as_ref()
+                .unwrap()
+                .is_same_path_as(&q)
         );
-        assert_eq!(
-            *alt_paths_it
+        assert!(
+            alt_paths_it
                 .next()
-                .expect("alternative path 3 should be present"),
-            Some(r)
+                .expect("alternative path 3 should be present")
+                .as_ref()
+                .unwrap()
+                .is_same_path_as(&r)
         );
         assert_eq!(alt_paths_it.next(), None);
         pc.set_active_path(s.clone());
         pc.move_active_to_alternative();
-        assert_eq!(
-            *pc.alternative_paths
+        assert!(
+            pc.alternative_paths
                 .last()
-                .expect("last alternative path should not be None"),
-            Some(s)
+                .expect("last alternative path should not be None")
+                .as_ref()
+                .unwrap()
+                .is_same_path_as(&s)
         );
     }
 }

@@ -1,24 +1,42 @@
-use std::cmp::Ordering;
-use std::hash::{Hash, Hasher};
+use std::{
+    cmp::Ordering,
+    hash::{
+        Hash,
+        Hasher,
+    },
+    time::Duration,
+};
 
 use derive_more::derive::Display;
 
-use crate::domain::{
-    Age, NodeId, NotViaStateList, Path, RediscoveryState, SafeStateSeqNr, Timestamp,
-    pathcollection::PathCollection,
+use crate::{
+    domain::{
+        Age,
+        NodeId,
+        NotViaStateList,
+        Path,
+        SafeStateSeqNr,
+        Timestamp,
+        pathcollection::PathCollection,
+    },
+    use_cases::failure_handling::RediscoveryState,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq, Display, Default)]
 #[display("{_variant}")]
 /// [ContactState] starts normally in Unknown for contacts heard from other nodes.
-///
 pub enum ContactState {
     #[default]
-    Unknown, // when contact is initialized, its state is mostly unknown
-    Valid,                           // has a validated active path
-    Invalid(NotViaStateList),        // active path is not valid due to failed links
-    Rediscovering(RediscoveryState), // no valid path, but trying to rediscvoer
-    Dead, // contact not usable anymore (e.g., rediscovery failed finally)
+    /// When contact is initialized, its state is mostly unknown.
+    Unknown,
+    /// Has a validated active path.
+    Valid,
+    /// Active path is not valid due to failed links
+    Invalid(NotViaStateList),
+    /// No valid path, but trying to rediscover.
+    Rediscovering(RediscoveryState),
+    /// contact not usable anymore (e.g., rediscovery failed finally).
+    Dead,
 }
 
 /// A [Contact] as represented in the [RoutingTable](crate::domain::routing_table::RoutingTable).
@@ -73,13 +91,23 @@ impl Contact {
         &mut self.state
     }
 
+    pub fn set_state(&mut self, contact_state: ContactState) {
+        self.state = contact_state;
+    }
+
     pub fn start_rediscovering(
         &mut self,
         notviastate_list: NotViaStateList,
         via_contact_list: Vec<NodeId>,
+        max_retries: u32,
+        start_duration: Duration,
     ) {
-        self.state =
-            ContactState::Rediscovering(RediscoveryState::new(notviastate_list, via_contact_list));
+        self.state = ContactState::Rediscovering(RediscoveryState::new(
+            notviastate_list,
+            via_contact_list,
+            max_retries,
+            start_duration,
+        ));
     }
 
     /// Returns if the [Contact] represents a underlay neighbor.
@@ -90,6 +118,35 @@ impl Contact {
         match self.path_collection.active_path() {
             Some(path) => (*path).size() == 1,
             None => false,
+        }
+    }
+
+    /// Returns if the [Contact] has a failed ULN in its former active path
+    pub fn has_broken_first_hop(&self) -> bool {
+        match self.state {
+            ContactState::Invalid(ref notvia_state_list) => {
+                if let Some(path) = self.path_collection.active_path() {
+                    notvia_state_list
+                        .nvs_list
+                        .iter()
+                        .find(|nvs| nvs.link.contains(path.first()))
+                        .is_some()
+                } else {
+                    false
+                }
+            }
+            ContactState::Rediscovering(ref rds) => {
+                if let Some(path) = self.path_collection.active_path() {
+                    rds.get_notviastate_list()
+                        .nvs_list
+                        .iter()
+                        .find(|nvs| nvs.link.contains(path.first()))
+                        .is_some()
+                } else {
+                    false
+                }
+            }
+            _ => false,
         }
     }
 
@@ -118,6 +175,10 @@ impl Contact {
         }
     }
 
+    pub fn is_dead(&self) -> bool {
+        self.state == ContactState::Dead
+    }
+
     pub fn is_valid(&self) -> bool {
         self.state == ContactState::Valid
     }
@@ -137,7 +198,7 @@ impl Contact {
             }
             ContactState::Rediscovering(ref mut rds) => {
                 for nvs in notviastate_list.nvs_list.iter() {
-                    rds.notviastate_list.nvs_list.insert(nvs.clone());
+                    rds.add_notvia(nvs.into());
                 }
             }
             _ => {
@@ -177,13 +238,19 @@ impl Contact {
                 path_candidate.is_better_than(active_path)
             }
             ContactState::Rediscovering(_) => true,
-            ContactState::Dead => false,
+            ContactState::Dead => false, // not sure that this is sensible
         };
 
         if path_suitable {
             // if path candidate has been validated (stems from a message's source route), we can also replace the active path directly
             if path_candidate.is_valid() {
-                self.path_collection.set_active_path(path_candidate.clone());
+                if let Some(proposed_path) = self.path_collection.proposed_path()
+                    && path_candidate.is_same_path_as(proposed_path)
+                {
+                    self.path_collection.set_proposed_to_active();
+                } else {
+                    self.path_collection.set_active_path(path_candidate.clone());
+                }
                 self.state = ContactState::Valid;
                 return true;
             }
@@ -208,9 +275,23 @@ impl Contact {
         self.path_collection.active_path()
     }
 
+    /// Returns the active [Path] of the [Contact].
+    pub fn into_path(self) -> Option<Path> {
+        self.path_collection.into_active_path()
+    }
+
     /// Returns the proposed [Path] of the [Contact].
     pub fn proposed_path(&self) -> Option<&Path> {
         self.path_collection.proposed_path()
+    }
+
+    pub fn proposed_path_mut(&mut self) -> Option<&mut Path> {
+        self.path_collection.proposed_path_mut()
+    }
+
+    /// Returns the proposed [Path] of the [Contact].
+    pub fn clear_proposed_path(&mut self) {
+        self.path_collection.clear_proposed_path()
     }
 
     /// Set the active [Path] of the [Contact].

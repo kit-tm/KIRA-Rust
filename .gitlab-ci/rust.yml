@@ -1,3 +1,31 @@
+spec:
+  inputs:
+    debug_mode:
+      type: boolean
+      default: false
+      description: "Run debug jobs of the pipeline"
+    sccache_dir:
+      type: string
+      description: "Cache directory of sccache"
+    sccache_cache_size:
+      type: number
+      default: 10
+      description: "Size of the cache directory of sccache in Gbyte"
+    common_job_tags:
+      type: array
+      description: "Tags required by all Jobs of the Rust pipeline (tags of job runner)"
+    rust_image:
+      type: string
+      default: rust:alpine # prebuilt CI image (docker/Dockerfile.ci)
+      description: >
+        "Image with all required tooling baked in"
+        "(musl-dev, git, sccache, tar, clippy, nightly rustfmt, cargo-nextest, cargo-audit)"
+    rustc_wrapper:
+      type: string
+      default: sccache
+
+---
+
 .rust_paths: &rust_paths
   - "**/*.rs"
   - "**/Cargo.toml"
@@ -5,13 +33,16 @@
 
 # common rust job
 .rust-defaults:
-  image: rust:alpine # more nimble than rust:latest
-  before_script:
-    - apk add --no-cache musl-dev git # necessary for building and downloading dependencies
+  image: $[[ inputs.rust_image ]]
   interruptible: true
+  tags: $[[ inputs.common_job_tags ]]
 
   variables:
     CARGO_HOME: $CI_PROJECT_DIR/.cargo_home # move to cacheable directory
+    RUSTC_WRAPPER: $[[ inputs.rustc_wrapper ]]
+    SCCACHE_DIR: $[[ inputs.sccache_dir ]]
+    SCCACHE_CACHE_SIZE: "$[[ inputs.sccache_cache_size ]]G"
+    SCCACHE_BASEDIRS: $CI_PROJECT_DIR
   cache: &cargo_cache
     key:
       files: # fresh cache on dependency-changes (don't cache unused dependencies)
@@ -19,21 +50,21 @@
         - Cargo.lock
       prefix: cargo_cache
     paths:
-      - target/ # build artifacts
+      # Build artifacts in /target are cached by sccache
+      # Caching of Cargo home in CI: https://doc.rust-lang.org/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
+      # Crucially we don't cache the extracted dependencies in registry/src
       - "$CI_PROJECT_DIR/.cargo_home/.crates.toml"
       - "$CI_PROJECT_DIR/.cargo_home/.crates2.json"
-      - "$CI_PROJECT_DIR/.cargo_home/bin/"
-      - "$CI_PROJECT_DIR/.cargo_home/registry/index/"
-      - "$CI_PROJECT_DIR/.cargo_home/registry/cache/"
-      - "$CI_PROJECT_DIR/.cargo_home/git/db/"
-      - "$CI_PROJECT_DIR/.cargo_home/advisory-dbs"
+      - "$CI_PROJECT_DIR/.cargo_home/bin/"            # installed binaries
+      - "$CI_PROJECT_DIR/.cargo_home/registry/index/" # registry crate meta
+      - "$CI_PROJECT_DIR/.cargo_home/registry/cache/" # downloaded dependencies
+      - "$CI_PROJECT_DIR/.cargo_home/git/db/"         # cloned git dependencies
+
+      - "$CI_PROJECT_DIR/.cargo_home/advisory-dbs"    # cargo-audit advisories
     policy: pull # only update cache by specific jobs
 
-# rust job that is run if rust code changed by a merge request
-.rust-ci-rules:
-  extends: .semver_release_rule
+.rust-only-ci-rules:
   rules:
-    - !reference [.semver_release_rule, rules] # merge rules
     # always run on main
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: always
@@ -51,11 +82,30 @@
         compare_to: $CI_DEFAULT_BRANCH
     - if: $CI_PIPELINE_SOURCE == "web"
 
+.rust-ci-rules:
+  extends: .semver_release_rule
+  rules: # merge rules
+    - !reference [.semver_release_rule, rules]
+    - !reference [.rust-only-ci-rules, rules]
 
 
-# =============================================== #
-#               RUST-JOBS                         #
-# =============================================== #
+pause pipeline (rust):
+  stage: debug
+  extends:
+    - .rust-defaults
+    - .rust-ci-rules
+  inputs:
+    delay_secs:
+      type: number
+      default: 600
+  rules:
+    - if: '"$[[ inputs.debug_mode ]]" == "true"'
+      when: manual
+  script:
+    - echo "Pipeline paused. Sleeping for ${{ job.inputs.delay_secs }} seconds..."
+    - sleep ${{ job.inputs.delay_secs }}
+
+### Lint ###
 
 rustfmt:
   stage: lint
@@ -64,16 +114,14 @@ rustfmt:
     - .rust-ci-rules
   cache: [] # no cache needed for simple formatting
 
-  before_script:
-    - rustup component add rustfmt
   script:
-    - cargo fmt --all --check
+    - cargo +nightly fmt --all --check
 
 rustdoc:
   stage: lint
   extends:
     - .rust-defaults
-    - .rust-ci-rules
+    - .rust-only-ci-rules
 
   script:
     - cargo doc --workspace --no-deps
@@ -81,13 +129,15 @@ rustdoc:
   variables:
     RUSTDOCFLAGS: "-Dwarnings" # fail on warnings like failed links
 
+### Check ###
 
-rust-checks:
+cargo-check:
   stage: check
   extends:
     - .rust-defaults
     - .rust-ci-rules
 
+  # Cache dependencies downloaded
   cache:
     <<: *cargo_cache
     policy: pull-push
@@ -102,76 +152,59 @@ clippy:
     - .rust-defaults
     - .rust-ci-rules
 
+  # 1.) Running if cargo-check fails doesn't make sense
+  # 2.) Ensure cache propagation from cargo-check
   needs:
-    - job: rust-checks # running if cargo check fails doesn't make sense
+    - job: cargo-check
       optional: true
-  before_script:
-    - rustup component add clippy
   script:
     - cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+### Test ###
 
-rust-tests:
+rust tests:
   stage: test
   extends:
     - .rust-defaults
     - .rust-ci-rules
 
-  cache:
-    <<: *cargo_cache
-    policy: pull-push
-
-  before_script:
-    - apk add --no-cache musl-dev git
-    - cargo install cargo-nextest --locked
   script:
     - cargo nextest run --workspace --all-features --all-targets
 
 # doctests unsupported in nextest (https://github.com/nextest-rs/nextest/issues/16)
-rust-doctests:
+rust doctests:
   stage: test
   extends:
     - .rust-defaults
     - .rust-ci-rules
 
-  cache:
-    <<: *cargo_cache
-    policy: pull-push
-  needs:
-    - job: rust-tests # ensure cache propagation
-      optional: true
-
   script:
     - cargo test --workspace --all-features --doc
 
+### Build ###
 
-build-kirad:
+kirad:
   stage: build
   extends:
     - .rust-defaults
-    - .rust-ci-rules
-
-  cache:
-    <<: *cargo_cache
-    policy: pull-push
+    - .rust-only-ci-rules
 
   script:
     - cargo build --package kirad
 
-build-kirad-release:
-  image: rust:alpine
+kirad (release):
   stage: build
   extends:
     - .rust-defaults
-    - .semver_release_rule
-    - .force_release_build_artifacts
+    - .semver_release_rule_forcible
 
   before_script:
-    - apk add --no-cache musl-dev git tar
     - rustup target add $TARGET_TRIPLE
   script:
     - cargo build --release --package kirad --target $TARGET_TRIPLE
-    - tar -czvf kirad-$TARGET_TRIPLE.tar.gz LICENSE -C target/$TARGET_TRIPLE/release kirad
+    - m4 -D BIN_DIR=/usr/local/bin -D SHARE_DIR=/usr/local/share pkg/kirad.service.m4 > kirad.service
+    - m4 -D BIN_DIR=/usr/local/bin -D SHARE_DIR=/usr/local/share/kirad pkg/kirad@.service.m4 > kirad@.service
+    - tar -czvf kirad-$TARGET_TRIPLE.tar.gz LICENSE kirad.service kirad@.service -C kirad conf -C ../target/$TARGET_TRIPLE/release kirad
 
   parallel:
     matrix:
@@ -184,12 +217,13 @@ build-kirad-release:
       - kirad-$TARGET_TRIPLE.tar.gz
     expire_in: 1 day
 
-build-rustdoc:
+rustdoc (release):
   stage: build
   extends:
     - .rust-defaults
-    - .semver_release_rule
-    - .force_release_build_artifacts
+    - .semver_release_rule_forcible
+  variables:
+      RUSTDOCFLAGS: "-Dwarnings" # prohibit publishing of incomplete rustdoc
 
   script:
     - cargo doc --workspace --no-deps
@@ -201,16 +235,83 @@ build-rustdoc:
       - doc/rustdoc
     expire_in: 1 day
 
+image supervisord:
+  stage: build
+  extends:
+    - .buildkit-base
+    - .semver_release_rule_forcible
+  script:
+    - |
+      buildctl-daemonless.sh build \
+        --frontend dockerfile.v0 \
+        --local context=. \
+        --local dockerfile=docker \
+        --opt filename=Dockerfile.supervisord \
+        --output "type=image,\"name=$CI_REGISTRY_IMAGE/kirad:$CI_COMMIT_TAG,$CI_REGISTRY_IMAGE/kirad:latest\",push=true" \
+        --export-cache type=inline \
+        --import-cache "type=registry,ref=$CI_REGISTRY_IMAGE/kirad:latest"
 
-rust-audit:
+image small-k:
+  stage: build
+  extends:
+    - .buildkit-base
+    - .semver_release_rule_forcible
+  script:
+    - |
+      buildctl-daemonless.sh build \
+        --frontend dockerfile.v0 \
+        --local context=. \
+        --local dockerfile=docker \
+        --opt filename=Dockerfile.supervisord \
+        --opt build-arg:FEATURES="small_buckets,api" \
+        --output "type=image,\"name=$CI_REGISTRY_IMAGE/kirad:$CI_COMMIT_TAG-small-k,$CI_REGISTRY_IMAGE/kirad:small-k\",push=true" \
+        --export-cache type=inline \
+        --import-cache "type=registry,ref=$CI_REGISTRY_IMAGE/kirad:small-k"
+
+image kira-dns-dht:
+  stage: build
+  extends:
+    - .buildkit-base
+    - .semver_release_rule_forcible
+  script:
+    - |
+      buildctl-daemonless.sh build \
+        --frontend dockerfile.v0 \
+        --local context=examples/dns-4in6-tunnel-example/base \
+        --local dockerfile=examples/dns-4in6-tunnel-example/base \
+        --opt "context:kirad=docker-image://$CI_REGISTRY_IMAGE/kirad:$CI_COMMIT_TAG-small-k" \
+        --output "type=image,\"name=$CI_REGISTRY_IMAGE/kira-dns-dht:$CI_COMMIT_TAG,$CI_REGISTRY_IMAGE/kira-dns-dht:latest\",push=true" \
+        --export-cache type=inline \
+        --import-cache "type=registry,ref=$CI_REGISTRY_IMAGE/kira-dns-dht:latest"
+  needs:
+    - job: image small-k # kirad image used as base is kirad:small-k
+
+pause pipeline after build (rust):
+  stage: build
+  extends:
+    - .rust-defaults
+    - .rust-ci-rules
+  inputs:
+    delay_secs:
+      type: number
+      default: 600
+  needs:
+    - job: kirad
+      optional: true
+
+  rules:
+    - if: '"$[[ inputs.debug_mode ]]" == "true"'
+      when: manual
+  script:
+    - echo "Pipeline paused. Sleeping for ${{ job.inputs.delay_secs }} seconds..."
+    - sleep ${{ job.inputs.delay_secs }}
+
+cargo-audit:
   stage: security
   extends:
     - .rust-defaults
     - .rust-ci-rules
 
-  before_script:
-    - apk add --no-cache musl-dev git
-    - cargo install cargo-audit --locked
   script:
     - cargo audit
 
@@ -218,6 +319,7 @@ rust-audit:
     - !reference [.rust-ci-rules, rules] # merge rules
     - if: $CI_PIPELINE_SOURCE == "schedule" # scheduled nightly runs
 
+  # Persist advisory database (updates daily)
   cache:
     <<: *cargo_cache
     policy: pull-push

@@ -3,7 +3,10 @@
 
 use std::net::Ipv6Addr;
 
-use crate::domain::{InterfaceId, UnderlayNeighborId};
+use crate::domain::{
+    InterfaceId,
+    UnderlayNeighborId,
+};
 
 /// Provides implementations of the forwarding layer with information about the generic [UnderlayNeighborId].
 #[trait_variant::make(UnderlayInformationProvider: Send)]
@@ -20,11 +23,11 @@ pub trait LocalUnderlayInformationProvider {
 
     /// Tries to acquire [Information](Self::Information) for an [UnderlayNeighborId].
     ///
-    /// If the [UnderlayNeighborId] is not know this function should error.
+    /// If the [UnderlayNeighborId] is not known this function should return [None].
     async fn get_information(
         &mut self,
         ulnid: &UnderlayNeighborId,
-    ) -> Result<Self::Information, Self::Error>;
+    ) -> Result<Option<Self::Information>, Self::Error>;
 }
 
 /// Ethernet Address.

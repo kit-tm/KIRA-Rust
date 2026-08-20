@@ -1,16 +1,33 @@
-use std::collections::binary_heap::PeekMut;
-use std::collections::{BinaryHeap, HashMap, VecDeque};
-use std::sync::{Mutex, RwLock};
-use std::time::{Duration, Instant};
+use std::{
+    collections::{
+        BinaryHeap,
+        HashMap,
+        VecDeque,
+        binary_heap::PeekMut,
+    },
+    sync::{
+        Mutex,
+        RwLock,
+    },
+    time::{
+        Duration,
+        Instant,
+    },
+};
 
-use crate::Output;
-use crate::domain::UnderlayNeighborDestination;
-use crate::domain::protocol_event::forwarding::ForwardingTablesUpdate;
-use crate::runtime::UseCaseRuntime;
-use crate::use_cases::BroadcastableUseCaseEvent;
 use crate::{
+    Output,
+    domain::{
+        UnderlayNeighborDestination,
+        protocol_event::forwarding::ForwardingTablesUpdate,
+    },
     messaging::ProtocolMessage,
-    use_cases::{TimerId, UseCaseEvent},
+    runtime::UseCaseRuntime,
+    use_cases::{
+        BroadcastableUseCaseEvent,
+        TimerId,
+        UseCaseEvent,
+    },
 };
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -176,6 +193,19 @@ impl UseCaseRuntime for R2KadRuntime {
         id
     }
 
+    /// removes a pending timer if it exists
+    /// returns:
+    ///  - None: if timer with timer_id could not be found
+    ///  - true: if timer with timer_id has been removed
+    ///  - false: if timer is present but has not been removed; this typically is the case if the timer is the currently active timer (the first in the queue)
+    //  WARN: This method runs in O(#timers).
+    fn remove_timer(&self, timer_id: TimerId) {
+        self.timers
+            .write()
+            .unwrap()
+            .retain(|timer| timer.id != timer_id);
+    }
+
     fn register_periodic_timer(&self, duration: Duration) -> TimerId {
         let timer_id = self.register_timer(duration);
 
@@ -240,9 +270,12 @@ impl UseCaseRuntime for R2KadRuntime {
 
 #[cfg(test)]
 mod test {
+    use std::{
+        collections::HashSet,
+        time::Duration,
+    };
+
     use super::*;
-    use std::collections::HashSet;
-    use std::time::Duration;
 
     #[test]
     fn runtime_is_empty_on_new() {

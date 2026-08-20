@@ -1,19 +1,46 @@
-use std::collections::HashMap;
-use std::marker::PhantomData;
-use std::num::NonZeroU8;
-use std::ops::Deref;
-use tracing::{Level, instrument};
+use std::{
+    collections::HashMap,
+    marker::PhantomData,
+    num::NonZeroU8,
+    ops::Deref,
+};
 
-use crate::domain::{
-    Contact, DEFAULT_BUCKET_SIZE, GroupingError, NodeId, NotViaList, RoutingTable, StateSeqNr,
-    ULNTable, UnderlayNeighborId,
+use tracing::{
+    Level,
+    instrument,
 };
-use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{
-    CommonHeader, ErrorData, FindNodeReqData, ProtocolMessage, ProtocolMessageKind, RTableData,
-    ReqRspMessage, WireFormatMessage,
+
+use crate::{
+    domain::{
+        Contact,
+        DEFAULT_BUCKET_SIZE,
+        GroupingError,
+        NodeId,
+        NotViaList,
+        RoutingTable,
+        StateSeqNr,
+        ULNTable,
+        UnderlayNeighborId,
+    },
+    messaging::{
+        CommonHeader,
+        ErrorData,
+        FindNodeReqData,
+        ProtocolMessage,
+        ProtocolMessageKind,
+        RTableData,
+        ReqRspMessage,
+        WireFormatMessage,
+        source_route::SourceRoute,
+    },
+    use_cases::{
+        EventHandler,
+        NeverError,
+        UseCaseContext,
+        UseCaseEvent,
+        UseCaseRuntime,
+    },
 };
-use crate::use_cases::{EventHandler, NeverError, UseCaseContext, UseCaseEvent, UseCaseRuntime};
 
 #[derive(Debug)]
 pub struct OverlayDiscoveryConfig {
@@ -141,12 +168,15 @@ where
     type Value = ();
 
     #[instrument(
-        level = Level::TRACE,
+        level = Level::DEBUG,
         target = "handle_overlay_discovery",
         "handle_overlay_discovery",
         skip(self, context),
         fields(
-            config = ?self.config
+            config = ?self.config,
+            req.target = tracing::field::Empty,
+            req.exact = tracing::field::Empty,
+            req.source = tracing::field::Empty,
         )
     )]
     fn handle_event(
@@ -154,145 +184,212 @@ where
         context: &C,
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
-        if let UseCaseEvent::Message(ProtocolMessage::FindNodeReq(req), _) = event {
-            if req.destination() != context.root_id() {
-                return Ok(());
+        let UseCaseEvent::Message(ProtocolMessage::FindNodeReq(req), _) = event else {
+            return Ok(());
+        };
+
+        if req.destination() != context.root_id() {
+            return Ok(());
+        }
+
+        let number_of_neighbors = match usize::try_from(req.data.neighborhood.get()) {
+            Ok(value) => value,
+            Err(e) => {
+                tracing::warn!(
+                    target: "handle_overlay_discovery",
+                    "FindNodeReq requested more contacts as host architecture can address: {e}. Returning max value"
+                );
+                usize::MAX
             }
+        };
 
-            let number_of_neighbors = match usize::try_from(req.data.neighborhood.get()) {
-                Ok(value) => value,
-                Err(e) => {
-                    log::warn!(
-                        target: "handle_overlay_discovery",
-                        "FindNodeReq requested more contacts as host architecture can address: {e}. Returning max value"
-                    );
-                    usize::MAX
-                }
-            };
-
-            // collect closest nodes to target from routing table
-            // closest returns only valid contacts, so unwrapping paths is safe
-            let closest = context
-                .routing_table()
-                .closest(
-                    &req.data.target,
-                    number_of_neighbors,
-                    self.config.shared_prefix_bits_grouping,
-                )
-                .expect("grouping has to be checked on initialization");
-
-            // Get any contact not contained in local or included not_via data
-            // closest returns only valid contacts, so unwrapping paths is safe
-            let closest_node = closest.first();
-
-            // build different responses depending on four cases
-            // (exact, target, target is us, closest known)
-            let outgoing_message = match (
-                &req.data.exact,
+        // collect closest nodes to target from routing table
+        // closest returns only valid contacts, so unwrapping paths is safe
+        let closest = context
+            .routing_table()
+            .closest(
                 &req.data.target,
-                &req.data.target == context.root_id(),
-                &closest_node,
-            ) {
-                // exact FindNodeReq, we are the target node
-                (true, _, true, _) => {
-                    let closest = closest.into_iter().map(|(_, contact)| contact).collect();
+                number_of_neighbors,
+                self.config.shared_prefix_bits_grouping,
+            )
+            .expect("grouping has to be checked on initialization");
 
-                    self.build_find_node_rsp(
+        // Get any contact not contained in local or included not_via data
+        // closest returns only valid contacts, so unwrapping paths is safe
+        let closest_node = closest.first();
+
+        let target = &req.data.target;
+        let target_is_us = target == context.root_id();
+        let exact = req.data.exact;
+        let req_source = req.source();
+
+        let span = tracing::Span::current();
+        if !span.is_disabled() {
+            span.record("req.target", format!("{target}"));
+            span.record("req.exact", exact);
+            span.record("req.source", format!("{req_source}"));
+        }
+
+        let outgoing_message = match (exact, target, target_is_us, &closest_node) {
+            // === Exact ===
+            // We are the target node
+            (true, _, true, _) => {
+                tracing::debug!(
+                    target: "handle_overlay_discovery",
+                    reason = "we are the target node",
+                    "Returning routing table state"
+                );
+                let closest = closest.into_iter().map(|(_, contact)| contact).collect();
+
+                self.build_find_node_rsp(
+                    *context.root_id(),
+                    req.not_via.clone(), // use the NotVia from the request also for the response
+                    req.clone(),
+                    From::from(*context.uln_table().state_seq_nr()),
+                    closest,
+                )
+            }
+            // We are not the target and found a closest contact
+            (true, target, false, Some((closest_known_distance, contact))) => {
+                let own_distance = context
+                    .root_id()
+                    .shared_prefix_len(target, self.config.shared_prefix_bits_grouping)
+                    .expect("grouping was checked on init");
+
+                if &own_distance > closest_known_distance && req.source() != contact.id() {
+                    tracing::debug!(
+                        target: "handle_overlay_discovery",
+                        ?own_distance,
+                        ?closest_known_distance,
+                        next_hop = ?contact.id(),
+                        "Forwarding exact FindNodeReq to closer overlay contact"
+                    );
+                    self.build_find_node_to_next_hop(
+                        req.not_via.clone(),
+                        req.clone(),
+                        Contact::clone(contact),
+                    )
+                } else {
+                    // best contact we know is further away from the target than we are
+                    // so we send back an error message, since we can't make progress
+                    tracing::debug!(
+                        target: "handle_overlay_discovery",
+                        ?own_distance,
+                        ?closest_known_distance,
+                        reason = "Unable to make progress: Best known contact is further or equal",
+                        "Building error response"
+                    );
+                    self.build_error(
                         *context.root_id(),
-                        req.not_via.clone(), // use the NotVia from the request also for the response
                         req.clone(),
                         From::from(*context.uln_table().state_seq_nr()),
-                        closest,
                     )
                 }
-                // exact FindNodeReq, but we are not the target and found a closest contact
-                (true, target, false, Some((closest_known_distance, contact))) => {
-                    let own_distance = context
-                        .root_id()
-                        .shared_prefix_len(target, self.config.shared_prefix_bits_grouping)
-                        .expect("grouping was checked on init");
-
-                    if &own_distance > closest_known_distance && req.source() != contact.id() {
-                        self.build_find_node_to_next_hop(
-                            req.not_via.clone(),
-                            req.clone(),
-                            Contact::clone(contact),
-                        )
-                    } else {
-                        // best contact we know is further away from the target than we are
-                        // so we send back an error message, since we can't make progress
-                        self.build_error(
-                            *context.root_id(),
-                            req.clone(),
-                            From::from(*context.uln_table().state_seq_nr()),
-                        )
-                    }
-                }
-                // exact FindNodeReq, but we are not the target and did not find a closest contact
-                (true, _, false, None) => self.build_error(
+            }
+            // We are not the target and did not find a closest contact
+            (true, _, false, None) => {
+                tracing::debug!(
+                    target: "handle_overlay_discovery",
+                    reason = "Exact FindNodeReq, not target, and no closest contact found",
+                    "Building error response"
+                );
+                self.build_error(
                     *context.root_id(),
                     req.clone(),
                     From::from(*context.uln_table().state_seq_nr()),
-                ),
-                // no exact FindNodeReq, but own NodeID as target
-                (false, _, true, _) => {
-                    log::warn!(
-                        target: "handle_overlay_discovery",
-                        "Received FindNodeReq with 'exact=false' with us as target: {req:?}"
-                    );
-                    let closest = closest.into_iter().map(|(_, contact)| contact).collect();
+                )
+            }
+            // === Non-Exact ===
+            // Own NodeID as target
+            (false, _, true, _) => {
+                // This is unusual because non-exact FindNodeReq are usually
+                // send to targets not existing in the network.
+                //
+                // Maybe we just got lucky.
+                tracing::warn!(
+                    target: "handle_overlay_discovery",
+                    "Received non-exact FindNodeReq with us as target"
+                );
 
+                tracing::debug!(
+                    target: "handle_overlay_discovery",
+                    reason = "we are the target node",
+                    "Returning routing table state"
+                );
+                let closest = closest.into_iter().map(|(_, contact)| contact).collect();
+                self.build_find_node_rsp(
+                    *context.root_id(),
+                    req.not_via.clone(), // use the NotVia from the request also for the response
+                    req.clone(),
+                    From::from(*context.uln_table().state_seq_nr()),
+                    closest,
+                )
+            }
+            // We have a closest contact
+            (false, target, false, Some((closest_known_distance, contact))) => {
+                let own_distance = context
+                    .root_id()
+                    .shared_prefix_len(target, self.config.shared_prefix_bits_grouping)
+                    .expect("grouping was checked on init");
+
+                // forward FindNodeReq to closer contact
+                if &own_distance > closest_known_distance && req.source() != contact.id() {
+                    tracing::debug!(
+                        target: "handle_overlay_discovery",
+                        ?own_distance,
+                        ?closest_known_distance,
+                        next_hop = ?contact.id(),
+                        "Forwarding non-exact FindNodeReq to closer contact"
+                    );
+                    self.build_find_node_to_next_hop(
+                        req.not_via.clone(),
+                        req.clone(),
+                        Contact::clone(contact),
+                    )
+                } else {
+                    tracing::debug!(
+                        target: "handle_overlay_discovery",
+                        reason = "No progress possible for non-exact request",
+                        "Returning routing table state"
+                    );
+
+                    let closest = closest.into_iter().map(|(_, contact)| contact).collect();
                     self.build_find_node_rsp(
                         *context.root_id(),
-                        req.not_via.clone(), // use the NotVia from the request also for the response
+                        req.not_via.clone(),
                         req.clone(),
                         From::from(*context.uln_table().state_seq_nr()),
                         closest,
                     )
                 }
-                // no exact FindNodeReq and we have a closest contact
-                (false, target, false, Some((closest_known_distance, contact))) => {
-                    let own_distance = context
-                        .root_id()
-                        .shared_prefix_len(target, self.config.shared_prefix_bits_grouping)
-                        .expect("grouping was checked on init");
+            }
+            // No closest contact found, sends back an empty FindNodeRsp
+            (false, _, false, None) => {
+                tracing::debug!(
+                    target: "handle_overlay_discovery",
+                    "Non-exact FindNodeReq with no closest contact; returning empty response"
+                );
 
-                    // forward FindNodeReq to closer contact
-                    if &own_distance > closest_known_distance && req.source() != contact.id() {
-                        self.build_find_node_to_next_hop(
-                            req.not_via.clone(),
-                            req.clone(),
-                            Contact::clone(contact),
-                        )
-                    } else {
-                        // report what we know since we can't make any more progress
-
-                        let closest = closest.into_iter().map(|(_, contact)| contact).collect();
-
-                        self.build_find_node_rsp(
-                            *context.root_id(),
-                            req.not_via.clone(),
-                            req.clone(),
-                            From::from(*context.uln_table().state_seq_nr()),
-                            closest,
-                        )
-                    }
-                }
-                // no exact FindNodeReq but no closest contact found, sends back an empty FindNodeRsp
-                // TODO check if sending back an error would be a better choice
-                (false, _, false, None) => self.build_find_node_rsp(
+                self.build_find_node_rsp(
                     *context.root_id(),
                     req.not_via.clone(),
                     req.clone(),
                     From::from(*context.uln_table().state_seq_nr()),
                     Vec::with_capacity(0),
-                ),
-            };
+                )
+            }
+        };
 
-            context
-                .runtime()
-                .send_message(outgoing_message, context.uln_table().deref());
-        }
+        tracing::trace!(
+            target: "handle_overlay_discovery",
+            message = ?outgoing_message,
+            "Sending outgoing message via runtime"
+        );
+        context.runtime().send_message(
+            outgoing_message,
+            context.uln_table().deref(),
+            context.root_id(),
+        );
 
         Ok(())
     }

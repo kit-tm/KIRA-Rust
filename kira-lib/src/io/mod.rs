@@ -1,6 +1,17 @@
 //! Type definitions containing everything related to [ProtocolMessage](kira_r2kad::messaging::ProtocolMessage) transmission.
 
-use std::net::Ipv6Addr;
+use std::{
+    io,
+    net::{
+        Ipv6Addr,
+        SocketAddr,
+    },
+};
+
+use derive_more::{
+    Display,
+    Error,
+};
 
 pub mod receiver;
 pub mod sender;
@@ -10,21 +21,43 @@ pub mod sender;
 /// This should reach all nodes running a KIRA instance
 pub const ALL_KIRA_NODES: Ipv6Addr = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1);
 
+#[derive(Debug, Display, Error)]
+/// Fatal errors when creating a socket listening for R²/KAD protocol messages.
+pub enum SocketCreationErr {
+    /// Failed to bind socket to address.
+    #[display("Failed to bind socket to address {_1}")]
+    BindFailed(io::Error, SocketAddr),
+    /// Failed to join [`ALL_KIRA_NODES`] multicast address.
+    #[display("Error joining ALL-KIRA-NODES multicast group")]
+    MulticastJoinFailed(io::Error),
+}
+
 /// Utilities for sending and receiving [ProtocolMessages](kira_r2kad::messaging::ProtocolMessage)
 /// using async [tokio] channels.
 #[cfg(feature = "udp-tokio")]
 pub mod udp {
-    use kira_r2kad::domain::{InterfaceId, NodeId};
-    use std::collections::HashSet;
-    use std::net::SocketAddr;
-    use std::sync::Arc;
+    use std::{
+        collections::HashSet,
+        net::SocketAddr,
+        sync::Arc,
+    };
 
+    use kira_r2kad::domain::{
+        InterfaceId,
+        NodeId,
+    };
     use tokio::net::UdpSocket;
 
-    use crate::format::ProtocolMessageFormat;
-    use crate::io::ALL_KIRA_NODES;
-    use crate::io::{receiver::udp_tokio::UdpReceiver, sender::udp_tokio::UdpSender};
-    use crate::underlay::UnderlayObserverHandle;
+    use crate::{
+        format::ProtocolMessageFormat,
+        io::{
+            ALL_KIRA_NODES,
+            SocketCreationErr,
+            receiver::udp_tokio::UdpReceiver,
+            sender::udp_tokio::UdpSender,
+        },
+        underlay::UnderlayObserverHandle,
+    };
 
     /// Creates a asynchronous I/O Channel consisting of one [UdpSender] and
     /// one [UdpReceiver] with UDP implementations.
@@ -41,14 +74,16 @@ pub mod udp {
         underlay_handle: UnderlayObserverHandle,
         excluded_interfaces: HashSet<InterfaceId>,
         root_id: NodeId,
-    ) -> tokio::io::Result<(UdpSender, UdpReceiver)> {
-        let udp_socket =
-            UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port))).await?;
-        if let Err(err) = udp_socket.join_multicast_v6(&ALL_KIRA_NODES, 0) {
-            tracing::warn!(error = ?err, "Error joining multicast group");
-        }
+    ) -> Result<(UdpSender, UdpReceiver), SocketCreationErr> {
+        let socket_addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port));
+        let udp_socket = UdpSocket::bind(socket_addr)
+            .await
+            .map_err(|e| SocketCreationErr::BindFailed(e, socket_addr))?;
+        udp_socket
+            .join_multicast_v6(&ALL_KIRA_NODES, 0)
+            .map_err(SocketCreationErr::MulticastJoinFailed)?;
         let socket = Arc::new(udp_socket);
-        let sender = UdpSender::from_socket(socket.clone(), format, underlay_handle.clone())?;
+        let sender = UdpSender::from_socket(socket.clone(), port, format, underlay_handle.clone());
         let receiver = UdpReceiver::from_socket(
             socket,
             format,

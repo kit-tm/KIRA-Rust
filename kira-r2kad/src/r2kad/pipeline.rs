@@ -1,24 +1,24 @@
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::ops::Deref;
-
-use derive_more::derive::{Display, Error};
-use tracing::{Level, span};
-
-use crate::context::UseCaseContext;
-use crate::domain::{
-    InsertionStrategy, NodeId, RoutingTable, ULNTable, UnderlayNeighborId, VicinityGraph,
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    ops::Deref,
 };
-use crate::runtime::UseCaseRuntime;
-use crate::use_cases::handle_api::HandleApi;
-use crate::use_cases::handle_contact_update::HandleContactUpdate;
-use crate::use_cases::handle_overlay_discovery::HandleOverlayDiscovery;
+
+use derive_more::derive::{
+    Display,
+    Error,
+};
+use tracing::{
+    Level,
+    span,
+};
+
 use crate::use_cases::{
     EventHandler,
     UseCase,
     UseCaseEvent,
     derive_fwd_table_entries::DeriveFwdTableEntries,
-    distributed_hash_table::{DefaultExpiringHashTable, DistributedHashTable},
+    distributed_hash_table::DistributedHashTable,
     distributed_hash_table_injector::DistributedHashTableInjector,
     explicit_path_management::ExplicitPathManagement,
     failure_handling::FailureHandling,
@@ -27,10 +27,28 @@ use crate::use_cases::{
     overlay_neighborhood_discovery::OverlayNeighborhoodDiscovery,
     path_probing::PathProbing,
     precompute_paths_and_path_ids::PrecomputePathIds,
-    random_overlay_discovery::RandomOverlayDiscovery,
     vicinity_discovery::VicinityDiscovery,
 };
-use crate::use_cases::{HandlingResult, UseCaseState};
+use crate::{
+    context::UseCaseContext,
+    domain::{
+        InsertionStrategy,
+        NodeId,
+        RoutingTable,
+        ULNTable,
+        UnderlayNeighborId,
+        VicinityGraph,
+        dht::hash_table::ComplexHashTable,
+    },
+    runtime::UseCaseRuntime,
+    use_cases::{
+        HandlingResult,
+        UseCaseState,
+        handle_api::HandleApi,
+        handle_contact_update::HandleContactUpdate,
+        handle_overlay_discovery::HandleOverlayDiscovery,
+    },
+};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct R2KadPipelineConfig {
@@ -42,7 +60,7 @@ pub struct R2KadPipelineConfig {
 #[derive(Debug)]
 pub struct R2KadPipeline<C, const BUCKET_SIZE: usize> {
     derive_forwarding_tables: DeriveFwdTableEntries<C, BUCKET_SIZE>,
-    distributed_hash_table: DistributedHashTable<C, DefaultExpiringHashTable, BUCKET_SIZE>,
+    distributed_hash_table: DistributedHashTable<C, ComplexHashTable, BUCKET_SIZE>,
     distributed_hash_table_injector: DistributedHashTableInjector<C, BUCKET_SIZE>,
     explicit_path_management: ExplicitPathManagement<C, BUCKET_SIZE>,
     failure_handling: FailureHandling<C, BUCKET_SIZE>,
@@ -54,15 +72,14 @@ pub struct R2KadPipeline<C, const BUCKET_SIZE: usize> {
     on_disc: OverlayNeighborhoodDiscovery<C, BUCKET_SIZE>,
     path_probing: PathProbing<C, BUCKET_SIZE>,
     precomputation: PrecomputePathIds<C, BUCKET_SIZE>,
-    random_probing: RandomOverlayDiscovery<C, BUCKET_SIZE>,
     vicinity_disc: VicinityDiscovery<C, BUCKET_SIZE>,
 }
 
 impl<C, const BUCKET_SIZE: usize> R2KadPipeline<C, BUCKET_SIZE> {
     pub fn new(_config: R2KadPipelineConfig) -> Self {
         let derive_forwarding_tables = DeriveFwdTableEntries::new(Default::default());
-        let distributed_hash_table: DistributedHashTable<_, DefaultExpiringHashTable, BUCKET_SIZE> =
-            DistributedHashTable::new(Default::default());
+        let distributed_hash_table: DistributedHashTable<_, ComplexHashTable, BUCKET_SIZE> =
+            DistributedHashTable::default();
         let distributed_hash_table_injector = DistributedHashTableInjector::default();
         let explicit_path_management = ExplicitPathManagement::new(Default::default());
         let failure_handling = FailureHandling::new(Default::default());
@@ -70,8 +87,6 @@ impl<C, const BUCKET_SIZE: usize> R2KadPipeline<C, BUCKET_SIZE> {
         let handle_api = HandleApi::default();
         let contact_update = HandleContactUpdate::default();
         let overlay_disc = HandleOverlayDiscovery::default();
-        let random_probing = RandomOverlayDiscovery::new(Default::default())
-            .expect("default grouping should be valid");
         let on_disc = OverlayNeighborhoodDiscovery::<_, BUCKET_SIZE>::new(Default::default())
             .expect("default grouping should be valid");
         let vicinity_disc = VicinityDiscovery::default();
@@ -106,7 +121,6 @@ impl<C, const BUCKET_SIZE: usize> R2KadPipeline<C, BUCKET_SIZE> {
             on_disc,
             path_probing,
             precomputation,
-            random_probing,
             vicinity_disc,
         }
     }
@@ -141,11 +155,6 @@ where
 
         if let Err(e) = self.forward_message.start(context) {
             log::error!("Failed to start forwarding UseCase: {e}");
-            return Err(UseCaseStartupError);
-        }
-
-        if let Err(e) = self.random_probing.start(context) {
-            log::error!("Failed to start Random Probing UseCase: {e}");
             return Err(UseCaseStartupError);
         }
 
@@ -264,9 +273,6 @@ where
         if let Err(e) = self.failure_handling.handle_event(context, event.clone()) {
             log::error!("Failure handling returned error handling message: {e}");
         }
-        if let Err(e) = self.random_probing.handle_event(context, event.clone()) {
-            log::error!("Random Probing returned error handling message: {e}");
-        }
         if let Err(e) = self.on_disc.handle_event(context, event.clone()) {
             log::error!("Overlay Neighborhood Discovery returned error handling message: {e}");
         }
@@ -317,7 +323,6 @@ where
         let states: Vec<&dyn UseCaseState> = vec![
             self.forward_message.state(),
             self.failure_handling.state(),
-            self.random_probing.state(),
             self.on_disc.state(),
             self.vicinity_disc.state(),
             self.derive_forwarding_tables.state(),

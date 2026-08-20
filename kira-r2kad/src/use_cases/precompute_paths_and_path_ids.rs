@@ -1,20 +1,44 @@
-use std::collections::{HashMap, HashSet};
-use std::fmt::Debug;
-use std::marker::PhantomData;
-use std::ops::Deref;
-use std::time::Duration;
-use tracing::{Level, instrument};
-
-use crate::domain::protocol_event::forwarding::{
-    PathIdEntry, PathIdForwardingEntry, PathIdTableUpdate,
-};
-use crate::domain::{
-    NodeId, RoutingTable, UnderlayNeighborId, VICINITY_RADIUS, VicinityGraph, hasher::Hasher,
+use std::{
+    collections::{
+        HashMap,
+        HashSet,
+    },
+    fmt::Debug,
+    marker::PhantomData,
+    ops::Deref,
+    time::Duration,
 };
 
-use crate::use_cases::{
-    EventHandler, NeverError, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime,
-    UseCaseState, VicinityEvent,
+use tracing::{
+    Level,
+    instrument,
+};
+
+use crate::{
+    domain::{
+        NodeId,
+        RoutingTable,
+        UnderlayNeighborId,
+        VICINITY_RADIUS,
+        VicinityGraph,
+        hasher::Hasher,
+        protocol_event::forwarding::{
+            PathIdEntry,
+            PathIdForwardingEntry,
+            PathIdTableUpdate,
+        },
+    },
+    use_cases::{
+        EventHandler,
+        NeverError,
+        TimerId,
+        UseCase,
+        UseCaseContext,
+        UseCaseEvent,
+        UseCaseRuntime,
+        UseCaseState,
+        VicinityEvent,
+    },
 };
 
 /// Configuration for [UseCase] [PrecomputePathIds].

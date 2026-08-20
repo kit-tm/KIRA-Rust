@@ -1,7 +1,9 @@
-use std::collections::HashMap;
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    time::Duration,
+};
 
-use rand::Rng;
+use rand::RngExt as _;
 
 /// Possible distances between two contacts.
 #[derive(Debug, Eq, PartialEq, Hash)]

@@ -1,16 +1,35 @@
 //! Implementations of the use cases.
 
 use core::error::Error;
-use derive_more::derive::{Display, From};
-use std::fmt::Debug;
-use std::ops::Deref;
+use std::{
+    fmt::Debug,
+    ops::Deref,
+};
+
+use derive_more::derive::{
+    Display,
+    From,
+};
 use tokio::sync::mpsc; // use tokio::sync::oneshot;
 
-use crate::domain::{Contact, NodeId, UnderlayNeighborSource, UnderlayNeighborUpdate};
-use crate::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr};
-use crate::messaging::messages::ProtocolMessage;
-use crate::messaging::{FindNodeReqData, Nonce};
-use crate::use_cases::inject_messages::InjectionResult;
+use crate::{
+    domain::{
+        Contact,
+        NodeId,
+        UnderlayNeighborSource,
+        UnderlayNeighborUpdate,
+    },
+    messaging::{
+        FindNodeReqData,
+        Nonce,
+        dht::{
+            LHTInput,
+            LHTOutput,
+        },
+        messages::ProtocolMessage,
+    },
+    use_cases::inject_messages::InjectionResult,
+};
 
 pub mod derive_fwd_table_entries;
 pub mod distributed_hash_table;
@@ -25,7 +44,6 @@ pub mod inject_messages;
 pub mod overlay_neighborhood_discovery;
 pub mod path_probing;
 pub mod precompute_paths_and_path_ids;
-pub mod random_overlay_discovery;
 pub mod vicinity_discovery;
 
 #[doc(inline)]
@@ -55,10 +73,7 @@ pub enum UseCaseEvent {
 #[derive(Debug, Clone)]
 pub enum InjectionMessageData {
     FindNode(FindNodeReqData),
-    Store(
-        StoreInjectData<DefaultLHTInput>,
-        OneshotInjectMessageCallback,
-    ),
+    Store(StoreInjectData<LHTInput>, OneshotInjectMessageCallback),
     Fetch(FetchInjectData, OneshotInjectMessageCallback),
 }
 
@@ -88,7 +103,7 @@ impl PartialEq for InjectionMessageData {
 
 #[derive(Debug, Clone)]
 pub enum ApiEvent {
-    LocalHashTable(mpsc::UnboundedSender<Result<Vec<(NodeId, DefaultLHTOutput)>, FetchErr>>),
+    LocalHashTable(mpsc::UnboundedSender<Vec<(NodeId, LHTOutput)>>),
     ULNTable(mpsc::UnboundedSender<String>),
     RoutingTable(mpsc::UnboundedSender<String>),
     VicinityGraph(mpsc::UnboundedSender<String>),
@@ -236,7 +251,7 @@ impl UseCaseState for ReactiveUseCaseState {
 
 /// Error provided as goto Error for [UseCase]s when no error can occur.
 #[derive(Debug, Eq, PartialEq, Clone, Display)]
-#[display("This error can never occure because it's a zero-variant enum")]
+#[display("This error can never occur because it's a zero-variant enum")]
 pub enum NeverError {}
 
 impl Error for NeverError {}

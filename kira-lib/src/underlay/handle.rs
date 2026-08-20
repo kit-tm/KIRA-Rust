@@ -2,18 +2,37 @@
 //!
 //! The main struct is the [UnderlayObserverHandle].
 
-use derive_more::derive::{Display, Error, From};
-use futures::SinkExt;
-use futures::channel::mpsc::{SendError, UnboundedSender};
-use futures::channel::oneshot;
-use kira_forwarding::underlay::{UnderlayInformationProvider, UnderlayNeighborInformation};
-
-use crate::domain::underlay::{InterfaceId, UnderlayNeighbor, UnderlayNeighborId};
-use crate::underlay::information_base::UnderlayNeighborInterfaceDownError;
+use derive_more::derive::{
+    Display,
+    Error,
+    From,
+};
+use futures::{
+    SinkExt,
+    channel::{
+        mpsc::{
+            SendError,
+            UnboundedSender,
+        },
+        oneshot,
+    },
+};
+use kira_forwarding::underlay::{
+    UnderlayInformationProvider,
+    UnderlayNeighborInformation,
+};
 
 // docs
 #[allow(unused_imports)]
 use super::*;
+use crate::{
+    domain::underlay::{
+        InterfaceId,
+        UnderlayNeighbor,
+        UnderlayNeighborId,
+    },
+    underlay::information_base::UnderlayNeighborInterfaceDownError,
+};
 
 /// Sender used by the [UnderlayObserverHandle]
 /// to send request to the [UnderlayObserverConnection].
@@ -151,26 +170,21 @@ impl UnderlayObserverHandle {
 /// Error for the implementation of the [UnderlayInformationProvider] trait
 /// for the [UnderlayObserverHandle].
 pub enum ProvidingInfoError {
-    /// Neighbor is not known to the handle.
-    #[display("No neighbor known under id {_0}")]
-    UnknownNeighbor(#[error(ignore)] UnderlayNeighborId),
     /// The result sender was closed unexpectedly.
     UnderlayObserverSenderClosed(UnderlayObserverSenderClosedError),
 }
 
 impl UnderlayInformationProvider for UnderlayObserverHandle {
-    type Information = UnderlayNeighborInformation;
-
     type Error = ProvidingInfoError;
+    type Information = UnderlayNeighborInformation;
 
     async fn get_information(
         &mut self,
         ulnid: &UnderlayNeighborId,
-    ) -> Result<Self::Information, Self::Error> {
+    ) -> Result<Option<Self::Information>, Self::Error> {
         match UnderlayObserverHandle::get_information(self, ulnid).await {
             Err(e) => Err(ProvidingInfoError::UnderlayObserverSenderClosed(e)),
-            Ok(None) => Err(ProvidingInfoError::UnknownNeighbor(*ulnid)),
-            Ok(Some(info)) => Ok(info),
+            Ok(info) => Ok(info),
         }
     }
 }

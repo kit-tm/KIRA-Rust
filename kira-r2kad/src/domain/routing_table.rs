@@ -1,9 +1,23 @@
-use derive_more::{Display, Error};
-use std::{cmp::Ordering, num::NonZeroU8, ops::DerefMut};
+use std::{
+    cmp::Ordering,
+    num::NonZeroU8,
+    ops::DerefMut,
+};
+
+use derive_more::{
+    Display,
+    Error,
+};
 use tracing::Level;
 
 use crate::domain::{
-    Bucket, Contact, GroupingError, NodeId, ReplacementError, SharedPrefix, hasher::Hasher,
+    Bucket,
+    Contact,
+    GroupingError,
+    NodeId,
+    ReplacementError,
+    SharedPrefix,
+    hasher::Hasher,
 };
 
 pub mod flat_routing_table;
@@ -117,6 +131,9 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     fn contains_with<F>(&self, id: &NodeId, f: F) -> bool
     where
         F: Fn(&Contact) -> bool;
+
+    /// Returns if a [Contact] with a given [NodeId] is among the closest contacts (either in deepest or second deepest bucket)
+    fn is_close_contact(&self, id: &NodeId) -> bool;
 
     /// Attempts to split the [Bucket] the id should be located in.
     /// The [Contact]s in the [Bucket] will be inserted in the appropriate [Bucket]s.
@@ -372,7 +389,10 @@ fn sorter_xor((a, _): &PrefixContact, (b, _): &PrefixContact) -> Ordering {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{Path, SafeStateSeqNr};
+    use crate::domain::{
+        Path,
+        SafeStateSeqNr,
+    };
 
     fn test_next_hop_isolated_impl<RT>(table_factory: impl FnOnce(NodeId) -> RT)
     where

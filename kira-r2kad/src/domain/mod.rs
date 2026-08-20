@@ -1,22 +1,38 @@
 //! Domain Layer of the KIRA software design.
 
+use std::{
+    collections::HashSet,
+    hash::{
+        Hash,
+        Hasher,
+    },
+    time::{
+        Duration,
+        Instant,
+    },
+};
+
 pub use bucket::*;
 pub use contact::*;
-use derive_more::derive::Display;
+use derive_more::{
+    Display,
+    From,
+};
 pub use insertion_strategy::*;
 pub use node_id::*;
-pub use path::cycle_remover::*;
-pub use path::in_order_cycle_remover::*;
-pub use path::shortest_first_path_simplifier::*;
-pub use path::simplifier::*;
-pub use path::*;
+pub use path::{
+    cycle_remover::*,
+    in_order_cycle_remover::*,
+    shortest_first_path_simplifier::*,
+    simplifier::*,
+    *,
+};
 pub use path_id::*;
-pub use routing_table::flat_routing_table::*;
-pub use routing_table::*;
+pub use routing_table::{
+    flat_routing_table::*,
+    *,
+};
 pub use state_seq_nr::*;
-use std::collections::HashSet;
-use std::hash::{Hash, Hasher};
-use std::time::{Duration, Instant};
 pub use underlay::*;
 pub use underlay_neighbor_table::*;
 pub use vicinity::*;
@@ -44,14 +60,14 @@ pub mod vicinity;
 ///
 /// As [Age] specifies a timestamp in milliseconds a greater value represents a larger age.
 /// Considering `X = Age(10)` and `Y = Age(20)` then `X < Y == true`.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Display)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Display, From)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[display("{}ms",self.0)]
 pub struct Age(u64);
 
-impl From<u64> for Age {
-    fn from(value: u64) -> Self {
-        Self(value)
+impl From<Age> for std::time::Duration {
+    fn from(Age(age_ms): Age) -> Self {
+        std::time::Duration::from_millis(age_ms)
     }
 }
 
@@ -262,42 +278,5 @@ impl From<NotViaStateList> for Option<NotViaList> {
         } else {
             Some(notviastatelist.nvs_list.iter().map(NotVia::from).collect())
         }
-    }
-}
-
-#[derive(Debug, Clone, Eq, Display, PartialEq)]
-#[display("NotViaStateList {notviastate_list:#?} retries: {retry_counter}")]
-pub struct RediscoveryState {
-    notviastate_list: NotViaStateList, // any broken links within the active path
-    rev_via_contact_list: Vec<NodeId>, // a list of NodeIds for contact (stored reversed so that we can pop)
-    pub retry_counter: u8,
-}
-
-impl RediscoveryState {
-    pub fn new(notviastate_list: NotViaStateList, via_contact_list: Vec<NodeId>) -> Self {
-        Self {
-            notviastate_list,
-            rev_via_contact_list: via_contact_list.into_iter().rev().collect(),
-            retry_counter: 0,
-        }
-    }
-
-    // adds a notvia link to the list
-    pub fn add_notvia(&mut self, not_via: NotVia) -> bool {
-        self.notviastate_list.nvs_list.insert(not_via.into())
-    }
-
-    pub fn get_notviastate_list(&self) -> &NotViaStateList {
-        &self.notviastate_list
-    }
-
-    // returns the via contact list in correct order (first element is next contact to try)
-    pub fn get_via_contact_list(&self) -> Vec<NodeId> {
-        self.rev_via_contact_list.iter().rev().cloned().collect()
-    }
-
-    // returns the via contact in XOR sorted order
-    pub fn get_next_via_contact_id(&mut self) -> Option<NodeId> {
-        self.rev_via_contact_list.pop()
     }
 }

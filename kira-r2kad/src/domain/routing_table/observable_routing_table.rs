@@ -1,14 +1,31 @@
-use std::fmt::{Debug, Formatter};
-use std::marker::PhantomData;
-use std::num::NonZeroU8;
-use std::ops::{Deref, DerefMut};
+use std::{
+    fmt::{
+        Debug,
+        Formatter,
+    },
+    marker::PhantomData,
+    num::NonZeroU8,
+    ops::{
+        Deref,
+        DerefMut,
+    },
+};
 
 use derive_more::derive::Display;
 
-use crate::domain::unlimited_uln_routing_table::UnlimitedULNRoutingTable;
 use crate::domain::{
-    AddError, Bucket, BucketSplitError, Contact, FlatRoutingTable, GroupingError, NodeId,
-    ReplacementError, RoutingTable, SharedPrefix, hasher::Hasher,
+    AddError,
+    Bucket,
+    BucketSplitError,
+    Contact,
+    FlatRoutingTable,
+    GroupingError,
+    NodeId,
+    ReplacementError,
+    RoutingTable,
+    SharedPrefix,
+    hasher::Hasher,
+    unlimited_uln_routing_table::UnlimitedULNRoutingTable,
 };
 
 /// An Event emitted by the [ObservableRoutingTable].
@@ -177,8 +194,8 @@ impl<'a, RT, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE>
 where
     RT: 'a + NonObservableRoutingTable<'a, BUCKET_SIZE>,
 {
-    type ContactWriteGuard = ContactWriteGuard<'a, RT::ContactWriteGuard, BUCKET_SIZE>;
     type BucketIter = RT::BucketIter;
+    type ContactWriteGuard = ContactWriteGuard<'a, RT::ContactWriteGuard, BUCKET_SIZE>;
 
     fn root(&self) -> &NodeId {
         self.inner.root()
@@ -238,6 +255,10 @@ where
         F: Fn(&Contact) -> bool,
     {
         self.inner.contains_with(id, f)
+    }
+
+    fn is_close_contact(&self, id: &NodeId) -> bool {
+        self.inner.is_close_contact(id)
     }
 
     fn split_bucket(&mut self, id: &NodeId) -> Result<usize, BucketSplitError> {
@@ -400,13 +421,25 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, RwLock};
+    use std::sync::{
+        Arc,
+        RwLock,
+    };
 
-    use crate::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
-    use crate::domain::single_bucket::SingleBucketRT;
     use crate::domain::{
-        Contact, ContactState, NodeId, NotViaStateList, Path, RoutingTable, SafeStateSeqNr,
+        Contact,
+        ContactState,
+        NodeId,
+        NotViaStateList,
+        Path,
+        RoutingTable,
+        SafeStateSeqNr,
         Timestamp,
+        observable_routing_table::{
+            ObservableRoutingTable,
+            RoutingTableEvent,
+        },
+        single_bucket::SingleBucketRT,
     };
 
     #[test]

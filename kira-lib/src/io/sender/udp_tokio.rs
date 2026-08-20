@@ -2,16 +2,24 @@
 //!
 //! The main struct for receiving [ProtocolMessages](ProtocolMessage) is the [UdpSender].
 
-use std::net::{SocketAddr, SocketAddrV6};
-use std::sync::Arc;
+use std::{
+    io,
+    net::{
+        SocketAddr,
+        SocketAddrV6,
+    },
+    sync::Arc,
+};
 
-use tokio::io;
 use tokio::net::UdpSocket;
+use tracing::Level;
 
 use super::*;
-use crate::format::ProtocolMessageFormat;
-use crate::io::ALL_KIRA_NODES;
-use crate::underlay::UnderlayObserverHandle;
+use crate::{
+    format::ProtocolMessageFormat,
+    io::ALL_KIRA_NODES,
+    underlay::UnderlayObserverHandle,
+};
 
 /// Defaults to sending the request to multicast if neighbor is not present (which should not
 /// happen for physical neighbors).
@@ -27,39 +35,18 @@ pub struct UdpSender {
 }
 
 impl UdpSender {
-    /// Create a new [UdpSender].
-    ///
-    /// This will automatically create and manage an [UdpSocket].
-    pub async fn new(
-        socket_port: u16,
-        //broadcast_port: u16,
-        underlay_handle: UnderlayObserverHandle,
-        format: ProtocolMessageFormat,
-    ) -> io::Result<Self> {
-        let udp_socket =
-            UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], socket_port))).await?;
-        udp_socket.join_multicast_v6(&ALL_KIRA_NODES, 0)?;
-
-        let socket = Arc::new(udp_socket);
-
-        log::info!(target: "message_sender", "established UDP socket at port {socket_port}, message encoding {format:?}");
-        Self::from_socket(socket, format, underlay_handle)
-    }
-
     pub(crate) fn from_socket(
         socket: Arc<UdpSocket>,
+        port: u16,
         format: ProtocolMessageFormat,
         underlay_handle: UnderlayObserverHandle,
-    ) -> io::Result<Self> {
-        let addr = socket.local_addr()?;
-        let port = addr.port();
-
-        Ok(Self {
+    ) -> Self {
+        Self {
             socket,
             format,
             port,
             underlay_handle,
-        })
+        }
     }
 
     /// Returns the [SocketAddr] the sender is using.
@@ -73,7 +60,7 @@ impl UdpSender {
             .get_available()
             .await
             .map_err(|_| SenderError::Closed)?;
-        log::trace!(target: "message_sender", "Broadcasting to {indices:?}");
+        tracing::trace!(target: "message_sender", "Broadcasting to {indices:?}");
         for interface_id in indices {
             let dest = SocketAddr::V6(SocketAddrV6::new(
                 ALL_KIRA_NODES,
@@ -85,50 +72,74 @@ impl UdpSender {
             // FIXME: investigate if we can mitigate sending to unready interfaces
             // currently only experienced in Containernet on startup
             // probably caused by interface going down in between refreshing and sending
-            if let Err(e) = self
+            if let Err(err) = self
                 .socket
                 .send_to(buffer, dest)
                 .await
                 .map_err(SenderError::SendError)
             {
-                log::error!(target: "message_sender", "Multicast to interface {interface_id} failed unexpectedly: {e} (addr: {ALL_KIRA_NODES})");
+                tracing::error!(
+                    target: "message_sender",
+                    interface = %interface_id,
+                    %err,
+                    "Multicast to interface failed unexpectedly (addr: {ALL_KIRA_NODES})");
             }
         }
         Ok(())
     }
 
-    #[tracing::instrument(level = "trace", target = "message_sender", skip(self), fields(port = ?self.port, format = ?self.format))]
+    #[tracing::instrument(
+        level = Level::TRACE,
+        target = "message_sender",
+        skip(self),
+        ret(level = Level::TRACE),
+    )]
     async fn get_receiver_addr(
         &mut self,
         destination: UnderlayNeighborDestination,
-    ) -> Option<SocketAddr> {
-        let addr = match destination {
-            UnderlayNeighborDestination::Broadcast => return None,
+    ) -> Result<Option<SocketAddr>, SenderError> {
+        Ok(match destination {
+            UnderlayNeighborDestination::Broadcast => None,
             UnderlayNeighborDestination::Multicast(interface_id) => {
-                SocketAddrV6::new(ALL_KIRA_NODES, self.port, 0, interface_id.into())
+                Some(SocketAddrV6::new(ALL_KIRA_NODES, self.port, 0, interface_id.into()).into())
             }
             UnderlayNeighborDestination::UnderlayNeighbor(ulnid) => {
                 let Some(neighbor) = self
                     .underlay_handle
                     .get_information(&ulnid)
                     .await
-                    .expect("Sender should not be closed")
+                    .map_err(|err| {
+                        tracing::error!(target: "message_sender", %err, "Underlay handle sender closed");
+                        SenderError::Closed
+                    })?
                 else {
-                    log::warn!(target: "message_sender",
-                        "Can't determine SocketAddr for unknown underlay neighbor: {ulnid:?}"
+                    tracing::warn!(
+                        target: "message_sender",
+                        %ulnid,
+                        fallback = "Broadcasting",
+                        "Can't determine SocketAddr for unknown underlay neighbor",
                     );
-                    return None;
+                    return Ok(None);
                 };
 
-                SocketAddrV6::new(neighbor.ll_ipv6, self.port, 0, neighbor.interface_id.into())
+                Some(
+                    SocketAddrV6::new(neighbor.ll_ipv6, self.port, 0, neighbor.interface_id.into())
+                        .into(),
+                )
             }
-        };
-        Some(addr.into())
+        })
     }
 }
 
 impl AsyncProtocolMessageSender for UdpSender {
-    #[tracing::instrument(level = "trace", target = "message_sender", skip(self), fields(port = ?self.port, format = ?self.format))]
+    #[tracing::instrument(
+        level = Level::TRACE,
+        target = "message_sender",
+        skip(self),
+        fields(
+            port = ?self.port,
+            format = ?self.format)
+    )]
     async fn send_message<M>(
         &mut self,
         message: M,
@@ -142,14 +153,14 @@ impl AsyncProtocolMessageSender for UdpSender {
         let mut buffer = Vec::new();
         self.format.serialize(&mut buffer, &message)?;
 
-        if let Some(receiver_addr) = self.get_receiver_addr(destination).await {
-            log::trace!( target: "message_sender", "Sending ProtocolMessage to {receiver_addr}");
+        if let Some(receiver_addr) = self.get_receiver_addr(destination).await? {
+            tracing::trace!( target: "message_sender", %receiver_addr, "Sending ProtocolMessage");
 
             self.socket
                 .send_to(&buffer[..buffer.len()], receiver_addr)
                 .await?;
         } else {
-            log::trace!( target: "message_sender", "Broadcasting ProtocolMessage");
+            tracing::trace!( target: "message_sender", "Broadcasting ProtocolMessage");
             self.broadcast_message(&buffer).await?;
         }
 

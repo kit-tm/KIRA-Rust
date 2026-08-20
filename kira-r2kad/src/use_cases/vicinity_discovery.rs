@@ -1,29 +1,72 @@
-use crate::messaging::WireFormatMessage;
-use std::cmp::min;
-use std::collections::{HashMap, HashSet, hash_map};
-use std::fmt::Debug;
-use std::marker::PhantomData;
-use std::num::NonZeroU8;
-use std::ops::Deref;
-use std::time::Duration;
-use tracing::{Level, field, instrument};
-
-use derive_more::derive::{Display, Error};
-
-use crate::domain::{
-    Contact, DEFAULT_BUCKET_SIZE, InterfaceId, NodeId, Path, RoutingTable, SafeStateSeqNr,
-    StateSeqNr, ULNTable,
-    UnderlayNeighborDestination::{Broadcast, Multicast, UnderlayNeighbor},
-    UnderlayNeighborId, UnderlayNeighborSource, UnderlayNeighborUpdate, VICINITY_RADIUS,
-    VicinityGraph,
+use std::{
+    cmp::min,
+    collections::{
+        HashMap,
+        HashSet,
+        hash_map,
+    },
+    fmt::Debug,
+    marker::PhantomData,
+    num::NonZeroU8,
+    ops::Deref,
+    time::Duration,
 };
-use crate::messaging::{
-    CommonHeader, Nonce, ProtocolMessage, ProtocolMessageKind, QueryRouteReqData, QueryRouteType,
-    RTableData, ReqRspMessage, source_route::SourceRoute,
+
+use derive_more::derive::{
+    Display,
+    Error,
 };
-use crate::use_cases::{
-    ApiEvent, EventHandler, TimerId, UseCase, UseCaseContext, UseCaseEvent, UseCaseRuntime,
-    UseCaseState, VicinityEvent,
+use tracing::{
+    Level,
+    field,
+    instrument,
+};
+
+use crate::{
+    domain::{
+        Contact,
+        DEFAULT_BUCKET_SIZE,
+        InterfaceId,
+        NodeId,
+        Path,
+        RoutingTable,
+        SafeStateSeqNr,
+        StateSeqNr,
+        ULNTable,
+        UnderlayNeighborDestination::{
+            Broadcast,
+            Multicast,
+            UnderlayNeighbor,
+        },
+        UnderlayNeighborId,
+        UnderlayNeighborSource,
+        UnderlayNeighborUpdate,
+        VICINITY_RADIUS,
+        VicinityGraph,
+    },
+    messaging::{
+        CommonHeader,
+        Nonce,
+        ProtocolMessage,
+        ProtocolMessageKind,
+        QueryRouteReqData,
+        QueryRouteType,
+        RTableData,
+        ReqRspMessage,
+        WireFormatMessage,
+        source_route::SourceRoute,
+    },
+    use_cases::{
+        ApiEvent,
+        EventHandler,
+        TimerId,
+        UseCase,
+        UseCaseContext,
+        UseCaseEvent,
+        UseCaseRuntime,
+        UseCaseState,
+        VicinityEvent,
+    },
 };
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -101,8 +144,8 @@ pub struct InterfaceState {
     hello_interval: Duration,
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
 /// Information about the pending response to a request.
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct RequestState {
     kind: ProtocolMessageKind,
     timeouts: usize,
@@ -887,7 +930,7 @@ where
                 match observed_ssn {
                     StateSeqNr::Invalid => {
                         panic!(
-                            "Received invalid StateSeqNr from underlay neighbor in VicinityDiscovery use-case"
+                            "Received invalid StateSeqNr from underlay neighbor in VicinityDiscovery use case"
                         )
                     }
                     StateSeqNr::Reset => {
@@ -1568,7 +1611,7 @@ where
                         timer_hooks
                             .insert(hello_timer_id, TimerHook::SendInterfaceHello(interface));
                     }
-                    None => {} // timer of other use-case
+                    None => {} // timer of other use case
                 }
 
                 Ok(())

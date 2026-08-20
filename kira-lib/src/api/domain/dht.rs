@@ -1,23 +1,60 @@
-use crate::api::domain::NodeId;
-use axum::http;
-use axum::response::{IntoResponse, Response};
-use base64::Engine;
-use base64::prelude::BASE64_STANDARD;
+use std::{
+    collections::{
+        BTreeMap,
+        HashMap,
+    },
+    fmt::{
+        Display,
+        Formatter,
+    },
+    time::Duration,
+};
+
+use axum::{
+    http,
+    response::{
+        IntoResponse,
+        Response,
+    },
+};
+use base64::{
+    Engine,
+    prelude::BASE64_STANDARD,
+};
 #[cfg(feature = "swagger_doc")]
 use itertools::Itertools;
-use kira_r2kad::messaging::dht::{DefaultLHTInput, DefaultLHTOutput, FetchErr, StoreErr};
-use kira_r2kad::use_cases::{FetchInjectData, StoreInjectData};
+use kira_r2kad::{
+    messaging::dht::{
+        FetchErr,
+        LHTInput,
+        LHTOutput,
+        StoreErr,
+    },
+    use_cases::{
+        FetchInjectData,
+        StoreInjectData,
+    },
+};
 use serde::Serialize;
-use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap};
-use std::fmt::{Display, Formatter};
-use std::time::Duration;
+use sha2::{
+    Digest,
+    Sha256,
+};
 #[cfg(feature = "swagger_doc")]
-use utoipa::openapi::{RefOr, ResponseBuilder, ResponsesBuilder};
+use utoipa::openapi::{
+    RefOr,
+    ResponseBuilder,
+    ResponsesBuilder,
+};
 #[cfg(feature = "swagger_doc")]
-use utoipa::{ToResponse, ToSchema};
+use utoipa::{
+    ToResponse,
+    ToSchema,
+};
 
-pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+use crate::api::domain::NodeId;
+
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub enum Handle {
     Handle(NodeId),
@@ -64,11 +101,11 @@ impl TryFrom<Handle> for kira_r2kad::domain::NodeId {
 pub struct StoreArgs {
     pub handle: Handle,
     pub restore: bool,
-    pub data: DefaultLHTInput,
+    pub data: LHTInput,
 }
 
-impl From<StoreInjectData<DefaultLHTInput>> for StoreArgs {
-    fn from(value: StoreInjectData<DefaultLHTInput>) -> Self {
+impl From<StoreInjectData<LHTInput>> for StoreArgs {
+    fn from(value: StoreInjectData<LHTInput>) -> Self {
         let handle = NodeId::from(value.handle);
         Self {
             handle: Handle::Handle(handle),
@@ -78,7 +115,7 @@ impl From<StoreInjectData<DefaultLHTInput>> for StoreArgs {
     }
 }
 
-impl TryFrom<StoreArgs> for StoreInjectData<DefaultLHTInput> {
+impl TryFrom<StoreArgs> for StoreInjectData<LHTInput> {
     type Error = HandleConvError;
 
     fn try_from(value: StoreArgs) -> Result<Self, Self::Error> {
@@ -121,12 +158,12 @@ impl Display for StoreOK {
     }
 }
 
-impl From<kira_r2kad::messaging::dht::StoreOK> for StoreOK {
-    fn from(value: kira_r2kad::messaging::dht::StoreOK) -> Self {
+impl From<kira_r2kad::messaging::dht::StoreOk> for StoreOK {
+    fn from(value: kira_r2kad::messaging::dht::StoreOk) -> Self {
         match value {
-            kira_r2kad::messaging::dht::StoreOK::Created => Self::Created,
-            kira_r2kad::messaging::dht::StoreOK::Updated => Self::Updated,
-            kira_r2kad::messaging::dht::StoreOK::Inserted => Self::Inserted,
+            kira_r2kad::messaging::dht::StoreOk::Created => Self::Created,
+            kira_r2kad::messaging::dht::StoreOk::Updated => Self::Updated,
+            kira_r2kad::messaging::dht::StoreOk::Inserted => Self::Inserted,
         }
     }
 }
@@ -152,8 +189,8 @@ impl IntoResponse for StoreOK {
 #[cfg_attr(feature = "swagger_doc", derive(ToSchema, ToResponse))]
 pub struct FetchRsp(Vec<String>);
 
-impl From<DefaultLHTOutput> for FetchRsp {
-    fn from(value: DefaultLHTOutput) -> Self {
+impl From<LHTOutput> for FetchRsp {
+    fn from(value: LHTOutput) -> Self {
         Self(
             value
                 .into_iter()
@@ -168,18 +205,21 @@ impl From<DefaultLHTOutput> for FetchRsp {
 pub struct LocalHashTable(pub HashMap<String, Vec<String>>);
 
 #[derive(Serialize, Debug, Clone)]
+#[cfg_attr(feature = "swagger_doc", derive(ToSchema))]
 pub enum DHTErr {
     FormatError(ApiFormatErr),
     SendError,
     Isolated,
     ReceiveError,
     Timeout,
+    RPCTimeout,
     MessageReceiveMismatch,
     NotFound,
     Miscellaneous,
 }
 
 #[derive(Serialize, Debug, Clone)]
+#[cfg_attr(feature = "swagger_doc", derive(ToSchema))]
 pub enum ApiFormatErr {
     HexFormatError,
     BoolFormatError,
@@ -194,7 +234,8 @@ impl Display for DHTErr {
             Self::SendError => write!(f, "Error sending request."),
             Self::Isolated => write!(f, "Node is isolated."),
             Self::ReceiveError => write!(f, "Receive Error."),
-            Self::Timeout => write!(f, "Timout of request."),
+            Self::Timeout => write!(f, "Timeout of request."),
+            Self::RPCTimeout => write!(f, "Timeout of request (RPC)."),
             Self::MessageReceiveMismatch => {
                 write!(f, "Response message received isn't expected type.")
             }
@@ -207,12 +248,12 @@ impl Display for DHTErr {
 impl IntoResponse for DHTErr {
     fn into_response(self) -> Response {
         let status = match self {
-            // TODO: overthink status codes
             Self::FormatError(_) => http::StatusCode::BAD_REQUEST,
             Self::SendError => http::StatusCode::INTERNAL_SERVER_ERROR,
             Self::Isolated => http::StatusCode::SERVICE_UNAVAILABLE,
             Self::ReceiveError => http::StatusCode::BAD_GATEWAY,
             Self::Timeout => http::StatusCode::GATEWAY_TIMEOUT,
+            Self::RPCTimeout => http::StatusCode::GATEWAY_TIMEOUT, // server still got an answer (timeout)
             Self::MessageReceiveMismatch => http::StatusCode::BAD_GATEWAY,
             Self::NotFound => http::StatusCode::NOT_FOUND,
             Self::Miscellaneous => http::StatusCode::SERVICE_UNAVAILABLE,
@@ -306,6 +347,7 @@ impl utoipa::IntoResponses for DHTErr {
             DHTErr::Isolated,
             DHTErr::ReceiveError,
             DHTErr::Timeout,
+            DHTErr::RPCTimeout,
             DHTErr::MessageReceiveMismatch,
             DHTErr::NotFound,
             DHTErr::Miscellaneous,

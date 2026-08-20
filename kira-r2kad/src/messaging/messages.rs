@@ -1,28 +1,54 @@
 //! Data types for all protocol messages and wrapped in the central enumeration [ProtocolMessage].
 
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::num::NonZeroU64;
+use std::{
+    collections::HashMap,
+    fmt::{
+        Debug,
+        Formatter,
+    },
+    num::NonZeroU64,
+};
 
 use derive_more::derive::Display;
 
-use crate::domain::{Contact, Link, NodeId, NotViaList, StateSeqNr, state_seq_nr};
-use crate::messaging::dht::{
-    DefaultLHTInput, DefaultLHTOutput, FetchReqData, FetchRspData, StoreReqData, StoreRspData,
+use crate::{
+    domain::{
+        Contact,
+        Link,
+        NodeId,
+        NotViaList,
+        StateSeqNr,
+        state_seq_nr,
+    },
+    messaging::{
+        dht::{
+            FetchReqData,
+            FetchRspData,
+            LHTInput,
+            LHTOutput,
+            StoreReqData,
+            StoreRspData,
+        },
+        source_route::SourceRoute,
+    },
 };
-use crate::messaging::source_route::SourceRoute;
-use std::fmt;
 //use ciborium::{ser,de};
 
 /// Randomly generated number to uniquely identify a protocol message and its
 /// response.
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Copy)]
+#[derive(Display, PartialEq, Eq, Clone, Hash, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[display("{:x}-{:x}", (self.0 >> 32) as u32, (self.0 & 0xffffffff) as u32)]
 pub struct Nonce(u64);
 
-impl fmt::Display for Nonce {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+impl Debug for Nonce {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Nonce: {:x}-{:x}",
+            (self.0 >> 32) as u32,
+            (self.0 & 0xffffffff) as u32
+        )
     }
 }
 
@@ -80,8 +106,19 @@ pub enum ProtocolMessageKind {
 }
 
 /// Common Header Structure
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[display("v={} t={:0x} f={:0x} dst={} src={} dom={:x} msg-id={:x}-{:x} sseq={} deg={}",
+          self.version,
+          self.msg_type,
+          self.msg_flags,
+          self.dest_id,
+          self.src_node_id,
+          self.domain_id,
+          (self.msg_id >> 32) as u32, (self.msg_id & 0xffffffff) as u32,
+          self.state_seq_num,
+          self.src_node_degree,
+)]
 pub struct CommonHeader {
     version: u8,
     msg_type: u8,
@@ -290,10 +327,10 @@ pub enum ProtocolMessage {
     // TODO: add Rsp for Setup and Teardown and handle them accordingly
     UpdateRouteReq(UpdateRouteReq),
     Error(ReqRspMessage<ErrorData>),
-    StoreReq(ReqRspMessage<StoreReqData<DefaultLHTInput>>),
+    StoreReq(ReqRspMessage<StoreReqData<LHTInput>>),
     StoreRsp(ReqRspMessage<StoreRspData>),
     FetchReq(ReqRspMessage<FetchReqData>),
-    FetchRsp(ReqRspMessage<FetchRspData<DefaultLHTOutput>>),
+    FetchRsp(ReqRspMessage<FetchRspData<LHTOutput>>),
 }
 
 impl ProtocolMessage {
@@ -460,16 +497,6 @@ impl ProtocolMessage {
         }
     }
 
-    // TODO: write documentation how to use
-    // and why other "overlay" messages are not listed here
-    pub fn overlay_destination(&self) -> Option<&NodeId> {
-        match self {
-            Self::StoreReq(req) => Some(&req.data.handle),
-            Self::FetchReq(req) => Some(&req.data.handle),
-            _ => None,
-        }
-    }
-
     /// Current hop of the message.
     ///
     /// Is only [Option::None] if the message has no source route (ULNHello).
@@ -539,8 +566,19 @@ impl<T: Debug> ReqRspMessage<T> {
         self.source_route.source()
     }
 
-    /// Next hop destination of the request.
+    /// Next overlay hop destination of the request.
+    ///
+    /// Essentially this is the destination of the source route.
     pub fn destination(&self) -> &NodeId {
+        // TODO: coherent renaming of methods destination methods
+        // to distinguish between current overlay hop "destination" and final destination
+        //
+        // Currently we have multiple ambiguous destination methods:
+        //
+        // - `ReqRspMessage::destination`: overlay destination
+        // - `ProtocolMessage::destination`: overlay destination (or None on ULNHello)
+        // - `WireFormatMessage::dest_id`: final intended destination
+        //      can differ from current overlay hop destination if forwarded via multiple overlay hops
         self.source_route.destination()
     }
 }
@@ -595,6 +633,7 @@ impl<T: Debug> WireFormatMessage for ReqRspMessage<T> {
     fn common_header(&self) -> &CommonHeader {
         &self.common_header
     }
+
     fn common_header_mut(&mut self) -> &mut CommonHeader {
         &mut self.common_header
     }
@@ -663,6 +702,7 @@ impl WireFormatMessage for UpdateRouteReq {
     fn common_header(&self) -> &CommonHeader {
         &self.common_header
     }
+
     fn common_header_mut(&mut self) -> &mut CommonHeader {
         &mut self.common_header
     }

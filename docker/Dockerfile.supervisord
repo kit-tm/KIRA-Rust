@@ -1,8 +1,11 @@
+ARG BASE_IMAGE="ubuntu:latest"
+
 FROM rust:latest AS chef
 RUN cargo install cargo-chef
 WORKDIR /kirad
 
 ARG FEATURES="api"
+
 ENV WORKDIR=kirad
 
 FROM chef AS planner
@@ -23,30 +26,41 @@ COPY ./ .
 RUN cargo build --target x86_64-unknown-linux-musl --release --no-default-features --features="$FEATURES"
 RUN strip -s /kirad/target/x86_64-unknown-linux-musl/release/kirad
 
-FROM ubuntu:latest
+FROM $BASE_IMAGE
 
-COPY --from=builder /etc/passwd /etc/passwd
-COPY --from=builder /etc/group /etc/group
+# NOTE: Containers used for Containernet require additional packages.
+# Ensure that the following packages are listed under `ADD_PACKAGES`:
+#   - net-tools
+#   - iproute2
+#   - iputils-ping
+# https://github.com/containernet/containernet/wiki#tested-images
+ARG ADD_PACKAGES="curl net-tools iproute2 iputils-ping nano tcpdump bash strace iperf"
 
+# Install required packages:
+#   - nftables: Used by native fast forwarding implementation of kirad
+#   - supervisor: Process management similar to init systems (systemd)
 RUN apt update && \
-    apt upgrade -y && \
-    apt install -y curl net-tools iproute2 nftables iputils-ping nano tcpdump bash strace iperf
+    apt install -y \
+        nftables \
+        supervisor \
+        ${ADD_PACKAGES} \
+    && rm -rf /var/lib/apt/lists/*
 
-# setup supervisord
-RUN apt install -y supervisor
-RUN mkdir -p /var/log/supervisor
-COPY docker/supervisord.conf /etc/supervisord.conf
+# Setup supervisord (https://docs.docker.com/engine/containers/multi-service_container/#use-a-process-manager)
+COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY docker/kirad.conf /etc/supervisor/conf.d
 
 WORKDIR /kirad
 
 # Copy our build
 COPY --from=builder /kirad/target/x86_64-unknown-linux-musl/release/kirad ./
-COPY docker/kirad.conf /etc/supervisord.d/kirad.conf
 COPY kirad/conf/nftables.conf ./
 
-#USER kirad:kirad
+WORKDIR /
 
-EXPOSE 8080/tcp
+# kirad api
+EXPOSE 8080/tcp 
+
 
 # start supervisord
-ENTRYPOINT ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
+ENTRYPOINT ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]

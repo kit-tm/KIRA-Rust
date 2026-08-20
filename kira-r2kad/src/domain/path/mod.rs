@@ -1,13 +1,20 @@
-use derive_more::Error;
-use derive_more::with_trait::Display;
+use std::{
+    ops::Index,
+    slice::SliceIndex,
+    sync::LazyLock,
+};
 
-use std::ops::Index;
-use std::slice::SliceIndex;
-
-use crate::domain::{NodeId, Timestamp, hasher::Hasher};
-use std::sync::OnceLock;
+use derive_more::{
+    Error,
+    with_trait::Display,
+};
 
 use super::Link;
+use crate::domain::{
+    NodeId,
+    Timestamp,
+    hasher::Hasher,
+};
 
 pub mod cycle_remover;
 pub mod in_order_cycle_remover;
@@ -15,25 +22,23 @@ pub mod pathcollection;
 pub mod shortest_first_path_simplifier;
 pub mod simplifier;
 
-/// this is a static variable that automatically gets initialized on its first use
-/// it represents a random NodeID that serves to prevent route flapping
-pub struct AnchorNodeId;
-
-impl AnchorNodeId {
-    pub fn get(&mut self) -> &'static NodeId {
-        static INSTANCE: OnceLock<NodeId> = OnceLock::new();
-        INSTANCE.get_or_init(NodeId::random)
-    }
-}
+/// This is a static variable that automatically gets initialized on its first use.
+///
+/// It represents a random [NodeId] that serves to prevent route flapping.
+static ANCHOR_NODE_ID: LazyLock<NodeId> = LazyLock::new(NodeId::random);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum PathState {
     #[default]
-    Undefined, // initial state, path state not yet defined
-    Valid,    // path is valid (has been validated)
-    Faulty,   // path not usable but rediscovery is initiated
-    Checking, // path probably usable, but needs to be validated (e.g., for a proposed path)
+    /// Initial state, [PathState] not yet defined.
+    Undefined,
+    /// [Path] is valid (has been validated).
+    Valid,
+    /// [Path] not usable but rediscovery is initiated.
+    Faulty,
+    /// [Path] probably usable, but needs to be validated (e.g., for a proposed path).
+    Checking,
 }
 
 /// A Path of [NodeId]s.
@@ -42,18 +47,18 @@ pub enum PathState {
 ///
 /// # Invariant
 ///
-/// A valid [Path] is not empty at any time as it always contains the NodeId of the destination node at the end
+/// A valid [Path] is not empty at any time as it always contains the NodeId of the destination node at the end.
 /// Therefore some methods panic or return errors when constructing empty [Path]s.
-/// The last_validated timestamp is the instant when the path was successfully validated by a PathProbe or invalidated by an error
-/// The last_path_refresh timestamp is the instant when the path was successfully refreshed
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Path {
     ids: Vec<NodeId>,
     #[cfg_attr(feature = "serde", serde(skip))]
     path_state: PathState,
+    /// Instant when the path was successfully validated by a PathProbe or invalidated by an error.
     #[cfg_attr(feature = "serde", serde(skip))]
     last_validated: Option<Timestamp>, // update for last validation or invalidation
+    /// Instant when the path was successfully refreshed.
     #[cfg_attr(feature = "serde", serde(skip))]
     last_path_refresh: Option<Timestamp>,
 }
@@ -85,6 +90,7 @@ pub struct EmptyPathError;
 
 impl TryFrom<&[NodeId]> for Path {
     type Error = EmptyPathError;
+
     fn try_from(slice: &[NodeId]) -> Result<Self, Self::Error> {
         if slice.is_empty() {
             return Err(EmptyPathError);
@@ -149,10 +155,19 @@ impl FromIterator<NodeId> for Result<Path, EmptyPathError> {
 }
 
 impl Path {
+    // set path to None and clear everything else
+    pub fn clear(&mut self) {
+        self.ids.clear();
+        self.path_state = Default::default();
+        self.last_validated = None;
+        self.last_path_refresh = None;
+    }
+
     /// Reverses the [Path] in-place.
     pub fn reverse(&mut self) {
         self.ids.reverse();
     }
+
     /// Size of the [Path] in numbers of Nodes.
     ///
     /// Is usually always > 0 as Path has to contain the [Contact](crate::domain::Contact)s NodeId at the
@@ -164,10 +179,12 @@ impl Path {
         );
         self.ids.len()
     }
+
     /// Returns if the [Path] contains the [NodeId].
     pub fn contains(&self, id: &NodeId) -> bool {
         self.ids.contains(id)
     }
+
     /// Returns if the [Path] contains the [Link].
     pub fn contains_link(&self, link: &Link) -> bool {
         self.ids
@@ -178,26 +195,31 @@ impl Path {
                     || (first == link.second() && second == link.first())
             })
     }
+
     /// Returns the first entry in the [Path].
     pub fn first(&self) -> &NodeId {
         self.ids
             .first()
             .expect("Invalid access to first element on empty path")
     }
+
     /// Returns the second entry in the [Path].
     pub fn second(&self) -> Option<&NodeId> {
         self.ids.get(1)
     }
+
     /// Returns the last entry in the [Path].
     pub fn last(&self) -> &NodeId {
         self.ids
             .last()
             .expect("Invalid access to last element on empty path")
     }
+
     /// Pushs a [NodeId] to the end of the [Path].
     pub fn push(&mut self, id: NodeId) {
         self.ids.push(id);
     }
+
     /// Remove all entries inside the interval [start_index, end_index).
     /// Note that the end_index is excluded.
     fn remove_in(&mut self, start_index: usize, end_index: usize) {
@@ -248,13 +270,18 @@ impl Path {
         iter.next().is_none()
     }
 
-    /// returns true if this path is better (shorter or same length but closer to AnchorNodeId)
+    /// Returns true if this path is better (shorter or same length but closer to AnchorNodeId)
     pub fn is_better_than(&self, other_path: &Path) -> bool {
         debug_assert!(self.last() == other_path.last()); // paths should have the same destination
         self.ids.len() < other_path.ids.len()
             || (self.ids.len() == other_path.ids.len()
-                && (self.path_hasher().hash(&self.ids) ^ AnchorNodeId.get())
-                    < self.path_hasher().hash(&other_path.ids) ^ AnchorNodeId.get())
+                && (self.path_hasher().hash(&self.ids) ^ &*ANCHOR_NODE_ID)
+                    < self.path_hasher().hash(&other_path.ids) ^ &*ANCHOR_NODE_ID)
+    }
+
+    /// returns true if this path is same
+    pub fn is_same_path_as(&self, other_path: &Path) -> bool {
+        self.ids == other_path.ids
     }
 
     /// get path state
@@ -378,8 +405,8 @@ where
 // ============ Iteration ============
 
 impl IntoIterator for Path {
-    type Item = NodeId;
     type IntoIter = std::vec::IntoIter<Self::Item>;
+    type Item = NodeId;
 
     fn into_iter(self) -> Self::IntoIter {
         self.ids.into_iter()
@@ -387,8 +414,8 @@ impl IntoIterator for Path {
 }
 
 impl<'a> IntoIterator for &'a Path {
-    type Item = &'a NodeId;
     type IntoIter = std::slice::Iter<'a, NodeId>;
+    type Item = &'a NodeId;
 
     fn into_iter(self) -> Self::IntoIter {
         self.ids.iter()
@@ -397,7 +424,10 @@ impl<'a> IntoIterator for &'a Path {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::{NodeId, Path};
+    use crate::domain::{
+        NodeId,
+        Path,
+    };
 
     #[test]
     fn index_smoke_test() {

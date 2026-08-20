@@ -42,10 +42,8 @@
 //! - `overlay_neighborhood_discovery`: Use case [OverlayNeighborhoodDiscovery](use_cases::overlay_neighborhood_discovery::OverlayNeighborhoodDiscovery)
 //! - `path_probing`: Use case [PathProbing](use_cases::path_probing::PathProbing)
 //! - `precompute_paths_and_path_ids`: Use case [PathProbing](use_cases::precompute_paths_and_path_ids::PrecomputePathIds)
-//! - `random_overlay_discovery`: Use case [RandomOverlayDiscovery](use_cases::random_overlay_discovery::RandomOverlayDiscovery)
 //! - `vicinity_discovery`: Use case [VicinityDiscovery](use_cases::vicinity_discovery::VicinityDiscovery)
-//! - `distributed_hash_table`: Use case [DistributedHashTable](use_cases::distributed_hash_table::DistributedHashTable)
-//! - `distributed_hash_table_injector`: Use case [DistributedHashTableInjector](use_cases::distributed_hash_table_injector::DistributedHashTableInjector)
+//! - `distributed_hash_table`: Use cases [DistributedHashTable](use_cases::distributed_hash_table::DistributedHashTable) [DistributedHashTableInjector](use_cases::distributed_hash_table_injector::DistributedHashTableInjector)
 //!
 //! # Cargo feature flags
 //!
@@ -65,7 +63,11 @@ pub mod use_cases;
 pub mod utils;
 
 #[doc(inline)]
-pub use crate::r2kad::{Input, Output, R2Kad};
+pub use crate::r2kad::{
+    Input,
+    Output,
+    R2Kad,
+};
 
 #[cfg(test)]
 #[allow(dead_code)]

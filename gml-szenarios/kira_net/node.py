@@ -14,7 +14,7 @@ class Node:
         self._container = self.net.addDocker(self.node_config.name,
                                              ip=None, network_mode="none",
                                              dimage=self.node_config.docker_image, dcmd=self.node_config.dcmd,
-                                             sysctls=self.node_config.sysctls, environment=self.node_config.enviroments)
+                                             sysctls=self.node_config.sysctls, environment=self.node_config.environments)
 
     def save_in_graph(self, G: Graph, label):
         self.node_config.save_in_graph(G, label)

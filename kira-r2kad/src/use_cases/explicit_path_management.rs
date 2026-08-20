@@ -1,28 +1,67 @@
-use std::collections::HashMap;
-use std::collections::hash_map::Entry::{Occupied, Vacant};
-use std::marker::PhantomData;
-use std::ops::Deref;
-use std::time::{Duration, Instant};
+use std::{
+    collections::{
+        HashMap,
+        hash_map::Entry::{
+            Occupied,
+            Vacant,
+        },
+    },
+    marker::PhantomData,
+    ops::Deref,
+    time::{
+        Duration,
+        Instant,
+    },
+};
 
-use derive_more::derive::{Display, Error};
-use tracing::{Level, instrument};
+use derive_more::derive::{
+    Display,
+    Error,
+};
+use tracing::{
+    Level,
+    instrument,
+};
 
-use crate::domain::protocol_event::forwarding::{
-    PathIdEntry, PathIdForwardingEntry, PathIdTableUpdate,
-};
-use crate::domain::{
-    Contact, ContactState, NodeId, Path, PathId, RoutingTable, ULNTable, UnderlayNeighborId,
-    VICINITY_RADIUS, hasher::Hasher,
-};
-use crate::messaging::source_route::SourceRoute;
-use crate::messaging::{
-    CommonHeader, PathSetupReqData, PathTeardownReqData, ProbeReqData, ProtocolMessage,
-    ProtocolMessageKind, ReqRspMessage,
-};
-use crate::runtime::UseCaseRuntime;
-use crate::use_cases::{
-    ContactEvent, EventHandler, HandlingResult, TimerId, UseCase, UseCaseContext, UseCaseEvent,
-    UseCaseState,
+use crate::{
+    domain::{
+        Contact,
+        ContactState,
+        NodeId,
+        Path,
+        PathId,
+        RoutingTable,
+        ULNTable,
+        UnderlayNeighborId,
+        VICINITY_RADIUS,
+        hasher::Hasher,
+        protocol_event::forwarding::{
+            PathIdEntry,
+            PathIdForwardingEntry,
+            PathIdTableUpdate,
+        },
+    },
+    messaging::{
+        CommonHeader,
+        PathSetupReqData,
+        PathTeardownReqData,
+        ProbeReqData,
+        ProtocolMessage,
+        ProtocolMessageKind,
+        ReqRspMessage,
+        source_route::SourceRoute,
+    },
+    runtime::UseCaseRuntime,
+    use_cases::{
+        ContactEvent,
+        EventHandler,
+        HandlingResult,
+        TimerId,
+        UseCase,
+        UseCaseContext,
+        UseCaseEvent,
+        UseCaseState,
+    },
 };
 
 /// Configuration for [ExplicitPathManagement] use case.
@@ -114,7 +153,7 @@ where
         };
         context
             .runtime()
-            .send_message(message, context.uln_table().deref());
+            .send_message(message, context.uln_table().deref(), context.root_id());
     }
 
     fn send_probe_req(&self, context: &C, contact: &Contact) {
@@ -140,7 +179,7 @@ where
         };
         context
             .runtime()
-            .send_message(message, context.uln_table().deref());
+            .send_message(message, context.uln_table().deref(), context.root_id());
     }
 
     fn send_teardown_req(&self, context: &C, contact: &Contact) {
@@ -163,7 +202,7 @@ where
         };
         context
             .runtime()
-            .send_message(message, context.uln_table().deref());
+            .send_message(message, context.uln_table().deref(), context.root_id());
     }
 
     // Only deletes paths setup by others.
@@ -425,21 +464,17 @@ where
                 }
             }
             // ========== Timers ==========
-            (
-                UseCaseEvent::Timer(timer),
-                EPMState::Running {
-                    cleanup_timer,
-                    refresh_timer,
-                    ..
-                },
-            ) => {
-                if &timer == cleanup_timer {
-                    self.perform_cleanup(context);
-                    self.create_new_cleanup_timer(context);
-                } else if &Some(timer) == refresh_timer {
-                    self.perform_refresh(context);
-                    self.create_new_refresh_timer(context);
-                }
+            (UseCaseEvent::Timer(timer), EPMState::Running { cleanup_timer, .. })
+                if &timer == cleanup_timer =>
+            {
+                self.perform_cleanup(context);
+                self.create_new_cleanup_timer(context);
+            }
+            (UseCaseEvent::Timer(timer), EPMState::Running { refresh_timer, .. })
+                if &Some(timer) == refresh_timer =>
+            {
+                self.perform_refresh(context);
+                self.create_new_refresh_timer(context);
             }
             // ========== Protocol Messages ==========
             (

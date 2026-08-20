@@ -26,7 +26,7 @@ class KIRAContainernetNode(KIRANode):
         api_port: int = 8080,
     ):
         self._net = net
-        self._cannonical_name = name.replace("mn.", "")
+        self._canonical_name = name.replace("mn.", "")
         super().__init__(client, name, api_port)
 
     def create(
@@ -37,17 +37,17 @@ class KIRAContainernetNode(KIRANode):
             "net.ipv6.conf.all.forwarding": 1,
         }
         environment = []
-        # rust log from system enviroment
+        # rust log from system environment
         log_level = os.environ.get("RUST_LOG", "debug")
         environment.append(f"RUST_LOG={log_level}")
         if nid is not None:
             nid = nid[:14]
             environment.append(f"NODE_ID={nid.hex()}")
 
-        cmd = "/usr/bin/bash -c '[ -f /usr/bin/supervisord ] && /usr/bin/supervisord -c /etc/supervisord.conf"
+        cmd = "/usr/bin/supervisord -c /etc/supervisor/supervisord.conf"
 
         self._container = self._net.addDocker(
-            self._cannonical_name,
+            self._canonical_name,
             ip=None,
             dimage=img,
             sysctls=sysctls,

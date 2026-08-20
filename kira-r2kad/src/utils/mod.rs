@@ -2,9 +2,9 @@
 
 #![allow(missing_docs)]
 
-pub use backoff_map::*;
 pub use exponential_backoff::*;
+pub use inflight_req_map::*;
 
-pub mod backoff_map;
 pub mod exponential_backoff;
+pub mod inflight_req_map;
 pub mod rediscovery_timeout_interval;
