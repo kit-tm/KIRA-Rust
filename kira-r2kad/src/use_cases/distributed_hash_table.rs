@@ -357,7 +357,12 @@ where
     H::FetchErr: Into<FetchErr>,
 {
     // ========== Sending Message Helper ==========
-    fn send_store_rsp(context: &C, store_res: StoreResult, msgid: u64, source_route: SourceRoute) {
+    fn send_store_rsp(
+        context: &C,
+        store_res: StoreResult,
+        msgid: Nonce,
+        source_route: SourceRoute,
+    ) {
         let rsp = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::StoreRsp,
@@ -378,7 +383,7 @@ where
             .send_message(rsp, context.uln_table().deref(), context.root_id());
     }
 
-    fn send_dead_end(context: &C, msgid: u64, source_route: SourceRoute) {
+    fn send_dead_end(context: &C, msgid: Nonce, source_route: SourceRoute) {
         let rsp = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::Error,
@@ -402,7 +407,7 @@ where
     fn send_fetch_rsp(
         context: &C,
         data: Result<LHTOutput, FetchErr>,
-        msgid: u64,
+        msgid: Nonce,
         source_route: SourceRoute,
     ) {
         let rsp = ReqRspMessage {
@@ -1206,7 +1211,7 @@ mod tests {
                 ProtocolMessageKind::StoreReq,
                 root_id,
                 root_id,
-                Some(123),
+                Some(123.into()),
                 None,
                 0,
             ),
@@ -1230,7 +1235,7 @@ mod tests {
         let output: Vec<_> = sync_context.runtime().broadcast().collect();
         assert_eq!(output.len(), 1);
         if let UseCaseEvent::Message(ProtocolMessage::StoreRsp(rsp), _) = &output[0] {
-            assert_eq!(rsp.msg_id(), 123);
+            assert_eq!(rsp.msg_id(), 123.into());
             assert_eq!(rsp.data.status, Ok(StoreOk::Created));
         } else {
             panic!("Expected StoreRsp, got {:?}", output[0]);
@@ -1351,7 +1356,7 @@ mod tests {
                 ProtocolMessageKind::StoreReq,
                 root_id,
                 destination_id,
-                Some(123),
+                Some(123.into()),
                 None,
                 0,
             ),
@@ -1370,7 +1375,7 @@ mod tests {
         let output: Vec<_> = sync_context.runtime().output().collect();
         assert_eq!(output.len(), 1);
         if let Output::SendProtocolMessage(ProtocolMessage::StoreReq(req), _) = &output[0] {
-            assert_eq!(req.msg_id(), 123);
+            assert_eq!(req.msg_id(), 123.into());
             assert_eq!(*req.destination(), neighbor_id);
         } else {
             panic!("Expected forwarded StoreReq, got {:?}", output[0]);

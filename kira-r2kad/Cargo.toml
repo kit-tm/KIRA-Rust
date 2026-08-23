@@ -10,7 +10,7 @@ edition.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-serde = ["serde-big-array"]
+serde = ["serde-big-array", "bitflags/serde"]
 binrw = ["dep:binrw"]
 sync-wrapper = []
 
@@ -31,6 +31,7 @@ sha3 = { workspace = true, optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 petgraph = "0.8.3"
 binrw = { workspace = true, optional = true }
+bitflags = { workspace = true }
 
 # Dependencies for examples, Benchmarks and Tests
 [dev-dependencies]

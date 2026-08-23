@@ -444,7 +444,7 @@ where
                 ProtocolMessageKind::Error,
                 *context.root_id(),
                 *message.source(),
-                Some(message.msg_id().unwrap().into()),
+                Some(message.msg_id().unwrap()),
                 Some(From::from(*context.uln_table().state_seq_nr())),
                 context.uln_table().size(),
             ),

@@ -32,6 +32,7 @@ use kira_r2kad::domain::{
     NodeId,
     NotVia,
     Path,
+    ProtocolMessageKind,
     SafeStateSeqNr,
     SourceRoute,
     protocol_message::{
@@ -39,23 +40,6 @@ use kira_r2kad::domain::{
         CommonObjectHeader,
         ErrorData,
         FindNodeReqData,
-        PROTOCOL_MSG_KIND_ERROR,
-        PROTOCOL_MSG_KIND_FETCH_REQ,
-        PROTOCOL_MSG_KIND_FETCH_RSP,
-        PROTOCOL_MSG_KIND_FIND_NODE_REQ,
-        PROTOCOL_MSG_KIND_FIND_NODE_RSP,
-        PROTOCOL_MSG_KIND_PATH_SETUP_REQ,
-        PROTOCOL_MSG_KIND_PATH_TEARDOWN_REQ,
-        PROTOCOL_MSG_KIND_PROBE_REQ,
-        PROTOCOL_MSG_KIND_PROBE_RSP,
-        PROTOCOL_MSG_KIND_QUERY_ROUTE_REQ,
-        PROTOCOL_MSG_KIND_QUERY_ROUTE_RSP,
-        PROTOCOL_MSG_KIND_STORE_REQ,
-        PROTOCOL_MSG_KIND_STORE_RSP,
-        PROTOCOL_MSG_KIND_ULN_DISC_REQ,
-        PROTOCOL_MSG_KIND_ULN_DISC_RSP,
-        PROTOCOL_MSG_KIND_ULN_HELLO,
-        PROTOCOL_MSG_KIND_UPDATE_ROUTE_REQ,
         PathSetupReqData,
         PathTeardownReqData,
         ProbeReqData,
@@ -100,33 +84,37 @@ pub fn from_reader<R: Read>(mut reader: R) -> Result<ProtocolMessage, Box<dyn Er
     let mut cursor = binrw::io::Cursor::new(&buf);
     let header = CommonHeader::read_options(&mut cursor, binrw::Endian::Big, ())?;
     match header.msg_type() {
-        PROTOCOL_MSG_KIND_ULN_HELLO => Ok(ProtocolMessage::ULNHello(header)),
-        PROTOCOL_MSG_KIND_ULN_DISC_REQ => deserialize_uln_disc_req(header, &mut reader),
-        PROTOCOL_MSG_KIND_ULN_DISC_RSP => deserialize_uln_disc_rsp(header, &mut reader),
+        ProtocolMessageKind::ULNHello => Ok(ProtocolMessage::ULNHello(header)),
+        ProtocolMessageKind::ULNDiscReq => deserialize_uln_disc_req(header, &mut reader),
+        ProtocolMessageKind::ULNDiscRsp => deserialize_uln_disc_rsp(header, &mut reader),
 
-        PROTOCOL_MSG_KIND_QUERY_ROUTE_REQ => deserialize_query_route_req(header, &mut reader),
-        PROTOCOL_MSG_KIND_QUERY_ROUTE_RSP => deserialize_query_route_rsp(header, &mut reader),
+        ProtocolMessageKind::QueryRouteReq => deserialize_query_route_req(header, &mut reader),
+        ProtocolMessageKind::QueryRouteRsp => deserialize_query_route_rsp(header, &mut reader),
 
-        PROTOCOL_MSG_KIND_FIND_NODE_REQ => deserialize_find_node_req(header, &mut reader),
-        PROTOCOL_MSG_KIND_FIND_NODE_RSP => deserialize_find_node_rsp(header, &mut reader),
+        ProtocolMessageKind::FindNodeReq => deserialize_find_node_req(header, &mut reader),
+        ProtocolMessageKind::FindNodeRsp => deserialize_find_node_rsp(header, &mut reader),
 
-        PROTOCOL_MSG_KIND_UPDATE_ROUTE_REQ => deserialize_update_route_req(header, &mut reader),
+        ProtocolMessageKind::UpdateRouteReq => deserialize_update_route_req(header, &mut reader),
 
-        PROTOCOL_MSG_KIND_PROBE_REQ => deserialize_probe_req(header, &mut reader),
-        PROTOCOL_MSG_KIND_PROBE_RSP => deserialize_probe_rsp(header, &mut reader),
+        ProtocolMessageKind::ProbeReq => deserialize_probe_req(header, &mut reader),
+        ProtocolMessageKind::ProbeRsp => deserialize_probe_rsp(header, &mut reader),
 
-        PROTOCOL_MSG_KIND_PATH_SETUP_REQ => deserialize_path_setup_req(header, &mut reader),
-        PROTOCOL_MSG_KIND_PATH_TEARDOWN_REQ => deserialize_path_teardown_req(header, &mut reader),
+        ProtocolMessageKind::PathSetupReq => deserialize_path_setup_req(header, &mut reader),
+        ProtocolMessageKind::PathTeardownReq => deserialize_path_teardown_req(header, &mut reader),
 
-        PROTOCOL_MSG_KIND_ERROR => deserialize_error(header, &mut reader),
+        ProtocolMessageKind::Error => deserialize_error(header, &mut reader),
 
-        PROTOCOL_MSG_KIND_STORE_REQ => deserialize_store_req(header, &mut reader),
-        PROTOCOL_MSG_KIND_STORE_RSP => deserialize_store_rsp(header, &mut reader),
-        PROTOCOL_MSG_KIND_FETCH_REQ => deserialize_fetch_req(header, &mut reader),
-        PROTOCOL_MSG_KIND_FETCH_RSP => deserialize_fetch_rsp(header, &mut reader),
-        other => Err(Box::new(IoError::new(
+        ProtocolMessageKind::StoreReq => deserialize_store_req(header, &mut reader),
+        ProtocolMessageKind::StoreRsp => deserialize_store_rsp(header, &mut reader),
+        ProtocolMessageKind::FetchReq => deserialize_fetch_req(header, &mut reader),
+        ProtocolMessageKind::FetchRsp => deserialize_fetch_rsp(header, &mut reader),
+        ProtocolMessageKind::Other(other_kind) => Err(Box::new(IoError::new(
             ErrorKind::Unsupported,
-            format!("msg_type {:#x}, currently not supported by binrw", other),
+            format!("msg_type {other_kind:#x}, currently not supported by binrw"),
+        ))),
+        _ => Err(Box::new(IoError::new(
+            ErrorKind::Unsupported,
+            "Unexpected ProtocolMessageKind, currently not supported by binrw".to_string(),
         ))),
     }
 }
@@ -1077,8 +1065,7 @@ fn parse_req_rsp_payload_from_bytes(
 
                 let req_type_raw = u8::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
                 let radius = u8::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
-                let req_type = RTableRequestTypeValue::try_from(req_type_raw)
-                    .map_err(|e| IoError::new(ErrorKind::InvalidData, e))?;
+                let req_type = RTableRequestTypeValue::from(req_type_raw);
                 rtable_request = Some((req_type, radius));
                 payload_consumed += object_length;
             }
@@ -1089,7 +1076,8 @@ fn parse_req_rsp_payload_from_bytes(
             | ProtocolObjectType::StoreRspData
             | ProtocolObjectType::FetchReqData
             | ProtocolObjectType::FetchRspData
-            | ProtocolObjectType::Unknown => {
+            | ProtocolObjectType::Other(_)
+            | _ => {
                 payload_cursor.seek(SeekFrom::Current(object_length as i64))?;
                 payload_consumed += object_length;
             }

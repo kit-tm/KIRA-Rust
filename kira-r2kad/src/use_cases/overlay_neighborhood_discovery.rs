@@ -310,7 +310,7 @@ where
                 ProtocolMessageKind::FindNodeReq,
                 *context.root_id(),
                 *contact.id(),
-                Some(new_nonce.into()),
+                Some(new_nonce),
                 Some(From::from(*context.uln_table().state_seq_nr())),
                 context.uln_table().size(),
             ),
@@ -411,7 +411,7 @@ where
                 ProtocolMessageKind::FindNodeReq,
                 *context.root_id(),
                 *route.destination(),
-                Some(new_nonce.into()),
+                Some(new_nonce),
                 Some(From::from(*context.uln_table().state_seq_nr())),
                 context.uln_table().size(),
             ),
@@ -544,7 +544,7 @@ where
                     _,
                 ),
             ) => {
-                let recvd_nonce = Nonce::from(common_header.msg_id());
+                let recvd_nonce = common_header.msg_id();
                 // need to extract latest nonce from timer state
                 // currently we do not care about tracking responses to random exploration messages
                 if let Some((latest_nonce, _)) =
@@ -576,7 +576,7 @@ where
                     _,
                 ),
             ) => {
-                let recvd_nonce = Nonce::from(common_header.msg_id());
+                let recvd_nonce = common_header.msg_id();
                 // need to extract latest nonce from timer state
                 // currently we do not care about responses to random exploration messages
                 if let Some((latest_nonce, _)) =

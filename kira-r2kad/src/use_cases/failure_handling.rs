@@ -46,7 +46,7 @@ use crate::{
             CommonHeader,
             ErrorData,
             FindNodeReqData,
-            KiraMsgFlagsBit,
+            ProtocolMessageFlags,
             ReqRspMessage,
             RouteUpdateActionType,
             UpdateRouteReq,
@@ -355,7 +355,7 @@ where
                     ProtocolMessageKind::FindNodeReq,
                     *context.root_id(),
                     *via_contact_id,
-                    Some(nonce.into()),
+                    Some(nonce),
                     Some(From::from(*context.uln_table().state_seq_nr())),
                     context.uln_table().size(),
                 ),
@@ -369,7 +369,7 @@ where
                     via_contact.path().unwrap().clone(),
                 ),
             };
-            find_node_request.set_flag(KiraMsgFlagsBit::ExactFlag);
+            *find_node_request.msg_flags_mut() |= ProtocolMessageFlags::Exact;
 
             // send FindNodeReq message
             context.runtime().send_message(
@@ -651,7 +651,7 @@ where
                 ProtocolMessageKind::FindNodeReq,
                 *context.root_id(),
                 next_via_contact_id,
-                Some(msg_id.into()),
+                Some(msg_id),
                 Some(From::from(*context.uln_table().state_seq_nr())),
                 context.uln_table().size(),
             ),
@@ -672,7 +672,7 @@ where
                     .clone(),
             ),
         };
-        find_node_request.set_flag(KiraMsgFlagsBit::ExactFlag);
+        *find_node_request.msg_flags_mut() |= ProtocolMessageFlags::Exact;
 
         context.runtime().send_message(
             find_node_request,
@@ -801,11 +801,9 @@ where
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::FindNodeRsp(rsp), _) => {
-                if let Some((_, timer)) = self
-                    .inflight_rediscoveries
-                    .remove_by_nonce(rsp.msg_id().into())
+                if let Some((_, timer)) = self.inflight_rediscoveries.remove_by_nonce(rsp.msg_id())
                 {
-                    log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got a successful answer [timer: {:?}, nonce: {:?}]", rsp.source_route.source(), timer, Nonce::from(rsp.msg_id()));
+                    log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got a successful answer [timer: {:?}, nonce: {:?}]", rsp.source_route.source(), timer, rsp.msg_id());
                     log::debug!(target: "failure_handling", "Rediscovery of {} was successful!", rsp.source());
                     //  since the contact state should have changed to Valid, the rediscovery process will stop automatically
                 }
@@ -824,7 +822,7 @@ where
                     self.invalidate_contacts_containing_link(context, failed_link);
                 }
 
-                self.handle_rediscovery_failure(context, Some(rsp.msg_id().into()), None)?;
+                self.handle_rediscovery_failure(context, Some(rsp.msg_id()), None)?;
             }
             UseCaseEvent::Timer(id) => {
                 if let Some(contact_id) = self.scheduled_rediscoveries.remove(&id) {

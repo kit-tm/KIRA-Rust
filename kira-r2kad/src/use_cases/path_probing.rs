@@ -190,7 +190,7 @@ where
                 ProtocolMessageKind::ProbeReq,
                 *context.root_id(),
                 *route.destination(),
-                Some(nonce.into()),
+                Some(nonce),
                 Some(From::from(*context.uln_table().state_seq_nr())),
                 context.uln_table().size(),
             ),
@@ -230,7 +230,7 @@ where
                 ProtocolMessageKind::ProbeReq,
                 *context.root_id(),
                 *route.destination(),
-                Some(nonce.into()),
+                Some(nonce),
                 Some(From::from(*context.uln_table().state_seq_nr())),
                 context.uln_table().size(),
             ),
@@ -533,7 +533,7 @@ where
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::ProbeRsp(req), _)
-                if self.is_tracked_message(&req.msg_id().into()) =>
+                if self.is_tracked_message(&req.msg_id()) =>
             {
                 let ReqRspMessage {
                     common_header,
@@ -544,7 +544,7 @@ where
                 let mut rev_source_route = Path::from(source_route);
                 rev_source_route.reverse();
 
-                let nonce = Nonce::from(common_header.msg_id());
+                let nonce = common_header.msg_id();
 
                 // in case we have a contact we validate it explicitly (currently this is done in forward_messages already)
                 let mut rt = context.routing_table_mut();
@@ -579,14 +579,10 @@ where
                 log::trace!(target: "path_probing", "Probing destination {source} was successful!");
             }
             UseCaseEvent::Message(ProtocolMessage::Error(req), _)
-                if self.is_tracked_message(&req.msg_id().into()) =>
+                if self.is_tracked_message(&req.msg_id()) =>
             {
                 if let ErrorData::SegmentFailure { failed_link, .. } = &req.data {
-                    self.invalidate_contact_for_message(
-                        context,
-                        req.msg_id().into(),
-                        failed_link.clone(),
-                    );
+                    self.invalidate_contact_for_message(context, req.msg_id(), failed_link.clone());
                 } else {
                     // remove any pending request or timer for the corresponding message
                     if let PathProbingState::Running {
@@ -595,7 +591,7 @@ where
                         ..
                     } = &mut self.state
                     {
-                        let nonce = req.msg_id().into();
+                        let nonce = req.msg_id();
                         requests_in_flight.remove(&nonce);
                         probe_timers.retain(|_, v| *v != nonce);
                     }
