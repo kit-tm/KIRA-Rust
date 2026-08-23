@@ -220,7 +220,7 @@ where
 
         let target = &req.data.target;
         let target_is_us = target == context.root_id();
-        let exact = req.data.exact;
+        let exact = req.exact();
         let req_source = req.source();
 
         let span = tracing::Span::current();

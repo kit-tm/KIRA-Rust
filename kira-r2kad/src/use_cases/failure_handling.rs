@@ -46,6 +46,7 @@ use crate::{
             CommonHeader,
             ErrorData,
             FindNodeReqData,
+            KiraMsgFlagsBit,
             ReqRspMessage,
             RouteUpdateActionType,
             UpdateRouteReq,
@@ -349,7 +350,7 @@ where
                 .expect("Contact should still be present in Routingtable");
 
             // send a findNodeReq for rediscovery to the via contact with target of the contact to be rediscovered
-            let find_node_request = ReqRspMessage {
+            let mut find_node_request = ReqRspMessage {
                 common_header: CommonHeader::new(
                     ProtocolMessageKind::FindNodeReq,
                     *context.root_id(),
@@ -359,7 +360,6 @@ where
                     context.uln_table().size(),
                 ),
                 data: FindNodeReqData {
-                    exact: true,
                     neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
                     target: *contact_id,
                 },
@@ -369,6 +369,7 @@ where
                     via_contact.path().unwrap().clone(),
                 ),
             };
+            find_node_request.set_flag(KiraMsgFlagsBit::ExactFlag);
 
             // send FindNodeReq message
             context.runtime().send_message(
@@ -645,7 +646,7 @@ where
             _ => NotViaStateList::default(),
         };
 
-        let find_node_request = ReqRspMessage {
+        let mut find_node_request = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::FindNodeReq,
                 *context.root_id(),
@@ -655,7 +656,6 @@ where
                 context.uln_table().size(),
             ),
             data: FindNodeReqData {
-                exact: true,
                 neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
                 target: node_id,
             },
@@ -672,6 +672,7 @@ where
                     .clone(),
             ),
         };
+        find_node_request.set_flag(KiraMsgFlagsBit::ExactFlag);
 
         context.runtime().send_message(
             find_node_request,

@@ -408,6 +408,10 @@ pub trait WireFormatMessage {
     fn common_header(&self) -> &CommonHeader;
     fn common_header_mut(&mut self) -> &mut CommonHeader;
 
+    fn exact(&self) -> bool {
+        self.common_header().msg_flags() & KiraMsgFlagsBit::ExactFlag as u8 != 0
+    }
+
     fn set_flag(&mut self, flag: KiraMsgFlagsBit) {
         self.common_header_mut().set_flag(flag);
     }
@@ -915,7 +919,6 @@ impl From<ReqRspMessage<QueryRouteReqData>> for ProtocolMessage {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct FindNodeReqData {
-    pub exact: bool,
     /// The range of the neighborhood to include in the RTableObject of the Response.
     ///
     /// This is usually equal to the BUCKET_SIZE.

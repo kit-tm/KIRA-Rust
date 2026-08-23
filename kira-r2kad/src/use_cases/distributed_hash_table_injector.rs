@@ -361,7 +361,6 @@ where
             nonce,
             destination,
             FindNodeReqData {
-                exact: false,
                 neighborhood: NonZeroU64::new(neighbors).unwrap(),
                 target: destination,
             },

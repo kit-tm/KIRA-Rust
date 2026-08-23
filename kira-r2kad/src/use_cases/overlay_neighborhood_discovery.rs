@@ -315,7 +315,6 @@ where
                 context.uln_table().size(),
             ),
             data: FindNodeReqData {
-                exact: false,
                 neighborhood: self.config.overlay_neighborhood_size,
                 target: *context.root_id(), // own ID as target
             },
@@ -417,7 +416,6 @@ where
                 context.uln_table().size(),
             ),
             data: FindNodeReqData {
-                exact: false, // the closest node to random ID should reply
                 neighborhood: self.config.overlay_neighborhood_size,
                 target: random_id, //random ID
             },

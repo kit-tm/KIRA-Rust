@@ -39,7 +39,6 @@ use kira_r2kad::domain::{
         CommonObjectHeader,
         ErrorData,
         FindNodeReqData,
-        KiraMsgFlagsBit,
         PROTOCOL_MSG_KIND_ERROR,
         PROTOCOL_MSG_KIND_FETCH_REQ,
         PROTOCOL_MSG_KIND_FETCH_RSP,
@@ -863,13 +862,11 @@ fn deserialize_find_node_req<R: Read>(
             "FindNodeReq radius in rtable-request must be > 0",
         )
     })?;
-    let exact = header.msg_flags() & KiraMsgFlagsBit::ExactFlag as u8 != 0;
     let target = *header.dest_id();
 
     Ok(ProtocolMessage::FindNodeReq(ReqRspMessage {
         common_header: header,
         data: FindNodeReqData {
-            exact,
             neighborhood,
             target,
         },

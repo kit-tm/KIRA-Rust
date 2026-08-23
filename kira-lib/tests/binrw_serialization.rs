@@ -33,6 +33,7 @@ use kira_r2kad::domain::{
         ReqRspMessage,
         RouteUpdateActionType,
         UpdateRouteReq,
+        WireFormatMessage as _,
         dht::{
             FetchReqData,
             FetchRspData,
@@ -212,7 +213,6 @@ fn binrw_find_node_req() {
     let req = ReqRspMessage {
         common_header: header.clone(),
         data: FindNodeReqData {
-            exact: true,
             neighborhood: NonZeroU64::new(3).unwrap(),
             target: *header.dest_id(),
         },
@@ -240,7 +240,7 @@ fn binrw_find_node_req() {
         panic!("unexpected message type");
     };
 
-    assert!(decoded_req.data.exact);
+    assert!(decoded_req.exact());
     assert_eq!(decoded_req.data.neighborhood.get(), 3);
     assert_eq!(decoded_req.data.target, *header.dest_id());
     assert_eq!(decoded_req.source_route.source(), header.src_node_id());
