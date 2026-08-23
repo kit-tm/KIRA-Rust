@@ -4,10 +4,15 @@ use std::{
     sync::LazyLock,
 };
 
+pub use cycle_remover::*;
 use derive_more::{
     Error,
     with_trait::Display,
 };
+pub use in_order_cycle_remover::*;
+pub use pathcollection::*;
+pub use shortest_first_path_simplifier::*;
+pub use simplifier::*;
 
 use super::Link;
 use crate::domain::{
@@ -16,11 +21,11 @@ use crate::domain::{
     hasher::Hasher,
 };
 
-pub mod cycle_remover;
-pub mod in_order_cycle_remover;
-pub mod pathcollection;
-pub mod shortest_first_path_simplifier;
-pub mod simplifier;
+mod cycle_remover;
+mod in_order_cycle_remover;
+mod pathcollection;
+mod shortest_first_path_simplifier;
+mod simplifier;
 
 /// This is a static variable that automatically gets initialized on its first use.
 ///

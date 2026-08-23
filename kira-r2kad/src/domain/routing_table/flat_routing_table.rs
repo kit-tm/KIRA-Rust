@@ -10,20 +10,22 @@ use tracing::{
 };
 
 use crate::domain::{
-    AddError,
     Bucket,
-    BucketInsertionError,
-    BucketSplitError,
     Contact,
-    DEFAULT_BUCKET_SIZE,
     GroupingError,
     NodeId,
-    ReplacementError,
     RoutingTable,
     SharedPrefix,
+    bucket::{
+        BucketInsertionError,
+        DEFAULT_BUCKET_SIZE,
+    },
     hasher::Hasher,
     routing_table::{
+        AddError,
+        BucketSplitError,
         PrefixContact,
+        ReplacementError,
         sorter_xor,
     },
 };

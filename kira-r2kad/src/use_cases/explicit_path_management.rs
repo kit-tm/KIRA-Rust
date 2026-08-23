@@ -27,29 +27,29 @@ use crate::{
     domain::{
         Contact,
         ContactState,
+        Hasher,
         NodeId,
         Path,
         PathId,
         RoutingTable,
+        SourceRoute,
         ULNTable,
         UnderlayNeighborId,
         VICINITY_RADIUS,
-        hasher::Hasher,
         protocol_event::forwarding::{
             PathIdEntry,
             PathIdForwardingEntry,
             PathIdTableUpdate,
         },
-    },
-    messaging::{
-        CommonHeader,
-        PathSetupReqData,
-        PathTeardownReqData,
-        ProbeReqData,
-        ProtocolMessage,
-        ProtocolMessageKind,
-        ReqRspMessage,
-        source_route::SourceRoute,
+        protocol_message::{
+            CommonHeader,
+            PathSetupReqData,
+            PathTeardownReqData,
+            ProbeReqData,
+            ProtocolMessage,
+            ProtocolMessageKind,
+            ReqRspMessage,
+        },
     },
     runtime::UseCaseRuntime,
     use_cases::{
@@ -76,7 +76,7 @@ pub struct EPMConfig {
     /// If [None] is passed no active refresh is performed.
     /// Still this use case uses ProbeReq sent out by to refresh its paths.
     pub refresh_interval: Option<Duration>,
-    /// Hasher to use for derivation of [PathIDs](crate::domain::path_id::PathId) from [Path]s.
+    /// Hasher to use for derivation of [PathIDs](crate::domain::PathId) from [Path]s.
     pub hasher: Hasher,
 }
 

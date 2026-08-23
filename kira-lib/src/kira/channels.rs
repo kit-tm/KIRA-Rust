@@ -23,18 +23,16 @@
 //!   (see: [kira_forwarding::underlay])
 
 use kira_forwarding::domain::r2kad::ForwardingTablesUpdate;
+use kira_r2kad::domain::{
+    ProtocolMessage,
+    UnderlayNeighborDestination,
+    UnderlayNeighborId,
+    UnderlayNeighborUpdate,
+    protocol_event::DebugEvent,
+};
 pub use kira_r2kad::{
     Input,
     Output,
-};
-use kira_r2kad::{
-    domain::{
-        UnderlayNeighborDestination,
-        UnderlayNeighborId,
-        UnderlayNeighborUpdate,
-        protocol_event::DebugEvent,
-    },
-    messaging::ProtocolMessage,
 };
 use tokio::sync::mpsc::{
     Receiver,

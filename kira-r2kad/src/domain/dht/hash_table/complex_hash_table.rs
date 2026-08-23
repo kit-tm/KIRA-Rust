@@ -20,12 +20,10 @@ use super::{
     EntryMeta,
     LocalHashTable,
 };
-use crate::{
-    domain::{
-        DEFAULT_BUCKET_SIZE,
-        NodeId,
-    },
-    messaging::dht,
+use crate::domain::{
+    DEFAULT_BUCKET_SIZE,
+    NodeId,
+    protocol_message::dht,
 };
 
 /// A hash table which can hold multiple value per key.

@@ -63,7 +63,7 @@ impl Interface {
 /// excluding the actual [Interface] data.
 ///
 /// An underlay neighbor is discovered by the [io-part](crate::io) when receiving
-/// R²/KAD [ProtocolMessages](kira_r2kad::messaging::ProtocolMessage) from
+/// R²/KAD [ProtocolMessages](kira_r2kad::domain::ProtocolMessage) from
 /// unknown underlay neighbor sources.
 ///
 /// This information is used through the [UnderlayNeighborInformation] by

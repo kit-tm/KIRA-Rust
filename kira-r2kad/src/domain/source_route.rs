@@ -13,7 +13,7 @@ use crate::domain::{
 ///
 /// Invariants:
 /// - Current_hop has to be the current nodes NodeId.
-/// - SourceRoutes are not allowed to be empty and always start with the source of a [ProtocolMessage](crate::messaging::messages::ProtocolMessage).
+/// - SourceRoutes are not allowed to be empty and always start with the source of a [ProtocolMessage](crate::domain::ProtocolMessage).
 /// - progress is an index in the source route and therefore valid in range [0, len - 1]
 #[derive(Debug, Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -107,14 +107,14 @@ impl SourceRoute {
 
     /// Returns the first element of the [SourceRoute].
     ///
-    /// This is in general the source node of the [ProtocolMessage](crate::messaging::messages::ProtocolMessage).
+    /// This is in general the source node of the [ProtocolMessage](crate::domain::ProtocolMessage).
     pub fn source(&self) -> &NodeId {
         self.ids.front().expect("constructed empty SourceRoute")
     }
 
     /// Returns the last element of the [SourceRoute].
     ///
-    /// This is in general the destination node of the [ProtocolMessage](crate::messaging::messages::ProtocolMessage).
+    /// This is in general the destination node of the [ProtocolMessage](crate::domain::ProtocolMessage).
     pub fn destination(&self) -> &NodeId {
         self.ids.back().expect("constructed empty SourceRoute")
     }

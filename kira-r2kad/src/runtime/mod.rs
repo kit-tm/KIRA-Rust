@@ -14,12 +14,12 @@ use rand::RngExt as _;
 pub use crate::r2kad::runtime::R2KadRuntime;
 use crate::{
     domain::{
+        ForwardingTablesUpdate,
         NodeId,
+        ProtocolMessage,
         UnderlayNeighborDestination,
         UnderlayNeighborId,
-        protocol_event::forwarding::ForwardingTablesUpdate,
     },
-    messaging::ProtocolMessage,
     use_cases::{
         BroadcastableUseCaseEvent,
         TimerId,
@@ -78,8 +78,8 @@ pub trait UseCaseRuntime {
     /// 3. The message is _dropped_ and a warning is logged
     ///    if the [`current_hop`] is not in the `uln_table` (underlay neighbor table)
     ///
-    /// [ULNHello]: crate::messaging::ProtocolMessage::ULNHello
-    /// [`current_hop`]: crate::messaging::ProtocolMessage::current_hop
+    /// [ULNHello]: crate::domain::ProtocolMessage::ULNHello
+    /// [`current_hop`]: crate::domain::ProtocolMessage::current_hop
     /// [by broadcast]: UnderlayNeighborDestination::Broadcast
     /// [_local broadcast_]: UseCaseRuntime::broadcast_event
     /// [^source-routed]: Notably [ULNHello].

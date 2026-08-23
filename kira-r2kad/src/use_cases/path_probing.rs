@@ -20,25 +20,25 @@ use crate::{
         DEFAULT_BUCKET_SIZE,
         Link,
         NodeId,
+        Nonce,
         NotViaState,
         NotViaStateList,
         Path,
+        ProtocolMessage,
+        ProtocolMessageKind,
         RoutingTable,
+        SourceRoute,
         Timestamp,
         ULNTable,
         UnderlayNeighborId,
-    },
-    messaging::{
-        CommonHeader,
-        ErrorData,
-        Nonce,
-        ProbeReqData,
-        ProbeRspData,
-        ProtocolMessage,
-        ProtocolMessageKind,
-        ReqRspMessage,
-        WireFormatMessage,
-        source_route::SourceRoute,
+        protocol_message::{
+            CommonHeader,
+            ErrorData,
+            ProbeReqData,
+            ProbeRspData,
+            ReqRspMessage,
+            WireFormatMessage,
+        },
     },
     use_cases::{
         ContactEvent,
@@ -63,7 +63,7 @@ pub struct PathProbingConfig {
     ///
     /// Default is **40s** because underlay advertising is about 30s.
     pub probe_age: Duration,
-    /// Maximum duration a [ProbeReq](crate::messaging::messages::ProtocolMessage::ProbeReq) is allowed to take.
+    /// Maximum duration a [ProbeReq](crate::domain::ProtocolMessage::ProbeReq) is allowed to take.
     pub request_timeout: Duration,
     /// When scheduled probe requests will start after their initial schedule
     pub scheduled_probe_delay: Duration,

@@ -38,7 +38,7 @@ use crate::{
         ULNTable,
         UnderlayNeighborId,
         VicinityGraph,
-        dht::hash_table::ComplexHashTable,
+        dht::ComplexHashTable,
     },
     runtime::UseCaseRuntime,
     use_cases::{

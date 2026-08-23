@@ -9,9 +9,9 @@ use std::{
     sync::Arc,
 };
 
-use kira_r2kad::{
-    domain::NodeId,
-    messaging::ProtocolMessageKind,
+use kira_r2kad::domain::{
+    NodeId,
+    ProtocolMessageKind,
 };
 use tokio::net::UdpSocket;
 

@@ -1,4 +1,4 @@
-//! Type definitions containing everything related to [ProtocolMessage](kira_r2kad::messaging::ProtocolMessage) transmission.
+//! Type definitions containing everything related to [ProtocolMessage](kira_r2kad::domain::ProtocolMessage) transmission.
 
 use std::{
     io,
@@ -32,7 +32,7 @@ pub enum SocketCreationErr {
     MulticastJoinFailed(io::Error),
 }
 
-/// Utilities for sending and receiving [ProtocolMessages](kira_r2kad::messaging::ProtocolMessage)
+/// Utilities for sending and receiving [ProtocolMessages](kira_r2kad::domain::ProtocolMessage)
 /// using async [tokio] channels.
 #[cfg(feature = "udp-tokio")]
 pub mod udp {
@@ -66,7 +66,7 @@ pub mod udp {
     /// [tokio::net::UdpSocket].
     /// This way multiple senders can send and multiple receivers can receive from the
     /// same [tokio::net::UdpSocket].
-    /// But all [ProtocolMessages](kira_r2kad::messaging::ProtocolMessage) will only arrive
+    /// But all [ProtocolMessages](kira_r2kad::domain::ProtocolMessage) will only arrive
     /// *at one receiver* at the time.
     pub async fn async_channel(
         port: u16,

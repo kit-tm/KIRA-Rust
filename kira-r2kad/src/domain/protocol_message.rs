@@ -11,25 +11,26 @@ use std::{
 
 use derive_more::derive::Display;
 
-use crate::{
-    domain::{
-        Contact,
-        Link,
-        NodeId,
-        NotViaList,
-        StateSeqNr,
-        state_seq_nr,
-    },
-    messaging::{
-        dht::{
-            FetchReqData,
-            FetchRspData,
-            LHTInput,
-            LHTOutput,
-            StoreReqData,
-            StoreRspData,
-        },
-        source_route::SourceRoute,
+pub mod dht;
+#[doc(inline)]
+pub use dht::{
+    FetchReqData,
+    FetchRspData,
+    StoreReqData,
+    StoreRspData,
+};
+
+use crate::domain::{
+    Contact,
+    INVALID_SSN,
+    Link,
+    NodeId,
+    NotViaList,
+    SourceRoute,
+    StateSeqNr,
+    protocol_message::dht::{
+        LHTInput,
+        LHTOutput,
     },
 };
 //use ciborium::{ser,de};
@@ -162,7 +163,7 @@ impl CommonHeader {
             state_seq_num: if let Some(stateseqnumber) = stateseqnum {
                 stateseqnumber
             } else {
-                state_seq_nr::INVALID_SSN
+                INVALID_SSN
             },
             src_node_degree: if src_node_degree < u16::MAX as usize {
                 src_node_degree as u16
@@ -539,7 +540,7 @@ impl From<&ProtocolMessage> for ProtocolMessageKind {
     }
 }
 
-/// In contrary to a [ULNHello](crate::messaging::ProtocolMessage::ULNHello) this type contains a [SourceRoute]
+/// In contrary to a [ULNHello](crate::domain::ProtocolMessage::ULNHello) this type contains a [SourceRoute]
 /// and data for request and response pairs
 ///
 /// The target has not to be equal to the end of the source route as some protocol messages

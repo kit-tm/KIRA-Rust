@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
 use crate::{
-    domain::NodeId,
-    messaging::Nonce,
+    domain::{
+        NodeId,
+        Nonce,
+    },
     use_cases::TimerId,
 };
 

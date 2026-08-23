@@ -2,17 +2,24 @@
 
 pub mod forwarding;
 
-use forwarding::ForwardingTablesUpdate;
+#[doc(inline)]
+pub use forwarding::{
+    ForwardingTablesUpdate,
+    NodeIdTableUpdate,
+    PathIdTableUpdate,
+};
 
 use crate::{
-    domain::underlay::{
-        UnderlayNeighborDestination,
-        UnderlayNeighborId,
-        UnderlayNeighborUpdate,
-    },
-    messaging::{
-        Nonce,
-        ProtocolMessage,
+    domain::{
+        protocol_message::{
+            Nonce,
+            ProtocolMessage,
+        },
+        underlay::{
+            UnderlayNeighborDestination,
+            UnderlayNeighborId,
+            UnderlayNeighborUpdate,
+        },
     },
     use_cases::{
         ApiEvent,

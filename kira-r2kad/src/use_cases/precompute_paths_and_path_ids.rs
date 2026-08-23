@@ -16,12 +16,12 @@ use tracing::{
 
 use crate::{
     domain::{
+        Hasher,
         NodeId,
         RoutingTable,
         UnderlayNeighborId,
         VICINITY_RADIUS,
         VicinityGraph,
-        hasher::Hasher,
         protocol_event::forwarding::{
             PathIdEntry,
             PathIdForwardingEntry,

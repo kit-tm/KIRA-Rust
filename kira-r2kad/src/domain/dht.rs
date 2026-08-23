@@ -15,23 +15,23 @@ use crate::{
     domain::{
         Contact,
         NodeId,
+        Nonce,
         Path,
         RoutingTable,
+        SourceRoute,
         ULNTable,
         UnderlayNeighborId,
-    },
-    messaging::{
-        CommonHeader,
-        Nonce,
-        ProtocolMessage,
-        ProtocolMessageKind,
-        ReqRspMessage,
-        dht::{
-            FetchReqData,
-            LHTInput,
-            StoreReqData,
+        protocol_message::{
+            CommonHeader,
+            ProtocolMessage,
+            ProtocolMessageKind,
+            ReqRspMessage,
+            dht::{
+                FetchReqData,
+                LHTInput,
+                StoreReqData,
+            },
         },
-        source_route::SourceRoute,
     },
     use_cases::{
         BroadcastableUseCaseEvent,
@@ -41,7 +41,8 @@ use crate::{
     },
 };
 
-pub mod hash_table;
+mod hash_table;
+pub use hash_table::*;
 
 /// Default timeout duration of RPCs by the DHT use cases.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);

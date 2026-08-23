@@ -14,23 +14,24 @@ use tracing::{
 
 use crate::{
     domain::{
+        Bucket,
         Contact,
         ContactState,
+        Hasher,
         NodeId,
         NodeIdSubnet,
+        NodeIdTableUpdate,
         Path,
+        PathIdTableUpdate,
         RoutingTable,
         UnderlayNeighborId,
-        hasher::Hasher,
         protocol_event::forwarding::{
             DecapsulationDestination,
             NodeIdEncapsulationEntry,
             NodeIdEntry,
             NodeIdForwardingEntry,
-            NodeIdTableUpdate,
             PathIdDecapsulationEntry,
             PathIdEntry,
-            PathIdTableUpdate,
         },
     },
     runtime::UseCaseRuntime,
@@ -326,7 +327,7 @@ where
         bucket_index: usize,
     ) -> Result<Option<NodeIdEntry>, DeriveFwdEntriesError> {
         let rt = context.routing_table();
-        let bucket = rt.bucket_by_index(bucket_index);
+        let bucket: &Bucket<_> = rt.bucket_by_index(bucket_index);
         let iter = bucket.iter();
         let prefix_len = rt.get_bucket_prefix_length(bucket_index);
 
@@ -632,7 +633,7 @@ mod tests {
         domain::{
             SafeStateSeqNr,
             protocol_event::forwarding::ForwardingTablesUpdate,
-            single_bucket::SingleBucketRT,
+            routing_table::SingleBucketRT,
         },
         runtime::testing::TestingUseCaseRuntime,
     };

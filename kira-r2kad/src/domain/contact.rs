@@ -15,9 +15,9 @@ use crate::{
         NodeId,
         NotViaStateList,
         Path,
+        PathCollection,
         SafeStateSeqNr,
         Timestamp,
-        pathcollection::PathCollection,
     },
     use_cases::failure_handling::RediscoveryState,
 };

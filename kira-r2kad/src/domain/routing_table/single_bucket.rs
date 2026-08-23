@@ -4,21 +4,23 @@ use rand::RngExt as _;
 use tracing::Level;
 
 use crate::domain::{
-    AddError,
     Bucket,
-    BucketInsertionError,
-    BucketSplitError,
     Contact,
     ContactState,
     GroupingError,
     NodeId,
     NotViaStateList,
-    ReplacementError,
     RoutingTable,
     SharedPrefix,
+    bucket::BucketInsertionError,
     hasher::Hasher,
-    observable_routing_table::NonObservableRoutingTable,
-    routing_table::sorter_xor,
+    routing_table::{
+        AddError,
+        BucketSplitError,
+        ReplacementError,
+        observable_routing_table::NonObservableRoutingTable,
+        sorter_xor,
+    },
 };
 
 /// A [RoutingTable] with a single not splittable [Bucket].

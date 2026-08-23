@@ -1,4 +1,5 @@
 use std::{
+    cell::Ref,
     cmp::min,
     collections::{
         HashMap,
@@ -28,9 +29,13 @@ use crate::{
         DEFAULT_BUCKET_SIZE,
         InterfaceId,
         NodeId,
+        Nonce,
         Path,
+        ProtocolMessage,
+        ProtocolMessageKind,
         RoutingTable,
         SafeStateSeqNr,
+        SourceRoute,
         StateSeqNr,
         ULNTable,
         UnderlayNeighborDestination::{
@@ -43,18 +48,14 @@ use crate::{
         UnderlayNeighborUpdate,
         VICINITY_RADIUS,
         VicinityGraph,
-    },
-    messaging::{
-        CommonHeader,
-        Nonce,
-        ProtocolMessage,
-        ProtocolMessageKind,
-        QueryRouteReqData,
-        QueryRouteType,
-        RTableData,
-        ReqRspMessage,
-        WireFormatMessage,
-        source_route::SourceRoute,
+        protocol_message::{
+            CommonHeader,
+            QueryRouteReqData,
+            QueryRouteType,
+            RTableData,
+            ReqRspMessage,
+            WireFormatMessage,
+        },
     },
     use_cases::{
         ApiEvent,
@@ -445,7 +446,7 @@ where
 
     fn collect_underlay_neighbors(context: &C) -> Result<(SafeStateSeqNr, Vec<Contact>), VDError> {
         let rt_lock = context.routing_table();
-        let uln_lock = context.uln_table();
+        let uln_lock: Ref<'_, C::UnderlayNeighborTable> = context.uln_table();
 
         let neighbors = uln_lock.keys().collect::<Vec<_>>();
         let mut contacts = Vec::with_capacity(neighbors.len());

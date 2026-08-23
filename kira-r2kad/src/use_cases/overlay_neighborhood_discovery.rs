@@ -21,18 +21,18 @@ use crate::{
     domain::{
         GroupingError,
         NodeId,
-        RoutingTable,
-        ULNTable,
-        UnderlayNeighborId,
-    },
-    messaging::{
-        CommonHeader,
-        FindNodeReqData,
         Nonce,
         ProtocolMessage,
         ProtocolMessageKind,
-        ReqRspMessage,
-        source_route::SourceRoute,
+        RoutingTable,
+        SourceRoute,
+        ULNTable,
+        UnderlayNeighborId,
+        protocol_message::{
+            CommonHeader,
+            FindNodeReqData,
+            ReqRspMessage,
+        },
     },
     runtime::UseCaseRuntime,
     use_cases::{

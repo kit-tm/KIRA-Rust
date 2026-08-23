@@ -9,10 +9,10 @@ use std::{
 use crate::{
     Output,
     domain::{
+        ForwardingTablesUpdate,
+        ProtocolMessage,
         UnderlayNeighborDestination,
-        protocol_event::forwarding::ForwardingTablesUpdate,
     },
-    messaging::ProtocolMessage,
     runtime::UseCaseRuntime,
     use_cases::{
         BroadcastableUseCaseEvent,
