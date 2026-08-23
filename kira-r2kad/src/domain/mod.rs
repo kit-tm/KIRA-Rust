@@ -2,55 +2,84 @@
 
 use std::{
     collections::HashSet,
-    hash::{
-        Hash,
-        Hasher,
-    },
+    hash::Hash,
     time::{
         Duration,
         Instant,
     },
 };
 
-pub use bucket::*;
-pub use contact::*;
 use derive_more::{
     Display,
     From,
 };
-pub use insertion_strategy::*;
-pub use node_id::*;
-pub use path::{
-    cycle_remover::*,
-    in_order_cycle_remover::*,
-    shortest_first_path_simplifier::*,
-    simplifier::*,
-    *,
-};
-pub use path_id::*;
-pub use routing_table::{
-    flat_routing_table::*,
-    *,
-};
-pub use state_seq_nr::*;
-pub use underlay::*;
-pub use underlay_neighbor_table::*;
-pub use vicinity::*;
 
 pub mod bucket;
-pub mod contact;
+#[doc(inline)]
+pub use bucket::{
+    Bucket,
+    DEFAULT_BUCKET_SIZE,
+};
+mod contact;
+pub use contact::*;
+
 pub mod dht;
-pub mod hasher;
+
+mod hasher;
+pub use hasher::*;
+
 pub mod insertion_strategy;
-pub mod node_id;
+#[doc(inline)]
+pub use insertion_strategy::InsertionStrategy;
+
+pub mod protocol_message;
+#[doc(inline)]
+pub use protocol_message::{
+    Nonce,
+    ProtocolMessage,
+    ProtocolMessageKind,
+};
+
+mod node_id;
+pub use node_id::*;
+
 pub mod path;
-pub mod path_id;
+#[doc(inline)]
+pub use path::{
+    Path,
+    PathCollection,
+    PathState,
+};
+
+mod path_id;
+pub use path_id::*;
+
 pub mod protocol_event;
+pub use protocol_event::*;
+
 pub mod routing_table;
-pub mod state_seq_nr;
-pub mod underlay;
+#[doc(inline)]
+pub use routing_table::RoutingTable;
+
+mod source_route;
+pub use source_route::*;
+
+mod state_seq_nr;
+pub use state_seq_nr::*;
+
+mod underlay;
+pub use underlay::*;
+
 pub mod underlay_neighbor_table;
+#[doc(inline)]
+pub use underlay_neighbor_table::ULNTable;
+
 pub mod vicinity;
+#[doc(inline)]
+pub use vicinity::{
+    VICINITY_RADIUS,
+    VicinityGraph,
+};
 
 /// Specifies in milliseconds the age of the routing information.
 ///
@@ -194,7 +223,7 @@ impl From<&NotViaState> for NotVia {
 }
 
 impl Hash for NotVia {
-    fn hash<H: Hasher>(&self, state: &mut H) {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.link.hash(state);
     }
 }
@@ -235,7 +264,7 @@ impl From<NotVia> for NotViaState {
 }
 
 impl Hash for NotViaState {
-    fn hash<H: Hasher>(&self, state: &mut H) {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.link.hash(state);
     }
 }
@@ -278,55 +307,5 @@ impl From<NotViaStateList> for Option<NotViaList> {
         } else {
             Some(notviastatelist.nvs_list.iter().map(NotVia::from).collect())
         }
-    }
-}
-
-#[derive(Debug, Clone, Eq, Display, PartialEq)]
-#[display("NotViaStateList {notviastate_list:#?} retries: {retry_counter}")]
-pub struct RediscoveryState {
-    notviastate_list: NotViaStateList, // any broken links within the active path
-    rev_via_contact_list: Vec<NodeId>, // a list of NodeIds for contact (stored reversed so that we can pop)
-    pub retry_counter: u8,
-}
-
-impl RediscoveryState {
-    pub fn new(notviastate_list: NotViaStateList, via_contact_list: Vec<NodeId>) -> Self {
-        Self {
-            notviastate_list,
-            rev_via_contact_list: via_contact_list.into_iter().rev().collect(),
-            retry_counter: 0,
-        }
-    }
-
-    // adds a notvia link to the list
-    pub fn add_notvia(&mut self, not_via: NotVia) -> bool {
-        self.notviastate_list.nvs_list.insert(not_via.into())
-    }
-
-    pub fn get_notviastate_list(&self) -> &NotViaStateList {
-        &self.notviastate_list
-    }
-
-    // returns the via contact list in correct order (first element is next contact to try)
-    pub fn get_via_contact_list(&self) -> Vec<NodeId> {
-        self.rev_via_contact_list.iter().rev().cloned().collect()
-    }
-
-    // returns the via contact in XOR sorted order
-    pub fn get_next_via_contact_id(&mut self) -> Option<NodeId> {
-        self.rev_via_contact_list.pop()
-    }
-
-    // drops the "first" len elements (equivalent to calling len times pop())
-    pub fn drop_from_next_via_contact_id(&mut self, len: usize) {
-        if len <= self.rev_via_contact_list.len() {
-            self.rev_via_contact_list
-                .truncate(self.rev_via_contact_list.len() - len);
-        }
-    }
-
-    pub fn set_via_contact_list(&mut self, via_contact_list: Vec<NodeId>) {
-        assert!(self.rev_via_contact_list.is_empty());
-        self.rev_via_contact_list = via_contact_list.into_iter().rev().collect();
     }
 }

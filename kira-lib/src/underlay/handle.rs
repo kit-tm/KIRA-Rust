@@ -170,9 +170,6 @@ impl UnderlayObserverHandle {
 /// Error for the implementation of the [UnderlayInformationProvider] trait
 /// for the [UnderlayObserverHandle].
 pub enum ProvidingInfoError {
-    /// Neighbor is not known to the handle.
-    #[display("No neighbor known under id {_0}")]
-    UnknownNeighbor(#[error(ignore)] UnderlayNeighborId),
     /// The result sender was closed unexpectedly.
     UnderlayObserverSenderClosed(UnderlayObserverSenderClosedError),
 }
@@ -184,11 +181,10 @@ impl UnderlayInformationProvider for UnderlayObserverHandle {
     async fn get_information(
         &mut self,
         ulnid: &UnderlayNeighborId,
-    ) -> Result<Self::Information, Self::Error> {
+    ) -> Result<Option<Self::Information>, Self::Error> {
         match UnderlayObserverHandle::get_information(self, ulnid).await {
             Err(e) => Err(ProvidingInfoError::UnderlayObserverSenderClosed(e)),
-            Ok(None) => Err(ProvidingInfoError::UnknownNeighbor(*ulnid)),
-            Ok(Some(info)) => Ok(info),
+            Ok(info) => Ok(info),
         }
     }
 }

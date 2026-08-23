@@ -1,13 +1,18 @@
 use std::{
     ops::Index,
     slice::SliceIndex,
-    sync::OnceLock,
+    sync::LazyLock,
 };
 
+pub use cycle_remover::*;
 use derive_more::{
     Error,
     with_trait::Display,
 };
+pub use in_order_cycle_remover::*;
+pub use pathcollection::*;
+pub use shortest_first_path_simplifier::*;
+pub use simplifier::*;
 
 use super::Link;
 use crate::domain::{
@@ -16,31 +21,29 @@ use crate::domain::{
     hasher::Hasher,
 };
 
-pub mod cycle_remover;
-pub mod in_order_cycle_remover;
-pub mod pathcollection;
-pub mod shortest_first_path_simplifier;
-pub mod simplifier;
+mod cycle_remover;
+mod in_order_cycle_remover;
+mod pathcollection;
+mod shortest_first_path_simplifier;
+mod simplifier;
 
-/// this is a static variable that automatically gets initialized on its first use
-/// it represents a random NodeID that serves to prevent route flapping
-pub struct AnchorNodeId;
-
-impl AnchorNodeId {
-    pub fn get(&mut self) -> &'static NodeId {
-        static INSTANCE: OnceLock<NodeId> = OnceLock::new();
-        INSTANCE.get_or_init(NodeId::random)
-    }
-}
+/// This is a static variable that automatically gets initialized on its first use.
+///
+/// It represents a random [NodeId] that serves to prevent route flapping.
+static ANCHOR_NODE_ID: LazyLock<NodeId> = LazyLock::new(NodeId::random);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum PathState {
     #[default]
-    Undefined, // initial state, path state not yet defined
-    Valid,    // path is valid (has been validated)
-    Faulty,   // path not usable but rediscovery is initiated
-    Checking, // path probably usable, but needs to be validated (e.g., for a proposed path)
+    /// Initial state, [PathState] not yet defined.
+    Undefined,
+    /// [Path] is valid (has been validated).
+    Valid,
+    /// [Path] not usable but rediscovery is initiated.
+    Faulty,
+    /// [Path] probably usable, but needs to be validated (e.g., for a proposed path).
+    Checking,
 }
 
 /// A Path of [NodeId]s.
@@ -49,18 +52,18 @@ pub enum PathState {
 ///
 /// # Invariant
 ///
-/// A valid [Path] is not empty at any time as it always contains the NodeId of the destination node at the end
+/// A valid [Path] is not empty at any time as it always contains the NodeId of the destination node at the end.
 /// Therefore some methods panic or return errors when constructing empty [Path]s.
-/// The last_validated timestamp is the instant when the path was successfully validated by a PathProbe or invalidated by an error
-/// The last_path_refresh timestamp is the instant when the path was successfully refreshed
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Path {
     ids: Vec<NodeId>,
     #[cfg_attr(feature = "serde", serde(skip))]
     path_state: PathState,
+    /// Instant when the path was successfully validated by a PathProbe or invalidated by an error.
     #[cfg_attr(feature = "serde", serde(skip))]
     last_validated: Option<Timestamp>, // update for last validation or invalidation
+    /// Instant when the path was successfully refreshed.
     #[cfg_attr(feature = "serde", serde(skip))]
     last_path_refresh: Option<Timestamp>,
 }
@@ -272,13 +275,13 @@ impl Path {
         iter.next().is_none()
     }
 
-    /// returns true if this path is better (shorter or same length but closer to AnchorNodeId)
+    /// Returns true if this path is better (shorter or same length but closer to AnchorNodeId)
     pub fn is_better_than(&self, other_path: &Path) -> bool {
         debug_assert!(self.last() == other_path.last()); // paths should have the same destination
         self.ids.len() < other_path.ids.len()
             || (self.ids.len() == other_path.ids.len()
-                && (self.path_hasher().hash(&self.ids) ^ AnchorNodeId.get())
-                    < self.path_hasher().hash(&other_path.ids) ^ AnchorNodeId.get())
+                && (self.path_hasher().hash(&self.ids) ^ &*ANCHOR_NODE_ID)
+                    < self.path_hasher().hash(&other_path.ids) ^ &*ANCHOR_NODE_ID)
     }
 
     /// returns true if this path is same

@@ -2,46 +2,58 @@
 
 use std::{
     collections::HashMap,
-    fmt,
-    fmt::Debug,
+    fmt::{
+        Debug,
+        Formatter,
+    },
     num::NonZeroU64,
 };
 
 use derive_more::derive::Display;
 
-use crate::{
-    domain::{
-        Contact,
-        Link,
-        NodeId,
-        NotViaList,
-        StateSeqNr,
-        state_seq_nr,
-    },
-    messaging::{
-        dht::{
-            FetchReqData,
-            FetchRspData,
-            LHTInput,
-            LHTOutput,
-            StoreReqData,
-            StoreRspData,
-        },
-        source_route::SourceRoute,
+pub mod dht;
+use binrw::{
+    BinRead,
+    BinWrite,
+};
+#[doc(inline)]
+pub use dht::{
+    FetchReqData,
+    FetchRspData,
+    StoreReqData,
+    StoreRspData,
+};
+
+use crate::domain::{
+    Contact,
+    INVALID_SSN,
+    Link,
+    NodeId,
+    NotViaList,
+    SourceRoute,
+    StateSeqNr,
+    protocol_message::dht::{
+        LHTInput,
+        LHTOutput,
     },
 };
-use binrw::{BinRead, BinWrite};
 //use ciborium::{ser,de};
 
 /// Randomly generated number to uniquely identify a protocol message and its
 /// response.
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Copy)]
+#[derive(Display, PartialEq, Eq, Clone, Hash, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[display("{:x}-{:x}", (self.0 >> 32) as u32, (self.0 & 0xffffffff) as u32)]
 pub struct Nonce(u64);
 
-impl fmt::Display for Nonce {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:x}", self.0)
+impl Debug for Nonce {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Nonce: {:x}-{:x}",
+            (self.0 >> 32) as u32,
+            (self.0 & 0xffffffff) as u32
+        )
     }
 }
 
@@ -232,10 +244,21 @@ impl From<RTableRequestTypeValue> for u8 {
 }
 
 /// Common Header Structure
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[cfg_attr(feature = "binrw", derive(BinRead, BinWrite))]
 #[cfg_attr(feature = "binrw", brw(big))]
+#[display("v={} t={:0x} f={:0x} dst={} src={} dom={:x} msg-id={:x}-{:x} sseq={} deg={}",
+          self.version,
+          self.msg_type,
+          self.msg_flags,
+          self.dest_id,
+          self.src_node_id,
+          self.domain_id,
+          (self.msg_id >> 32) as u32, (self.msg_id & 0xffffffff) as u32,
+          self.state_seq_num,
+          self.src_node_degree,
+)]
 pub struct CommonHeader {
     version: u8,
     msg_type: u8,
@@ -283,7 +306,7 @@ impl CommonHeader {
             state_seq_num: if let Some(stateseqnumber) = stateseqnum {
                 stateseqnumber
             } else {
-                state_seq_nr::INVALID_SSN
+                INVALID_SSN
             },
             src_node_degree: if src_node_degree < u16::MAX as usize {
                 src_node_degree as u16
@@ -672,7 +695,7 @@ impl From<&ProtocolMessage> for ProtocolMessageKind {
     }
 }
 
-/// In contrary to a [ULNHello](crate::messaging::ProtocolMessage::ULNHello) this type contains a [SourceRoute]
+/// In contrary to a [ULNHello](crate::domain::ProtocolMessage::ULNHello) this type contains a [SourceRoute]
 /// and data for request and response pairs
 ///
 /// The target has not to be equal to the end of the source route as some protocol messages

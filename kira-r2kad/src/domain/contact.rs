@@ -4,32 +4,39 @@ use std::{
         Hash,
         Hasher,
     },
+    time::Duration,
 };
 
 use derive_more::derive::Display;
 
-use crate::domain::{
-    Age,
-    NodeId,
-    NotViaStateList,
-    Path,
-    RediscoveryState,
-    SafeStateSeqNr,
-    Timestamp,
-    pathcollection::PathCollection,
+use crate::{
+    domain::{
+        Age,
+        NodeId,
+        NotViaStateList,
+        Path,
+        PathCollection,
+        SafeStateSeqNr,
+        Timestamp,
+    },
+    use_cases::failure_handling::RediscoveryState,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq, Display, Default)]
 #[display("{_variant}")]
 /// [ContactState] starts normally in Unknown for contacts heard from other nodes.
-///
 pub enum ContactState {
     #[default]
-    Unknown, // when contact is initialized, its state is mostly unknown
-    Valid,                           // has a validated active path
-    Invalid(NotViaStateList),        // active path is not valid due to failed links
-    Rediscovering(RediscoveryState), // no valid path, but trying to rediscvoer
-    Dead, // contact not usable anymore (e.g., rediscovery failed finally)
+    /// When contact is initialized, its state is mostly unknown.
+    Unknown,
+    /// Has a validated active path.
+    Valid,
+    /// Active path is not valid due to failed links
+    Invalid(NotViaStateList),
+    /// No valid path, but trying to rediscover.
+    Rediscovering(RediscoveryState),
+    /// contact not usable anymore (e.g., rediscovery failed finally).
+    Dead,
 }
 
 /// A [Contact] as represented in the [RoutingTable](crate::domain::routing_table::RoutingTable).
@@ -92,9 +99,15 @@ impl Contact {
         &mut self,
         notviastate_list: NotViaStateList,
         via_contact_list: Vec<NodeId>,
+        max_retries: u32,
+        start_duration: Duration,
     ) {
-        self.state =
-            ContactState::Rediscovering(RediscoveryState::new(notviastate_list, via_contact_list));
+        self.state = ContactState::Rediscovering(RediscoveryState::new(
+            notviastate_list,
+            via_contact_list,
+            max_retries,
+            start_duration,
+        ));
     }
 
     /// Returns if the [Contact] represents a underlay neighbor.
@@ -162,6 +175,10 @@ impl Contact {
         }
     }
 
+    pub fn is_dead(&self) -> bool {
+        self.state == ContactState::Dead
+    }
+
     pub fn is_valid(&self) -> bool {
         self.state == ContactState::Valid
     }
@@ -181,7 +198,7 @@ impl Contact {
             }
             ContactState::Rediscovering(ref mut rds) => {
                 for nvs in notviastate_list.nvs_list.iter() {
-                    rds.notviastate_list.nvs_list.insert(nvs.clone());
+                    rds.add_notvia(nvs.into());
                 }
             }
             _ => {

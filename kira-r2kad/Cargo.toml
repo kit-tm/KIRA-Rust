@@ -10,13 +10,12 @@ edition.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-serde = ["serde-big-array", "chrono/serde"]
+serde = ["serde-big-array"]
 binrw = ["dep:binrw"]
 sync-wrapper = []
 
 
 [dependencies]
-chrono = { workspace = true }
 derive_more = { workspace = true }
 # FIXME: don't explicitly use tokio mpsc as calllback channels for API probes and message injections
 tokio = { workspace = true, features = ["sync"] }

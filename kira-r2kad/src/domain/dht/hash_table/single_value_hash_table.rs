@@ -20,7 +20,10 @@ use super::{
     EntryMeta,
     LocalHashTable,
 };
-use crate::domain::NodeId;
+use crate::domain::{
+    NodeId,
+    protocol_message,
+};
 
 /// A hash table which stores _one_ value per entry.
 ///
@@ -88,11 +91,11 @@ pub enum StoreOk {
     EntryUpdated,
 }
 
-impl From<StoreOk> for crate::messaging::dht::StoreOk {
+impl From<StoreOk> for protocol_message::dht::StoreOk {
     fn from(ok: StoreOk) -> Self {
         match ok {
-            StoreOk::NewEntry => crate::messaging::dht::StoreOk::Created,
-            StoreOk::EntryUpdated => crate::messaging::dht::StoreOk::Updated,
+            StoreOk::NewEntry => protocol_message::dht::StoreOk::Created,
+            StoreOk::EntryUpdated => protocol_message::dht::StoreOk::Updated,
         }
     }
 }
@@ -104,15 +107,15 @@ pub enum HashTableErr {
     EntryNotFound(#[error(ignore)] NodeId),
 }
 
-impl From<HashTableErr> for crate::messaging::dht::StoreErr {
+impl From<HashTableErr> for protocol_message::dht::StoreErr {
     fn from(err: HashTableErr) -> Self {
-        crate::messaging::dht::StoreErr::UnexpectedError(err.to_string())
+        protocol_message::dht::StoreErr::UnexpectedError(err.to_string())
     }
 }
 
-impl From<HashTableErr> for crate::messaging::dht::FetchErr {
+impl From<HashTableErr> for protocol_message::dht::FetchErr {
     fn from(_: HashTableErr) -> Self {
-        crate::messaging::dht::FetchErr::NotFoundErr
+        protocol_message::dht::FetchErr::NotFoundErr
     }
 }
 

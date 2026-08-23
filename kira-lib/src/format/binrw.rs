@@ -2,32 +2,87 @@
 //!
 //! Implemented using [binrw].
 
-use std::collections::{HashMap, HashSet};
-use std::error::Error;
-use std::io::{Error as IoError, ErrorKind, Read, Seek, SeekFrom, Write};
-use std::num::NonZeroU64;
-use std::sync::Arc;
-
-use kira_r2kad::domain::{Age, Contact, Link, NodeId, NotVia, Path, SafeStateSeqNr};
-use kira_r2kad::messaging::dht::{
-    FetchErr, FetchReqData, FetchRspData, LHTInput, LHTOutput, StoreErr, StoreOk, StoreReqData,
-    StoreRspData,
-};
-use kira_r2kad::messaging::{
-    CommonHeader, CommonObjectHeader, ErrorData, FindNodeReqData, KiraMsgFlagsBit,
-    PROTOCOL_MSG_KIND_ERROR, PROTOCOL_MSG_KIND_FETCH_REQ, PROTOCOL_MSG_KIND_FETCH_RSP,
-    PROTOCOL_MSG_KIND_FIND_NODE_REQ, PROTOCOL_MSG_KIND_FIND_NODE_RSP,
-    PROTOCOL_MSG_KIND_PATH_SETUP_REQ, PROTOCOL_MSG_KIND_PATH_TEARDOWN_REQ,
-    PROTOCOL_MSG_KIND_PROBE_REQ, PROTOCOL_MSG_KIND_PROBE_RSP, PROTOCOL_MSG_KIND_QUERY_ROUTE_REQ,
-    PROTOCOL_MSG_KIND_QUERY_ROUTE_RSP, PROTOCOL_MSG_KIND_STORE_REQ, PROTOCOL_MSG_KIND_STORE_RSP,
-    PROTOCOL_MSG_KIND_ULN_DISC_REQ, PROTOCOL_MSG_KIND_ULN_DISC_RSP, PROTOCOL_MSG_KIND_ULN_HELLO,
-    PROTOCOL_MSG_KIND_UPDATE_ROUTE_REQ, PathSetupReqData, PathTeardownReqData, ProbeReqData,
-    ProbeRspData, ProtocolMessage, ProtocolObjectType, QueryRouteReqData, QueryRouteType,
-    RTableData, RTableRequestTypeValue, ReqRspMessage, RouteUpdateActionType, SourceRoute,
-    UpdateRouteReq,
+use std::{
+    collections::{
+        HashMap,
+        HashSet,
+    },
+    error::Error,
+    io::{
+        Error as IoError,
+        ErrorKind,
+        Read,
+        Seek,
+        SeekFrom,
+        Write,
+    },
+    num::NonZeroU64,
+    sync::Arc,
 };
 
-use binrw::{self, BinRead, BinWrite};
+use binrw::{
+    self,
+    BinRead,
+    BinWrite,
+};
+use kira_r2kad::domain::{
+    Age,
+    Contact,
+    Link,
+    NodeId,
+    NotVia,
+    Path,
+    SafeStateSeqNr,
+    SourceRoute,
+    protocol_message::{
+        CommonHeader,
+        CommonObjectHeader,
+        ErrorData,
+        FindNodeReqData,
+        KiraMsgFlagsBit,
+        PROTOCOL_MSG_KIND_ERROR,
+        PROTOCOL_MSG_KIND_FETCH_REQ,
+        PROTOCOL_MSG_KIND_FETCH_RSP,
+        PROTOCOL_MSG_KIND_FIND_NODE_REQ,
+        PROTOCOL_MSG_KIND_FIND_NODE_RSP,
+        PROTOCOL_MSG_KIND_PATH_SETUP_REQ,
+        PROTOCOL_MSG_KIND_PATH_TEARDOWN_REQ,
+        PROTOCOL_MSG_KIND_PROBE_REQ,
+        PROTOCOL_MSG_KIND_PROBE_RSP,
+        PROTOCOL_MSG_KIND_QUERY_ROUTE_REQ,
+        PROTOCOL_MSG_KIND_QUERY_ROUTE_RSP,
+        PROTOCOL_MSG_KIND_STORE_REQ,
+        PROTOCOL_MSG_KIND_STORE_RSP,
+        PROTOCOL_MSG_KIND_ULN_DISC_REQ,
+        PROTOCOL_MSG_KIND_ULN_DISC_RSP,
+        PROTOCOL_MSG_KIND_ULN_HELLO,
+        PROTOCOL_MSG_KIND_UPDATE_ROUTE_REQ,
+        PathSetupReqData,
+        PathTeardownReqData,
+        ProbeReqData,
+        ProbeRspData,
+        ProtocolMessage,
+        ProtocolObjectType,
+        QueryRouteReqData,
+        QueryRouteType,
+        RTableData,
+        RTableRequestTypeValue,
+        ReqRspMessage,
+        RouteUpdateActionType,
+        UpdateRouteReq,
+        dht::{
+            FetchErr,
+            FetchReqData,
+            FetchRspData,
+            LHTInput,
+            LHTOutput,
+            StoreErr,
+            StoreOk,
+            StoreReqData,
+            StoreRspData,
+        },
+    },
+};
 
 const HEADER_LEN: usize = 55; // KIRA header size (bytes)
 const ERROR_DEAD_END: u8 = 0x0a;

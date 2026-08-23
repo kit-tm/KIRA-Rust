@@ -3,7 +3,7 @@ use crate::domain::{
     Path,
     RoutingTable,
     ULNTable,
-    simplifier::PathSimplifier,
+    path::simplifier::PathSimplifier,
 };
 
 #[derive(Debug)]

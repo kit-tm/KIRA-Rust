@@ -27,7 +27,6 @@ use crate::use_cases::{
     overlay_neighborhood_discovery::OverlayNeighborhoodDiscovery,
     path_probing::PathProbing,
     precompute_paths_and_path_ids::PrecomputePathIds,
-    random_overlay_discovery::RandomOverlayDiscovery,
     vicinity_discovery::VicinityDiscovery,
 };
 use crate::{
@@ -39,7 +38,7 @@ use crate::{
         ULNTable,
         UnderlayNeighborId,
         VicinityGraph,
-        dht::hash_table::ComplexHashTable,
+        dht::ComplexHashTable,
     },
     runtime::UseCaseRuntime,
     use_cases::{
@@ -73,7 +72,6 @@ pub struct R2KadPipeline<C, const BUCKET_SIZE: usize> {
     on_disc: OverlayNeighborhoodDiscovery<C, BUCKET_SIZE>,
     path_probing: PathProbing<C, BUCKET_SIZE>,
     precomputation: PrecomputePathIds<C, BUCKET_SIZE>,
-    random_probing: RandomOverlayDiscovery<C, BUCKET_SIZE>,
     vicinity_disc: VicinityDiscovery<C, BUCKET_SIZE>,
 }
 
@@ -89,8 +87,6 @@ impl<C, const BUCKET_SIZE: usize> R2KadPipeline<C, BUCKET_SIZE> {
         let handle_api = HandleApi::default();
         let contact_update = HandleContactUpdate::default();
         let overlay_disc = HandleOverlayDiscovery::default();
-        let random_probing = RandomOverlayDiscovery::new(Default::default())
-            .expect("default grouping should be valid");
         let on_disc = OverlayNeighborhoodDiscovery::<_, BUCKET_SIZE>::new(Default::default())
             .expect("default grouping should be valid");
         let vicinity_disc = VicinityDiscovery::default();
@@ -125,7 +121,6 @@ impl<C, const BUCKET_SIZE: usize> R2KadPipeline<C, BUCKET_SIZE> {
             on_disc,
             path_probing,
             precomputation,
-            random_probing,
             vicinity_disc,
         }
     }
@@ -160,11 +155,6 @@ where
 
         if let Err(e) = self.forward_message.start(context) {
             log::error!("Failed to start forwarding UseCase: {e}");
-            return Err(UseCaseStartupError);
-        }
-
-        if let Err(e) = self.random_probing.start(context) {
-            log::error!("Failed to start Random Probing UseCase: {e}");
             return Err(UseCaseStartupError);
         }
 
@@ -283,9 +273,6 @@ where
         if let Err(e) = self.failure_handling.handle_event(context, event.clone()) {
             log::error!("Failure handling returned error handling message: {e}");
         }
-        if let Err(e) = self.random_probing.handle_event(context, event.clone()) {
-            log::error!("Random Probing returned error handling message: {e}");
-        }
         if let Err(e) = self.on_disc.handle_event(context, event.clone()) {
             log::error!("Overlay Neighborhood Discovery returned error handling message: {e}");
         }
@@ -336,7 +323,6 @@ where
         let states: Vec<&dyn UseCaseState> = vec![
             self.forward_message.state(),
             self.failure_handling.state(),
-            self.random_probing.state(),
             self.on_disc.state(),
             self.vicinity_disc.state(),
             self.derive_forwarding_tables.state(),

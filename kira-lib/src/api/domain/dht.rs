@@ -24,7 +24,8 @@ use base64::{
 #[cfg(feature = "swagger_doc")]
 use itertools::Itertools;
 use kira_r2kad::{
-    messaging::dht::{
+    domain::protocol_message::dht::{
+        self as dht_r2kad,
         FetchErr,
         LHTInput,
         LHTOutput,
@@ -158,12 +159,12 @@ impl Display for StoreOK {
     }
 }
 
-impl From<kira_r2kad::messaging::dht::StoreOk> for StoreOK {
-    fn from(value: kira_r2kad::messaging::dht::StoreOk) -> Self {
+impl From<dht_r2kad::StoreOk> for StoreOK {
+    fn from(value: dht_r2kad::StoreOk) -> Self {
         match value {
-            kira_r2kad::messaging::dht::StoreOk::Created => Self::Created,
-            kira_r2kad::messaging::dht::StoreOk::Updated => Self::Updated,
-            kira_r2kad::messaging::dht::StoreOk::Inserted => Self::Inserted,
+            dht_r2kad::StoreOk::Created => Self::Created,
+            dht_r2kad::StoreOk::Updated => Self::Updated,
+            dht_r2kad::StoreOk::Inserted => Self::Inserted,
         }
     }
 }

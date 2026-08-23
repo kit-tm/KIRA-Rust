@@ -24,8 +24,10 @@ use axum::{
 };
 use domain::dht::DHTErr;
 use kira_r2kad::{
-    domain::protocol_event::DebugEvent,
-    messaging::ProtocolMessage,
+    domain::{
+        ProtocolMessage,
+        protocol_event::DebugEvent,
+    },
     use_cases::{
         ApiEvent,
         InjectionMessageData,

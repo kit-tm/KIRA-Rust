@@ -1,17 +1,47 @@
-use kira_lib::format::ProtocolMessageFormat;
-use kira_r2kad::domain::{Age, Contact, NodeId, Path, SafeStateSeqNr};
-use kira_r2kad::messaging::dht::{FetchReqData, FetchRspData, StoreOk, StoreReqData, StoreRspData};
-use kira_r2kad::messaging::source_route::SourceRoute;
-use kira_r2kad::messaging::{
-    CommonHeader, ErrorData, FindNodeReqData, KiraMsgFlagsBit, PathSetupReqData,
-    PathTeardownReqData, ProbeReqData, ProbeRspData, ProtocolMessage, ProtocolMessageKind,
-    QueryRouteReqData, QueryRouteType, RTableData, ReqRspMessage, RouteUpdateActionType,
-    UpdateRouteReq,
+use std::{
+    collections::{
+        HashMap,
+        HashSet,
+    },
+    io::Cursor,
+    num::NonZeroU64,
+    sync::Arc,
 };
-use std::collections::{HashMap, HashSet};
-use std::io::Cursor;
-use std::num::NonZeroU64;
-use std::sync::Arc;
+
+use kira_lib::format::ProtocolMessageFormat;
+use kira_r2kad::domain::{
+    Age,
+    Contact,
+    NodeId,
+    Path,
+    ProtocolMessage,
+    ProtocolMessageKind,
+    SafeStateSeqNr,
+    SourceRoute,
+    protocol_message::{
+        CommonHeader,
+        ErrorData,
+        FindNodeReqData,
+        KiraMsgFlagsBit,
+        PathSetupReqData,
+        PathTeardownReqData,
+        ProbeReqData,
+        ProbeRspData,
+        QueryRouteReqData,
+        QueryRouteType,
+        RTableData,
+        ReqRspMessage,
+        RouteUpdateActionType,
+        UpdateRouteReq,
+        dht::{
+            FetchReqData,
+            FetchRspData,
+            StoreOk,
+            StoreReqData,
+            StoreRspData,
+        },
+    },
+};
 
 #[test]
 fn binrw_hello() {

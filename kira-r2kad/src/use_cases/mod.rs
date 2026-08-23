@@ -16,17 +16,17 @@ use crate::{
     domain::{
         Contact,
         NodeId,
+        Nonce,
+        ProtocolMessage,
         UnderlayNeighborSource,
         UnderlayNeighborUpdate,
-    },
-    messaging::{
-        FindNodeReqData,
-        Nonce,
-        dht::{
-            LHTInput,
-            LHTOutput,
+        protocol_message::{
+            FindNodeReqData,
+            dht::{
+                LHTInput,
+                LHTOutput,
+            },
         },
-        messages::ProtocolMessage,
     },
     use_cases::inject_messages::InjectionResult,
 };
@@ -44,7 +44,6 @@ pub mod inject_messages;
 pub mod overlay_neighborhood_discovery;
 pub mod path_probing;
 pub mod precompute_paths_and_path_ids;
-pub mod random_overlay_discovery;
 pub mod vicinity_discovery;
 
 #[doc(inline)]
@@ -54,7 +53,7 @@ pub use crate::runtime::UseCaseRuntime;
 
 /// Callback used to message back an [InjectionResult] to an injector.
 ///
-/// This callback channel is usually used if a [ReqRspMessage](super::messaging::ReqRspMessage) is injected
+/// This callback channel is usually used if a [ReqRspMessage](crate::domain::protocol_message::ReqRspMessage) is injected
 /// into the network return the respective response message.
 pub type OneshotInjectMessageCallback = mpsc::UnboundedSender<InjectionResult>; // TODO: change back to oneshot after we figured out how to eliminate the need of deriving clone
 

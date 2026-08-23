@@ -4,6 +4,7 @@
 
 use std::{
     collections::HashMap,
+    error::Error,
     ffi::OsStr,
     fmt::Debug,
     future::Future,
@@ -119,7 +120,7 @@ impl<I> Drop for NativeFwdTables<I> {
 impl<I> AsyncNodeIdTable for NativeFwdTables<I>
 where
     I: UnderlayInformationProvider<Information = UnderlayNeighborInformation> + Send + Debug,
-    I::Error: Debug,
+    I::Error: Error + 'static,
 {
     type Error = error::FwdTableError;
 
@@ -170,14 +171,14 @@ where
                     .underlay_information_provider
                     .get_information(next_hop)
                     .await
-                    .expect("next_hop ulnid is known") // FIXME: panic, understand how this can be
+                    .map_err(|e| error::FwdTableError::UnderlayInformationProviderErr(Box::new(e)))?
+                    .ok_or_else(|| error::FwdTableError::UnknownUnderlayNeighborId(*next_hop))?
                     .interface_id;
                 let _ = self.interface_id_table.insert(*next_hop, out_interface);
 
                 self.netlink
                     .replace_neighbor_route(destination, out_interface)
-                    .await
-                    .unwrap();
+                    .await?;
             }
             NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry {
                 destination,
@@ -187,8 +188,7 @@ where
                 log::trace!(target: "native_fwd_table", "Trying to replace encap route {destination:?} dst {out_path_id:?}");
                 self.netlink
                     .replace_encap_route(destination, out_path_id)
-                    .await
-                    .unwrap();
+                    .await?;
 
                 // If the prefix length is != 128, a subnet route is configured.
                 // This means that an already existing and configured path to a contact is used.
@@ -200,7 +200,12 @@ where
                         .underlay_information_provider
                         .get_information(next_hop)
                         .await
-                        .expect("next_hop ulnid is known");
+                        .map_err(|e| {
+                            error::FwdTableError::UnderlayInformationProviderErr(Box::new(e))
+                        })?
+                        .ok_or_else(|| {
+                            error::FwdTableError::UnknownUnderlayNeighborId(*next_hop)
+                        })?;
                     self.netlink
                         .replace_via_route(out_path_id, &next_hop)
                         .await
@@ -232,16 +237,14 @@ where
                             .expect("interface id of underlay neighbor should be known");
                         self.netlink
                             .delete_neighbor_route(node_id, interface_id)
-                            .await
-                            .unwrap();
+                            .await?;
                     }
                 }
                 NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry { out_path_id, .. }) => {
                     log::trace!(target: "native_fwd_table", "Trying to delete encap route {node_id} dst {out_path_id:?}");
                     self.netlink
                         .delete_encap_route(node_id, out_path_id)
-                        .await
-                        .unwrap();
+                        .await?;
 
                     // TODO: delete via routes
                 }
@@ -268,7 +271,7 @@ fn _ne_record_out_path_id(entry: &NodeIdEntry) {
 impl<I> AsyncPathIdTable for NativeFwdTables<I>
 where
     I: UnderlayInformationProvider<Information = UnderlayNeighborInformation> + Send + Debug,
-    I::Error: Debug,
+    I::Error: Error + 'static,
 {
     type Error = error::FwdTableError;
 
@@ -311,7 +314,10 @@ where
                     self.underlay_information_provider
                         .get_information(ulnid)
                         .await
-                        .unwrap()
+                        .map_err(|e| {
+                            error::FwdTableError::UnderlayInformationProviderErr(Box::new(e))
+                        })?
+                        .ok_or_else(|| error::FwdTableError::UnknownUnderlayNeighborId(*ulnid))?
                         .ll_ipv6,
                     None,
                 )
@@ -329,7 +335,8 @@ where
                     .underlay_information_provider
                     .get_information(next_hop)
                     .await
-                    .unwrap();
+                    .map_err(|e| error::FwdTableError::UnderlayInformationProviderErr(Box::new(e)))?
+                    .ok_or_else(|| error::FwdTableError::UnknownUnderlayNeighborId(*next_hop))?;
                 (out_path_id.into(), Some((next_hop, out_path_id.clone())))
             }
         };
@@ -341,11 +348,13 @@ where
             }
             log::trace!(target: "native_fwd_table", "Trying to update entry in forwardmap from {old_entry:?} to {entry:?}");
             *old_entry = entry;
-            platform::update_forwarding_rule(in_ip, out_ip).unwrap();
+            platform::update_forwarding_rule(in_ip, out_ip)
+                .map_err(error::FwdTableError::ForwardingMapErr)?;
         } else {
             log::trace!(target: "native_fwd_table", "Trying to insert entry into forwardmap: {entry:?}");
 
-            platform::add_forwarding_rule(in_ip, out_ip).unwrap();
+            platform::add_forwarding_rule(in_ip, out_ip)
+                .map_err(error::FwdTableError::ForwardingMapErr)?;
             self.path_id_table.insert(in_path_id.clone(), entry);
         }
 
@@ -353,8 +362,7 @@ where
             log::trace!(target: "native_fwd_table", "Trying to create via route: {out_ip:?} via {next_hop:?}");
             self.netlink
                 .replace_via_route(&out_path_id, &next_hop)
-                .await
-                .unwrap();
+                .await?;
         }
         Ok(())
     }
@@ -365,7 +373,8 @@ where
             let in_path_ip = Ipv6Addr::from(path_id);
 
             log::trace!(target: "native_fwd_table", "Trying to remove entry from forwardmap: {removed:?}");
-            platform::delete_forwarding_rule(in_path_ip).unwrap();
+            platform::delete_forwarding_rule(in_path_ip)
+                .map_err(error::FwdTableError::ForwardingMapErr)?;
             Ok(Some(removed))
         } else {
             Ok(None)
@@ -387,23 +396,40 @@ fn _pe_record_out_path_id(entry: &PathIdEntry) {
 impl<I> AsyncForwardingTables for NativeFwdTables<I>
 where
     I: UnderlayInformationProvider<Information = UnderlayNeighborInformation> + Send + Debug,
-    I::Error: Debug,
+    I::Error: Error + 'static,
 {
 }
 
 #[allow(missing_docs)]
 pub mod error {
-    use std::error::Error;
+    use derive_more::derive::{
+        Display,
+        Error,
+    };
+    use kira_r2kad::domain::UnderlayNeighborId;
 
-    use derive_more::derive::Display;
+    use crate::netlink::ForwardingRtNetlinkError;
 
-    #[derive(Debug, Display)]
+    #[derive(Debug, Display, Error)]
     pub enum FwdTableError {
         #[display("Entry {_0} already exists")]
-        EntryAlreadyExists(String),
-        #[display("Entry with id {_0} doesn't exist")]
-        EntryMissing(String),
+        EntryAlreadyExists(#[error(ignore)] String),
+        #[display("Entry with id {_0} does not exist")]
+        EntryMissing(#[error(ignore)] String),
+        #[display("Error updating the forwarding map: {_0}")]
+        ForwardingMapErr(#[error(ignore)] String),
+        /// [UnderlayNeighborId] unknown.
+        ///
+        /// The common cause is an interface is down in the meantime.
+        #[display("UnderlayNeighborId {_0} unknown")]
+        UnknownUnderlayNeighborId(#[error(ignore)] UnderlayNeighborId),
+        UnderlayInformationProviderErr(Box<dyn std::error::Error>),
+        RtNetlinkErr(Box<ForwardingRtNetlinkError>),
     }
 
-    impl Error for FwdTableError {}
+    impl From<ForwardingRtNetlinkError> for FwdTableError {
+        fn from(rtnetlink_err: ForwardingRtNetlinkError) -> Self {
+            Self::RtNetlinkErr(Box::new(rtnetlink_err))
+        }
+    }
 }

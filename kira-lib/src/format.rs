@@ -12,7 +12,7 @@ use std::{
     },
 };
 
-use kira_r2kad::messaging::ProtocolMessage;
+use kira_r2kad::domain::ProtocolMessage;
 #[cfg(any(
     feature = "format-json",
     feature = "format-mp",

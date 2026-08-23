@@ -24,7 +24,7 @@ format-json = ["serde_json", "serde"]
 # traces over all components
 distributed-tracing = []
 
-#BinRW for serialization
+# BinRW for serialization
 format-binrw = ["binrw", "kira-r2kad/binrw"]
 
 [lib]
@@ -67,7 +67,6 @@ utoipa-swagger-ui = { version = "9.0.2", features = [
 itertools = { version = "0.15.0", optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 trait-variant = { workspace = true }
-
 binrw = { workspace = true, optional = true }
 
 [dev-dependencies]

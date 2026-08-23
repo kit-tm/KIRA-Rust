@@ -130,8 +130,8 @@ mod tests {
     use super::*;
     use crate::domain::{
         ConnectionId,
-        InMemoryULNTable,
         InterfaceId,
+        underlay_neighbor_table::InMemoryULNTable,
     };
 
     fn init_observer() -> (Arc<Mutex<bool>>, ObservableULNTable<InMemoryULNTable>) {

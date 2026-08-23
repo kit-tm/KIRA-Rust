@@ -10,26 +10,30 @@ use derive_more::{
 };
 use tracing::Level;
 
+#[doc(inline)]
+pub use crate::domain::bucket::ReplacementError; // TODO: Create distinct RT-Error
 use crate::domain::{
     Bucket,
     Contact,
     GroupingError,
     NodeId,
-    ReplacementError,
     SharedPrefix,
     hasher::Hasher,
 };
-
 pub mod flat_routing_table;
 pub mod observable_routing_table;
 #[cfg(test)]
 pub mod single_bucket;
 pub mod unlimited_uln_routing_table;
 
+#[doc(inline)]
 pub use flat_routing_table::FlatRoutingTable;
+#[doc(inline)]
 pub use observable_routing_table::ObservableRoutingTable;
 #[cfg(test)]
+#[doc(inline)]
 pub use single_bucket::SingleBucketRT;
+#[doc(inline)]
 pub use unlimited_uln_routing_table::UnlimitedULNRoutingTable;
 
 #[derive(Debug, Eq, PartialEq, Display, Error)]
