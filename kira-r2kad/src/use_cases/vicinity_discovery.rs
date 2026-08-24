@@ -777,13 +777,17 @@ where
     ) -> Result<(), VDError> {
         match protocol_message {
             // ========== Vicinity Discovery - Query Route Req ==========
-            ProtocolMessage::QueryRouteReq(request,) => {
+            ProtocolMessage::QueryRouteReq(request) => {
                 tracing::trace!(
                     target: "vicinity_discovery",
                     source = %request.source(),
                     reason = "recv_query_route_req",
                     "send QueryRouteRsp"
                 );
+                if !request.exact() {
+                    tracing::warn!(target: "vicinity_discovery", "Received QueryRouteReq without exact flag");
+                }
+
                 // update observed SSN
                 if request.source_route.size() == VICINITY_RADIUS
                     && let Some(entry) = context.vicinity_graph_mut().entry_mut(request.source())

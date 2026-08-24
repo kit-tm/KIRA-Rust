@@ -598,6 +598,10 @@ where
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::ProbeReq(req), _) => {
+                if !req.exact() {
+                    tracing::warn!(target: "path_probing", "Received ProbeReq without exact flag");
+                }
+
                 self.send_probe_rsp(context, req);
             }
             UseCaseEvent::Contact(contact_event) => {

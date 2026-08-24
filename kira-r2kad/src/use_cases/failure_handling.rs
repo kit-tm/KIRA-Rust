@@ -46,7 +46,6 @@ use crate::{
             CommonHeader,
             ErrorData,
             FindNodeReqData,
-            ProtocolMessageFlags,
             ReqRspMessage,
             RouteUpdateActionType,
             UpdateRouteReq,
@@ -369,7 +368,7 @@ where
                     via_contact.path().unwrap().clone(),
                 ),
             };
-            *find_node_request.msg_flags_mut() |= ProtocolMessageFlags::Exact;
+            find_node_request.set_exact();
 
             // send FindNodeReq message
             context.runtime().send_message(
@@ -672,7 +671,7 @@ where
                     .clone(),
             ),
         };
-        *find_node_request.msg_flags_mut() |= ProtocolMessageFlags::Exact;
+        find_node_request.set_exact();
 
         context.runtime().send_message(
             find_node_request,

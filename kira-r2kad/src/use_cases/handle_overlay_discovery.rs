@@ -28,7 +28,6 @@ use crate::{
             CommonHeader,
             ErrorData,
             FindNodeReqData,
-            ProtocolMessageFlags,
             RTableData,
             ReqRspMessage,
             WireFormatMessage,
@@ -221,7 +220,7 @@ where
 
         let target = &req.data.target;
         let target_is_us = target == context.root_id();
-        let exact = req.msg_flags().contains(ProtocolMessageFlags::Exact);
+        let exact = req.exact();
         let req_source = req.source();
 
         let span = tracing::Span::current();

@@ -917,7 +917,10 @@ impl<T: Debug> WireFormatMessage for ReqRspMessage<T> {
 pub struct ProbeReqData;
 
 impl From<ReqRspMessage<ProbeReqData>> for ProtocolMessage {
-    fn from(message: ReqRspMessage<ProbeReqData>) -> Self {
+    fn from(mut message: ReqRspMessage<ProbeReqData>) -> Self {
+        // Target of ProbeReq is always assumed to exist
+        *message.common_header_mut().msg_flags_mut() |= ProtocolMessageFlags::Exact;
+
         Self::ProbeReq(message)
     }
 }
@@ -1021,7 +1024,9 @@ pub enum QueryRouteType {
 }
 
 impl From<ReqRspMessage<QueryRouteReqData>> for ProtocolMessage {
-    fn from(message: ReqRspMessage<QueryRouteReqData>) -> Self {
+    fn from(mut message: ReqRspMessage<QueryRouteReqData>) -> Self {
+        // Target of QueryRouteReq is always assumed to exist
+        *message.common_header_mut().msg_flags_mut() |= ProtocolMessageFlags::Exact;
         Self::QueryRouteReq(message)
     }
 }
@@ -1046,6 +1051,40 @@ pub struct FindNodeReqData {
     /// - Path Probing: Same as destination. Specific contact is probed for connectivity.
     /// - Overlay Neighborhood Discovery: NodeId of the current node.
     pub target: NodeId,
+}
+
+impl ReqRspMessage<FindNodeReqData> {
+    /// Indicates whether the destination is assumed to exist.
+    pub fn exact(&self) -> bool {
+        self.msg_flags().contains(ProtocolMessageFlags::Exact)
+    }
+
+    /// Indicate that the destination is assumed to exist.
+    pub fn set_exact(&mut self) {
+        *self.msg_flags_mut() |= ProtocolMessageFlags::Exact;
+    }
+}
+
+impl ReqRspMessage<QueryRouteReqData> {
+    /// Indicates whether the destination is assumed to exist.
+    ///
+    /// A [`QueryRouteReq`] should always set the exact flag.
+    ///
+    /// [`QueryRouteReq`]: ProtocolMessage::QueryRouteReq
+    pub fn exact(&self) -> bool {
+        self.msg_flags().contains(ProtocolMessageFlags::Exact)
+    }
+}
+
+impl ReqRspMessage<ProbeReqData> {
+    /// Indicates whether the destination is assumed to exist.
+    ///
+    /// A [`ProbeReq`] should always set the exact flag.
+    ///
+    /// [`ProbeReq`]: ProtocolMessage::ProbeReq
+    pub fn exact(&self) -> bool {
+        self.msg_flags().contains(ProtocolMessageFlags::Exact)
+    }
 }
 
 impl From<ReqRspMessage<FindNodeReqData>> for ProtocolMessage {
