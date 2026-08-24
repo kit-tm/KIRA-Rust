@@ -850,14 +850,10 @@ fn deserialize_find_node_req<R: Read>(
             "FindNodeReq radius in rtable-request must be > 0",
         )
     })?;
-    let target = *header.dest_id();
 
     Ok(ProtocolMessage::FindNodeReq(ReqRspMessage {
         common_header: header,
-        data: FindNodeReqData {
-            neighborhood,
-            target,
-        },
+        data: FindNodeReqData { neighborhood },
         not_via: Option::from(parsed.not_via),
         source_route,
     }))

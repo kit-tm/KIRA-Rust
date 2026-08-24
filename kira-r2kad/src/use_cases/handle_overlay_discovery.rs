@@ -88,27 +88,13 @@ impl<C, const BUCKET_SIZE: usize> HandleOverlayDiscovery<C, BUCKET_SIZE> {
 
     fn build_find_node_to_next_hop(
         &self,
-        not_via: Option<NotViaList>,
-        req: ReqRspMessage<FindNodeReqData>,
+        mut req: ReqRspMessage<FindNodeReqData>,
         next_contact: Contact,
     ) -> ProtocolMessage {
-        let mut source_route = req.source_route.clone();
-        source_route.extend(next_contact.path().unwrap().clone());
-        source_route.advance();
-
-        ProtocolMessage::FindNodeReq(ReqRspMessage {
-            common_header: CommonHeader::new(
-                ProtocolMessageKind::FindNodeReq,
-                *req.src_node_id(),
-                *source_route.destination(),
-                Some(req.msg_id()),
-                Some(req.state_seq_num().into()),
-                req.src_node_degree() as usize,
-            ),
-            data: req.data,
-            not_via,
-            source_route,
-        })
+        req.source_route
+            .extend(next_contact.path().unwrap().clone());
+        req.source_route.advance();
+        req.into()
     }
 
     fn build_find_node_rsp(
@@ -208,7 +194,7 @@ where
         let closest = context
             .routing_table()
             .closest(
-                &req.data.target,
+                req.target(),
                 number_of_neighbors,
                 self.config.shared_prefix_bits_grouping,
             )
@@ -218,7 +204,7 @@ where
         // closest returns only valid contacts, so unwrapping paths is safe
         let closest_node = closest.first();
 
-        let target = &req.data.target;
+        let target = req.target();
         let target_is_us = target == context.root_id();
         let exact = req.exact();
         let req_source = req.source();
@@ -264,11 +250,7 @@ where
                         next_hop = ?contact.id(),
                         "Forwarding exact FindNodeReq to closer overlay contact"
                     );
-                    self.build_find_node_to_next_hop(
-                        req.not_via.clone(),
-                        req.clone(),
-                        Contact::clone(contact),
-                    )
+                    self.build_find_node_to_next_hop(req.clone(), Contact::clone(contact))
                 } else {
                     // best contact we know is further away from the target than we are
                     // so we send back an error message, since we can't make progress
@@ -341,11 +323,7 @@ where
                         next_hop = ?contact.id(),
                         "Forwarding non-exact FindNodeReq to closer contact"
                     );
-                    self.build_find_node_to_next_hop(
-                        req.not_via.clone(),
-                        req.clone(),
-                        Contact::clone(contact),
-                    )
+                    self.build_find_node_to_next_hop(req.clone(), Contact::clone(contact))
                 } else {
                     tracing::debug!(
                         target: "handle_overlay_discovery",

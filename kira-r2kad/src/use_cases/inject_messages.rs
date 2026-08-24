@@ -160,9 +160,7 @@ where
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
         match event {
-            UseCaseEvent::InjectMessage(nonce, InjectionMessageData::FindNode(data)) => {
-                let target = data.target;
-
+            UseCaseEvent::InjectMessage(nonce, InjectionMessageData::FindNode(data, target)) => {
                 let closest_route = context
                     .routing_table()
                     .closest(&target, 1, self.config.shared_prefix_grouping)
@@ -186,7 +184,7 @@ where
                 }
                 let source_route = closest_route.unwrap();
 
-                log::trace!(target: "inject_messages", "Sending FindNodeReq from {} with target {}", source_route.source(), data.target);
+                log::trace!(target: "inject_messages", "Sending FindNodeReq from {} with target {}", source_route.source(), target);
 
                 let nonce = nonce.unwrap_or_else(|| {
                     // generate distinct nonce

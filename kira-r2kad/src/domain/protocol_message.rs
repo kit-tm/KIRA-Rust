@@ -1040,17 +1040,6 @@ pub struct FindNodeReqData {
     ///
     /// This is usually equal to the BUCKET_SIZE.
     pub neighborhood: NonZeroU64,
-    /// The target for this request.
-    ///
-    /// While the destination of a [ProtocolMessage] represents the next hop to route
-    /// the message to the target is specific to FindNodeReq.
-    ///
-    /// Different kinds of values:
-    ///
-    /// - Random Probing: Randomly generated NodeId
-    /// - Path Probing: Same as destination. Specific contact is probed for connectivity.
-    /// - Overlay Neighborhood Discovery: NodeId of the current node.
-    pub target: NodeId,
 }
 
 impl ReqRspMessage<FindNodeReqData> {
@@ -1062,6 +1051,17 @@ impl ReqRspMessage<FindNodeReqData> {
     /// Indicate that the destination is assumed to exist.
     pub fn set_exact(&mut self) {
         *self.msg_flags_mut() |= ProtocolMessageFlags::Exact;
+    }
+
+    /// The target for this request.
+    ///
+    /// Different kinds of values:
+    ///
+    /// - Random Probing: Randomly generated [NodeId]
+    /// - Path Probing: Specific [Contact] is probed for connectivity.
+    /// - Overlay Neighborhood Discovery: [NodeId] of the current node.
+    pub fn target(&self) -> &NodeId {
+        self.common_header().dest_id()
     }
 }
 

@@ -362,7 +362,6 @@ where
             destination,
             FindNodeReqData {
                 neighborhood: NonZeroU64::new(neighbors).unwrap(),
-                target: destination,
             },
         )
         .into();
@@ -901,7 +900,7 @@ mod tests {
         assert_eq!(output.len(), 1);
         let nonce =
             if let Output::SendProtocolMessage(ProtocolMessage::FindNodeReq(req), _) = &output[0] {
-                assert_eq!(req.data.target, handle);
+                assert_eq!(req.target(), &handle);
                 req.msg_id()
             } else {
                 panic!("Expected FindNodeReq, got {:?}", output[0]);

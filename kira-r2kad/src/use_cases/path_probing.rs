@@ -183,8 +183,7 @@ where
             nonce = Nonce::random();
         }
 
-        let mut route = SourceRoute::from(contact.proposed_path().unwrap().clone());
-        route.push_front(*context.root_id());
+        let route = SourceRoute::new(*context.root_id(), contact.proposed_path().unwrap().clone());
         let message = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::ProbeReq,
@@ -223,8 +222,7 @@ where
             nonce = Nonce::random();
         }
 
-        let mut route = SourceRoute::from(contact.path().unwrap().clone());
-        route.push_front(*context.root_id());
+        let route = SourceRoute::new(*context.root_id(), contact.path().unwrap().clone());
         let message = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::ProbeReq,

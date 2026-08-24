@@ -353,14 +353,13 @@ where
                 common_header: CommonHeader::new(
                     ProtocolMessageKind::FindNodeReq,
                     *context.root_id(),
-                    *via_contact_id,
+                    *contact_id,
                     Some(nonce),
                     Some(From::from(*context.uln_table().state_seq_nr())),
                     context.uln_table().size(),
                 ),
                 data: FindNodeReqData {
                     neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
-                    target: *contact_id,
                 },
                 not_via: From::from(notviastate_list.clone()),
                 source_route: SourceRoute::new(
@@ -649,14 +648,13 @@ where
             common_header: CommonHeader::new(
                 ProtocolMessageKind::FindNodeReq,
                 *context.root_id(),
-                next_via_contact_id,
+                node_id,
                 Some(msg_id),
                 Some(From::from(*context.uln_table().state_seq_nr())),
                 context.uln_table().size(),
             ),
             data: FindNodeReqData {
                 neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
-                target: node_id,
             },
             not_via: From::from(notviastate_list.clone()),
             source_route: SourceRoute::new(

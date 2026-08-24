@@ -215,7 +215,6 @@ fn binrw_find_node_req() {
         common_header: header.clone(),
         data: FindNodeReqData {
             neighborhood: NonZeroU64::new(3).unwrap(),
-            target: *header.dest_id(),
         },
         not_via: Some(HashSet::new()),
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
@@ -247,7 +246,7 @@ fn binrw_find_node_req() {
             .contains(ProtocolMessageFlags::Exact)
     );
     assert_eq!(decoded_req.data.neighborhood.get(), 3);
-    assert_eq!(decoded_req.data.target, *header.dest_id());
+    assert_eq!(decoded_req.target(), header.dest_id());
     assert_eq!(decoded_req.source_route.source(), header.src_node_id());
     assert_eq!(decoded_req.source_route.destination(), header.dest_id());
 }
@@ -597,7 +596,15 @@ fn binrw_probe_req() {
         common_header: header.clone(),
         data: ProbeReqData,
         not_via: Some(HashSet::new()),
-        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+        source_route: SourceRoute::new(
+            *header.src_node_id(),
+            Path::from([
+                NodeId::random(),
+                NodeId::random(),
+                NodeId::random(),
+                *header.dest_id(),
+            ]),
+        ),
     });
 
     let mut buf = Vec::new();
@@ -620,6 +627,7 @@ fn binrw_probe_req() {
     };
     assert_eq!(decoded_req.common_header.msg_id(), header.msg_id());
     assert_eq!(decoded_req.source_route.source(), header.src_node_id());
+    assert_eq!(decoded_req.source_route.size(), 5);
     assert_eq!(decoded_req.source_route.destination(), header.dest_id());
 }
 

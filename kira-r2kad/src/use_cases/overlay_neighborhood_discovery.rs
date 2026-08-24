@@ -309,14 +309,15 @@ where
             common_header: CommonHeader::new(
                 ProtocolMessageKind::FindNodeReq,
                 *context.root_id(),
-                *contact.id(),
+                // own ID as target
+                // message shouldn't loop back to this node because EXACT=false
+                *context.root_id(),
                 Some(new_nonce),
                 Some(From::from(*context.uln_table().state_seq_nr())),
                 context.uln_table().size(),
             ),
             data: FindNodeReqData {
                 neighborhood: self.config.overlay_neighborhood_size,
-                target: *context.root_id(), // own ID as target
             },
             not_via: None,
             source_route: route_to_closest_on,
@@ -410,14 +411,13 @@ where
             common_header: CommonHeader::new(
                 ProtocolMessageKind::FindNodeReq,
                 *context.root_id(),
-                *route.destination(),
+                random_id, //random ID
                 Some(new_nonce),
                 Some(From::from(*context.uln_table().state_seq_nr())),
                 context.uln_table().size(),
             ),
             data: FindNodeReqData {
                 neighborhood: self.config.overlay_neighborhood_size,
-                target: random_id, //random ID
             },
             not_via: None,
             source_route: route,

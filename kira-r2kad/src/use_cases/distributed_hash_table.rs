@@ -450,7 +450,6 @@ where
             destination,
             FindNodeReqData {
                 neighborhood: NonZeroU64::new(neighbors).unwrap(),
-                target: destination,
             },
         );
 
