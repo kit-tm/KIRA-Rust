@@ -12,6 +12,7 @@ use kira_lib::format::ProtocolMessageFormat;
 use kira_r2kad::domain::{
     Age,
     Contact,
+    Link,
     NodeId,
     Path,
     ProtocolMessage,
@@ -513,6 +514,66 @@ fn binrw_error_dead_end() {
     };
 
     assert!(matches!(decoded_error.data, ErrorData::DeadEnd));
+    assert!(decoded_error.not_via.is_some_and(|v| v.is_empty()));
+    assert_eq!(decoded_error.common_header.msg_type(), header.msg_type());
+    assert_eq!(decoded_error.common_header.msg_id(), header.msg_id());
+    assert_eq!(decoded_error.source_route.source(), header.src_node_id());
+    assert_eq!(decoded_error.source_route.destination(), header.dest_id());
+}
+
+#[test]
+fn binrw_error_segment_failure() {
+    let mut header = CommonHeader::new(
+        ProtocolMessageKind::Error,
+        NodeId::with_lsb(0xfa),
+        NodeId::with_lsb(0xfb),
+        Some(0xcafe.into()),
+        Some(0xbabe),
+        1,
+    );
+    header.set_domain_id(0x4242);
+
+    let msg = ProtocolMessage::Error(ReqRspMessage {
+        common_header: header.clone(),
+        data: ErrorData::SegmentFailure {
+            failed_link: Link::new(NodeId::with_lsb(0x42), NodeId::with_lsb(0x44)),
+            source: *header.src_node_id(),
+        },
+        not_via: Some(HashSet::new()),
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    });
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::BINRW
+        .serialize(&mut buf, &msg)
+        .expect("serialize");
+
+    println!("Serialized Error message:");
+    for byte in &buf {
+        print!("{:02x} ", byte);
+    }
+    println!();
+
+    let decoded = ProtocolMessageFormat::BINRW
+        .deserialize(Cursor::new(&buf))
+        .expect("deserialize");
+
+    let ProtocolMessage::Error(decoded_error) = decoded else {
+        panic!("unexpected message type");
+    };
+
+    let ErrorData::SegmentFailure {
+        failed_link,
+        source,
+    } = decoded_error.data
+    else {
+        panic!("unexpected ErrorData: {:?}", decoded_error.data);
+    };
+    assert_eq!(
+        failed_link,
+        Link::new(NodeId::with_lsb(0x42), NodeId::with_lsb(0x44))
+    );
+    assert_eq!(source, *header.src_node_id());
+
     assert!(decoded_error.not_via.is_some_and(|v| v.is_empty()));
     assert_eq!(decoded_error.common_header.msg_type(), header.msg_type());
     assert_eq!(decoded_error.common_header.msg_id(), header.msg_id());
