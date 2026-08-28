@@ -10,7 +10,7 @@ edition.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["api", "swagger_doc"]
+default = ["api", "swagger_doc", "format-binrw"]
 api = ["kira-lib/api"]
 swagger_doc = ["kira-lib/swagger_doc"]
 # default routing table bucket size: 3
@@ -26,6 +26,14 @@ otel = [
   "opentelemetry_sdk/trace",
   "opentelemetry-semantic-conventions",
 ]
+# BinRW message format (default)
+format-binrw = ["kira-lib/format-binrw"]
+# CBOR message format
+format-cbor = ["kira-lib/format-cbor"]
+# rust message pack (de)serialization support
+format-mp = ["kira-lib/format-mp"]
+# json (de)serialization support [debug]
+format-json = ["kira-lib/format-json"]
 
 [lib]
 name = "kirad_lib"
@@ -40,15 +48,12 @@ clap = { version = "4.6.5", features = ["derive", "env"] }
 derive_more = { workspace = true }
 
 kira-lib = { path = "../kira-lib", default-features = false, features = [
-  "format-binrw",
   "udp-tokio",
 ] }
 kira-forwarding = { path = "../kira-forwarding", default-features = false, features = [
   "nft",
 ] }
-kira-r2kad = { path = "../kira-r2kad", default-features = false, features = [
-  "serde",
-] }
+kira-r2kad = { path = "../kira-r2kad", default-features = false }
 
 futures = { workspace = true }
 signal-hook = "0.4.4"

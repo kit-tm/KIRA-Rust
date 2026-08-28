@@ -61,11 +61,11 @@ fn binrw_hello() {
     let msg = ProtocolMessage::ULNHello(header.clone());
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW
+    ProtocolMessageFormat::Binrw
         .serialize(&mut buf, &msg)
         .expect("serialize");
 
-    let decoded = ProtocolMessageFormat::BINRW
+    let decoded = ProtocolMessageFormat::Binrw
         .deserialize(Cursor::new(&buf))
         .expect("deserialize");
 
@@ -105,11 +105,11 @@ fn binrw_discreq() {
     let msg = ProtocolMessage::ULNDiscReq(req);
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW
+    ProtocolMessageFormat::Binrw
         .serialize(&mut buf, &msg)
         .expect("serialize");
 
-    let decoded = ProtocolMessageFormat::BINRW
+    let decoded = ProtocolMessageFormat::Binrw
         .deserialize(Cursor::new(&buf))
         .expect("deserialize");
 
@@ -167,7 +167,7 @@ fn binrw_query_route_req() {
     };
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW
+    ProtocolMessageFormat::Binrw
         .serialize(&mut buf, &ProtocolMessage::QueryRouteReq(req))
         .expect("serialize");
 
@@ -178,7 +178,7 @@ fn binrw_query_route_req() {
     }
     println!();
 
-    let decoded = ProtocolMessageFormat::BINRW
+    let decoded = ProtocolMessageFormat::Binrw
         .deserialize(Cursor::new(&buf))
         .expect("deserialize");
 
@@ -218,7 +218,7 @@ fn binrw_find_node_req() {
     };
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW
+    ProtocolMessageFormat::Binrw
         .serialize(&mut buf, &ProtocolMessage::FindNodeReq(req))
         .expect("serialize");
 
@@ -229,7 +229,7 @@ fn binrw_find_node_req() {
     }
     println!();
 
-    let decoded = ProtocolMessageFormat::BINRW
+    let decoded = ProtocolMessageFormat::Binrw
         .deserialize(Cursor::new(&buf))
         .expect("deserialize");
 
@@ -273,7 +273,7 @@ fn binrw_disc_rsp() {
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW
+    ProtocolMessageFormat::Binrw
         .serialize(&mut buf, &msg)
         .expect("serialize");
 
@@ -284,7 +284,7 @@ fn binrw_disc_rsp() {
     }
     println!();
 
-    let decoded = ProtocolMessageFormat::BINRW
+    let decoded = ProtocolMessageFormat::Binrw
         .deserialize(Cursor::new(&buf))
         .expect("deserialize");
 
@@ -327,7 +327,7 @@ fn binrw_query_route_rsp() {
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW
+    ProtocolMessageFormat::Binrw
         .serialize(&mut buf, &msg)
         .expect("serialize");
 
@@ -338,7 +338,7 @@ fn binrw_query_route_rsp() {
     }
     println!();
 
-    let decoded = ProtocolMessageFormat::BINRW
+    let decoded = ProtocolMessageFormat::Binrw
         .deserialize(Cursor::new(&buf))
         .expect("deserialize");
 
@@ -379,7 +379,7 @@ fn binrw_find_node_rsp() {
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW
+    ProtocolMessageFormat::Binrw
         .serialize(&mut buf, &msg)
         .expect("serialize");
 
@@ -390,7 +390,7 @@ fn binrw_find_node_rsp() {
     }
     println!();
 
-    let decoded = ProtocolMessageFormat::BINRW
+    let decoded = ProtocolMessageFormat::Binrw
         .deserialize(Cursor::new(&buf))
         .expect("deserialize");
 
@@ -432,7 +432,7 @@ fn binrw_update_route_req() {
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW
+    ProtocolMessageFormat::Binrw
         .serialize(&mut buf, &msg)
         .expect("serialize");
 
@@ -442,7 +442,7 @@ fn binrw_update_route_req() {
     }
     println!();
 
-    let decoded = ProtocolMessageFormat::BINRW
+    let decoded = ProtocolMessageFormat::Binrw
         .deserialize(Cursor::new(&buf))
         .expect("deserialize");
 
@@ -491,7 +491,7 @@ fn binrw_error_dead_end() {
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW
+    ProtocolMessageFormat::Binrw
         .serialize(&mut buf, &msg)
         .expect("serialize");
 
@@ -501,7 +501,7 @@ fn binrw_error_dead_end() {
     }
     println!();
 
-    let decoded = ProtocolMessageFormat::BINRW
+    let decoded = ProtocolMessageFormat::Binrw
         .deserialize(Cursor::new(&buf))
         .expect("deserialize");
 
@@ -539,7 +539,7 @@ fn binrw_error_segment_failure() {
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
     });
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW
+    ProtocolMessageFormat::Binrw
         .serialize(&mut buf, &msg)
         .expect("serialize");
 
@@ -549,7 +549,7 @@ fn binrw_error_segment_failure() {
     }
     println!();
 
-    let decoded = ProtocolMessageFormat::BINRW
+    let decoded = ProtocolMessageFormat::Binrw
         .deserialize(Cursor::new(&buf))
         .expect("deserialize");
 
@@ -605,7 +605,7 @@ fn binrw_probe_req() {
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW
+    ProtocolMessageFormat::Binrw
         .serialize(&mut buf, &msg)
         .expect("serialize");
 
@@ -615,7 +615,7 @@ fn binrw_probe_req() {
     }
     println!();
 
-    let decoded = ProtocolMessageFormat::BINRW
+    let decoded = ProtocolMessageFormat::Binrw
         .deserialize(Cursor::new(&buf))
         .expect("deserialize");
 
@@ -648,7 +648,7 @@ fn binrw_probe_rsp() {
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW
+    ProtocolMessageFormat::Binrw
         .serialize(&mut buf, &msg)
         .expect("serialize");
 
@@ -658,7 +658,7 @@ fn binrw_probe_rsp() {
     }
     println!();
 
-    let decoded = ProtocolMessageFormat::BINRW
+    let decoded = ProtocolMessageFormat::Binrw
         .deserialize(Cursor::new(&buf))
         .expect("deserialize");
 
@@ -690,7 +690,7 @@ fn binrw_path_setup_req() {
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW
+    ProtocolMessageFormat::Binrw
         .serialize(&mut buf, &msg)
         .expect("serialize");
 
@@ -700,7 +700,7 @@ fn binrw_path_setup_req() {
     }
     println!();
 
-    let decoded = ProtocolMessageFormat::BINRW
+    let decoded = ProtocolMessageFormat::Binrw
         .deserialize(Cursor::new(&buf))
         .expect("deserialize");
 
@@ -732,7 +732,7 @@ fn binrw_path_teardown_req() {
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW
+    ProtocolMessageFormat::Binrw
         .serialize(&mut buf, &msg)
         .expect("serialize");
 
@@ -742,7 +742,7 @@ fn binrw_path_teardown_req() {
     }
     println!();
 
-    let decoded = ProtocolMessageFormat::BINRW
+    let decoded = ProtocolMessageFormat::Binrw
         .deserialize(Cursor::new(&buf))
         .expect("deserialize");
 
@@ -781,7 +781,7 @@ fn binrw_store_req() {
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW
+    ProtocolMessageFormat::Binrw
         .serialize(&mut buf, &msg)
         .expect("serialize");
 
@@ -791,7 +791,7 @@ fn binrw_store_req() {
     }
     println!();
 
-    let decoded = ProtocolMessageFormat::BINRW
+    let decoded = ProtocolMessageFormat::Binrw
         .deserialize(Cursor::new(&buf))
         .expect("deserialize");
 
@@ -827,7 +827,7 @@ fn binrw_store_rsp() {
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW
+    ProtocolMessageFormat::Binrw
         .serialize(&mut buf, &msg)
         .expect("serialize");
 
@@ -837,7 +837,7 @@ fn binrw_store_rsp() {
     }
     println!();
 
-    let decoded = ProtocolMessageFormat::BINRW
+    let decoded = ProtocolMessageFormat::Binrw
         .deserialize(Cursor::new(&buf))
         .expect("deserialize");
 
@@ -870,7 +870,7 @@ fn binrw_fetch_req() {
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW
+    ProtocolMessageFormat::Binrw
         .serialize(&mut buf, &msg)
         .expect("serialize");
 
@@ -880,7 +880,7 @@ fn binrw_fetch_req() {
     }
     println!();
 
-    let decoded = ProtocolMessageFormat::BINRW
+    let decoded = ProtocolMessageFormat::Binrw
         .deserialize(Cursor::new(&buf))
         .expect("deserialize");
 
@@ -914,7 +914,7 @@ fn binrw_fetch_rsp() {
     });
 
     let mut buf = Vec::new();
-    ProtocolMessageFormat::BINRW
+    ProtocolMessageFormat::Binrw
         .serialize(&mut buf, &msg)
         .expect("serialize");
 
@@ -924,7 +924,7 @@ fn binrw_fetch_rsp() {
     }
     println!();
 
-    let decoded = ProtocolMessageFormat::BINRW
+    let decoded = ProtocolMessageFormat::Binrw
         .deserialize(Cursor::new(&buf))
         .expect("deserialize");
 
@@ -963,7 +963,7 @@ fn binrw_store_req_no_payload() {
     buf.extend_from_slice(cursor.get_ref());
 
     //deserialize should error because store-req-data missing
-    let res = ProtocolMessageFormat::BINRW.deserialize(Cursor::new(&buf));
+    let res = ProtocolMessageFormat::Binrw.deserialize(Cursor::new(&buf));
     assert!(res.is_err());
 }
 
@@ -993,7 +993,7 @@ fn binrw_error_unknown_error_kind() {
     //unknown kind byte
     buf.write_all(&[0xffu8]).unwrap();
 
-    let res = ProtocolMessageFormat::BINRW.deserialize(Cursor::new(&buf));
+    let res = ProtocolMessageFormat::Binrw.deserialize(Cursor::new(&buf));
     assert!(res.is_err());
 }
 
@@ -1019,7 +1019,7 @@ fn binrw_hello_with_payload() {
     buf.write_all(&[0xdeu8, 0xadu8, 0xbeu8])
         .expect("write payload");
 
-    let decoded = ProtocolMessageFormat::BINRW
+    let decoded = ProtocolMessageFormat::Binrw
         .deserialize(Cursor::new(&buf))
         .expect("deserialize hello with payload");
 
@@ -1030,6 +1030,6 @@ fn binrw_hello_with_payload() {
 ///Payload/Garbage Data - should error
 fn binrw_payload_only_is_error() {
     let garbage_payload = [0x07u8, 0x00u8, 0x01u8, 0xffu8, 0x10u8];
-    let res = ProtocolMessageFormat::BINRW.deserialize(Cursor::new(&garbage_payload));
+    let res = ProtocolMessageFormat::Binrw.deserialize(Cursor::new(&garbage_payload));
     assert!(res.is_err());
 }
