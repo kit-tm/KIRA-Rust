@@ -200,13 +200,8 @@ where
         }
     }
 
-    fn extract_rtable_reqrsp(
-        &self,
-        context: &C,
-        request: &ReqRspMessage<RTableData>,
-        path_to_source: Path,
-    ) {
-        for mut reported_contact in request.data.contacts.clone() {
+    fn extract_rtable_reqrsp(&self, context: &C, rtable: &RTableData, path_to_source: Path) {
+        for mut reported_contact in rtable.contacts.clone() {
             let mut path = path_to_source.clone();
             if reported_contact.path().is_some() {
                 path.extend(reported_contact.path().unwrap().clone());
@@ -393,12 +388,22 @@ where
 
         match message {
             // process messages with RTable information
-            ProtocolMessage::ULNDiscReq(msg)
-            | ProtocolMessage::ULNDiscRsp(msg)
-            | ProtocolMessage::QueryRouteRsp(msg)
-            | ProtocolMessage::FindNodeRsp(msg) => {
+            ProtocolMessage::ULNDiscReq(msg) | ProtocolMessage::ULNDiscRsp(msg) => {
                 if let Some(source_contact) = source_contact {
-                    self.extract_rtable_reqrsp(context, msg, source_contact.path().unwrap().clone())
+                    self.extract_rtable_reqrsp(
+                        context,
+                        &msg.data,
+                        source_contact.path().unwrap().clone(),
+                    )
+                }
+            }
+            ProtocolMessage::QueryRouteRsp(msg) | ProtocolMessage::FindNodeRsp(msg) => {
+                if let Some(source_contact) = source_contact {
+                    self.extract_rtable_reqrsp(
+                        context,
+                        &msg.data,
+                        source_contact.path().unwrap().clone(),
+                    )
                 }
             }
             // process error information
@@ -516,9 +521,10 @@ where
 
         // Next hop is not a underlay neighbor -> Error -> Drop
         if context.uln_table().get(next_hop).is_none() {
-            tracing::debug!(
+            tracing::warn!(
                 target: "forward_protocol_message",
                 reason = "Next hop is not an underlay neighbor",
+                ?message,
                 "Dropping message and returning an error"
             );
             self.handle_next_hop_failed(context, message);

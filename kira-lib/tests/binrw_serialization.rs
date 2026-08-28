@@ -33,6 +33,7 @@ use kira_r2kad::domain::{
         RTableData,
         ReqRspMessage,
         RouteUpdateActionType,
+        ULNReqRspMessage,
         UpdateRouteReq,
         WireFormatMessage as _,
         dht::{
@@ -94,13 +95,11 @@ fn binrw_discreq() {
     let ssn = SafeStateSeqNr::try_from(1u32).unwrap();
     let contact = Contact::new(Path::from(contact_id), ssn);
 
-    let req = ReqRspMessage {
+    let req = ULNReqRspMessage {
         common_header: header.clone(),
         data: RTableData {
             contacts: vec![contact.clone()],
         },
-        not_via: Some(HashSet::new()),
-        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
     };
 
     let msg = ProtocolMessage::ULNDiscReq(req);
@@ -137,14 +136,12 @@ fn binrw_discreq() {
     assert_eq!(hdr.src_node_degree(), header.src_node_degree());
     assert!(hdr.msg_length() >= 55u16);
 
-    assert!(decoded_req.not_via.as_ref().is_some_and(|v| v.is_empty()));
-
     let got = &decoded_req.data.contacts[0];
     assert_eq!(got.id(), contact.id());
     assert_eq!(got.state_seq_nr(), contact.state_seq_nr());
 
-    assert_eq!(decoded_req.source_route.source(), src_node_id);
-    assert_eq!(decoded_req.source_route.destination(), dest_node_id);
+    assert_eq!(decoded_req.source(), src_node_id);
+    assert_eq!(decoded_req.destination(), dest_node_id);
 }
 
 #[test]
@@ -268,13 +265,11 @@ fn binrw_disc_rsp() {
         SafeStateSeqNr::try_from(7u32).unwrap(),
     );
 
-    let msg = ProtocolMessage::ULNDiscRsp(ReqRspMessage {
+    let msg = ProtocolMessage::ULNDiscRsp(ULNReqRspMessage {
         common_header: header.clone(),
         data: RTableData {
             contacts: vec![contact.clone()],
         },
-        not_via: Some(HashSet::new()),
-        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
     });
 
     let mut buf = Vec::new();
@@ -301,6 +296,8 @@ fn binrw_disc_rsp() {
         decoded_rsp.data.contacts[0].state_seq_nr(),
         contact.state_seq_nr()
     );
+    assert_eq!(decoded_rsp.source(), header.src_node_id());
+    assert_eq!(decoded_rsp.destination(), header.dest_id());
 }
 
 #[test]

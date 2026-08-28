@@ -54,6 +54,7 @@ use crate::{
             QueryRouteType,
             RTableData,
             ReqRspMessage,
+            ULNReqRspMessage,
             WireFormatMessage,
         },
     },
@@ -394,7 +395,7 @@ where
         nonce: Nonce,
     ) -> Result<(), VDError> {
         let (ssn, contacts) = Self::collect_underlay_neighbors(context)?;
-        let request = ProtocolMessage::ULNDiscReq(ReqRspMessage {
+        let request = ProtocolMessage::ULNDiscReq(ULNReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::ULNDiscReq,
                 *context.root_id(),
@@ -404,9 +405,6 @@ where
                 context.uln_table().size(),
             ),
             data: RTableData { contacts },
-            not_via: None,
-            // Source route is ignored, as only underlay neighbors get these
-            source_route: SourceRoute::from(Path::from([*context.root_id(), destination])),
         });
 
         tracing::trace!(target: "vicinity_discovery", ?request, "send ULNDiscReq");
@@ -418,11 +416,11 @@ where
 
     fn send_uln_disc_rsp(
         context: &C,
-        request: ReqRspMessage<RTableData>,
+        request: ULNReqRspMessage<RTableData>,
         underlay_destination: UnderlayNeighborId,
     ) -> Result<(), VDError> {
         let (ssn, contacts) = Self::collect_underlay_neighbors(context)?;
-        let response = ProtocolMessage::ULNDiscRsp(ReqRspMessage {
+        let response = ProtocolMessage::ULNDiscRsp(ULNReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::ULNDiscRsp,
                 *context.root_id(),
@@ -432,8 +430,6 @@ where
                 context.uln_table().size(),
             ),
             data: RTableData { contacts },
-            not_via: None,
-            source_route: SourceRoute::from_reversed(request.source_route),
         });
 
         tracing::trace!(target: "vicinity_discovery", ?response, "send ULNDiscRsp");
@@ -598,18 +594,8 @@ where
         Ok(true)
     }
 
-    fn process_ulndisc_reqrsp(&mut self, context: &C, req_or_rsp: &ReqRspMessage<RTableData>) {
+    fn process_ulndisc_reqrsp(&mut self, context: &C, req_or_rsp: &ULNReqRspMessage<RTableData>) {
         // update vicinity ssn in vicinity graph if required
-        // sanity check for ULNDiscReq/Rsp messages, log error and ignore
-        if req_or_rsp.source_route.size() != 2 {
-            tracing::warn!(
-                target: "vicinity_discovery",
-                ?req_or_rsp,
-                reason = "source route too long",
-                "ULNDiscReq/Rsp expected to be received directly from ULN – ignored"
-            );
-            return;
-        };
         // ULNDiscReq/Rsp confirms bidirectional reachability, so we need to add the
         // node to the vicinity graph (it will be added to the ULNtable in forward_protocol_message)
 
@@ -666,7 +652,7 @@ where
             if inserted {
                 tracing::trace!(
                     target: "vicinity_discovery",
-                    from = %req_or_rsp.source_route.source(),
+                    from = %req_or_rsp.source(),
                     to = %*contact.id(),
                     contact_ssn = %*contact.state_seq_nr(),
                     reason = "new edge",

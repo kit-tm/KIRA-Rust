@@ -52,6 +52,7 @@ use kira_r2kad::domain::{
         RTableRequestTypeValue,
         ReqRspMessage,
         RouteUpdateActionType,
+        ULNReqRspMessage,
         UpdateRouteReq,
         dht::{
             FetchErr,
@@ -131,10 +132,12 @@ pub fn serialize<W: Write>(
             writer.write_all(cursor.get_ref())?;
             Ok(())
         }
-        ProtocolMessage::ULNDiscReq(req)
-        | ProtocolMessage::ULNDiscRsp(req)
-        | ProtocolMessage::QueryRouteRsp(req)
-        | ProtocolMessage::FindNodeRsp(req) => serialize_req_rsp_rtable(writer, req),
+        ProtocolMessage::ULNDiscReq(req) | ProtocolMessage::ULNDiscRsp(req) => {
+            serialize_uln_req_rsp_rtable(writer, req)
+        }
+        ProtocolMessage::QueryRouteRsp(req) | ProtocolMessage::FindNodeRsp(req) => {
+            serialize_req_rsp_rtable(writer, req)
+        }
         ProtocolMessage::QueryRouteReq(req) => serialize_query_route_req(writer, req),
         ProtocolMessage::FindNodeReq(req) => serialize_find_node_req(writer, req),
         ProtocolMessage::UpdateRouteReq(req) => serialize_update_route_req(writer, req),
@@ -175,8 +178,12 @@ fn deserialize_error<R: Read>(
     let payload = read_payload_bytes(&header, reader)?;
     let parsed = parse_req_rsp_payload_from_bytes(&header, &payload)?;
     let data = parse_error_data_from_bytes(&payload)?;
-
-    let source_route = source_route_from_header(&header, parsed.source_route);
+    let Some(source_route) = parsed.source_route else {
+        return Err(Box::new(IoError::new(
+            ErrorKind::InvalidData,
+            "missing source-route object in Error msg",
+        )));
+    };
 
     Ok(ProtocolMessage::Error(ReqRspMessage {
         common_header: header,
@@ -370,7 +377,12 @@ where
     M: FnOnce(ReqRspMessage<T>) -> ProtocolMessage,
 {
     let parsed = deserialize_req_rsp_payload(&header, reader)?;
-    let source_route = source_route_from_header(&header, parsed.source_route);
+    let Some(source_route) = parsed.source_route else {
+        return Err(Box::new(IoError::new(
+            ErrorKind::InvalidData,
+            "missing source route",
+        )));
+    };
 
     Ok(msg_type(ReqRspMessage {
         common_header: header,
@@ -393,7 +405,12 @@ where
     let payload = read_payload_bytes(&header, reader)?;
     let parsed = parse_req_rsp_payload_from_bytes(&header, &payload)?;
     let data = parse_data(&payload)?;
-    let source_route = source_route_from_header(&header, parsed.source_route);
+    let Some(source_route) = parsed.source_route else {
+        return Err(Box::new(IoError::new(
+            ErrorKind::InvalidData,
+            "missing source-route object",
+        )));
+    };
 
     Ok(msg_type(ReqRspMessage {
         common_header: header,
@@ -745,24 +762,12 @@ fn deserialize_uln_disc_rsp<R: Read>(
     reader: &mut R,
 ) -> Result<ProtocolMessage, Box<dyn Error>> {
     let parsed = deserialize_req_rsp_payload(&header, reader)?;
-    let source_route = source_route_from_header(&header, parsed.source_route);
-
-    Ok(ProtocolMessage::ULNDiscRsp(ReqRspMessage {
+    Ok(ProtocolMessage::ULNDiscRsp(ULNReqRspMessage {
         common_header: header,
         data: RTableData {
             contacts: parsed.contacts,
         },
-        not_via: Option::from(parsed.not_via),
-        source_route,
     }))
-}
-
-fn source_route_from_header(
-    header: &CommonHeader,
-    parsed_route: Option<SourceRoute>,
-) -> SourceRoute {
-    parsed_route
-        .unwrap_or_else(|| SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())))
 }
 
 fn deserialize_uln_disc_req<R: Read>(
@@ -770,15 +775,11 @@ fn deserialize_uln_disc_req<R: Read>(
     reader: &mut R,
 ) -> Result<ProtocolMessage, Box<dyn Error>> {
     let parsed = deserialize_req_rsp_payload(&header, reader)?;
-    let source_route = source_route_from_header(&header, parsed.source_route);
-
-    Ok(ProtocolMessage::ULNDiscReq(ReqRspMessage {
+    Ok(ProtocolMessage::ULNDiscReq(ULNReqRspMessage {
         common_header: header,
         data: RTableData {
             contacts: parsed.contacts,
         },
-        not_via: Option::from(parsed.not_via),
-        source_route,
     }))
 }
 
@@ -787,7 +788,12 @@ fn deserialize_query_route_req<R: Read>(
     reader: &mut R,
 ) -> Result<ProtocolMessage, Box<dyn Error>> {
     let parsed = deserialize_req_rsp_payload(&header, reader)?;
-    let source_route = source_route_from_header(&header, parsed.source_route);
+    let Some(source_route) = parsed.source_route else {
+        return Err(Box::new(IoError::new(
+            ErrorKind::InvalidData,
+            "missing source-route object in QueryRouteReq",
+        )));
+    };
 
     let (request_type, _radius) = parsed.rtable_request.ok_or_else(|| {
         IoError::new(
@@ -819,7 +825,12 @@ fn deserialize_query_route_rsp<R: Read>(
     reader: &mut R,
 ) -> Result<ProtocolMessage, Box<dyn Error>> {
     let parsed = deserialize_req_rsp_payload(&header, reader)?;
-    let source_route = source_route_from_header(&header, parsed.source_route);
+    let Some(source_route) = parsed.source_route else {
+        return Err(Box::new(IoError::new(
+            ErrorKind::InvalidData,
+            "missing source-route object in QueryRouteRsp",
+        )));
+    };
 
     Ok(ProtocolMessage::QueryRouteRsp(ReqRspMessage {
         common_header: header,
@@ -836,7 +847,12 @@ fn deserialize_find_node_req<R: Read>(
     reader: &mut R,
 ) -> Result<ProtocolMessage, Box<dyn Error>> {
     let parsed = deserialize_req_rsp_payload(&header, reader)?;
-    let source_route = source_route_from_header(&header, parsed.source_route);
+    let Some(source_route) = parsed.source_route else {
+        return Err(Box::new(IoError::new(
+            ErrorKind::InvalidData,
+            "missing source-route object in FindNodeReq",
+        )));
+    };
 
     let (_request_type, radius) = parsed.rtable_request.ok_or_else(|| {
         IoError::new(
@@ -864,7 +880,12 @@ fn deserialize_find_node_rsp<R: Read>(
     reader: &mut R,
 ) -> Result<ProtocolMessage, Box<dyn Error>> {
     let parsed = deserialize_req_rsp_payload(&header, reader)?;
-    let source_route = source_route_from_header(&header, parsed.source_route);
+    let Some(source_route) = parsed.source_route else {
+        return Err(Box::new(IoError::new(
+            ErrorKind::InvalidData,
+            "missing source-route object in FindNodeRsp",
+        )));
+    };
 
     Ok(ProtocolMessage::FindNodeRsp(ReqRspMessage {
         common_header: header,
@@ -883,7 +904,12 @@ fn deserialize_update_route_req<R: Read>(
     let payload = read_payload_bytes(&header, reader)?;
     let parsed = parse_req_rsp_payload_from_bytes(&header, &payload)?;
     let contact_actions = parse_rtable_update_info_from_bytes(&payload)?;
-    let source_route = source_route_from_header(&header, parsed.source_route);
+    let Some(source_route) = parsed.source_route else {
+        return Err(Box::new(IoError::new(
+            ErrorKind::InvalidData,
+            "missing source-route object in UpdateRouteReq",
+        )));
+    };
 
     Ok(ProtocolMessage::UpdateRouteReq(UpdateRouteReq {
         common_header: header,
@@ -1451,6 +1477,21 @@ fn write_rtable_request_object<W: Write>(
     writer.write_all(&[req, radius])?;
 
     Ok(5)
+}
+
+fn serialize_uln_req_rsp_rtable<W: Write>(
+    mut writer: W,
+    req: &ULNReqRspMessage<RTableData>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut payload = Vec::new();
+
+    write_contactlist_object(
+        &mut payload,
+        &req.data.contacts,
+        req.common_header.src_node_degree(),
+    )?;
+
+    write_header_and_payload(&mut writer, &req.common_header, &payload)
 }
 
 fn serialize_req_rsp_rtable<W: Write>(

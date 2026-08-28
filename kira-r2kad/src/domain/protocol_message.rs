@@ -586,8 +586,8 @@ pub trait WireFormatMessage {
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum ProtocolMessage {
     ULNHello(CommonHeader),
-    ULNDiscReq(ReqRspMessage<RTableData>),
-    ULNDiscRsp(ReqRspMessage<RTableData>),
+    ULNDiscReq(ULNReqRspMessage<RTableData>),
+    ULNDiscRsp(ULNReqRspMessage<RTableData>),
     QueryRouteReq(ReqRspMessage<QueryRouteReqData>),
     QueryRouteRsp(ReqRspMessage<RTableData>),
     FindNodeReq(ReqRspMessage<FindNodeReqData>),
@@ -608,9 +608,7 @@ pub enum ProtocolMessage {
 impl ProtocolMessage {
     pub fn source_route_mut(&mut self) -> Option<&mut SourceRoute> {
         match self {
-            Self::ULNHello(_) => None,
-            Self::ULNDiscReq(req) => Some(&mut req.source_route),
-            Self::ULNDiscRsp(req) => Some(&mut req.source_route),
+            Self::ULNHello(_) | Self::ULNDiscReq(_) | Self::ULNDiscRsp(_) => None,
             Self::QueryRouteReq(req) => Some(&mut req.source_route),
             Self::QueryRouteRsp(req) => Some(&mut req.source_route),
             Self::FindNodeReq(req) => Some(&mut req.source_route),
@@ -630,9 +628,7 @@ impl ProtocolMessage {
 
     pub fn source_route(&self) -> Option<&SourceRoute> {
         match self {
-            Self::ULNHello(_) => None,
-            Self::ULNDiscReq(req) => Some(&req.source_route),
-            Self::ULNDiscRsp(req) => Some(&req.source_route),
+            Self::ULNHello(_) | Self::ULNDiscReq(_) | Self::ULNDiscRsp(_) => None,
             Self::QueryRouteReq(req) => Some(&req.source_route),
             Self::QueryRouteRsp(req) => Some(&req.source_route),
             Self::FindNodeReq(req) => Some(&req.source_route),
@@ -728,8 +724,8 @@ impl ProtocolMessage {
     pub fn source_state_seq_nr(&self) -> StateSeqNr {
         match self {
             Self::ULNHello(req) => req.state_seq_num(),
-            Self::ULNDiscReq(req) => req.common_header().state_seq_num(),
-            Self::ULNDiscRsp(req) => req.common_header().state_seq_num(),
+            Self::ULNDiscReq(req) => req.common_header.state_seq_num(),
+            Self::ULNDiscRsp(req) => req.common_header.state_seq_num(),
             Self::QueryRouteReq(req) => req.common_header.state_seq_num(),
             Self::QueryRouteRsp(req) => req.common_header().state_seq_num(),
             Self::FindNodeReq(req) => req.common_header().state_seq_num(),
@@ -749,9 +745,7 @@ impl ProtocolMessage {
 
     pub fn not_via(&self) -> Option<&NotViaList> {
         match self {
-            Self::ULNHello(_) => None,
-            Self::ULNDiscReq(req) => req.not_via.as_ref(),
-            Self::ULNDiscRsp(req) => req.not_via.as_ref(),
+            Self::ULNHello(_) | Self::ULNDiscReq(_) | Self::ULNDiscRsp(_) => None,
             Self::QueryRouteReq(req) => req.not_via.as_ref(),
             Self::QueryRouteRsp(req) => req.not_via.as_ref(),
             Self::FindNodeReq(req) => req.not_via.as_ref(),
@@ -771,9 +765,24 @@ impl ProtocolMessage {
 
     /// Current hop of the message.
     ///
-    /// Is only [Option::None] if the message has no source route (ULNHello).
+    /// Is only [Option::None] if the message has no destinct destination ([ULNHello])
+    /// Messages that can only be sent to underlay neighbors ([ULNDiscReq], [ULNDiscRsp])
+    /// will return their [destination] as current hop.
+    /// Messages with a [SourceRoute] return the [current hop] of the [SourceRoute].
+    ///
+    /// [ULNHello]: ProtocolMessage::ULNHello
+    /// [ULNDiscReq]: ProtocolMessage::ULNDiscReq
+    /// [ULNDiscRsp]: ProtocolMessage::ULNDiscRsp
+    /// [destination]: ProtocolMessage::destination
+    /// [current hop]: SourceRoute::current_hop
     pub fn current_hop(&self) -> Option<&NodeId> {
-        self.source_route().map(|sr| sr.current_hop())
+        if matches!(self, Self::ULNHello(_)) {
+            return None;
+        };
+
+        self.source_route()
+            .map(|sr| sr.current_hop())
+            .or_else(|| self.destination())
     }
 
     pub fn previous_hop(&self) -> &NodeId {
@@ -855,6 +864,28 @@ impl<T: Debug> ReqRspMessage<T> {
     }
 }
 
+/// In contrary to a [ULNHello](crate::domain::ProtocolMessage::ULNHello) this type contains data for request and response pairs
+///
+/// The message can only be sent to underlay neighbors.
+/// Therefor, this message does not store any [SourceRoute].
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct ULNReqRspMessage<T: Debug> {
+    pub common_header: CommonHeader,
+    pub data: T,
+    // No SourceRoute since this message can only be sent to underlay neighbors
+}
+
+impl<T: Debug> ULNReqRspMessage<T> {
+    pub fn source(&self) -> &NodeId {
+        self.common_header.src_node_id()
+    }
+
+    pub fn destination(&self) -> &NodeId {
+        self.common_header.dest_id()
+    }
+}
+
 impl WireFormatMessage for ProtocolMessage {
     fn common_header(&self) -> &CommonHeader {
         match self {
@@ -902,6 +933,16 @@ impl WireFormatMessage for ProtocolMessage {
 }
 
 impl<T: Debug> WireFormatMessage for ReqRspMessage<T> {
+    fn common_header(&self) -> &CommonHeader {
+        &self.common_header
+    }
+
+    fn common_header_mut(&mut self) -> &mut CommonHeader {
+        &mut self.common_header
+    }
+}
+
+impl<T: Debug> WireFormatMessage for ULNReqRspMessage<T> {
     fn common_header(&self) -> &CommonHeader {
         &self.common_header
     }
