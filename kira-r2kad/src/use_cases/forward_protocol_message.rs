@@ -42,9 +42,11 @@ use crate::{
         protocol_message::{
             CommonHeader,
             ErrorData,
+            ProtocolMessageFlags,
             RTableData,
             ReqRspMessage,
             RouteUpdateActionType,
+            WireFormatMessage as _,
         },
     },
     use_cases::{
@@ -425,7 +427,11 @@ where
     }
 
     fn handle_next_hop_failed(&self, context: &C, message: ProtocolMessage) {
-        if message.msg_id().is_none() {
+        if message.msg_id().is_none()
+            && !message
+                .msg_flags()
+                .contains(ProtocolMessageFlags::Diagnostic)
+        {
             // Messages with no nonce don't require a response
             return;
         }
