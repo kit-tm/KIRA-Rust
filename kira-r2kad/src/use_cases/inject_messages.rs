@@ -167,9 +167,7 @@ where
                     .expect("grouping has to be checked on init")
                     .first() // TODO: Proximity Neighbor Selection
                     .map(|(_, contact)| {
-                        let mut route = SourceRoute::from(contact.path().unwrap().clone());
-                        route.push_front(*context.root_id());
-                        route
+                        SourceRoute::new(*context.root_id(), contact.path().unwrap().clone())
                     });
 
                 if closest_route.is_none() {

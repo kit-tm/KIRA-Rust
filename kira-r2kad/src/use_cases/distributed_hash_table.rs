@@ -1204,7 +1204,7 @@ mod tests {
             data: value.clone(),
             last_accessed_ms: None,
         };
-        let source_route = SourceRoute::from(Path::try_from(vec![root_id, root_id]).unwrap());
+        let source_route = SourceRoute::new(root_id, root_id);
         let msg = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::StoreReq,
@@ -1361,7 +1361,7 @@ mod tests {
             ),
             data,
             not_via: None,
-            source_route: SourceRoute::from(root_id),
+            source_route: SourceRoute::new(root_id, root_id),
         };
 
         dht.handle_event(

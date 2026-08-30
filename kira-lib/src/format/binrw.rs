@@ -994,7 +994,8 @@ fn parse_req_rsp_payload_from_bytes(
                 }
 
                 let hop_count = remaining / NodeId::SIZE;
-                if hop_count == 0 {
+                if hop_count < 2 {
+                    // Reject SourceRoutes with bogus lengths
                     return Err(Box::new(IoError::new(
                         ErrorKind::InvalidData,
                         "source route without hops",
@@ -1009,14 +1010,17 @@ fn parse_req_rsp_payload_from_bytes(
                 }
                 payload_consumed += remaining;
 
-                let path: Result<Path, _> = hops.clone().into_iter().collect();
-                let mut sr = SourceRoute::from(
-                    path.map_err(|err| IoError::new(ErrorKind::InvalidData, format!("{err}")))?,
-                );
+                let path = hops
+                    .clone()
+                    .into_iter()
+                    .collect::<Result<_, _>>()
+                    .expect("hop count verified >= 2");
+                let mut sr = SourceRoute::try_from(path).expect("hop count verified >= 2");
 
                 for _ in 1..index {
                     sr.advance();
                 }
+                debug_assert_eq!(index, sr.traveled_hop_count());
 
                 source_route = Some(sr);
             }
@@ -1525,37 +1529,24 @@ fn write_source_route_object<W: Write>(
     writer: &mut W,
     source_route: &SourceRoute,
 ) -> Result<usize, IoError> {
-    let route = collect_route_nodes(source_route)?;
-    if route.is_empty() {
-        return Err(IoError::new(
-            ErrorKind::InvalidInput,
-            "source route must contain at least one hop",
-        ));
-    }
-
     let index = source_route_index(source_route)?;
-    let object_length = 2 + route.len() * NodeId::SIZE;
+
+    let object_length = size_of_val(&index) + source_route.size() * NodeId::SIZE;
     write_common_object_header(
         writer,
         CommonObjectHeader::new(ProtocolObjectType::SourceRoute, object_length as u16),
     )?;
 
-    writer.write_all(&(index as u16).to_be_bytes())?;
-    for hop in route {
+    writer.write_all(&(index).to_be_bytes())?;
+    for hop in source_route.iter() {
         writer.write_all(&hop.to_be_bytes())?;
     }
 
     Ok(3 + object_length)
 }
 
-fn source_route_index(source_route: &SourceRoute) -> Result<usize, IoError> {
-    let size = source_route.size();
-    let idx = if size == 1 {
-        0
-    } else {
-        source_route.traveled_hop_count()
-    };
-
+fn source_route_index(source_route: &SourceRoute) -> Result<u16, IoError> {
+    let idx = source_route.traveled_hop_count();
     if idx > 1023 {
         return Err(IoError::new(
             ErrorKind::InvalidInput,
@@ -1563,21 +1554,7 @@ fn source_route_index(source_route: &SourceRoute) -> Result<usize, IoError> {
         ));
     }
 
-    Ok(idx)
-}
-
-fn collect_route_nodes(source_route: &SourceRoute) -> Result<Vec<NodeId>, IoError> {
-    if source_route.size() == 1 {
-        return Ok(vec![*source_route.source()]);
-    }
-
-    let traveled: Vec<NodeId> = Vec::from(source_route.traveled_path());
-    let remaining: Vec<NodeId> = Vec::from(source_route.remaining_path());
-
-    let mut route = Vec::with_capacity(traveled.len() + remaining.len());
-    route.extend(traveled);
-    route.extend(remaining);
-    Ok(route)
+    Ok(idx.try_into().expect("idx <= 1023"))
 }
 
 fn write_notvialist_object<W: Write>(

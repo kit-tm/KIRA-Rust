@@ -919,7 +919,7 @@ mod tests {
             ),
             data: rtable,
             not_via: None,
-            source_route: SourceRoute::from(Path::try_from(vec![neighbor_id, root_id]).unwrap()),
+            source_route: SourceRoute::new(neighbor_id, root_id),
         };
 
         injector
@@ -957,7 +957,7 @@ mod tests {
                 status: Ok(StoreOk::Created),
             },
             not_via: None,
-            source_route: SourceRoute::from(handle),
+            source_route: SourceRoute::new(neighbor_id, handle),
         };
 
         injector
@@ -1035,7 +1035,7 @@ mod tests {
                 data: Ok(vec![value.clone()]),
             },
             not_via: None,
-            source_route: SourceRoute::from(handle),
+            source_route: SourceRoute::new(handle, root_id),
         };
 
         injector

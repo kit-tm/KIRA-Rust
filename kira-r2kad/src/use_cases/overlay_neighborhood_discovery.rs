@@ -290,8 +290,8 @@ where
         }
         let contact = closest_on.unwrap();
         let contact_via_id = *contact.id();
-        let mut route_to_closest_on = SourceRoute::from(contact.path().unwrap().clone());
-        route_to_closest_on.push_front(*context.root_id());
+        let route_to_closest_on =
+            SourceRoute::new(*context.root_id(), contact.path().unwrap().clone());
 
         // Get the interface of the next underlay neighbor to route this request through
         let neighbor = route_to_closest_on.current_hop();
@@ -404,9 +404,7 @@ where
             return Ok(());
         }
 
-        let mut route = SourceRoute::from(closest_path);
-        route.push_front(*context.root_id());
-
+        let route = SourceRoute::new(*context.root_id(), closest_path);
         let message = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::FindNodeReq,

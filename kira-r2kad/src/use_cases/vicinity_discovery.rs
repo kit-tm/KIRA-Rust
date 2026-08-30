@@ -30,7 +30,6 @@ use crate::{
         InterfaceId,
         NodeId,
         Nonce,
-        Path,
         ProtocolMessage,
         ProtocolMessageKind,
         RoutingTable,
@@ -268,9 +267,12 @@ where
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     C::VicinityGraph: VicinityGraph,
 {
-    fn send_query_route_req(context: &C, path: Path, nonce: Nonce) -> Result<(), VDError> {
+    fn send_query_route_req(
+        context: &C,
+        source_route: SourceRoute,
+        nonce: Nonce,
+    ) -> Result<(), VDError> {
         // Convert contacts path to source route
-        let source_route = SourceRoute::from(path);
         let next_hop = source_route.current_hop(); // :)
         let hop_count = source_route.size() - 1;
 
@@ -513,10 +515,14 @@ where
         timer_hooks.insert(timeout_timer_id, timeout_hook);
     }
 
-    fn init_query_route_req(&mut self, context: &C, path: Path) -> Result<(), VDError> {
-        let destination = *path.last();
+    fn init_query_route_req(
+        &mut self,
+        context: &C,
+        source_route: SourceRoute,
+    ) -> Result<(), VDError> {
+        let destination = *source_route.destination();
         let expected_nonce = Nonce::random();
-        Self::send_query_route_req(context, path, expected_nonce)?;
+        Self::send_query_route_req(context, source_route, expected_nonce)?;
 
         self.register_pending_req(
             context,
@@ -581,15 +587,22 @@ where
         Ok(true)
     }
 
-    fn init_new_query_route_req(&mut self, context: &C, path: Path) -> Result<bool, VDError> {
+    fn init_new_query_route_req(
+        &mut self,
+        context: &C,
+        source_route: SourceRoute,
+    ) -> Result<bool, VDError> {
         let VDState::Running { pending_reqs, .. } = &self.state else {
             panic!("VicinityDiscovery should be running");
         };
-        if pending_reqs.contains_key(&(*path.last(), ProtocolMessageKind::QueryRouteRsp)) {
+        if pending_reqs.contains_key(&(
+            *source_route.destination(),
+            ProtocolMessageKind::QueryRouteRsp,
+        )) {
             return Ok(false);
         }
 
-        self.init_query_route_req(context, path)?;
+        self.init_query_route_req(context, source_route)?;
 
         Ok(true)
     }
@@ -1156,7 +1169,9 @@ where
                         continue;
                     }
 
-                    self.init_new_query_route_req(context, path)?
+                    let source_route = SourceRoute::try_from(path)
+                        .expect("Paths of vicinity graph include start of path");
+                    self.init_new_query_route_req(context, source_route)?
                 };
                 if !new_sync {
                     tracing::trace!(
@@ -1557,7 +1572,13 @@ where
                         )
                         .entered();
 
-                        Self::send_query_route_req(context, path, req_state.expected_nonce)?;
+                        let source_route = SourceRoute::try_from(path)
+                            .expect("Paths of vicinity graph include start of path");
+                        Self::send_query_route_req(
+                            context,
+                            source_route,
+                            req_state.expected_nonce,
+                        )?;
                         // register new timeout timer
                         let timeout = timeout * 2;
                         resend_req_span.record("timeout_ms", timeout.as_millis());
