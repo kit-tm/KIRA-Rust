@@ -1024,14 +1024,58 @@ impl WireFormatMessage for UpdateRouteReq {
     }
 }
 
+const ROUTE_UPDATE_ACTION_TYPE_ANNOUNCE: u8 = 0x00;
+const ROUTE_UPDATE_ACTION_TYPE_WITHDRAW: u8 = 0x01;
+const ROUTE_UPDATE_ACTION_TYPE_CHANGE: u8 = 0x02;
+const ROUTE_UPDATE_ACTION_TYPE_UNREACHABLE: u8 = 0x03;
+
 /// Data type representing the action performed on a contact.
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Debug, Display, PartialEq, Eq, Copy, Clone)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(from = "u8", into = "u8")
+)]
+#[cfg_attr(feature = "binrw", derive(BinRead, BinWrite),
+        bw(map = |kind: &Self| u8::from(*kind)),
+        br(map = |kind_raw: u8| Self::from(kind_raw))
+)]
+#[display("{_variant}")]
+#[non_exhaustive]
 pub enum RouteUpdateActionType {
-    Announce,    // new contact in routing table
-    WithDraw,    // contact deleted from routing table
-    Change,      // path has been changed, i.e., improved
-    Unreachable, // contact is currently not reachable
+    /// New contact in routing table.
+    Announce,
+    // Contact deleted from routing table.
+    WithDraw,
+    /// path has been changed, i.e., improved.
+    Change,
+    /// Contact is currently not reachable (but not yet removed).
+    Unreachable,
+    Other(u8),
+}
+
+impl From<u8> for RouteUpdateActionType {
+    fn from(action_type_raw: u8) -> Self {
+        match action_type_raw {
+            ROUTE_UPDATE_ACTION_TYPE_ANNOUNCE => Self::Announce,
+            ROUTE_UPDATE_ACTION_TYPE_WITHDRAW => Self::WithDraw,
+            ROUTE_UPDATE_ACTION_TYPE_CHANGE => Self::Change,
+            ROUTE_UPDATE_ACTION_TYPE_UNREACHABLE => Self::Unreachable,
+            _ => Self::Other(action_type_raw),
+        }
+    }
+}
+
+impl From<RouteUpdateActionType> for u8 {
+    fn from(action_type: RouteUpdateActionType) -> Self {
+        match action_type {
+            RouteUpdateActionType::Announce => ROUTE_UPDATE_ACTION_TYPE_ANNOUNCE,
+            RouteUpdateActionType::WithDraw => ROUTE_UPDATE_ACTION_TYPE_WITHDRAW,
+            RouteUpdateActionType::Change => ROUTE_UPDATE_ACTION_TYPE_CHANGE,
+            RouteUpdateActionType::Unreachable => ROUTE_UPDATE_ACTION_TYPE_UNREACHABLE,
+            RouteUpdateActionType::Other(other_action_type_raw) => other_action_type_raw,
+        }
+    }
 }
 
 impl From<UpdateRouteReq> for ProtocolMessage {

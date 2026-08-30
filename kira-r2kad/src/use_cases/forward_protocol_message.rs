@@ -352,6 +352,9 @@ where
                 RouteUpdateActionType::WithDraw => {
                     // no action right now
                 }
+                RouteUpdateActionType::Other(other_raw) => {
+                    tracing::warn!(target: "forward_protocol_message", raw = ?other_raw, "Unsupported RouteUpdateActionType");
+                }
             }
         }
     }

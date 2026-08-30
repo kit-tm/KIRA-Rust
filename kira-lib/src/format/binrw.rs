@@ -2,6 +2,18 @@
 //!
 //! Implemented using [binrw].
 
+// TODO: Refactor:
+// 1. Provide Serialization and Deserialization based on traits like netlink is doing
+// 2. Create dedicated ProtocolObjectType structs
+// 3. Provide Serialization and Deserialization on structs by trait
+// 5. Either utilize binrw macros on the ProtocolObjectType structs
+//    or even support zerocopy (crate, pro: zero-copy, encodes endianess in type system,
+//    struct size == bytesize => less magic numbers)
+// 6. Don't iterate over whole payload to find each ProtocolObjectType
+//    but deserialize them as they come (possibly Vec<ProtocolObject>).
+//    Then access by index and check type for each ProtocolObjectType as
+//    order is fixed (unlike netlink).
+
 use std::{
     collections::{
         HashMap,
@@ -835,7 +847,7 @@ fn deserialize_query_route_rsp<R: Read>(
     Ok(ProtocolMessage::QueryRouteRsp(ReqRspMessage {
         common_header: header,
         data: RTableData {
-            contacts: parsed.contacts,
+            contacts: parsed.rtable,
         },
         not_via: Option::from(parsed.not_via),
         source_route,
@@ -890,7 +902,7 @@ fn deserialize_find_node_rsp<R: Read>(
     Ok(ProtocolMessage::FindNodeRsp(ReqRspMessage {
         common_header: header,
         data: RTableData {
-            contacts: parsed.contacts,
+            contacts: parsed.rtable,
         },
         not_via: Option::from(parsed.not_via),
         source_route,
@@ -919,11 +931,12 @@ fn deserialize_update_route_req<R: Read>(
     }))
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct ParsedReqRspPayload {
     source_route: Option<SourceRoute>,
     not_via: HashSet<NotVia>,
     contacts: Vec<Contact>,
+    rtable: Vec<Contact>,
     rtable_request: Option<(RTableRequestTypeValue, u8)>,
 }
 
@@ -951,10 +964,14 @@ fn parse_req_rsp_payload_from_bytes(
     let mut payload_cursor = binrw::io::Cursor::new(payload);
     let mut payload_consumed = 0;
 
-    let mut source_route: Option<SourceRoute> = None;
-    let mut not_via: HashSet<NotVia> = HashSet::new();
-    let mut contacts: Vec<Contact> = Vec::new();
-    let mut rtable_request: Option<(RTableRequestTypeValue, u8)> = None;
+    let mut parsed = ParsedReqRspPayload::default();
+    let ParsedReqRspPayload {
+        source_route,
+        not_via,
+        contacts,
+        rtable,
+        rtable_request,
+    } = &mut parsed;
 
     while payload_consumed < payload_len {
         let CommonObjectHeader {
@@ -966,12 +983,13 @@ fn parse_req_rsp_payload_from_bytes(
         if payload_consumed + 3 + object_length > payload_len {
             return Err(Box::new(IoError::new(
                 ErrorKind::InvalidData,
-                "object length exceeds payload",
+                format!("object length exceeds payload: {object_length}, {object_type:?}"),
             )));
         }
 
         payload_consumed += 3;
 
+        // TODO: Refactor into separate methods or dedicated structs
         match object_type {
             ProtocolObjectType::SourceRoute => {
                 if object_length < 2 {
@@ -1022,7 +1040,7 @@ fn parse_req_rsp_payload_from_bytes(
                 }
                 debug_assert_eq!(index, sr.traveled_hop_count());
 
-                source_route = Some(sr);
+                *source_route = Some(sr);
             }
             ProtocolObjectType::NotViaList => {
                 if !object_length.is_multiple_of(32) {
@@ -1081,6 +1099,79 @@ fn parse_req_rsp_payload_from_bytes(
 
                 payload_consumed += object_length;
             }
+            ProtocolObjectType::RTable => {
+                let mut object_length_remaining = object_length;
+
+                while object_length_remaining > 0 {
+                    if object_length_remaining < 2 * NodeId::SIZE + 2 + 4 + 4 + 2 {
+                        return Err(Box::new(IoError::new(
+                            ErrorKind::InvalidData,
+                            format!(
+                                "rtable-entry object to short (length = {}, expected at least = {})",
+                                object_length_remaining,
+                                2 * NodeId::SIZE + 2 + 4 + 4 + 2
+                            ),
+                        )));
+                    }
+
+                    // Contact-ID
+                    let mut id_bytes = [0u8; NodeId::SIZE];
+                    payload_cursor.read_exact(&mut id_bytes)?;
+                    let contact_id = NodeId::from(id_bytes);
+
+                    // Path
+                    let path_vector_size =
+                        u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
+                    if object_length_remaining
+                        < NodeId::SIZE + path_vector_size as usize + 2 + 4 + 4 + 2
+                    {
+                        return Err(Box::new(IoError::new(
+                            ErrorKind::InvalidData,
+                            format!(
+                                "rtable-entry object too short (length = {}, expected = {})",
+                                object_length_remaining,
+                                NodeId::SIZE + path_vector_size as usize + 2 + 4 + 4 + 2
+                            ),
+                        )));
+                    }
+                    let mut path = Vec::with_capacity(path_vector_size as usize);
+                    for _ in 0..path_vector_size {
+                        let mut id_bytes = [0u8; NodeId::SIZE];
+                        payload_cursor.read_exact(&mut id_bytes)?;
+                        let hop_id = NodeId::from(id_bytes);
+                        path.push(hop_id);
+                    }
+                    let path = Path::try_from(path)?; // or domain model uses non-empty paths
+                    assert_eq!(&contact_id, path.last()); // and does include the final destination
+
+                    // SSN
+                    let ssn_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
+                    let ssn = SafeStateSeqNr::try_from(ssn_raw).map_err(|_| {
+                        IoError::new(
+                            ErrorKind::InvalidData,
+                            format!("invalid state_seq_num {ssn_raw}"),
+                        )
+                    })?;
+
+                    // TODO: Age
+                    let _age_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?; // consume placeholder
+
+                    // TODO: Node Degree
+                    let _node_degree =
+                        u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
+
+                    let contact = Contact::new(path, ssn);
+                    rtable.push(contact);
+
+                    object_length_remaining -= NodeId::SIZE // Contact-ID
+                        + (path_vector_size as usize * NodeId::SIZE) + 2 // Path
+                        + 4 // SSN
+                        + 4 // Age Info
+                        + 2 // Node Degree;
+                }
+
+                payload_consumed += object_length;
+            }
             ProtocolObjectType::RTableRequest => {
                 if object_length != 2 {
                     return Err(Box::new(IoError::new(
@@ -1092,11 +1183,10 @@ fn parse_req_rsp_payload_from_bytes(
                 let req_type_raw = u8::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
                 let radius = u8::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
                 let req_type = RTableRequestTypeValue::from(req_type_raw);
-                rtable_request = Some((req_type, radius));
+                *rtable_request = Some((req_type, radius));
                 payload_consumed += object_length;
             }
-            ProtocolObjectType::RTable
-            | ProtocolObjectType::RTableUpdateInfo
+            ProtocolObjectType::RTableUpdateInfo
             | ProtocolObjectType::ErrorData
             | ProtocolObjectType::StoreReqData
             | ProtocolObjectType::StoreRspData
@@ -1110,12 +1200,7 @@ fn parse_req_rsp_payload_from_bytes(
         }
     }
 
-    Ok(ParsedReqRspPayload {
-        source_route,
-        not_via,
-        contacts,
-        rtable_request,
-    })
+    Ok(parsed)
 }
 
 //helper: read a objectHeader
@@ -1489,11 +1574,7 @@ fn serialize_uln_req_rsp_rtable<W: Write>(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut payload = Vec::new();
 
-    write_contactlist_object(
-        &mut payload,
-        &req.data.contacts,
-        req.common_header.src_node_degree(),
-    )?;
+    write_contactlist_object(&mut payload, &req.data.contacts)?;
 
     write_header_and_payload(&mut writer, &req.common_header, &payload)
 }
@@ -1506,11 +1587,7 @@ fn serialize_req_rsp_rtable<W: Write>(
 
     write_source_route_object(&mut payload, &req.source_route)?;
     write_notvialist_object(&mut payload, &req.not_via)?;
-    write_contactlist_object(
-        &mut payload,
-        &req.data.contacts,
-        req.common_header.src_node_degree(),
-    )?;
+    write_rtable_object(&mut payload, &req.data.contacts)?;
 
     write_header_and_payload(&mut writer, &req.common_header, &payload)
 }
@@ -1591,7 +1668,6 @@ fn write_notvialist_object<W: Write>(
 fn write_contactlist_object<W: Write>(
     writer: &mut W,
     contacts: &[Contact],
-    node_degree: u16,
 ) -> Result<usize, IoError> {
     if contacts.is_empty() {
         return Ok(0);
@@ -1604,24 +1680,109 @@ fn write_contactlist_object<W: Write>(
         ));
     }
 
-    let object_length = contacts.len() * (NodeId::SIZE + 4 + 4 + 2);
+    let object_length: usize = contacts.len()
+        * (
+            NodeId::SIZE // Contact-ID
+                + 4 // SSN
+                + 4 // TODO: Age Info
+                + 2
+            // TODO: Node Degree
+        );
     write_common_object_header(
         writer,
         CommonObjectHeader::new(ProtocolObjectType::ContactList, object_length as u16),
     )?;
 
     for contact in contacts {
-        writer.write_all(&contact.id().to_be_bytes())?;
-
-        let ssn: u32 = (*contact.state_seq_nr()).into();
-        writer.write_all(&ssn.to_be_bytes())?;
-
-        writer.write_all(&0u32.to_be_bytes())?; // age-info placeholder
-
-        writer.write_all(&node_degree.to_be_bytes())?;
+        write_contact_entry(writer, contact)?;
     }
 
     Ok(3 + object_length)
+}
+
+fn write_contact_entry<W: Write>(writer: &mut W, contact: &Contact) -> Result<(), IoError> {
+    // Contact-ID
+    writer.write_all(&contact.id().to_be_bytes())?;
+
+    // SSN
+    let ssn: u32 = (*contact.state_seq_nr()).into();
+    writer.write_all(&ssn.to_be_bytes())?;
+
+    // Age Info
+    writer.write_all(&u32::MAX.to_be_bytes())?; // TODO: Serialize age-info of Contact in rtable
+
+    // Node Degree
+    writer.write_all(&u16::MAX.to_be_bytes())?; // TODO: Serialize node degree of Contact in rtable
+
+    Ok(())
+}
+
+fn write_rtable_object<W: Write>(writer: &mut W, contacts: &[Contact]) -> Result<usize, IoError> {
+    if contacts.is_empty() {
+        return Ok(0);
+    }
+
+    if contacts.len() > u16::MAX as usize {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            format!("too many contacts: {}", contacts.len()),
+        ));
+    }
+
+    let object_length: usize = contacts
+        .iter()
+        .map(|c| {
+            NodeId::SIZE // Contact-ID
+                + c.path()
+                    .map(Path::size).unwrap_or(0)
+                    * NodeId::SIZE + 2 // Path-Vector
+                + 4 // SSN
+                + 4 // TODO: Age Info
+                + 2 // TODO: Node Degree
+        })
+        .sum();
+    write_common_object_header(
+        writer,
+        CommonObjectHeader::new(ProtocolObjectType::RTable, object_length as u16),
+    )?;
+
+    // FIXME: Write rtable-length (#contacts)
+
+    for contact in contacts {
+        write_rtable_entry(writer, contact)?;
+    }
+
+    Ok(3 + object_length)
+}
+
+fn write_rtable_entry<W: Write>(writer: &mut W, contact: &Contact) -> Result<(), IoError> {
+    // Contact-ID
+    writer.write_all(&contact.id().to_be_bytes())?;
+
+    // Path
+    let path_length = contact.path().map(Path::size).unwrap_or(0);
+    writer.write_all(
+        &u16::try_from(path_length)
+            .map_err(|_| IoError::new(ErrorKind::InvalidData, "path-vector to long".to_string()))?
+            .to_be_bytes(),
+    )?;
+    if let Some(path) = contact.path() {
+        for hop in path.into_iter() {
+            writer.write_all(&hop.to_be_bytes())?;
+        }
+    }
+
+    // SSN
+    let ssn: u32 = (*contact.state_seq_nr()).into();
+    writer.write_all(&ssn.to_be_bytes())?;
+
+    // Age Info
+    writer.write_all(&u32::MAX.to_be_bytes())?; // TODO: Serialize age-info of Contact in rtable
+
+    // Node Degree
+    writer.write_all(&u16::MAX.to_be_bytes())?; // TODO: Serialize node degree of Contact in rtable
+
+    Ok(())
 }
 
 fn parse_rtable_update_info_from_bytes(
@@ -1650,28 +1811,53 @@ fn parse_rtable_update_info_from_bytes(
         payload_consumed += 3;
 
         if let ProtocolObjectType::RTableUpdateInfo = object_type {
-            if object_length < NodeId::SIZE + 5 {
-                return Err(Box::new(IoError::new(
-                    ErrorKind::InvalidData,
-                    format!(
-                        "rtable-update-info object too short (length = {}, expected at least {})",
-                        object_length,
-                        NodeId::SIZE + 5
-                    ),
-                )));
-            }
-
-            let mut entries_consumed = 0usize;
+            let mut object_length_remaining = object_length;
             let mut result: HashMap<Contact, RouteUpdateActionType> = HashMap::new();
 
-            while entries_consumed < object_length {
+            while object_length_remaining > 0 {
+                if object_length_remaining < 2 * NodeId::SIZE + 2 + 4 + 4 + 2 + 1 {
+                    return Err(Box::new(IoError::new(
+                        ErrorKind::InvalidData,
+                        format!(
+                            "rtable-update-entry object too short (length = {}, expected at least {})",
+                            object_length_remaining,
+                            NodeId::SIZE + 5
+                        ),
+                    )));
+                }
+
+                // Contact-ID
                 let mut id_bytes = [0u8; NodeId::SIZE];
                 payload_cursor.read_exact(&mut id_bytes)?;
                 let contact_id = NodeId::from(id_bytes);
 
-                let ssn_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
-                let action_raw = u8::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
+                // Path
+                let path_vector_size =
+                    u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
+                if object_length_remaining
+                    < NodeId::SIZE + path_vector_size as usize + 2 + 4 + 4 + 2 + 1
+                {
+                    return Err(Box::new(IoError::new(
+                        ErrorKind::InvalidData,
+                        format!(
+                            "rtable-update-entry object too short (length = {}, expected = {})",
+                            object_length_remaining,
+                            NodeId::SIZE + path_vector_size as usize + 2 + 4 + 4 + 2 + 1
+                        ),
+                    )));
+                }
+                let mut path = Vec::with_capacity(path_vector_size as usize);
+                for _ in 0..path_vector_size {
+                    let mut id_bytes = [0u8; NodeId::SIZE];
+                    payload_cursor.read_exact(&mut id_bytes)?;
+                    let hop_id = NodeId::from(id_bytes);
+                    path.push(hop_id);
+                }
+                let path = Path::try_from(path)?; // or domain model uses non-empty paths
+                assert_eq!(&contact_id, path.last()); // and does include the final destination
 
+                // SSN
+                let ssn_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
                 let ssn = SafeStateSeqNr::try_from(ssn_raw).map_err(|_| {
                     IoError::new(
                         ErrorKind::InvalidData,
@@ -1679,23 +1865,25 @@ fn parse_rtable_update_info_from_bytes(
                     )
                 })?;
 
-                let action = match action_raw {
-                    0x00 => RouteUpdateActionType::Announce,
-                    0x01 => RouteUpdateActionType::WithDraw,
-                    0x02 => RouteUpdateActionType::Change,
-                    0x03 => RouteUpdateActionType::Unreachable,
-                    other => {
-                        return Err(Box::new(IoError::new(
-                            ErrorKind::InvalidData,
-                            format!("unknown rtable update action {:#x}", other),
-                        )));
-                    }
-                };
+                // TODO: Age
+                let _age_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?; // consume placeholder
+
+                // TODO: Node Degree
+                let _node_degree = u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
+
+                // RouteUpdateAction
+                let action_raw = u8::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
+                let action = RouteUpdateActionType::from(action_raw);
 
                 let contact = Contact::new(Path::from(contact_id), ssn);
                 result.insert(contact, action);
 
-                entries_consumed += NodeId::SIZE + 4 + 1;
+                object_length_remaining -= NodeId::SIZE // Contact-ID
+                        + (path_vector_size as usize * NodeId::SIZE)+ 2 // Path
+                        + 4 // SSN
+                        + 4 // Age Info
+                        + 1 // RouteUpdateAction
+                        + 2 // Node Degree;
             }
 
             return Ok(result);
@@ -1724,24 +1912,67 @@ fn write_rtable_update_info_object<W: Write>(
         ));
     }
 
-    let object_length = data.len() * (NodeId::SIZE + 4 + 1);
+    let object_length: usize = data
+        .keys()
+        .map(|c| {
+            NodeId::SIZE // Contact-ID
+                + c.path()
+                    .map(Path::size).unwrap_or(0)
+                    * NodeId::SIZE + 2 // Path-Vector
+                + 4 // SSN
+                + 4 // TODO: Age Info
+                + 2 // TODO: Node Degree
+
+                + 1 // RouteUpdateActionType
+        })
+        .sum();
     write_common_object_header(
         writer,
         CommonObjectHeader::new(ProtocolObjectType::RTableUpdateInfo, object_length as u16),
     )?;
 
+    // FIXME: Write rtable-length (#contacts)
+
     for (contact, action) in data.iter() {
-        writer.write_all(&contact.id().to_be_bytes())?;
-        let ssn: u32 = (*contact.state_seq_nr()).into();
-        writer.write_all(&ssn.to_be_bytes())?;
-        let action_byte: u8 = match action {
-            RouteUpdateActionType::Announce => 0x00,
-            RouteUpdateActionType::WithDraw => 0x01,
-            RouteUpdateActionType::Change => 0x02,
-            RouteUpdateActionType::Unreachable => 0x03,
-        };
-        writer.write_all(&[action_byte])?;
+        write_rtable_update_entry(writer, contact, *action)?;
     }
 
     Ok(3 + object_length)
+}
+
+fn write_rtable_update_entry<W: Write>(
+    writer: &mut W,
+    contact: &Contact,
+    action_type: RouteUpdateActionType,
+) -> Result<(), IoError> {
+    // Contact-ID
+    writer.write_all(&contact.id().to_be_bytes())?;
+
+    // Path
+    let path_length = contact.path().map(Path::size).unwrap_or(0);
+    writer.write_all(
+        &u16::try_from(path_length)
+            .map_err(|_| IoError::new(ErrorKind::InvalidData, "path-vector to long"))?
+            .to_be_bytes(),
+    )?;
+    if let Some(path) = contact.path() {
+        for hop in path.into_iter() {
+            writer.write_all(&hop.to_be_bytes())?;
+        }
+    }
+
+    // SSN
+    let ssn: u32 = (*contact.state_seq_nr()).into();
+    writer.write_all(&ssn.to_be_bytes())?;
+
+    // Age Info
+    writer.write_all(&u32::MAX.to_be_bytes())?; // TODO: Serialize age-info of Contact in rtable
+
+    // Node Degree
+    writer.write_all(&u16::MAX.to_be_bytes())?; // TODO: Serialize node degree of Contact in rtable
+
+    // RouteUpdateActionType
+    writer.write_all(&u8::from(action_type).to_be_bytes())?;
+
+    Ok(())
 }

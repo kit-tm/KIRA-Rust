@@ -312,15 +312,19 @@ fn binrw_query_route_rsp() {
     );
     header.set_domain_id(0x4242);
 
-    let contact = Contact::new(
-        Path::from(NodeId::with_lsb(0x83)),
+    let contact1 = Contact::new(
+        Path::from([NodeId::with_lsb(0x83)]),
+        SafeStateSeqNr::try_from(8u32).unwrap(),
+    );
+    let contact2 = Contact::new(
+        Path::from([NodeId::with_lsb(0x84), NodeId::with_lsb(0x42)]),
         SafeStateSeqNr::try_from(8u32).unwrap(),
     );
 
     let msg = ProtocolMessage::QueryRouteRsp(ReqRspMessage {
         common_header: header.clone(),
         data: RTableData {
-            contacts: vec![contact.clone()],
+            contacts: vec![contact1.clone(), contact2.clone()],
         },
         not_via: Some(HashSet::new()),
         source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
@@ -345,10 +349,20 @@ fn binrw_query_route_rsp() {
     let ProtocolMessage::QueryRouteRsp(decoded_rsp) = decoded else {
         panic!("unexpected message type");
     };
-    assert_eq!(decoded_rsp.data.contacts[0].id(), contact.id());
+    assert_eq!(decoded_rsp.data.contacts.len(), 2);
+
+    assert_eq!(decoded_rsp.data.contacts[0].id(), contact1.id());
+    assert_eq!(decoded_rsp.data.contacts[0].path(), contact1.path());
     assert_eq!(
         decoded_rsp.data.contacts[0].state_seq_nr(),
-        contact.state_seq_nr()
+        contact1.state_seq_nr()
+    );
+
+    assert_eq!(decoded_rsp.data.contacts[1].id(), contact2.id());
+    assert_eq!(decoded_rsp.data.contacts[1].path(), contact2.path());
+    assert_eq!(
+        decoded_rsp.data.contacts[1].state_seq_nr(),
+        contact1.state_seq_nr()
     );
 }
 
