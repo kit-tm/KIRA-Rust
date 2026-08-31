@@ -531,6 +531,9 @@ where
                     // allow destination to respond
                     return Ok(HandlingResult::NotHandled);
                 }
+                if !req.exact() {
+                    tracing::warn!(target: "explicit_path_management", "Received ProbeReq without exact flag");
+                }
 
                 // warning: this also post installs PathIds
                 self.register_path(context, req.source_route)

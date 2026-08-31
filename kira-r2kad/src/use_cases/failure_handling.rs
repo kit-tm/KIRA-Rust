@@ -349,19 +349,17 @@ where
                 .expect("Contact should still be present in Routingtable");
 
             // send a findNodeReq for rediscovery to the via contact with target of the contact to be rediscovered
-            let find_node_request = ReqRspMessage {
+            let mut find_node_request = ReqRspMessage {
                 common_header: CommonHeader::new(
                     ProtocolMessageKind::FindNodeReq,
                     *context.root_id(),
-                    *via_contact_id,
-                    Some(nonce.into()),
+                    *contact_id,
+                    Some(nonce),
                     Some(From::from(*context.uln_table().state_seq_nr())),
                     context.uln_table().size(),
                 ),
                 data: FindNodeReqData {
-                    exact: true,
                     neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
-                    target: *contact_id,
                 },
                 not_via: From::from(notviastate_list.clone()),
                 source_route: SourceRoute::new(
@@ -369,6 +367,7 @@ where
                     via_contact.path().unwrap().clone(),
                 ),
             };
+            find_node_request.set_exact();
 
             // send FindNodeReq message
             context.runtime().send_message(
@@ -645,19 +644,17 @@ where
             _ => NotViaStateList::default(),
         };
 
-        let find_node_request = ReqRspMessage {
+        let mut find_node_request = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::FindNodeReq,
                 *context.root_id(),
-                next_via_contact_id,
-                Some(msg_id.into()),
+                node_id,
+                Some(msg_id),
                 Some(From::from(*context.uln_table().state_seq_nr())),
                 context.uln_table().size(),
             ),
             data: FindNodeReqData {
-                exact: true,
                 neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
-                target: node_id,
             },
             not_via: From::from(notviastate_list.clone()),
             source_route: SourceRoute::new(
@@ -672,6 +669,7 @@ where
                     .clone(),
             ),
         };
+        find_node_request.set_exact();
 
         context.runtime().send_message(
             find_node_request,
@@ -800,11 +798,9 @@ where
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::FindNodeRsp(rsp), _) => {
-                if let Some((_, timer)) = self
-                    .inflight_rediscoveries
-                    .remove_by_nonce(rsp.msg_id().into())
+                if let Some((_, timer)) = self.inflight_rediscoveries.remove_by_nonce(rsp.msg_id())
                 {
-                    log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got a successful answer [timer: {:?}, nonce: {:?}]", rsp.source_route.source(), timer, Nonce::from(rsp.msg_id()));
+                    log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got a successful answer [timer: {:?}, nonce: {:?}]", rsp.source_route.source(), timer, rsp.msg_id());
                     log::debug!(target: "failure_handling", "Rediscovery of {} was successful!", rsp.source());
                     //  since the contact state should have changed to Valid, the rediscovery process will stop automatically
                 }
@@ -823,7 +819,7 @@ where
                     self.invalidate_contacts_containing_link(context, failed_link);
                 }
 
-                self.handle_rediscovery_failure(context, Some(rsp.msg_id().into()), None)?;
+                self.handle_rediscovery_failure(context, Some(rsp.msg_id()), None)?;
             }
             UseCaseEvent::Timer(id) => {
                 if let Some(contact_id) = self.scheduled_rediscoveries.remove(&id) {

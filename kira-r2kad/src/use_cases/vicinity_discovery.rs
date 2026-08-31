@@ -30,7 +30,6 @@ use crate::{
         InterfaceId,
         NodeId,
         Nonce,
-        Path,
         ProtocolMessage,
         ProtocolMessageKind,
         RoutingTable,
@@ -54,6 +53,7 @@ use crate::{
             QueryRouteType,
             RTableData,
             ReqRspMessage,
+            ULNReqRspMessage,
             WireFormatMessage,
         },
     },
@@ -267,9 +267,12 @@ where
     C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
     C::VicinityGraph: VicinityGraph,
 {
-    fn send_query_route_req(context: &C, path: Path, nonce: Nonce) -> Result<(), VDError> {
+    fn send_query_route_req(
+        context: &C,
+        source_route: SourceRoute,
+        nonce: Nonce,
+    ) -> Result<(), VDError> {
         // Convert contacts path to source route
-        let source_route = SourceRoute::from(path);
         let next_hop = source_route.current_hop(); // :)
         let hop_count = source_route.size() - 1;
 
@@ -307,7 +310,7 @@ where
                 ProtocolMessageKind::QueryRouteReq,
                 *context.root_id(),
                 *source_route.destination(),
-                Some(nonce.into()),
+                Some(nonce),
                 Some(From::from(*context.uln_table().state_seq_nr())),
                 context.uln_table().size(),
             ),
@@ -394,19 +397,16 @@ where
         nonce: Nonce,
     ) -> Result<(), VDError> {
         let (ssn, contacts) = Self::collect_underlay_neighbors(context)?;
-        let request = ProtocolMessage::ULNDiscReq(ReqRspMessage {
+        let request = ProtocolMessage::ULNDiscReq(ULNReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::ULNDiscReq,
                 *context.root_id(),
                 destination,
-                Some(nonce.into()),
+                Some(nonce),
                 Some(ssn.into()),
                 context.uln_table().size(),
             ),
             data: RTableData { contacts },
-            not_via: None,
-            // Source route is ignored, as only underlay neighbors get these
-            source_route: SourceRoute::from(Path::from([*context.root_id(), destination])),
         });
 
         tracing::trace!(target: "vicinity_discovery", ?request, "send ULNDiscReq");
@@ -418,11 +418,11 @@ where
 
     fn send_uln_disc_rsp(
         context: &C,
-        request: ReqRspMessage<RTableData>,
+        request: ULNReqRspMessage<RTableData>,
         underlay_destination: UnderlayNeighborId,
     ) -> Result<(), VDError> {
         let (ssn, contacts) = Self::collect_underlay_neighbors(context)?;
-        let response = ProtocolMessage::ULNDiscRsp(ReqRspMessage {
+        let response = ProtocolMessage::ULNDiscRsp(ULNReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::ULNDiscRsp,
                 *context.root_id(),
@@ -432,8 +432,6 @@ where
                 context.uln_table().size(),
             ),
             data: RTableData { contacts },
-            not_via: None,
-            source_route: SourceRoute::from_reversed(request.source_route),
         });
 
         tracing::trace!(target: "vicinity_discovery", ?response, "send ULNDiscRsp");
@@ -517,10 +515,14 @@ where
         timer_hooks.insert(timeout_timer_id, timeout_hook);
     }
 
-    fn init_query_route_req(&mut self, context: &C, path: Path) -> Result<(), VDError> {
-        let destination = *path.last();
+    fn init_query_route_req(
+        &mut self,
+        context: &C,
+        source_route: SourceRoute,
+    ) -> Result<(), VDError> {
+        let destination = *source_route.destination();
         let expected_nonce = Nonce::random();
-        Self::send_query_route_req(context, path, expected_nonce)?;
+        Self::send_query_route_req(context, source_route, expected_nonce)?;
 
         self.register_pending_req(
             context,
@@ -585,31 +587,28 @@ where
         Ok(true)
     }
 
-    fn init_new_query_route_req(&mut self, context: &C, path: Path) -> Result<bool, VDError> {
+    fn init_new_query_route_req(
+        &mut self,
+        context: &C,
+        source_route: SourceRoute,
+    ) -> Result<bool, VDError> {
         let VDState::Running { pending_reqs, .. } = &self.state else {
             panic!("VicinityDiscovery should be running");
         };
-        if pending_reqs.contains_key(&(*path.last(), ProtocolMessageKind::QueryRouteRsp)) {
+        if pending_reqs.contains_key(&(
+            *source_route.destination(),
+            ProtocolMessageKind::QueryRouteRsp,
+        )) {
             return Ok(false);
         }
 
-        self.init_query_route_req(context, path)?;
+        self.init_query_route_req(context, source_route)?;
 
         Ok(true)
     }
 
-    fn process_ulndisc_reqrsp(&mut self, context: &C, req_or_rsp: &ReqRspMessage<RTableData>) {
+    fn process_ulndisc_reqrsp(&mut self, context: &C, req_or_rsp: &ULNReqRspMessage<RTableData>) {
         // update vicinity ssn in vicinity graph if required
-        // sanity check for ULNDiscReq/Rsp messages, log error and ignore
-        if req_or_rsp.source_route.size() != 2 {
-            tracing::warn!(
-                target: "vicinity_discovery",
-                ?req_or_rsp,
-                reason = "source route too long",
-                "ULNDiscReq/Rsp expected to be received directly from ULN – ignored"
-            );
-            return;
-        };
         // ULNDiscReq/Rsp confirms bidirectional reachability, so we need to add the
         // node to the vicinity graph (it will be added to the ULNtable in forward_protocol_message)
 
@@ -666,7 +665,7 @@ where
             if inserted {
                 tracing::trace!(
                     target: "vicinity_discovery",
-                    from = %req_or_rsp.source_route.source(),
+                    from = %req_or_rsp.source(),
                     to = %*contact.id(),
                     contact_ssn = %*contact.state_seq_nr(),
                     reason = "new edge",
@@ -777,13 +776,17 @@ where
     ) -> Result<(), VDError> {
         match protocol_message {
             // ========== Vicinity Discovery - Query Route Req ==========
-            ProtocolMessage::QueryRouteReq(request,) => {
+            ProtocolMessage::QueryRouteReq(request) => {
                 tracing::trace!(
                     target: "vicinity_discovery",
                     source = %request.source(),
                     reason = "recv_query_route_req",
                     "send QueryRouteRsp"
                 );
+                if !request.exact() {
+                    tracing::warn!(target: "vicinity_discovery", "Received QueryRouteReq without exact flag");
+                }
+
                 // update observed SSN
                 if request.source_route.size() == VICINITY_RADIUS
                     && let Some(entry) = context.vicinity_graph_mut().entry_mut(request.source())
@@ -1166,7 +1169,9 @@ where
                         continue;
                     }
 
-                    self.init_new_query_route_req(context, path)?
+                    let source_route = SourceRoute::try_from(path)
+                        .expect("Paths of vicinity graph include start of path");
+                    self.init_new_query_route_req(context, source_route)?
                 };
                 if !new_sync {
                     tracing::trace!(
@@ -1567,7 +1572,13 @@ where
                         )
                         .entered();
 
-                        Self::send_query_route_req(context, path, req_state.expected_nonce)?;
+                        let source_route = SourceRoute::try_from(path)
+                            .expect("Paths of vicinity graph include start of path");
+                        Self::send_query_route_req(
+                            context,
+                            source_route,
+                            req_state.expected_nonce,
+                        )?;
                         // register new timeout timer
                         let timeout = timeout * 2;
                         resend_req_span.record("timeout_ms", timeout.as_millis());

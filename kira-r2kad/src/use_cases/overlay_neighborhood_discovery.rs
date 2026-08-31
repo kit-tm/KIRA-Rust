@@ -290,8 +290,8 @@ where
         }
         let contact = closest_on.unwrap();
         let contact_via_id = *contact.id();
-        let mut route_to_closest_on = SourceRoute::from(contact.path().unwrap().clone());
-        route_to_closest_on.push_front(*context.root_id());
+        let route_to_closest_on =
+            SourceRoute::new(*context.root_id(), contact.path().unwrap().clone());
 
         // Get the interface of the next underlay neighbor to route this request through
         let neighbor = route_to_closest_on.current_hop();
@@ -309,15 +309,15 @@ where
             common_header: CommonHeader::new(
                 ProtocolMessageKind::FindNodeReq,
                 *context.root_id(),
-                *contact.id(),
-                Some(new_nonce.into()),
+                // own ID as target
+                // message shouldn't loop back to this node because EXACT=false
+                *context.root_id(),
+                Some(new_nonce),
                 Some(From::from(*context.uln_table().state_seq_nr())),
                 context.uln_table().size(),
             ),
             data: FindNodeReqData {
-                exact: false,
                 neighborhood: self.config.overlay_neighborhood_size,
-                target: *context.root_id(), // own ID as target
             },
             not_via: None,
             source_route: route_to_closest_on,
@@ -404,22 +404,18 @@ where
             return Ok(());
         }
 
-        let mut route = SourceRoute::from(closest_path);
-        route.push_front(*context.root_id());
-
+        let route = SourceRoute::new(*context.root_id(), closest_path);
         let message = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::FindNodeReq,
                 *context.root_id(),
-                *route.destination(),
-                Some(new_nonce.into()),
+                random_id, //random ID
+                Some(new_nonce),
                 Some(From::from(*context.uln_table().state_seq_nr())),
                 context.uln_table().size(),
             ),
             data: FindNodeReqData {
-                exact: false, // the closest node to random ID should reply
                 neighborhood: self.config.overlay_neighborhood_size,
-                target: random_id, //random ID
             },
             not_via: None,
             source_route: route,
@@ -546,7 +542,7 @@ where
                     _,
                 ),
             ) => {
-                let recvd_nonce = Nonce::from(common_header.msg_id());
+                let recvd_nonce = common_header.msg_id();
                 // need to extract latest nonce from timer state
                 // currently we do not care about tracking responses to random exploration messages
                 if let Some((latest_nonce, _)) =
@@ -578,7 +574,7 @@ where
                     _,
                 ),
             ) => {
-                let recvd_nonce = Nonce::from(common_header.msg_id());
+                let recvd_nonce = common_header.msg_id();
                 // need to extract latest nonce from timer state
                 // currently we do not care about responses to random exploration messages
                 if let Some((latest_nonce, _)) =

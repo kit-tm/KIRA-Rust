@@ -9,16 +9,13 @@ use std::{
     num::NonZeroU64,
 };
 
-use derive_more::derive::Display;
-
-pub mod dht;
-#[doc(inline)]
-pub use dht::{
-    FetchReqData,
-    FetchRspData,
-    StoreReqData,
-    StoreRspData,
+#[cfg(feature = "binrw")]
+use binrw::{
+    BinRead,
+    BinWrite,
 };
+use bitflags::bitflags;
+use derive_more::Display;
 
 use crate::domain::{
     Contact,
@@ -33,12 +30,21 @@ use crate::domain::{
         LHTOutput,
     },
 };
-//use ciborium::{ser,de};
+
+pub mod dht;
+#[doc(inline)]
+pub use dht::{
+    FetchReqData,
+    FetchRspData,
+    StoreReqData,
+    StoreRspData,
+};
 
 /// Randomly generated number to uniquely identify a protocol message and its
 /// response.
 #[derive(Display, PartialEq, Eq, Clone, Hash, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "binrw", derive(BinRead, BinWrite), brw(big))]
 #[display("{:x}-{:x}", (self.0 >> 32) as u32, (self.0 & 0xffffffff) as u32)]
 pub struct Nonce(u64);
 
@@ -72,63 +78,320 @@ impl Nonce {
     }
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[repr(u8)]
-pub enum KiraMsgFlagsBit {
-    ExactFlag = 1,
-    EndSystemFlag = 1 << 2,
-    DiagnosticFlag = 1 << 6,
+const PROTOCOL_MSG_FLAG_EXACT: u8 = 1;
+const PROTOCOL_MSG_FLAG_ENDSYSTEM: u8 = 1 << 2;
+const PROTOCOL_MSG_FLAG_DIAGNOSTIC: u8 = 1 << 6;
+
+bitflags! {
+    #[derive(Debug, Default, PartialEq, Eq, Clone, Copy, Hash)]
+    #[cfg_attr(
+        feature = "serde",
+        derive(serde::Deserialize, serde::Serialize),
+    )]
+    #[cfg_attr(
+        feature = "binrw",
+        derive(BinRead, BinWrite),
+        bw(map = |flags: &Self| flags.bits()),
+        br(map = |flags_raw: u8| Self::from_bits_retain(flags_raw))
+    )]
+    #[non_exhaustive]
+    pub struct ProtocolMessageFlags: u8 {
+        /// Indicates whether the dest-id is a [NodeId] and is assumed to exist.
+        ///
+        /// If set to 1, the [NodeId] should exist,
+        /// if set to 0, the node with the closest [NodeId] will process the request.
+        const Exact = PROTOCOL_MSG_FLAG_EXACT;
+        /// Indicates that the originating source node is an end-system that
+        /// does not perform routing or forwarding.
+        ///
+        /// > **Note:** The end-system mode is _not_ implemented.
+        const EndSystem = PROTOCOL_MSG_FLAG_ENDSYSTEM; // TODO: Implement end-system mode
+        /// Triggers explicit Error Messages instead of dropping messages silently.
+        ///
+        /// This flag serves mainly debugging purposes.
+        const Diagnostic = PROTOCOL_MSG_FLAG_DIAGNOSTIC; // TODO: Support Diagnostic flag
+
+        // The source may set any bits
+        const _ = !0;
+    }
 }
+
+// Protocol Message Kind Constants
+const PROTOCOL_MSG_KIND_ULN_HELLO: u8 = 0x01;
+const PROTOCOL_MSG_KIND_ULN_DISC_REQ: u8 = 0x03;
+const PROTOCOL_MSG_KIND_ULN_DISC_RSP: u8 = 0x04;
+const PROTOCOL_MSG_KIND_FIND_NODE_REQ: u8 = 0x09;
+const PROTOCOL_MSG_KIND_FIND_NODE_RSP: u8 = 0x0a;
+const PROTOCOL_MSG_KIND_QUERY_ROUTE_REQ: u8 = 0x0b;
+const PROTOCOL_MSG_KIND_QUERY_ROUTE_RSP: u8 = 0x0c;
+const PROTOCOL_MSG_KIND_UPDATE_ROUTE_REQ: u8 = 0x11;
+const PROTOCOL_MSG_KIND_PROBE_REQ: u8 = 0x21;
+const PROTOCOL_MSG_KIND_PROBE_RSP: u8 = 0x22;
+const PROTOCOL_MSG_KIND_ERROR: u8 = 0x70;
+const PROTOCOL_MSG_KIND_PATH_SETUP_REQ: u8 = 0x81;
+const PROTOCOL_MSG_KIND_PATH_SETUP_RSP: u8 = 0x82;
+const PROTOCOL_MSG_KIND_PATH_TEARDOWN_REQ: u8 = 0x83;
+const PROTOCOL_MSG_KIND_STORE_REQ: u8 = 0xa1;
+const PROTOCOL_MSG_KIND_STORE_RSP: u8 = 0xa2;
+const PROTOCOL_MSG_KIND_FETCH_REQ: u8 = 0xa3;
+const PROTOCOL_MSG_KIND_FETCH_RSP: u8 = 0xa4;
 
 /// Enumeration containing all supported KIRA protocol messages kinds.
 #[derive(Debug, Display, PartialEq, Eq, Clone, Copy, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(from = "u8", into = "u8")
+)]
+#[cfg_attr(feature = "binrw", derive(BinRead, BinWrite),
+        bw(map = |kind: &Self| u8::from(*kind)),
+        br(map = |kind_raw: u8| Self::from(kind_raw))
+)]
 #[display("{_variant}")]
-#[repr(u8)]
+#[non_exhaustive]
 pub enum ProtocolMessageKind {
-    ULNHello = 0x01,
-    ULNDiscReq = 0x03,
-    ULNDiscRsp = 0x04,
-    FindNodeReq = 0x09,
-    FindNodeRsp = 0x0a,
-    QueryRouteReq = 0x0b,
-    QueryRouteRsp = 0x0c,
-    UpdateRouteReq = 0x11,
-    ProbeReq = 0x21,
-    ProbeRsp = 0x22,
-    Error = 0x70,
-    PathSetupReq = 0x81,
-    PathSetupRsp = 0x82,
-    PathTeardownReq = 0x83,
-    StoreReq = 0xa1,
-    StoreRsp = 0xa2,
-    FetchReq = 0xa3,
-    FetchRsp = 0xa4,
+    ULNHello,
+    ULNDiscReq,
+    ULNDiscRsp,
+    FindNodeReq,
+    FindNodeRsp,
+    QueryRouteReq,
+    QueryRouteRsp,
+    UpdateRouteReq,
+    ProbeReq,
+    ProbeRsp,
+    Error,
+    PathSetupReq,
+    PathSetupRsp,
+    PathTeardownReq,
+    StoreReq,
+    StoreRsp,
+    FetchReq,
+    FetchRsp,
+    Other(u8),
+}
+
+impl From<u8> for ProtocolMessageKind {
+    fn from(raw_kind: u8) -> Self {
+        match raw_kind {
+            PROTOCOL_MSG_KIND_ULN_HELLO => ProtocolMessageKind::ULNHello,
+            PROTOCOL_MSG_KIND_ULN_DISC_REQ => ProtocolMessageKind::ULNDiscReq,
+            PROTOCOL_MSG_KIND_ULN_DISC_RSP => ProtocolMessageKind::ULNDiscRsp,
+            PROTOCOL_MSG_KIND_FIND_NODE_REQ => ProtocolMessageKind::FindNodeReq,
+            PROTOCOL_MSG_KIND_FIND_NODE_RSP => ProtocolMessageKind::FindNodeRsp,
+            PROTOCOL_MSG_KIND_QUERY_ROUTE_REQ => ProtocolMessageKind::QueryRouteReq,
+            PROTOCOL_MSG_KIND_QUERY_ROUTE_RSP => ProtocolMessageKind::QueryRouteRsp,
+            PROTOCOL_MSG_KIND_UPDATE_ROUTE_REQ => ProtocolMessageKind::UpdateRouteReq,
+            PROTOCOL_MSG_KIND_PROBE_REQ => ProtocolMessageKind::ProbeReq,
+            PROTOCOL_MSG_KIND_PROBE_RSP => ProtocolMessageKind::ProbeRsp,
+            PROTOCOL_MSG_KIND_ERROR => ProtocolMessageKind::Error,
+            PROTOCOL_MSG_KIND_PATH_SETUP_REQ => ProtocolMessageKind::PathSetupReq,
+            PROTOCOL_MSG_KIND_PATH_SETUP_RSP => ProtocolMessageKind::PathSetupRsp,
+            PROTOCOL_MSG_KIND_PATH_TEARDOWN_REQ => ProtocolMessageKind::PathTeardownReq,
+            PROTOCOL_MSG_KIND_STORE_REQ => ProtocolMessageKind::StoreReq,
+            PROTOCOL_MSG_KIND_STORE_RSP => ProtocolMessageKind::StoreRsp,
+            PROTOCOL_MSG_KIND_FETCH_REQ => ProtocolMessageKind::FetchReq,
+            PROTOCOL_MSG_KIND_FETCH_RSP => ProtocolMessageKind::FetchRsp,
+            other => ProtocolMessageKind::Other(other),
+        }
+    }
+}
+
+impl From<ProtocolMessageKind> for u8 {
+    fn from(kind: ProtocolMessageKind) -> Self {
+        match kind {
+            ProtocolMessageKind::ULNHello => PROTOCOL_MSG_KIND_ULN_HELLO,
+            ProtocolMessageKind::ULNDiscReq => PROTOCOL_MSG_KIND_ULN_DISC_REQ,
+            ProtocolMessageKind::ULNDiscRsp => PROTOCOL_MSG_KIND_ULN_DISC_RSP,
+            ProtocolMessageKind::FindNodeReq => PROTOCOL_MSG_KIND_FIND_NODE_REQ,
+            ProtocolMessageKind::FindNodeRsp => PROTOCOL_MSG_KIND_FIND_NODE_RSP,
+            ProtocolMessageKind::QueryRouteReq => PROTOCOL_MSG_KIND_QUERY_ROUTE_REQ,
+            ProtocolMessageKind::QueryRouteRsp => PROTOCOL_MSG_KIND_QUERY_ROUTE_RSP,
+            ProtocolMessageKind::UpdateRouteReq => PROTOCOL_MSG_KIND_UPDATE_ROUTE_REQ,
+            ProtocolMessageKind::ProbeReq => PROTOCOL_MSG_KIND_PROBE_REQ,
+            ProtocolMessageKind::ProbeRsp => PROTOCOL_MSG_KIND_PROBE_RSP,
+            ProtocolMessageKind::Error => PROTOCOL_MSG_KIND_ERROR,
+            ProtocolMessageKind::PathSetupReq => PROTOCOL_MSG_KIND_PATH_SETUP_REQ,
+            ProtocolMessageKind::PathSetupRsp => PROTOCOL_MSG_KIND_PATH_SETUP_RSP,
+            ProtocolMessageKind::PathTeardownReq => PROTOCOL_MSG_KIND_PATH_TEARDOWN_REQ,
+            ProtocolMessageKind::StoreReq => PROTOCOL_MSG_KIND_STORE_REQ,
+            ProtocolMessageKind::StoreRsp => PROTOCOL_MSG_KIND_STORE_RSP,
+            ProtocolMessageKind::FetchReq => PROTOCOL_MSG_KIND_FETCH_REQ,
+            ProtocolMessageKind::FetchRsp => PROTOCOL_MSG_KIND_FETCH_RSP,
+            ProtocolMessageKind::Other(other) => other,
+        }
+    }
+}
+
+const PROTOCOL_OBJECT_TYPE_SOURCE_ROUTE: u8 = 0x01;
+const PROTOCOL_OBJECT_TYPE_NOT_VIA_LIST: u8 = 0x02;
+const PROTOCOL_OBJECT_TYPE_CONTACT_LIST: u8 = 0x03;
+const PROTOCOL_OBJECT_TYPE_RTABLE_REQUEST: u8 = 0x04;
+const PROTOCOL_OBJECT_TYPE_RTABLE: u8 = 0x05;
+const PROTOCOL_OBJECT_TYPE_RTABLE_UPDATE_INFO: u8 = 0x06;
+const PROTOCOL_OBJECT_TYPE_ERROR_DATA: u8 = 0x07;
+const PROTOCOL_OBJECT_TYPE_STORE_REQ_DATA: u8 = 0x80;
+const PROTOCOL_OBJECT_TYPE_STORE_RSP_DATA: u8 = 0x81;
+const PROTOCOL_OBJECT_TYPE_FETCH_REQ_DATA: u8 = 0x82;
+const PROTOCOL_OBJECT_TYPE_FETCH_RSP_DATA: u8 = 0x83;
+
+/// Object types for protocol message payload objects (see draft section 4.4.2).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(from = "u8", into = "u8")
+)]
+#[non_exhaustive]
+pub enum ProtocolObjectType {
+    SourceRoute,
+    NotViaList,
+    ContactList,
+    RTableRequest,
+    RTable,
+    RTableUpdateInfo,
+    ErrorData,
+    StoreReqData,
+    StoreRspData,
+    FetchReqData,
+    FetchRspData,
+    Other(u8),
+}
+
+impl From<u8> for ProtocolObjectType {
+    fn from(value: u8) -> Self {
+        match value {
+            PROTOCOL_OBJECT_TYPE_SOURCE_ROUTE => Self::SourceRoute,
+            PROTOCOL_OBJECT_TYPE_NOT_VIA_LIST => Self::NotViaList,
+            PROTOCOL_OBJECT_TYPE_CONTACT_LIST => Self::ContactList,
+            PROTOCOL_OBJECT_TYPE_RTABLE_REQUEST => Self::RTableRequest,
+            PROTOCOL_OBJECT_TYPE_RTABLE => Self::RTable,
+            PROTOCOL_OBJECT_TYPE_RTABLE_UPDATE_INFO => Self::RTableUpdateInfo,
+            PROTOCOL_OBJECT_TYPE_ERROR_DATA => Self::ErrorData,
+            PROTOCOL_OBJECT_TYPE_STORE_REQ_DATA => Self::StoreReqData,
+            PROTOCOL_OBJECT_TYPE_STORE_RSP_DATA => Self::StoreRspData,
+            PROTOCOL_OBJECT_TYPE_FETCH_REQ_DATA => Self::FetchReqData,
+            PROTOCOL_OBJECT_TYPE_FETCH_RSP_DATA => Self::FetchRspData,
+            _ => Self::Other(value),
+        }
+    }
+}
+
+impl From<ProtocolObjectType> for u8 {
+    fn from(value: ProtocolObjectType) -> Self {
+        match value {
+            ProtocolObjectType::SourceRoute => PROTOCOL_OBJECT_TYPE_SOURCE_ROUTE,
+            ProtocolObjectType::NotViaList => PROTOCOL_OBJECT_TYPE_NOT_VIA_LIST,
+            ProtocolObjectType::ContactList => PROTOCOL_OBJECT_TYPE_CONTACT_LIST,
+            ProtocolObjectType::RTableRequest => PROTOCOL_OBJECT_TYPE_RTABLE_REQUEST,
+            ProtocolObjectType::RTable => PROTOCOL_OBJECT_TYPE_RTABLE,
+            ProtocolObjectType::RTableUpdateInfo => PROTOCOL_OBJECT_TYPE_RTABLE_UPDATE_INFO,
+            ProtocolObjectType::ErrorData => PROTOCOL_OBJECT_TYPE_ERROR_DATA,
+            ProtocolObjectType::StoreReqData => PROTOCOL_OBJECT_TYPE_STORE_REQ_DATA,
+            ProtocolObjectType::StoreRspData => PROTOCOL_OBJECT_TYPE_STORE_RSP_DATA,
+            ProtocolObjectType::FetchReqData => PROTOCOL_OBJECT_TYPE_FETCH_REQ_DATA,
+            ProtocolObjectType::FetchRspData => PROTOCOL_OBJECT_TYPE_FETCH_RSP_DATA,
+            ProtocolObjectType::Other(object_type) => object_type,
+        }
+    }
+}
+
+/// Header that precedes every payload object.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct CommonObjectHeader {
+    pub object_type: ProtocolObjectType,
+    pub object_length: u16,
+}
+
+impl CommonObjectHeader {
+    pub fn new(object_type: ProtocolObjectType, object_length: u16) -> Self {
+        Self {
+            object_type,
+            object_length,
+        }
+    }
+}
+
+const RTABLE_REQUEST_TYPE_NONE: u8 = 0x00;
+const RTABLE_REQUEST_TYPE_CONTACTS_ONLY: u8 = 0x01;
+const RTABLE_REQUEST_TYPE_OVERLAY_NEIGHBORS: u8 = 0x02;
+const RTABLE_REQUEST_TYPE_OVERLAY_NEIGHBORS_SOURCE: u8 = 0x03;
+const RTABLE_REQUEST_TYPE_ULN_VICINITY: u8 = 0x04;
+
+/// Values for `rtable-request-type-object` (draft section 4.4.2.5).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(from = "u8", into = "u8")
+)]
+#[non_exhaustive]
+pub enum RTableRequestTypeValue {
+    None,
+    ContactsOnly,
+    OverlayNeighbors,
+    OverlayNeighborsSource,
+    ULNVicinity,
+    Other(u8),
+}
+
+impl From<u8> for RTableRequestTypeValue {
+    fn from(value: u8) -> Self {
+        match value {
+            RTABLE_REQUEST_TYPE_NONE => Self::None,
+            RTABLE_REQUEST_TYPE_CONTACTS_ONLY => Self::ContactsOnly,
+            RTABLE_REQUEST_TYPE_OVERLAY_NEIGHBORS => Self::OverlayNeighbors,
+            RTABLE_REQUEST_TYPE_OVERLAY_NEIGHBORS_SOURCE => Self::OverlayNeighborsSource,
+            RTABLE_REQUEST_TYPE_ULN_VICINITY => Self::ULNVicinity,
+            _ => Self::Other(value),
+        }
+    }
+}
+
+impl From<RTableRequestTypeValue> for u8 {
+    fn from(value: RTableRequestTypeValue) -> Self {
+        match value {
+            RTableRequestTypeValue::None => RTABLE_REQUEST_TYPE_NONE,
+            RTableRequestTypeValue::ContactsOnly => RTABLE_REQUEST_TYPE_CONTACTS_ONLY,
+            RTableRequestTypeValue::OverlayNeighbors => RTABLE_REQUEST_TYPE_OVERLAY_NEIGHBORS,
+            RTableRequestTypeValue::OverlayNeighborsSource => {
+                RTABLE_REQUEST_TYPE_OVERLAY_NEIGHBORS_SOURCE
+            }
+            RTableRequestTypeValue::ULNVicinity => RTABLE_REQUEST_TYPE_ULN_VICINITY,
+            RTableRequestTypeValue::Other(req_type) => req_type,
+        }
+    }
 }
 
 /// Common Header Structure
 #[derive(Debug, PartialEq, Eq, Clone, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[display("v={} t={:0x} f={:0x} dst={} src={} dom={:x} msg-id={:x}-{:x} sseq={} deg={}",
+#[cfg_attr(feature = "binrw", derive(BinRead, BinWrite), brw(big))]
+#[display("v={} t={} f={:0x} dst={} src={} dom={:x} msg-id={} sseq={} deg={}",
           self.version,
           self.msg_type,
           self.msg_flags,
           self.dest_id,
           self.src_node_id,
           self.domain_id,
-          (self.msg_id >> 32) as u32, (self.msg_id & 0xffffffff) as u32,
+          self.msg_id,
           self.state_seq_num,
           self.src_node_degree,
 )]
 pub struct CommonHeader {
     version: u8,
-    msg_type: u8,
-    msg_flags: u8,
+    msg_type: ProtocolMessageKind,
+    msg_flags: ProtocolMessageFlags,
     msg_length: u16,
+    #[cfg_attr(feature = "binrw", br(map = |bytes: [u8; NodeId::SIZE]| NodeId::from(bytes)))]
+    #[cfg_attr(feature = "binrw", bw(map = |id: &NodeId| id.to_be_bytes()))]
     dest_id: NodeId,
+    #[cfg_attr(feature = "binrw", br(map = |bytes: [u8; NodeId::SIZE]| NodeId::from(bytes)))]
+    #[cfg_attr(feature = "binrw", bw(map = |id: &NodeId| id.to_be_bytes()))]
     src_node_id: NodeId,
     domain_id: u64,
-    msg_id: u64,
+    msg_id: Nonce,
     state_seq_num: u32,
     src_node_degree: u16,
 }
@@ -143,14 +406,14 @@ impl CommonHeader {
         msg_type: ProtocolMessageKind,
         src: NodeId,
         dst: NodeId,
-        msgid: Option<u64>,
+        msgid: Option<Nonce>,
         stateseqnum: Option<u32>,
         src_node_degree: usize,
     ) -> Self {
         Self {
             version: Self::KIRA_PROTOCOL_VERSION,
-            msg_type: msg_type as u8,
-            msg_flags: 0,
+            msg_type,
+            msg_flags: ProtocolMessageFlags::default(),
             msg_length: 1 + 1 + 1 + 2 + 14 + 14 + 8 + 8 + 4 + 2, // common header length
             dest_id: dst,
             src_node_id: src,
@@ -158,7 +421,7 @@ impl CommonHeader {
             msg_id: if let Some(msg_id) = msgid {
                 msg_id
             } else {
-                rand::random()
+                Nonce::random()
             },
             state_seq_num: if let Some(stateseqnumber) = stateseqnum {
                 stateseqnumber
@@ -173,16 +436,24 @@ impl CommonHeader {
         }
     }
 
-    pub fn set_flag(&mut self, flag: KiraMsgFlagsBit) {
-        self.msg_flags |= flag as u8;
-    }
-
-    pub fn clear_flag(&mut self, flag: KiraMsgFlagsBit) {
-        self.msg_flags |= !(flag as u8);
-    }
-
     pub fn set_msg_length(&mut self, msg_len: u16) {
         self.msg_length = msg_len;
+    }
+
+    pub fn msg_type(&self) -> ProtocolMessageKind {
+        self.msg_type
+    }
+
+    pub fn version(&self) -> u8 {
+        self.version
+    }
+
+    pub fn msg_flags(&self) -> ProtocolMessageFlags {
+        self.msg_flags
+    }
+
+    pub fn msg_flags_mut(&mut self) -> &mut ProtocolMessageFlags {
+        &mut self.msg_flags
     }
 
     pub fn add_to_msg_length(&mut self, msg_len: u16) {
@@ -224,11 +495,11 @@ impl CommonHeader {
         self.domain_id
     }
 
-    pub fn set_msg_id(&mut self, msgid: u64) {
+    pub fn set_msg_id(&mut self, msgid: Nonce) {
         self.msg_id = msgid;
     }
 
-    pub fn msg_id(&self) -> u64 {
+    pub fn msg_id(&self) -> Nonce {
         self.msg_id
     }
 
@@ -253,12 +524,12 @@ pub trait WireFormatMessage {
     fn common_header(&self) -> &CommonHeader;
     fn common_header_mut(&mut self) -> &mut CommonHeader;
 
-    fn set_flag(&mut self, flag: KiraMsgFlagsBit) {
-        self.common_header_mut().set_flag(flag);
+    fn msg_flags(&self) -> ProtocolMessageFlags {
+        self.common_header().msg_flags
     }
 
-    fn clear_flag(&mut self, flag: KiraMsgFlagsBit) {
-        self.common_header_mut().clear_flag(flag);
+    fn msg_flags_mut(&mut self) -> &mut ProtocolMessageFlags {
+        &mut self.common_header_mut().msg_flags
     }
 
     fn set_dest_id(&mut self, dst: NodeId) {
@@ -285,11 +556,11 @@ pub trait WireFormatMessage {
         self.common_header().domain_id()
     }
 
-    fn set_msg_id(&mut self, msgid: u64) {
+    fn set_msg_id(&mut self, msgid: Nonce) {
         self.common_header_mut().set_msg_id(msgid);
     }
 
-    fn msg_id(&self) -> u64 {
+    fn msg_id(&self) -> Nonce {
         self.common_header().msg_id()
     }
 
@@ -315,8 +586,8 @@ pub trait WireFormatMessage {
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum ProtocolMessage {
     ULNHello(CommonHeader),
-    ULNDiscReq(ReqRspMessage<RTableData>),
-    ULNDiscRsp(ReqRspMessage<RTableData>),
+    ULNDiscReq(ULNReqRspMessage<RTableData>),
+    ULNDiscRsp(ULNReqRspMessage<RTableData>),
     QueryRouteReq(ReqRspMessage<QueryRouteReqData>),
     QueryRouteRsp(ReqRspMessage<RTableData>),
     FindNodeReq(ReqRspMessage<FindNodeReqData>),
@@ -337,9 +608,7 @@ pub enum ProtocolMessage {
 impl ProtocolMessage {
     pub fn source_route_mut(&mut self) -> Option<&mut SourceRoute> {
         match self {
-            Self::ULNHello(_) => None,
-            Self::ULNDiscReq(req) => Some(&mut req.source_route),
-            Self::ULNDiscRsp(req) => Some(&mut req.source_route),
+            Self::ULNHello(_) | Self::ULNDiscReq(_) | Self::ULNDiscRsp(_) => None,
             Self::QueryRouteReq(req) => Some(&mut req.source_route),
             Self::QueryRouteRsp(req) => Some(&mut req.source_route),
             Self::FindNodeReq(req) => Some(&mut req.source_route),
@@ -359,9 +628,7 @@ impl ProtocolMessage {
 
     pub fn source_route(&self) -> Option<&SourceRoute> {
         match self {
-            Self::ULNHello(_) => None,
-            Self::ULNDiscReq(req) => Some(&req.source_route),
-            Self::ULNDiscRsp(req) => Some(&req.source_route),
+            Self::ULNHello(_) | Self::ULNDiscReq(_) | Self::ULNDiscRsp(_) => None,
             Self::QueryRouteReq(req) => Some(&req.source_route),
             Self::QueryRouteRsp(req) => Some(&req.source_route),
             Self::FindNodeReq(req) => Some(&req.source_route),
@@ -405,22 +672,22 @@ impl ProtocolMessage {
     pub fn msg_id(&self) -> Option<Nonce> {
         match self {
             Self::ULNHello(_) => None,
-            Self::ULNDiscReq(req) => Some(Nonce::from(req.common_header.msg_id())),
-            Self::ULNDiscRsp(req) => Some(Nonce::from(req.common_header.msg_id())),
-            Self::QueryRouteReq(req) => Some(Nonce::from(req.common_header.msg_id())),
-            Self::QueryRouteRsp(req) => Some(Nonce::from(req.common_header.msg_id())),
-            Self::FindNodeReq(req) => Some(Nonce::from(req.common_header.msg_id())),
-            Self::FindNodeRsp(req) => Some(Nonce::from(req.common_header.msg_id())),
-            Self::Error(req) => Some(Nonce::from(req.common_header.msg_id())),
-            Self::ProbeReq(req) => Some(Nonce::from(req.common_header.msg_id())),
-            Self::ProbeRsp(req) => Some(Nonce::from(req.common_header.msg_id())),
-            Self::PathSetupReq(req) => Some(Nonce::from(req.common_header.msg_id())),
-            Self::PathTeardownReq(req) => Some(Nonce::from(req.common_header.msg_id())),
+            Self::ULNDiscReq(req) => Some(req.common_header.msg_id()),
+            Self::ULNDiscRsp(req) => Some(req.common_header.msg_id()),
+            Self::QueryRouteReq(req) => Some(req.common_header.msg_id()),
+            Self::QueryRouteRsp(req) => Some(req.common_header.msg_id()),
+            Self::FindNodeReq(req) => Some(req.common_header.msg_id()),
+            Self::FindNodeRsp(req) => Some(req.common_header.msg_id()),
+            Self::Error(req) => Some(req.common_header.msg_id()),
+            Self::ProbeReq(req) => Some(req.common_header.msg_id()),
+            Self::ProbeRsp(req) => Some(req.common_header.msg_id()),
+            Self::PathSetupReq(req) => Some(req.common_header.msg_id()),
+            Self::PathTeardownReq(req) => Some(req.common_header.msg_id()),
             Self::UpdateRouteReq(_) => None,
-            Self::StoreReq(req) => Some(Nonce::from(req.common_header.msg_id())),
-            Self::StoreRsp(req) => Some(Nonce::from(req.common_header.msg_id())),
-            Self::FetchReq(req) => Some(Nonce::from(req.common_header.msg_id())),
-            Self::FetchRsp(req) => Some(Nonce::from(req.common_header.msg_id())),
+            Self::StoreReq(req) => Some(req.common_header.msg_id()),
+            Self::StoreRsp(req) => Some(req.common_header.msg_id()),
+            Self::FetchReq(req) => Some(req.common_header.msg_id()),
+            Self::FetchRsp(req) => Some(req.common_header.msg_id()),
         }
     }
 
@@ -457,8 +724,8 @@ impl ProtocolMessage {
     pub fn source_state_seq_nr(&self) -> StateSeqNr {
         match self {
             Self::ULNHello(req) => req.state_seq_num(),
-            Self::ULNDiscReq(req) => req.common_header().state_seq_num(),
-            Self::ULNDiscRsp(req) => req.common_header().state_seq_num(),
+            Self::ULNDiscReq(req) => req.common_header.state_seq_num(),
+            Self::ULNDiscRsp(req) => req.common_header.state_seq_num(),
             Self::QueryRouteReq(req) => req.common_header.state_seq_num(),
             Self::QueryRouteRsp(req) => req.common_header().state_seq_num(),
             Self::FindNodeReq(req) => req.common_header().state_seq_num(),
@@ -478,9 +745,7 @@ impl ProtocolMessage {
 
     pub fn not_via(&self) -> Option<&NotViaList> {
         match self {
-            Self::ULNHello(_) => None,
-            Self::ULNDiscReq(req) => req.not_via.as_ref(),
-            Self::ULNDiscRsp(req) => req.not_via.as_ref(),
+            Self::ULNHello(_) | Self::ULNDiscReq(_) | Self::ULNDiscRsp(_) => None,
             Self::QueryRouteReq(req) => req.not_via.as_ref(),
             Self::QueryRouteRsp(req) => req.not_via.as_ref(),
             Self::FindNodeReq(req) => req.not_via.as_ref(),
@@ -500,9 +765,24 @@ impl ProtocolMessage {
 
     /// Current hop of the message.
     ///
-    /// Is only [Option::None] if the message has no source route (ULNHello).
+    /// Is only [Option::None] if the message has no destinct destination ([ULNHello])
+    /// Messages that can only be sent to underlay neighbors ([ULNDiscReq], [ULNDiscRsp])
+    /// will return their [destination] as current hop.
+    /// Messages with a [SourceRoute] return the [current hop] of the [SourceRoute].
+    ///
+    /// [ULNHello]: ProtocolMessage::ULNHello
+    /// [ULNDiscReq]: ProtocolMessage::ULNDiscReq
+    /// [ULNDiscRsp]: ProtocolMessage::ULNDiscRsp
+    /// [destination]: ProtocolMessage::destination
+    /// [current hop]: SourceRoute::current_hop
     pub fn current_hop(&self) -> Option<&NodeId> {
-        self.source_route().map(|sr| sr.current_hop())
+        if matches!(self, Self::ULNHello(_)) {
+            return None;
+        };
+
+        self.source_route()
+            .map(|sr| sr.current_hop())
+            .or_else(|| self.destination())
     }
 
     pub fn previous_hop(&self) -> &NodeId {
@@ -584,6 +864,28 @@ impl<T: Debug> ReqRspMessage<T> {
     }
 }
 
+/// In contrary to a [ULNHello](crate::domain::ProtocolMessage::ULNHello) this type contains data for request and response pairs
+///
+/// The message can only be sent to underlay neighbors.
+/// Therefor, this message does not store any [SourceRoute].
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct ULNReqRspMessage<T: Debug> {
+    pub common_header: CommonHeader,
+    pub data: T,
+    // No SourceRoute since this message can only be sent to underlay neighbors
+}
+
+impl<T: Debug> ULNReqRspMessage<T> {
+    pub fn source(&self) -> &NodeId {
+        self.common_header.src_node_id()
+    }
+
+    pub fn destination(&self) -> &NodeId {
+        self.common_header.dest_id()
+    }
+}
+
 impl WireFormatMessage for ProtocolMessage {
     fn common_header(&self) -> &CommonHeader {
         match self {
@@ -640,13 +942,26 @@ impl<T: Debug> WireFormatMessage for ReqRspMessage<T> {
     }
 }
 
+impl<T: Debug> WireFormatMessage for ULNReqRspMessage<T> {
+    fn common_header(&self) -> &CommonHeader {
+        &self.common_header
+    }
+
+    fn common_header_mut(&mut self) -> &mut CommonHeader {
+        &mut self.common_header
+    }
+}
+
 /// Data struct representing the ProbeReq data protocol message.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct ProbeReqData;
 
 impl From<ReqRspMessage<ProbeReqData>> for ProtocolMessage {
-    fn from(message: ReqRspMessage<ProbeReqData>) -> Self {
+    fn from(mut message: ReqRspMessage<ProbeReqData>) -> Self {
+        // Target of ProbeReq is always assumed to exist
+        *message.common_header_mut().msg_flags_mut() |= ProtocolMessageFlags::Exact;
+
         Self::ProbeReq(message)
     }
 }
@@ -709,14 +1024,58 @@ impl WireFormatMessage for UpdateRouteReq {
     }
 }
 
+const ROUTE_UPDATE_ACTION_TYPE_ANNOUNCE: u8 = 0x00;
+const ROUTE_UPDATE_ACTION_TYPE_WITHDRAW: u8 = 0x01;
+const ROUTE_UPDATE_ACTION_TYPE_CHANGE: u8 = 0x02;
+const ROUTE_UPDATE_ACTION_TYPE_UNREACHABLE: u8 = 0x03;
+
 /// Data type representing the action performed on a contact.
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Debug, Display, PartialEq, Eq, Copy, Clone)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(from = "u8", into = "u8")
+)]
+#[cfg_attr(feature = "binrw", derive(BinRead, BinWrite),
+        bw(map = |kind: &Self| u8::from(*kind)),
+        br(map = |kind_raw: u8| Self::from(kind_raw))
+)]
+#[display("{_variant}")]
+#[non_exhaustive]
 pub enum RouteUpdateActionType {
-    Announce,    // new contact in routing table
-    WithDraw,    // contact deleted from routing table
-    Change,      // path has been changed, i.e., improved
-    Unreachable, // contact is currently not reachable
+    /// New contact in routing table.
+    Announce,
+    // Contact deleted from routing table.
+    WithDraw,
+    /// path has been changed, i.e., improved.
+    Change,
+    /// Contact is currently not reachable (but not yet removed).
+    Unreachable,
+    Other(u8),
+}
+
+impl From<u8> for RouteUpdateActionType {
+    fn from(action_type_raw: u8) -> Self {
+        match action_type_raw {
+            ROUTE_UPDATE_ACTION_TYPE_ANNOUNCE => Self::Announce,
+            ROUTE_UPDATE_ACTION_TYPE_WITHDRAW => Self::WithDraw,
+            ROUTE_UPDATE_ACTION_TYPE_CHANGE => Self::Change,
+            ROUTE_UPDATE_ACTION_TYPE_UNREACHABLE => Self::Unreachable,
+            _ => Self::Other(action_type_raw),
+        }
+    }
+}
+
+impl From<RouteUpdateActionType> for u8 {
+    fn from(action_type: RouteUpdateActionType) -> Self {
+        match action_type {
+            RouteUpdateActionType::Announce => ROUTE_UPDATE_ACTION_TYPE_ANNOUNCE,
+            RouteUpdateActionType::WithDraw => ROUTE_UPDATE_ACTION_TYPE_WITHDRAW,
+            RouteUpdateActionType::Change => ROUTE_UPDATE_ACTION_TYPE_CHANGE,
+            RouteUpdateActionType::Unreachable => ROUTE_UPDATE_ACTION_TYPE_UNREACHABLE,
+            RouteUpdateActionType::Other(other_action_type_raw) => other_action_type_raw,
+        }
+    }
 }
 
 impl From<UpdateRouteReq> for ProtocolMessage {
@@ -750,7 +1109,9 @@ pub enum QueryRouteType {
 }
 
 impl From<ReqRspMessage<QueryRouteReqData>> for ProtocolMessage {
-    fn from(message: ReqRspMessage<QueryRouteReqData>) -> Self {
+    fn from(mut message: ReqRspMessage<QueryRouteReqData>) -> Self {
+        // Target of QueryRouteReq is always assumed to exist
+        *message.common_header_mut().msg_flags_mut() |= ProtocolMessageFlags::Exact;
         Self::QueryRouteReq(message)
     }
 }
@@ -760,22 +1121,55 @@ impl From<ReqRspMessage<QueryRouteReqData>> for ProtocolMessage {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct FindNodeReqData {
-    pub exact: bool,
     /// The range of the neighborhood to include in the RTableObject of the Response.
     ///
     /// This is usually equal to the BUCKET_SIZE.
     pub neighborhood: NonZeroU64,
+}
+
+impl ReqRspMessage<FindNodeReqData> {
+    /// Indicates whether the destination is assumed to exist.
+    pub fn exact(&self) -> bool {
+        self.msg_flags().contains(ProtocolMessageFlags::Exact)
+    }
+
+    /// Indicate that the destination is assumed to exist.
+    pub fn set_exact(&mut self) {
+        *self.msg_flags_mut() |= ProtocolMessageFlags::Exact;
+    }
+
     /// The target for this request.
-    ///
-    /// While the destination of a [ProtocolMessage] represents the next hop to route
-    /// the message to the target is specific to FindNodeReq.
     ///
     /// Different kinds of values:
     ///
-    /// - Random Probing: Randomly generated NodeId
-    /// - Path Probing: Same as destination. Specific contact is probed for connectivity.
-    /// - Overlay Neighborhood Discovery: NodeId of the current node.
-    pub target: NodeId,
+    /// - Random Probing: Randomly generated [NodeId]
+    /// - Path Probing: Specific [Contact] is probed for connectivity.
+    /// - Overlay Neighborhood Discovery: [NodeId] of the current node.
+    pub fn target(&self) -> &NodeId {
+        self.common_header().dest_id()
+    }
+}
+
+impl ReqRspMessage<QueryRouteReqData> {
+    /// Indicates whether the destination is assumed to exist.
+    ///
+    /// A [`QueryRouteReq`] should always set the exact flag.
+    ///
+    /// [`QueryRouteReq`]: ProtocolMessage::QueryRouteReq
+    pub fn exact(&self) -> bool {
+        self.msg_flags().contains(ProtocolMessageFlags::Exact)
+    }
+}
+
+impl ReqRspMessage<ProbeReqData> {
+    /// Indicates whether the destination is assumed to exist.
+    ///
+    /// A [`ProbeReq`] should always set the exact flag.
+    ///
+    /// [`ProbeReq`]: ProtocolMessage::ProbeReq
+    pub fn exact(&self) -> bool {
+        self.msg_flags().contains(ProtocolMessageFlags::Exact)
+    }
 }
 
 impl From<ReqRspMessage<FindNodeReqData>> for ProtocolMessage {

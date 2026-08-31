@@ -10,11 +10,13 @@ edition.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["format-cbor", "udp-tokio", "api", "swagger_doc"]
+default = ["udp-tokio", "api", "swagger_doc", "format-binrw"]
 #bench = ["log/release_max_level_off"]
 api = ["axum", "hex", "sha2", "base64", "serde", "serde/derive", "serde_json"]
 swagger_doc = ["utoipa", "utoipa-swagger-ui", "api", "itertools"]
 udp-tokio = ["tokio/net"]
+# BinRW message format (default)
+format-binrw = ["binrw", "kira-r2kad/binrw"]
 # CBOR message format
 format-cbor = ["serde_cbor", "serde"]
 # rust message pack (de)serialization support
@@ -23,6 +25,7 @@ format-mp = ["rmp-serde", "serde"]
 format-json = ["serde_json", "serde"]
 # traces over all components
 distributed-tracing = []
+
 
 [lib]
 name = "kira_lib"
@@ -35,7 +38,13 @@ futures = { workspace = true }
 log = { workspace = true }
 kira-r2kad = { path = "../kira-r2kad", features = ["serde"] }
 kira-forwarding = { path = "../kira-forwarding", default-features = false }
-tokio = { workspace = true, features = ["rt", "time", "tracing", "sync"] }
+tokio = { workspace = true, features = [
+  "rt",
+  "time",
+  "tracing",
+  "sync",
+  "macros",
+] }
 netlink-packet-core = { workspace = true }
 netlink-packet-route = { workspace = true }
 netlink-proto = { workspace = true }
@@ -58,7 +67,7 @@ utoipa-swagger-ui = { version = "9.0.2", features = [
 itertools = { version = "0.15.0", optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 trait-variant = { workspace = true }
-
+binrw = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow = "1.0.104"

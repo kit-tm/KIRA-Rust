@@ -1,6 +1,9 @@
 //! Concrete serialization and deserialization implementation of
 //! [ProtocolMessages](ProtocolMessage) on a closed set of supported formats.
 
+#[cfg(feature = "format-binrw")]
+pub mod binrw;
+
 use std::{
     error::Error,
     io::{
@@ -25,14 +28,17 @@ use serde::Serialize;
 // TODO: Refactor this to be more efficient. Currently it doesn't support proper buffer writing.
 #[derive(Debug, Copy, Clone)]
 pub enum ProtocolMessageFormat {
+    #[cfg(feature = "format-binrw")]
+    /// Binary serialization using the `binrw` format.
+    Binrw,
+
     #[cfg(feature = "format-json")]
-    /// [JavaScript object notation](https://www.json.org) message format
+    /// [JavaScript object notation](https://www.json.org) message format.
     Json,
     #[cfg(feature = "format-cbor")]
     /// [Concise Binary Object Representation (CBOR)](https://datatracker.ietf.org/doc/html/rfc8949) message format.
     ///
-    /// CBOR is very efficient and a platform independent encoding, esp. used in IOT contexts
-    /// This is the default encoding proposed by the KIRA specification
+    /// CBOR is very efficient and a platform independent encoding, esp. used in IoT contexts
     CBOR,
     #[cfg(feature = "format-mp")]
     /// [MessagePack](https://msgpack.org/) message format.
@@ -48,13 +54,13 @@ pub enum ProtocolMessageFormat {
     None,
 }
 
+#[cfg(feature = "format-binrw")]
 impl Default for ProtocolMessageFormat {
-    /// Defaults to [Self::CBOR].
+    /// Defaults to [Self::Binrw].
     ///
     /// You must explicitly enable a [ProtocolMessageFormat] if wanted.
     fn default() -> Self {
-        #[cfg(feature = "format-cbor")]
-        Self::CBOR
+        Self::Binrw
     }
 }
 
@@ -64,6 +70,8 @@ impl ProtocolMessageFormat {
     /// If no message format was selected this method panics.
     pub fn deserialize<R: Read>(&self, reader: R) -> Result<ProtocolMessage, Box<dyn Error>> {
         let result = match self {
+            #[cfg(feature = "format-binrw")]
+            Self::Binrw => binrw::from_reader(reader)?,
             #[cfg(feature = "format-cbor")]
             Self::CBOR => serde_cbor::from_reader(reader)?,
             #[cfg(feature = "format-json")]
@@ -85,6 +93,8 @@ impl ProtocolMessageFormat {
         data: &ProtocolMessage,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         match self {
+            #[cfg(feature = "format-binrw")]
+            Self::Binrw => binrw::serialize(writer, data)?,
             #[cfg(feature = "format-cbor")]
             Self::CBOR => {
                 data.serialize(

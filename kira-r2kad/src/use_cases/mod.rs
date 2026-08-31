@@ -72,7 +72,7 @@ pub enum UseCaseEvent {
 /// Protocol message data to inject into the network.
 #[derive(Debug, Clone)]
 pub enum InjectionMessageData {
-    FindNode(FindNodeReqData),
+    FindNode(FindNodeReqData, NodeId),
     Store(StoreInjectData<LHTInput>, OneshotInjectMessageCallback),
     Fetch(FetchInjectData, OneshotInjectMessageCallback),
 }
@@ -80,9 +80,9 @@ pub enum InjectionMessageData {
 impl PartialEq for InjectionMessageData {
     fn eq(&self, other: &Self) -> bool {
         match self {
-            Self::FindNode(data) => {
-                if let Self::FindNode(other_data) = other {
-                    return data == other_data;
+            Self::FindNode(data, target) => {
+                if let Self::FindNode(other_data, other_target) = other {
+                    return data == other_data && target == other_target;
                 }
             }
             Self::Store(data, sender) => {

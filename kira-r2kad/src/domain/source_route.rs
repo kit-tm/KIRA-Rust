@@ -13,8 +13,12 @@ use crate::domain::{
 ///
 /// Invariants:
 /// - Current_hop has to be the current nodes NodeId.
-/// - SourceRoutes are not allowed to be empty and always start with the source of a [ProtocolMessage](crate::domain::ProtocolMessage).
-/// - progress is an index in the source route and therefore valid in range [0, len - 1]
+/// - SourceRoutes are not allowed to contain less than two nodes.
+///   * SourceRoutes always start with the source of a [ProtocolMessage].
+///   * SourceRoutes always end with an overlay hop.
+/// - progress is in range [1, len - 1]
+///
+/// [ProtocolMessage]: crate::domain::ProtocolMessage
 #[derive(Debug, Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SourceRoute {
@@ -25,20 +29,22 @@ pub struct SourceRoute {
 impl SourceRoute {
     /// Creates a new [SourceRoute] starting from the given source appended with
     /// the given Path.
-    pub fn new<I: Into<SourceRoute>>(source: NodeId, path: I) -> Self {
+    pub fn new<I: Into<Path>>(source: NodeId, path: I) -> Self {
         let path = path.into();
-        let mut ids = path.ids;
+        let mut ids = VecDeque::from_iter(path);
         ids.push_front(source);
         Self { ids, progress: 1 }
     }
 
     /// Creates a new source path from reverse of the given route.
+    ///
     /// The given route is truncated at the current progress
-    /// as this will be called by the responder
+    /// as this will be called by the responder.
     pub fn from_reversed<I: Into<SourceRoute>>(route: I) -> Self {
         let mut converted = route.into();
         converted.ids.truncate(converted.progress + 1);
         converted.ids.make_contiguous().reverse();
+        assert!(converted.ids.len() > 1);
         Self {
             ids: converted.ids,
             progress: 1,
@@ -60,27 +66,21 @@ impl SourceRoute {
 
     /// Returns the previous node in the [SourceRoute].
     pub fn prev_hop(&self) -> &NodeId {
-        assert!(self.progress > 0);
-
-        &self.ids[self.progress - 1]
+        self.ids
+            .get(self.progress - 1)
+            .expect("SourceRoute invariant: progress > 0")
     }
 
-    /// Returns the next hop in the source route.
+    /// Returns the next hop in the [SourceRoute].
     pub fn next_hop(&self) -> Option<&NodeId> {
-        if self.progress < self.ids.len() - 1 {
-            return Some(&self.ids[self.progress + 1]);
-        }
-
-        None
+        self.ids.get(self.progress + 1)
     }
 
     /// Returns the current hop in the source route.
     pub fn current_hop(&self) -> &NodeId {
-        if self.progress >= self.ids.len() {
-            panic!("Source route advanced beyond the last element")
-        }
-
-        &self.ids[self.progress]
+        self.ids
+            .get(self.progress)
+            .expect("SourceRoute advanced beyond the last element")
     }
 
     /// Advances the source route's progress by one
@@ -95,6 +95,10 @@ impl SourceRoute {
     /// `size` not `len` as its idiomatic to provide an `is_empty` method for types providing a
     /// `len` method.
     pub fn size(&self) -> usize {
+        assert!(
+            self.ids.len() >= 2,
+            "SourceRoute invariant: Starts with source of a ProtocolMessage and end with an overlay hop"
+        );
         self.ids.len()
     }
 
@@ -161,6 +165,14 @@ impl SourceRoute {
             Err(_) => panic!("Invalid invariant"),
         }
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = &NodeId> {
+        assert!(
+            self.ids.len() >= 2,
+            "SourceRoute invariant: Starts with source of a ProtocolMessage and end with an overlay hop"
+        );
+        self.ids.iter()
+    }
 }
 
 impl Extend<NodeId> for SourceRoute {
@@ -169,11 +181,20 @@ impl Extend<NodeId> for SourceRoute {
     }
 }
 
-impl From<Path> for SourceRoute {
-    fn from(path: Path) -> Self {
-        Self {
+impl TryFrom<Path> for SourceRoute {
+    type Error = &'static str;
+
+    fn try_from(path: Path) -> Result<Self, Self::Error> {
+        let sr = Self {
             ids: VecDeque::from_iter(path),
             progress: 1,
+        };
+        if sr.size() <= 1 {
+            Err(
+                "SourceRoute invariant: Starts with source of a ProtocolMessage and end with an overlay hop",
+            )
+        } else {
+            Ok(sr)
         }
     }
 }
@@ -185,15 +206,6 @@ impl From<SourceRoute> for Path {
             .into_iter()
             .collect::<Result<Path, _>>()
             .expect("SourceRoute is not allowed to be empty")
-    }
-}
-
-impl From<NodeId> for SourceRoute {
-    fn from(id: NodeId) -> Self {
-        Self {
-            ids: VecDeque::from([id]),
-            progress: 1,
-        }
     }
 }
 
@@ -211,11 +223,7 @@ mod tests {
         let second = NodeId::from(0x2);
         let third = NodeId::from(0x3);
 
-        let mut src_route = SourceRoute::from(second);
-        assert_eq!(src_route.size(), 1);
-        assert!(src_route.is_finished());
-        assert_eq!(*src_route.prev_hop(), second);
-        src_route.push_front(first);
+        let mut src_route = SourceRoute::new(first, second);
         assert_eq!(*src_route.current_hop(), second);
         assert_eq!(src_route.size(), 2);
         src_route.advance();
@@ -223,7 +231,7 @@ mod tests {
         assert_eq!(*src_route.current_hop(), second);
         assert!(src_route.contains(&second));
         let p = Path::from([first, second, third]);
-        let src_route_2 = SourceRoute::from(p);
+        let src_route_2 = SourceRoute::try_from(p).unwrap();
         assert_eq!(src_route_2.source(), &first);
         assert_eq!(src_route_2.destination(), &third);
         assert!(src_route_2.contains(&first));
@@ -240,13 +248,13 @@ mod tests {
         let p = Path::from([first, second, third]);
         let rev_p = Path::from([third, second, first]);
         let rev_p_trunc = Path::from([second, first]);
-        let mut src_route = SourceRoute::from(p);
-        let reverse_route = SourceRoute::from(rev_p_trunc);
+        let mut src_route = SourceRoute::try_from(p).unwrap();
+        let reverse_route = SourceRoute::try_from(rev_p_trunc).unwrap();
         let reversed_route = SourceRoute::from_reversed(src_route.clone());
         assert_eq!(reversed_route, reverse_route);
         src_route.advance();
         assert!(src_route.is_finished());
-        let reverse_route = SourceRoute::from(rev_p);
+        let reverse_route = SourceRoute::try_from(rev_p).unwrap();
         let reversed_route = SourceRoute::from_reversed(src_route);
         assert_eq!(reversed_route, reverse_route);
     }

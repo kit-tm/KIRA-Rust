@@ -361,9 +361,7 @@ where
             nonce,
             destination,
             FindNodeReqData {
-                exact: false,
                 neighborhood: NonZeroU64::new(neighbors).unwrap(),
-                target: destination,
             },
         )
         .into();
@@ -902,7 +900,7 @@ mod tests {
         assert_eq!(output.len(), 1);
         let nonce =
             if let Output::SendProtocolMessage(ProtocolMessage::FindNodeReq(req), _) = &output[0] {
-                assert_eq!(req.data.target, handle);
+                assert_eq!(req.target(), &handle);
                 req.msg_id()
             } else {
                 panic!("Expected FindNodeReq, got {:?}", output[0]);
@@ -921,7 +919,7 @@ mod tests {
             ),
             data: rtable,
             not_via: None,
-            source_route: SourceRoute::from(Path::try_from(vec![neighbor_id, root_id]).unwrap()),
+            source_route: SourceRoute::new(neighbor_id, root_id),
         };
 
         injector
@@ -959,7 +957,7 @@ mod tests {
                 status: Ok(StoreOk::Created),
             },
             not_via: None,
-            source_route: SourceRoute::from(handle),
+            source_route: SourceRoute::new(neighbor_id, handle),
         };
 
         injector
@@ -1037,7 +1035,7 @@ mod tests {
                 data: Ok(vec![value.clone()]),
             },
             not_via: None,
-            source_route: SourceRoute::from(handle),
+            source_route: SourceRoute::new(handle, root_id),
         };
 
         injector
