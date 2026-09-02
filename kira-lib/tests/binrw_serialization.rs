@@ -53,7 +53,7 @@ fn binrw_hello() {
         NodeId::with_lsb(0x12),
         NodeId::with_lsb(0x34),
         Some(0x789.into()),
-        Some(0x1234),
+        0x1234,
         1,
     );
     header.set_domain_id(0x4242);
@@ -86,7 +86,7 @@ fn binrw_discreq() {
         NodeId::with_lsb(0x10),
         NodeId::with_lsb(0x20),
         Some(0x1111.into()),
-        Some(0x2222),
+        0x2222,
         2,
     );
     header.set_domain_id(0x4242);
@@ -151,7 +151,7 @@ fn binrw_query_route_req() {
         NodeId::with_lsb(0x40),
         NodeId::with_lsb(0x50),
         Some(0x2222.into()),
-        Some(0x3333),
+        0x3333,
         3,
     );
     header.set_domain_id(0x4242);
@@ -202,7 +202,7 @@ fn binrw_find_node_req() {
         NodeId::with_lsb(0x60),
         NodeId::with_lsb(0x70),
         Some(0x4444.into()),
-        Some(0x5555),
+        0x5555,
         4,
     );
     header.set_domain_id(0x4242);
@@ -255,7 +255,7 @@ fn binrw_disc_rsp() {
         NodeId::with_lsb(0x71),
         NodeId::with_lsb(0x72),
         Some(0x6001.into()),
-        Some(0x6002),
+        0x6002,
         5,
     );
     header.set_domain_id(0x4242);
@@ -307,7 +307,7 @@ fn binrw_query_route_rsp() {
         NodeId::with_lsb(0x81),
         NodeId::with_lsb(0x82),
         Some(0x7001.into()),
-        Some(0x7002),
+        0x7002,
         6,
     );
     header.set_domain_id(0x4242);
@@ -373,7 +373,7 @@ fn binrw_find_node_rsp() {
         NodeId::with_lsb(0x91),
         NodeId::with_lsb(0x92),
         Some(0x8001.into()),
-        Some(0x8002),
+        0x8002,
         7,
     );
     header.set_domain_id(0x4242);
@@ -425,7 +425,7 @@ fn binrw_update_route_req() {
         NodeId::with_lsb(0x99),
         NodeId::with_lsb(0x9a),
         Some(0x8a01.into()),
-        Some(0x8a02),
+        0x8a02,
         4,
     );
     header.set_domain_id(0x4242);
@@ -492,7 +492,7 @@ fn binrw_error_dead_end() {
         NodeId::with_lsb(0xa1),
         NodeId::with_lsb(0xa2),
         Some(0x9001.into()),
-        Some(0x9002),
+        0x9002,
         2,
     );
     header.set_domain_id(0x4242);
@@ -538,7 +538,7 @@ fn binrw_error_segment_failure() {
         NodeId::with_lsb(0xfa),
         NodeId::with_lsb(0xfb),
         Some(0xcafe.into()),
-        Some(0xbabe),
+        0xbabe,
         1,
     );
     header.set_domain_id(0x4242);
@@ -598,7 +598,7 @@ fn binrw_probe_req() {
         NodeId::with_lsb(0xb1),
         NodeId::with_lsb(0xb2),
         Some(0x9101.into()),
-        Some(0x9102),
+        0x9102,
         1,
     );
     header.set_domain_id(0x4242);
@@ -649,7 +649,7 @@ fn binrw_probe_rsp() {
         NodeId::with_lsb(0xb3),
         NodeId::with_lsb(0xb4),
         Some(0x9201.into()),
-        Some(0x9202),
+        0x9202,
         1,
     );
     header.set_domain_id(0x4242);
@@ -691,7 +691,7 @@ fn binrw_path_setup_req() {
         NodeId::with_lsb(0xc1),
         NodeId::with_lsb(0xc2),
         Some(0x9301.into()),
-        Some(0x9302),
+        0x9302,
         1,
     );
     header.set_domain_id(0x4242);
@@ -733,7 +733,7 @@ fn binrw_path_teardown_req() {
         NodeId::with_lsb(0xc3),
         NodeId::with_lsb(0xc4),
         Some(0x9401.into()),
-        Some(0x9402),
+        0x9402,
         1,
     );
     header.set_domain_id(0x4242);
@@ -775,7 +775,7 @@ fn binrw_store_req() {
         NodeId::with_lsb(0xd1),
         NodeId::with_lsb(0xd2),
         Some(0x9501.into()),
-        Some(0x9502),
+        0x9502,
         2,
     );
     header.set_domain_id(0x4242);
@@ -826,7 +826,7 @@ fn binrw_store_rsp() {
         NodeId::with_lsb(0xd4),
         NodeId::with_lsb(0xd5),
         Some(0x9601.into()),
-        Some(0x9602),
+        0x9602,
         2,
     );
     header.set_domain_id(0x4242);
@@ -870,7 +870,7 @@ fn binrw_fetch_req() {
         NodeId::with_lsb(0xe1),
         NodeId::with_lsb(0xe2),
         Some(0x9701.into()),
-        Some(0x9702),
+        0x9702,
         2,
     );
     header.set_domain_id(0x4242);
@@ -913,7 +913,7 @@ fn binrw_fetch_rsp() {
         NodeId::with_lsb(0xe4),
         NodeId::with_lsb(0xe5),
         Some(0x9801.into()),
-        Some(0x9802),
+        0x9802,
         2,
     );
     header.set_domain_id(0x4242);
@@ -962,7 +962,7 @@ fn binrw_store_req_no_payload() {
         NodeId::with_lsb(0xf1),
         NodeId::with_lsb(0xf2),
         Some(0xdead.into()),
-        Some(0xbeef),
+        0xbeef,
         1,
     );
     header.set_domain_id(0x4242);
@@ -989,7 +989,7 @@ fn binrw_error_unknown_error_kind() {
         NodeId::with_lsb(0xfa),
         NodeId::with_lsb(0xfb),
         Some(0xcafe.into()),
-        Some(0xbabe),
+        0xbabe,
         1,
     );
     header.set_domain_id(0x4242);
@@ -1019,7 +1019,7 @@ fn binrw_hello_with_payload() {
         NodeId::with_lsb(0xaa),
         NodeId::with_lsb(0xbb),
         Some(0x1234.into()),
-        Some(0x5678),
+        0x5678,
         1,
     );
     header.set_domain_id(0x4242);

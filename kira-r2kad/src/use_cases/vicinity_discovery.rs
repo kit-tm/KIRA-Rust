@@ -311,7 +311,7 @@ where
                 *context.root_id(),
                 *source_route.destination(),
                 Some(nonce),
-                Some(From::from(*context.uln_table().state_seq_nr())),
+                *context.uln_table().state_seq_nr(),
                 context.uln_table().size(),
             ),
             data: QueryRouteReqData {
@@ -344,7 +344,7 @@ where
                 *context.root_id(),
                 *request.source(),
                 Some(request.msg_id()),
-                Some(From::from(*context.uln_table().state_seq_nr())),
+                *context.uln_table().state_seq_nr(),
                 context.uln_table().size(),
             ),
             data: RTableData { contacts },
@@ -366,7 +366,7 @@ where
             *context.root_id(),
             NodeId::ALL_NODES,
             None,
-            Some(From::from(*context.uln_table().state_seq_nr())),
+            *context.uln_table().state_seq_nr(),
             context.uln_table().size(),
         ));
 
@@ -380,7 +380,7 @@ where
             *context.root_id(),
             NodeId::ALL_NODES,
             None,
-            Some(From::from(*context.uln_table().state_seq_nr())),
+            *context.uln_table().state_seq_nr(),
             context.uln_table().size(),
         ));
 
@@ -403,7 +403,7 @@ where
                 *context.root_id(),
                 destination,
                 Some(nonce),
-                Some(ssn.into()),
+                ssn,
                 context.uln_table().size(),
             ),
             data: RTableData { contacts },
@@ -428,7 +428,7 @@ where
                 *context.root_id(),
                 *request.source(),
                 Some(request.msg_id()),
-                Some(ssn.into()),
+                ssn,
                 context.uln_table().size(),
             ),
             data: RTableData { contacts },

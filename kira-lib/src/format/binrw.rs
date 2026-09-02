@@ -49,7 +49,6 @@ use kira_r2kad::domain::{
     SourceRoute,
     protocol_message::{
         CommonHeader,
-        CommonObjectHeader,
         ErrorData,
         FindNodeReqData,
         PathSetupReqData,
@@ -57,11 +56,9 @@ use kira_r2kad::domain::{
         ProbeReqData,
         ProbeRspData,
         ProtocolMessage,
-        ProtocolObjectType,
         QueryRouteReqData,
         QueryRouteType,
         RTableData,
-        RTableRequestTypeValue,
         ReqRspMessage,
         RouteUpdateActionType,
         ULNReqRspMessage,
@@ -76,6 +73,11 @@ use kira_r2kad::domain::{
             StoreOk,
             StoreReqData,
             StoreRspData,
+        },
+        wire::{
+            CommonObjectHeader,
+            ProtocolObjectType,
+            RTableRequestTypeValue,
         },
     },
 };

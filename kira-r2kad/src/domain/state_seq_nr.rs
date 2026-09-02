@@ -12,8 +12,8 @@ use derive_more::{
     From,
 };
 
-pub const INVALID_SSN: u32 = u32::MIN;
-pub const RESET_SSN: u32 = u32::MAX;
+const INVALID_SSN: u32 = u32::MIN;
+const RESET_SSN: u32 = u32::MAX;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Display, From)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

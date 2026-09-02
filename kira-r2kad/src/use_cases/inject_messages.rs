@@ -200,7 +200,7 @@ where
                         *context.root_id(),
                         target,
                         Some(nonce),
-                        Some(From::from(*context.uln_table().state_seq_nr())),
+                        *context.uln_table().state_seq_nr(),
                         context.uln_table().size(),
                     ),
                     data,

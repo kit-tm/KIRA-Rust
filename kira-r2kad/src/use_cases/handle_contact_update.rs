@@ -116,7 +116,7 @@ where
                     *context.root_id(),
                     *contact.id(),
                     None,
-                    Some(From::from(*context.uln_table().state_seq_nr())),
+                    *context.uln_table().state_seq_nr(),
                     context.uln_table().size(),
                 ),
                 not_via: None,

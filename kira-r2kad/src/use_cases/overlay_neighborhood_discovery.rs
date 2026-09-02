@@ -313,7 +313,7 @@ where
                 // message shouldn't loop back to this node because EXACT=false
                 *context.root_id(),
                 Some(new_nonce),
-                Some(From::from(*context.uln_table().state_seq_nr())),
+                *context.uln_table().state_seq_nr(),
                 context.uln_table().size(),
             ),
             data: FindNodeReqData {
@@ -411,7 +411,7 @@ where
                 *context.root_id(),
                 random_id, //random ID
                 Some(new_nonce),
-                Some(From::from(*context.uln_table().state_seq_nr())),
+                *context.uln_table().state_seq_nr(),
                 context.uln_table().size(),
             ),
             data: FindNodeReqData {

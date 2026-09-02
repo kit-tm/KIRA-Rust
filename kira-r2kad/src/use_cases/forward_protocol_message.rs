@@ -459,7 +459,7 @@ where
                 *context.root_id(),
                 *message.source(),
                 Some(message.msg_id().unwrap()),
-                Some(From::from(*context.uln_table().state_seq_nr())),
+                *context.uln_table().state_seq_nr(),
                 context.uln_table().size(),
             ),
             data: ErrorData::SegmentFailure {

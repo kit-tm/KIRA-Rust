@@ -355,7 +355,7 @@ where
                     *context.root_id(),
                     *contact_id,
                     Some(nonce),
-                    Some(From::from(*context.uln_table().state_seq_nr())),
+                    *context.uln_table().state_seq_nr(),
                     context.uln_table().size(),
                 ),
                 data: FindNodeReqData {
@@ -403,7 +403,7 @@ where
                     *context.root_id(),
                     *contact.id(),
                     None,
-                    Some(From::from(*context.uln_table().state_seq_nr())),
+                    *context.uln_table().state_seq_nr(),
                     context.uln_table().size(),
                 ),
                 not_via: From::from(notviastatelist.clone()),
@@ -650,7 +650,7 @@ where
                 *context.root_id(),
                 node_id,
                 Some(msg_id),
-                Some(From::from(*context.uln_table().state_seq_nr())),
+                *context.uln_table().state_seq_nr(),
                 context.uln_table().size(),
             ),
             data: FindNodeReqData {
