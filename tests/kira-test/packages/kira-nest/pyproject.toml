@@ -10,7 +10,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
   "kira-common",
-  "nest @ git+https://gitlab.com/Toorero/nest.git@feature/cap_sys_admin", # https://gitlab.com/nitk-nest/nest/-/work_items/283
+  "nest @ git+https://gitlab.com/nitk-nest/nest.git", # 005be374, ba9e1890
   "networkx==3.6.1",
   "scipy==1.18.0",
   "term-image==0.7.2",
