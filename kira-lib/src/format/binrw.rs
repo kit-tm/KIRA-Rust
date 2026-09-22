@@ -1877,7 +1877,7 @@ fn parse_rtable_update_info_from_bytes(
                 let action_raw = u8::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
                 let action = RouteUpdateActionType::from(action_raw);
 
-                let contact = Contact::new(Path::from(contact_id), ssn);
+                let contact = Contact::new(path, ssn);
                 result.insert(contact, action);
 
                 object_length_remaining -= NodeId::SIZE // Contact-ID

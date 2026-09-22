@@ -492,7 +492,7 @@ fn binrw_update_route_req() {
         assert_eq!(decoded_contact.id(), contacts[i].id());
         assert_eq!(decoded_contact.state_seq_nr(), contacts[i].state_seq_nr());
         assert_eq!(decoded_contact.path(), contacts[i].path());
-        assert_eq!(*decoded_action, RouteUpdateActionType::Announce);
+        assert_eq!(decoded_action, contact_actions.get(&contacts[i]).unwrap());
     }
 }
 
