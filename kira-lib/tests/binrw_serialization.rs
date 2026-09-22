@@ -430,13 +430,22 @@ fn binrw_update_route_req() {
     );
     header.set_domain_id(0x4242);
 
-    let contact = Contact::new(
-        Path::from(NodeId::with_lsb(0x9b)),
-        SafeStateSeqNr::try_from(12u32).unwrap(),
-    );
+    let contacts: Vec<_> = (0..5)
+        .into_iter()
+        .map(|i| {
+            Contact::new(
+                Path::from([NodeId::with_lsb(0x9b), NodeId::with_lsb(i + 42)]),
+                SafeStateSeqNr::try_from(42 + i as u32).unwrap(),
+            )
+        })
+        .collect();
 
     let mut contact_actions = HashMap::new();
-    contact_actions.insert(contact.clone(), RouteUpdateActionType::Announce);
+    contact_actions.insert(contacts[0].clone(), RouteUpdateActionType::Announce);
+    contact_actions.insert(contacts[1].clone(), RouteUpdateActionType::WithDraw);
+    contact_actions.insert(contacts[2].clone(), RouteUpdateActionType::Change);
+    contact_actions.insert(contacts[3].clone(), RouteUpdateActionType::Unreachable);
+    contact_actions.insert(contacts[4].clone(), RouteUpdateActionType::Other(42));
 
     let msg = ProtocolMessage::UpdateRouteReq(UpdateRouteReq {
         common_header: header.clone(),
@@ -474,15 +483,17 @@ fn binrw_update_route_req() {
     assert!(decoded_req.not_via.is_some_and(|v| v.is_empty()));
     assert_eq!(decoded_req.source_route.source(), header.src_node_id());
     assert_eq!(decoded_req.source_route.destination(), header.dest_id());
-    assert_eq!(decoded_req.contact_actions.len(), 1);
-    let (decoded_contact, decoded_action) = decoded_req
-        .contact_actions
-        .iter()
-        .next()
-        .expect("missing contact action");
-    assert_eq!(decoded_contact.id(), contact.id());
-    assert_eq!(decoded_contact.state_seq_nr(), contact.state_seq_nr());
-    assert_eq!(*decoded_action, RouteUpdateActionType::Announce);
+
+    assert_eq!(decoded_req.contact_actions.len(), 5);
+    let mut decoded_contact_actions: Vec<_> = decoded_req.contact_actions.into_iter().collect();
+    decoded_contact_actions.sort_by_key(|(c, _)| *c.id());
+
+    for (i, (decoded_contact, decoded_action)) in decoded_contact_actions.iter().enumerate() {
+        assert_eq!(decoded_contact.id(), contacts[i].id());
+        assert_eq!(decoded_contact.state_seq_nr(), contacts[i].state_seq_nr());
+        assert_eq!(decoded_contact.path(), contacts[i].path());
+        assert_eq!(*decoded_action, RouteUpdateActionType::Announce);
+    }
 }
 
 #[test]
