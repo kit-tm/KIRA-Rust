@@ -31,6 +31,9 @@ pub enum BucketInsertionError {
     #[display("Tried inserting into full bucket")]
     /// The bucket is full.
     Full,
+    #[display("Contact requires path validation before insertion")]
+    /// contact interesting, but needs path validation first
+    NeedsValidation,
 }
 
 #[derive(Debug, Display, Error)]
@@ -120,8 +123,24 @@ impl<const SIZE: usize> Bucket<SIZE> {
             return Err(BucketInsertionError::DuplicateId(contact.into_id()));
         }
 
+        tracing::trace!(
+            target: "routing_table",
+            reason = "inserting contact",
+            ?contact,
+        );
+
+        if contact
+            .path()
+            .expect("contact for insertion needs active path")
+            .is_notvalidated()
+        {
+            return Err(BucketInsertionError::NeedsValidation);
+        }
+
         match self.empty_entry_mut() {
             Some(entry) => {
+                // NOTE: entry doesn't need to be valid: in case contacts are in Redisovering/Invalid
+                // and buckets are moved during a split due to new contacts etc.
                 *entry = Some(contact);
                 Ok(())
             }
@@ -315,7 +334,6 @@ mod tests {
             Path::from(NodeId::ONE),
             SafeStateSeqNr::try_from(1).unwrap(),
         );
-
         assert!(bucket.insert(contact.clone()).is_ok());
 
         assert!(!bucket.is_empty());
@@ -329,7 +347,6 @@ mod tests {
             Path::from(NodeId::with_lsb(2)),
             SafeStateSeqNr::try_from(1).unwrap(),
         );
-
         assert!(bucket.insert(second_contact.clone()).is_ok());
 
         assert!(!bucket.is_empty());

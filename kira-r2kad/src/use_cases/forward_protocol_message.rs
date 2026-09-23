@@ -24,7 +24,6 @@ use crate::{
         NotViaState,
         NotViaStateList,
         Path,
-        PathState,
         ProtocolMessage,
         ProtocolMessageKind,
         RoutingTable,
@@ -50,6 +49,7 @@ use crate::{
         },
     },
     use_cases::{
+        ContactEvent,
         EventHandler,
         HandlingResult,
         NeverError,
@@ -110,8 +110,7 @@ where
 
         path.reverse();
         // this path is validated because it was taken from a source route that has been traversed recently
-        path.set_state(PathState::Valid);
-        path.update_last_validated();
+        path.set_valid();
         path
     }
 
@@ -128,14 +127,16 @@ where
             return None;
         }
 
-        let path = self.extract_path_to_source(message);
+        let mut path = self.extract_path_to_source(message);
         let ssn = message.source_state_seq_nr();
         if ssn.is_reset() {
             todo!("implement reset of StateSeqNr")
         }
 
         let ssn = ssn.value()?;
-        // new automatically creates a Contact in Valid state
+        // source routes are automatically validated
+        path.set_valid();
+        // new automatically creates a Contact in Valid state but requires a valid path
         let contact = Contact::new(path.clone(), ssn);
         //log::trace!(target: "forward_protocol_message", "extract_source_information for contact {} = {}",contact.id(),contact);
 
@@ -184,19 +185,38 @@ where
             context.uln_table().deref(),
         );
 
-        // Remove if contact changed the routing table in any way, was an underlay neighbor and is not a ULN anymore
-        if result != InsertionStrategyResult::Dropped
-            && context.uln_table().contains(contact.id())
-            && !context
-                .routing_table()
-                .contact(contact.id())
-                .map(Contact::is_uln)
-                .unwrap_or(false)
-        {
-            context.uln_table_mut().remove(contact.id());
-            log::debug!(target: "forward_protocol_message", "Removed {} from ULNTable as it is no more an undelay neighbor; {:?}", contact.id(), contact);
-        } else {
-            log::debug!(target: "forward_protocol_message", "Routing table insertion result for contact {}: {:?} ", contact.id(), result);
+        match result {
+            InsertionStrategyResult::NeedsValidation => {
+                // if this is a new candidate, we need to check its validity first,
+                // if it is an existing contact but only with a proposed path, we need to set the proposed path first
+                log::trace!(target: "forward_protocol_message", "proposed contact will be checked later {:?} ", contact);
+
+                // spawn probing event
+                context
+                    .runtime()
+                    .broadcast_event(Box::new(ContactEvent::Proposed(contact)));
+            }
+            InsertionStrategyResult::Dropped => {
+                log::trace!(target: "forward_protocol_message", "contact {} dismissed by RT insertion strategy", contact.id());
+            }
+            InsertionStrategyResult::Inserted
+            | InsertionStrategyResult::Replaced(_)
+            | InsertionStrategyResult::Updated => {
+                // Remove if contact changed the routing table in any way, was an underlay neighbor and is not a ULN anymore
+                if context.uln_table().contains(contact.id())
+                    && !context
+                        .routing_table()
+                        .contact(contact.id())
+                        .map(Contact::is_uln)
+                        .unwrap_or(false)
+                {
+                    context.uln_table_mut().remove(contact.id());
+                    log::debug!(target: "forward_protocol_message", "Removed {} from ULNTable as it is no more an undelay neighbor; {:?}", contact.id(), contact);
+                    return;
+                }
+
+                log::debug!(target: "forward_protocol_message", "Routing table insertion result for contact {}: {:?} ", contact.id(), result);
+            }
         }
     }
 
@@ -206,11 +226,25 @@ where
             if reported_contact.path().is_some() {
                 path.extend(reported_contact.path().unwrap().clone());
             }
+            // we must ignore any paths that lead via ourselves
+            if path.contains(context.root_id()) {
+                continue;
+            }
             // we now have potential cycles that we need to remove
             InOrderCycleRemover.remove_cycles_in_place(&mut path);
-            path.set_state(PathState::Checking);
-            path.unset_last_validated();
+            if reported_contact.path().unwrap().size() == 1 {
+                // this is a ULN of the reporting source
+                path.set_valid();
+                // TODO one should use the reported timestamp for last validated
+            } else {
+                // since this is indirect information we heard, we do not trust it
+                path.unset_last_validated();
+                path.set_notvalidated();
+            }
+
+            assert_eq!(reported_contact.id(), path.last());
             reported_contact.set_path(path);
+            log::debug!(target: "forward_protocol_message", "Contact from reading rtable: {:?} ", reported_contact);
 
             self.update_contact(context, reported_contact);
         }
@@ -243,6 +277,12 @@ where
             ErrorData::DeadEnd => {
                 // In case of DeadEnd a path to a contact couldn't be found
                 // No invalidation is needed
+            }
+            ErrorData::RouteFailureWrongHop {
+                wrong_hop: link, ..
+            } => {
+                // this is an indication that there is an implementation error
+                log::error!(target: "forward_protocol_messate", "RouteFailureWrongHop {:?}",link);
             }
         };
     }
@@ -314,10 +354,15 @@ where
             // concatenate paths to source_contact with path from it to the updated_contact
             let mut new_path = path_to_source_contact.clone();
             new_path.extend(updated_contact.path().unwrap().clone());
+            // paths should never contain ourselves
+            if new_path.contains(context.root_id()) {
+                continue;
+            }
             // we now have potential cycles that we need to remove
             InOrderCycleRemover.remove_cycles_in_place(&mut new_path);
             // path is not yet validated, so we use the state to indicated this
-            new_path.set_state(PathState::Checking);
+            new_path.set_notvalidated();
+            assert_eq!(updated_contact.id(), new_path.last());
 
             // Note that for all actions we have the contact already, checked for existence before
             match update_action {
@@ -523,6 +568,7 @@ where
         // From here on the message is assumed to be for us
 
         // Next hop is not a underlay neighbor -> Error -> Drop
+        // TODO distinguish between failed next hop and wrong (non-existing hop ), see RouteFailureWrongHop
         if context.uln_table().get(next_hop).is_none() {
             tracing::warn!(
                 target: "forward_protocol_message",

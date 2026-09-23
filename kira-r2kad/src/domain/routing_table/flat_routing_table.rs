@@ -153,6 +153,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
         match bucket.insert(contact) {
             Err(BucketInsertionError::Full) => Err(AddError::NotAdded),
             Err(BucketInsertionError::DuplicateId(id)) => Err(AddError::AlreadyExists(id)),
+            Err(BucketInsertionError::NeedsValidation) => Err(AddError::NeedsValidation),
             Ok(_) => Ok(()),
         }
     }

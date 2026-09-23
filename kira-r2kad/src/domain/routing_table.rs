@@ -42,6 +42,8 @@ pub enum AddError {
     AlreadyExists(#[error(not(source))] NodeId),
     #[display("Bucket is full, not added")]
     NotAdded,
+    #[display("Contact not added: needs path validation")]
+    NeedsValidation,
 }
 
 #[derive(Debug, Eq, PartialEq, Display, Error)]

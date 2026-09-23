@@ -573,6 +573,8 @@ where
                 .entered();
                 self.update_bucket(context, bucket)?;
             }
+            ContactEvent::Proposed(_) => { // not relevant for this use case
+            }
         }
 
         Ok(())

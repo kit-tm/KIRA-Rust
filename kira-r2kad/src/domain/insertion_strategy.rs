@@ -34,6 +34,7 @@ pub enum InsertionStrategyResult {
     Inserted,
     Replaced(NodeId),
     Updated,
+    NeedsValidation,
 }
 
 /// An [InsertionStrategy] handles inserting a [Contact] into a [RoutingTable].
@@ -137,7 +138,8 @@ where
     }
 
     /// Check if the contact can replace an entry in the bucket it belongs to.
-    /// FIXME: this should only be done after checking that the contact is currently reachable
+    /// Note: this should only be done after checking that the contact is currently reachable
+    /// in case the path has not been validated yet
     fn replace_in_full_bucket(&self, contact: Contact, table: &mut RT) -> InsertionStrategyResult {
         let bucket = table.bucket(contact.id());
         assert!(
@@ -167,6 +169,12 @@ where
             .max_by_key(|c| c.path().unwrap().size());
 
         if let Some(replaceable) = replaceable.cloned() {
+            // since contact is a candidate we are interested in,
+            // we need to validate it first in case the path has not been validated
+            if contact.path().unwrap().is_notvalidated() {
+                return InsertionStrategyResult::NeedsValidation;
+            }
+
             // obtain mut reference to replaceable contact
             let mut replaceable_mut = table
                 .contact_mut(replaceable.id())
@@ -221,15 +229,15 @@ where
         routing_table: &mut RT,
         un_table: &UN,
     ) -> InsertionStrategyResult {
-        // perform some sanity checks
+        // perform some sanity checks before insertion is actually tried:
 
-        // valid contacts stem from source route, unknown contacts from RTable objects
+        // valid contacts stem from source route, contacts in unknown state from RTable objects
         if !(contact.is_valid() || *contact.state() == ContactState::Unknown) {
             tracing::trace!(
                 target: "routing_table",
                 reason = "tried to insert non valid contact",
                 path = %contact.path().unwrap(),
-                "dropping contact",
+                "ignoring contact",
             );
             return InsertionStrategyResult::Dropped;
         }
@@ -239,7 +247,7 @@ where
                 target: "routing_table",
                 reason = "ignoring myself as contact",
                 path = %contact.path().unwrap(),
-                "dropping contact",
+                "ignoring contact",
             );
             return InsertionStrategyResult::Dropped;
         }
@@ -249,7 +257,7 @@ where
                 target: "routing_table",
                 reason = "path contains myself",
                 path = %contact.path().unwrap(),
-                "dropping contact",
+                "ignoring contact",
             );
             return InsertionStrategyResult::Dropped;
         }
@@ -260,7 +268,7 @@ where
                 reason = "path not leading via underlay neighbor",
                 node = %contact.path().unwrap().first(),
                 path = %contact.path().unwrap(),
-                "dropping contact",
+                "ignoring contact",
             );
             return InsertionStrategyResult::Dropped;
         }
@@ -271,6 +279,10 @@ where
         let path = contact.path_mut().unwrap();
         self.path_cycle_remover.remove_cycles_in_place(path);
         self.path_simplifier.simplify(routing_table, un_table, path);
+        // if it is a ULN it is automatically a valid path
+        if path.size() == 1 {
+            path.set_valid();
+        }
 
         // contacts with Unknown state contain may new interesting paths for proposed paths
         // try them first if contact exists
@@ -279,8 +291,9 @@ where
                 return self.update_existing(contact.clone(), routing_table);
             }
             // if the contact does not exist yet, return for now
-            // TODO interesting contacts could be saved for later
-            return InsertionStrategyResult::Dropped;
+            // interesting contacts could be saved for later
+            // TODO need to assess whether it is worth to probe the path
+            return InsertionStrategyResult::NeedsValidation;
         }
 
         // insert modified contact into routing table
@@ -303,13 +316,16 @@ where
             "inserting contact into routing table failed",
         );
 
-        // try modifying an existing contact in the bucket instead of inserting
+        // try modifying an existing contact in the bucket instead of inserting or check new contact proposal first
         match insertion_err {
             InsertionError::BucketSplit(_) | InsertionError::Add(AddError::NotAdded) => {
                 self.replace_in_full_bucket(contact.clone(), routing_table)
             }
             InsertionError::Add(AddError::AlreadyExists(_)) => {
                 self.update_existing(contact.clone(), routing_table)
+            }
+            InsertionError::Add(AddError::NeedsValidation) => {
+                return InsertionStrategyResult::NeedsValidation;
             }
         }
     }

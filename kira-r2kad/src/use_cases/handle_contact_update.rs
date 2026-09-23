@@ -124,6 +124,8 @@ where
                 source_route: SourceRoute::new(*context.root_id(), contact.path().unwrap().clone()),
             };
 
+            log::trace!(target: "handle_contact_update", "Sending update to contact {}, msg: {:?}", contact.id(), message);
+
             context
                 .runtime()
                 .send_message(message, context.uln_table().deref(), context.root_id());
@@ -208,7 +210,13 @@ where
                 ContactEvent::Updated { new, old } => {
                     let mut updates = HashMap::new();
                     if new.state() == &ContactState::Valid {
-                        updates.insert(*new.clone(), RouteUpdateActionType::Change);
+                        // propagate changes only for the active path
+                        if new.path().is_some()
+                            && old.path().is_some()
+                            && new.path().unwrap().is_same_path_as(old.path().unwrap())
+                        {
+                            updates.insert(*new.clone(), RouteUpdateActionType::Change);
+                        }
                     } else {
                         updates.insert(*new.clone(), RouteUpdateActionType::Unreachable);
                     }
@@ -221,11 +229,13 @@ where
                     }
                 }
                 ContactEvent::New(new) => {
-                    // always send an update if a new contact was found
-                    let mut updates = HashMap::new();
-                    updates.insert(new.clone(), RouteUpdateActionType::Announce);
+                    log::trace!(target: "handle_contact_update", "New contact {} found. Sending update for {:?}", new.id(), new);
 
-                    log::trace!(target: "handle_contact_update", "New contact {} found. Sending update.", new.id());
+                    // always send an update if a new contact was found
+                    // TODO this is mostly useful only for ULNs
+                    let mut updates = HashMap::new();
+                    updates.insert(new, RouteUpdateActionType::Announce);
+
                     self.send_update(context, updates);
                 }
                 _ => {}

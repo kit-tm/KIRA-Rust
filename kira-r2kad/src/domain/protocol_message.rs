@@ -213,6 +213,10 @@ impl ProtocolMessage {
                 data: ErrorData::SegmentFailure { source, .. },
                 ..
             }) => source,
+            Self::Error(ReqRspMessage {
+                data: ErrorData::RouteFailureWrongHop { source, .. },
+                ..
+            }) => source,
             Self::ProbeReq(req) => req.source(),
             Self::ProbeRsp(req) => req.source(),
             Self::PathSetupReq(req) => req.source(),
@@ -691,6 +695,8 @@ impl From<ReqRspMessage<FindNodeReqData>> for ProtocolMessage {
 /// - `DeadEnd`: The source is the node which answered
 /// - `SegmentFailure(Link)`: The source is the destination of the request and the node which
 ///   answered is the first element in the transmitted link.
+/// - `RouteFailureWrongHop`: The source is the destination of the request and the node which
+///   answered is the first element in the transmitted link.
 ///
 /// In any case the returned error message contains the node which answered and the node which was
 /// the destination of the request.
@@ -705,6 +711,8 @@ pub enum ErrorData {
     ///
     /// Contains the link which is invalid.
     SegmentFailure { failed_link: Link, source: NodeId },
+    /// RouteFailureWrongHop
+    RouteFailureWrongHop { wrong_hop: Link, source: NodeId },
 }
 
 impl ReqRspMessage<ErrorData> {
@@ -713,6 +721,7 @@ impl ReqRspMessage<ErrorData> {
         match &self.data {
             ErrorData::DeadEnd => self.source(),
             ErrorData::SegmentFailure { failed_link, .. } => failed_link.first(),
+            ErrorData::RouteFailureWrongHop { wrong_hop, .. } => wrong_hop.first(),
         }
     }
 }

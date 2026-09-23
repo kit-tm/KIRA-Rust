@@ -5,10 +5,7 @@ use std::hash::{
 
 use derive_more::derive::Display;
 
-use crate::domain::{
-    Path,
-    PathState,
-};
+use crate::domain::Path;
 
 const MAX_ALTERNATIVE_PATHS: usize = 3;
 
@@ -88,10 +85,7 @@ impl PathCollection {
             }
             self.move_active_to_alternative();
         }
-        self.proposed_path
-            .as_mut()
-            .unwrap()
-            .set_state(PathState::Valid);
+        self.proposed_path.as_mut().unwrap().set_valid();
         self.active_path = self.proposed_path.take();
     }
 

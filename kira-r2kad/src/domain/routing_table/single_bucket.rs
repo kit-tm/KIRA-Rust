@@ -67,6 +67,7 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
         match self.bucket.insert(contact) {
             Err(BucketInsertionError::DuplicateId(id)) => Err(AddError::AlreadyExists(id)),
             Err(BucketInsertionError::Full) => Err(AddError::NotAdded),
+            Err(BucketInsertionError::NeedsValidation) => Err(AddError::NeedsValidation),
             Ok(()) => Ok(()),
         }
     }

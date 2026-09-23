@@ -91,6 +91,8 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
             }
         } else {
             // contact does not exist as ULN
+
+            // if contact is ULN, so add it
             if contact.is_uln() {
                 // add to underlay neighbors
                 _ = self.inner.remove(contact.id());

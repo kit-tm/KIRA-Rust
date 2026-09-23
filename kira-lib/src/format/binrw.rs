@@ -85,6 +85,7 @@ use kira_r2kad::domain::{
 const HEADER_LEN: usize = 55; // KIRA header size (bytes)
 const ERROR_DEAD_END: u8 = 0x0a;
 const ERROR_SEGMENT_FAILURE: u8 = 0x05;
+const ERROR_ROUTE_FAILURE_WRONGHOP: u8 = 0x0b;
 const STORE_STATUS_CREATED: u8 = 0x00;
 const STORE_STATUS_INSERTED: u8 = 0x01;
 const STORE_STATUS_UPDATED: u8 = 0x02;
@@ -278,6 +279,29 @@ fn parse_error_data_from_bytes(payload: &[u8]) -> Result<ErrorData, Box<dyn Erro
                         payload_cursor.read_exact(&mut second)?;
                         error_data = Some(ErrorData::SegmentFailure {
                             failed_link: Link::new(NodeId::from(first), NodeId::from(second)),
+                            source: NodeId::from(source),
+                        });
+                    }
+                    ERROR_ROUTE_FAILURE_WRONGHOP => {
+                        let expected_len = 1 + (NodeId::SIZE * 3);
+                        if object_length != expected_len {
+                            return Err(Box::new(IoError::new(
+                                ErrorKind::InvalidData,
+                                format!(
+                                    "route failure wrong hop error-data object has invalid length (length = {}, expected = {})",
+                                    object_length, expected_len
+                                ),
+                            )));
+                        }
+
+                        let mut source = [0u8; NodeId::SIZE];
+                        let mut first = [0u8; NodeId::SIZE];
+                        let mut second = [0u8; NodeId::SIZE];
+                        payload_cursor.read_exact(&mut source)?;
+                        payload_cursor.read_exact(&mut first)?;
+                        payload_cursor.read_exact(&mut second)?;
+                        error_data = Some(ErrorData::RouteFailureWrongHop {
+                            wrong_hop: Link::new(NodeId::from(first), NodeId::from(second)),
                             source: NodeId::from(source),
                         });
                     }
@@ -1286,6 +1310,20 @@ fn write_error_data<W: Write>(writer: &mut W, data: &ErrorData) -> Result<usize,
 
             Ok(3 + object_length)
         }
+        ErrorData::RouteFailureWrongHop { wrong_hop, source } => {
+            let object_length = 1 + (NodeId::SIZE * 3);
+            write_common_object_header(
+                writer,
+                CommonObjectHeader::new(ProtocolObjectType::ErrorData, (object_length) as u16),
+            )?;
+
+            writer.write_all(&[ERROR_ROUTE_FAILURE_WRONGHOP])?;
+            writer.write_all(&source.to_be_bytes())?;
+            writer.write_all(&wrong_hop.first().to_be_bytes())?;
+            writer.write_all(&wrong_hop.second().to_be_bytes())?;
+
+            Ok(3 + object_length)
+        }
     }
 }
 
@@ -1954,7 +1992,7 @@ fn write_rtable_update_entry<W: Write>(
     let path_length = contact.path().map(Path::size).unwrap_or(0);
     writer.write_all(
         &u16::try_from(path_length)
-            .map_err(|_| IoError::new(ErrorKind::InvalidData, "path-vector to long"))?
+            .map_err(|_| IoError::new(ErrorKind::InvalidData, "path-vector too long"))?
             .to_be_bytes(),
     )?;
     if let Some(path) = contact.path() {

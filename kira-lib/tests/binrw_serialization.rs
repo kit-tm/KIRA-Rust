@@ -352,14 +352,24 @@ fn binrw_query_route_rsp() {
     assert_eq!(decoded_rsp.data.contacts.len(), 2);
 
     assert_eq!(decoded_rsp.data.contacts[0].id(), contact1.id());
-    assert_eq!(decoded_rsp.data.contacts[0].path(), contact1.path());
+    assert!(
+        decoded_rsp.data.contacts[0]
+            .path()
+            .unwrap()
+            .is_same_path_as(contact1.path().unwrap())
+    );
     assert_eq!(
         decoded_rsp.data.contacts[0].state_seq_nr(),
         contact1.state_seq_nr()
     );
 
     assert_eq!(decoded_rsp.data.contacts[1].id(), contact2.id());
-    assert_eq!(decoded_rsp.data.contacts[1].path(), contact2.path());
+    assert!(
+        decoded_rsp.data.contacts[1]
+            .path()
+            .unwrap()
+            .is_same_path_as(contact2.path().unwrap())
+    );
     assert_eq!(
         decoded_rsp.data.contacts[1].state_seq_nr(),
         contact1.state_seq_nr()
@@ -491,7 +501,12 @@ fn binrw_update_route_req() {
     for (i, (decoded_contact, decoded_action)) in decoded_contact_actions.iter().enumerate() {
         assert_eq!(decoded_contact.id(), contacts[i].id());
         assert_eq!(decoded_contact.state_seq_nr(), contacts[i].state_seq_nr());
-        assert_eq!(decoded_contact.path(), contacts[i].path());
+        assert!(
+            decoded_contact
+                .path()
+                .unwrap()
+                .is_same_path_as(contacts[i].path().unwrap())
+        );
         assert_eq!(decoded_action, contact_actions.get(&contacts[i]).unwrap());
     }
 }
