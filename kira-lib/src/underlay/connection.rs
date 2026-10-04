@@ -303,6 +303,11 @@ impl UnderlayObserverConnection {
 
                                     if !self.information_base.interface_up(interface) {
                                         // don't generate InterfaceUp if interface is already known to be up
+                                        tracing::trace!(
+                                            target: "underlay_observer::connection",
+                                            reason="Interface is already up",
+                                            "Supressing InterfaceUp event"
+                                        );
                                         continue;
                                     }
 

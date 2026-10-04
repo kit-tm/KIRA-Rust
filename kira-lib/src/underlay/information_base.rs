@@ -172,6 +172,9 @@ impl UnderlayInformationBase {
         Some(neighbor)
     }
 
+    /// Sets the state of the interface to "down".
+    ///
+    /// Returns a list of all neighbors effected.
     pub fn interface_down(
         &mut self,
         interface_id: &InterfaceId,
@@ -189,6 +192,9 @@ impl UnderlayInformationBase {
         Some(interface_state.into_neighbors())
     }
 
+    /// Sets the state of the interface to "up".
+    ///
+    /// Returns if the operation changed to interface from "down" to "up".
     pub fn interface_up(&mut self, interface: Interface) -> bool {
         log::debug!(target: "underlay_observer::information_base", "Interface is up: {interface:?}");
         match self.interfaces.entry(*interface.interface_id()) {
@@ -327,7 +333,7 @@ mod test {
     }
 
     #[test]
-    fn interface() {
+    fn interface_up_down_behaviour() {
         let mut ulnib = UnderlayInformationBase::default();
         let interface_id = InterfaceId::try_from(42).unwrap();
         let interface = Interface::new(interface_id, [0; 6], [0; 6]);
@@ -338,12 +344,15 @@ mod test {
         );
 
         // interface up
-        assert!(ulnib.interface_up(interface), "is a fresh interface");
-        assert_eq!(
-            ulnib.get_available().next(),
-            Some(&interface_id),
-            "interface should be available on up"
+        assert!(
+            ulnib.interface_up(interface.clone()),
+            "fresh interface is always up"
         );
+        assert!(
+            !ulnib.interface_up(interface.clone()),
+            "interface already existed and registered as up"
+        );
+
         assert_eq!(
             ulnib.get_available().next(),
             Some(&interface_id),
@@ -351,7 +360,31 @@ mod test {
         );
 
         // interface down
-        let mut affected_neighbors = ulnib.interface_down(&interface_id).expect("exists prior");
-        assert_eq!(affected_neighbors.next(), None, "no neighbor down");
+        {
+            let mut affected_neighbors = ulnib.interface_down(&interface_id).expect("exists prior");
+            assert_eq!(affected_neighbors.next(), None, "no neighbor effected");
+        }
+
+        assert_eq!(
+            ulnib.get_available().next(),
+            None,
+            "no interfaces available"
+        );
+
+        // interface up
+        assert!(
+            ulnib.interface_up(interface.clone()),
+            "interface was previously down"
+        );
+        assert!(
+            !ulnib.interface_up(interface.clone()),
+            "interface already existed and registered as up"
+        );
+
+        assert_eq!(
+            ulnib.get_available().next(),
+            Some(&interface_id),
+            "interface should be available on up"
+        );
     }
 }
