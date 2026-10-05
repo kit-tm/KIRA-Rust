@@ -538,11 +538,10 @@ where
         ret(level = Level::TRACE),
     )]
     fn handle_forwarding(&self, context: &C, mut message: ProtocolMessage) -> HandlingResult {
-        let source_route = message.source_route_mut();
-        if source_route.is_none() {
+        let Some(source_route) = message.source_route_mut() else {
+            // ULNHello messages have no source route and need no forwarding
             return HandlingResult::NotHandled;
-        }
-        let source_route = source_route.unwrap();
+        };
         let span = tracing::Span::current();
         if !span.is_disabled() {
             span.record("current_hop", format!("{}", source_route.current_hop()));
@@ -550,9 +549,10 @@ where
 
         // Current hop has to be us
         if source_route.current_hop() != context.root_id() {
-            tracing::warn!(
+            tracing::error!(
                 target: "forward_protocol_message",
-                "Current hop of message is not us",
+                "Current hop of message {} is not us",
+                source_route.current_hop(),
             );
             return HandlingResult::Handled;
         }
@@ -639,6 +639,19 @@ where
         if let UseCaseEvent::Message(message, ulnid) = event {
             // TODO: make more efficient pls
             if let UnderlayNeighborSource::UnderlayNeighbor(ulnid) = ulnid {
+                // Current hop has to be us, do not use misrouted packets
+                // to extract information
+                if let Some(source_route) = message.source_route()
+                    && source_route.current_hop() != context.root_id()
+                {
+                    tracing::error!(
+                        target: "forward_protocol_message",
+                        "Current hop of message {} is not us",
+                        source_route.current_hop(),
+                    );
+                    return Ok(HandlingResult::Handled);
+                }
+
                 // extract useful message info of bypassing messages (NotVia, RTable)
                 self.extract_message_info(context, &message, ulnid);
             }

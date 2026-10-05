@@ -325,7 +325,7 @@ impl UnderlayObserverConnection {
                                     }
                                 } else {
                                     // register interface as down
-                                    // and generate respective updates for interface __and__ effected neighbors
+                                    // and generate respective updates for interface __and__ affected neighbors
                                     log::debug!(target: "underlay_observer::connection", "Interface down: {interface_id}");
 
                                     let Some(affected) =

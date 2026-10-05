@@ -202,9 +202,17 @@ impl Contact {
                 }
             }
             _ => {
-                self.state = ContactState::Invalid(notviastate_list);
+                // now set state to invalid
+                self.state = ContactState::Invalid(notviastate_list.clone());
             }
         }
+        // we use the latest timestamp of the given notviastate list to update last seen
+        self.last_seen = *notviastate_list
+            .nvs_list
+            .iter()
+            .map(|nvs| &nvs.timestamp)
+            .max()
+            .unwrap_or(&Timestamp::now());
 
         if let Some(active_path) = self.path_mut() {
             active_path.invalidate();

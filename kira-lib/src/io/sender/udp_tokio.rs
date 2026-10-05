@@ -116,10 +116,9 @@ impl UdpSender {
                     tracing::warn!(
                         target: "message_sender",
                         %ulnid,
-                        fallback = "Broadcasting",
                         "Can't determine SocketAddr for unknown underlay neighbor",
                     );
-                    return Ok(None);
+                    return Err(SenderError::Closed);
                 };
 
                 Some(
