@@ -7,7 +7,6 @@ use std::{
 
 use derive_more::derive::Display;
 use tracing::{
-    Level,
     field,
     instrument,
 };
@@ -397,10 +396,9 @@ where
     type Value = ();
 
     #[instrument(
-        level = Level::TRACE,
         target = "derive_fwd_table_entries",
         "derive_fwd_table_entries",
-        skip(self, context),
+        skip(self, context, event),
         fields(
             state = ?self.state,
             config = ?self.config

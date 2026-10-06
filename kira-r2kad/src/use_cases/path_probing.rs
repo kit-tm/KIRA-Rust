@@ -8,10 +8,7 @@ use std::{
     },
 };
 
-use tracing::{
-    Level,
-    instrument,
-};
+use tracing::instrument;
 
 use crate::{
     domain::{
@@ -540,10 +537,9 @@ where
     type Value = ();
 
     #[instrument(
-        level = Level::TRACE,
         target = "path_probing",
         "path_probing",
-        skip(self, context),
+        skip(self, context, event),
         fields(
             state = ?self.state,
             config = ?self.config

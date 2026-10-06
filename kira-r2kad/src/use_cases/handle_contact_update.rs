@@ -8,10 +8,7 @@ use std::{
     ops::Deref,
 };
 
-use tracing::{
-    Level,
-    instrument,
-};
+use tracing::instrument;
 
 use crate::{
     domain::{
@@ -174,10 +171,9 @@ where
     type Value = ();
 
     #[instrument(
-        level = Level::TRACE,
         target = "handle_contact_update",
         "handle_contact_update",
-        skip(self, context),
+        skip(self, context, event),
         fields(
             config = ?self.config
         )

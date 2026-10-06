@@ -381,14 +381,14 @@ where
     type Value = HandlingResult;
 
     #[instrument(
-        level = Level::TRACE,
         target = "explicit_path_management",
         "explicit_path_management",
-        skip(self, context),
+        skip(self, context, event),
         fields(
             state = ?self.state,
             config = ?self.config
         )
+        ret(level = Level::TRACE),
     )]
     fn handle_event(
         &mut self,

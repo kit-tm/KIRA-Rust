@@ -7,10 +7,7 @@ use std::{
     time::Instant,
 };
 
-use tracing::{
-    Level,
-    instrument,
-};
+use tracing::instrument;
 
 use crate::{
     domain::{
@@ -145,10 +142,9 @@ where
     type Value = ();
 
     #[instrument(
-        level = Level::TRACE,
         target = "inject_messages",
         "inject_messages",
-        skip(self, context),
+        skip(self, context, event),
         fields(
             state = ?self.state,
             config = ?self.config

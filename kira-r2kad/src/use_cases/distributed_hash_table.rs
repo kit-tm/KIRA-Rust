@@ -961,10 +961,9 @@ where
     type Value = ();
 
     #[instrument(
-        level = Level::TRACE,
         target = "distributed_hash_table",
         "distributed_hash_table",
-        skip(self, context),
+        skip(self, context, event),
         fields(
             state = ?self.state,
             config = ?self.config

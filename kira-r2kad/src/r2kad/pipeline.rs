@@ -221,25 +221,25 @@ where
                     Some(nonce) => nonce.to_string(),
                     None => "None".to_string(),
                 };
-                span!(target: "r2kad", Level::DEBUG, "event", "type" = "Message", %nonce, source = %message.source(), details = ?message)
+                span!(target: "r2kad", Level::INFO, "event", "type" = "Message", %nonce, source = %message.source(), details = ?message)
             }
             UseCaseEvent::UnderlayUpdate(event) => {
-                span!(target: "r2kad", Level::DEBUG, "event", "type" = "UnderlayUpdate", details = ?event)
+                span!(target: "r2kad", Level::INFO, "event", "type" = "UnderlayUpdate", details = ?event)
             }
             UseCaseEvent::Contact(event) => {
-                span!(target: "r2kad", Level::DEBUG, "event", "type" = "Contact", details = ?event)
+                span!(target: "r2kad", Level::INFO, "event", "type" = "Contact", details = ?event)
             }
             UseCaseEvent::InjectMessage(nonce, _) => {
-                span!(target: "r2kad", Level::DEBUG, "event", "type" = "InjectMessage", nonce = ?nonce)
+                span!(target: "r2kad", Level::INFO, "event", "type" = "InjectMessage", nonce = ?nonce)
             }
             UseCaseEvent::API(event) => {
-                span!(target: "r2kad", Level::DEBUG, "event", "type" = "API", details = ?event)
+                span!(target: "r2kad", Level::INFO, "event", "type" = "API", details = ?event)
             }
             UseCaseEvent::Vicinity(event) => {
-                span!(target: "r2kad", Level::DEBUG, "event", "type" = "Vicinity", details = ?event)
+                span!(target: "r2kad", Level::INFO, "event", "type" = "Vicinity", details = ?event)
             }
             UseCaseEvent::Timer(id) => {
-                span!(target: "r2kad", Level::DEBUG, "event", "type" = "Timer", %id)
+                span!(target: "r2kad", Level::INFO, "event", "type" = "Timer", %id)
             }
         }
         .entered();

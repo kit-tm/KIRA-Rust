@@ -5,10 +5,7 @@ use std::{
     ops::Deref,
 };
 
-use tracing::{
-    Level,
-    instrument,
-};
+use tracing::instrument;
 
 use crate::{
     domain::{
@@ -154,10 +151,9 @@ where
     type Value = ();
 
     #[instrument(
-        level = Level::DEBUG,
         target = "handle_overlay_discovery",
         "handle_overlay_discovery",
-        skip(self, context),
+        skip(self, context, event),
         fields(
             config = ?self.config,
             req.target = tracing::field::Empty,

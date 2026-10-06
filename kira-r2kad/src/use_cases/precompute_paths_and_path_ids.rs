@@ -183,10 +183,9 @@ where
     type Value = ();
 
     #[instrument(
-        level = Level::TRACE,
         target = "precompute_paths_and_path_ids",
         "precompute_paths_and_path_ids",
-        skip(self, context),
+        skip(self, context, event),
         fields(
             state = ?self.state,
             config = ?self.config

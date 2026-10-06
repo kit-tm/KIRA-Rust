@@ -8,10 +8,7 @@ use derive_more::derive::{
     Error,
 };
 use tokio::sync::mpsc::error::SendError;
-use tracing::{
-    Level,
-    instrument,
-};
+use tracing::instrument;
 
 use super::{
     EventHandler,
@@ -53,12 +50,7 @@ where
     type Error = CallbackChannelError;
     type Value = ();
 
-    #[instrument(
-        level = Level::TRACE,
-        target = "handle_api",
-        "handle_api",
-        skip(self, context),
-    )]
+    #[instrument(target = "handle_api", "handle_api", skip(self, context, event))]
     fn handle_event(
         &mut self,
         context: &C,

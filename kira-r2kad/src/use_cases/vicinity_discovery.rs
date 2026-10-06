@@ -1266,10 +1266,9 @@ where
     type Value = ();
 
     #[instrument(
-        level = Level::TRACE,
         target = "vicinity_discovery",
         "vicinity_discovery",
-        skip(self, context),
+        skip(self, context, event),
         fields(
             state = ?self.state,
             config = ?self.config

@@ -417,8 +417,7 @@ where
     #[instrument(
         level = Level::DEBUG,
         target = "forward_protocol_message",
-        skip_all,
-        fields(message)
+        skip(self, context),
     )]
     fn extract_message_info(
         &self,
@@ -624,11 +623,11 @@ where
     type Value = HandlingResult;
 
     #[instrument(
-        level = Level::TRACE,
         target = "forward_protocol_message",
         "forward_protocol_message",
-        skip(self, context),
+        skip(self, context, event),
         fields(state = ?self.state)
+        ret(level = Level::TRACE),
     )]
     fn handle_event(
         &mut self,
