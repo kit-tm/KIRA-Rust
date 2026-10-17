@@ -10,10 +10,7 @@ use derive_more::derive::{
 use futures::{
     SinkExt,
     channel::{
-        mpsc::{
-            SendError,
-            UnboundedSender,
-        },
+        mpsc::UnboundedSender,
         oneshot,
     },
 };
@@ -75,10 +72,10 @@ pub enum UnderlayObserverHandleError {
     /// An interface is down.
     InterfaceDown(UnderlayNeighborInterfaceDownError),
     /// The result sender was closed.
-    SenderClosed(UnderlayObserverSenderClosedError),
+    Closed(UnderlayObserverSenderClosedError),
 }
 
-#[derive(Debug, Display, Error, From)]
+#[derive(Debug, Display, Error)]
 #[display("Channel to UnderlayObserver is closed")]
 /// The result sender was closed unexpectedly.
 ///
@@ -86,7 +83,7 @@ pub enum UnderlayObserverHandleError {
 /// interacting with the [UnderlayObserverHandle].
 ///
 /// See [observe_underlay] on an example on how to use the handle properly.
-pub struct UnderlayObserverSenderClosedError(pub SendError);
+pub struct UnderlayObserverSenderClosedError;
 
 impl UnderlayObserverHandle {
     pub(super) fn new(handle_tx: UnderlayObserverHandleTx) -> Self {
@@ -107,7 +104,11 @@ impl UnderlayObserverHandle {
                 ulnid: *ulnid,
                 response: tx,
             })
-            .await?;
+            .await
+            .map_err(|err| {
+                assert!(err.is_disconnected());
+                UnderlayObserverSenderClosedError
+            })?;
 
         Ok(rx.await.expect("sender should not get dropped"))
     }
@@ -127,7 +128,10 @@ impl UnderlayObserverHandle {
                 response: tx,
             })
             .await
-            .map_err(UnderlayObserverSenderClosedError)?;
+            .map_err(|err| {
+                assert!(err.is_disconnected());
+                UnderlayObserverSenderClosedError
+            })?;
 
         rx.await
             .expect("sender should not get dropped")
@@ -147,7 +151,11 @@ impl UnderlayObserverHandle {
         log::trace!(target: "underlay_observer::handle", "unregister_neighbor {ulnid}");
         self.tx
             .send(UnderlayObserverHandleRequest::UnregisterUnderlayNeighbor { ulnid: *ulnid })
-            .await?;
+            .await
+            .map_err(|err| {
+                assert!(err.is_disconnected());
+                UnderlayObserverSenderClosedError
+            })?;
 
         Ok(())
     }
@@ -160,7 +168,11 @@ impl UnderlayObserverHandle {
         let (tx, rx) = oneshot::channel();
         self.tx
             .send(UnderlayObserverHandleRequest::GetAvailable { response: tx })
-            .await?;
+            .await
+            .map_err(|err| {
+                assert!(err.is_disconnected());
+                UnderlayObserverSenderClosedError
+            })?;
 
         Ok(rx.await.expect("sender should not get dropped"))
     }

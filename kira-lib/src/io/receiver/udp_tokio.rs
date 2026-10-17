@@ -178,8 +178,8 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
             let neighbor = UnderlayNeighbor::new(*received_from.ip(), interface_id);
             let ulnid = match self.underlay_handle.register_neighbor(neighbor).await {
                 Ok(ulnid) => ulnid,
-                Err(UnderlayObserverHandleError::SenderClosed(e)) => {
-                    tracing::error!(target: "message_receiver", err=%e, "Underlay handle sender closed");
+                Err(err @ UnderlayObserverHandleError::Closed(_)) => {
+                    tracing::error!(target: "message_receiver", %err);
                     // fatal error if we can't query underlay observer anymore
                     return Some(Err(RecvError::Closed));
                 }

@@ -104,14 +104,14 @@ impl UdpSender {
                 Some(SocketAddrV6::new(ALL_KIRA_NODES, self.port, 0, interface_id.into()).into())
             }
             UnderlayNeighborDestination::UnderlayNeighbor(ulnid) => {
-                let Some(neighbor) = self
-                    .underlay_handle
-                    .get_information(&ulnid)
-                    .await
-                    .map_err(|err| {
-                        tracing::error!(target: "message_sender", %err, "UnderlayObserverHandle closed");
-                        SenderError::Closed
-                    })?
+                let Some(neighbor) =
+                    self.underlay_handle
+                        .get_information(&ulnid)
+                        .await
+                        .map_err(|err| {
+                            tracing::error!(target: "message_sender", %err);
+                            SenderError::Closed
+                        })?
                 else {
                     tracing::warn!(
                         target: "message_sender",
