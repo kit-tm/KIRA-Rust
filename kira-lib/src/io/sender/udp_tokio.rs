@@ -11,6 +11,11 @@ use std::{
     sync::Arc,
 };
 
+use derive_more::{
+    Display,
+    Error,
+};
+use kira_r2kad::domain::UnderlayNeighborId;
 use tokio::net::UdpSocket;
 use tracing::Level;
 
@@ -18,7 +23,10 @@ use super::*;
 use crate::{
     format::ProtocolMessageFormat,
     io::ALL_KIRA_NODES,
-    underlay::UnderlayObserverHandle,
+    underlay::{
+        UnderlayObserverHandle,
+        handle::UnderlayObserverSenderClosedError,
+    },
 };
 
 /// Defaults to sending the request to multicast if neighbor is not present (which should not
@@ -104,21 +112,14 @@ impl UdpSender {
                 Some(SocketAddrV6::new(ALL_KIRA_NODES, self.port, 0, interface_id.into()).into())
             }
             UnderlayNeighborDestination::UnderlayNeighbor(ulnid) => {
-                let Some(neighbor) =
-                    self.underlay_handle
-                        .get_information(&ulnid)
-                        .await
-                        .map_err(|err| {
-                            tracing::error!(target: "message_sender", %err);
-                            SenderError::Closed
-                        })?
-                else {
-                    tracing::warn!(
-                        target: "message_sender",
-                        %ulnid,
-                        "Can't determine SocketAddr for unknown underlay neighbor",
-                    );
-                    return Err(SenderError::Closed);
+                let neighbor = match self.underlay_handle.get_information(&ulnid).await {
+                    Ok(Some(neighbor)) => neighbor,
+                    Ok(None) => {
+                        return Err(SenderError::Other(Box::new(UnknownUnderlayNeighborErr(
+                            ulnid,
+                        ))));
+                    }
+                    Err(UnderlayObserverSenderClosedError) => return Err(SenderError::Closed),
                 };
 
                 Some(
@@ -129,6 +130,10 @@ impl UdpSender {
         })
     }
 }
+
+#[derive(Debug, Display, Error)]
+#[display("Unable to determine SocketAddr of unknown underlay neighbor {_0}")]
+struct UnknownUnderlayNeighborErr(#[error(ignore)] UnderlayNeighborId);
 
 impl AsyncProtocolMessageSender for UdpSender {
     #[tracing::instrument(
