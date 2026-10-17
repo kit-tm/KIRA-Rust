@@ -78,12 +78,6 @@ pub mod error {
         Closed,
     }
 
-    impl From<Box<dyn Error + Sync + Send>> for SenderError {
-        fn from(value: Box<dyn Error + Sync + Send>) -> Self {
-            Self::MessageFormat(value)
-        }
-    }
-
     impl From<io::Error> for SenderError {
         fn from(io_err: io::Error) -> Self {
             Self::SendError(io_err)

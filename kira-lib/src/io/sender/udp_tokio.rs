@@ -150,7 +150,9 @@ impl AsyncProtocolMessageSender for UdpSender {
         let message = message.into();
 
         let mut buffer = Vec::new();
-        self.format.serialize(&mut buffer, &message)?;
+        self.format
+            .serialize(&mut buffer, &message)
+            .map_err(SenderError::MessageFormat)?;
 
         if let Some(receiver_addr) = self.get_receiver_addr(destination).await? {
             tracing::trace!( target: "message_sender", %receiver_addr, "Sending ProtocolMessage");
