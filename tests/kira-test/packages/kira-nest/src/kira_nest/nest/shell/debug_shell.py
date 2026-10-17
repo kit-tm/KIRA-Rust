@@ -6,6 +6,7 @@ import re
 import socket
 import sys
 import time
+import traceback
 from cmd import Cmd
 from collections.abc import Iterable
 from functools import cached_property
@@ -1198,6 +1199,7 @@ class DebugShell[T](Cmd):
             return super().onecmd(line)
         except Exception as e:
             print(f"Error: {e}")
+            traceback.print_exc()
             self._cmd_failed()
             return False  # Return False to keep the loop running
 
