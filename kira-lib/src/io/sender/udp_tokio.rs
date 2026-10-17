@@ -55,11 +55,10 @@ impl UdpSender {
     }
 
     async fn broadcast_message(&mut self, buffer: &[u8]) -> Result<(), SenderError> {
-        let indices = self
-            .underlay_handle
-            .get_available()
-            .await
-            .map_err(|_| SenderError::Closed)?;
+        let indices = self.underlay_handle.get_available().await.map_err(|err| {
+            tracing::error!(target: "message_sender", %err, "UnderlayObserverHandle closed");
+            SenderError::Closed
+        })?;
         tracing::trace!(target: "message_sender", "Broadcasting to {indices:?}");
         for interface_id in indices {
             let dest = SocketAddr::V6(SocketAddrV6::new(
@@ -81,8 +80,9 @@ impl UdpSender {
                 tracing::error!(
                     target: "message_sender",
                     interface = %interface_id,
+                    addr = %ALL_KIRA_NODES,
                     %err,
-                    "Multicast to interface failed unexpectedly (addr: {ALL_KIRA_NODES})");
+                    "Multicast to interface failed unexpectedly");
             }
         }
         Ok(())
@@ -109,7 +109,7 @@ impl UdpSender {
                     .get_information(&ulnid)
                     .await
                     .map_err(|err| {
-                        tracing::error!(target: "message_sender", %err, "Underlay handle sender closed");
+                        tracing::error!(target: "message_sender", %err, "UnderlayObserverHandle closed");
                         SenderError::Closed
                     })?
                 else {
