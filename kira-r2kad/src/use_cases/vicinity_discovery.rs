@@ -631,19 +631,14 @@ where
         };
         // try to insert or update the underlay neighbor
         // note that the ULN node may exist in the vicinity graph already if inserted as neighbor of another ULN
-        let inserted = vg
-            .insert(*source_node, context.root_id(), synced_ssn)
-            .unwrap_or_else(|err| {
-                tracing::error!(target: "vicinity_discovery", ?req_or_rsp, reason = ?err, "error while inserting into vicinity");
-                false
-            });
-        if let Some(source_vicinity_entry) = vg.entry_mut(source_node) {
-            // this will also update observed ssn if the synced_ssn is newer
-            if !inserted {
-                source_vicinity_entry.update_synced_ssn(synced_ssn);
-            }
-            source_vicinity_entry.update_last_seen(context.runtime().current_time());
-        }
+        vg.insert(*source_node, context.root_id(), synced_ssn)
+            .expect("insertion of ULN into vicinity graph failed");
+
+        let source_vicinity_entry = vg
+            .entry_mut(source_node)
+            .expect("node should be available in vicinity graph directly after insertion");
+        source_vicinity_entry.update_synced_ssn(synced_ssn);
+        source_vicinity_entry.update_last_seen(context.runtime().current_time());
 
         let source_neighbors = req_or_rsp
             .data

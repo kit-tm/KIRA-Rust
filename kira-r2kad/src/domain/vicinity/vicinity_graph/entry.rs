@@ -81,7 +81,7 @@ impl Entry {
         self.last_seen
     }
 
-    /// synchronized state sequence number present in the [VicinityGraph](super::VicinityGraph).
+    /// State sequence number of the entry's vicinity present in the [VicinityGraph](super::VicinityGraph).
     ///
     /// The value can be [`None`] if the vicinity state of the node hasn't been acquired
     /// either because a synchronisation is ongoing or because of a node reset initialised.
