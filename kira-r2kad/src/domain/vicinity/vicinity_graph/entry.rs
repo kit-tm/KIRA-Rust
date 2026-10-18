@@ -8,24 +8,24 @@ use crate::domain::SafeStateSeqNr;
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Entry {
     last_seen: Option<Instant>,
-    synched_ssn: Option<SafeStateSeqNr>, // SSN up to which state has been synchronized (ULNDiscReq/Rsp or QueryRouteReq/Rsp exchange)
+    synced_ssn: Option<SafeStateSeqNr>, // SSN up to which state has been synchronized (ULNDiscReq/Rsp or QueryRouteReq/Rsp exchange)
     observed_ssn: SafeStateSeqNr,
 }
 
 impl Entry {
     /// Create a new [Entry].
     ///
-    /// Since the entry hasn't been contacted initially [`last_seen`] and [`synched_ssn`] are [None].
+    /// Since the entry hasn't been contacted initially [`last_seen`] and [`synced_ssn`] are [None].
     ///
     /// [`last_seen`]: fn@Entry::last_seen
-    /// [`synched_ssn`]: fn@Entry::synched_ssn
+    /// [`synced_ssn`]: fn@Entry::synced_ssn
     pub fn new(observed_ssn: SafeStateSeqNr) -> Self {
         // initially the vicinity node hasn't been seen
         // nor does it have stored vicinity information
         Self {
             last_seen: None,
-            synched_ssn: None, // should only be updated by ULNDisRsp or QueryRouteRsp
-            observed_ssn,      // can be updated by any message
+            synced_ssn: None, // should only be updated by ULNDisRsp or QueryRouteRsp
+            observed_ssn,     // can be updated by any message
         }
     }
 
@@ -42,12 +42,12 @@ impl Entry {
 
     /// Update the [synchronized state sequence number].
     ///
-    /// [synchronized state sequence number]: fn@Entry::synched_ssn
-    pub fn update_synched_ssn(&mut self, synched_ssn: SafeStateSeqNr) {
-        self.synched_ssn = Some(synched_ssn);
-        // also update the observed_ssn in case it is smaller than synched_ssn
-        if self.observed_ssn < synched_ssn {
-            self.observed_ssn = synched_ssn;
+    /// [synchronized state sequence number]: fn@Entry::synced_ssn
+    pub fn update_synced_ssn(&mut self, synced_ssn: SafeStateSeqNr) {
+        self.synced_ssn = Some(synced_ssn);
+        // also update the observed_ssn in case it is smaller than synced_ssn
+        if self.observed_ssn < synced_ssn {
+            self.observed_ssn = synced_ssn;
         }
     }
 
@@ -67,7 +67,7 @@ impl Entry {
 
     /// Forgets the vicinity state sequence number.
     pub fn forget_vicinity(&mut self) {
-        self.synched_ssn = None;
+        self.synced_ssn = None;
     }
 }
 
@@ -85,8 +85,8 @@ impl Entry {
     ///
     /// The value can be [`None`] if the vicinity state of the node hasn't been acquired
     /// either because a synchronisation is ongoing or because of a node reset initialised.
-    pub fn synched_ssn(&self) -> Option<&SafeStateSeqNr> {
-        self.synched_ssn.as_ref()
+    pub fn synced_ssn(&self) -> Option<&SafeStateSeqNr> {
+        self.synced_ssn.as_ref()
     }
 
     /// Greatest observed state sequence number.

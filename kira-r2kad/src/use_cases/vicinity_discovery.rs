@@ -620,7 +620,7 @@ where
 
         // look up ULN entry and update its vicinity SSN and last seen
         let mut vg = context.vicinity_graph_mut();
-        let StateSeqNr::Value(synched_ssn) = req_or_rsp.state_seq_num() else {
+        let StateSeqNr::Value(synced_ssn) = req_or_rsp.state_seq_num() else {
             tracing::error!(
                 target: "vicinity_discovery",
                 ?req_or_rsp,
@@ -632,15 +632,15 @@ where
         // try to insert or update the underlay neighbor
         // note that the ULN node may exist in the vicinity graph already if inserted as neighbor of another ULN
         let inserted = vg
-            .insert(*source_node, context.root_id(), synched_ssn)
+            .insert(*source_node, context.root_id(), synced_ssn)
             .unwrap_or_else(|err| {
                 tracing::error!(target: "vicinity_discovery", ?req_or_rsp, reason = ?err, "error while inserting into vicinity");
                 false
             });
         if let Some(source_vicinity_entry) = vg.entry_mut(source_node) {
-            // this will also update observed ssn if the synched_ssn is newer
+            // this will also update observed ssn if the synced_ssn is newer
             if !inserted {
-                source_vicinity_entry.update_synched_ssn(synched_ssn);
+                source_vicinity_entry.update_synced_ssn(synced_ssn);
             }
             source_vicinity_entry.update_last_seen(context.runtime().current_time());
         }
@@ -798,12 +798,12 @@ where
             }
             // ========== Vicinity Discovery - Query Route Rsp ==========
             ProtocolMessage::QueryRouteRsp(ref response,) => {
-                // update synched SSN
+                // update synced SSN
                 if response.source_route.size() == VICINITY_RADIUS
                     && let Some(entry) = context.vicinity_graph_mut().entry_mut(response.source())
                     && let StateSeqNr::Value(rsp_ssn) = response.common_header().state_seq_num()
                 {
-                    entry.update_synched_ssn(rsp_ssn);
+                    entry.update_synced_ssn(rsp_ssn);
                 }
 
                 self.finalize_request(protocol_message);
@@ -949,13 +949,13 @@ where
                     StateSeqNr::Value(observed_ssn) => {
                         let vicinity_graph = context.vicinity_graph();
                         if let Some(entry) = vicinity_graph.entry(&source) && !new_neighbor {
-                            let synched_ssn = entry.synched_ssn();
-                            if synched_ssn.is_none() || synched_ssn < Some(&observed_ssn) {
+                            let synced_ssn = entry.synced_ssn();
+                            if synced_ssn.is_none() || synced_ssn < Some(&observed_ssn) {
                                 tracing::debug!(
                                     target: "vicinity_discovery",
                                     node = %source,
                                     deterministic_heuristic = "answer",
-                                    synched_ssn = if let Some(synched_ssn) = synched_ssn { format!("{synched_ssn}") } else { "N/A".to_string() },
+                                    synced_ssn = if let Some(synced_ssn) = synced_ssn { format!("{synced_ssn}") } else { "N/A".to_string() },
                                     %observed_ssn,
                                     reason = "vicinity_outdated",
                                     "init underlay neighbor discovery",
@@ -968,7 +968,7 @@ where
                                 target: "vicinity_discovery",
                                 node = %source,
                                 deterministic_heuristic = "answer",
-                                synched_ssn = "N/A",
+                                synced_ssn = "N/A",
                                 %observed_ssn,
                                 reason = "new",
                                 "init underlay neighbor discovery",
@@ -1086,13 +1086,13 @@ where
                         continue;
                     };
 
-                    let synched_ssn = entry.synched_ssn();
+                    let synced_ssn = entry.synced_ssn();
                     let observed_ssn = entry.observed_ssn();
-                    if synched_ssn == Some(observed_ssn) {
+                    if synced_ssn == Some(observed_ssn) {
                         tracing::trace!(
                             target: "vicinity_discovery",
                             node = %sync_candidate,
-                            synched_ssn = if let Some(synched_ssn) = synched_ssn { format!("{synched_ssn}") } else { "N/A".to_string() },
+                            synced_ssn = if let Some(synced_ssn) = synced_ssn { format!("{synced_ssn}") } else { "N/A".to_string() },
                             %observed_ssn,
                             reason = "no_news",
                             "ignore sync candidate",
@@ -1100,18 +1100,18 @@ where
                         continue;
                     }
 
-                    if synched_ssn > Some(observed_ssn) {
+                    if synced_ssn > Some(observed_ssn) {
                         tracing::error!(
                             target: "vicinity_discovery",
                             node = %sync_candidate,
-                            synched_ssn = if let Some(synched_ssn) = synched_ssn { format!("{synched_ssn}") } else { "N/A".to_string() },
+                            synced_ssn = if let Some(synced_ssn) = synced_ssn { format!("{synced_ssn}") } else { "N/A".to_string() },
                             %observed_ssn,
                             reason = "internal inconsistency",
-                            "synched_ssn newer than observed_ssn",
+                            "synced_ssn newer than observed_ssn",
                         );
                         panic!(
-                            "for node {:?} synched_ssn newer {:?} than observed_ssn {:?}",
-                            sync_candidate, synched_ssn, observed_ssn
+                            "for node {:?} synced_ssn newer {:?} than observed_ssn {:?}",
+                            sync_candidate, synced_ssn, observed_ssn
                         );
                     }
 
@@ -1121,13 +1121,13 @@ where
                     let entry = vg_lock
                         .entry(&sync_candidate)
                         .expect("vicinity node without entry");
-                    let synched_ssn = entry.synched_ssn();
+                    let synced_ssn = entry.synced_ssn();
                     let observed_ssn = entry.observed_ssn();
-                    if synched_ssn == Some(observed_ssn) {
+                    if synced_ssn == Some(observed_ssn) {
                         tracing::trace!(
                             target: "vicinity_discovery",
                             node = %sync_candidate,
-                            synched_ssn = if let Some(synched_ssn) = synched_ssn { format!("{synched_ssn}") } else { "N/A".to_string() },
+                            synced_ssn = if let Some(synced_ssn) = synced_ssn { format!("{synced_ssn}") } else { "N/A".to_string() },
                             %observed_ssn,
                             reason = "no_news",
                             "ignore sync candidate",
@@ -1136,8 +1136,8 @@ where
                     }
 
                     assert!(
-                        synched_ssn < Some(observed_ssn),
-                        "synched_ssn newer than observed_ssn"
+                        synced_ssn < Some(observed_ssn),
+                        "synced_ssn newer than observed_ssn"
                     );
 
                     let Some(path) = vg_lock.vicinity_path_to(sync_candidate) else {
@@ -1452,7 +1452,7 @@ where
                         )
                         .entered();
 
-                        // don't check synched_ssn < observed_ssn
+                        // don't check synced_ssn < observed_ssn
                         // because update would finalize this request
                         //
                         // (unless a different nonce that wasn't ignored was used)
