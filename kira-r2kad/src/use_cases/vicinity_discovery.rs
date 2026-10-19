@@ -1327,8 +1327,20 @@ where
                     message,
                     UnderlayNeighborSource::UnderlayNeighbor(underlay_source),
                 ),
-                _,
-            ) => self.handle_protocol_message(context, message, underlay_source),
+                VDState::Running { interfaces, .. },
+            ) => {
+                if !interfaces.contains_key(&underlay_source.interface_id) {
+                    tracing::debug!(
+                        target: "vicinity_discovery",
+                        %underlay_source,
+                        reason = "received message on disabled interface",
+                        "ignoring message {:?}",
+                        message
+                    );
+                    return Ok(());
+                }
+                self.handle_protocol_message(context, message, underlay_source)
+            }
             // ========== Underlay Changes ==========
             // Not reacting to individual underlay neighbors but only to interfaces.
             (
