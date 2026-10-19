@@ -175,9 +175,8 @@ mod tests {
 
         let neighbor = NodeId::random();
         table.insert(neighbor, ulnid);
-        assert_eq!(
-            *emitted.lock().unwrap(),
-            false,
+        assert!(
+            !(*emitted.lock().unwrap()),
             "should not notify after insertion of new neighbor"
         );
         table.confirm(neighbor, ulnid);
@@ -252,9 +251,8 @@ mod tests {
         table.insert(neighbor, ulnid);
 
         table.remove(&neighbor);
-        assert_eq!(
-            *emitted.lock().unwrap(),
-            false,
+        assert!(
+            !(*emitted.lock().unwrap()),
             "should not notify if unconfirmed neighbor removed"
         );
         assert_eq!(table.size(), 0, "table should be empty now");
