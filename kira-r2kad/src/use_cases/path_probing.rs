@@ -26,6 +26,7 @@ use crate::{
         RoutingTable,
         SourceRoute,
         Timestamp,
+        ULNState,
         ULNTable,
         UnderlayNeighborId,
         protocol_message::{
@@ -93,9 +94,9 @@ pub enum PathProbingState {
         /// Maps timeout timers per message.
         probe_timers: HashMap<TimerId, Nonce>,
         /// Maps the in flight requests to their contacts id.
-        requests_in_flight: HashMap<Nonce, (NodeId, Instant)>,
+        requests_in_flight: HashMap<Nonce, (NodeId, Path, Timestamp)>,
         /// Scheduled probe request, mainly for path validation of proposed paths
-        scheduled_probe_requests: HashMap<PathProbeAction, Instant>,
+        scheduled_probe_requests: HashMap<PathProbeAction, Timestamp>,
         /// Timer for sending scheduled probe requests
         scheduled_sending_timer: Option<TimerId>,
     },
@@ -138,7 +139,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     // Send ProbeReqs to two oldest valid contacts per bucket
     fn send_probe_reqs(&mut self, context: &C) {
@@ -203,7 +205,11 @@ where
 
         requests_in_flight.insert(
             nonce,
-            (*path_to_probe.last(), context.runtime().current_time()),
+            (
+                *path_to_probe.last(),
+                path_to_probe.clone(),
+                Timestamp::now(),
+            ),
         );
 
         log::trace!(target: "path_probing", "Sent probe {} to {} for path {:?}", nonce, path_to_probe.last(), path_to_probe);
@@ -247,7 +253,14 @@ where
             .runtime()
             .register_timer(self.config.request_timeout);
         probe_timers.insert(timeout_timer, nonce);
-        requests_in_flight.insert(nonce, (*contact.id(), context.runtime().current_time()));
+        requests_in_flight.insert(
+            nonce,
+            (
+                *contact.id(),
+                contact.path().unwrap().clone(),
+                Timestamp::now(),
+            ),
+        );
 
         log::trace!(target: "path_probing", "Sent probe {} to {}", nonce, contact.id());
     }
@@ -278,16 +291,24 @@ where
             assert!(nonce.is_some(), "called invalidate without timer existence");
             let nonce = nonce.unwrap();
             let contact_ts_tuple = requests_in_flight.remove(&nonce);
-            let Some((contacts_id, _)) = contact_ts_tuple else {
+            let Some((contacts_id, probed_path, ts_probe_sent)) = contact_ts_tuple else {
                 // it may be that the contact has been removed meanwhile
                 return;
             };
             // note that the ProbeReq may have resulted from probing a proposed path
+            // or a path that is not relevant anymore for the current contact
             let mut lock = context.routing_table_mut();
             match lock.contact_mut(&contacts_id) {
                 Some(mut contact) => {
-                    contact.set_invalid(NotViaStateList::default());
-                    log::trace!(target: "path_probing", "Invalidated contact due of timer [path: {:?}]", contact.path());
+                    // invalidate current path but only if it has not been updated meanwhile
+                    if let Some(current_path) = contact.path()
+                        && current_path.is_same_path_as(&probed_path)
+                        && let Some(last_validated) = current_path.get_last_validated()
+                        && ts_probe_sent < *last_validated
+                    {
+                        contact.set_invalid(NotViaStateList::default());
+                        log::trace!(target: "path_probing", "Invalidated contact due of timer [path: {:?}]", contact.path());
+                    }
                 }
                 None => {
                     log::trace!(target: "path_probing", "Removed timeout for non existent contact {contacts_id}")
@@ -305,13 +326,15 @@ where
         } = &mut self.state
         {
             let contact_ts_tuple = requests_in_flight.remove(&nonce);
-            let (contacts_id, _) = contact_ts_tuple
+            let (contacts_id, _, _) = contact_ts_tuple
                 .expect("It's assumed that for every timer entry a request entry exists");
             probe_timers.retain(|_, v| *v != nonce);
 
             let mut lock = context.routing_table_mut();
             match lock.contact_mut(&contacts_id) {
                 Some(mut contact) => {
+                    // comparing the probed_path is not necessary because if the failed_link is contained,
+                    // any affected path has a problem
                     if let Some(active_path) = contact.path()
                         && active_path.contains_link(&failed_link)
                     {
@@ -413,7 +436,7 @@ where
             // add request if not yet present
             scheduled_probe_requests.entry(path_probe_action.clone()).or_insert_with(|| {
                 log::trace!(target: "path_probing", "Scheduled probing for {:?}", path_probe_action);
-                context.runtime().current_time()
+                Timestamp::now()
             });
         }
     }
@@ -426,8 +449,9 @@ where
         {
             let now = context.runtime().current_time();
             let old_size = requests_in_flight.len();
-            requests_in_flight
-                .retain(|_, v| now.saturating_duration_since(v.1) <= self.config.request_timeout);
+            requests_in_flight.retain(|_, v| {
+                now.saturating_duration_since(v.2.into()) <= self.config.request_timeout
+            });
             if requests_in_flight.len() < old_size {
                 log::trace!(target: "path_probing", "Garbage collect: removed {} orphaned requests", old_size-requests_in_flight.len());
             }
@@ -436,7 +460,7 @@ where
 
     fn send_scheduled_probe_requests(&mut self, context: &C) {
         let now = context.runtime().current_time();
-        let mut probes_to_send: HashMap<PathProbeAction, Instant> = HashMap::new();
+        let mut probes_to_send: HashMap<PathProbeAction, Timestamp> = HashMap::new();
         if let PathProbingState::Running {
             scheduled_probe_requests,
             scheduled_sending_timer,
@@ -446,12 +470,13 @@ where
             // extract all elapsed events
             probes_to_send = scheduled_probe_requests
                 .extract_if(|_k, time| {
-                    now.saturating_duration_since(*time) > self.config.scheduled_probe_delay / 2
+                    now.saturating_duration_since(<&mut Timestamp as Into<Instant>>::into(time))
+                        > self.config.scheduled_probe_delay / 2
                 })
                 .collect();
             // if more recent requests remain, restart timer
             if scheduled_probe_requests.is_empty() {
-                // no timer needed  to start sending waiting request
+                // no timer needed to start sending waiting request
                 *scheduled_sending_timer = None;
             } else {
                 // start a new timer
@@ -500,7 +525,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     type State = PathProbingState;
 
@@ -530,7 +556,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     type Context = C;
     type Error = NeverError;

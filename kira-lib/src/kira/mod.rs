@@ -37,6 +37,7 @@ use kira_r2kad::{
         InsertionStrategy,
         NodeId,
         RoutingTable,
+        ULNState,
         ULNTable,
         UnderlayNeighborId,
         VicinityGraph,
@@ -258,7 +259,7 @@ where
     C::Runtime: Deref<Target = R2KadRuntime>,
     C::Runtime: UseCaseRuntime,
     C::UnderlayNeighborTable:
-        ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>> + Debug,
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>> + Debug,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
     C::InsertionStrategy: InsertionStrategy<C::RoutingTable, C::UnderlayNeighborTable, BUCKET_SIZE>,
     C::VicinityGraph: VicinityGraph + Debug,
@@ -296,8 +297,8 @@ where
                         .await
                         .is_none()
                     {
-                        log::debug!(target: "kira", "Stopping KIRA as output channel is closed");
-                        return;
+                        log::debug!(target: "kira", "skipping sending as output channel is closed");
+                        continue;
                     }
                 }
             }

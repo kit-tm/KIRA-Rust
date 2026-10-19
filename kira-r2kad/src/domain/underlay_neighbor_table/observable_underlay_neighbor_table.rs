@@ -10,6 +10,7 @@ use super::ULNTable;
 use crate::domain::{
     NodeId,
     SafeStateSeqNr,
+    ULNState,
     UnderlayNeighborId,
 };
 
@@ -75,9 +76,9 @@ impl<UN: Default> Default for ObservableULNTable<UN> {
 
 impl<UN> Deref for ObservableULNTable<UN>
 where
-    UN: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    UN: Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
-    type Target = HashMap<NodeId, UnderlayNeighborId>;
+    type Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
@@ -97,6 +98,14 @@ impl<UN: ULNTable> ULNTable for ObservableULNTable<UN> {
         last_mapping
     }
 
+    fn confirm(&mut self, id: NodeId, ulnid: UnderlayNeighborId) -> bool {
+        let result = self.inner.confirm(id, ulnid);
+        if result {
+            self.emit(ULNTableEvent::SSNChanged);
+        }
+        result
+    }
+
     fn contains(&self, id: &NodeId) -> bool {
         self.inner.contains(id)
     }
@@ -106,9 +115,11 @@ impl<UN: ULNTable> ULNTable for ObservableULNTable<UN> {
     }
 
     fn remove(&mut self, id: &NodeId) -> Option<UnderlayNeighborId> {
+        let last_ssn = *self.state_seq_nr();
         let removed = self.inner.remove(id);
 
-        if removed.is_some() {
+        // because None can either mean fresh or no insert
+        if removed.is_some() && self.state_seq_nr() != &last_ssn {
             self.emit(ULNTableEvent::SSNChanged);
         }
 
@@ -164,13 +175,28 @@ mod tests {
 
         let neighbor = NodeId::random();
         table.insert(neighbor, ulnid);
-        assert!(*emitted.lock().unwrap(), "should notify after new neighbor");
+        assert_eq!(
+            *emitted.lock().unwrap(),
+            false,
+            "should not notify after insertion of new neighbor"
+        );
+        table.confirm(neighbor, ulnid);
+        assert!(
+            *emitted.lock().unwrap(),
+            "should notify after new neighbor has been confirmed"
+        );
         *emitted.lock().unwrap() = false;
 
         table.insert(neighbor, ulnid);
         assert!(
             !*emitted.lock().unwrap(),
             "no notification if same neighbor inserted"
+        );
+
+        table.confirm(neighbor, ulnid);
+        assert!(
+            !*emitted.lock().unwrap(),
+            "no notification if same neighbor confirmed"
         );
 
         let changed_ulnid = {
@@ -184,6 +210,7 @@ mod tests {
         };
 
         table.insert(neighbor, changed_ulnid);
+        table.confirm(neighbor, changed_ulnid);
         assert!(
             *emitted.lock().unwrap(),
             "should notify about neighbor update"
@@ -223,13 +250,25 @@ mod tests {
 
         let neighbor = NodeId::random();
         table.insert(neighbor, ulnid);
+
+        table.remove(&neighbor);
+        assert_eq!(
+            *emitted.lock().unwrap(),
+            false,
+            "should not notify if unconfirmed neighbor removed"
+        );
+        assert_eq!(table.size(), 0, "table should be empty now");
+
+        // re-insert
+        table.insert(neighbor, ulnid);
+        table.confirm(neighbor, ulnid);
         assert!(*emitted.lock().unwrap(), "should notify about changed SSN");
         *emitted.lock().unwrap() = false;
 
         table.remove(&neighbor);
         assert!(
             *emitted.lock().unwrap(),
-            "should notify if neighbor removed"
+            "should notify if confirmed neighbor removed"
         );
     }
 

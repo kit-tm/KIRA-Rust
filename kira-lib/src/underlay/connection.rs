@@ -282,8 +282,7 @@ impl UnderlayObserverConnection {
                                     }
                                 }
 
-                                log::trace!(target: "underlay_observer::connection", "ProtoDown: {proto_down}");
-                                log::trace!(target: "underlay_observer::connection", "State: {link_state:?}");
+                                log::trace!(target: "underlay_observer::connection", "ProtoDown: {proto_down}, Link State: {link_state:?}");
 
                                 let if_up = !proto_down
                                     && link_state.is_some_and(|state| state != State::Down);
@@ -332,7 +331,7 @@ impl UnderlayObserverConnection {
                                         self.information_base.interface_down(&interface_id)
                                     else {
                                         // no neighbors affected
-                                        log::warn!(target: "underlay_observer::connection", "Interface {interface_id} was not registered as up yet");
+                                        log::debug!(target: "underlay_observer::connection", "Interface {interface_id} has no registered neighbors");
                                         continue;
                                     };
 

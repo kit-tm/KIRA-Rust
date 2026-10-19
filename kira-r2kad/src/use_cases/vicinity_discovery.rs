@@ -36,6 +36,7 @@ use crate::{
         SafeStateSeqNr,
         SourceRoute,
         StateSeqNr,
+        ULNState,
         ULNTable,
         UnderlayNeighborDestination::{
             Broadcast,
@@ -264,7 +265,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     C::VicinityGraph: VicinityGraph,
 {
     fn send_query_route_req(
@@ -294,7 +296,7 @@ where
         );
 
         // Get interface of route
-        let Some(underlay_neighbor) = context.uln_table().get(next_hop).cloned() else {
+        let Some((underlay_neighbor, _)) = context.uln_table().get(next_hop).cloned() else {
             tracing::error!(
                 target: "vicinity_discovery",
                 ?source_route,
@@ -446,19 +448,27 @@ where
         let rt_lock = context.routing_table();
         let uln_lock: Ref<'_, C::UnderlayNeighborTable> = context.uln_table();
 
-        let neighbors = uln_lock.keys().collect::<Vec<_>>();
+        // we collect ULNs with bidirectional connectivity only
+        let neighbors = uln_lock
+            .iter()
+            .filter(|(_, (_, uln_state))| matches!(*uln_state, ULNState::Bidirectional))
+            .map(|(uln_node_id, _)| uln_node_id)
+            .collect::<Vec<_>>();
         let mut contacts = Vec::with_capacity(neighbors.len());
-        for uln_id in neighbors {
-            let contact = rt_lock.contact(uln_id).cloned();
-            if contact.is_none() {
+        // NOTE that unless handshake is complete some of the nodes in the uln_table
+        // may not be a regular contact yet. However, since we only filter for bidirectional
+        // entries, every ULN should be present in the RoutingTable
+        for uln_node_id in neighbors {
+            if let Some(contact) = rt_lock.contact(uln_node_id).cloned() {
+                contacts.push(contact);
+            } else {
                 tracing::error!(
                     target: "vicinity_discovery",
-                    underlay_neighbor = %uln_id,
-                    "contact of underlay neighbor not found"
+                    underlay_neighbor = %uln_node_id,
+                    "contact of confirmed underlay neighbor not found"
                 );
                 return Err(VDError::NeighborInconsistency);
             }
-            contacts.push(contact.unwrap());
         }
         Ok((*uln_lock.state_seq_nr(), contacts))
     }
@@ -470,7 +480,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     C::VicinityGraph: VicinityGraph,
 {
     fn register_pending_req(
@@ -610,7 +621,7 @@ where
     fn process_ulndisc_reqrsp(&mut self, context: &C, req_or_rsp: &ULNReqRspMessage<RTableData>) {
         // update vicinity ssn in vicinity graph if required
         // ULNDiscReq/Rsp confirms bidirectional reachability, so we need to add the
-        // node to the vicinity graph (it will be added to the ULNtable in forward_protocol_message)
+        // node to the vicinity graph (it will be added to the ULNtable in handling ULNHello or ULNDiscReq)
 
         let source_node = req_or_rsp.source();
         let mut old_source_neighbors: HashSet<_> =
@@ -693,7 +704,7 @@ where
                 tracing::debug!(
                     target: "vicinity_discovery",
                     %source_node,
-                    node = %removed_node,
+                    removed_node = %removed_node,
                     reason = "outside_vicinity",
                     "removed node from vicinity graph"
                 );
@@ -826,6 +837,23 @@ where
                     );
                     // maybe return error instead
                     return Ok(());
+                }
+
+                // add source node to ULNTable
+                { // required due to scope ULNTable borrow
+                    // add source node to ULNTable as we probably need to send back a reply
+                    let mut uln_table = context.uln_table_mut();
+                    if !uln_table.contains(&source) {
+                        if let Some(replaced) = uln_table.insert(source, underlay_source) {
+                            // Not allowed to happen as lock is held
+                            log::warn!(
+                                target: "uln_table",
+                                "Overwritten ulnid mapping for '{source}' from '{underlay_source}' to '{replaced}' but checked before"
+                            );
+                        } else {
+                            log::debug!(target: "uln_table", "Inserted neighbor '{source}' at ulnid '{underlay_source}'");
+                        }
+                    }
                 }
 
                 // update entry in vicinity graph if necessary
@@ -980,8 +1008,18 @@ where
             }
 
             // ========== Underlay Neighbor Discovery – ULNDiscReq ==========
-            // process ULNDiscReq
+            // process ULNDiscReq (this is normally a reaction to a ULNHello)
             ProtocolMessage::ULNDiscReq(req) => {
+                // add source node to ULNTable
+                { // required due to scope ULNTable borrow
+                    let source = req.source();
+                    // add source node to ULNTable as we probably need to send back a reply
+                    let mut uln_table = context.uln_table_mut();
+                    uln_table.insert(*source, underlay_source);
+                    if uln_table.confirm(*source, underlay_source) {
+                        log::debug!(target: "uln_table", "Confirmed neighbor '{source}' at ulnid '{underlay_source}'");
+                    }
+                }
                 tracing::trace!(
                     target: "vicinity_discovery",
                     source = %req.source(),
@@ -995,6 +1033,15 @@ where
             // ========== Underlay Neighbor Discovery – ULNDiscRsp ==========
             // Process ULNDiscRsp
             ProtocolMessage::ULNDiscRsp(ref ulndiscrsp) => {
+                // need to confirm bidirectional reachability (ULNHello should have done the initial insert of the entry)
+                { // required due to scope ULNTable borrow
+                    let source = ulndiscrsp.source();
+                    // add source node to ULNTable as we probably need to send back a reply
+                    let mut uln_table = context.uln_table_mut();
+                    if uln_table.confirm(*source, underlay_source) {
+                        log::debug!(target: "uln_table", "Confirmed neighbor '{source}' at ulnid '{underlay_source}'");
+                    }
+                }
                 self.process_ulndisc_reqrsp(context, ulndiscrsp);
 
                 self.finalize_request(protocol_message);
@@ -1015,7 +1062,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     C::VicinityGraph: VicinityGraph,
 {
     fn schedule_syncs(&mut self, context: &C) -> Result<(), VDError> {
@@ -1064,7 +1112,7 @@ where
             let mut isolated_vicinity_nodes = false;
             for sync_candidate in sync_candidates {
                 // can't check for pending reqs in loop
-                let new_sync = if let Some(underlay_neighbor) =
+                let new_sync = if let Some((underlay_neighbor, _)) =
                     uln_lock.get(&sync_candidate).copied()
                 {
                     // check if sync is required
@@ -1074,7 +1122,7 @@ where
                         tracing::trace!(
                             target: "vicinity_discovery",
                             node = %sync_candidate,
-                            reason = "uln_unknown",
+                            reason = "node missing in vicinity graph",
                             expl = "waiting for ULNHello instead",
                             "ignore sync candidate",
                         );
@@ -1207,7 +1255,7 @@ where
                 tracing::debug!(
                     target: "vicinity_discovery",
                     node = %removed_node,
-                    reason = "outside_vicinity",
+                    reason = "isolated node",
                     "removed node from vicinity graph"
                 );
             }
@@ -1222,7 +1270,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     C::VicinityGraph: VicinityGraph + Debug,
 {
     type State = VDState;
@@ -1253,7 +1302,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     C::VicinityGraph: VicinityGraph + Debug,
 {
     type Context = C;
@@ -1417,7 +1467,7 @@ where
                             return Ok(());
                         }
 
-                        let Some(underlay_neighbor) =
+                        let Some((underlay_neighbor, _)) =
                             context.uln_table().get(&destination).copied()
                         else {
                             // e. g.: Link failure moves node outside the vicinity

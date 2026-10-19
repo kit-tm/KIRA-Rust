@@ -118,13 +118,9 @@ pub(super) async fn output_fan_out(
     let kira_span = Span::current();
     match output {
         kira_r2kad::Output::SendProtocolMessage(pm, ulnid) => {
-            if output_channels
-                .protocol
-                .send((pm, ulnid, kira_span))
-                .await
-                .is_err()
-            {
-                tracing::error!(target: "kira", "protocol sending channel closed");
+            let send_result = output_channels.protocol.send((pm, ulnid, kira_span)).await;
+            if send_result.is_err() {
+                tracing::error!(target: "kira", "protocol sending channel closed for ulnid {}, error: {:?}", ulnid, send_result);
                 return None;
             }
         }

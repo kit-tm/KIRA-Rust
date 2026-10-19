@@ -33,6 +33,7 @@ use crate::{
         PathId,
         RoutingTable,
         SourceRoute,
+        ULNState,
         ULNTable,
         UnderlayNeighborId,
         VICINITY_RADIUS,
@@ -130,7 +131,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     fn send_setup_req(&self, context: &C, contact: &Contact) {
         // just in case the contact has been invalidated meanwhile
@@ -267,7 +269,7 @@ where
 
         let in_path_id = self.config.hasher.hash(&in_path);
 
-        let next_hop = match context.uln_table().get(out_path.first()).cloned() {
+        let (next_hop, _) = match context.uln_table().get(out_path.first()).cloned() {
             Some(next_hop) => next_hop,
             None => {
                 log::error!(target: "explicit_path_management", "Received PathSetupRequest for invalid underlay neighbor {}; Ignoring", out_path.first());
@@ -374,7 +376,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     type Context = C;
     type Error = EPMError;
@@ -559,7 +562,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     type State = EPMState;
 

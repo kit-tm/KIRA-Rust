@@ -261,8 +261,10 @@ where
             );
             return InsertionStrategyResult::Dropped;
         }
-        // If the first element is no underlay neighbor
-        if !un_table.contains(contact.path().unwrap().first()) {
+
+        // Ignore the path if the first element is no underlay neighbor
+        if contact.path().unwrap().size() > 1 && !un_table.contains(contact.path().unwrap().first())
+        {
             tracing::trace!(
                 target: "routing_table",
                 reason = "path not leading via underlay neighbor",

@@ -23,6 +23,7 @@ use crate::{
         ProtocolMessageKind,
         RoutingTable,
         SourceRoute,
+        ULNState,
         ULNTable,
         UnderlayNeighborId,
         protocol_message::{
@@ -191,7 +192,7 @@ where
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
     C::UnderlayNeighborTable:
-        ULNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+        ULNTable + Debug + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     /// Sets a new timer accordingly and sends a new FindNodeReq with target of our own ID (this is a join)
     /// if exponential backoff allows it.
@@ -441,7 +442,7 @@ where
     // Isn't used yet, but provides information for the compiler to derive the BUCKET_SIZE from RT
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
     C::UnderlayNeighborTable:
-        ULNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+        ULNTable + Debug + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     type State = ONDState;
 
@@ -485,7 +486,7 @@ where
     // Isn't used yet, but provides information for the compiler to derive the BUCKET_SIZE from RT
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
     C::UnderlayNeighborTable:
-        ULNTable + Debug + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+        ULNTable + Debug + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     type Context = C;
     type Error = ONDError;

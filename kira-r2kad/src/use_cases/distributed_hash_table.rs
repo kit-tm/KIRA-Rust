@@ -33,6 +33,7 @@ use crate::{
         ProtocolMessageKind,
         RoutingTable,
         SourceRoute,
+        ULNState,
         ULNTable,
         UnderlayNeighborId,
         dht,
@@ -350,7 +351,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     H: LocalHashTable + Clone,
     H::StoreOk: Into<StoreOk>,
     H::StoreErr: Into<StoreErr>,
@@ -872,7 +874,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     H: LocalHashTable + Clone,
     H::StoreOk: Into<StoreOk>,
     H::StoreErr: Into<StoreErr>,
@@ -950,7 +953,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     H: LocalHashTable + Clone,
     H::StoreOk: Into<StoreOk>,
     H::StoreErr: Into<StoreErr>,
@@ -1097,7 +1101,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     H: LocalHashTable + Clone,
     H::StoreOk: Into<StoreOk>,
     H::StoreErr: Into<StoreErr>,

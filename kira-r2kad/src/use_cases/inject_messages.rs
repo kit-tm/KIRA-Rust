@@ -18,6 +18,7 @@ use crate::{
         ProtocolMessageKind,
         RoutingTable,
         SourceRoute,
+        ULNState,
         ULNTable,
         UnderlayNeighborId,
         protocol_message::{
@@ -135,7 +136,8 @@ where
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     TS: InjectionResultSender,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     type Context = C;
     type Error = InjectMessageError;
@@ -240,7 +242,8 @@ where
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     TS: InjectionResultSender,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     type State = ReactiveUseCaseState;
 

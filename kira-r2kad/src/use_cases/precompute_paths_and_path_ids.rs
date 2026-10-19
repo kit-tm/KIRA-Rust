@@ -19,6 +19,7 @@ use crate::{
         Hasher,
         NodeId,
         RoutingTable,
+        ULNState,
         UnderlayNeighborId,
         VICINITY_RADIUS,
         VicinityGraph,
@@ -94,7 +95,7 @@ impl<C, const BUCKET_SIZE: usize> PrecomputePathIds<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
-    C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     C::VicinityGraph: VicinityGraph + Debug,
 {
     #[instrument(
@@ -126,7 +127,7 @@ where
                 continue;
             };
 
-            let Some(ulnid) = context.uln_table().get(out_path.first()).cloned() else {
+            let Some((ulnid, _)) = context.uln_table().get(out_path.first()).cloned() else {
                 tracing::warn!(target: "precompute_paths_and_path_ids", underlay_neighbor = ?out_path.first(), "VicinityGraph generated path over invalid underlay neighbor");
                 continue;
             };
@@ -174,7 +175,7 @@ impl<C, const BUCKET_SIZE: usize> EventHandler for PrecomputePathIds<C, BUCKET_S
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
-    C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::VicinityGraph: VicinityGraph + Debug,
 {
@@ -228,7 +229,7 @@ impl<C, const BUCKET_SIZE: usize> UseCase for PrecomputePathIds<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
-    C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::VicinityGraph: VicinityGraph + Debug,
 {

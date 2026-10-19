@@ -116,6 +116,12 @@ impl From<Timestamp> for Instant {
     }
 }
 
+impl From<&mut Timestamp> for Instant {
+    fn from(ts: &mut Timestamp) -> Self {
+        ts.0
+    }
+}
+
 impl Default for Timestamp {
     fn default() -> Self {
         Self::now()

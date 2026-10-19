@@ -35,6 +35,7 @@ use crate::{
         RoutingTable,
         SourceRoute,
         Timestamp,
+        ULNState,
         ULNTable,
         UnderlayNeighborId,
         UnderlayNeighborUpdate,
@@ -210,7 +211,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     C::VicinityGraph: VicinityGraph,
 {
     // returns the default rediscovery wait times according to different contacts types
@@ -304,6 +306,14 @@ where
             self.config.rediscovery_parallelism.get(),
         ) else {
             // if we have no via contacts for whatever reason, we cannot send anything
+            // however, we start a timer to not get stuck forever in Rediscovering state
+            // the timer will trigger a call to handle_rediscovery_failure() that will
+            // start several rounds of retries with exponential backoff. Maybe we are lucky
+            // and other usable contacts recover meanwhile
+            let new_timer_id = context.runtime().register_timer(REDISCOVERY_TIMEOUT_MAX);
+            self.rate_limit_rediscoveries
+                .insert(new_timer_id, *contact_id);
+
             return;
         };
 
@@ -444,6 +454,7 @@ where
             self.send_updates(context, &contact, notviastatelist);
         }
 
+        // in isolation or drastic failure scenarios it may be the case that no via contacts can be found
         let closest_via_contacts = context
             .routing_table()
             .closest(
@@ -529,6 +540,7 @@ where
             None => {
                 // nothing more to probe or contact in wrong state etc.
                 // refill via contact list for another round
+                // note that this list may be actually empty
                 let new_via_contact_list = context
                     .routing_table()
                     .closest(
@@ -695,7 +707,7 @@ where
         let affected_underlay_neighbors = context
             .uln_table()
             .iter()
-            .filter_map(|(id, via)| if via == &ulnid { Some(*id) } else { None })
+            .filter_map(|(id, (via, _))| if via == &ulnid { Some(*id) } else { None })
             .collect::<HashSet<_>>();
 
         log::trace!(target: "failure_handling", "Underlay neighbors affected by interface {ulnid:?} down: {affected_underlay_neighbors:?}");
@@ -748,7 +760,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     C::VicinityGraph: VicinityGraph,
 {
     type Context = C;
@@ -841,7 +854,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     C::VicinityGraph: VicinityGraph,
 {
     type State = ReactiveUseCaseState;
