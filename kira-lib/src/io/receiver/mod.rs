@@ -1,9 +1,6 @@
 //! Traits and implementations for receiving [ProtocolMessages](kira_r2kad::domain::ProtocolMessage).
 
-use std::{
-    task::Poll,
-    time::Duration,
-};
+use std::task::Poll;
 
 use error::*;
 use futures::{
@@ -18,39 +15,6 @@ pub use kira_r2kad::domain::{
 
 #[cfg(feature = "udp-tokio")]
 pub mod udp_tokio;
-
-/// Receives [ProtocolMessage]s of other Nodes.
-///
-/// A single [ProtocolMessageReceiver] can be responsible for one or many [InterfaceId]s.
-///
-/// Converts a [ProtocolMessage] formatted by its corresponding
-/// [ProtocolMessageSender](super::sender::ProtocolMessageSender) back
-/// to a [ProtocolMessage] and returns it.
-///
-/// Every method is allowed to return [None] at any point in time.
-/// In cases where the [ProtocolMessageReceiver] is no longer able to receive messages
-/// an error has to be returned.
-pub trait ProtocolMessageReceiver {
-    /// Receives a [ProtocolMessage].
-    ///
-    /// Returns an Error if receiving failed or the optional timeout was reached.
-    ///
-    /// If no timeout was given the operation waits until a new [ProtocolMessage] arrived.
-    ///
-    /// Returns [None] if no messages will be received from this [ProtocolMessageReceiver] anymore.
-    fn recv_timeout(
-        &mut self,
-        timeout: Option<Duration>,
-    ) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, RecvError>;
-    /// Receives a [ProtocolMessage].
-    ///
-    /// Short for calling [recv_timeout](ProtocolMessageReceiver::recv_timeout) with [None].
-    fn recv(&mut self) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, RecvError> {
-        self.recv_timeout(None)
-    }
-    /// Tries to receive a [ProtocolMessage] and returns an Error if no message is present at the time.
-    fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, RecvError>;
-}
 
 /// Receives [ProtocolMessage]s of other Nodes.
 ///
