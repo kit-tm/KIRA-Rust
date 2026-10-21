@@ -123,7 +123,7 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
                         target: "message_receiver",
                         io_error=%e,
                         "Failed to receive data from socket");
-                        return Some(Err(RecvError::IoError(Box::new(e))));
+                        return Some(Err(RecvError::from(e)));
                     }
                 };
             let received_from = match received_from {

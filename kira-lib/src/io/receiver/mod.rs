@@ -49,7 +49,7 @@ pub trait ProtocolMessageReceiver {
         self.recv_timeout(None)
     }
     /// Tries to receive a [ProtocolMessage] and returns an Error if no message is present at the time.
-    fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, TryRecvError>;
+    fn try_recv(&mut self) -> Result<Option<(ProtocolMessage, UnderlayNeighborId)>, RecvError>;
 }
 
 /// Receives [ProtocolMessage]s of other Nodes.
@@ -86,7 +86,10 @@ impl<R: AsyncProtocolMessageReceiver + Unpin> Stream for ProtocolMessageReceiver
 
 /// Errors for message receivers
 pub mod error {
-    use std::collections::HashSet;
+    use std::{
+        collections::HashSet,
+        io,
+    };
 
     use derive_more::with_trait::{
         Display,
@@ -97,9 +100,6 @@ pub mod error {
     /// Error type for [AsyncProtocolMessageReceiver::recv](super::AsyncProtocolMessageReceiver::recv)
     #[derive(Debug, Display, Error)]
     pub enum RecvError {
-        /// Receiving timed out.
-        #[display("Timeout receiving a Message")]
-        Timeout,
         /// Returned if no interface for a message was found.
         ///
         /// This may signal an inconsistency in the interface configuration.
@@ -114,32 +114,15 @@ pub mod error {
         #[display("Receiver closed")]
         Closed,
         /// The I/O-Layer returned some error.
-        IoError(Box<dyn Error + Send>),
+        IoError(io::Error),
         /// Other Error for custom error types of the implementations.
         #[display("Received IO Error: {_0}")]
         Other(Box<dyn Error + Send>),
     }
 
-    /// Error type for [ProtocolMessageReceiver::try_recv](super::ProtocolMessageReceiver::try_recv).
-    #[derive(Debug, Display, Error)]
-    pub enum TryRecvError {
-        /// The I/O-Layer returned some error.
-        #[display("Received IO Error: {_0}")]
-        IoError(Box<dyn Error + Send>),
-        /// Returned if no interface for a message was found.
-        ///
-        /// This may signal an inconsistency in the interface configuration.
-        #[display("No interface for message was found; Network configuration may be inconsistent")]
-        NoInterfaceFound,
-        /// Signals that one or many interfaces stopped working.
-        ///
-        /// This doesn't signal that the receiver stops operating.
-        #[display("Interfaces {_0:?} stopped working")]
-        InterfacesDown(#[error(ignore)] HashSet<InterfaceId>),
-        /// Signals that no more messages will be received from this receiver.
-        #[display("Receiver closed")]
-        Closed,
-        /// Other Error for custom error types of the implementations.
-        Other(Box<dyn Error + Send>),
+    impl From<io::Error> for RecvError {
+        fn from(err: io::Error) -> Self {
+            RecvError::IoError(err)
+        }
     }
 }
