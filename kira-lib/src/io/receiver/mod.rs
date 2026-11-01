@@ -16,6 +16,7 @@ pub use kira_r2kad::domain::{
 #[cfg(feature = "udp-tokio")]
 pub mod udp_tokio;
 
+///
 /// Receives [ProtocolMessage]s of other Nodes.
 ///
 /// Converts a [ProtocolMessage] formatted by its corresponding
@@ -27,7 +28,7 @@ pub trait LocalAsyncProtocolMessageReceiver {
     ///
     /// Waits until a new [ProtocolMessage] arrived.
     /// Returns an Error if receiving failed.
-    /// Returns [None] if no messages will be received from this [ProtocolMessageReceiver] anymore.
+    /// Returns [None] if no messages will be received from this [AsyncProtocolMessageReceiver] anymore.
     async fn recv(&mut self) -> Option<Result<(ProtocolMessage, UnderlayNeighborId), RecvError>>;
 }
 
