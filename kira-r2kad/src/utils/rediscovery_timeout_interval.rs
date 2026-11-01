@@ -169,8 +169,17 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(interval.next_duration(Distance::OverlayNeighbor), Duration::from_secs(10));
-        assert_eq!(interval.next_duration(Distance::UnderlayNeighbor), Duration::from_secs(20));
-        assert_eq!(interval.next_duration(Distance::Others), Duration::from_secs(40));
+        assert_eq!(
+            interval.next_duration(Distance::OverlayNeighbor),
+            Duration::from_secs(10)
+        );
+        assert_eq!(
+            interval.next_duration(Distance::UnderlayNeighbor),
+            Duration::from_secs(20)
+        );
+        assert_eq!(
+            interval.next_duration(Distance::Others),
+            Duration::from_secs(40)
+        );
     }
 }

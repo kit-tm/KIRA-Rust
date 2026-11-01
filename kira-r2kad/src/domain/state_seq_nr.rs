@@ -179,10 +179,7 @@ mod tests {
     fn safe_try_from_rejects_special_values() {
         assert!(SafeStateSeqNr::try_from(0u32).is_err());
         assert!(SafeStateSeqNr::try_from(u32::MAX).is_err());
-        assert_eq!(
-            SafeStateSeqNr::try_from(1u32).unwrap(),
-            SafeStateSeqNr::MIN
-        );
+        assert_eq!(SafeStateSeqNr::try_from(1u32).unwrap(), SafeStateSeqNr::MIN);
         assert!(SafeStateSeqNr::try_from(u32::MAX - 1).is_ok());
     }
 
@@ -200,10 +197,7 @@ mod tests {
             u32::from(StateSeqNr::Value(SafeStateSeqNr::try_from(5).unwrap())),
             5
         );
-        assert_eq!(
-            u32::from(SafeStateSeqNr::try_from(7).unwrap()),
-            7
-        );
+        assert_eq!(u32::from(SafeStateSeqNr::try_from(7).unwrap()), 7);
     }
 
     #[test]

@@ -236,43 +236,56 @@ mod tests {
     #[test]
     fn insert_rejects_duplicate_timer() {
         let mut map = BackoffMap::default();
-        map.insert((node(1), timer(10), nonce(100)), backoff(1)).unwrap();
+        map.insert((node(1), timer(10), nonce(100)), backoff(1))
+            .unwrap();
 
         assert!(matches!(
             map.insert((node(2), timer(10), nonce(200)), backoff(1)),
             Err(errors::InsertionError::DuplicateTimer)
         ));
-        assert!(map.get(&node(2)).is_none(), "failed insertion must leave no state");
+        assert!(
+            map.get(&node(2)).is_none(),
+            "failed insertion must leave no state"
+        );
     }
 
     #[test]
     fn insert_rejects_duplicate_nonce() {
         let mut map = BackoffMap::default();
-        map.insert((node(1), timer(10), nonce(100)), backoff(1)).unwrap();
+        map.insert((node(1), timer(10), nonce(100)), backoff(1))
+            .unwrap();
 
         assert!(matches!(
             map.insert((node(2), timer(20), nonce(100)), backoff(1)),
             Err(errors::InsertionError::DuplicateNonce)
         ));
-        assert!(map.get(&node(2)).is_none(), "failed insertion must leave no state");
+        assert!(
+            map.get(&node(2)).is_none(),
+            "failed insertion must leave no state"
+        );
     }
 
     #[test]
     fn insert_replaces_backoff_for_same_node() {
         let mut map = BackoffMap::default();
-        map.insert((node(1), timer(10), nonce(100)), backoff(1)).unwrap();
+        map.insert((node(1), timer(10), nonce(100)), backoff(1))
+            .unwrap();
 
-        assert!(matches!(
-            map.insert((node(1), timer(20), nonce(200)), backoff(5)),
-            Ok(Some(ref b)) if *b == backoff(1)
-        ), "inserting the same node must return the previous backoff");
+        assert!(
+            matches!(
+                map.insert((node(1), timer(20), nonce(200)), backoff(5)),
+                Ok(Some(ref b)) if *b == backoff(1)
+            ),
+            "inserting the same node must return the previous backoff"
+        );
         assert_eq!(map.get(&node(1)), Some(&backoff(5)));
     }
 
     #[test]
     fn add_nonce_for_node() {
         let mut map = BackoffMap::default();
-        map.insert((node(1), timer(10), nonce(100)), backoff(1)).unwrap();
+        map.insert((node(1), timer(10), nonce(100)), backoff(1))
+            .unwrap();
 
         assert!(matches!(
             map.add_nonce_for_node(node(1), nonce(100)),
@@ -291,19 +304,25 @@ mod tests {
     #[test]
     fn remove_nonce_only_drops_nonce_mapping() {
         let mut map = BackoffMap::default();
-        map.insert((node(1), timer(10), nonce(100)), backoff(1)).unwrap();
+        map.insert((node(1), timer(10), nonce(100)), backoff(1))
+            .unwrap();
 
         assert!(map.remove_nonce(nonce(100)));
         assert!(!map.remove_nonce(nonce(100)));
         assert_eq!(map.get_node_for_nonce(nonce(100)), None);
-        assert_eq!(map.get(&node(1)), Some(&backoff(1)), "backoff must stay tracked");
+        assert_eq!(
+            map.get(&node(1)),
+            Some(&backoff(1)),
+            "backoff must stay tracked"
+        );
         assert_eq!(map.get_node_for_timer(&timer(10)), Some(&node(1)));
     }
 
     #[test]
     fn remove_untracks_node_completely() {
         let mut map = BackoffMap::default();
-        map.insert((node(1), timer(10), nonce(100)), backoff(1)).unwrap();
+        map.insert((node(1), timer(10), nonce(100)), backoff(1))
+            .unwrap();
         map.add_nonce_for_node(node(1), nonce(101)).unwrap();
 
         let (state, timer_id, nonces) = map.remove(&node(1)).expect("node is tracked");
@@ -327,11 +346,11 @@ mod tests {
     #[test]
     fn remove_by_nonce_returns_all_tracked_data() {
         let mut map = BackoffMap::default();
-        map.insert((node(1), timer(10), nonce(100)), backoff(1)).unwrap();
+        map.insert((node(1), timer(10), nonce(100)), backoff(1))
+            .unwrap();
         map.add_nonce_for_node(node(1), nonce(101)).unwrap();
 
-        let (state, timer_id, nonces) =
-            map.remove_by_nonce(nonce(100)).expect("nonce is tracked");
+        let (state, timer_id, nonces) = map.remove_by_nonce(nonce(100)).expect("nonce is tracked");
 
         assert_eq!(state, backoff(1));
         assert_eq!(timer_id, timer(10));
@@ -350,11 +369,11 @@ mod tests {
     #[test]
     fn remove_by_timer_returns_all_tracked_data() {
         let mut map = BackoffMap::default();
-        map.insert((node(1), timer(10), nonce(100)), backoff(1)).unwrap();
+        map.insert((node(1), timer(10), nonce(100)), backoff(1))
+            .unwrap();
         map.add_nonce_for_node(node(1), nonce(101)).unwrap();
 
-        let (state, timer_id, nonces) =
-            map.remove_by_timer(&timer(10)).expect("timer is tracked");
+        let (state, timer_id, nonces) = map.remove_by_timer(&timer(10)).expect("timer is tracked");
 
         assert_eq!(state, backoff(1));
         assert_eq!(timer_id, timer(10));
@@ -368,22 +387,29 @@ mod tests {
     #[test]
     fn replace_timer_for_replaces_old_timer() {
         let mut map = BackoffMap::default();
-        map.insert((node(1), timer(10), nonce(100)), backoff(1)).unwrap();
+        map.insert((node(1), timer(10), nonce(100)), backoff(1))
+            .unwrap();
 
         assert!(matches!(
             map.replace_timer_for(node(1), timer(11)),
             Ok(Some(t)) if t == timer(10)
         ));
         assert_eq!(map.get_node_for_timer(&timer(11)), Some(&node(1)));
-        assert_eq!(map.get_node_for_timer(&timer(10)), None, "old timer must be removed");
+        assert_eq!(
+            map.get_node_for_timer(&timer(10)),
+            None,
+            "old timer must be removed"
+        );
         assert_eq!(map.get_node_for_nonce(nonce(100)), Some(&node(1)));
     }
 
     #[test]
     fn replace_timer_for_rejects_foreign_timer() {
         let mut map = BackoffMap::default();
-        map.insert((node(1), timer(10), nonce(100)), backoff(1)).unwrap();
-        map.insert((node(2), timer(20), nonce(200)), backoff(1)).unwrap();
+        map.insert((node(1), timer(10), nonce(100)), backoff(1))
+            .unwrap();
+        map.insert((node(2), timer(20), nonce(200)), backoff(1))
+            .unwrap();
 
         assert!(matches!(
             map.replace_timer_for(node(1), timer(20)),
@@ -399,11 +425,15 @@ mod tests {
     #[test]
     fn get_node_for_timer_is_filtered_for_untracked_nodes() {
         let mut map = BackoffMap::default();
-        map.insert((node(1), timer(10), nonce(100)), backoff(1)).unwrap();
+        map.insert((node(1), timer(10), nonce(100)), backoff(1))
+            .unwrap();
 
         // replacing the timer of a node without backoff state registers the
         // timer, but lookups must stay filtered
-        assert!(matches!(map.replace_timer_for(node(9), timer(99)), Ok(None)));
+        assert!(matches!(
+            map.replace_timer_for(node(9), timer(99)),
+            Ok(None)
+        ));
         assert_eq!(map.get_node_for_timer(&timer(99)), None);
     }
 }

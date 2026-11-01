@@ -420,7 +420,9 @@ mod tests {
         table
     }
 
-    fn strategy() -> UNSStrategy<SingleBucketRT<BUCKET_SIZE>, InOrderCycleRemover, NoopSimplifier, BUCKET_SIZE> {
+    fn strategy()
+    -> UNSStrategy<SingleBucketRT<BUCKET_SIZE>, InOrderCycleRemover, NoopSimplifier, BUCKET_SIZE>
+    {
         UNSStrategy::new(InOrderCycleRemover, NoopSimplifier)
     }
 
@@ -504,7 +506,7 @@ mod tests {
     }
 
     #[test]
-    fn drops_unknown_contact_for_new_id() {
+    fn unknown_contact_for_new_id_needs_validation() {
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -515,7 +517,7 @@ mod tests {
 
         let result = strategy.insert(unknown_contact(&[uln, dest], 1), &mut rt, &un);
 
-        assert_eq!(result, InsertionStrategyResult::Dropped);
+        assert_eq!(result, InsertionStrategyResult::NeedsValidation);
         assert!(!rt.contains(&dest));
     }
 
@@ -593,11 +595,7 @@ mod tests {
             InsertionStrategyResult::Inserted
         );
 
-        let result = strategy.insert(
-            contact(&[uln, NodeId::from(9), dest], 5),
-            &mut rt,
-            &un,
-        );
+        let result = strategy.insert(contact(&[uln, NodeId::from(9), dest], 5), &mut rt, &un);
 
         assert_eq!(result, InsertionStrategyResult::Dropped);
         assert_eq!(
@@ -640,7 +638,9 @@ mod tests {
         for (i, path_len) in [3usize, 2, 2, 2].into_iter().enumerate() {
             let mut path = vec![uln];
             for hop in 2..path_len {
-                path.push(NodeId::from(100 + u128::try_from(i).unwrap() * 10 + u128::try_from(hop).unwrap()));
+                path.push(NodeId::from(
+                    100 + u128::try_from(i).unwrap() * 10 + u128::try_from(hop).unwrap(),
+                ));
             }
             let dest = NodeId::from(10 + u128::try_from(i).unwrap());
             path.push(dest);

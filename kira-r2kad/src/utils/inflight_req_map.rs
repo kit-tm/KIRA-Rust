@@ -184,10 +184,7 @@ mod tests {
         let mut map = InflightReqMap::default();
         map.insert((node(1), timer(10), nonce(100))).unwrap();
 
-        assert_eq!(
-            map.remove_by_nonce(nonce(100)),
-            Some((node(1), timer(10)))
-        );
+        assert_eq!(map.remove_by_nonce(nonce(100)), Some((node(1), timer(10))));
         assert!(!map.nonce_exists(&nonce(100)));
         assert!(!map.timer_exists(&timer(10)));
         assert!(!map.exists(&node(1)));
@@ -199,10 +196,7 @@ mod tests {
         let mut map = InflightReqMap::default();
         map.insert((node(1), timer(10), nonce(100))).unwrap();
 
-        assert_eq!(
-            map.remove_by_timer(&timer(10)),
-            Some((node(1), nonce(100)))
-        );
+        assert_eq!(map.remove_by_timer(&timer(10)), Some((node(1), nonce(100))));
         assert!(!map.nonce_exists(&nonce(100)));
         assert!(!map.timer_exists(&timer(10)));
         assert_eq!(map.remove_by_timer(&timer(10)), None);
@@ -250,10 +244,7 @@ mod tests {
         );
 
         // removing via the replaced timer has to untrack everything
-        assert_eq!(
-            map.remove_by_timer(&timer(11)),
-            Some((node(1), nonce(100)))
-        );
+        assert_eq!(map.remove_by_timer(&timer(11)), Some((node(1), nonce(100))));
         assert!(!map.nonce_exists(&nonce(100)));
     }
 

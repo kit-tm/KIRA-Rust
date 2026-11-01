@@ -55,10 +55,7 @@ mod tests {
     #[test]
     fn sha1_matches_path_id_helper() {
         let path = [NodeId::from(1), NodeId::from(2)];
-        assert_eq!(
-            Hasher::Sha1.hash(&path),
-            PathId::from_sha1(&path)
-        );
+        assert_eq!(Hasher::Sha1.hash(&path), PathId::from_sha1(&path));
     }
 
     #[cfg(feature = "sha2")]

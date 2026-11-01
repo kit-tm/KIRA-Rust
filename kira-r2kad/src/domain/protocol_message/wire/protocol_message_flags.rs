@@ -66,11 +66,18 @@ mod tests {
         let flags = ProtocolMessageFlags::Exact | ProtocolMessageFlags::Diagnostic;
 
         let mut buffer = Cursor::new(Vec::new());
-        flags.write_be(&mut buffer).expect("writing flags must work");
-        assert_eq!(buffer.into_inner(), vec![0b0100_0001], "flags are written as a single byte");
+        flags
+            .write_be(&mut buffer)
+            .expect("writing flags must work");
+        assert_eq!(
+            buffer.into_inner(),
+            vec![0b0100_0001],
+            "flags are written as a single byte"
+        );
 
         let mut buffer = Cursor::new(vec![0b0100_0001u8]);
-        let read_back = ProtocolMessageFlags::read_be(&mut buffer).expect("reading flags must work");
+        let read_back =
+            ProtocolMessageFlags::read_be(&mut buffer).expect("reading flags must work");
         assert_eq!(read_back, flags);
     }
 
@@ -83,7 +90,13 @@ mod tests {
         let flags = ProtocolMessageFlags::read_be(&mut buffer).expect("reading flags must work");
 
         let mut buffer = Cursor::new(Vec::new());
-        flags.write_be(&mut buffer).expect("writing flags must work");
-        assert_eq!(buffer.into_inner(), vec![raw], "unknown bits must not be dropped");
+        flags
+            .write_be(&mut buffer)
+            .expect("writing flags must work");
+        assert_eq!(
+            buffer.into_inner(),
+            vec![raw],
+            "unknown bits must not be dropped"
+        );
     }
 }

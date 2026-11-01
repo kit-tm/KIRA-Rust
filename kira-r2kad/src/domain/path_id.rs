@@ -265,6 +265,9 @@ mod tests {
     #[test]
     fn debug_wraps_upper_hex() {
         let path_id = PathId::from_sha1(&[NodeId::from(1), NodeId::from(2)]);
-        assert_eq!(format!("{path_id:?}"), "PathId(1EA54DACEE661245CDFAF6B442EE)");
+        assert_eq!(
+            format!("{path_id:?}"),
+            "PathId(1EA54DACEE661245CDFAF6B442EE)"
+        );
     }
 }

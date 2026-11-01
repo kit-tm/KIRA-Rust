@@ -73,12 +73,14 @@ impl PathSimplifier for ShortestFirstPathSimplifier {
 
 #[cfg(test)]
 mod tests {
+    use super::ShortestFirstPathSimplifier;
     use crate::domain::{
         Contact,
         ContactState,
         NodeId,
         Path,
         SafeStateSeqNr,
+        ULNTable,
         UnderlayNeighborId,
         path::PathSimplifier,
         routing_table::{
@@ -91,9 +93,6 @@ mod tests {
         },
         underlay_neighbor_table::InMemoryULNTable,
     };
-    use crate::domain::ULNTable;
-
-    use super::ShortestFirstPathSimplifier;
 
     const BUCKET_SIZE: usize = 8;
 
@@ -145,7 +144,11 @@ mod tests {
         let uln = uln_table_with(&[NodeId::from(1), NodeId::from(3)]);
         let rt = SingleBucketRT::<BUCKET_SIZE>::new(NodeId::ZERO);
 
-        let path = simplify(&uln, &rt, &[NodeId::from(1), NodeId::from(2), NodeId::from(3)]);
+        let path = simplify(
+            &uln,
+            &rt,
+            &[NodeId::from(1), NodeId::from(2), NodeId::from(3)],
+        );
 
         assert_eq!(path.size(), 1);
         assert_eq!(path.first(), &NodeId::from(3));
@@ -156,7 +159,11 @@ mod tests {
         let uln = uln_table_with(&[NodeId::from(1)]);
         let rt = SingleBucketRT::<BUCKET_SIZE>::new(NodeId::ZERO);
 
-        let path = simplify(&uln, &rt, &[NodeId::from(1), NodeId::from(2), NodeId::from(3)]);
+        let path = simplify(
+            &uln,
+            &rt,
+            &[NodeId::from(1), NodeId::from(2), NodeId::from(3)],
+        );
 
         assert_eq!(path.size(), 3);
         assert_eq!(path.first(), &NodeId::from(1));
@@ -169,7 +176,11 @@ mod tests {
         let uln = uln_table_with(&[NodeId::from(1)]);
         let rt = routing_table_with_contact(&[NodeId::from(1), NodeId::from(3)]);
 
-        let path = simplify(&uln, &rt, &[NodeId::from(1), NodeId::from(2), NodeId::from(3)]);
+        let path = simplify(
+            &uln,
+            &rt,
+            &[NodeId::from(1), NodeId::from(2), NodeId::from(3)],
+        );
 
         assert_eq!(path.size(), 2);
         assert_eq!(path.first(), &NodeId::from(1));
@@ -182,7 +193,11 @@ mod tests {
         let uln = uln_table_with(&[NodeId::from(1)]);
         let rt = routing_table_with_contact(&[NodeId::from(1), NodeId::from(4), NodeId::from(3)]);
 
-        let path = simplify(&uln, &rt, &[NodeId::from(1), NodeId::from(2), NodeId::from(3)]);
+        let path = simplify(
+            &uln,
+            &rt,
+            &[NodeId::from(1), NodeId::from(2), NodeId::from(3)],
+        );
 
         assert_eq!(path.size(), 3);
         assert_eq!(path[1], NodeId::from(2), "path must be unchanged");
@@ -199,7 +214,11 @@ mod tests {
         rt.add(contact).expect("bucket must have capacity");
 
         let uln = uln_table_with(&[NodeId::from(1)]);
-        let path = simplify(&uln, &rt, &[NodeId::from(1), NodeId::from(2), NodeId::from(3)]);
+        let path = simplify(
+            &uln,
+            &rt,
+            &[NodeId::from(1), NodeId::from(2), NodeId::from(3)],
+        );
 
         assert_eq!(path.size(), 3, "only valid contacts may shorten the path");
     }
@@ -211,7 +230,11 @@ mod tests {
         let uln = uln_table_with(&[NodeId::from(1), NodeId::from(3)]);
         let rt = routing_table_with_contact(&[NodeId::from(1), NodeId::from(3)]);
 
-        let path = simplify(&uln, &rt, &[NodeId::from(1), NodeId::from(2), NodeId::from(3)]);
+        let path = simplify(
+            &uln,
+            &rt,
+            &[NodeId::from(1), NodeId::from(2), NodeId::from(3)],
+        );
 
         assert_eq!(path.size(), 1);
         assert_eq!(path.first(), &NodeId::from(3));
