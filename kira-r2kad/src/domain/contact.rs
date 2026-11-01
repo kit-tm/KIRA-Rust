@@ -324,3 +324,314 @@ impl Contact {
         &mut self.state_seq_nr
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::domain::{
+        Link,
+        NodeId,
+        NotViaState,
+        Path,
+        PathState,
+        SafeStateSeqNr,
+    };
+
+    fn contact_with_path(path: &[NodeId], ssn: u32) -> Contact {
+        Contact::new(
+            Path::try_from(path).expect("test path must not be empty"),
+            SafeStateSeqNr::try_from(ssn).expect("test ssn must be valid"),
+        )
+    }
+
+    fn notvia_state_list(link: Link) -> NotViaStateList {
+        NotViaStateList::from(NotViaState::new(link, Timestamp::now()))
+    }
+
+    #[test]
+    fn dest_id_is_last_path_element() {
+        let contact = contact_with_path(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)], 1);
+        assert_eq!(contact.id(), &NodeId::from(3));
+    }
+
+    #[test]
+    fn new_contact_is_valid_with_active_path() {
+        let contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
+        assert!(contact.is_valid());
+        assert!(!contact.is_invalid());
+        assert!(!contact.is_dead());
+        assert!(contact.state() == &ContactState::Valid);
+        assert!(contact.path().is_some());
+        assert!(contact.proposed_path().is_none());
+    }
+
+    #[test]
+    fn cmp_actuality_prefers_greater_state_seq_nr() {
+        let older_info = contact_with_path(&[NodeId::from(1)], 1);
+        let mut newer_info = contact_with_path(&[NodeId::from(2)], 2);
+        // make `newer_info` older in time to prove SSN dominates the ordering
+        *newer_info.last_seen_mut() = Timestamp::from(Age::from(10_000u64));
+
+        assert_eq!(
+            newer_info.cmp_actuality(&older_info),
+            Ordering::Greater,
+            "greater SSN wins even when older"
+        );
+        assert_eq!(
+            older_info.cmp_actuality(&newer_info),
+            Ordering::Less
+        );
+        assert!(older_info.is_older_than(&newer_info));
+        assert!(!newer_info.is_older_than(&older_info));
+    }
+
+    #[test]
+    fn cmp_actuality_breaks_ties_with_recency() {
+        // same SSN: the contact seen more recently carries the newer information
+        let mut stale = contact_with_path(&[NodeId::from(1)], 1);
+        *stale.last_seen_mut() = Timestamp::from(Age::from(10_000u64));
+        let fresh = contact_with_path(&[NodeId::from(2)], 1);
+
+        assert_eq!(fresh.cmp_actuality(&stale), Ordering::Greater);
+        assert_eq!(stale.cmp_actuality(&fresh), Ordering::Less);
+        assert!(stale.is_older_than(&fresh));
+    }
+
+    #[test]
+    fn cmp_actuality_equal_information() {
+        let a = contact_with_path(&[NodeId::from(1)], 1);
+        let b = contact_with_path(&[NodeId::from(1)], 1);
+        assert_eq!(a.cmp_actuality(&b), Ordering::Equal);
+    }
+
+    #[test]
+    fn is_uln_only_for_single_hop_path() {
+        let uln = contact_with_path(&[NodeId::from(1)], 1);
+        assert!(uln.is_uln());
+
+        let non_uln = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
+        assert!(!non_uln.is_uln());
+    }
+
+    #[test]
+    fn set_invalid_fresh_contact() {
+        let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
+        let link = Link::new(NodeId::from(1), NodeId::from(9));
+
+        contact.set_invalid(notvia_state_list(link.clone()));
+
+        assert!(contact.is_invalid());
+        let active_path = contact.path().expect("active path must exist");
+        assert!(!active_path.is_valid(), "active path must be invalidated");
+        assert!(active_path.is_faulty());
+    }
+
+    #[test]
+    fn set_invalid_merges_notvia_links() {
+        let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
+        let link_a = Link::new(NodeId::from(1), NodeId::from(9));
+        let link_b = Link::new(NodeId::from(1), NodeId::from(8));
+
+        contact.set_invalid(notvia_state_list(link_a.clone()));
+        contact.set_invalid(notvia_state_list(link_b.clone()));
+
+        assert!(contact.is_invalid());
+        let ContactState::Invalid(nvs_list) = contact.state() else {
+            panic!("contact should be invalid");
+        };
+        assert_eq!(nvs_list.nvs_list.len(), 2, "both links must be stored");
+        assert!(nvs_list.nvs_list.contains(&NotViaState {
+            link: link_a,
+            timestamp: Timestamp::now(),
+        }));
+        assert!(nvs_list.nvs_list.contains(&NotViaState {
+            link: link_b,
+            timestamp: Timestamp::now(),
+        }));
+    }
+
+    #[test]
+    fn set_invalid_adds_links_while_rediscovering() {
+        let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
+        let link_a = Link::new(NodeId::from(1), NodeId::from(9));
+        let link_b = Link::new(NodeId::from(1), NodeId::from(8));
+
+        contact.start_rediscovering(
+            notvia_state_list(link_a.clone()),
+            vec![],
+            3,
+            Duration::from_secs(1),
+        );
+        assert!(matches!(contact.state(), ContactState::Rediscovering(_)));
+
+        contact.set_invalid(notvia_state_list(link_b.clone()));
+
+        // must stay in Rediscovering state with both links recorded
+        let ContactState::Rediscovering(rds) = contact.state() else {
+            panic!("contact should still be rediscovering");
+        };
+        let nvs_list = rds.get_notviastate_list();
+        assert_eq!(nvs_list.nvs_list.len(), 2, "both links must be stored");
+        assert!(nvs_list.nvs_list.contains(&NotViaState {
+            link: link_a,
+            timestamp: Timestamp::now(),
+        }));
+        assert!(nvs_list.nvs_list.contains(&NotViaState {
+            link: link_b,
+            timestamp: Timestamp::now(),
+        }));
+    }
+
+    #[test]
+    fn has_broken_first_hop_invalid_state() {
+        // path [1 -> 2 -> 3], broken link (2,9) does not affect first hop
+        let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)], 1);
+        contact.set_invalid(notvia_state_list(Link::new(NodeId::from(2), NodeId::from(9))));
+        assert!(!contact.has_broken_first_hop());
+
+        // broken link (1,2) contains the path's first hop
+        let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)], 1);
+        contact.set_invalid(notvia_state_list(Link::new(NodeId::from(1), NodeId::from(2))));
+        assert!(contact.has_broken_first_hop());
+    }
+
+    #[test]
+    fn has_broken_first_hop_rediscovering_state() {
+        let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
+        contact.start_rediscovering(
+            notvia_state_list(Link::new(NodeId::from(1), NodeId::from(2))),
+            vec![],
+            3,
+            Duration::from_secs(1),
+        );
+        assert!(contact.has_broken_first_hop());
+    }
+
+    #[test]
+    fn has_broken_first_hop_other_states() {
+        let contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
+        assert!(!contact.has_broken_first_hop(), "valid contact");
+
+        let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
+        contact.set_state(ContactState::Dead);
+        assert!(!contact.has_broken_first_hop(), "dead contact");
+    }
+
+    #[test]
+    fn assess_candidate_shorter_path_updates_proposed_for_valid_contact() {
+        let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)], 1);
+        // shorter, but not validated: only the proposed path may change
+        let shorter = Path::try_from(&[NodeId::from(1), NodeId::from(3)][..]).unwrap();
+
+        assert!(contact.assess_path_candidate_and_update(&shorter));
+        assert_ne!(contact.path(), Some(&shorter), "active path unchanged");
+        assert_eq!(contact.proposed_path(), Some(&shorter));
+        assert!(contact.is_valid());
+    }
+
+    #[test]
+    fn assess_candidate_longer_path_rejected_for_valid_contact() {
+        let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(3)], 1);
+        let longer = Path::try_from(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)][..]).unwrap();
+
+        assert!(!contact.assess_path_candidate_and_update(&longer));
+        assert_eq!(contact.path().unwrap().size(), 2, "active path unchanged");
+    }
+
+    #[test]
+    fn assess_candidate_same_as_proposed_promotes_proposed_to_active() {
+        // For an invalid contact a validated candidate matching the proposed
+        // path must promote the proposed path to the active path instead of
+        // replacing it directly.
+        let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)], 1);
+        contact.set_invalid(notvia_state_list(Link::new(NodeId::from(1), NodeId::from(9))));
+        let proposed = Path::try_from(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)][..]).unwrap();
+        contact.path_collection.set_proposed_path(proposed.clone());
+
+        let mut validated = proposed.clone();
+        validated.set_state(PathState::Valid);
+
+        assert!(contact.assess_path_candidate_and_update(&validated));
+        assert!(contact.is_valid());
+        let active = contact.path().expect("active path");
+        assert!(active.is_valid(), "promoted path must be the validated one");
+        assert_eq!(active, &validated);
+        assert!(contact.proposed_path().is_none(), "proposed path must be promoted to active");
+    }
+
+    #[test]
+    fn assess_candidate_unvalidated_updates_proposed_path_only() {
+        let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)], 1);
+        // shorter than active but unvalidated: only the proposed path may change
+        let candidate = Path::try_from(&[NodeId::from(1), NodeId::from(3)][..]).unwrap();
+
+        assert!(contact.assess_path_candidate_and_update(&candidate));
+        assert_ne!(contact.path(), Some(&candidate), "active path unchanged");
+        assert_eq!(contact.proposed_path(), Some(&candidate));
+        assert!(contact.is_valid());
+    }
+
+    #[test]
+    fn assess_candidate_longer_path_rejected_for_proposed_path() {
+        let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(3)], 1);
+        let longer = Path::try_from(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)][..]).unwrap();
+
+        assert!(!contact.assess_path_candidate_and_update(&longer));
+        assert!(contact.proposed_path().is_none());
+    }
+
+    #[test]
+    fn assess_candidate_accepts_anything_for_invalid_contact() {
+        let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)], 1);
+        contact.set_invalid(notvia_state_list(Link::new(NodeId::from(1), NodeId::from(9))));
+
+        // same length is fine, an invalid contact improves with any new candidate
+        let candidate = Path::try_from(&[NodeId::from(1), NodeId::from(4), NodeId::from(3)][..]).unwrap();
+        assert!(contact.assess_path_candidate_and_update(&candidate));
+        assert_eq!(contact.proposed_path(), Some(&candidate));
+    }
+
+    #[test]
+    fn assess_candidate_accepts_valid_candidate_for_invalid_contact() {
+        let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)], 1);
+        contact.set_invalid(notvia_state_list(Link::new(NodeId::from(1), NodeId::from(9))));
+
+        let mut candidate = Path::try_from(&[NodeId::from(1), NodeId::from(3)][..]).unwrap();
+        candidate.set_state(PathState::Valid);
+
+        assert!(contact.assess_path_candidate_and_update(&candidate));
+        assert!(contact.is_valid(), "validated candidate restores validity");
+        assert_eq!(contact.path(), Some(&candidate));
+    }
+
+    #[test]
+    fn assess_candidate_rejected_for_dead_contact() {
+        let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(3)], 1);
+        contact.set_state(ContactState::Dead);
+
+        let candidate = Path::try_from(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)][..]).unwrap();
+        assert!(!contact.assess_path_candidate_and_update(&candidate));
+        assert!(contact.is_dead());
+    }
+
+    #[test]
+    fn contact_hash_is_by_id() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{
+            Hash,
+            Hasher,
+        };
+
+        let a = contact_with_path(&[NodeId::from(1), NodeId::from(3)], 1);
+        let b = contact_with_path(&[NodeId::from(9), NodeId::from(3)], 5);
+
+        let mut hasher_a = DefaultHasher::new();
+        let mut hasher_b = DefaultHasher::new();
+        a.hash(&mut hasher_a);
+        b.hash(&mut hasher_b);
+        assert_eq!(hasher_a.finish(), hasher_b.finish(), "same id => same hash");
+        assert_ne!(a, b);
+    }
+}

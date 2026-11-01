@@ -41,3 +41,39 @@ impl Hasher {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::PathId;
+
+    #[test]
+    fn default_is_sha1() {
+        assert_eq!(Hasher::default(), Hasher::Sha1);
+    }
+
+    #[test]
+    fn sha1_matches_path_id_helper() {
+        let path = [NodeId::from(1), NodeId::from(2)];
+        assert_eq!(
+            Hasher::Sha1.hash(&path),
+            PathId::from_sha1(&path)
+        );
+    }
+
+    #[cfg(feature = "sha2")]
+    #[test]
+    fn sha2_output_lengths() {
+        let path = [NodeId::from(1), NodeId::from(2)];
+        assert_eq!(Hasher::Sha2_256.hash(&path).as_ref().len(), 32);
+        assert_eq!(Hasher::Sha2_512.hash(&path).as_ref().len(), 64);
+    }
+
+    #[cfg(feature = "sha3")]
+    #[test]
+    fn sha3_output_lengths() {
+        let path = [NodeId::from(1), NodeId::from(2)];
+        assert_eq!(Hasher::Sha3_256.hash(&path).as_ref().len(), 32);
+        assert_eq!(Hasher::Sha3_512.hash(&path).as_ref().len(), 64);
+    }
+}

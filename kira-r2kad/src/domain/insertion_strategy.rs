@@ -367,3 +367,324 @@ where
         self.0.clone()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{
+        ContactState,
+        NodeId,
+        Path,
+        SafeStateSeqNr,
+        UnderlayNeighborId,
+        path::{
+            InOrderCycleRemover,
+            PathSimplifier,
+        },
+        routing_table::{
+            RoutingTable,
+            SingleBucketRT,
+        },
+        underlay::{
+            ConnectionId,
+            InterfaceId,
+        },
+        underlay_neighbor_table::InMemoryULNTable,
+    };
+
+    const BUCKET_SIZE: usize = 4;
+
+    /// A simplifier that never modifies paths, to keep tests deterministic.
+    struct NoopSimplifier;
+
+    impl PathSimplifier for NoopSimplifier {
+        fn simplify<RT, UN, const BS: usize>(&mut self, _: &RT, _: &UN, _: &mut Path)
+        where
+            for<'a> RT: RoutingTable<'a, BS>,
+            UN: ULNTable,
+        {
+        }
+    }
+
+    fn uln_table_with(ids: &[NodeId]) -> InMemoryULNTable {
+        let mut table = InMemoryULNTable::new();
+        for id in ids {
+            table.insert(
+                *id,
+                UnderlayNeighborId {
+                    interface_id: InterfaceId::try_from(1).unwrap(),
+                    connection_id: ConnectionId::from(1),
+                },
+            );
+        }
+        table
+    }
+
+    fn strategy() -> UNSStrategy<SingleBucketRT<BUCKET_SIZE>, InOrderCycleRemover, NoopSimplifier, BUCKET_SIZE> {
+        UNSStrategy::new(InOrderCycleRemover, NoopSimplifier)
+    }
+
+    fn contact(path: &[NodeId], ssn: u32) -> Contact {
+        Contact::new(
+            Path::try_from(path).expect("test path must not be empty"),
+            SafeStateSeqNr::try_from(ssn).expect("test ssn must be valid"),
+        )
+    }
+
+    fn unknown_contact(path: &[NodeId], ssn: u32) -> Contact {
+        let mut contact = contact(path, ssn);
+        contact.set_state(ContactState::Unknown);
+        contact
+    }
+
+    #[test]
+    fn inserts_valid_new_contact() {
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let uln = NodeId::from(1);
+        let dest = NodeId::from(2);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+
+        let result = strategy.insert(contact(&[uln, dest], 1), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::Inserted);
+        assert!(rt.contains(&dest));
+    }
+
+    #[test]
+    fn drops_contact_with_root_id() {
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let uln = NodeId::from(1);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+
+        let result = strategy.insert(contact(&[uln, root], 1), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::Dropped);
+        assert!(rt.is_empty() || !rt.contains(&root));
+    }
+
+    #[test]
+    fn drops_path_containing_root() {
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let uln = NodeId::from(1);
+        let dest = NodeId::from(2);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+
+        // path [uln, root, dest] routes via ourselves
+        let result = strategy.insert(contact(&[uln, root, dest], 1), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::Dropped);
+        assert!(!rt.contains(&dest));
+    }
+
+    #[test]
+    fn drops_path_not_starting_at_underlay_neighbor() {
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let uln = NodeId::from(1);
+        let foreign = NodeId::from(7);
+        let dest = NodeId::from(2);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+
+        // first hop `foreign` is not an underlay neighbor
+        let result = strategy.insert(contact(&[foreign, dest], 1), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::Dropped);
+        assert!(!rt.contains(&dest));
+    }
+
+    #[test]
+    fn drops_unknown_contact_for_new_id() {
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let uln = NodeId::from(1);
+        let dest = NodeId::from(2);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+
+        let result = strategy.insert(unknown_contact(&[uln, dest], 1), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::Dropped);
+        assert!(!rt.contains(&dest));
+    }
+
+    #[test]
+    fn unknown_contact_updates_existing() {
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let uln = NodeId::from(1);
+        let dest = NodeId::from(2);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+
+        // establish existing contact with a longer path
+        assert_eq!(
+            strategy.insert(contact(&[uln, NodeId::from(9), dest], 1), &mut rt, &un),
+            InsertionStrategyResult::Inserted
+        );
+
+        // shorter candidate with same SSN, but only known via an RTable object
+        let result = strategy.insert(unknown_contact(&[uln, dest], 1), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::Updated);
+        let updated = rt.contact(&dest).expect("contact must exist");
+        assert_eq!(
+            updated.proposed_path().map(Path::last),
+            Some(&dest),
+            "candidate must become the proposed path"
+        );
+        assert_eq!(
+            updated.path().expect("active path").size(),
+            3,
+            "active path must be unchanged for unvalidated candidate"
+        );
+    }
+
+    #[test]
+    fn update_existing_drops_older_state_seq_nr() {
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let uln = NodeId::from(1);
+        let dest = NodeId::from(2);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+
+        assert_eq!(
+            strategy.insert(contact(&[uln, dest], 5), &mut rt, &un),
+            InsertionStrategyResult::Inserted
+        );
+
+        // candidate with older SSN must be dropped even with a shorter path
+        let result = strategy.insert(contact(&[uln, NodeId::from(9), dest], 3), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::Dropped);
+        assert_eq!(
+            rt.contact(&dest).expect("contact").state_seq_nr(),
+            &SafeStateSeqNr::try_from(5).unwrap(),
+            "stored SSN must be unchanged"
+        );
+    }
+
+    #[test]
+    fn update_existing_drops_longer_path_with_same_ssn() {
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let uln = NodeId::from(1);
+        let dest = NodeId::from(2);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+
+        assert_eq!(
+            strategy.insert(contact(&[uln, dest], 5), &mut rt, &un),
+            InsertionStrategyResult::Inserted
+        );
+
+        let result = strategy.insert(
+            contact(&[uln, NodeId::from(9), dest], 5),
+            &mut rt,
+            &un,
+        );
+
+        assert_eq!(result, InsertionStrategyResult::Dropped);
+        assert_eq!(
+            rt.contact(&dest).expect("contact").path().map(Path::size),
+            Some(2),
+            "active path must be unchanged"
+        );
+    }
+
+    #[test]
+    fn update_existing_updates_better_path_with_same_ssn() {
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let uln = NodeId::from(1);
+        let dest = NodeId::from(2);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+
+        assert_eq!(
+            strategy.insert(contact(&[uln, NodeId::from(9), dest], 5), &mut rt, &un),
+            InsertionStrategyResult::Inserted
+        );
+
+        let result = strategy.insert(contact(&[uln, dest], 5), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::Updated);
+    }
+
+    #[test]
+    fn full_bucket_replaces_contact_with_longest_path() {
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let uln = NodeId::from(1);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+
+        // fill the single bucket with contacts having different path lengths
+        for (i, path_len) in [3usize, 2, 2, 2].into_iter().enumerate() {
+            let mut path = vec![uln];
+            for hop in 2..path_len {
+                path.push(NodeId::from(100 + u128::try_from(i).unwrap() * 10 + u128::try_from(hop).unwrap()));
+            }
+            let dest = NodeId::from(10 + u128::try_from(i).unwrap());
+            path.push(dest);
+            assert_eq!(
+                strategy.insert(contact(&path, 1), &mut rt, &un),
+                InsertionStrategyResult::Inserted,
+                "contact {i} must be inserted"
+            );
+        }
+        assert_eq!(rt.bucket(&NodeId::from(99)).len(), BUCKET_SIZE);
+
+        // candidate with the shortest path must replace the longest-path contact
+        let result = strategy.insert(contact(&[uln, NodeId::from(99)], 1), &mut rt, &un);
+
+        let InsertionStrategyResult::Replaced(replaced) = result else {
+            panic!("expected Replaced, got {result:?}");
+        };
+        assert_eq!(replaced, NodeId::from(10), "longest-path contact replaced");
+        assert!(rt.contains(&NodeId::from(99)));
+        assert!(!rt.contains(&replaced));
+    }
+
+    #[test]
+    fn full_bucket_drops_contact_without_shorter_path() {
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let uln = NodeId::from(1);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+
+        // fill the bucket exclusively with single-hop paths
+        for i in 0..BUCKET_SIZE {
+            let dest = NodeId::from(10 + u128::try_from(i).unwrap());
+            assert_eq!(
+                strategy.insert(contact(&[uln, dest], 1), &mut rt, &un),
+                InsertionStrategyResult::Inserted
+            );
+        }
+
+        // candidate path is not shorter than any stored path
+        let result = strategy.insert(contact(&[uln, NodeId::from(99)], 1), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::Dropped);
+        assert!(!rt.contains(&NodeId::from(99)));
+    }
+}

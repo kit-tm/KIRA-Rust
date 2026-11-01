@@ -111,3 +111,60 @@ impl From<ProtocolMessageKind> for u8 {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kind_constants_are_stable() {
+        // wire constants must never change for protocol compatibility
+        assert_eq!(u8::from(ProtocolMessageKind::ULNHello), 0x01);
+        assert_eq!(u8::from(ProtocolMessageKind::ULNDiscReq), 0x03);
+        assert_eq!(u8::from(ProtocolMessageKind::ULNDiscRsp), 0x04);
+        assert_eq!(u8::from(ProtocolMessageKind::FindNodeReq), 0x09);
+        assert_eq!(u8::from(ProtocolMessageKind::FindNodeRsp), 0x0a);
+        assert_eq!(u8::from(ProtocolMessageKind::QueryRouteReq), 0x0b);
+        assert_eq!(u8::from(ProtocolMessageKind::QueryRouteRsp), 0x0c);
+        assert_eq!(u8::from(ProtocolMessageKind::UpdateRouteReq), 0x11);
+        assert_eq!(u8::from(ProtocolMessageKind::ProbeReq), 0x21);
+        assert_eq!(u8::from(ProtocolMessageKind::ProbeRsp), 0x22);
+        assert_eq!(u8::from(ProtocolMessageKind::Error), 0x70);
+        assert_eq!(u8::from(ProtocolMessageKind::PathSetupReq), 0x81);
+        assert_eq!(u8::from(ProtocolMessageKind::PathSetupRsp), 0x82);
+        assert_eq!(u8::from(ProtocolMessageKind::PathTeardownReq), 0x83);
+        assert_eq!(u8::from(ProtocolMessageKind::StoreReq), 0xa1);
+        assert_eq!(u8::from(ProtocolMessageKind::StoreRsp), 0xa2);
+        assert_eq!(u8::from(ProtocolMessageKind::FetchReq), 0xa3);
+        assert_eq!(u8::from(ProtocolMessageKind::FetchRsp), 0xa4);
+    }
+
+    #[test]
+    fn conversion_round_trip_for_all_kinds() {
+        let kinds = [
+            ProtocolMessageKind::ULNHello,
+            ProtocolMessageKind::ULNDiscReq,
+            ProtocolMessageKind::ULNDiscRsp,
+            ProtocolMessageKind::FindNodeReq,
+            ProtocolMessageKind::FindNodeRsp,
+            ProtocolMessageKind::QueryRouteReq,
+            ProtocolMessageKind::QueryRouteRsp,
+            ProtocolMessageKind::UpdateRouteReq,
+            ProtocolMessageKind::ProbeReq,
+            ProtocolMessageKind::ProbeRsp,
+            ProtocolMessageKind::Error,
+            ProtocolMessageKind::PathSetupReq,
+            ProtocolMessageKind::PathSetupRsp,
+            ProtocolMessageKind::PathTeardownReq,
+            ProtocolMessageKind::StoreReq,
+            ProtocolMessageKind::StoreRsp,
+            ProtocolMessageKind::FetchReq,
+            ProtocolMessageKind::FetchRsp,
+            ProtocolMessageKind::Other(0x99),
+        ];
+
+        for kind in kinds {
+            assert_eq!(ProtocolMessageKind::from(u8::from(kind)), kind);
+        }
+    }
+}

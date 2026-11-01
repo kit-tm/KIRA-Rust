@@ -42,3 +42,48 @@ bitflags! {
         const _ = !0;
     }
 }
+
+#[cfg(all(test, feature = "binrw"))]
+mod tests {
+    use std::io::Cursor;
+
+    use binrw::{
+        BinRead,
+        BinWrite,
+    };
+
+    use super::*;
+
+    #[test]
+    fn flag_bits_have_wire_values() {
+        assert_eq!(ProtocolMessageFlags::Exact.bits(), 0b0000_0001);
+        assert_eq!(ProtocolMessageFlags::EndSystem.bits(), 0b0000_0100);
+        assert_eq!(ProtocolMessageFlags::Diagnostic.bits(), 0b0100_0000);
+    }
+
+    #[test]
+    fn binrw_round_trip_preserves_flags() {
+        let flags = ProtocolMessageFlags::Exact | ProtocolMessageFlags::Diagnostic;
+
+        let mut buffer = Cursor::new(Vec::new());
+        flags.write_be(&mut buffer).expect("writing flags must work");
+        assert_eq!(buffer.into_inner(), vec![0b0100_0001], "flags are written as a single byte");
+
+        let mut buffer = Cursor::new(vec![0b0100_0001u8]);
+        let read_back = ProtocolMessageFlags::read_be(&mut buffer).expect("reading flags must work");
+        assert_eq!(read_back, flags);
+    }
+
+    #[test]
+    fn binrw_round_trip_retains_unknown_bits() {
+        // The source may set any bits; unknown bits must survive the wire
+        let raw: u8 = 0b1011_1111;
+
+        let mut buffer = Cursor::new(vec![raw]);
+        let flags = ProtocolMessageFlags::read_be(&mut buffer).expect("reading flags must work");
+
+        let mut buffer = Cursor::new(Vec::new());
+        flags.write_be(&mut buffer).expect("writing flags must work");
+        assert_eq!(buffer.into_inner(), vec![raw], "unknown bits must not be dropped");
+    }
+}
