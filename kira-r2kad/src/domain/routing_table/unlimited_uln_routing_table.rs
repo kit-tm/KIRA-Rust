@@ -7,19 +7,19 @@ use rand::RngExt as _;
 use tracing::Level;
 
 use crate::domain::{
-    AddError,
     Bucket,
-    BucketSplitError,
     Contact,
     ContactState,
-    FlatRoutingTable,
     GroupingError,
     NodeId,
-    ReplacementError,
     RoutingTable,
     hasher::Hasher,
     routing_table::{
+        AddError,
+        BucketSplitError,
+        FlatRoutingTable,
         PrefixContact,
+        ReplacementError,
         sorter_xor,
     },
 };
@@ -91,6 +91,8 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
             }
         } else {
             // contact does not exist as ULN
+
+            // if contact is ULN, so add it
             if contact.is_uln() {
                 // add to underlay neighbors
                 _ = self.inner.remove(contact.id());
@@ -244,13 +246,15 @@ mod tests {
     use crate::domain::{
         Contact,
         ContactState,
-        FlatRoutingTable,
         NodeId,
         NotViaStateList,
         Path,
         RoutingTable,
         SafeStateSeqNr,
-        unlimited_uln_routing_table::UnlimitedULNRoutingTable,
+        routing_table::{
+            FlatRoutingTable,
+            UnlimitedULNRoutingTable,
+        },
     };
 
     #[test]

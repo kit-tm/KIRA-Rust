@@ -7,13 +7,15 @@ use std::{
     time::Instant,
 };
 
+#[doc(inline)]
 pub use complex_hash_table::ComplexHashTable;
-pub use single_value_hash_table::SingleValueHashTable;
 pub mod complex_hash_table;
 
-use crate::domain::NodeId;
-
+#[doc(inline)]
+pub use single_value_hash_table::SingleValueHashTable;
 pub mod single_value_hash_table;
+
+use crate::domain::NodeId;
 
 /// Abstraction of the local hash table of the node.
 ///

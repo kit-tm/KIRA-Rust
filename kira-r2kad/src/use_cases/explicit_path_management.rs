@@ -27,29 +27,30 @@ use crate::{
     domain::{
         Contact,
         ContactState,
+        Hasher,
         NodeId,
         Path,
         PathId,
         RoutingTable,
+        SourceRoute,
+        ULNState,
         ULNTable,
         UnderlayNeighborId,
         VICINITY_RADIUS,
-        hasher::Hasher,
         protocol_event::forwarding::{
             PathIdEntry,
             PathIdForwardingEntry,
             PathIdTableUpdate,
         },
-    },
-    messaging::{
-        CommonHeader,
-        PathSetupReqData,
-        PathTeardownReqData,
-        ProbeReqData,
-        ProtocolMessage,
-        ProtocolMessageKind,
-        ReqRspMessage,
-        source_route::SourceRoute,
+        protocol_message::{
+            CommonHeader,
+            PathSetupReqData,
+            PathTeardownReqData,
+            ProbeReqData,
+            ProtocolMessage,
+            ProtocolMessageKind,
+            ReqRspMessage,
+        },
     },
     runtime::UseCaseRuntime,
     use_cases::{
@@ -76,7 +77,7 @@ pub struct EPMConfig {
     /// If [None] is passed no active refresh is performed.
     /// Still this use case uses ProbeReq sent out by to refresh its paths.
     pub refresh_interval: Option<Duration>,
-    /// Hasher to use for derivation of [PathIDs](crate::domain::path_id::PathId) from [Path]s.
+    /// Hasher to use for derivation of [PathIDs](crate::domain::PathId) from [Path]s.
     pub hasher: Hasher,
 }
 
@@ -130,7 +131,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     fn send_setup_req(&self, context: &C, contact: &Contact) {
         // just in case the contact has been invalidated meanwhile
@@ -144,7 +146,7 @@ where
                 *context.root_id(),
                 *source_route.destination(),
                 None,
-                Some(From::from(*context.uln_table().state_seq_nr())),
+                *context.uln_table().state_seq_nr(),
                 context.uln_table().size(),
             ),
             data: PathSetupReqData,
@@ -170,7 +172,7 @@ where
                 *context.root_id(),
                 *source_route.destination(),
                 None,
-                Some(From::from(*context.uln_table().state_seq_nr())),
+                *context.uln_table().state_seq_nr(),
                 context.uln_table().size(),
             ),
             data: ProbeReqData,
@@ -193,7 +195,7 @@ where
                 *context.root_id(),
                 *source_route.destination(),
                 None,
-                Some(From::from(*context.uln_table().state_seq_nr())),
+                *context.uln_table().state_seq_nr(),
                 context.uln_table().size(),
             ),
             data: PathTeardownReqData,
@@ -267,7 +269,7 @@ where
 
         let in_path_id = self.config.hasher.hash(&in_path);
 
-        let next_hop = match context.uln_table().get(out_path.first()).cloned() {
+        let (next_hop, _) = match context.uln_table().get(out_path.first()).cloned() {
             Some(next_hop) => next_hop,
             None => {
                 log::error!(target: "explicit_path_management", "Received PathSetupRequest for invalid underlay neighbor {}; Ignoring", out_path.first());
@@ -374,21 +376,22 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     type Context = C;
     type Error = EPMError;
     type Value = HandlingResult;
 
     #[instrument(
-        level = Level::TRACE,
         target = "explicit_path_management",
         "explicit_path_management",
-        skip(self, context),
+        skip(self, context, event),
         fields(
             state = ?self.state,
             config = ?self.config
         )
+        ret(level = Level::TRACE),
     )]
     fn handle_event(
         &mut self,
@@ -531,6 +534,9 @@ where
                     // allow destination to respond
                     return Ok(HandlingResult::NotHandled);
                 }
+                if !req.exact() {
+                    tracing::warn!(target: "explicit_path_management", "Received ProbeReq without exact flag");
+                }
 
                 // warning: this also post installs PathIds
                 self.register_path(context, req.source_route)
@@ -556,7 +562,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     type State = EPMState;
 

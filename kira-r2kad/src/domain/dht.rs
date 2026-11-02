@@ -15,23 +15,24 @@ use crate::{
     domain::{
         Contact,
         NodeId,
+        Nonce,
         Path,
         RoutingTable,
+        SourceRoute,
+        ULNState,
         ULNTable,
         UnderlayNeighborId,
-    },
-    messaging::{
-        CommonHeader,
-        Nonce,
-        ProtocolMessage,
-        ProtocolMessageKind,
-        ReqRspMessage,
-        dht::{
-            FetchReqData,
-            LHTInput,
-            StoreReqData,
+        protocol_message::{
+            CommonHeader,
+            ProtocolMessage,
+            ProtocolMessageKind,
+            ReqRspMessage,
+            dht::{
+                FetchReqData,
+                LHTInput,
+                StoreReqData,
+            },
         },
-        source_route::SourceRoute,
     },
     use_cases::{
         BroadcastableUseCaseEvent,
@@ -41,7 +42,8 @@ use crate::{
     },
 };
 
-pub mod hash_table;
+mod hash_table;
+pub use hash_table::*;
 
 /// Default timeout duration of RPCs by the DHT use cases.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -130,8 +132,8 @@ where
             pdutype,
             *context.root_id(),
             overlay_destination,
-            Some(nonce.into()),
-            Some(u32::from(*context.uln_table().state_seq_nr())),
+            Some(nonce),
+            *context.uln_table().state_seq_nr(),
             context.uln_table().size(),
         ),
         not_via: None,
@@ -150,7 +152,8 @@ pub(crate) fn send_store_req_kbr<C, const BUCKET_SIZE: usize>(
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     let message = construct_req_rsp_msg_kbr(
         context,
@@ -191,7 +194,8 @@ pub(crate) fn send_store_req<C, const BUCKET_SIZE: usize>(
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     let destination = *source_route.destination();
 
@@ -200,8 +204,8 @@ pub(crate) fn send_store_req<C, const BUCKET_SIZE: usize>(
             ProtocolMessageKind::StoreReq,
             *context.root_id(),
             destination,
-            Some(nonce.into()),
-            Some(u32::from(*context.uln_table().state_seq_nr())),
+            Some(nonce),
+            *context.uln_table().state_seq_nr(),
             context.uln_table().size(),
         ),
         not_via: None,
@@ -241,7 +245,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     let message = construct_req_rsp_msg_kbr(
         context,

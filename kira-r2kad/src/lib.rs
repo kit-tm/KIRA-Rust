@@ -56,7 +56,6 @@
 
 pub mod context;
 pub mod domain;
-pub mod messaging;
 pub mod r2kad;
 pub mod runtime;
 pub mod use_cases;

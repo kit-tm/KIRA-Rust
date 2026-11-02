@@ -5,12 +5,10 @@ use std::{
     sync::Arc,
 };
 
-use crate::{
-    domain::{
-        Age,
-        NodeId,
-    },
-    messaging::{
+use crate::domain::{
+    Age,
+    NodeId,
+    protocol_message::{
         ProtocolMessage,
         ReqRspMessage,
     },

@@ -27,42 +27,41 @@ use crate::{
         ContactState,
         GroupingError,
         NodeId,
+        Nonce,
         Path,
+        ProtocolMessage,
+        ProtocolMessageKind,
         RoutingTable,
+        SourceRoute,
+        ULNState,
         ULNTable,
         UnderlayNeighborId,
         dht,
         dht::{
             DEFAULT_TIMEOUT,
+            EntryMeta,
+            LocalHashTable,
             RedundancyFactor,
-            hash_table::{
-                EntryMeta,
-                LocalHashTable,
+        },
+        protocol_message::{
+            CommonHeader,
+            ErrorData,
+            FindNodeReqData,
+            ReqRspMessage,
+            dht::{
+                FetchErr,
+                FetchReqData,
+                FetchRspData,
+                LHTInput,
+                LHTOutput,
+                StoreErr,
+                StoreOk,
+                StoreReqData,
+                StoreResult,
+                StoreRspData,
             },
+            wire::WireFormatMessage,
         },
-    },
-    messaging::{
-        CommonHeader,
-        ErrorData,
-        FindNodeReqData,
-        Nonce,
-        ProtocolMessage,
-        ProtocolMessageKind,
-        ReqRspMessage,
-        WireFormatMessage,
-        dht::{
-            FetchErr,
-            FetchReqData,
-            FetchRspData,
-            LHTInput,
-            LHTOutput,
-            StoreErr,
-            StoreOk,
-            StoreReqData,
-            StoreResult,
-            StoreRspData,
-        },
-        source_route::SourceRoute,
     },
     use_cases::{
         ApiEvent,
@@ -352,21 +351,27 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     H: LocalHashTable + Clone,
     H::StoreOk: Into<StoreOk>,
     H::StoreErr: Into<StoreErr>,
     H::FetchErr: Into<FetchErr>,
 {
     // ========== Sending Message Helper ==========
-    fn send_store_rsp(context: &C, store_res: StoreResult, msgid: u64, source_route: SourceRoute) {
+    fn send_store_rsp(
+        context: &C,
+        store_res: StoreResult,
+        msgid: Nonce,
+        source_route: SourceRoute,
+    ) {
         let rsp = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::StoreRsp,
                 *context.root_id(),
                 *source_route.destination(),
                 Some(msgid),
-                Some(From::from(*context.uln_table().state_seq_nr())),
+                *context.uln_table().state_seq_nr(),
                 context.uln_table().size(),
             ),
             data: StoreRspData { status: store_res },
@@ -380,14 +385,14 @@ where
             .send_message(rsp, context.uln_table().deref(), context.root_id());
     }
 
-    fn send_dead_end(context: &C, msgid: u64, source_route: SourceRoute) {
+    fn send_dead_end(context: &C, msgid: Nonce, source_route: SourceRoute) {
         let rsp = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::Error,
                 *context.root_id(),
                 *source_route.destination(),
                 Some(msgid),
-                Some(From::from(*context.uln_table().state_seq_nr())),
+                *context.uln_table().state_seq_nr(),
                 context.uln_table().size(),
             ),
             data: ErrorData::DeadEnd,
@@ -404,7 +409,7 @@ where
     fn send_fetch_rsp(
         context: &C,
         data: Result<LHTOutput, FetchErr>,
-        msgid: u64,
+        msgid: Nonce,
         source_route: SourceRoute,
     ) {
         let rsp = ReqRspMessage {
@@ -413,7 +418,7 @@ where
                 *context.root_id(),
                 *source_route.destination(),
                 Some(msgid),
-                Some(From::from(*context.uln_table().state_seq_nr())),
+                *context.uln_table().state_seq_nr(),
                 context.uln_table().size(),
             ),
             data: FetchRspData { data },
@@ -446,9 +451,7 @@ where
             nonce,
             destination,
             FindNodeReqData {
-                exact: false,
                 neighborhood: NonZeroU64::new(neighbors).unwrap(),
-                target: destination,
             },
         );
 
@@ -871,7 +874,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     H: LocalHashTable + Clone,
     H::StoreOk: Into<StoreOk>,
     H::StoreErr: Into<StoreErr>,
@@ -949,7 +953,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     H: LocalHashTable + Clone,
     H::StoreOk: Into<StoreOk>,
     H::StoreErr: Into<StoreErr>,
@@ -960,10 +965,9 @@ where
     type Value = ();
 
     #[instrument(
-        level = Level::TRACE,
         target = "distributed_hash_table",
         "distributed_hash_table",
-        skip(self, context),
+        skip(self, context, event),
         fields(
             state = ?self.state,
             config = ?self.config
@@ -1097,7 +1101,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     H: LocalHashTable + Clone,
     H::StoreOk: Into<StoreOk>,
     H::StoreErr: Into<StoreErr>,
@@ -1144,29 +1149,25 @@ mod tests {
             Contact,
             NodeId,
             Path,
-            SafeStateSeqNr,
-            dht::hash_table::SingleValueHashTable,
-            single_bucket::SingleBucketRT,
-            underlay::{
-                UnderlayNeighborId,
-                UnderlayNeighborSource,
-            },
-            underlay_neighbor_table::in_memory_underlay_neighbor_table::InMemoryULNTable,
-        },
-        messaging::{
             ProtocolMessage,
+            SafeStateSeqNr,
             SourceRoute,
-            dht::{
-                LHTInput,
-                StoreOk,
-                StoreReqData,
-            },
-            messages::{
+            StateSeqNr,
+            UnderlayNeighborId,
+            UnderlayNeighborSource,
+            dht::SingleValueHashTable,
+            protocol_message::{
                 CommonHeader,
                 ProtocolMessageKind,
                 ReqRspMessage,
-                WireFormatMessage,
+                dht::{
+                    LHTInput,
+                    StoreOk,
+                    StoreReqData,
+                },
             },
+            routing_table::SingleBucketRT,
+            underlay_neighbor_table::InMemoryULNTable,
         },
         runtime::{
             R2KadRuntime,
@@ -1207,14 +1208,14 @@ mod tests {
             data: value.clone(),
             last_accessed_ms: None,
         };
-        let source_route = SourceRoute::from(Path::try_from(vec![root_id, root_id]).unwrap());
+        let source_route = SourceRoute::new(root_id, root_id);
         let msg = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::StoreReq,
                 root_id,
                 root_id,
-                Some(123),
-                None,
+                Some(123.into()),
+                StateSeqNr::Invalid,
                 0,
             ),
             data,
@@ -1237,7 +1238,7 @@ mod tests {
         let output: Vec<_> = sync_context.runtime().broadcast().collect();
         assert_eq!(output.len(), 1);
         if let UseCaseEvent::Message(ProtocolMessage::StoreRsp(rsp), _) = &output[0] {
-            assert_eq!(rsp.msg_id(), 123);
+            assert_eq!(rsp.msg_id(), 123.into());
             assert_eq!(rsp.data.status, Ok(StoreOk::Created));
         } else {
             panic!("Expected StoreRsp, got {:?}", output[0]);
@@ -1358,13 +1359,13 @@ mod tests {
                 ProtocolMessageKind::StoreReq,
                 root_id,
                 destination_id,
-                Some(123),
-                None,
+                Some(123.into()),
+                StateSeqNr::Invalid,
                 0,
             ),
             data,
             not_via: None,
-            source_route: SourceRoute::from(root_id),
+            source_route: SourceRoute::new(root_id, root_id),
         };
 
         dht.handle_event(
@@ -1377,7 +1378,7 @@ mod tests {
         let output: Vec<_> = sync_context.runtime().output().collect();
         assert_eq!(output.len(), 1);
         if let Output::SendProtocolMessage(ProtocolMessage::StoreReq(req), _) = &output[0] {
-            assert_eq!(req.msg_id(), 123);
+            assert_eq!(req.msg_id(), 123.into());
             assert_eq!(*req.destination(), neighbor_id);
         } else {
             panic!("Expected forwarded StoreReq, got {:?}", output[0]);

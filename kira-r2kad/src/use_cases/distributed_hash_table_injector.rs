@@ -23,8 +23,13 @@ use crate::{
     domain::{
         Contact,
         NodeId,
+        Nonce,
         Path,
+        ProtocolMessage,
+        ProtocolMessageKind,
         RoutingTable,
+        SourceRoute,
+        ULNState,
         ULNTable,
         UnderlayNeighborId,
         dht,
@@ -32,18 +37,14 @@ use crate::{
             DEFAULT_TIMEOUT,
             RedundancyFactor,
         },
-    },
-    messaging::{
-        FindNodeReqData,
-        Nonce,
-        ProtocolMessage,
-        ProtocolMessageKind,
-        ReqRspMessage,
-        SourceRoute,
-        dht::{
-            FetchReqData,
-            LHTInput,
-            StoreReqData,
+        protocol_message::{
+            FindNodeReqData,
+            ReqRspMessage,
+            dht::{
+                FetchReqData,
+                LHTInput,
+                StoreReqData,
+            },
         },
     },
     use_cases::{
@@ -340,7 +341,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     fn send_find_node_req(context: &C, destination: NodeId, k: NonZeroUsize, nonce: Nonce) {
         let neighbors = match k.get().try_into() {
@@ -361,9 +363,7 @@ where
             nonce,
             destination,
             FindNodeReqData {
-                exact: false,
                 neighborhood: NonZeroU64::new(neighbors).unwrap(),
-                target: destination,
             },
         )
         .into();
@@ -610,17 +610,17 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     type Context = C;
     type Error = InjectMessageError;
     type Value = ();
 
     #[instrument(
-        level = Level::TRACE,
         target = "distributed_hash_table",
         "distributed_hash_table",
-        skip(self, context),
+        skip(self, context, event),
         fields(
             state = ?self.state,
             config = ?self.config
@@ -782,7 +782,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     type State = DHTInjectorState;
 
@@ -815,27 +816,26 @@ mod tests {
             Contact,
             NodeId,
             Path,
-            SafeStateSeqNr,
-            single_bucket::SingleBucketRT,
-            underlay::UnderlayNeighborSource,
-            underlay_neighbor_table::in_memory_underlay_neighbor_table::InMemoryULNTable,
-        },
-        messaging::{
             ProtocolMessage,
+            SafeStateSeqNr,
             SourceRoute,
-            dht::{
-                FetchRspData,
-                LHTInput,
-                StoreOk,
-                StoreRspData,
-            },
-            messages::{
+            StateSeqNr,
+            UnderlayNeighborSource,
+            protocol_message::{
                 CommonHeader,
                 ProtocolMessageKind,
                 RTableData,
                 ReqRspMessage,
-                WireFormatMessage,
+                dht::{
+                    FetchRspData,
+                    LHTInput,
+                    StoreOk,
+                    StoreRspData,
+                },
+                wire::WireFormatMessage as _,
             },
+            routing_table::SingleBucketRT,
+            underlay_neighbor_table::InMemoryULNTable,
         },
         runtime::testing::TestingUseCaseRuntime,
         use_cases::{
@@ -904,7 +904,7 @@ mod tests {
         assert_eq!(output.len(), 1);
         let nonce =
             if let Output::SendProtocolMessage(ProtocolMessage::FindNodeReq(req), _) = &output[0] {
-                assert_eq!(req.data.target, handle);
+                assert_eq!(req.target(), &handle);
                 req.msg_id()
             } else {
                 panic!("Expected FindNodeReq, got {:?}", output[0]);
@@ -918,12 +918,12 @@ mod tests {
                 neighbor_id,
                 root_id,
                 Some(nonce),
-                None,
+                StateSeqNr::Invalid,
                 0,
             ),
             data: rtable,
             not_via: None,
-            source_route: SourceRoute::from(Path::try_from(vec![neighbor_id, root_id]).unwrap()),
+            source_route: SourceRoute::new(neighbor_id, root_id),
         };
 
         injector
@@ -954,14 +954,14 @@ mod tests {
                 handle,
                 root_id,
                 Some(nonce),
-                None,
+                StateSeqNr::Invalid,
                 0,
             ),
             data: StoreRspData {
                 status: Ok(StoreOk::Created),
             },
             not_via: None,
-            source_route: SourceRoute::from(handle),
+            source_route: SourceRoute::new(neighbor_id, handle),
         };
 
         injector
@@ -1032,14 +1032,14 @@ mod tests {
                 handle,
                 root_id,
                 Some(nonce),
-                None,
+                StateSeqNr::Invalid,
                 0,
             ),
             data: FetchRspData {
                 data: Ok(vec![value.clone()]),
             },
             not_via: None,
-            source_route: SourceRoute::from(handle),
+            source_route: SourceRoute::new(handle, root_id),
         };
 
         injector

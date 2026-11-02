@@ -125,4 +125,4 @@ class KIRATopologyNode[T]:
         topo_vicinity = set(topo_vicinity)
         for vicinity_node in known_vicinity:
             if vicinity_node not in topo_vicinity:
-                yield vicinity_node.tid
+                yield vicinity_node

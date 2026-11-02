@@ -8,10 +8,7 @@ use std::{
     ops::Deref,
 };
 
-use tracing::{
-    Level,
-    instrument,
-};
+use tracing::instrument;
 
 use crate::{
     domain::{
@@ -21,17 +18,18 @@ use crate::{
         NodeId,
         NotViaState,
         NotViaStateList,
+        ProtocolMessageKind,
         RoutingTable,
+        SourceRoute,
         Timestamp,
+        ULNState,
         ULNTable,
         UnderlayNeighborId,
-    },
-    messaging::{
-        CommonHeader,
-        ProtocolMessageKind,
-        RouteUpdateActionType,
-        UpdateRouteReq,
-        source_route::SourceRoute,
+        protocol_message::{
+            CommonHeader,
+            RouteUpdateActionType,
+            UpdateRouteReq,
+        },
     },
     use_cases::{
         ContactEvent,
@@ -97,7 +95,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     fn send_update(&self, context: &C, updates: HashMap<Contact, RouteUpdateActionType>) {
         let overlay_neighbors = context
@@ -116,13 +115,15 @@ where
                     *context.root_id(),
                     *contact.id(),
                     None,
-                    Some(From::from(*context.uln_table().state_seq_nr())),
+                    *context.uln_table().state_seq_nr(),
                     context.uln_table().size(),
                 ),
                 not_via: None,
                 contact_actions: updates.clone(),
                 source_route: SourceRoute::new(*context.root_id(), contact.path().unwrap().clone()),
             };
+
+            log::trace!(target: "handle_contact_update", "Sending update to contact {}, msg: {:?}", contact.id(), message);
 
             context
                 .runtime()
@@ -144,14 +145,17 @@ where
                     .unwrap()
                     .starts_with(invalidated_contact.path().unwrap())
             {
+                let nvs = NotViaState::new(
+                    Link::new(*context.root_id(), *invalidated_contact.id()),
+                    Timestamp::now(),
+                );
+
                 if let ContactState::Invalid(not_via_state_list) = invalidated_contact.state() {
                     // use not via info from invalidated contact
-                    saved_contact.set_invalid(not_via_state_list.clone());
+                    let mut nvs_list = not_via_state_list.clone();
+                    nvs_list.nvs_list.insert(nvs);
+                    saved_contact.set_invalid(nvs_list);
                 } else {
-                    let nvs = NotViaState::new(
-                        Link::new(*context.root_id(), *invalidated_contact.id()),
-                        Timestamp::now(),
-                    );
                     // since invalidated_contact is a ULN, we use this info
                     saved_contact.set_invalid(NotViaStateList::from(nvs));
                 }
@@ -165,17 +169,17 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     type Context = C;
     type Error = NeverError;
     type Value = ();
 
     #[instrument(
-        level = Level::TRACE,
         target = "handle_contact_update",
         "handle_contact_update",
-        skip(self, context),
+        skip(self, context, event),
         fields(
             config = ?self.config
         )
@@ -208,7 +212,13 @@ where
                 ContactEvent::Updated { new, old } => {
                     let mut updates = HashMap::new();
                     if new.state() == &ContactState::Valid {
-                        updates.insert(*new.clone(), RouteUpdateActionType::Change);
+                        // propagate changes only for the active path
+                        if new.path().is_some()
+                            && old.path().is_some()
+                            && new.path().unwrap().is_same_path_as(old.path().unwrap())
+                        {
+                            updates.insert(*new.clone(), RouteUpdateActionType::Change);
+                        }
                     } else {
                         updates.insert(*new.clone(), RouteUpdateActionType::Unreachable);
                     }
@@ -221,11 +231,13 @@ where
                     }
                 }
                 ContactEvent::New(new) => {
-                    // always send an update if a new contact was found
-                    let mut updates = HashMap::new();
-                    updates.insert(new.clone(), RouteUpdateActionType::Announce);
+                    log::trace!(target: "handle_contact_update", "New contact {} found. Sending update for {:?}", new.id(), new);
 
-                    log::trace!(target: "handle_contact_update", "New contact {} found. Sending update.", new.id());
+                    // always send an update if a new contact was found
+                    // TODO this is mostly useful only for ULNs
+                    let mut updates = HashMap::new();
+                    updates.insert(new, RouteUpdateActionType::Announce);
+
                     self.send_update(context, updates);
                 }
                 _ => {}

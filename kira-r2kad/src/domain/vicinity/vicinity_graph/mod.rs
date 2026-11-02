@@ -7,7 +7,9 @@ pub mod pet_vicinity_graph;
 use std::error::Error;
 
 pub use entry::Entry;
+#[doc(inline)]
 pub use observable_vicinity_graph::ObservableVicinityGraph;
+#[doc(inline)]
 pub use pet_vicinity_graph::PetVicinityGraph;
 
 use crate::domain::{

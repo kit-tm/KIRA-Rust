@@ -9,7 +9,6 @@ use futures::StreamExt;
 use kira_forwarding::tables::native_tables::NativeFwdTables;
 use kira_lib::{
     Kira,
-    format::ProtocolMessageFormat,
     io::udp::async_channel,
     underlay::observe_underlay,
 };
@@ -18,6 +17,7 @@ use kira_r2kad::{
     context::SyncContext,
     domain::NodeId,
 };
+use kirad_lib::R2KadMessageFormat;
 use signal_hook::consts::{
     SIGHUP,
     SIGINT,
@@ -96,6 +96,9 @@ struct Args {
     #[cfg(feature = "otel")]
     #[cfg_attr(feature = "otel", clap(long, env = "RUST_OTEL"))]
     open_telemetry: bool,
+
+    #[arg(short, long, env = "KIRAD_FORMAT", value_enum, default_value_t)]
+    format: R2KadMessageFormat,
 }
 
 #[tokio::main]
@@ -272,7 +275,7 @@ async fn main() {
     // create message sender and receiver
     let (pm_sender, pm_receiver) = async_channel(
         args.socket_port,
-        ProtocolMessageFormat::default(),
+        args.format.into(),
         handle,
         excluded_interfaces,
         root_id,

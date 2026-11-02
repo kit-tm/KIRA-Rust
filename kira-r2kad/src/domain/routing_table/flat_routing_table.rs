@@ -10,20 +10,22 @@ use tracing::{
 };
 
 use crate::domain::{
-    AddError,
     Bucket,
-    BucketInsertionError,
-    BucketSplitError,
     Contact,
-    DEFAULT_BUCKET_SIZE,
     GroupingError,
     NodeId,
-    ReplacementError,
     RoutingTable,
     SharedPrefix,
+    bucket::{
+        BucketInsertionError,
+        DEFAULT_BUCKET_SIZE,
+    },
     hasher::Hasher,
     routing_table::{
+        AddError,
+        BucketSplitError,
         PrefixContact,
+        ReplacementError,
         sorter_xor,
     },
 };
@@ -151,6 +153,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
         match bucket.insert(contact) {
             Err(BucketInsertionError::Full) => Err(AddError::NotAdded),
             Err(BucketInsertionError::DuplicateId(id)) => Err(AddError::AlreadyExists(id)),
+            Err(BucketInsertionError::NeedsValidation) => Err(AddError::NeedsValidation),
             Ok(_) => Ok(()),
         }
     }

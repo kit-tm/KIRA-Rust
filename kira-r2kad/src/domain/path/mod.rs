@@ -4,10 +4,15 @@ use std::{
     sync::LazyLock,
 };
 
+pub use cycle_remover::*;
 use derive_more::{
     Error,
     with_trait::Display,
 };
+pub use in_order_cycle_remover::*;
+pub use pathcollection::*;
+pub use shortest_first_path_simplifier::*;
+pub use simplifier::*;
 
 use super::Link;
 use crate::domain::{
@@ -16,11 +21,11 @@ use crate::domain::{
     hasher::Hasher,
 };
 
-pub mod cycle_remover;
-pub mod in_order_cycle_remover;
-pub mod pathcollection;
-pub mod shortest_first_path_simplifier;
-pub mod simplifier;
+mod cycle_remover;
+mod in_order_cycle_remover;
+mod pathcollection;
+mod shortest_first_path_simplifier;
+mod simplifier;
 
 /// This is a static variable that automatically gets initialized on its first use.
 ///
@@ -38,7 +43,7 @@ pub enum PathState {
     /// [Path] not usable but rediscovery is initiated.
     Faulty,
     /// [Path] probably usable, but needs to be validated (e.g., for a proposed path).
-    Checking,
+    NotValidated,
 }
 
 /// A Path of [NodeId]s.
@@ -113,7 +118,7 @@ impl<const PATH_SIZE: usize> From<[NodeId; PATH_SIZE]> for Path {
         }
         Self {
             ids: Vec::from(raw),
-            path_state: Default::default(),
+            path_state: PathState::Valid,
             last_validated: None,
             last_path_refresh: None,
         }
@@ -124,7 +129,7 @@ impl From<NodeId> for Path {
     fn from(raw: NodeId) -> Self {
         Self {
             ids: vec![raw],
-            path_state: Default::default(),
+            path_state: PathState::Valid,
             last_validated: None,
             last_path_refresh: None,
         }
@@ -147,7 +152,7 @@ impl FromIterator<NodeId> for Result<Path, EmptyPathError> {
 
         Ok(Path {
             ids: vec,
-            path_state: Default::default(),
+            path_state: PathState::Valid,
             last_validated: None,
             last_path_refresh: None,
         })
@@ -290,12 +295,23 @@ impl Path {
     }
 
     /// set path state
-    pub fn set_state(&mut self, new_state: PathState) {
+    fn set_state(&mut self, new_state: PathState) {
         if new_state == PathState::Undefined {
             panic!("Path State MUST never be set to Undefined");
         } else {
             self.path_state = new_state;
         }
+    }
+
+    /// set path state to valid
+    pub fn set_valid(&mut self) {
+        self.set_state(PathState::Valid);
+        self.update_last_validated();
+    }
+
+    /// set path state to not validated
+    pub fn set_notvalidated(&mut self) {
+        self.set_state(PathState::NotValidated);
     }
 
     pub fn is_valid(&self) -> bool {
@@ -306,8 +322,8 @@ impl Path {
         matches!(self.path_state, PathState::Faulty)
     }
 
-    pub fn is_checking(&self) -> bool {
-        matches!(self.path_state, PathState::Checking)
+    pub fn is_notvalidated(&self) -> bool {
+        matches!(self.path_state, PathState::NotValidated)
     }
 
     /// invalidate current path
@@ -425,6 +441,7 @@ impl<'a> IntoIterator for &'a Path {
 #[cfg(test)]
 mod tests {
     use crate::domain::{
+        Link,
         NodeId,
         Path,
     };
@@ -596,5 +613,31 @@ mod tests {
                 NodeId::from(1u128),
             ])
         );
+    }
+
+    #[test]
+    fn contains_link() {
+        let path = Path::from([
+            NodeId::from(1u128),
+            NodeId::from(2u128),
+            NodeId::from(3u128),
+            NodeId::from(4u128),
+            NodeId::from(5u128),
+            NodeId::from(6u128),
+        ]);
+
+        assert!(path.contains_link(&Link::from((NodeId::from(1u128), NodeId::from(2u128)))));
+        assert!(path.contains_link(&Link::from((NodeId::from(2u128), NodeId::from(1u128)))));
+        assert!(path.contains_link(&Link::from((NodeId::from(2u128), NodeId::from(3u128)))));
+        assert!(path.contains_link(&Link::from((NodeId::from(3u128), NodeId::from(4u128)))));
+        assert!(path.contains_link(&Link::from((NodeId::from(4u128), NodeId::from(5u128)))));
+        assert!(path.contains_link(&Link::from((NodeId::from(5u128), NodeId::from(6u128)))));
+        assert!(!path.contains_link(&Link::from((NodeId::from(1u128), NodeId::from(6u128)))));
+        assert!(!path.contains_link(&Link::from((NodeId::from(6u128), NodeId::from(1u128)))));
+        assert!(!path.contains_link(&Link::from((NodeId::from(1u128), NodeId::from(3u128)))));
+        assert!(!path.contains_link(&Link::from((NodeId::from(2u128), NodeId::from(4u128)))));
+        assert!(!path.contains_link(&Link::from((NodeId::from(2u128), NodeId::from(5u128)))));
+        assert!(!path.contains_link(&Link::from((NodeId::from(2u128), NodeId::from(6u128)))));
+        assert!(!path.contains_link(&Link::from((NodeId::from(4u128), NodeId::from(6u128)))));
     }
 }

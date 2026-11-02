@@ -59,7 +59,7 @@ COPY kirad/conf/nftables.conf ./
 WORKDIR /
 
 # kirad api
-EXPOSE 8080/tcp 
+EXPOSE 8080/tcp
 
 
 # start supervisord

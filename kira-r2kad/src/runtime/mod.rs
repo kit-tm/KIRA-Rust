@@ -14,12 +14,13 @@ use rand::RngExt as _;
 pub use crate::r2kad::runtime::R2KadRuntime;
 use crate::{
     domain::{
+        ForwardingTablesUpdate,
         NodeId,
+        ProtocolMessage,
+        ULNState,
         UnderlayNeighborDestination,
         UnderlayNeighborId,
-        protocol_event::forwarding::ForwardingTablesUpdate,
     },
-    messaging::ProtocolMessage,
     use_cases::{
         BroadcastableUseCaseEvent,
         TimerId,
@@ -78,15 +79,15 @@ pub trait UseCaseRuntime {
     /// 3. The message is _dropped_ and a warning is logged
     ///    if the [`current_hop`] is not in the `uln_table` (underlay neighbor table)
     ///
-    /// [ULNHello]: crate::messaging::ProtocolMessage::ULNHello
-    /// [`current_hop`]: crate::messaging::ProtocolMessage::current_hop
+    /// [ULNHello]: crate::domain::ProtocolMessage::ULNHello
+    /// [`current_hop`]: crate::domain::ProtocolMessage::current_hop
     /// [by broadcast]: UnderlayNeighborDestination::Broadcast
     /// [_local broadcast_]: UseCaseRuntime::broadcast_event
     /// [^source-routed]: Notably [ULNHello].
     fn send_message<P: Into<ProtocolMessage>>(
         &self,
         protocol_message: P,
-        uln_table: &impl Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+        uln_table: &impl Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
         root_id: &NodeId,
     ) {
         let protocol_message: ProtocolMessage = protocol_message.into();
@@ -94,7 +95,7 @@ pub trait UseCaseRuntime {
             None => UnderlayNeighborDestination::Broadcast,
             Some(next_hop) if next_hop == root_id => return self.broadcast_event(protocol_message),
             Some(next_hop) => {
-                let Some(uln_dest) = uln_table.get(next_hop) else {
+                let Some((uln_dest, _)) = uln_table.get(next_hop) else {
                     tracing::warn!(
                         %next_hop,
                         reason = "uln_dest of next hop unknown",

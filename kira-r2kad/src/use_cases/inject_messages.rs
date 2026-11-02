@@ -7,26 +7,24 @@ use std::{
     time::Instant,
 };
 
-use tracing::{
-    Level,
-    instrument,
-};
+use tracing::instrument;
 
 use crate::{
     domain::{
         GroupingError,
         NodeId,
-        RoutingTable,
-        ULNTable,
-        UnderlayNeighborId,
-    },
-    messaging::{
-        CommonHeader,
         Nonce,
         ProtocolMessage,
         ProtocolMessageKind,
-        ReqRspMessage,
-        source_route::SourceRoute,
+        RoutingTable,
+        SourceRoute,
+        ULNState,
+        ULNTable,
+        UnderlayNeighborId,
+        protocol_message::{
+            CommonHeader,
+            ReqRspMessage,
+        },
     },
     use_cases::{
         EventHandler,
@@ -138,17 +136,17 @@ where
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     TS: InjectionResultSender,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     type Context = C;
     type Error = InjectMessageError;
     type Value = ();
 
     #[instrument(
-        level = Level::TRACE,
         target = "inject_messages",
         "inject_messages",
-        skip(self, context),
+        skip(self, context, event),
         fields(
             state = ?self.state,
             config = ?self.config
@@ -160,18 +158,14 @@ where
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
         match event {
-            UseCaseEvent::InjectMessage(nonce, InjectionMessageData::FindNode(data)) => {
-                let target = data.target;
-
+            UseCaseEvent::InjectMessage(nonce, InjectionMessageData::FindNode(data, target)) => {
                 let closest_route = context
                     .routing_table()
                     .closest(&target, 1, self.config.shared_prefix_grouping)
                     .expect("grouping has to be checked on init")
                     .first() // TODO: Proximity Neighbor Selection
                     .map(|(_, contact)| {
-                        let mut route = SourceRoute::from(contact.path().unwrap().clone());
-                        route.push_front(*context.root_id());
-                        route
+                        SourceRoute::new(*context.root_id(), contact.path().unwrap().clone())
                     });
 
                 if closest_route.is_none() {
@@ -186,7 +180,7 @@ where
                 }
                 let source_route = closest_route.unwrap();
 
-                log::trace!(target: "inject_messages", "Sending FindNodeReq from {} with target {}", source_route.source(), data.target);
+                log::trace!(target: "inject_messages", "Sending FindNodeReq from {} with target {}", source_route.source(), target);
 
                 let nonce = nonce.unwrap_or_else(|| {
                     // generate distinct nonce
@@ -203,8 +197,8 @@ where
                         ProtocolMessageKind::FindNodeReq,
                         *context.root_id(),
                         target,
-                        Some(nonce.into()),
-                        Some(From::from(*context.uln_table().state_seq_nr())),
+                        Some(nonce),
+                        *context.uln_table().state_seq_nr(),
                         context.uln_table().size(),
                     ),
                     data,
@@ -248,7 +242,8 @@ where
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     TS: InjectionResultSender,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     type State = ReactiveUseCaseState;
 

@@ -282,8 +282,7 @@ impl UnderlayObserverConnection {
                                     }
                                 }
 
-                                log::trace!(target: "underlay_observer::connection", "ProtoDown: {proto_down}");
-                                log::trace!(target: "underlay_observer::connection", "State: {link_state:?}");
+                                log::trace!(target: "underlay_observer::connection", "ProtoDown: {proto_down}, Link State: {link_state:?}");
 
                                 let if_up = !proto_down
                                     && link_state.is_some_and(|state| state != State::Down);
@@ -303,6 +302,11 @@ impl UnderlayObserverConnection {
 
                                     if !self.information_base.interface_up(interface) {
                                         // don't generate InterfaceUp if interface is already known to be up
+                                        tracing::trace!(
+                                            target: "underlay_observer::connection",
+                                            reason="Interface is already up",
+                                            "Supressing InterfaceUp event"
+                                        );
                                         continue;
                                     }
 
@@ -320,14 +324,14 @@ impl UnderlayObserverConnection {
                                     }
                                 } else {
                                     // register interface as down
-                                    // and generate respective updates for interface __and__ effected neighbors
+                                    // and generate respective updates for interface __and__ affected neighbors
                                     log::debug!(target: "underlay_observer::connection", "Interface down: {interface_id}");
 
                                     let Some(affected) =
                                         self.information_base.interface_down(&interface_id)
                                     else {
                                         // no neighbors affected
-                                        log::warn!(target: "underlay_observer::connection", "Interface {interface_id} was not registered as up yet");
+                                        log::debug!(target: "underlay_observer::connection", "Interface {interface_id} has no registered neighbors");
                                         continue;
                                     };
 

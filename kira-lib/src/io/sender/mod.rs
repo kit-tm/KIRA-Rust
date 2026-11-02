@@ -1,9 +1,9 @@
-//! Traits and implementations for sending [ProtocolMessages](kira_r2kad::messaging::ProtocolMessage).
+//! Traits and implementations for sending [ProtocolMessages](kira_r2kad::domain::ProtocolMessage).
 
 use error::*;
-pub use kira_r2kad::{
-    domain::UnderlayNeighborDestination,
-    messaging::messages::ProtocolMessage,
+pub use kira_r2kad::domain::{
+    ProtocolMessage,
+    UnderlayNeighborDestination,
 };
 
 #[cfg(feature = "udp-tokio")]
@@ -13,7 +13,7 @@ pub mod udp_tokio;
 ///
 /// Derives how and where to send the [ProtocolMessage] by analyzing its fields
 /// and converts them to an appropriate format so that the corresponding
-/// [ProtocolMessageReceiver](super::receiver::ProtocolMessageReceiver)
+/// [AsyncProtocolMessageReceiver](super::receiver::AsyncProtocolMessageReceiver)
 /// can convert it back to a [ProtocolMessage].
 pub trait ProtocolMessageSender {
     /// Sends a [ProtocolMessage] to another Node, converting it to an appropriate
@@ -33,7 +33,7 @@ pub trait ProtocolMessageSender {
 ///
 /// Derives how and where to send the [ProtocolMessage] by analyzing its fields
 /// and converts them to an appropriate format so that the corresponding
-/// [ProtocolMessageReceiver](super::receiver::ProtocolMessageReceiver)
+/// [AsyncProtocolMessageReceiver](super::receiver::AsyncProtocolMessageReceiver)
 /// can convert it back to a [ProtocolMessage].
 #[trait_variant::make(AsyncProtocolMessageSender: Send)]
 pub trait LocalAsyncProtocolMessageSender {
@@ -76,12 +76,6 @@ pub mod error {
         /// No more messages can be sent on this sender.
         #[display("Sender closed")]
         Closed,
-    }
-
-    impl From<Box<dyn Error + Sync + Send>> for SenderError {
-        fn from(value: Box<dyn Error + Sync + Send>) -> Self {
-            Self::MessageFormat(value)
-        }
     }
 
     impl From<io::Error> for SenderError {

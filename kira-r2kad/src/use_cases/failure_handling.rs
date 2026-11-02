@@ -18,10 +18,7 @@ use derive_more::derive::{
     Display,
     Error,
 };
-use tracing::{
-    Level,
-    instrument,
-};
+use tracing::instrument;
 
 use crate::{
     domain::{
@@ -29,28 +26,29 @@ use crate::{
         ContactState,
         Link,
         NodeId,
+        Nonce,
         NotVia,
         NotViaState,
         NotViaStateList,
+        ProtocolMessage,
+        ProtocolMessageKind,
         RoutingTable,
+        SourceRoute,
         Timestamp,
+        ULNState,
         ULNTable,
         UnderlayNeighborId,
         UnderlayNeighborUpdate,
         VicinityGraph,
-    },
-    messaging::{
-        CommonHeader,
-        ErrorData,
-        FindNodeReqData,
-        Nonce,
-        ProtocolMessage,
-        ProtocolMessageKind,
-        ReqRspMessage,
-        RouteUpdateActionType,
-        UpdateRouteReq,
-        WireFormatMessage,
-        source_route::SourceRoute,
+        protocol_message::{
+            CommonHeader,
+            ErrorData,
+            FindNodeReqData,
+            ReqRspMessage,
+            RouteUpdateActionType,
+            UpdateRouteReq,
+            WireFormatMessage,
+        },
     },
     use_cases::{
         ContactEvent,
@@ -213,7 +211,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     C::VicinityGraph: VicinityGraph,
 {
     // returns the default rediscovery wait times according to different contacts types
@@ -307,6 +306,14 @@ where
             self.config.rediscovery_parallelism.get(),
         ) else {
             // if we have no via contacts for whatever reason, we cannot send anything
+            // however, we start a timer to not get stuck forever in Rediscovering state
+            // the timer will trigger a call to handle_rediscovery_failure() that will
+            // start several rounds of retries with exponential backoff. Maybe we are lucky
+            // and other usable contacts recover meanwhile
+            let new_timer_id = context.runtime().register_timer(REDISCOVERY_TIMEOUT_MAX);
+            self.rate_limit_rediscoveries
+                .insert(new_timer_id, *contact_id);
+
             return;
         };
 
@@ -349,19 +356,17 @@ where
                 .expect("Contact should still be present in Routingtable");
 
             // send a findNodeReq for rediscovery to the via contact with target of the contact to be rediscovered
-            let find_node_request = ReqRspMessage {
+            let mut find_node_request = ReqRspMessage {
                 common_header: CommonHeader::new(
                     ProtocolMessageKind::FindNodeReq,
                     *context.root_id(),
-                    *via_contact_id,
-                    Some(nonce.into()),
-                    Some(From::from(*context.uln_table().state_seq_nr())),
+                    *contact_id,
+                    Some(nonce),
+                    *context.uln_table().state_seq_nr(),
                     context.uln_table().size(),
                 ),
                 data: FindNodeReqData {
-                    exact: true,
                     neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
-                    target: *contact_id,
                 },
                 not_via: From::from(notviastate_list.clone()),
                 source_route: SourceRoute::new(
@@ -369,6 +374,7 @@ where
                     via_contact.path().unwrap().clone(),
                 ),
             };
+            find_node_request.set_exact();
 
             // send FindNodeReq message
             context.runtime().send_message(
@@ -404,7 +410,7 @@ where
                     *context.root_id(),
                     *contact.id(),
                     None,
-                    Some(From::from(*context.uln_table().state_seq_nr())),
+                    *context.uln_table().state_seq_nr(),
                     context.uln_table().size(),
                 ),
                 not_via: From::from(notviastatelist.clone()),
@@ -448,6 +454,7 @@ where
             self.send_updates(context, &contact, notviastatelist);
         }
 
+        // in isolation or drastic failure scenarios it may be the case that no via contacts can be found
         let closest_via_contacts = context
             .routing_table()
             .closest(
@@ -533,6 +540,7 @@ where
             None => {
                 // nothing more to probe or contact in wrong state etc.
                 // refill via contact list for another round
+                // note that this list may be actually empty
                 let new_via_contact_list = context
                     .routing_table()
                     .closest(
@@ -645,19 +653,17 @@ where
             _ => NotViaStateList::default(),
         };
 
-        let find_node_request = ReqRspMessage {
+        let mut find_node_request = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::FindNodeReq,
                 *context.root_id(),
-                next_via_contact_id,
-                Some(msg_id.into()),
-                Some(From::from(*context.uln_table().state_seq_nr())),
+                node_id,
+                Some(msg_id),
+                *context.uln_table().state_seq_nr(),
                 context.uln_table().size(),
             ),
             data: FindNodeReqData {
-                exact: true,
                 neighborhood: NonZeroU64::new(BUCKET_SIZE as u64).unwrap(),
-                target: node_id,
             },
             not_via: From::from(notviastate_list.clone()),
             source_route: SourceRoute::new(
@@ -672,6 +678,7 @@ where
                     .clone(),
             ),
         };
+        find_node_request.set_exact();
 
         context.runtime().send_message(
             find_node_request,
@@ -700,7 +707,7 @@ where
         let affected_underlay_neighbors = context
             .uln_table()
             .iter()
-            .filter_map(|(id, via)| if via == &ulnid { Some(*id) } else { None })
+            .filter_map(|(id, (via, _))| if via == &ulnid { Some(*id) } else { None })
             .collect::<HashSet<_>>();
 
         log::trace!(target: "failure_handling", "Underlay neighbors affected by interface {ulnid:?} down: {affected_underlay_neighbors:?}");
@@ -753,7 +760,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     C::VicinityGraph: VicinityGraph,
 {
     type Context = C;
@@ -761,10 +769,9 @@ where
     type Value = ();
 
     #[instrument(
-        level = Level::TRACE,
         target = "failure_handling",
         "failure_handling",
-        skip(self, context),
+        skip(self, context, event),
         fields(
             state = ?self.state,
             config = ?self.config
@@ -800,11 +807,9 @@ where
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::FindNodeRsp(rsp), _) => {
-                if let Some((_, timer)) = self
-                    .inflight_rediscoveries
-                    .remove_by_nonce(rsp.msg_id().into())
+                if let Some((_, timer)) = self.inflight_rediscoveries.remove_by_nonce(rsp.msg_id())
                 {
-                    log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got a successful answer [timer: {:?}, nonce: {:?}]", rsp.source_route.source(), timer, Nonce::from(rsp.msg_id()));
+                    log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got a successful answer [timer: {:?}, nonce: {:?}]", rsp.source_route.source(), timer, rsp.msg_id());
                     log::debug!(target: "failure_handling", "Rediscovery of {} was successful!", rsp.source());
                     //  since the contact state should have changed to Valid, the rediscovery process will stop automatically
                 }
@@ -823,7 +828,7 @@ where
                     self.invalidate_contacts_containing_link(context, failed_link);
                 }
 
-                self.handle_rediscovery_failure(context, Some(rsp.msg_id().into()), None)?;
+                self.handle_rediscovery_failure(context, Some(rsp.msg_id()), None)?;
             }
             UseCaseEvent::Timer(id) => {
                 if let Some(contact_id) = self.scheduled_rediscoveries.remove(&id) {
@@ -849,7 +854,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     C::VicinityGraph: VicinityGraph,
 {
     type State = ReactiveUseCaseState;

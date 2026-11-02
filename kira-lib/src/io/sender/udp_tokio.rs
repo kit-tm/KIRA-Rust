@@ -11,6 +11,11 @@ use std::{
     sync::Arc,
 };
 
+use derive_more::{
+    Display,
+    Error,
+};
+use kira_r2kad::domain::UnderlayNeighborId;
 use tokio::net::UdpSocket;
 use tracing::Level;
 
@@ -18,7 +23,10 @@ use super::*;
 use crate::{
     format::ProtocolMessageFormat,
     io::ALL_KIRA_NODES,
-    underlay::UnderlayObserverHandle,
+    underlay::{
+        UnderlayObserverHandle,
+        handle::UnderlayObserverSenderClosedError,
+    },
 };
 
 /// Defaults to sending the request to multicast if neighbor is not present (which should not
@@ -55,11 +63,10 @@ impl UdpSender {
     }
 
     async fn broadcast_message(&mut self, buffer: &[u8]) -> Result<(), SenderError> {
-        let indices = self
-            .underlay_handle
-            .get_available()
-            .await
-            .map_err(|_| SenderError::Closed)?;
+        let indices = self.underlay_handle.get_available().await.map_err(|err| {
+            tracing::error!(target: "message_sender", %err, "UnderlayObserverHandle closed");
+            SenderError::Closed
+        })?;
         tracing::trace!(target: "message_sender", "Broadcasting to {indices:?}");
         for interface_id in indices {
             let dest = SocketAddr::V6(SocketAddrV6::new(
@@ -81,8 +88,9 @@ impl UdpSender {
                 tracing::error!(
                     target: "message_sender",
                     interface = %interface_id,
+                    addr = %ALL_KIRA_NODES,
                     %err,
-                    "Multicast to interface failed unexpectedly (addr: {ALL_KIRA_NODES})");
+                    "Multicast to interface failed unexpectedly");
             }
         }
         Ok(())
@@ -104,22 +112,14 @@ impl UdpSender {
                 Some(SocketAddrV6::new(ALL_KIRA_NODES, self.port, 0, interface_id.into()).into())
             }
             UnderlayNeighborDestination::UnderlayNeighbor(ulnid) => {
-                let Some(neighbor) = self
-                    .underlay_handle
-                    .get_information(&ulnid)
-                    .await
-                    .map_err(|err| {
-                        tracing::error!(target: "message_sender", %err, "Underlay handle sender closed");
-                        SenderError::Closed
-                    })?
-                else {
-                    tracing::warn!(
-                        target: "message_sender",
-                        %ulnid,
-                        fallback = "Broadcasting",
-                        "Can't determine SocketAddr for unknown underlay neighbor",
-                    );
-                    return Ok(None);
+                let neighbor = match self.underlay_handle.get_information(&ulnid).await {
+                    Ok(Some(neighbor)) => neighbor,
+                    Ok(None) => {
+                        return Err(SenderError::Other(Box::new(UnknownUnderlayNeighborErr(
+                            ulnid,
+                        ))));
+                    }
+                    Err(UnderlayObserverSenderClosedError) => return Err(SenderError::Closed),
                 };
 
                 Some(
@@ -130,6 +130,10 @@ impl UdpSender {
         })
     }
 }
+
+#[derive(Debug, Display, Error)]
+#[display("Unable to determine SocketAddr of unknown underlay neighbor {_0}")]
+struct UnknownUnderlayNeighborErr(#[error(ignore)] UnderlayNeighborId);
 
 impl AsyncProtocolMessageSender for UdpSender {
     #[tracing::instrument(
@@ -151,7 +155,9 @@ impl AsyncProtocolMessageSender for UdpSender {
         let message = message.into();
 
         let mut buffer = Vec::new();
-        self.format.serialize(&mut buffer, &message)?;
+        self.format
+            .serialize(&mut buffer, &message)
+            .map_err(SenderError::MessageFormat)?;
 
         if let Some(receiver_addr) = self.get_receiver_addr(destination).await? {
             tracing::trace!( target: "message_sender", %receiver_addr, "Sending ProtocolMessage");

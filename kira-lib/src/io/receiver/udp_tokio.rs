@@ -9,9 +9,9 @@ use std::{
     sync::Arc,
 };
 
-use kira_r2kad::{
-    domain::NodeId,
-    messaging::ProtocolMessageKind,
+use kira_r2kad::domain::{
+    NodeId,
+    ProtocolMessageKind,
 };
 use tokio::net::UdpSocket;
 
@@ -123,7 +123,7 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
                         target: "message_receiver",
                         io_error=%e,
                         "Failed to receive data from socket");
-                        return Some(Err(RecvError::IoError(Box::new(e))));
+                        return Some(Err(RecvError::from(e)));
                     }
                 };
             let received_from = match received_from {
@@ -178,8 +178,8 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
             let neighbor = UnderlayNeighbor::new(*received_from.ip(), interface_id);
             let ulnid = match self.underlay_handle.register_neighbor(neighbor).await {
                 Ok(ulnid) => ulnid,
-                Err(UnderlayObserverHandleError::SenderClosed(e)) => {
-                    tracing::error!(target: "message_receiver", err=%e, "Underlay handle sender closed");
+                Err(err @ UnderlayObserverHandleError::Closed(_)) => {
+                    tracing::error!(target: "message_receiver", %err);
                     // fatal error if we can't query underlay observer anymore
                     return Some(Err(RecvError::Closed));
                 }

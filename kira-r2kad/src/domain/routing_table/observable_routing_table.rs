@@ -14,18 +14,20 @@ use std::{
 use derive_more::derive::Display;
 
 use crate::domain::{
-    AddError,
     Bucket,
-    BucketSplitError,
     Contact,
-    FlatRoutingTable,
     GroupingError,
     NodeId,
-    ReplacementError,
     RoutingTable,
     SharedPrefix,
     hasher::Hasher,
-    unlimited_uln_routing_table::UnlimitedULNRoutingTable,
+    routing_table::{
+        AddError,
+        BucketSplitError,
+        FlatRoutingTable,
+        ReplacementError,
+        UnlimitedULNRoutingTable,
+    },
 };
 
 /// An Event emitted by the [ObservableRoutingTable].
@@ -82,9 +84,15 @@ pub enum RoutingTableEvent<const BUCKET_SIZE: usize> {
 /// A simple way to implement A [RoutingTableEvent] is by using a closure.
 ///
 /// ```rust
-/// # use kira_r2kad::domain::{Bucket, Contact, FlatRoutingTable, Path, RoutingTable,
-/// # SafeStateSeqNr, NodeId};
-/// # use kira_r2kad::domain::observable_routing_table::{ObservableRoutingTable, RoutingTableEvent};
+/// # use kira_r2kad::domain::{
+/// #     Bucket, Contact,
+/// #     Path, RoutingTable,
+/// #     SafeStateSeqNr, NodeId,
+/// #     routing_table::{
+/// #         FlatRoutingTable, ObservableRoutingTable,
+/// #         observable_routing_table::RoutingTableEvent,
+/// #     },
+/// # };
 /// let mut observable_rt = ObservableRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
 ///
 /// // A simple debug logger
@@ -435,11 +443,13 @@ mod tests {
         RoutingTable,
         SafeStateSeqNr,
         Timestamp,
-        observable_routing_table::{
-            ObservableRoutingTable,
-            RoutingTableEvent,
+        routing_table::{
+            observable_routing_table::{
+                ObservableRoutingTable,
+                RoutingTableEvent,
+            },
+            single_bucket::SingleBucketRT,
         },
-        single_bucket::SingleBucketRT,
     };
 
     #[test]

@@ -16,17 +16,17 @@ use crate::{
     domain::{
         Contact,
         NodeId,
+        Nonce,
+        ProtocolMessage,
         UnderlayNeighborSource,
         UnderlayNeighborUpdate,
-    },
-    messaging::{
-        FindNodeReqData,
-        Nonce,
-        dht::{
-            LHTInput,
-            LHTOutput,
+        protocol_message::{
+            FindNodeReqData,
+            dht::{
+                LHTInput,
+                LHTOutput,
+            },
         },
-        messages::ProtocolMessage,
     },
     use_cases::inject_messages::InjectionResult,
 };
@@ -53,7 +53,7 @@ pub use crate::runtime::UseCaseRuntime;
 
 /// Callback used to message back an [InjectionResult] to an injector.
 ///
-/// This callback channel is usually used if a [ReqRspMessage](super::messaging::ReqRspMessage) is injected
+/// This callback channel is usually used if a [ReqRspMessage](crate::domain::protocol_message::ReqRspMessage) is injected
 /// into the network return the respective response message.
 pub type OneshotInjectMessageCallback = mpsc::UnboundedSender<InjectionResult>; // TODO: change back to oneshot after we figured out how to eliminate the need of deriving clone
 
@@ -72,7 +72,7 @@ pub enum UseCaseEvent {
 /// Protocol message data to inject into the network.
 #[derive(Debug, Clone)]
 pub enum InjectionMessageData {
-    FindNode(FindNodeReqData),
+    FindNode(FindNodeReqData, NodeId),
     Store(StoreInjectData<LHTInput>, OneshotInjectMessageCallback),
     Fetch(FetchInjectData, OneshotInjectMessageCallback),
 }
@@ -80,9 +80,9 @@ pub enum InjectionMessageData {
 impl PartialEq for InjectionMessageData {
     fn eq(&self, other: &Self) -> bool {
         match self {
-            Self::FindNode(data) => {
-                if let Self::FindNode(other_data) = other {
-                    return data == other_data;
+            Self::FindNode(data, target) => {
+                if let Self::FindNode(other_data, other_target) = other {
+                    return data == other_data && target == other_target;
                 }
             }
             Self::Store(data, sender) => {
@@ -157,6 +157,7 @@ pub struct FetchInjectData {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ContactEvent {
     New(Contact),
+    Proposed(Contact),
     Updated {
         new: Box<Contact>,
         old: Box<Contact>,

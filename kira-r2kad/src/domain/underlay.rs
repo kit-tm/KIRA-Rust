@@ -49,6 +49,12 @@ impl Display for UnderlayNeighborId {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum ULNState {
+    Tentative,
+    Bidirectional,
+}
+
 // TODO: document
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Hash, From)]
 pub struct ConnectionId(pub u32);
@@ -74,12 +80,12 @@ impl TryFrom<u32> for InterfaceId {
     }
 }
 
-/// An underlay destination for [ProtocolMessages](crate::messaging::ProtocolMessage).
+/// An underlay destination for [ProtocolMessages](crate::domain::ProtocolMessage).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From, Default)]
 pub enum UnderlayNeighborDestination {
     /// Broadcast to all underlay neighbors.
     ///
-    /// This is primarily used when sending [HelloMessages](crate::messaging::ProtocolMessage::ULNHello)
+    /// This is primarily used when sending [HelloMessages](crate::domain::ProtocolMessage::ULNHello)
     /// to discover the underlay vicinity.
     ///
     /// All neighbors that joined the well-known link-local multicast address `ALL-KIRA-NODES`
@@ -88,7 +94,7 @@ pub enum UnderlayNeighborDestination {
     Broadcast,
     /// Multicast to all underlay neighbors connected via the interface.
     ///
-    /// This is primarily used when sending [HelloMessages](crate::messaging::ProtocolMessage::ULNHello)
+    /// This is primarily used when sending [HelloMessages](crate::domain::ProtocolMessage::ULNHello)
     /// to discover the underlay vicinity.
     ///
     /// All neighbors that joined the well-known link-local multicast address `ALL-KIRA-NODES`
@@ -124,12 +130,12 @@ impl From<Option<UnderlayNeighborId>> for UnderlayNeighborDestination {
     }
 }
 
-/// The origin of [ProtocolMessages](crate::messaging::ProtocolMessage).
+/// The origin of [ProtocolMessages](crate::domain::ProtocolMessage).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From)]
 pub enum UnderlayNeighborSource {
     /// The running protocol instance is the source.
     ///
-    /// This is to support sending [ProtocolMessages](crate::messaging::ProtocolMessage)
+    /// This is to support sending [ProtocolMessages](crate::domain::ProtocolMessage)
     /// to ourselves.
     Local,
     /// Link to an underlay neighbor.
