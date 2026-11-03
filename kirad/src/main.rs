@@ -1,12 +1,17 @@
 use std::{
     collections::HashSet,
-    ffi::OsString,
     num::NonZeroU32,
 };
 
 use clap::Parser;
 use futures::StreamExt;
-use kira_forwarding::tables::native_tables::NativeFwdTables;
+use kira_forwarding::{
+    netlink::{
+        NETLINK_NETFILTER,
+        new_connection,
+    },
+    tables::native_tables::NativeFwdTables,
+};
 use kira_lib::{
     Kira,
     io::udp::async_channel,
@@ -52,14 +57,6 @@ struct Args {
     /// This also enables benchmarking mode which disables logging.
     #[clap(short, long, value_parser, env = "BENCH_PATH")]
     benchmark_path: Option<String>,
-    #[clap(
-        short,
-        long,
-        value_parser,
-        env = "NFTABLES_CONF",
-        default_value = "nftables.conf"
-    )]
-    nftables_conf: OsString,
     #[clap(short, long, value_parser, value_delimiter = ',')]
     excluded_interfaces: Option<Vec<u32>>,
     /// Enable [tokio console](https://github.com/tokio-rs/console/tree/main/tokio-console) support.
@@ -232,7 +229,7 @@ async fn main() {
     );
 
     // start underlay observation
-    let (connection, handle, mut underlay_updates, netlink_handle) =
+    let (connection, handle, mut underlay_updates, handle_rtnetlink) =
         observe_underlay(excluded_interfaces.clone())
             .expect("observing underlay neighborhood failed");
     tokio::task::Builder::new()
@@ -258,10 +255,16 @@ async fn main() {
         })
         .unwrap();
 
+    let (connection_nfnetlink, handle_nfnetlink, _) = new_connection(NETLINK_NETFILTER).unwrap();
+    tokio::task::Builder::new()
+        .name("Netfilter Connection")
+        .spawn(connection_nfnetlink)
+        .unwrap();
+
     let (fwd_tables, attach_ips) = NativeFwdTables::new(
         root_id,
-        args.nftables_conf,
-        netlink_handle,
+        handle_rtnetlink,
+        handle_nfnetlink,
         handle.clone(),
         underlay_updates1,
     )

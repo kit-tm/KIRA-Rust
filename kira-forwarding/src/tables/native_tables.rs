@@ -1,11 +1,10 @@
-//! Fast forwarding implementation utilizing the native routing of the linux kernel.
+//! Fast forwarding implementation utilizing the native routing of the Linux kernel.
 //!
-//! The main struct of this module is [NativeFwdTables].
+//! The main struct of this module is the [`NativeFwdTables`].
 
 use std::{
     collections::HashMap,
     error::Error,
-    ffi::OsStr,
     fmt::Debug,
     future::Future,
     net::Ipv6Addr,
@@ -16,6 +15,7 @@ use futures::{
     channel::mpsc::UnboundedReceiver,
 };
 use kira_r2kad::domain::UnderlayNeighborUpdate;
+use netlink_packet_netfilter::NetfilterMessage;
 use netlink_packet_route::RouteNetlinkMessage;
 use netlink_proto::ConnectionHandle;
 use tracing::{
@@ -37,8 +37,7 @@ use crate::{
         PathIdForwardingEntry,
         UnderlayNeighborId,
     },
-    netlink::ForwardingRtNetlink,
-    platform,
+    netlink::ForwardingNetlink,
     tables::{
         AsyncForwardingTables,
         AsyncNodeIdTable,
@@ -62,30 +61,29 @@ pub struct NativeFwdTables<I> {
     node_id_table: HashMap<NodeIdSubnet, NodeIdEntry>,
     path_id_table: HashMap<PathId, PathIdEntry>,
 
-    netlink: ForwardingRtNetlink,
+    netlink: ForwardingNetlink,
     interface_id_table: HashMap<UnderlayNeighborId, InterfaceId>,
     underlay_information_provider: I,
 }
 
 impl<I> NativeFwdTables<I> {
-    /// Create a new forwarding tables instance.
+    /// Creates a native forwarding tables instance.
     ///
     /// The returned future is responsible for attaching IPv6s on upcoming interfaces.
-    pub async fn new<S: AsRef<OsStr>>(
+    pub async fn new(
         root_id: NodeId,
-        nftables_conf: S,
-        handle: ConnectionHandle<RouteNetlinkMessage>,
+        handle_rtnetlink: ConnectionHandle<RouteNetlinkMessage>,
+        handle_nfnetlink: ConnectionHandle<NetfilterMessage>,
         underlay_information: I,
         mut underlay_updates: UnboundedReceiver<UnderlayNeighborUpdate>,
     ) -> (Self, impl Future<Output = ()> + 'static) {
-        let netlink = ForwardingRtNetlink::new(handle)
+        let netlink = ForwardingNetlink::new(handle_rtnetlink, handle_nfnetlink)
             .await
             .expect("KIRA interface should successfully be created");
-        platform::load_nft_config(nftables_conf).unwrap();
         log::debug!(target: "native_fwd_table", "Loaded nftables successfully");
 
         let attaching_ips = {
-            let mut netlink = netlink.clone();
+            let netlink = netlink.clone();
             async move {
                 while let Some(update) = underlay_updates.next().await {
                     if let UnderlayNeighborUpdate::InterfaceUp(id) = update
@@ -348,13 +346,11 @@ where
             }
             log::trace!(target: "native_fwd_table", "Trying to update entry in forwardmap from {old_entry:?} to {entry:?}");
             *old_entry = entry;
-            platform::update_forwarding_rule(in_ip, out_ip)
-                .map_err(error::FwdTableError::ForwardingMapErr)?;
+            self.netlink.update_forwarding_rule(in_ip, out_ip).await?;
         } else {
             log::trace!(target: "native_fwd_table", "Trying to insert entry into forwardmap: {entry:?}");
 
-            platform::add_forwarding_rule(in_ip, out_ip)
-                .map_err(error::FwdTableError::ForwardingMapErr)?;
+            self.netlink.add_forwarding_rule(in_ip, out_ip).await?;
             self.path_id_table.insert(in_path_id.clone(), entry);
         }
 
@@ -373,8 +369,7 @@ where
             let in_path_ip = Ipv6Addr::from(path_id);
 
             log::trace!(target: "native_fwd_table", "Trying to remove entry from forwardmap: {removed:?}");
-            platform::delete_forwarding_rule(in_path_ip)
-                .map_err(error::FwdTableError::ForwardingMapErr)?;
+            self.netlink.delete_forwarding_rule(in_path_ip).await?;
             Ok(Some(removed))
         } else {
             Ok(None)
@@ -408,7 +403,7 @@ pub mod error {
     };
     use kira_r2kad::domain::UnderlayNeighborId;
 
-    use crate::netlink::ForwardingRtNetlinkError;
+    use crate::netlink::ForwardingNetlinkError;
 
     #[derive(Debug, Display, Error)]
     pub enum FwdTableError {
@@ -416,20 +411,18 @@ pub mod error {
         EntryAlreadyExists(#[error(ignore)] String),
         #[display("Entry with id {_0} does not exist")]
         EntryMissing(#[error(ignore)] String),
-        #[display("Error updating the forwarding map: {_0}")]
-        ForwardingMapErr(#[error(ignore)] String),
         /// [UnderlayNeighborId] unknown.
         ///
         /// The common cause is an interface is down in the meantime.
         #[display("UnderlayNeighborId {_0} unknown")]
         UnknownUnderlayNeighborId(#[error(ignore)] UnderlayNeighborId),
         UnderlayInformationProviderErr(Box<dyn std::error::Error>),
-        RtNetlinkErr(Box<ForwardingRtNetlinkError>),
+        NetlinkErr(Box<ForwardingNetlinkError>),
     }
 
-    impl From<ForwardingRtNetlinkError> for FwdTableError {
-        fn from(rtnetlink_err: ForwardingRtNetlinkError) -> Self {
-            Self::RtNetlinkErr(Box::new(rtnetlink_err))
+    impl From<ForwardingNetlinkError> for FwdTableError {
+        fn from(netlink_err: ForwardingNetlinkError) -> Self {
+            Self::NetlinkErr(Box::new(netlink_err))
         }
     }
 }

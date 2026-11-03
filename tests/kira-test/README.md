@@ -10,6 +10,7 @@ This _only_ includes dependencies not managed by [uv].
 
 - [uv]: Python package and project manager
 - [iproute] >= 6.9.0 [^1]: Probing setup IPv6-routes by `kirad`.
+- _Userspace_ utilities of [nftables]: Check the current state of the forwarding tier
 - Linux based operating system with root privileges:
   [NeST] is utilizing network [namespaces] for emulating the different topology nodes.
   This is a Linux exclusive feature and requires `CAP_SYS_ADMIN`.
@@ -109,6 +110,7 @@ uv --project=./tests/kira-test run nvim .
 
 [uv]: https://docs.astral.sh/uv/
 [iproute]: https://wiki.linuxfoundation.org/networking/iproute2
+[nftables]: https://wiki.nftables.org/wiki-nftables/index.php/Main_Page#Installing_nftables
 [namespaces]: https://en.wikipedia.org/wiki/Linux_namespaces
 [NeST]: https://nest.nitk.ac.in/docs/master/index.html
 [pytest]: https://docs.pytest.org/en/stable/index.html

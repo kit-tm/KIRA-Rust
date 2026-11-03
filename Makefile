@@ -42,16 +42,14 @@ $(PKG_PREFIX)/%: $(PKG_PREFIX)/%.m4 FORCE
 FORCE:
 
 .PHONY: install
-install: $(PKG_PREFIX)/kirad.service $(PKG_PREFIX)/kirad@.service $(DATA_PREFIX)/nftables.conf $(BIN_PATH)
+install: $(PKG_PREFIX)/kirad.service $(PKG_PREFIX)/kirad@.service $(BIN_PATH)
+	$(INSTALL) -m 755 $(BIN_PATH) $(BIN_DIR)
+
 	$(INSTALL) -m 755 -d $(SYSTEMD_DIR)
 	$(INSTALL) -m 644 $(PKG_PREFIX)/kirad.service $(SYSTEMD_DIR)/kirad.service
 	$(INSTALL) -m 644 $(PKG_PREFIX)/kirad@.service $(SYSTEMD_DIR)/kirad@.service
 	systemctl daemon-reload
 
-	$(INSTALL) -m 755 -d $(SHARE_DIR)
-	$(INSTALL) -m 644 $(DATA_PREFIX)/nftables.conf $(SHARE_DIR)/nftables.conf
-
-	$(INSTALL) -m 755 $(BIN_PATH) $(BIN_DIR)
 
 .PHONY: uninstall
 uninstall:

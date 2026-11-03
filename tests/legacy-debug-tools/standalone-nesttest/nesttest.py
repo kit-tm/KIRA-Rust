@@ -573,7 +573,7 @@ class NestTest[T]:  # T = tid type, usually int or str
             arg: str = " ".join(args)
             with open(logfile, "w") as f:
                 _p = node.exec(
-                    f"./target/debug/kirad --root-id {node_id} --nftables-conf ./kirad/conf/nftables.conf {arg} && exit",
+                    f"./target/debug/kirad --root-id {node_id} {arg} && exit",
                     logfile=f,
                     env_vars=env_vars,
                 )
