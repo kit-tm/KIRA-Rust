@@ -146,3 +146,128 @@ impl Debug for PathId {
         write!(f, "PathId({self:X})")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        net::Ipv6Addr,
+        str::FromStr,
+    };
+
+    use super::*;
+    use crate::domain::NodeId;
+
+    /// SHA-1 over the 14-byte big-endian representation of NodeId(1) and NodeId(2).
+    const DIGEST_1_2: &str = "1ea54dacee661245cdfaf6b442ee80817504de33";
+    /// SHA-1 over the 14-byte big-endian representation of NodeId(7).
+    const DIGEST_7: &str = "e6079d754285b55566367aaa56398c1d085d16c9";
+    /// SHA-1 over the empty input.
+    const DIGEST_EMPTY: &str = "da39a3ee5e6b4b0d3255bfef95601890afd80709";
+
+    #[test]
+    fn sha1_matches_reference_digest() {
+        let path_id = PathId::from_sha1(&[NodeId::from(1), NodeId::from(2)]);
+        assert_eq!(hex::encode(path_id.as_ref()), DIGEST_1_2);
+    }
+
+    #[test]
+    fn sha1_single_hop() {
+        let path_id = PathId::from_sha1(&[NodeId::from(7)]);
+        assert_eq!(hex::encode(path_id.as_ref()), DIGEST_7);
+    }
+
+    #[test]
+    fn sha1_empty_path() {
+        let path: &[NodeId] = &[];
+        let path_id = PathId::from_sha1(path);
+        assert_eq!(hex::encode(path_id.as_ref()), DIGEST_EMPTY);
+    }
+
+    #[test]
+    fn sha1_is_order_sensitive() {
+        let forward = PathId::from_sha1(&[NodeId::from(1), NodeId::from(2)]);
+        let backward = PathId::from_sha1(&[NodeId::from(2), NodeId::from(1)]);
+        assert_ne!(forward, backward);
+    }
+
+    #[test]
+    fn sha1_output_is_20_bytes() {
+        let path_id = PathId::from_sha1(&[NodeId::from(1)]);
+        assert_eq!(path_id.as_ref().len(), 20);
+    }
+
+    #[test]
+    fn ipv6_conversion_uses_prefix_and_first_14_bytes() {
+        let path_id = PathId::from_sha1(&[NodeId::from(1), NodeId::from(2)]);
+        let addr = Ipv6Addr::from(&path_id);
+
+        // prefix bytes fc/aa followed by the first 14 digest bytes
+        let digest = hex::decode(DIGEST_1_2).unwrap();
+        let mut expected = [0u8; 16];
+        expected[0] = 0xfc;
+        expected[1] = 0xaa;
+        expected[2..16].copy_from_slice(&digest[0..14]);
+        assert_eq!(addr, Ipv6Addr::from(expected));
+    }
+
+    #[test]
+    fn from_str_round_trip() {
+        let path_id = PathId::from_sha1(&[NodeId::from(1), NodeId::from(2)]);
+        let parsed = PathId::from_str(&hex::encode(path_id.as_ref())).unwrap();
+        assert_eq!(parsed, path_id);
+    }
+
+    #[test]
+    fn from_str_rejects_invalid_hex() {
+        assert!(PathId::from_str("zzzz").is_err());
+        assert!(PathId::from_str("abc").is_err(), "odd number of digits");
+    }
+
+    #[test]
+    fn bitxor_takes_first_node_id_sized_chunk() {
+        let bytes: Vec<u8> = (0u8..=15).collect();
+        let path_id = PathId::from(bytes.clone());
+        let other = NodeId::from(1);
+
+        let result = path_id ^ &other;
+
+        let mut prefix = [0u8; NodeId::SIZE];
+        prefix.copy_from_slice(&bytes[..NodeId::SIZE]);
+        assert_eq!(result, NodeId::from(prefix) ^ other);
+    }
+
+    #[test]
+    fn upper_hex_default_truncates_to_28_chars() {
+        let path_id = PathId::from_sha1(&[NodeId::from(1), NodeId::from(2)]);
+        assert_eq!(format!("{path_id}"), "1EA54DACEE661245CDFAF6B442EE");
+    }
+
+    #[test]
+    fn lower_hex_default_truncates_to_28_chars() {
+        let path_id = PathId::from_sha1(&[NodeId::from(1), NodeId::from(2)]);
+        assert_eq!(format!("{path_id:x}"), "1ea54dacee661245cdfaf6b442ee");
+    }
+
+    #[test]
+    fn alternate_lower_hex_truncates_to_short_output_length() {
+        let path_id = PathId::from_sha1(&[NodeId::from(1), NodeId::from(2)]);
+        assert_eq!(format!("{path_id:#x}"), "1ea54dac");
+        assert_eq!(format!("{path_id:#X}"), "1EA54DAC");
+    }
+
+    #[test]
+    fn precision_limits_output_length() {
+        let path_id = PathId::from_sha1(&[NodeId::from(1), NodeId::from(2)]);
+        assert_eq!(format!("{path_id:.4}"), "1EA5");
+        assert_eq!(format!("{path_id:.4x}"), "1ea5");
+    }
+
+    #[test]
+    fn debug_wraps_upper_hex() {
+        let path_id = PathId::from_sha1(&[NodeId::from(1), NodeId::from(2)]);
+        assert_eq!(
+            format!("{path_id:?}"),
+            "PathId(1EA54DACEE661245CDFAF6B442EE)"
+        );
+    }
+}

@@ -304,7 +304,7 @@ mod test {
         // check entry creation
         let entry = graph.entry(&insert_node).expect("insertion creates entry");
         assert_eq!(entry.observed_ssn(), &insert_ssn);
-        assert_eq!(entry.synched_ssn(), None);
+        assert_eq!(entry.synced_ssn(), None);
         assert_eq!(entry.last_seen(), None);
     }
 
@@ -315,11 +315,11 @@ mod test {
         let initial_ssn = SafeStateSeqNr::try_from(1).unwrap();
         let updated_ssn = SafeStateSeqNr::try_from(2).unwrap();
         let now = Instant::now();
-        let synched_ssn = initial_ssn;
+        let synced_ssn = initial_ssn;
         let initial_entry = {
             let mut initial_entry = Entry::new(initial_ssn);
             initial_entry.update_last_seen(now);
-            initial_entry.update_synched_ssn(synched_ssn);
+            initial_entry.update_synced_ssn(synced_ssn);
             initial_entry
         };
 
@@ -337,7 +337,7 @@ mod test {
             // check entry
             let entry = graph.entry(&insert_node).expect("insertion creates entry");
             assert_eq!(entry.observed_ssn(), &initial_ssn);
-            assert_eq!(entry.synched_ssn(), Some(&synched_ssn));
+            assert_eq!(entry.synced_ssn(), Some(&synced_ssn));
             assert_eq!(entry.last_seen(), Some(now));
         }
 
@@ -349,7 +349,7 @@ mod test {
             // check entry
             let entry = graph.entry(&insert_node).expect("insertion creates entry");
             assert_eq!(entry.observed_ssn(), &updated_ssn);
-            assert_eq!(entry.synched_ssn(), Some(&synched_ssn));
+            assert_eq!(entry.synced_ssn(), Some(&synced_ssn));
             assert_eq!(entry.last_seen(), Some(now));
         }
     }

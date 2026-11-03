@@ -49,6 +49,12 @@ impl Display for UnderlayNeighborId {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum ULNState {
+    Tentative,
+    Bidirectional,
+}
+
 // TODO: document
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Hash, From)]
 pub struct ConnectionId(pub u32);

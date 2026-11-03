@@ -126,11 +126,11 @@ impl UnderlayInformationBase {
         // FIXME: Handle ConnectionId overflow gracefully
         assert!(
             self.neighbors.insert(ulnid, neighbor).is_none(),
-            "Collision of life underlay neighbor ids because unhandles overflow"
+            "Collision of active underlay neighbor ids because unhandled overflow"
         );
         assert!(
             self.neighbor_ids.insert(neighbor, ulnid).is_none(),
-            "Generation a new ConnectionID necessitates an unknown UnderlayNeighbor"
+            "Generation of a new ConnectionID necessitates an unknown UnderlayNeighbor"
         );
 
         // update interface with new neighbor
@@ -267,7 +267,9 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "Collision of life underlay neighbor ids because unhandles overflow")]
+    #[should_panic(
+        expected = "Collision of active underlay neighbor ids because unhandled overflow"
+    )]
     fn avoid_ulnid_collision() {
         let mut ulnib = UnderlayInformationBase::default();
 

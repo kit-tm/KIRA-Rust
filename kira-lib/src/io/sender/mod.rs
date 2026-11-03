@@ -13,7 +13,7 @@ pub mod udp_tokio;
 ///
 /// Derives how and where to send the [ProtocolMessage] by analyzing its fields
 /// and converts them to an appropriate format so that the corresponding
-/// [ProtocolMessageReceiver](super::receiver::ProtocolMessageReceiver)
+/// [AsyncProtocolMessageReceiver](super::receiver::AsyncProtocolMessageReceiver)
 /// can convert it back to a [ProtocolMessage].
 pub trait ProtocolMessageSender {
     /// Sends a [ProtocolMessage] to another Node, converting it to an appropriate
@@ -33,7 +33,7 @@ pub trait ProtocolMessageSender {
 ///
 /// Derives how and where to send the [ProtocolMessage] by analyzing its fields
 /// and converts them to an appropriate format so that the corresponding
-/// [ProtocolMessageReceiver](super::receiver::ProtocolMessageReceiver)
+/// [AsyncProtocolMessageReceiver](super::receiver::AsyncProtocolMessageReceiver)
 /// can convert it back to a [ProtocolMessage].
 #[trait_variant::make(AsyncProtocolMessageSender: Send)]
 pub trait LocalAsyncProtocolMessageSender {

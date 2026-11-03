@@ -22,6 +22,7 @@ use crate::{
         RoutingTable,
         SourceRoute,
         Timestamp,
+        ULNState,
         ULNTable,
         UnderlayNeighborId,
         protocol_message::{
@@ -94,7 +95,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     fn send_update(&self, context: &C, updates: HashMap<Contact, RouteUpdateActionType>) {
         let overlay_neighbors = context
@@ -143,14 +145,17 @@ where
                     .unwrap()
                     .starts_with(invalidated_contact.path().unwrap())
             {
+                let nvs = NotViaState::new(
+                    Link::new(*context.root_id(), *invalidated_contact.id()),
+                    Timestamp::now(),
+                );
+
                 if let ContactState::Invalid(not_via_state_list) = invalidated_contact.state() {
                     // use not via info from invalidated contact
-                    saved_contact.set_invalid(not_via_state_list.clone());
+                    let mut nvs_list = not_via_state_list.clone();
+                    nvs_list.nvs_list.insert(nvs);
+                    saved_contact.set_invalid(nvs_list);
                 } else {
-                    let nvs = NotViaState::new(
-                        Link::new(*context.root_id(), *invalidated_contact.id()),
-                        Timestamp::now(),
-                    );
                     // since invalidated_contact is a ULN, we use this info
                     saved_contact.set_invalid(NotViaStateList::from(nvs));
                 }
@@ -164,7 +169,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     type Context = C;
     type Error = NeverError;

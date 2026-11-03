@@ -19,6 +19,7 @@ use crate::{
         RoutingTable,
         SourceRoute,
         StateSeqNr,
+        ULNState,
         ULNTable,
         UnderlayNeighborId,
         protocol_message::{
@@ -144,7 +145,8 @@ where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
-    C::UnderlayNeighborTable: ULNTable + Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable:
+        ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
     type Context = C;
     type Error = NeverError;

@@ -23,6 +23,7 @@ use crate::{
         Path,
         PathIdTableUpdate,
         RoutingTable,
+        ULNState,
         UnderlayNeighborId,
         protocol_event::forwarding::{
             DecapsulationDestination,
@@ -97,7 +98,7 @@ impl<C, const BUCKET_SIZE: usize> DeriveFwdTableEntries<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
-    C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     fn remove_node_id_entry(
@@ -289,7 +290,7 @@ where
             .path()
             .expect("contact is expected to have an active path")
             .first();
-        let next_hop = context
+        let (next_hop, _) = context
             .uln_table()
             .get(&next_hop)
             .copied()
@@ -353,7 +354,7 @@ where
             .expect("should be valid prefix length");
 
         let next_hop = *closest.path().unwrap().first();
-        let next_hop = context
+        let (next_hop, _) = context
             .uln_table()
             .get(&next_hop)
             .copied()
@@ -388,7 +389,7 @@ impl<C, const BUCKET_SIZE: usize> EventHandler for DeriveFwdTableEntries<C, BUCK
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
-    C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     type Context = C;
@@ -583,7 +584,7 @@ impl<C, const BUCKET_SIZE: usize> UseCase for DeriveFwdTableEntries<C, BUCKET_SI
 where
     C: UseCaseContext,
     C::Runtime: UseCaseRuntime,
-    C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+    C::UnderlayNeighborTable: Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
 {
     type State = DeriveFwdTableEntriesState;
@@ -679,7 +680,7 @@ mod tests {
             assert!(routing_table.insert(neighbor.clone()).is_ok());
 
             let mut uln_table = Box::new(HashMap::new());
-            uln_table.insert(neighbor_id, ulnid);
+            uln_table.insert(neighbor_id, (ulnid, ULNState::Bidirectional));
 
             let sync_context = SyncContext::new(ContextConfig {
                 root_id,
@@ -798,7 +799,7 @@ mod tests {
             assert!(routing_table.insert(neighbor.clone()).is_ok());
 
             let mut uln_table = Box::new(HashMap::new());
-            uln_table.insert(neighbor_id, ulnid);
+            uln_table.insert(neighbor_id, (ulnid, ULNState::Bidirectional));
 
             let sync_context = SyncContext::new(ContextConfig {
                 root_id,
@@ -915,7 +916,7 @@ mod tests {
             assert!(routing_table.insert(neighbor.clone()).is_ok());
 
             let mut uln_table = Box::new(HashMap::new());
-            uln_table.insert(neighbor_id, ulnid);
+            uln_table.insert(neighbor_id, (ulnid, ULNState::Bidirectional));
 
             let sync_context = SyncContext::new(ContextConfig {
                 root_id,
@@ -1028,7 +1029,7 @@ mod tests {
             assert!(routing_table.insert(neighbor.clone()).is_ok());
 
             let mut uln_table = Box::new(HashMap::new());
-            uln_table.insert(neighbor_id, ulnid);
+            uln_table.insert(neighbor_id, (ulnid, ULNState::Bidirectional));
 
             let sync_context = SyncContext::new(ContextConfig {
                 root_id,

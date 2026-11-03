@@ -96,16 +96,184 @@ impl InflightReqMap {
         if self.timer_to_node.contains_key(&new_timer_id) {
             return Err(errors::ModificationError::DuplicateTimerError);
         }
-        let removed_timer: Option<TimerId>;
-        // find timer and update it
-        if let Some((_node_id, timer_id)) = self.nonce_to_id.get_mut(&nonce) {
-            removed_timer = Some(*timer_id);
-            *timer_id = new_timer_id;
-        } else {
-            return Err(errors::ModificationError::NonceDoesNotExistError);
-        }
 
-        Ok(removed_timer)
+        let old_timer_id = match self.nonce_to_id.get_mut(&nonce) {
+            Some((_node_id, timer_id)) => {
+                let old_timer_id = *timer_id;
+                *timer_id = new_timer_id;
+                old_timer_id
+            }
+            None => return Err(errors::ModificationError::NonceDoesNotExistError),
+        };
+
+        // keep the timer mapping in sync with the nonce mapping
+        let (node_id, mapped_nonce) = self
+            .timer_to_node
+            .remove(&old_timer_id)
+            .expect("nonce exists, therefore its timer has to be tracked");
+        assert_eq!(mapped_nonce, nonce);
+        self.timer_to_node.insert(new_timer_id, (node_id, nonce));
+
+        Ok(Some(old_timer_id))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::NodeId;
+
+    fn node(v: u128) -> NodeId {
+        NodeId::from(v)
+    }
+
+    fn nonce(v: u64) -> Nonce {
+        Nonce::from(v)
+    }
+
+    fn timer(v: usize) -> TimerId {
+        TimerId::from(v)
+    }
+
+    #[test]
+    fn insert_and_lookup() {
+        let mut map = InflightReqMap::default();
+        map.insert((node(1), timer(10), nonce(100))).unwrap();
+
+        assert!(map.timer_exists(&timer(10)));
+        assert!(map.nonce_exists(&nonce(100)));
+        assert_eq!(
+            map.get_value_for_timer(&timer(10)),
+            Some(&(node(1), nonce(100)))
+        );
+        assert_eq!(
+            map.get_value_for_nonce(nonce(100)),
+            Some(&(node(1), timer(10)))
+        );
+        assert!(map.exists(&node(1)));
+        assert!(!map.exists(&node(2)));
+    }
+
+    #[test]
+    fn insert_rejects_duplicate_timer() {
+        let mut map = InflightReqMap::default();
+        map.insert((node(1), timer(10), nonce(100))).unwrap();
+
+        assert!(matches!(
+            map.insert((node(2), timer(10), nonce(200))),
+            Err(errors::InsertionError::DuplicateTimer)
+        ));
+        // failed insertion must not leave partial state
+        assert!(!map.nonce_exists(&nonce(200)));
+    }
+
+    #[test]
+    fn insert_rejects_duplicate_nonce() {
+        let mut map = InflightReqMap::default();
+        map.insert((node(1), timer(10), nonce(100))).unwrap();
+
+        assert!(matches!(
+            map.insert((node(2), timer(20), nonce(100))),
+            Err(errors::InsertionError::DuplicateNonce)
+        ));
+        assert!(!map.timer_exists(&timer(20)));
+    }
+
+    #[test]
+    fn remove_by_nonce_untracks_both_directions() {
+        let mut map = InflightReqMap::default();
+        map.insert((node(1), timer(10), nonce(100))).unwrap();
+
+        assert_eq!(map.remove_by_nonce(nonce(100)), Some((node(1), timer(10))));
+        assert!(!map.nonce_exists(&nonce(100)));
+        assert!(!map.timer_exists(&timer(10)));
+        assert!(!map.exists(&node(1)));
+        assert_eq!(map.remove_by_nonce(nonce(100)), None);
+    }
+
+    #[test]
+    fn remove_by_timer_untracks_both_directions() {
+        let mut map = InflightReqMap::default();
+        map.insert((node(1), timer(10), nonce(100))).unwrap();
+
+        assert_eq!(map.remove_by_timer(&timer(10)), Some((node(1), nonce(100))));
+        assert!(!map.nonce_exists(&nonce(100)));
+        assert!(!map.timer_exists(&timer(10)));
+        assert_eq!(map.remove_by_timer(&timer(10)), None);
+    }
+
+    #[test]
+    fn remove_by_id_only_affects_given_node() {
+        let mut map = InflightReqMap::default();
+        map.insert((node(1), timer(10), nonce(100))).unwrap();
+        map.insert((node(1), timer(11), nonce(101))).unwrap();
+        map.insert((node(2), timer(20), nonce(200))).unwrap();
+
+        map.remove_by_id(&node(1));
+
+        assert!(!map.timer_exists(&timer(10)));
+        assert!(!map.timer_exists(&timer(11)));
+        assert!(!map.nonce_exists(&nonce(100)));
+        assert!(!map.nonce_exists(&nonce(101)));
+        assert!(map.timer_exists(&timer(20)));
+        assert!(map.nonce_exists(&nonce(200)));
+        assert!(!map.exists(&node(1)));
+        assert!(map.exists(&node(2)));
+    }
+
+    #[test]
+    fn replace_timer_for_nonce_keeps_timer_map_in_sync() {
+        let mut map = InflightReqMap::default();
+        map.insert((node(1), timer(10), nonce(100))).unwrap();
+
+        let removed = map.replace_timer_for_nonce(nonce(100), timer(11)).unwrap();
+
+        assert_eq!(removed, Some(timer(10)));
+        assert!(map.timer_exists(&timer(11)), "new timer must be tracked");
+        assert!(
+            !map.timer_exists(&timer(10)),
+            "old timer must no longer be tracked"
+        );
+        assert_eq!(
+            map.get_value_for_timer(&timer(11)),
+            Some(&(node(1), nonce(100)))
+        );
+        assert_eq!(
+            map.get_value_for_nonce(nonce(100)),
+            Some(&(node(1), timer(11)))
+        );
+
+        // removing via the replaced timer has to untrack everything
+        assert_eq!(map.remove_by_timer(&timer(11)), Some((node(1), nonce(100))));
+        assert!(!map.nonce_exists(&nonce(100)));
+    }
+
+    #[test]
+    fn replace_timer_for_nonce_rejects_existing_timer() {
+        let mut map = InflightReqMap::default();
+        map.insert((node(1), timer(10), nonce(100))).unwrap();
+        map.insert((node(2), timer(20), nonce(200))).unwrap();
+
+        assert!(matches!(
+            map.replace_timer_for_nonce(nonce(100), timer(20)),
+            Err(errors::ModificationError::DuplicateTimerError)
+        ));
+        // failed modification must not change the nonce mapping
+        assert_eq!(
+            map.get_value_for_nonce(nonce(100)),
+            Some(&(node(1), timer(10)))
+        );
+    }
+
+    #[test]
+    fn replace_timer_for_nonce_rejects_unknown_nonce() {
+        let mut map = InflightReqMap::default();
+
+        assert!(matches!(
+            map.replace_timer_for_nonce(nonce(100), timer(10)),
+            Err(errors::ModificationError::NonceDoesNotExistError)
+        ));
+        assert!(!map.timer_exists(&timer(10)));
     }
 }
 

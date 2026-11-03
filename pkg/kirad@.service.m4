@@ -4,8 +4,8 @@ After=network.target
 Before=network-online.target
 
 [Service]
-Environment=RUST_LOG="debug"
-ExecStart=BIN_DIR/kirad -e "%i"
+Environment=RUST_LOG="info"
+ExecStart=BIN_DIR/kirad -e "%I"
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 

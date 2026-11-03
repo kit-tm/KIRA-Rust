@@ -166,3 +166,130 @@ impl CommonHeader {
         self.src_node_degree
     }
 }
+
+#[cfg(all(test, feature = "binrw"))]
+mod tests {
+    use std::io::Cursor;
+
+    use binrw::{
+        BinRead,
+        BinWrite,
+    };
+
+    use super::*;
+    use crate::domain::NodeId;
+
+    fn header(ssn: impl Into<StateSeqNr>, degree: usize) -> CommonHeader {
+        CommonHeader::new(
+            ProtocolMessageKind::ProbeReq,
+            NodeId::from(0x1111),
+            NodeId::from(0x2222),
+            Some(Nonce::from(0xdead_beef_cafe_f00d)),
+            ssn,
+            degree,
+        )
+    }
+
+    #[test]
+    fn new_sets_defaults() {
+        let header = header(1, 10);
+
+        assert_eq!(header.version(), 0, "KIRA protocol version");
+        assert_eq!(header.msg_type(), ProtocolMessageKind::ProbeReq);
+        assert_eq!(header.msg_flags(), ProtocolMessageFlags::default());
+        assert_eq!(header.msg_length(), 55, "fixed common header length");
+        assert_eq!(header.dest_id(), &NodeId::from(0x2222));
+        assert_eq!(header.src_node_id(), &NodeId::from(0x1111));
+        assert_eq!(header.domain_id(), 0);
+        assert_eq!(header.msg_id(), Nonce::from(0xdead_beef_cafe_f00d));
+        assert_eq!(header.src_node_degree(), 10);
+    }
+
+    #[test]
+    fn new_generates_random_nonce_when_none() {
+        let header = CommonHeader::new(
+            ProtocolMessageKind::ProbeReq,
+            NodeId::from(1),
+            NodeId::from(2),
+            None,
+            1,
+            10,
+        );
+        let other = CommonHeader::new(
+            ProtocolMessageKind::ProbeReq,
+            NodeId::from(1),
+            NodeId::from(2),
+            None,
+            1,
+            10,
+        );
+
+        assert_ne!(header.msg_id(), other.msg_id(), "nonces must be random");
+    }
+
+    #[test]
+    fn new_clamps_src_node_degree() {
+        assert_eq!(header(1, 10).src_node_degree(), 10);
+        assert_eq!(
+            header(1, usize::MAX).src_node_degree(),
+            u16::MAX,
+            "degree must saturate at u16::MAX"
+        );
+        assert_eq!(header(1, 65_535).src_node_degree(), 65_535);
+    }
+
+    #[test]
+    fn add_to_msg_length() {
+        let mut header = header(1, 10);
+        header.add_to_msg_length(7);
+        assert_eq!(header.msg_length(), 62);
+
+        header.add_to_msg_length(u16::MAX - 62);
+        assert_eq!(header.msg_length(), u16::MAX, "must saturate at u16::MAX");
+    }
+
+    #[test]
+    #[should_panic(expected = "maximum msg length exceeded")]
+    fn add_to_msg_length_panics_on_overflow() {
+        let mut header = header(1, 10);
+        header.add_to_msg_length(u16::MAX);
+    }
+
+    #[test]
+    fn binrw_round_trip() {
+        let original = header(42, 10);
+
+        let mut buffer = Cursor::new(Vec::new());
+        original
+            .write_be(&mut buffer)
+            .expect("writing header must work");
+        let bytes = buffer.into_inner();
+        assert_eq!(bytes.len(), 55, "serialized common header must be 55 bytes");
+
+        let mut buffer = Cursor::new(bytes);
+        let read_back = CommonHeader::read_be(&mut buffer).expect("reading header must work");
+        assert_eq!(read_back, original);
+    }
+
+    #[test]
+    fn binrw_round_trip_special_state_seq_nrs() {
+        // INVALID_SSN (0) and RESET_SSN (u32::MAX) must survive the wire
+        for ssn in [
+            StateSeqNr::Invalid,
+            StateSeqNr::Reset,
+            StateSeqNr::from(42u32),
+        ] {
+            let original = header(ssn, 1);
+
+            let mut buffer = Cursor::new(Vec::new());
+            original
+                .write_be(&mut buffer)
+                .expect("writing header must work");
+            let bytes = buffer.into_inner();
+
+            let mut buffer = Cursor::new(bytes);
+            let read_back = CommonHeader::read_be(&mut buffer).expect("reading header must work");
+            assert_eq!(read_back.state_seq_num(), ssn);
+        }
+    }
+}

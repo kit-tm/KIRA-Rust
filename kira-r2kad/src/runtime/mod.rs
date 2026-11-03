@@ -17,6 +17,7 @@ use crate::{
         ForwardingTablesUpdate,
         NodeId,
         ProtocolMessage,
+        ULNState,
         UnderlayNeighborDestination,
         UnderlayNeighborId,
     },
@@ -86,7 +87,7 @@ pub trait UseCaseRuntime {
     fn send_message<P: Into<ProtocolMessage>>(
         &self,
         protocol_message: P,
-        uln_table: &impl Deref<Target = HashMap<NodeId, UnderlayNeighborId>>,
+        uln_table: &impl Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
         root_id: &NodeId,
     ) {
         let protocol_message: ProtocolMessage = protocol_message.into();
@@ -94,7 +95,7 @@ pub trait UseCaseRuntime {
             None => UnderlayNeighborDestination::Broadcast,
             Some(next_hop) if next_hop == root_id => return self.broadcast_event(protocol_message),
             Some(next_hop) => {
-                let Some(uln_dest) = uln_table.get(next_hop) else {
+                let Some((uln_dest, _)) = uln_table.get(next_hop) else {
                     tracing::warn!(
                         %next_hop,
                         reason = "uln_dest of next hop unknown",
