@@ -115,6 +115,7 @@ impl VicinityGraph for PetVicinityGraph {
         Ok(new_edge)
     }
 
+    // remove a node
     fn remove(&mut self, node: &NodeId) -> bool {
         let entry_removed = self.entries.remove(node).is_some();
         let graph_removed = self.graph.remove_node(*node);
@@ -159,6 +160,15 @@ impl VicinityGraph for PetVicinityGraph {
     fn remove_edge(&mut self, node_a: &NodeId, node_b: &NodeId) -> bool {
         if self.graph.remove_edge(*node_a, *node_b).is_some() {
             self.graph_changed = true;
+            // if this was the last edge of the node, remove the node as well
+            if self.graph.neighbors(*node_a).count() == 0 {
+                // node a is now isolated, so remove it
+                self.graph.remove_node(*node_a);
+            }
+            if self.graph.neighbors(*node_b).count() == 0 {
+                // node b is now isolated, so remove it
+                self.graph.remove_node(*node_b);
+            }
             true
         } else {
             false

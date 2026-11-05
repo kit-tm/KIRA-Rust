@@ -804,9 +804,11 @@ where
             }
             // ========== Vicinity Discovery - Query Route Rsp ==========
             ProtocolMessage::QueryRouteRsp(ref response,) => {
-                // update synced SSN
-                if response.source_route.size() == VICINITY_RADIUS
-                    && let Some(entry) = context.vicinity_graph_mut().entry_mut(response.source())
+                // update synced SSN for two-hop neighbors (must not be ULNs then)
+                let mut vg_mut = context.vicinity_graph_mut();
+                if !vg_mut.is_direct_uln(response.source())
+                    && response.source_route.size() == VICINITY_RADIUS
+                    && let Some(entry) = vg_mut.entry_mut(response.source())
                     && let StateSeqNr::Value(rsp_ssn) = response.common_header().state_seq_num()
                 {
                     entry.update_synced_ssn(rsp_ssn);
@@ -826,7 +828,7 @@ where
                 // }
              => {
                 let source = *common_header.src_node_id();
-                let observed_ssn = common_header.state_seq_num();
+                let observed_ssn_from_msg = common_header.state_seq_num();
                 // in case a ULNHello is looped back somehow, ignore it, but log a warning
                 if source == *context.root_id() {
                     tracing::warn!(
@@ -858,7 +860,7 @@ where
 
                 // update entry in vicinity graph if necessary
                 let mut new_neighbor = false;
-                if let StateSeqNr::Value(seen_ssn) = observed_ssn {
+                if let StateSeqNr::Value(seen_ssn) = observed_ssn_from_msg {
                     let mut vg = context.vicinity_graph_mut();
                     if let Some(vg_entry) = vg.entry_mut(&source) {
                         vg_entry.update_observed_ssn(seen_ssn);
@@ -954,7 +956,7 @@ where
                 } // endif: do not answer due to heuristic
 
                 // only respond if news (newer SSN, reset, unknown neighbor...)
-                match observed_ssn {
+                match observed_ssn_from_msg {
                     StateSeqNr::Invalid => {
                         panic!(
                             "Received invalid StateSeqNr from underlay neighbor in VicinityDiscovery use case"
@@ -972,13 +974,13 @@ where
                     StateSeqNr::Value(observed_ssn) => {
                         let vicinity_graph = context.vicinity_graph();
                         if let Some(entry) = vicinity_graph.entry(&source) && !new_neighbor {
-                            let synced_ssn = entry.synced_ssn();
-                            if synced_ssn.is_none() || synced_ssn < Some(&observed_ssn) {
+                            let last_synced_ssn = entry.synced_ssn();
+                            if last_synced_ssn.is_none() || last_synced_ssn < Some(&observed_ssn) {
                                 tracing::debug!(
                                     target: "vicinity_discovery",
                                     node = %source,
                                     deterministic_heuristic = "answer",
-                                    synced_ssn = if let Some(synced_ssn) = synced_ssn { format!("{synced_ssn}") } else { "N/A".to_string() },
+                                    last_synced_ssn = if let Some(last_synced_ssn) = last_synced_ssn { format!("{last_synced_ssn}") } else { "N/A".to_string() },
                                     %observed_ssn,
                                     reason = "vicinity_outdated",
                                     "init underlay neighbor discovery",
@@ -987,6 +989,7 @@ where
                                 return Ok(());
                             }
                         } else {
+                            // no entry in the vicinity graph or new neighbor
                             tracing::debug!(
                                 target: "vicinity_discovery",
                                 node = %source,
@@ -1104,10 +1107,11 @@ where
             // 1. underlay neighbors
             // 2. other nodes in the vicinity graph to sync
 
-            // construct iterator with the given priority
+            // construct iterator with the given priority ULNs before two hop neighbors
             let uln_sync = uln_lock.keys().copied();
             let vicinity_sync = vg_lock.deref().nodes();
-            let sync_candidates = uln_sync.chain(vicinity_sync);
+            let mut seen = HashSet::new();
+            let sync_candidates = uln_sync.chain(vicinity_sync).filter(|x| seen.insert(*x));
 
             let mut isolated_vicinity_nodes = false;
             for sync_candidate in sync_candidates {
@@ -1115,9 +1119,12 @@ where
                 let new_sync = if let Some((underlay_neighbor, _)) =
                     uln_lock.get(&sync_candidate).copied()
                 {
-                    // check if sync is required
+                    // check if sync (ULNDisReq/Rsp) with neighbor is required
                     let Some(entry) = vg_lock.entry(&sync_candidate) else {
-                        // don't sync with unknown underlay neighbors because we either about to receive a ULNHello or dead
+                        // node is missing in  vicinity_graph:
+                        // it may be present in uln_table but not yet in vicinity_graph
+                        // don't sync with unconfirmed underlay neighbors because
+                        // we are either about to receive a ULNHello or the node is unreachable/disconnected
 
                         tracing::trace!(
                             target: "vicinity_discovery",
@@ -1129,6 +1136,7 @@ where
                         continue;
                     };
 
+                    // node is present in vicinity graph
                     let synced_ssn = entry.synced_ssn();
                     let observed_ssn = entry.observed_ssn();
                     if synced_ssn == Some(observed_ssn) {
@@ -1157,10 +1165,11 @@ where
                             sync_candidate, synced_ssn, observed_ssn
                         );
                     }
-
+                    // if arrived here, synced_ssn < observed_ssn, so ask neighbor for current state
                     self.init_new_uln_disc_req(context, sync_candidate, underlay_neighbor)?
                 } else {
-                    // check if sync is required
+                    // sync_candidate is not a ULN, so it is two hops away
+                    // check if sync with QueryRouteReq is required
                     let entry = vg_lock
                         .entry(&sync_candidate)
                         .expect("vicinity node without entry");
@@ -1212,6 +1221,7 @@ where
                         continue;
                     }
 
+                    // send QueryRouteReq
                     let source_route = SourceRoute::try_from(path)
                         .expect("Paths of vicinity graph include start of path");
                     self.init_new_query_route_req(context, source_route)?
