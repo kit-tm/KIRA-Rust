@@ -59,6 +59,7 @@ use crate::{
         UseCaseContext,
         UseCaseEvent,
         UseCaseRuntime,
+        VicinityEvent,
     },
     utils::{
         ExponentialBackoff,
@@ -751,6 +752,11 @@ where
                 reason = "outside_vicinity",
                 "removed node from vicinity graph"
             );
+        }
+
+        // let pre_compute_paths_and_pathids remove the now invalid paths
+        if vg_lock.vicinity_changed() {
+            context.runtime().broadcast_event(VicinityEvent::Changed);
         }
     }
 }

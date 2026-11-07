@@ -8,7 +8,7 @@ import sys
 import time
 from cmd import Cmd
 from dataclasses import dataclass
-from hashlib import sha1
+from hashlib import shake_256
 from ipaddress import (
     AddressValueError,
     IPv4Address,
@@ -370,7 +370,7 @@ class KIRANode(Node):
     @staticmethod
     def path_id(path: Iterable[bytes]) -> bytes:
         """Calculate the Path-ID from a path of NodeIds."""
-        path_id = sha1(b"".join(path)).digest()[:14]
+        path_id = shake_256(b"".join(path)).digest(14)
         return path_id
 
     def path(self, ip: IPv6Address) -> list[bytes] | None:
@@ -573,7 +573,7 @@ class NestTest[T]:  # T = tid type, usually int or str
             arg: str = " ".join(args)
             with open(logfile, "w") as f:
                 _p = node.exec(
-                    f"./target/debug/kirad --root-id {node_id} --nftables-conf ./kirad/conf/nftables.conf {arg} && exit",
+                    f"./target/debug/kirad --root-id {node_id} {arg} && exit",
                     logfile=f,
                     env_vars=env_vars,
                 )

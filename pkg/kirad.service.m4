@@ -6,7 +6,7 @@ Before=network-online.target
 
 [Service]
 Environment="RUST_LOG=info"
-ExecStart=BIN_DIR/kirad -n SHARE_DIR/nftables.conf
+ExecStart=BIN_DIR/kirad
 ExecStopPost=ip link delete kira
 Restart=on-failure
 

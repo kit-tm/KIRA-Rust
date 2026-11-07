@@ -115,6 +115,7 @@ impl VicinityGraph for PetVicinityGraph {
         Ok(new_edge)
     }
 
+    // remove a node
     fn remove(&mut self, node: &NodeId) -> bool {
         let entry_removed = self.entries.remove(node).is_some();
         let graph_removed = self.graph.remove_node(*node);
@@ -156,9 +157,18 @@ impl VicinityGraph for PetVicinityGraph {
         self.graph.contains_edge(self.root_id, *node)
     }
 
+    // NOTE that this may also remove a node from the graph in case it is isolated after edge removal
     fn remove_edge(&mut self, node_a: &NodeId, node_b: &NodeId) -> bool {
         if self.graph.remove_edge(*node_a, *node_b).is_some() {
             self.graph_changed = true;
+            // if this was the last edge of a node, remove the node (and its entry) as well,
+            // but always keep the root
+            for node in [node_a, node_b] {
+                if *node != self.root_id && self.graph.neighbors(*node).next().is_none() {
+                    self.graph.remove_node(*node);
+                    self.entries.remove(node);
+                }
+            }
             true
         } else {
             false
@@ -534,5 +544,46 @@ mod test {
             !graph.entries.contains_key(&n[5]),
             "remove node entries on retain_vicinity"
         );
+    }
+
+    #[test]
+    fn remove_edge_removes_isolated_node_but_not_root() {
+        let root_id = NodeId::with_msb(1);
+        let uln = NodeId::with_msb(2);
+        let two_hop = NodeId::with_msb(3);
+        let ssn = SafeStateSeqNr::try_from(1).unwrap();
+
+        let mut graph = PetVicinityGraph::new(root_id);
+        graph.insert(uln, &root_id, ssn).unwrap();
+        graph.insert(two_hop, &uln, ssn).unwrap();
+
+        // uln still has an edge to two_hop -> must stay
+        assert!(graph.remove_edge(&root_id, &uln));
+        assert!(
+            graph.entry(&uln).is_some(),
+            "non-isolated node keeps its entry"
+        );
+        assert!(
+            graph.graph.contains_node(root_id),
+            "root must never be removed"
+        );
+
+        // now both become isolated -> node and entry are removed
+        assert!(graph.remove_edge(&uln, &two_hop));
+        for node in [uln, two_hop] {
+            assert!(
+                !graph.graph.contains_node(node),
+                "isolated node removed from graph"
+            );
+            assert!(graph.entry(&node).is_none(), "isolated node entry removed");
+        }
+        assert!(
+            graph.graph.contains_node(root_id),
+            "root must never be removed"
+        );
+
+        // isolated node can't be used as neighbor anymore, but can be reinserted via root
+        assert!(graph.insert(two_hop, &uln, ssn).is_err());
+        assert!(graph.insert(uln, &root_id, ssn).unwrap());
     }
 }

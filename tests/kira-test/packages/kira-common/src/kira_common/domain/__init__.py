@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import random
-from hashlib import sha1
+from hashlib import shake_256
 from ipaddress import IPv6Address, IPv6Network
 from typing import Any, Self
 
@@ -96,7 +96,7 @@ class Path(list[NodeID]):
 
     def to_path_id(self) -> PathID:
         """Calculate the Path-ID from a path of NodeIds."""
-        path_id = sha1(b"".join(self)).digest()[:14]
+        path_id = shake_256(b"".join(self)).digest(14)
         return PathID(path_id)
 
     def to_path_ip(self) -> PathIP:

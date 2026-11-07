@@ -8,12 +8,12 @@ use crate::domain::{
 /// Enum collecting all supported hash algorithms for configuration of use cases which calculate
 /// [PathId]s from a series of [NodeId]s.
 ///
-/// Default is **sha1**.
+/// Default is **SHAKE-256**.
 /// **sha2** and **sha3** variants can be enabled through the feature flags `sha2, sha3`.
 #[derive(Debug, Default, Eq, PartialEq, Copy, Clone)]
 pub enum Hasher {
     #[default]
-    Sha1,
+    Shake256,
     #[cfg(feature = "sha2")]
     Sha2_256,
     #[cfg(feature = "sha2")]
@@ -29,7 +29,7 @@ impl Hasher {
     /// variant.
     pub fn hash<'a>(&self, path: impl IntoIterator<Item = &'a NodeId>) -> PathId {
         match self {
-            Hasher::Sha1 => PathId::from_sha1(path),
+            Hasher::Shake256 => PathId::from_shake256(path),
             #[cfg(feature = "sha2")]
             Hasher::Sha2_256 => PathId::from_sha2_256(path),
             #[cfg(feature = "sha2")]
@@ -48,14 +48,14 @@ mod tests {
     use crate::domain::PathId;
 
     #[test]
-    fn default_is_sha1() {
-        assert_eq!(Hasher::default(), Hasher::Sha1);
+    fn default_is_shake256() {
+        assert_eq!(Hasher::default(), Hasher::Shake256);
     }
 
     #[test]
-    fn sha1_matches_path_id_helper() {
+    fn shake256_matches_path_id_helper() {
         let path = [NodeId::from(1), NodeId::from(2)];
-        assert_eq!(Hasher::Sha1.hash(&path), PathId::from_sha1(&path));
+        assert_eq!(Hasher::Shake256.hash(&path), PathId::from_shake256(&path));
     }
 
     #[cfg(feature = "sha2")]

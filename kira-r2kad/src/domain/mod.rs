@@ -131,7 +131,7 @@ impl Default for Timestamp {
 impl Timestamp {
     /// Creates a new Timestamp at current time.
     pub fn now() -> Self {
-        Self(Instant::now()) // TODO replace with current_runtime::current_time()
+        Self(Instant::now()) // TODO replace with runtime::current_time()
     }
 
     /// Returns the [Age] of the [Timestamp].

@@ -28,14 +28,18 @@ use crate::{
         Contact,
         DEFAULT_BUCKET_SIZE,
         InterfaceId,
+        Link,
         NodeId,
         Nonce,
+        NotViaState,
+        NotViaStateList,
         ProtocolMessage,
         ProtocolMessageKind,
         RoutingTable,
         SafeStateSeqNr,
         SourceRoute,
         StateSeqNr,
+        Timestamp,
         ULNState,
         ULNTable,
         UnderlayNeighborDestination::{
@@ -85,6 +89,7 @@ pub struct VicinityDiscoveryConfig {
     /// The wait-time is doubled between consecutive tries until
     /// [`uln_discovery_max_retries`](Self::uln_discovery_max_retries) is reached.
     pub uln_discovery_rsp_initial_max_wait_time: Duration,
+    pub uln_discovery_rsp_check_max_wait_time: Duration,
     /// Maximum retries to complete an ULNDiscovery handshake with an underlay neighbor.
     pub uln_discovery_max_retries: usize,
 
@@ -105,6 +110,9 @@ pub struct VicinityDiscoveryConfig {
 
     /// Timeout duration to use for processing the queue of nodes that need to be resynced.
     pub resync_timeout: Duration,
+
+    /// Timeout duration for checking for dead ULNs
+    pub stale_check_timeout: Duration,
     /// Maximum number of nodes that are resynced in parallel during the periodic
     /// resync phase.
     ///
@@ -118,6 +126,7 @@ impl Default for VicinityDiscoveryConfig {
             uln_min_interval: Duration::from_millis(200), // 100 ms wireless
             uln_max_interval: Duration::from_secs(30),    // 1 s wireless
             uln_discovery_rsp_initial_max_wait_time: Duration::from_millis(250),
+            uln_discovery_rsp_check_max_wait_time: Duration::from_millis(100),
             uln_discovery_max_retries: 2,
 
             query_route_discovery_rsp_initial_max_wait_time: Duration::from_secs(3),
@@ -126,6 +135,7 @@ impl Default for VicinityDiscoveryConfig {
             heuristic_calculation_bits: NonZeroU8::new(32).unwrap(),
             heuristic_max_wait_time: Duration::from_secs(1),
             resync_timeout: Duration::from_millis(100),
+            stale_check_timeout: Duration::from_millis(2000),
             max_parallel_resync_count: 10, // TODO: determine sensible default
         }
     }
@@ -157,6 +167,7 @@ pub struct RequestState {
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum TimerHook {
+    TimeoutCheckForStaleULNs,
     TimeoutULNDiscReq(NodeId),
     TimeoutQueryRouteReq(NodeId),
     SendInterfaceHello(InterfaceId),
@@ -472,6 +483,39 @@ where
         }
         Ok((*uln_lock.state_seq_nr(), contacts))
     }
+
+    fn check_for_stale_ulns(&mut self, context: &C) {
+        tracing::debug!(
+            target: "vicinity_discovery",
+            reason = "check_for_stale_ULNs",
+        );
+        let vg = context.vicinity_graph();
+        for node_id in vg.vicinity(context.root_id()) {
+            // for every contact that has not sent anything for a longer time,
+            // start liveness check with ULNDiscReq
+            let uln_entry = vg
+                .entry(&node_id)
+                .expect("vicinity graph is inconsistent, entry must be present for neighbor");
+            if let Some(last_seen) = uln_entry.last_seen()
+                && (context.runtime().current_time() - last_seen) > self.config.uln_max_interval
+                && let Some((underlay_neighbor, _)) = context.uln_table().get(&node_id).cloned()
+            {
+                let result = self.init_uln_disc_req(
+                    context,
+                    node_id,
+                    underlay_neighbor,
+                    self.config.uln_discovery_rsp_check_max_wait_time,
+                );
+                if result.is_err() {
+                    tracing::error!(
+                        target: "vicinity_discovery",
+                        ?result,
+                        reason = "check_for_stale_ULNs: init_uln_disc_req returned error for {node_id}",
+                    );
+                }
+            }
+        }
+    }
 }
 
 // manage requests
@@ -552,6 +596,7 @@ where
         context: &C,
         destination: NodeId,
         underlay_neighbor: UnderlayNeighborId,
+        timeout: Duration,
     ) -> Result<(), VDError> {
         let expected_nonce = Nonce::random();
 
@@ -571,7 +616,7 @@ where
             destination,
             expected_nonce,
             ProtocolMessageKind::ULNDiscRsp,
-            self.config.uln_discovery_rsp_initial_max_wait_time,
+            timeout,
             TimerHook::TimeoutULNDiscReq(destination),
         );
 
@@ -593,7 +638,12 @@ where
             return Ok(false);
         }
 
-        self.init_uln_disc_req(context, node, underlay_neighbor)?;
+        self.init_uln_disc_req(
+            context,
+            node,
+            underlay_neighbor,
+            self.config.uln_discovery_rsp_initial_max_wait_time,
+        )?;
 
         Ok(true)
     }
@@ -804,9 +854,11 @@ where
             }
             // ========== Vicinity Discovery - Query Route Rsp ==========
             ProtocolMessage::QueryRouteRsp(ref response,) => {
-                // update synced SSN
-                if response.source_route.size() == VICINITY_RADIUS
-                    && let Some(entry) = context.vicinity_graph_mut().entry_mut(response.source())
+                // update synced SSN for two-hop neighbors (must not be ULNs then)
+                let mut vg_mut = context.vicinity_graph_mut();
+                if !vg_mut.is_direct_uln(response.source())
+                    && response.source_route.size() == VICINITY_RADIUS
+                    && let Some(entry) = vg_mut.entry_mut(response.source())
                     && let StateSeqNr::Value(rsp_ssn) = response.common_header().state_seq_num()
                 {
                     entry.update_synced_ssn(rsp_ssn);
@@ -826,7 +878,7 @@ where
                 // }
              => {
                 let source = *common_header.src_node_id();
-                let observed_ssn = common_header.state_seq_num();
+                let observed_ssn_from_msg = common_header.state_seq_num();
                 // in case a ULNHello is looped back somehow, ignore it, but log a warning
                 if source == *context.root_id() {
                     tracing::warn!(
@@ -858,7 +910,7 @@ where
 
                 // update entry in vicinity graph if necessary
                 let mut new_neighbor = false;
-                if let StateSeqNr::Value(seen_ssn) = observed_ssn {
+                if let StateSeqNr::Value(seen_ssn) = observed_ssn_from_msg {
                     let mut vg = context.vicinity_graph_mut();
                     if let Some(vg_entry) = vg.entry_mut(&source) {
                         vg_entry.update_observed_ssn(seen_ssn);
@@ -954,7 +1006,7 @@ where
                 } // endif: do not answer due to heuristic
 
                 // only respond if news (newer SSN, reset, unknown neighbor...)
-                match observed_ssn {
+                match observed_ssn_from_msg {
                     StateSeqNr::Invalid => {
                         panic!(
                             "Received invalid StateSeqNr from underlay neighbor in VicinityDiscovery use case"
@@ -972,13 +1024,13 @@ where
                     StateSeqNr::Value(observed_ssn) => {
                         let vicinity_graph = context.vicinity_graph();
                         if let Some(entry) = vicinity_graph.entry(&source) && !new_neighbor {
-                            let synced_ssn = entry.synced_ssn();
-                            if synced_ssn.is_none() || synced_ssn < Some(&observed_ssn) {
+                            let last_synced_ssn = entry.synced_ssn();
+                            if last_synced_ssn.is_none() || last_synced_ssn < Some(&observed_ssn) {
                                 tracing::debug!(
                                     target: "vicinity_discovery",
                                     node = %source,
                                     deterministic_heuristic = "answer",
-                                    synced_ssn = if let Some(synced_ssn) = synced_ssn { format!("{synced_ssn}") } else { "N/A".to_string() },
+                                    last_synced_ssn = if let Some(last_synced_ssn) = last_synced_ssn { format!("{last_synced_ssn}") } else { "N/A".to_string() },
                                     %observed_ssn,
                                     reason = "vicinity_outdated",
                                     "init underlay neighbor discovery",
@@ -987,6 +1039,7 @@ where
                                 return Ok(());
                             }
                         } else {
+                            // no entry in the vicinity graph or new neighbor
                             tracing::debug!(
                                 target: "vicinity_discovery",
                                 node = %source,
@@ -1003,7 +1056,7 @@ where
                 // pre_compute_paths_and_pathids will be notified by subsequent ULNDiscReq/RSp exchange
 
                 // send ULNDiscReq back
-                self.init_uln_disc_req(context, source, underlay_source)?;
+                self.init_uln_disc_req(context, source, underlay_source, self.config.uln_discovery_rsp_initial_max_wait_time,)?;
                 Ok(())
             }
 
@@ -1104,10 +1157,11 @@ where
             // 1. underlay neighbors
             // 2. other nodes in the vicinity graph to sync
 
-            // construct iterator with the given priority
+            // construct iterator with the given priority ULNs before two hop neighbors
             let uln_sync = uln_lock.keys().copied();
             let vicinity_sync = vg_lock.deref().nodes();
-            let sync_candidates = uln_sync.chain(vicinity_sync);
+            let mut seen = HashSet::new();
+            let sync_candidates = uln_sync.chain(vicinity_sync).filter(|x| seen.insert(*x));
 
             let mut isolated_vicinity_nodes = false;
             for sync_candidate in sync_candidates {
@@ -1115,9 +1169,12 @@ where
                 let new_sync = if let Some((underlay_neighbor, _)) =
                     uln_lock.get(&sync_candidate).copied()
                 {
-                    // check if sync is required
+                    // check if sync (ULNDisReq/Rsp) with neighbor is required
                     let Some(entry) = vg_lock.entry(&sync_candidate) else {
-                        // don't sync with unknown underlay neighbors because we either about to receive a ULNHello or dead
+                        // node is missing in  vicinity_graph:
+                        // it may be present in uln_table but not yet in vicinity_graph
+                        // don't sync with unconfirmed underlay neighbors because
+                        // we are either about to receive a ULNHello or the node is unreachable/disconnected
 
                         tracing::trace!(
                             target: "vicinity_discovery",
@@ -1129,6 +1186,7 @@ where
                         continue;
                     };
 
+                    // node is present in vicinity graph
                     let synced_ssn = entry.synced_ssn();
                     let observed_ssn = entry.observed_ssn();
                     if synced_ssn == Some(observed_ssn) {
@@ -1157,10 +1215,11 @@ where
                             sync_candidate, synced_ssn, observed_ssn
                         );
                     }
-
+                    // if arrived here, synced_ssn < observed_ssn, so ask neighbor for current state
                     self.init_new_uln_disc_req(context, sync_candidate, underlay_neighbor)?
                 } else {
-                    // check if sync is required
+                    // sync_candidate is not a ULN, so it is two hops away
+                    // check if sync with QueryRouteReq is required
                     let entry = vg_lock
                         .entry(&sync_candidate)
                         .expect("vicinity node without entry");
@@ -1212,6 +1271,7 @@ where
                         continue;
                     }
 
+                    // send QueryRouteReq
                     let source_route = SourceRoute::try_from(path)
                         .expect("Paths of vicinity graph include start of path");
                     self.init_new_query_route_req(context, source_route)?
@@ -1251,13 +1311,17 @@ where
         };
 
         if isolated_vicinity_nodes {
-            for removed_node in context.vicinity_graph_mut().retain_vicinity() {
+            let mut vg = context.vicinity_graph_mut();
+            for removed_node in vg.retain_vicinity() {
                 tracing::debug!(
                     target: "vicinity_discovery",
                     node = %removed_node,
                     reason = "isolated node",
                     "removed node from vicinity graph"
                 );
+            }
+            if vg.vicinity_changed() {
+                context.runtime().broadcast_event(VicinityEvent::Changed);
             }
         }
 
@@ -1287,6 +1351,14 @@ where
 
             pending_reqs: HashMap::default(),
             interfaces: HashMap::default(),
+        };
+
+        let stale_check_timer_id = context
+            .runtime()
+            .register_periodic_timer(self.config.stale_check_timeout);
+
+        if let VDState::Running { timer_hooks, .. } = &mut self.state {
+            timer_hooks.insert(stale_check_timer_id, TimerHook::TimeoutCheckForStaleULNs);
         };
 
         Ok(())
@@ -1421,6 +1493,10 @@ where
                 },
             ) => {
                 match timer_hooks.remove(timer_id) {
+                    Some(TimerHook::TimeoutCheckForStaleULNs) => {
+                        self.check_for_stale_ulns(context);
+                        return Ok(());
+                    }
                     Some(TimerHook::TimeoutULNDiscReq(destination)) => {
                         let hash_map::Entry::Occupied(mut entry) =
                             pending_reqs.entry((destination, ProtocolMessageKind::ULNDiscRsp))
@@ -1447,6 +1523,7 @@ where
                             "request timed out",
                         );
 
+                        // no response after uln_discovery_max_retries, remove link to ULN
                         if timeouts > uln_discovery_max_retries {
                             tracing::debug!(
                                 target: "vicinity_discovery",
@@ -1459,26 +1536,46 @@ where
                             );
                             entry.remove();
 
-                            // remove from structures
-                            if context.vicinity_graph_mut().remove(&destination) {
+                            // remove direct link from vicinity graph
+                            let mut vg = context.vicinity_graph_mut();
+                            if vg.remove_edge(context.root_id(), &destination) {
                                 tracing::debug!(
                                     target: "vicinity_discovery",
                                     node = %destination,
                                     reason = "sync_timeout",
-                                    "removed node from vicinity graph"
+                                    "removed direct link to node from vicinity graph"
                                 );
                             }
 
-                            //context.uln_table_mut().remove(&destination);
-                            //if let Some(mut contact) =
-                            //    context.routing_table_mut().contact_mut(&destination)
-                            //{
-                            //    *contact.state_mut() = ContactState::Invalid;
-                            //}
+                            context.uln_table_mut().remove(&destination);
+
+                            // let pre_compute_paths_and_pathids remove the now invalid paths
+                            if vg.vicinity_changed() {
+                                context.runtime().broadcast_event(VicinityEvent::Changed);
+                            }
+
+                            // if last link has been removed, the node will be deleted also from RT
+                            if vg.entry(&destination).is_none() {
+                                context.routing_table_mut().remove(&destination);
+
+                                return Ok(());
+                            }
+                            // set contact to invalid in case the direct ULN was active (contact may also be in two-hop vicinity)
+                            if let Some(mut contact) =
+                                context.routing_table_mut().contact_mut(&destination)
+                                && contact.is_uln()
+                            {
+                                contact.set_invalid(NotViaStateList::from(NotViaState::new(
+                                    Link::new(*context.root_id(), destination),
+                                    Timestamp::now(),
+                                )));
+                            }
 
                             return Ok(());
                         }
 
+                        // timeout for receiving ProtocolMessageKind::ULNDiscRsp
+                        // send another ULNDiscReq
                         let Some((underlay_neighbor, _)) =
                             context.uln_table().get(&destination).copied()
                         else {
@@ -1525,7 +1622,7 @@ where
                             req_state.expected_nonce,
                         )?;
 
-                        // register new timeout timer
+                        // register new timer with doubled timeout
                         let timeout = timeout * 2;
                         resend_req_span.record("timeout_ms", timeout.as_millis());
                         let timeout_timer_id = context.runtime().register_rand_timer(timeout);

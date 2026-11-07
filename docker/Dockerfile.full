@@ -37,7 +37,6 @@ WORKDIR /kirad
 COPY --from=builder /kirad/target/x86_64-unknown-linux-musl/release/kirad ./
 COPY docker/start.sh ./
 RUN chmod +x start.sh
-COPY kirad/conf/nftables.conf ./
 
 #USER kirad:kirad
 

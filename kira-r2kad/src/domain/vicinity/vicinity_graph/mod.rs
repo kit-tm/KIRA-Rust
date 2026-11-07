@@ -47,7 +47,7 @@ pub trait VicinityGraph {
     /// Returns the mutable [Entry] of the node if present.
     fn entry_mut(&mut self, node: &NodeId) -> Option<&mut Entry>;
 
-    /// Returns the current vicinity (neighborhood) of the node.
+    /// Returns the current vicinity (direct underlay neighborhood = ULNs) of the node.
     ///
     /// If the node doesn't exist an empty iterator is returned.
     fn vicinity(&self, node: &NodeId) -> impl Iterator<Item = NodeId>;
@@ -60,8 +60,8 @@ pub trait VicinityGraph {
     //  === VICINITY GRAPH ACCESS ===
 
     /// Removes an edge from the vicinity graph.
-    ///
-    /// Returns if the vicinity graph was altered.
+    /// NOTE it may also remove a node in case it was the last edge from the node
+    /// Returns true if the vicinity graph was altered.
     fn remove_edge(&mut self, node_a: &NodeId, node_b: &NodeId) -> bool;
 
     /// Only keeps nodes that are inside the vicinity radius.

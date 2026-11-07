@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import importlib.resources
 import json
 import logging
 import os
@@ -42,7 +41,6 @@ from kira_common.domain.forwarding import (
     PathIDSwapEntry,
 )
 from kira_common.node_config import NodeConfig
-from kira_common.paths import NFTABLES_CONF
 from nest.topology import Address, Node
 from networkx import Graph
 
@@ -179,12 +177,10 @@ class KIRANode(Node):
         arg: str = " ".join(args)
         with (
             open(self.logfile, "w") as f,
-            importlib.resources.as_file(NFTABLES_CONF) as nftables_conf,
         ):
             wrapper = f"{wrapper} -- " if wrapper else ""
             return self.exec(
-                f"{wrapper}'{binary}' --root-id '{self.config.node_id}'"
-                f" --nftables-conf {nftables_conf} {arg} && exit",
+                f"{wrapper}'{binary}' --root-id '{self.config.node_id}' {arg} && exit",
                 logfile=f,
                 env_vars=env_vars,
             )

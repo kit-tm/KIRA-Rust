@@ -24,7 +24,7 @@ impl Entry {
         // nor does it have stored vicinity information
         Self {
             last_seen: None,
-            synced_ssn: None, // should only be updated by ULNDisRsp or QueryRouteRsp
+            synced_ssn: None, // should only be updated by ULNDiscRsp
             observed_ssn,     // can be updated by any message
         }
     }

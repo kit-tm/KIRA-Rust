@@ -5,7 +5,7 @@ Before=network-online.target
 
 [Service]
 Environment=RUST_LOG="info"
-ExecStart=BIN_DIR/kirad -n SHARE_DIR/nftables.conf -e "%I"
+ExecStart=BIN_DIR/kirad -e "%I"
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 
