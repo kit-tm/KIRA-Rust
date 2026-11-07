@@ -10,16 +10,23 @@ use std::{
     str::FromStr,
 };
 
-use digest::Digest;
+use digest::{
+    Digest,
+    ExtendableOutput,
+    Update,
+};
 use tracing::Level;
 
 use crate::domain::NodeId;
 
 pub const SHORT_OUTPUT_LENGTH: usize = 8;
 
+/// Number of bytes squeezed from SHAKE-256 when generating a [PathId].
+pub const SHAKE256_OUTPUT_LENGTH: usize = 32;
+
 /// [PathId] uniquely identifies a [Path](crate::domain::path::Path).
 ///
-/// Uses SHA-1, SHA-2 or SHA-3 for hash generation.
+/// Uses SHAKE-256 (default), SHA-2 or SHA-3 for hash generation.
 /// The byte length of the [PathId] is not fixed and depends on the used hash algorithm.
 #[derive(Eq, PartialEq, Hash, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -45,16 +52,27 @@ impl PathId {
         Self::from(hasher.finalize().to_vec())
     }
 
-    pub fn from_sha1<'a, I: IntoIterator<Item = &'a NodeId>>(path: I) -> Self {
+    /// Calculates the [PathId] with SHAKE-256, producing [SHAKE256_OUTPUT_LENGTH] bytes.
+    pub fn from_shake256<'a, I: IntoIterator<Item = &'a NodeId>>(path: I) -> Self {
         if tracing::enabled!(target: "path_id", Level::TRACE) {
             let path = path.into_iter().collect::<Vec<_>>();
             let path_str = format!("{path:?}");
-            let result = Self::from_digest(sha1::Sha1::new(), path);
+            let result = Self::shake256(path);
             tracing::trace!(target: "path_id", path=path_str, path_id=format!("{:X}",result), "Calculated path_id");
             result
         } else {
-            Self::from_digest(sha1::Sha1::new(), path)
+            Self::shake256(path)
         }
+    }
+
+    fn shake256<'a, I: IntoIterator<Item = &'a NodeId>>(path: I) -> Self {
+        let mut hasher = shake::Shake256::default();
+        for id in path {
+            hasher.update(&id.to_be_bytes());
+        }
+        let mut bytes = vec![0u8; SHAKE256_OUTPUT_LENGTH];
+        hasher.finalize_xof_into(&mut bytes);
+        Self::from(bytes)
     }
 
     #[cfg(feature = "sha2")]
@@ -157,48 +175,48 @@ mod tests {
     use super::*;
     use crate::domain::NodeId;
 
-    /// SHA-1 over the 14-byte big-endian representation of NodeId(1) and NodeId(2).
-    const DIGEST_1_2: &str = "1ea54dacee661245cdfaf6b442ee80817504de33";
-    /// SHA-1 over the 14-byte big-endian representation of NodeId(7).
-    const DIGEST_7: &str = "e6079d754285b55566367aaa56398c1d085d16c9";
-    /// SHA-1 over the empty input.
-    const DIGEST_EMPTY: &str = "da39a3ee5e6b4b0d3255bfef95601890afd80709";
+    /// SHAKE-256 (32 bytes) over the 14-byte big-endian representation of NodeId(1) and NodeId(2).
+    const DIGEST_1_2: &str = "9b5612eaeadc93dddf7e5d58f827a33067974caf32aa353e956e8acdcf12f703";
+    /// SHAKE-256 (32 bytes) over the 14-byte big-endian representation of NodeId(7).
+    const DIGEST_7: &str = "99d5a44fbaf20cb649bb959daebfb56d3bb9fd3ab2cf7c09e02a6b465f22633f";
+    /// SHAKE-256 (32 bytes) over the empty input.
+    const DIGEST_EMPTY: &str = "46b9dd2b0ba88d13233b3feb743eeb243fcd52ea62b81b82b50c27646ed5762f";
 
     #[test]
-    fn sha1_matches_reference_digest() {
-        let path_id = PathId::from_sha1(&[NodeId::from(1), NodeId::from(2)]);
+    fn shake256_matches_reference_digest() {
+        let path_id = PathId::from_shake256(&[NodeId::from(1), NodeId::from(2)]);
         assert_eq!(hex::encode(path_id.as_ref()), DIGEST_1_2);
     }
 
     #[test]
-    fn sha1_single_hop() {
-        let path_id = PathId::from_sha1(&[NodeId::from(7)]);
+    fn shake256_single_hop() {
+        let path_id = PathId::from_shake256(&[NodeId::from(7)]);
         assert_eq!(hex::encode(path_id.as_ref()), DIGEST_7);
     }
 
     #[test]
-    fn sha1_empty_path() {
+    fn shake256_empty_path() {
         let path: &[NodeId] = &[];
-        let path_id = PathId::from_sha1(path);
+        let path_id = PathId::from_shake256(path);
         assert_eq!(hex::encode(path_id.as_ref()), DIGEST_EMPTY);
     }
 
     #[test]
-    fn sha1_is_order_sensitive() {
-        let forward = PathId::from_sha1(&[NodeId::from(1), NodeId::from(2)]);
-        let backward = PathId::from_sha1(&[NodeId::from(2), NodeId::from(1)]);
+    fn shake256_is_order_sensitive() {
+        let forward = PathId::from_shake256(&[NodeId::from(1), NodeId::from(2)]);
+        let backward = PathId::from_shake256(&[NodeId::from(2), NodeId::from(1)]);
         assert_ne!(forward, backward);
     }
 
     #[test]
-    fn sha1_output_is_20_bytes() {
-        let path_id = PathId::from_sha1(&[NodeId::from(1)]);
-        assert_eq!(path_id.as_ref().len(), 20);
+    fn shake256_output_is_32_bytes() {
+        let path_id = PathId::from_shake256(&[NodeId::from(1)]);
+        assert_eq!(path_id.as_ref().len(), SHAKE256_OUTPUT_LENGTH);
     }
 
     #[test]
     fn ipv6_conversion_uses_prefix_and_first_14_bytes() {
-        let path_id = PathId::from_sha1(&[NodeId::from(1), NodeId::from(2)]);
+        let path_id = PathId::from_shake256(&[NodeId::from(1), NodeId::from(2)]);
         let addr = Ipv6Addr::from(&path_id);
 
         // prefix bytes fc/aa followed by the first 14 digest bytes
@@ -212,7 +230,7 @@ mod tests {
 
     #[test]
     fn from_str_round_trip() {
-        let path_id = PathId::from_sha1(&[NodeId::from(1), NodeId::from(2)]);
+        let path_id = PathId::from_shake256(&[NodeId::from(1), NodeId::from(2)]);
         let parsed = PathId::from_str(&hex::encode(path_id.as_ref())).unwrap();
         assert_eq!(parsed, path_id);
     }
@@ -238,36 +256,36 @@ mod tests {
 
     #[test]
     fn upper_hex_default_truncates_to_28_chars() {
-        let path_id = PathId::from_sha1(&[NodeId::from(1), NodeId::from(2)]);
-        assert_eq!(format!("{path_id}"), "1EA54DACEE661245CDFAF6B442EE");
+        let path_id = PathId::from_shake256(&[NodeId::from(1), NodeId::from(2)]);
+        assert_eq!(format!("{path_id}"), "9B5612EAEADC93DDDF7E5D58F827");
     }
 
     #[test]
     fn lower_hex_default_truncates_to_28_chars() {
-        let path_id = PathId::from_sha1(&[NodeId::from(1), NodeId::from(2)]);
-        assert_eq!(format!("{path_id:x}"), "1ea54dacee661245cdfaf6b442ee");
+        let path_id = PathId::from_shake256(&[NodeId::from(1), NodeId::from(2)]);
+        assert_eq!(format!("{path_id:x}"), "9b5612eaeadc93dddf7e5d58f827");
     }
 
     #[test]
     fn alternate_lower_hex_truncates_to_short_output_length() {
-        let path_id = PathId::from_sha1(&[NodeId::from(1), NodeId::from(2)]);
-        assert_eq!(format!("{path_id:#x}"), "1ea54dac");
-        assert_eq!(format!("{path_id:#X}"), "1EA54DAC");
+        let path_id = PathId::from_shake256(&[NodeId::from(1), NodeId::from(2)]);
+        assert_eq!(format!("{path_id:#x}"), "9b5612ea");
+        assert_eq!(format!("{path_id:#X}"), "9B5612EA");
     }
 
     #[test]
     fn precision_limits_output_length() {
-        let path_id = PathId::from_sha1(&[NodeId::from(1), NodeId::from(2)]);
-        assert_eq!(format!("{path_id:.4}"), "1EA5");
-        assert_eq!(format!("{path_id:.4x}"), "1ea5");
+        let path_id = PathId::from_shake256(&[NodeId::from(1), NodeId::from(2)]);
+        assert_eq!(format!("{path_id:.4}"), "9B56");
+        assert_eq!(format!("{path_id:.4x}"), "9b56");
     }
 
     #[test]
     fn debug_wraps_upper_hex() {
-        let path_id = PathId::from_sha1(&[NodeId::from(1), NodeId::from(2)]);
+        let path_id = PathId::from_shake256(&[NodeId::from(1), NodeId::from(2)]);
         assert_eq!(
             format!("{path_id:?}"),
-            "PathId(1EA54DACEE661245CDFAF6B442EE)"
+            "PathId(9B5612EAEADC93DDDF7E5D58F827)"
         );
     }
 }

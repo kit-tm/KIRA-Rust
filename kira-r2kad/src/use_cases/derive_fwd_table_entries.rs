@@ -692,7 +692,7 @@ mod tests {
             });
 
             let config = DeriveFwdTableEntriesConfig {
-                hasher: Hasher::Sha1,
+                hasher: Hasher::Shake256,
             };
             let mut use_case = DeriveFwdTableEntries::new(config);
             assert!(use_case.start(&sync_context).is_ok(), "starting failed");
@@ -735,8 +735,8 @@ mod tests {
             assert_eq!(encap_entry.next_hop, ulnid);
             assert_eq!(
                 encap_entry.out_path_id,
-                //Hasher::Sha1.hash(vicinity_contact.path().into_iter().skip(1))
-                Hasher::Sha1.hash(vicinity_contact.path().unwrap().into_iter())
+                //Hasher::Shake256.hash(vicinity_contact.path().into_iter().skip(1))
+                Hasher::Shake256.hash(vicinity_contact.path().unwrap().into_iter())
             );
 
             let path_id_update = output.iter().find_map(|o| {
@@ -811,7 +811,7 @@ mod tests {
             });
 
             let config = DeriveFwdTableEntriesConfig {
-                hasher: Hasher::Sha1,
+                hasher: Hasher::Shake256,
             };
             let mut use_case = DeriveFwdTableEntries::new(config);
             assert!(use_case.start(&sync_context).is_ok(), "starting failed");
@@ -928,7 +928,7 @@ mod tests {
             });
 
             let config = DeriveFwdTableEntriesConfig {
-                hasher: Hasher::Sha1,
+                hasher: Hasher::Shake256,
             };
             let mut use_case = DeriveFwdTableEntries::new(config);
             assert!(use_case.start(&sync_context).is_ok(), "starting failed");
@@ -1041,7 +1041,7 @@ mod tests {
             });
 
             let config = DeriveFwdTableEntriesConfig {
-                hasher: Hasher::Sha1,
+                hasher: Hasher::Shake256,
             };
             let mut use_case = DeriveFwdTableEntries::new(config);
             assert!(use_case.start(&sync_context).is_ok(), "starting failed");
@@ -1059,7 +1059,7 @@ mod tests {
 
             let mut new_in_path = Path::from(root_id);
             new_in_path.extend(new_contact.path().unwrap().clone());
-            let new_out_path_id = Hasher::Sha1.hash(new_contact.path().unwrap());
+            let new_out_path_id = Hasher::Shake256.hash(new_contact.path().unwrap());
 
             let event = UseCaseEvent::Contact(Box::new(ContactEvent::Updated {
                 new: Box::new(new_contact.clone()),
