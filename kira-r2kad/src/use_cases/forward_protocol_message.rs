@@ -552,6 +552,19 @@ where
             return HandlingResult::Handled;
         }
 
+        // touch last_seen value of ULN that forwarded the message to us
+        if let Some(entry) = context
+            .vicinity_graph_mut()
+            .entry_mut(source_route.prev_hop())
+        {
+            entry.update_last_seen(context.runtime().current_time());
+        } else {
+            tracing::error!(
+                target: "forward_protocol_message",
+                "no previous hop found in vicinity graph",
+            );
+        };
+
         let Some(next_hop) = source_route.next_hop() else {
             tracing::debug!(
                 target: "forward_protocol_message",

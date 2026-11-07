@@ -21,6 +21,7 @@ use crate::{
         RoutingTable,
         ULNState,
         UnderlayNeighborId,
+        UnderlayNeighborUpdate,
         VICINITY_RADIUS,
         VicinityGraph,
         protocol_event::forwarding::{
@@ -169,6 +170,28 @@ where
         self.old_entries = graph_entries;
         context.vicinity_graph_mut().vicinity_processed();
     }
+
+    /// Removes all entries that forward via the lost underlay neighbor.
+    ///
+    /// The kernel drops routes over a vanished link, so these entries must be
+    /// forgotten here as well. Otherwise they would not be recognized as new
+    /// (and thus not be reinstalled) when the neighbor comes back with the
+    /// same [UnderlayNeighborId] and the vicinity graph looks as before.
+    fn purge_entries_via(&mut self, context: &C, ulnid: &UnderlayNeighborId) {
+        self.old_entries.retain(|entry| {
+            let PathIdEntry::Forward(PathIdForwardingEntry { next_hop, .. }) = entry else {
+                return true;
+            };
+            if next_hop != ulnid {
+                return true;
+            }
+            tracing::debug!(target: "precompute_paths_and_path_ids", %entry, %ulnid, "removing entry via lost underlay neighbor");
+            context
+                .runtime()
+                .update_fwd_tables(PathIdTableUpdate::Remove(entry.in_path_id().clone()));
+            false
+        });
+    }
 }
 
 impl<C, const BUCKET_SIZE: usize> EventHandler for PrecomputePathIds<C, BUCKET_SIZE>
@@ -216,6 +239,9 @@ where
                     }
                     return Ok(());
                 }
+            }
+            UseCaseEvent::UnderlayUpdate(UnderlayNeighborUpdate::UnderlayNeighborDown(ulnid)) => {
+                self.purge_entries_via(context, &ulnid);
             }
             // FIXME: react on external changes of the vicinity graph
             _ => {}

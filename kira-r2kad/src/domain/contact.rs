@@ -110,7 +110,7 @@ impl Contact {
         ));
     }
 
-    /// Returns if the [Contact] represents a underlay neighbor.
+    /// Returns if the [Contact] represents an underlay neighbor (active path is direct link)
     pub fn is_uln(&self) -> bool {
         // FIXME: Invariant is, that path doesn't contain the own node_id. whole_path Method is for that.
         // However, one needs to distinguish whether the current contact is still a ULN but has
@@ -320,8 +320,17 @@ impl Contact {
         &self.state_seq_nr
     }
 
-    pub fn state_seq_nr_mut(&mut self) -> &mut SafeStateSeqNr {
-        &mut self.state_seq_nr
+    pub fn set_state_seq_nr(&mut self, new_state_seq_nr: SafeStateSeqNr) {
+        self.state_seq_nr = new_state_seq_nr;
+    }
+
+    pub fn update_state_seq_nr(&mut self, new_state_seq_nr: SafeStateSeqNr) -> bool {
+        if self.state_seq_nr < new_state_seq_nr {
+            self.state_seq_nr = new_state_seq_nr;
+            true
+        } else {
+            false
+        }
     }
 }
 

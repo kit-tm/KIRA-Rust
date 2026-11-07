@@ -225,6 +225,11 @@ impl Path {
         self.ids.push(id);
     }
 
+    /// pops a [NodeId] to the end of the [Path].
+    pub fn pop(&mut self) -> Option<NodeId> {
+        self.ids.pop()
+    }
+
     /// Remove all entries inside the interval [start_index, end_index).
     /// Note that the end_index is excluded.
     fn remove_in(&mut self, start_index: usize, end_index: usize) {

@@ -25,6 +25,7 @@ use crate::{
         ProtocolMessageKind,
         RoutingTable,
         SourceRoute,
+        StateSeqNr,
         Timestamp,
         ULNState,
         ULNTable,
@@ -304,10 +305,10 @@ where
                     if let Some(current_path) = contact.path()
                         && current_path.is_same_path_as(&probed_path)
                         && let Some(last_validated) = current_path.get_last_validated()
-                        && ts_probe_sent < *last_validated
+                        && *last_validated < ts_probe_sent
                     {
                         contact.set_invalid(NotViaStateList::default());
-                        log::trace!(target: "path_probing", "Invalidated contact due of timer [path: {:?}]", contact.path());
+                        log::trace!(target: "path_probing", "Invalidated contact due to timeout [path: {:?}]", contact.path());
                     }
                 }
                 None => {
@@ -601,6 +602,8 @@ where
                 } = req;
                 let source = *source_route.source();
                 let mut rev_source_route = Path::from(source_route);
+                let my_node_id = rev_source_route.pop().expect("Path should not be empty");
+                assert_eq!(my_node_id, *context.root_id());
                 rev_source_route.reverse();
 
                 let nonce = common_header.msg_id();
@@ -609,22 +612,29 @@ where
                 let mut rt = context.routing_table_mut();
                 if let Some(mut contact) = rt.contact_mut(&source) {
                     if let Some(active_path) = contact.path_mut()
-                        && *active_path == rev_source_route
+                        && active_path.is_same_path_as(&rev_source_route)
                     {
                         // this probe message confirms the active path
                         assert!(active_path.is_valid());
+                        // set_valid() also includes update_last_validated();
                         active_path.set_valid();
+                        contact.set_last_seen_now();
+                        // since this is a solicited reply we unconditionally set the sequence number to a new value
+                        if let StateSeqNr::Value(current_state_seq_nr) = common_header.state_seq_num
+                        {
+                            contact.set_state_seq_nr(current_state_seq_nr);
+                        }
 
                         // if same path exists as proposed path, remove it
                         if let Some(proposed_path) = contact.proposed_path()
-                            && *proposed_path == rev_source_route
+                            && proposed_path.is_same_path_as(&rev_source_route)
                         {
                             contact.clear_proposed_path();
                         }
                     } else {
                         // either no active path exists or it is different from the ProbeRsp rev_source_route
                         if let Some(proposed_path) = contact.proposed_path_mut()
-                            && *proposed_path == rev_source_route
+                            && proposed_path.is_same_path_as(&rev_source_route)
                         {
                             // this probe message confirms the proposed path
                             proposed_path.set_valid();
@@ -658,7 +668,32 @@ where
                 if !req.exact() {
                     tracing::warn!(target: "path_probing", "Received ProbeReq without exact flag");
                 }
-
+                let ReqRspMessage {
+                    ref common_header,
+                    ref source_route,
+                    ..
+                } = req;
+                // in case we also have the source as contact, we touch it
+                let source = *source_route.source();
+                let mut rev_source_route = Path::from(source_route.clone());
+                let my_node_id = rev_source_route.pop().expect("Path should not be empty");
+                assert_eq!(my_node_id, *context.root_id());
+                rev_source_route.reverse();
+                // in case we have a contact we validate it explicitly
+                let mut rt = context.routing_table_mut();
+                if let Some(mut contact) = rt.contact_mut(&source)
+                    && let Some(active_path) = contact.path_mut()
+                    && active_path.is_same_path_as(&rev_source_route)
+                {
+                    // this probe message confirms the active path
+                    assert!(active_path.is_valid());
+                    // set_valid() also includes update_last_validated();
+                    active_path.set_valid();
+                    contact.set_last_seen_now();
+                    if let StateSeqNr::Value(current_state_seq_nr) = common_header.state_seq_num {
+                        contact.update_state_seq_nr(current_state_seq_nr);
+                    }
+                }
                 self.send_probe_rsp(context, req);
             }
             UseCaseEvent::Contact(contact_event) => {
