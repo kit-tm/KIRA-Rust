@@ -172,10 +172,11 @@ where
     }
 
     /// Attempts to insert the contact into the routing table which may create a new entry,
-    /// update an existing entry, or do nothing.
+    /// update an existing entry, or do nothing. This is called from extract_source_information()
+    /// and extract_rtable_reqrsp().
     ///
-    /// If the contact was previously an underlay neighbor but not anymore its entry in the ULNTable
-    /// will be removed.
+    /// The ULNTable is not modified here: removal of underlay neighbors is handled by
+    /// vicinity_discovery (ULN sync timeout) and failure_handling (interface down).
     fn update_contact(&self, context: &C, contact: Contact) {
         // ignore information about us from other parties
         if contact.id() == context.root_id() {
@@ -207,19 +208,6 @@ where
             InsertionStrategyResult::Inserted
             | InsertionStrategyResult::Replaced(_)
             | InsertionStrategyResult::Updated => {
-                // Remove if contact changed the routing table in any way, was an underlay neighbor and is not a ULN anymore
-                if context.uln_table().contains(contact.id())
-                    && !context
-                        .routing_table()
-                        .contact(contact.id())
-                        .map(Contact::is_uln)
-                        .unwrap_or(false)
-                {
-                    context.uln_table_mut().remove(contact.id());
-                    log::debug!(target: "forward_protocol_message", "Removed {} from ULNTable as it is no more an undelay neighbor; {:?}", contact.id(), contact);
-                    return;
-                }
-
                 log::debug!(target: "forward_protocol_message", "Routing table insertion result for contact {}: {:?} ", contact.id(), result);
             }
         }
