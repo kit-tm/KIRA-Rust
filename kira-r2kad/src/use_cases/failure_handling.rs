@@ -714,20 +714,8 @@ where
         log::trace!(target: "failure_handling", "Underlay neighbors affected by interface {ulnid:?} down: {affected_underlay_neighbors:?}");
 
         // find contacts whose path contain affected underlay neighbors as first hop
-        for mut contact in rt.iter_mut() {
-            if let Some(active_path) = contact.path() {
-                // contact possesses active path
-                // invalidate if it starts with one of the affected ULNs
-                let first_hop = *active_path.first();
-                if affected_underlay_neighbors.contains(&first_hop) {
-                    contact.set_invalid(NotViaStateList::from(NotViaState::new(
-                        Link::new(*context.root_id(), first_hop),
-                        Timestamp::now(),
-                    )));
-
-                    log::trace!(target: "failure_handling", "Invalidated contact {} as it starts with failed underlay neighbor {}", contact.id(), contact.path().unwrap().first());
-                }
-            }
+        for node_id in rt.invalidate_contacts_via(&affected_underlay_neighbors) {
+            log::trace!(target: "failure_handling", "Invalidated contact {node_id} as it starts with a failed underlay neighbor");
         }
 
         // update vicinity graph
@@ -813,11 +801,22 @@ where
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::FindNodeRsp(rsp), _) => {
-                if let Some((_, timer)) = self.inflight_rediscoveries.remove_by_nonce(rsp.msg_id())
+                if let Some(contact) = context.routing_table().contact(rsp.source())
+                    && contact.is_valid()
                 {
-                    log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got a successful answer [timer: {:?}, nonce: {:?}]", rsp.source_route.source(), timer, rsp.msg_id());
+                    //  since the contact state has changed to Valid, the rediscovery process will stop automatically
+                    if let Some((_, timer)) =
+                        self.inflight_rediscoveries.remove_by_nonce(rsp.msg_id())
+                    {
+                        log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got a successful answer [timer: {:?}, nonce: {:?}]", rsp.source_route.source(), timer, rsp.msg_id());
+                    }
+
                     log::debug!(target: "failure_handling", "Rediscovery of {} was successful!", rsp.source());
-                    //  since the contact state should have changed to Valid, the rediscovery process will stop automatically
+                } else {
+                    // in pathological cases the FindNodeRsp may not validate the contact
+                    // (e.g., with lower sequence number after node restart) and we should keep on
+                    // rediscovering (this function can also deal with removed contacts)
+                    self.handle_rediscovery_failure(context, Some(rsp.msg_id()), None)?;
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::Error(rsp), _) => {

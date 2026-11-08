@@ -5,7 +5,7 @@ from collections.abc import Callable, Sequence
 from functools import wraps
 from typing import Any
 
-from kira_common.domain import NODE_IP_SN, PATH_IP_SN, NodeID, NodeIP, PathIP
+from kira_common.domain import NodeID, NodeIP, PathIP, get_ip_prefixes
 
 from kira_nest.domain.topology import KIRANodeView
 
@@ -188,4 +188,5 @@ class StoreKIRAIP(Action):
         setattr(namespace, self.dest, ip)
 
     def format_usage(self) -> str:
-        return f"{NODE_IP_SN} | {PATH_IP_SN}"
+        prefixes = get_ip_prefixes()
+        return f"{prefixes.node_ip} | {prefixes.path_ip}"

@@ -1,3 +1,5 @@
+from ipaddress import IPv6Address
+
 from kira_common.domain import NodeID, NodeIP
 
 
@@ -18,7 +20,10 @@ class NodeConfig:
             self.node_id = NodeID.fromhex(node_id)
 
         if ipv6 is not None:
-            assert NodeIP(ipv6) == self.ipv6, "ipv6 doesn't match provided node_id"
+            # the stored ipv6 may use another NodeIP prefix than the current one
+            assert IPv6Address(ipv6).packed[2:] == self.node_id, (
+                "ipv6 doesn't match provided node_id"
+            )
 
         if name is None:
             self.name = f"d{type(self)._name_counter}"

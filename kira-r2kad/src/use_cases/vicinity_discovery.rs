@@ -28,18 +28,14 @@ use crate::{
         Contact,
         DEFAULT_BUCKET_SIZE,
         InterfaceId,
-        Link,
         NodeId,
         Nonce,
-        NotViaState,
-        NotViaStateList,
         ProtocolMessage,
         ProtocolMessageKind,
         RoutingTable,
         SafeStateSeqNr,
         SourceRoute,
         StateSeqNr,
-        Timestamp,
         ULNState,
         ULNTable,
         UnderlayNeighborDestination::{
@@ -163,6 +159,8 @@ pub struct RequestState {
     timeouts: usize,
     timeout: Duration,
     expected_nonce: Nonce,
+    /// current timeout timer; timers with another id are outdated
+    timer_id: TimerId,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -500,7 +498,7 @@ where
                 && (context.runtime().current_time() - last_seen) > self.config.uln_max_interval
                 && let Some((underlay_neighbor, _)) = context.uln_table().get(&node_id).cloned()
             {
-                let result = self.init_uln_disc_req(
+                let result = self.send_uln_disc_req_now(
                     context,
                     node_id,
                     underlay_neighbor,
@@ -510,7 +508,7 @@ where
                     tracing::error!(
                         target: "vicinity_discovery",
                         ?result,
-                        reason = "check_for_stale_ULNs: init_uln_disc_req returned error for {node_id}",
+                        reason = "check_for_stale_ULNs: send_uln_disc_req_now returned error for {node_id}",
                     );
                 }
             }
@@ -555,6 +553,10 @@ where
             "register pending request",
         );
 
+        // set timeout timer
+        let timeout_timer_id = context.runtime().register_rand_timer(initial_timeout);
+        timer_hooks.insert(timeout_timer_id, timeout_hook);
+
         pending_reqs.insert(
             (destination, expected_kind),
             RequestState {
@@ -562,12 +564,9 @@ where
                 timeouts: 0,
                 timeout: initial_timeout,
                 expected_nonce,
+                timer_id: timeout_timer_id,
             },
         );
-
-        // set timeout timer
-        let timeout_timer_id = context.runtime().register_rand_timer(initial_timeout);
-        timer_hooks.insert(timeout_timer_id, timeout_hook);
     }
 
     fn init_query_route_req(
@@ -618,6 +617,60 @@ where
             ProtocolMessageKind::ULNDiscRsp,
             timeout,
             TimerHook::TimeoutULNDiscReq(destination),
+        );
+
+        Ok(())
+    }
+
+    /// Sends a ULNDiscReq to `destination` immediately.
+    ///
+    /// If a ULNDiscReq is pending already, it is resent with the same nonce, so that a late
+    /// response to it is still accepted, and its retry timer is restarted with the shorter of its
+    /// current and the given timeout. The retry count is kept, so the request still ends after
+    /// `uln_discovery_max_retries`.
+    fn send_uln_disc_req_now(
+        &mut self,
+        context: &C,
+        destination: NodeId,
+        underlay_neighbor: UnderlayNeighborId,
+        timeout: Duration,
+    ) -> Result<(), VDError> {
+        let VDState::Running {
+            timer_hooks,
+            pending_reqs,
+            ..
+        } = &mut self.state
+        else {
+            panic!("VicinityDiscovery should be running");
+        };
+        let Some(req_state) = pending_reqs.get_mut(&(destination, ProtocolMessageKind::ULNDiscRsp))
+        else {
+            return self.init_uln_disc_req(context, destination, underlay_neighbor, timeout);
+        };
+
+        Self::send_uln_disc_req(
+            context,
+            destination,
+            underlay_neighbor,
+            req_state.expected_nonce,
+        )?;
+
+        // replace the retry timer
+        context.runtime().remove_timer(req_state.timer_id);
+        timer_hooks.remove(&req_state.timer_id);
+        let timeout = timeout.min(req_state.timeout);
+        let timeout_timer_id = context.runtime().register_rand_timer(timeout);
+        timer_hooks.insert(timeout_timer_id, TimerHook::TimeoutULNDiscReq(destination));
+        req_state.timer_id = timeout_timer_id;
+        req_state.timeout = timeout;
+
+        tracing::trace!(
+            target: "vicinity_discovery",
+            node = %destination,
+            timeouts = req_state.timeouts,
+            timeout_ms = timeout.as_millis(),
+            reason = "pending_req",
+            "resent pending ULNDiscReq immediately",
         );
 
         Ok(())
@@ -1055,8 +1108,8 @@ where
 
                 // pre_compute_paths_and_pathids will be notified by subsequent ULNDiscReq/RSp exchange
 
-                // send ULNDiscReq back
-                self.init_uln_disc_req(context, source, underlay_source, self.config.uln_discovery_rsp_initial_max_wait_time,)?;
+                // send ULNDiscReq back (immediately, even if one is pending already)
+                self.send_uln_disc_req_now(context, source, underlay_source, self.config.uln_discovery_rsp_initial_max_wait_time)?;
                 Ok(())
             }
 
@@ -1492,10 +1545,17 @@ where
                     ..
                 },
             ) => {
+                // periodic timer: the runtime fires it again under the same id, so keep its hook
+                if matches!(
+                    timer_hooks.get(timer_id),
+                    Some(TimerHook::TimeoutCheckForStaleULNs)
+                ) {
+                    self.check_for_stale_ulns(context);
+                    return Ok(());
+                }
                 match timer_hooks.remove(timer_id) {
                     Some(TimerHook::TimeoutCheckForStaleULNs) => {
-                        self.check_for_stale_ulns(context);
-                        return Ok(());
+                        unreachable!("periodic stale check is handled above")
                     }
                     Some(TimerHook::TimeoutULNDiscReq(destination)) => {
                         let hash_map::Entry::Occupied(mut entry) =
@@ -1511,6 +1571,15 @@ where
                         };
                         let uln_discovery_max_retries = self.config.uln_discovery_max_retries;
                         let req_state = entry.get_mut();
+                        if req_state.timer_id != *timer_id {
+                            // timer was replaced, e.g. by an immediate resend
+                            tracing::trace!(
+                                target: "vicinity_discovery",
+                                node = %destination,
+                                "ignore outdated request timer",
+                            );
+                            return Ok(());
+                        }
                         let timeouts = req_state.timeouts + 1;
                         let timeout = req_state.timeout;
 
@@ -1549,26 +1618,37 @@ where
 
                             context.uln_table_mut().remove(&destination);
 
+                            // clean up nodes moved outside the vicinity or isolated by the link removal
+                            for removed_node in vg.retain_vicinity() {
+                                tracing::debug!(
+                                    target: "vicinity_discovery",
+                                    node = %removed_node,
+                                    reason = "outside_vicinity",
+                                    "removed node from vicinity graph"
+                                );
+                            }
+
                             // let pre_compute_paths_and_pathids remove the now invalid paths
                             if vg.vicinity_changed() {
                                 context.runtime().broadcast_event(VicinityEvent::Changed);
                             }
 
+                            let mut rt = context.routing_table_mut();
                             // if last link has been removed, the node will be deleted also from RT
                             if vg.entry(&destination).is_none() {
-                                context.routing_table_mut().remove(&destination);
-
-                                return Ok(());
+                                rt.remove(&destination);
                             }
-                            // set contact to invalid in case the direct ULN was active (contact may also be in two-hop vicinity)
-                            if let Some(mut contact) =
-                                context.routing_table_mut().contact_mut(&destination)
-                                && contact.is_uln()
-                            {
-                                contact.set_invalid(NotViaStateList::from(NotViaState::new(
-                                    Link::new(*context.root_id(), destination),
-                                    Timestamp::now(),
-                                )));
+                            // invalidate all contacts whose path starts with the lost ULN,
+                            // including its own contact if the direct link was active
+                            // (the contact may also be in the two-hop vicinity)
+                            for node in rt.invalidate_contacts_via(&HashSet::from([destination])) {
+                                tracing::debug!(
+                                    target: "vicinity_discovery",
+                                    %node,
+                                    via = %destination,
+                                    reason = "sync_timeout",
+                                    "invalidated contact",
+                                );
                             }
 
                             return Ok(());
@@ -1631,6 +1711,7 @@ where
 
                         req_state.timeouts += 1;
                         req_state.timeout = timeout;
+                        req_state.timer_id = timeout_timer_id;
                     }
                     Some(TimerHook::TimeoutQueryRouteReq(destination)) => {
                         let hash_map::Entry::Occupied(mut entry) =
@@ -1647,6 +1728,15 @@ where
                         let query_route_discovery_max_retries =
                             self.config.query_route_discovery_max_retries;
                         let req_state = entry.get_mut();
+                        if req_state.timer_id != *timer_id {
+                            // timer was replaced, e.g. by an immediate resend
+                            tracing::trace!(
+                                target: "vicinity_discovery",
+                                node = %destination,
+                                "ignore outdated request timer",
+                            );
+                            return Ok(());
+                        }
                         let timeouts = req_state.timeouts + 1;
                         let timeout = req_state.timeout;
 
@@ -1743,6 +1833,7 @@ where
 
                         req_state.timeouts += 1;
                         req_state.timeout = timeout;
+                        req_state.timer_id = timeout_timer_id;
                     }
                     Some(TimerHook::SendInterfaceHello(interface)) => {
                         let Some(InterfaceState { hello_interval }) =
@@ -1788,5 +1879,489 @@ where
             }
             _ => Ok(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use super::*;
+    use crate::{
+        Output,
+        context::{
+            ContextConfig,
+            SyncContext,
+        },
+        domain::{
+            ConnectionId,
+            Path,
+            routing_table::SingleBucketRT,
+            underlay_neighbor_table::InMemoryULNTable,
+            vicinity::vicinity_graph::PetVicinityGraph,
+        },
+        runtime::testing::TestingUseCaseRuntime,
+        use_cases::{
+            TimerId,
+            UseCaseContext,
+        },
+    };
+
+    const BUCKET_SIZE: usize = 20;
+    type Ctx = SyncContext<
+        SingleBucketRT<BUCKET_SIZE>,
+        TestingUseCaseRuntime,
+        (),
+        InMemoryULNTable,
+        PetVicinityGraph,
+    >;
+    type VD = VicinityDiscovery<Ctx, BUCKET_SIZE>;
+
+    fn root() -> NodeId {
+        NodeId::with_msb(1)
+    }
+    /// underlay neighbor
+    fn uln() -> NodeId {
+        NodeId::with_msb(2)
+    }
+    /// two-hop neighbor, only reachable via [uln]
+    fn two_hop() -> NodeId {
+        NodeId::with_msb(3)
+    }
+    fn ulnid() -> UnderlayNeighborId {
+        UnderlayNeighborId {
+            interface_id: InterfaceId::try_from(1).unwrap(),
+            connection_id: ConnectionId(1),
+        }
+    }
+    fn ssn(value: u32) -> SafeStateSeqNr {
+        SafeStateSeqNr::try_from(value).unwrap()
+    }
+
+    /// Context with [uln] in the (unconfirmed) ULNTable and, if `uln_in_vicinity`,
+    /// as direct neighbor in the vicinity graph, last seen at `t0`.
+    fn setup(config: VicinityDiscoveryConfig, uln_in_vicinity: bool) -> (VD, Ctx, Instant) {
+        crate::tests::init();
+
+        let t0 = Instant::now();
+        let runtime = TestingUseCaseRuntime::with_unique_timer_ids();
+        runtime.set_current_time(t0);
+        let ctx = Ctx::new(ContextConfig {
+            root_id: root(),
+            routing_table: SingleBucketRT::<BUCKET_SIZE>::new(root()),
+            runtime,
+            insertion_strategy: (),
+            uln_table: InMemoryULNTable::new(),
+            vicinity_graph: PetVicinityGraph::new(root()),
+        });
+        // unconfirmed, so no routing table contact is required when sending ULNDiscReqs
+        ctx.uln_table_mut().insert(uln(), ulnid());
+        if uln_in_vicinity {
+            let mut vg = ctx.vicinity_graph_mut();
+            vg.insert(uln(), &root(), ssn(1)).unwrap();
+            vg.entry_mut(&uln()).unwrap().update_last_seen(t0);
+        }
+
+        let mut vd = VD::new(config);
+        vd.start(&ctx).unwrap();
+        (vd, ctx, t0)
+    }
+
+    fn make_uln_stale(ctx: &Ctx, t0: Instant) {
+        let config = VicinityDiscoveryConfig::default();
+        ctx.runtime()
+            .set_current_time(t0 + config.uln_max_interval + Duration::from_secs(1));
+    }
+
+    fn fire(vd: &mut VD, ctx: &Ctx, timer_id: TimerId) {
+        vd.handle_event(ctx, UseCaseEvent::Timer(timer_id)).unwrap();
+    }
+
+    fn stale_check_timer(vd: &VD) -> TimerId {
+        let VDState::Running { timer_hooks, .. } = &vd.state else {
+            panic!("not running");
+        };
+        timer_hooks
+            .iter()
+            .find_map(|(id, hook)| (hook == &TimerHook::TimeoutCheckForStaleULNs).then_some(*id))
+            .expect("stale check timer registered")
+    }
+
+    fn pending_uln_disc_req(vd: &VD) -> Option<RequestState> {
+        let VDState::Running { pending_reqs, .. } = &vd.state else {
+            panic!("not running");
+        };
+        pending_reqs
+            .get(&(uln(), ProtocolMessageKind::ULNDiscRsp))
+            .cloned()
+    }
+
+    fn has_timer_hook(vd: &VD, timer_id: TimerId) -> bool {
+        let VDState::Running { timer_hooks, .. } = &vd.state else {
+            panic!("not running");
+        };
+        timer_hooks.contains_key(&timer_id)
+    }
+
+    /// Nonces of the ULNDiscReqs sent since the last call
+    fn sent_uln_disc_reqs(ctx: &Ctx) -> Vec<Nonce> {
+        ctx.runtime()
+            .output()
+            .filter_map(|output| match output {
+                Output::SendProtocolMessage(msg @ ProtocolMessage::ULNDiscReq(_), destination) => {
+                    assert_eq!(destination, UnderlayNeighbor(ulnid()));
+                    Some(msg.msg_id().expect("ULNDiscReq has a nonce"))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn timer_duration(ctx: &Ctx, timer_id: TimerId) -> Duration {
+        ctx.runtime()
+            .registered_timers()
+            .into_iter()
+            .find_map(|(id, duration)| (id == timer_id).then_some(duration))
+            .expect("timer registered")
+    }
+
+    /// starts a regular ULNDiscReq (as sent in reply to a ULNHello or for syncing)
+    fn start_regular_uln_disc_req(vd: &mut VD, ctx: &Ctx) -> RequestState {
+        let timeout = vd.config.uln_discovery_rsp_initial_max_wait_time;
+        vd.init_uln_disc_req(ctx, uln(), ulnid(), timeout).unwrap();
+        assert_eq!(sent_uln_disc_reqs(ctx).len(), 1);
+        pending_uln_disc_req(vd).expect("request pending")
+    }
+
+    #[test]
+    fn stale_check_runs_on_every_period() {
+        let (mut vd, ctx, t0) = setup(VicinityDiscoveryConfig::default(), true);
+        make_uln_stale(&ctx, t0);
+        let timer = stale_check_timer(&vd);
+
+        fire(&mut vd, &ctx, timer);
+        assert_eq!(
+            sent_uln_disc_reqs(&ctx).len(),
+            1,
+            "first check probes the stale ULN"
+        );
+        assert!(
+            has_timer_hook(&vd, timer),
+            "periodic timer hook must be kept"
+        );
+
+        // the runtime fires the periodic timer again under the same id
+        fire(&mut vd, &ctx, timer);
+        assert_eq!(
+            sent_uln_disc_reqs(&ctx).len(),
+            1,
+            "second check probes again"
+        );
+        assert!(
+            has_timer_hook(&vd, timer),
+            "periodic timer hook must be kept"
+        );
+    }
+
+    #[test]
+    fn stale_check_does_not_probe_recently_seen_uln() {
+        let (mut vd, ctx, _) = setup(VicinityDiscoveryConfig::default(), true);
+
+        let timer = stale_check_timer(&vd);
+        fire(&mut vd, &ctx, timer);
+        assert!(sent_uln_disc_reqs(&ctx).is_empty());
+        assert!(pending_uln_disc_req(&vd).is_none());
+    }
+
+    #[test]
+    fn stale_check_starts_request_with_check_timeout() {
+        let (mut vd, ctx, t0) = setup(VicinityDiscoveryConfig::default(), true);
+        make_uln_stale(&ctx, t0);
+
+        let timer = stale_check_timer(&vd);
+        fire(&mut vd, &ctx, timer);
+        let nonces = sent_uln_disc_reqs(&ctx);
+        assert_eq!(nonces.len(), 1);
+
+        let req = pending_uln_disc_req(&vd).expect("request pending");
+        assert_eq!(req.expected_nonce, nonces[0]);
+        assert_eq!(req.timeouts, 0);
+        assert_eq!(req.timeout, vd.config.uln_discovery_rsp_check_max_wait_time);
+    }
+
+    #[test]
+    fn stale_check_resends_pending_request_immediately() {
+        let (mut vd, ctx, t0) = setup(VicinityDiscoveryConfig::default(), true);
+        let before = start_regular_uln_disc_req(&mut vd, &ctx);
+        make_uln_stale(&ctx, t0);
+
+        let timer = stale_check_timer(&vd);
+        fire(&mut vd, &ctx, timer);
+
+        assert_eq!(
+            sent_uln_disc_reqs(&ctx),
+            vec![before.expected_nonce],
+            "resent immediately with the nonce of the pending request"
+        );
+        let after = pending_uln_disc_req(&vd).expect("request still pending");
+        assert_eq!(after.expected_nonce, before.expected_nonce);
+        assert_eq!(after.timeouts, before.timeouts, "retry count is kept");
+        let check_timeout = vd.config.uln_discovery_rsp_check_max_wait_time;
+        assert_eq!(
+            after.timeout, check_timeout,
+            "switched to the shorter check timeout"
+        );
+
+        // the retry timer was replaced
+        assert_ne!(after.timer_id, before.timer_id);
+        assert_eq!(ctx.runtime().removed_timers(), vec![before.timer_id]);
+        assert!(!has_timer_hook(&vd, before.timer_id));
+        assert!(has_timer_hook(&vd, after.timer_id));
+        assert!(timer_duration(&ctx, after.timer_id) <= check_timeout.mul_f64(1.5));
+    }
+
+    #[test]
+    fn immediate_resend_keeps_shorter_pending_timeout() {
+        let (mut vd, ctx, _) = setup(VicinityDiscoveryConfig::default(), true);
+        let check_timeout = vd.config.uln_discovery_rsp_check_max_wait_time;
+        vd.init_uln_disc_req(&ctx, uln(), ulnid(), check_timeout)
+            .unwrap();
+
+        let longer = vd.config.uln_discovery_rsp_initial_max_wait_time;
+        vd.send_uln_disc_req_now(&ctx, uln(), ulnid(), longer)
+            .unwrap();
+
+        assert_eq!(pending_uln_disc_req(&vd).unwrap().timeout, check_timeout);
+    }
+
+    #[test]
+    fn outdated_request_timer_is_ignored() {
+        let (mut vd, ctx, t0) = setup(VicinityDiscoveryConfig::default(), true);
+        let before = start_regular_uln_disc_req(&mut vd, &ctx);
+        make_uln_stale(&ctx, t0);
+        let timer = stale_check_timer(&vd);
+        fire(&mut vd, &ctx, timer);
+        sent_uln_disc_reqs(&ctx);
+        let replaced = pending_uln_disc_req(&vd).unwrap();
+
+        // the old timer still fires (e.g. if the runtime could not remove it in time)
+        vd.state = match vd.state {
+            VDState::Running {
+                resync_timer_id,
+                mut timer_hooks,
+                pending_reqs,
+                interfaces,
+            } => {
+                timer_hooks.insert(before.timer_id, TimerHook::TimeoutULNDiscReq(uln()));
+                VDState::Running {
+                    resync_timer_id,
+                    timer_hooks,
+                    pending_reqs,
+                    interfaces,
+                }
+            }
+            state => state,
+        };
+        fire(&mut vd, &ctx, before.timer_id);
+        assert!(
+            sent_uln_disc_reqs(&ctx).is_empty(),
+            "outdated timer must not resend"
+        );
+        assert_eq!(
+            pending_uln_disc_req(&vd),
+            Some(replaced.clone()),
+            "request unchanged"
+        );
+
+        // the current timer still works
+        fire(&mut vd, &ctx, replaced.timer_id);
+        assert_eq!(sent_uln_disc_reqs(&ctx), vec![before.expected_nonce]);
+        assert_eq!(pending_uln_disc_req(&vd).unwrap().timeouts, 1);
+    }
+
+    #[test]
+    fn stale_uln_is_removed_after_max_retries_despite_immediate_resend() {
+        let (mut vd, ctx, t0) = setup(VicinityDiscoveryConfig::default(), true);
+        start_regular_uln_disc_req(&mut vd, &ctx);
+        // use up the retries of the pending request
+        for _ in 0..vd.config.uln_discovery_max_retries {
+            let timer = pending_uln_disc_req(&vd).unwrap().timer_id;
+            fire(&mut vd, &ctx, timer);
+        }
+        sent_uln_disc_reqs(&ctx);
+
+        make_uln_stale(&ctx, t0);
+        let timer = stale_check_timer(&vd);
+        fire(&mut vd, &ctx, timer);
+        let req = pending_uln_disc_req(&vd).unwrap();
+        assert_eq!(
+            req.timeouts, vd.config.uln_discovery_max_retries,
+            "retry count is kept"
+        );
+
+        fire(&mut vd, &ctx, req.timer_id);
+        assert!(pending_uln_disc_req(&vd).is_none(), "request given up");
+        assert!(!ctx.uln_table().contains(&uln()), "ULN removed");
+        assert!(
+            ctx.vicinity_graph().entry(&uln()).is_none(),
+            "ULN removed from vicinity"
+        );
+    }
+
+    #[test]
+    fn sync_timeout_removes_nodes_no_longer_reachable() {
+        let (mut vd, ctx, _) = setup(VicinityDiscoveryConfig::default(), true);
+        ctx.vicinity_graph_mut()
+            .insert(two_hop(), &uln(), ssn(1))
+            .unwrap();
+
+        start_regular_uln_disc_req(&mut vd, &ctx);
+        for _ in 0..=vd.config.uln_discovery_max_retries {
+            let timer = pending_uln_disc_req(&vd).unwrap().timer_id;
+            fire(&mut vd, &ctx, timer);
+        }
+
+        assert!(pending_uln_disc_req(&vd).is_none(), "request given up");
+        assert!(!ctx.uln_table().contains(&uln()), "ULN removed");
+        let vg = ctx.vicinity_graph();
+        // the ULN keeps its edge to the two-hop node, but neither is reachable anymore
+        assert!(
+            vg.entry(&uln()).is_none(),
+            "unreachable ULN removed from vicinity"
+        );
+        assert!(
+            vg.entry(&two_hop()).is_none(),
+            "unreachable two-hop node removed from vicinity"
+        );
+        drop(vg);
+        assert!(
+            ctx.runtime()
+                .broadcast()
+                .any(|event| matches!(event, UseCaseEvent::Vicinity(VicinityEvent::Changed))),
+            "vicinity change is announced"
+        );
+    }
+
+    /// another underlay neighbor, not affected by the loss of [uln]
+    fn other_uln() -> NodeId {
+        NodeId::with_msb(4)
+    }
+    /// two-hop neighbor reachable via [other_uln]
+    fn behind_other_uln() -> NodeId {
+        NodeId::with_msb(5)
+    }
+
+    fn add_contact(ctx: &Ctx, path: &[NodeId]) {
+        ctx.routing_table_mut()
+            .add(Contact::new(Path::try_from(path).unwrap(), ssn(1)))
+            .unwrap();
+    }
+
+    fn give_up_regular_uln_disc_req(vd: &mut VD, ctx: &Ctx) {
+        start_regular_uln_disc_req(vd, ctx);
+        for _ in 0..=vd.config.uln_discovery_max_retries {
+            let timer = pending_uln_disc_req(vd).unwrap().timer_id;
+            fire(vd, ctx, timer);
+        }
+        assert!(pending_uln_disc_req(vd).is_none(), "request given up");
+    }
+
+    #[test]
+    fn sync_timeout_invalidates_contacts_via_lost_uln() {
+        let (mut vd, ctx, _) = setup(VicinityDiscoveryConfig::default(), true);
+        ctx.vicinity_graph_mut()
+            .insert(two_hop(), &uln(), ssn(1))
+            .unwrap();
+        add_contact(&ctx, &[uln()]);
+        add_contact(&ctx, &[uln(), two_hop()]);
+        add_contact(&ctx, &[other_uln()]);
+        add_contact(&ctx, &[other_uln(), behind_other_uln()]);
+
+        give_up_regular_uln_disc_req(&mut vd, &ctx);
+
+        let rt = ctx.routing_table();
+        // the ULN left the vicinity, so its contact is removed
+        assert!(!rt.contains(&uln()), "contact of lost ULN removed");
+        let via_lost = rt.contact(&two_hop()).unwrap();
+        assert!(via_lost.is_invalid(), "contact via lost ULN invalidated");
+        for node in [other_uln(), behind_other_uln()] {
+            assert!(
+                rt.contact(&node).unwrap().is_valid(),
+                "contact {node} stays valid"
+            );
+        }
+        assert!(
+            rt.iter()
+                .filter(|contact| contact.is_valid())
+                .filter_map(Contact::path)
+                .all(|path| path.first() != &uln()),
+            "no valid contact starts with the lost ULN"
+        );
+    }
+
+    #[test]
+    fn sync_timeout_invalidates_contact_of_uln_still_in_vicinity() {
+        let (mut vd, ctx, _) = setup(VicinityDiscoveryConfig::default(), false);
+        {
+            // the ULN is also a two-hop neighbor via another ULN
+            let mut vg = ctx.vicinity_graph_mut();
+            vg.insert(other_uln(), &root(), ssn(1)).unwrap();
+            vg.insert(uln(), &other_uln(), ssn(1)).unwrap();
+        }
+        add_contact(&ctx, &[uln()]);
+        add_contact(&ctx, &[uln(), two_hop()]);
+
+        give_up_regular_uln_disc_req(&mut vd, &ctx);
+
+        assert!(
+            ctx.vicinity_graph().entry(&uln()).is_some(),
+            "ULN still in vicinity"
+        );
+        let rt = ctx.routing_table();
+        assert!(
+            rt.contact(&uln()).unwrap().is_invalid(),
+            "direct contact of ULN invalidated"
+        );
+        assert!(
+            rt.contact(&two_hop()).unwrap().is_invalid(),
+            "contact via ULN invalidated"
+        );
+    }
+
+    #[test]
+    fn uln_hello_resends_pending_request_immediately() {
+        // always answer ULNHellos regardless of the deterministic heuristic
+        let config = VicinityDiscoveryConfig {
+            heuristic_max_wait_time: Duration::ZERO,
+            ..Default::default()
+        };
+        // not in the vicinity graph yet, so the ULNHello is from a new neighbor
+        let (mut vd, ctx, _) = setup(config, false);
+        vd.handle_event(
+            &ctx,
+            UseCaseEvent::UnderlayUpdate(UnderlayNeighborUpdate::InterfaceUp(ulnid().interface_id)),
+        )
+        .unwrap();
+        let before = start_regular_uln_disc_req(&mut vd, &ctx);
+
+        let hello = ProtocolMessage::ULNHello(CommonHeader::new(
+            ProtocolMessageKind::ULNHello,
+            uln(),
+            NodeId::ALL_NODES,
+            None,
+            StateSeqNr::Value(ssn(1)),
+            0,
+        ));
+        vd.handle_event(
+            &ctx,
+            UseCaseEvent::Message(hello, UnderlayNeighborSource::UnderlayNeighbor(ulnid())),
+        )
+        .unwrap();
+
+        assert_eq!(sent_uln_disc_reqs(&ctx), vec![before.expected_nonce]);
+        let after = pending_uln_disc_req(&vd).unwrap();
+        assert_eq!(after.expected_nonce, before.expected_nonce);
+        assert_ne!(after.timer_id, before.timer_id);
+        assert_eq!(ctx.runtime().removed_timers(), vec![before.timer_id]);
     }
 }

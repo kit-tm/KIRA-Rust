@@ -1,11 +1,18 @@
 import argparse
 import logging
+import os
 import random
 import subprocess
 import sys
 from pathlib import Path
 
 import networkx as nx
+from kira_common.domain import (
+    ENV_NODE_IP_PREFIX,
+    ENV_PATH_IP_PREFIX,
+    IPPrefixes,
+    parse_ip_prefix,
+)
 from kira_common.paths import REPO_ROOT
 
 from kira_nest.unshare import probe_netns_cap, unshare_emulation
@@ -69,12 +76,49 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--seed", type=int, default=None, help="Random seed for reproducibility"
     )
+    default_prefixes = IPPrefixes()
+    parser.add_argument(
+        "--node-ip-prefix",
+        type=parse_ip_prefix,
+        default=None,
+        help=(
+            "/16 IPv6 prefix of NodeIPs passed to all nodes"
+            f" (default: ${ENV_NODE_IP_PREFIX} or {default_prefixes.node_ip})"
+        ),
+    )
+    parser.add_argument(
+        "--path-ip-prefix",
+        type=parse_ip_prefix,
+        default=None,
+        help=(
+            "/16 IPv6 prefix of PathIPs passed to all nodes"
+            f" (default: ${ENV_PATH_IP_PREFIX} or {default_prefixes.path_ip})"
+        ),
+    )
     return parser
+
+
+def ip_prefixes_from_args(
+    parser: argparse.ArgumentParser, args: argparse.Namespace
+) -> IPPrefixes:
+    """Prefixes from the arguments, falling back to the environment variables."""
+    default_prefixes = IPPrefixes()
+    try:
+        node_ip = args.node_ip_prefix or parse_ip_prefix(
+            os.environ.get(ENV_NODE_IP_PREFIX, str(default_prefixes.node_ip))
+        )
+        path_ip = args.path_ip_prefix or parse_ip_prefix(
+            os.environ.get(ENV_PATH_IP_PREFIX, str(default_prefixes.path_ip))
+        )
+        return IPPrefixes(node_ip, path_ip)
+    except ValueError as e:
+        parser.error(str(e))
 
 
 def run_shell() -> None:  # noqa: PLR0912
     parser = build_arg_parser()
     args = parser.parse_args()
+    ip_prefixes = ip_prefixes_from_args(parser, args)
     if args.seed:
         random.seed(args.seed)
 
@@ -104,7 +148,12 @@ def run_shell() -> None:  # noqa: PLR0912
 
     # Create and run the test
 
-    test = KIRATest[str](graph, kirad_binary=args.binary, perf=args.flamegraph)
+    test = KIRATest[str](
+        graph,
+        kirad_binary=args.binary,
+        perf=args.flamegraph,
+        ip_prefixes=ip_prefixes,
+    )
     shell = DebugShell(
         test, unshared=unshared, post_process_log_files=args.log_processing
     )

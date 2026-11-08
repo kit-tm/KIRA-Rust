@@ -3,7 +3,11 @@ use std::{
     num::NonZeroU32,
 };
 
-use clap::Parser;
+use clap::{
+    CommandFactory,
+    Parser,
+    error::ErrorKind,
+};
 use futures::StreamExt;
 use kira_forwarding::{
     netlink::{
@@ -20,7 +24,13 @@ use kira_lib::{
 use kira_r2kad::{
     R2Kad,
     context::SyncContext,
-    domain::NodeId,
+    domain::{
+        DEFAULT_NODE_IP_PREFIX,
+        DEFAULT_PATH_IP_PREFIX,
+        IpPrefixes,
+        Ipv6Prefix16,
+        NodeId,
+    },
 };
 use kirad_lib::R2KadMessageFormat;
 use signal_hook::consts::{
@@ -59,6 +69,17 @@ struct Args {
     benchmark_path: Option<String>,
     #[clap(short, long, value_parser, value_delimiter = ',')]
     excluded_interfaces: Option<Vec<u32>>,
+    /// IPv6 prefix of the addresses derived from NodeIds (NodeIPs).
+    ///
+    /// Must be a /16 prefix and the same on all nodes of the network.
+    #[clap(long, value_parser, env = "NODE_IP_PREFIX", default_value_t = DEFAULT_NODE_IP_PREFIX)]
+    node_ip_prefix: Ipv6Prefix16,
+    /// IPv6 prefix of the addresses derived from PathIds (PathIPs).
+    ///
+    /// Must be a /16 prefix that differs from the NodeIP prefix
+    /// and must be the same on all nodes of the network.
+    #[clap(long, value_parser, env = "PATH_IP_PREFIX", default_value_t = DEFAULT_PATH_IP_PREFIX)]
+    path_ip_prefix: Ipv6Prefix16,
     /// Enable [tokio console](https://github.com/tokio-rs/console/tree/main/tokio-console) support.
     ///
     /// This will enable the [console_subscriber] layer
@@ -102,6 +123,8 @@ struct Args {
 async fn main() {
     let args = Args::parse();
     let root_id: NodeId = args.root_id.unwrap_or_else(NodeId::random);
+    let ip_prefixes = IpPrefixes::new(args.node_ip_prefix, args.path_ip_prefix)
+        .unwrap_or_else(|e| Args::command().error(ErrorKind::ArgumentConflict, e).exit());
 
     // Setup tracing environment
     {
@@ -215,7 +238,12 @@ async fn main() {
         reg.init();
     }
 
-    tracing::info!(%root_id, "Starting node...");
+    tracing::info!(
+        %root_id,
+        node_ip_prefix = %ip_prefixes.node_ip_prefix(),
+        path_ip_prefix = %ip_prefixes.path_ip_prefix(),
+        "Starting node..."
+    );
 
     let excluded_interfaces = args.excluded_interfaces.map_or_else(
         // DEFAULT: ignore loopback
@@ -263,6 +291,7 @@ async fn main() {
 
     let (fwd_tables, attach_ips) = NativeFwdTables::new(
         root_id,
+        ip_prefixes,
         handle_rtnetlink,
         handle_nfnetlink,
         handle.clone(),

@@ -348,14 +348,6 @@ impl NodeIdSubnet {
         &self.node_id
     }
 
-    /// Returns the [Ipv6Addr] subnet equivalent representation of this [NodeIdSubnet].
-    ///
-    /// The second parameter is the [prefix length](Self::ipv6_subnet_prefix_length)
-    pub fn to_ipv6_subnet(&self) -> (Ipv6Addr, u8) {
-        let prefix_len = self.ipv6_subnet_prefix_length();
-        ((&self.node_id).into(), prefix_len)
-    }
-
     /// Returns a valid [Ipv6Addr] subnet prefix length.
     pub const fn ipv6_subnet_prefix_length(&self) -> u8 {
         const IPV6_BITS: u8 = Ipv6Addr::BITS as u8;
@@ -546,15 +538,6 @@ impl UpperHex for NodeId {
 impl Debug for NodeId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "NodeId({self:028x})")
-    }
-}
-
-impl From<&NodeId> for Ipv6Addr {
-    fn from(value: &NodeId) -> Self {
-        // FIXME this should use a configurable prefix
-        let addr = 0xfc00_0000_0000_0000_0000_0000_0000_0000 | (value.node_id & NodeId::MAX_UVAL);
-
-        Ipv6Addr::from(addr)
     }
 }
 

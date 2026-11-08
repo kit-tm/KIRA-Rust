@@ -7,7 +7,6 @@ use std::{
     error::Error,
     fmt::Debug,
     future::Future,
-    net::Ipv6Addr,
 };
 
 use futures::{
@@ -28,6 +27,7 @@ use crate::{
     domain::{
         DecapsulationDestination,
         InterfaceId,
+        IpPrefixes,
         NodeId,
         NodeIdEncapsulationEntry,
         NodeIdForwardingEntry,
@@ -70,14 +70,16 @@ impl<I> NativeFwdTables<I> {
     /// Creates a native forwarding tables instance.
     ///
     /// The returned future is responsible for attaching IPv6s on upcoming interfaces.
+    /// NodeIPs and PathIPs are derived using the given `ip_prefixes`.
     pub async fn new(
         root_id: NodeId,
+        ip_prefixes: IpPrefixes,
         handle_rtnetlink: ConnectionHandle<RouteNetlinkMessage>,
         handle_nfnetlink: ConnectionHandle<NetfilterMessage>,
         underlay_information: I,
         mut underlay_updates: UnboundedReceiver<UnderlayNeighborUpdate>,
     ) -> (Self, impl Future<Output = ()> + 'static) {
-        let netlink = ForwardingNetlink::new(handle_rtnetlink, handle_nfnetlink)
+        let netlink = ForwardingNetlink::new(handle_rtnetlink, handle_nfnetlink, ip_prefixes)
             .await
             .expect("KIRA interface should successfully be created");
         log::debug!(target: "native_fwd_table", "Loaded nftables successfully");
@@ -323,7 +325,7 @@ where
             PathIdEntry::Decapsulate(PathIdDecapsulationEntry {
                 next_hop: DecapsulationDestination::Local,
                 ..
-            }) => (Ipv6Addr::from(&self.root_id), None),
+            }) => (self.netlink.ip_prefixes().node_ip(&self.root_id), None),
             PathIdEntry::Forward(PathIdForwardingEntry {
                 out_path_id,
                 next_hop,
@@ -335,10 +337,13 @@ where
                     .await
                     .map_err(|e| error::FwdTableError::UnderlayInformationProviderErr(Box::new(e)))?
                     .ok_or_else(|| error::FwdTableError::UnknownUnderlayNeighborId(*next_hop))?;
-                (out_path_id.into(), Some((next_hop, out_path_id.clone())))
+                (
+                    self.netlink.ip_prefixes().path_ip(out_path_id),
+                    Some((next_hop, out_path_id.clone())),
+                )
             }
         };
-        let in_ip = Ipv6Addr::from(in_path_id);
+        let in_ip = self.netlink.ip_prefixes().path_ip(in_path_id);
 
         if let Some(old_entry) = self.path_id_table.get_mut(in_path_id) {
             if old_entry == &entry {
@@ -366,7 +371,7 @@ where
     #[tracing::instrument(level = Level::TRACE, target = "native_fwd_table", skip(path_id), fields(in_path_id=%path_id))]
     async fn remove(&mut self, path_id: &PathId) -> Result<Option<PathIdEntry>, Self::Error> {
         if let Some(removed) = self.path_id_table.remove(path_id) {
-            let in_path_ip = Ipv6Addr::from(path_id);
+            let in_path_ip = self.netlink.ip_prefixes().path_ip(path_id);
 
             log::trace!(target: "native_fwd_table", "Trying to remove entry from forwardmap: {removed:?}");
             self.netlink.delete_forwarding_rule(in_path_ip).await?;

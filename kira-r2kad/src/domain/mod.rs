@@ -40,6 +40,9 @@ pub use protocol_message::{
     ProtocolMessageKind,
 };
 
+mod ip_prefixes;
+pub use ip_prefixes::*;
+
 mod node_id;
 pub use node_id::*;
 

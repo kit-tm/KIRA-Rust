@@ -7,7 +7,16 @@ from subprocess import Popen
 from typing import overload
 
 import networkx
-from kira_common.domain import NodeIP, Path, PathIP
+from kira_common.domain import (
+    ENV_NODE_IP_PREFIX,
+    ENV_PATH_IP_PREFIX,
+    IPPrefixes,
+    NodeIP,
+    Path,
+    PathIP,
+    get_ip_prefixes,
+    set_ip_prefixes,
+)
 from nest.topology import Node, Switch, connect
 from nest.topology.interface.interface import create_veth_pair
 from networkx import Graph
@@ -34,6 +43,9 @@ class KIRATest[T]:  # T = topology id type, usually int or str
     ----------
     config : Graph or path to GML file
         The configuration for the test.
+    ip_prefixes : IPPrefixes, optional
+        Prefixes of NodeIPs and PathIPs used by all nodes.
+        Defaults to the prefixes from the environment variables also used by kirad.
     """
 
     processes = []
@@ -44,8 +56,18 @@ class KIRATest[T]:  # T = topology id type, usually int or str
         kirad_binary: pathlib.Path = pathlib.Path("./target/debug/kirad"),
         perf: set[T] | None = None,
         otel_ip: IPv4Network | None = None,
+        ip_prefixes: IPPrefixes | None = None,
     ) -> None:
         self._otel_ip = otel_ip or IPv4Network("10.42.0.0/24")
+
+        # the checks derive NodeIPs and PathIPs with the same prefixes as the nodes
+        if ip_prefixes is not None:
+            set_ip_prefixes(ip_prefixes)
+        self.ip_prefixes = get_ip_prefixes()
+        logger.info(
+            f"Using NodeIP prefix {self.ip_prefixes.node_ip}"
+            f" and PathIP prefix {self.ip_prefixes.path_ip}"
+        )
 
         if isinstance(config, pathlib.Path):
             # Load the configuration from the GML file
@@ -81,6 +103,12 @@ class KIRATest[T]:  # T = topology id type, usually int or str
         for tid, cfg in self.topology.configs():
             node = self.topology.nodes[tid]
             args: list[str] = []
+
+            # kirad inherits the environment, so arguments must override set variables
+            if not self.ip_prefixes.is_default() or any(
+                env in os.environ for env in (ENV_NODE_IP_PREFIX, ENV_PATH_IP_PREFIX)
+            ):
+                args.extend(self.ip_prefixes.kirad_args())
 
             if cfg.otel:
                 args.append("--open-telemetry")
