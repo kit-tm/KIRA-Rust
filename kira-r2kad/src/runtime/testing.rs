@@ -23,17 +23,30 @@ use crate::{
 
 #[derive(Debug, Default)]
 pub struct TestingUseCaseRuntime {
-    // NOTE: we *always* generate the same id
+    // NOTE: we *always* generate the same id (unless `unique_timer_ids` is set)
     pub timer_id: usize,
+    /// Return a distinct id (`timer_id + n`) for the n-th registered timer instead of
+    /// always `timer_id`. Needed for use cases that tell their timers apart.
+    pub unique_timer_ids: bool,
     pub current_time: RefCell<Option<Instant>>,
 
     timers: RefCell<usize>,
+    registered_timers: RefCell<Vec<(TimerId, Duration)>>,
+    removed_timers: RefCell<Vec<TimerId>>,
 
     output: RefCell<Vec<Output>>,
     broadcast: RefCell<Vec<UseCaseEvent>>,
 }
 
 impl TestingUseCaseRuntime {
+    /// Runtime that returns a distinct id for every registered timer.
+    pub fn with_unique_timer_ids() -> Self {
+        Self {
+            unique_timer_ids: true,
+            ..Default::default()
+        }
+    }
+
     /// Returns the number of registered timers.
     ///
     /// You can fire *all* registered timers by
@@ -72,21 +85,44 @@ impl TestingUseCaseRuntime {
     pub fn set_current_time(&self, now: Instant) {
         self.current_time.borrow_mut().replace(now);
     }
+
+    /// All registered timers with their (possibly randomized) duration, in registration order.
+    pub fn registered_timers(&self) -> Vec<(TimerId, Duration)> {
+        self.registered_timers.borrow().clone()
+    }
+
+    /// All timers passed to [remove_timer](UseCaseRuntime::remove_timer), in call order.
+    pub fn removed_timers(&self) -> Vec<TimerId> {
+        self.removed_timers.borrow().clone()
+    }
+
+    fn next_timer_id(&self, duration: Duration) -> TimerId {
+        let mut timers = self.timers.borrow_mut();
+        *timers += 1;
+        let timer_id: TimerId = if self.unique_timer_ids {
+            (self.timer_id + *timers).into()
+        } else {
+            self.timer_id.into()
+        };
+        self.registered_timers
+            .borrow_mut()
+            .push((timer_id, duration));
+        timer_id
+    }
 }
 
 impl UseCaseRuntime for TestingUseCaseRuntime {
-    fn register_timer(&self, _duration: Duration) -> TimerId {
-        *self.timers.borrow_mut() += 1;
-        self.timer_id.into()
+    fn register_timer(&self, duration: Duration) -> TimerId {
+        self.next_timer_id(duration)
     }
 
-    fn remove_timer(&self, _timer_id: TimerId) {
-        // just a NOOP
+    fn remove_timer(&self, timer_id: TimerId) {
+        // the timer is only recorded, it may still be fired by the test
+        self.removed_timers.borrow_mut().push(timer_id);
     }
 
-    fn register_periodic_timer(&self, _duration: Duration) -> TimerId {
-        *self.timers.borrow_mut() += 1;
-        self.timer_id.into()
+    fn register_periodic_timer(&self, duration: Duration) -> TimerId {
+        self.next_timer_id(duration)
     }
 
     fn current_time(&self) -> Instant {

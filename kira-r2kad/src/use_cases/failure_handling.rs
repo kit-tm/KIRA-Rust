@@ -813,11 +813,20 @@ where
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::FindNodeRsp(rsp), _) => {
-                if let Some((_, timer)) = self.inflight_rediscoveries.remove_by_nonce(rsp.msg_id())
+                if let Some(contact) = context.routing_table().contact(rsp.source())
+                    && contact.is_valid()
                 {
-                    log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got a successful answer [timer: {:?}, nonce: {:?}]", rsp.source_route.source(), timer, rsp.msg_id());
+                    //  since the contact state has changed to Valid, the rediscovery process will stop automatically
+                    if let Some((_, timer)) = self.inflight_rediscoveries.remove_by_nonce(rsp.msg_id()) {
+                        log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got a successful answer [timer: {:?}, nonce: {:?}]", rsp.source_route.source(), timer, rsp.msg_id());
+                    }
+
                     log::debug!(target: "failure_handling", "Rediscovery of {} was successful!", rsp.source());
-                    //  since the contact state should have changed to Valid, the rediscovery process will stop automatically
+                } else {
+                    // in pathological cases the FindNodeRsp may not validate the contact
+                    // (e.g., with lower sequence number after node restart) and we should keep on
+                    // rediscovering (this function can also deal with removed contacts)
+                    self.handle_rediscovery_failure(context, Some(rsp.msg_id()), None)?;
                 }
             }
             UseCaseEvent::Message(ProtocolMessage::Error(rsp), _) => {
