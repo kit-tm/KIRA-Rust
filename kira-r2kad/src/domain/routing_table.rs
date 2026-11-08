@@ -563,10 +563,16 @@ mod tests {
         assert_eq!(invalidated, vec![lost, behind_lost]);
         for node in [lost, behind_lost] {
             let contact = table.contact(&node).unwrap();
-            assert!(contact.is_invalid(), "contact {node} via lost neighbor invalidated");
+            assert!(
+                contact.is_invalid(),
+                "contact {node} via lost neighbor invalidated"
+            );
         }
         for node in [other, behind_other] {
-            assert!(table.contact(&node).unwrap().is_valid(), "contact {node} stays valid");
+            assert!(
+                table.contact(&node).unwrap().is_valid(),
+                "contact {node} stays valid"
+            );
         }
     }
 }

@@ -806,8 +806,14 @@ mod tests {
 
         let result = receive(&ctx, uln_disc_message(ProtocolMessageKind::ULNDiscRsp, 2));
 
-        assert!(matches!(result, HandlingResult::Handled), "not passed to other use cases");
-        assert!(neighbor_contact(&ctx).unwrap().is_invalid(), "contact stays invalid");
+        assert!(
+            matches!(result, HandlingResult::Handled),
+            "not passed to other use cases"
+        );
+        assert!(
+            neighbor_contact(&ctx).unwrap().is_invalid(),
+            "contact stays invalid"
+        );
     }
 
     #[test]
@@ -817,8 +823,14 @@ mod tests {
 
         let result = receive(&ctx, uln_disc_message(ProtocolMessageKind::ULNDiscReq, 2));
 
-        assert!(matches!(result, HandlingResult::NotHandled), "VicinityDiscovery still has to process the request");
-        assert!(neighbor_contact(&ctx).unwrap().is_invalid(), "contact stays invalid");
+        assert!(
+            matches!(result, HandlingResult::NotHandled),
+            "VicinityDiscovery still has to process the request"
+        );
+        assert!(
+            neighbor_contact(&ctx).unwrap().is_invalid(),
+            "contact stays invalid"
+        );
     }
 
     #[test]

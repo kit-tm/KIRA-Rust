@@ -805,7 +805,9 @@ where
                     && contact.is_valid()
                 {
                     //  since the contact state has changed to Valid, the rediscovery process will stop automatically
-                    if let Some((_, timer)) = self.inflight_rediscoveries.remove_by_nonce(rsp.msg_id()) {
+                    if let Some((_, timer)) =
+                        self.inflight_rediscoveries.remove_by_nonce(rsp.msg_id())
+                    {
                         log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got a successful answer [timer: {:?}, nonce: {:?}]", rsp.source_route.source(), timer, rsp.msg_id());
                     }
 

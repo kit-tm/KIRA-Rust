@@ -643,8 +643,7 @@ where
         else {
             panic!("VicinityDiscovery should be running");
         };
-        let Some(req_state) =
-            pending_reqs.get_mut(&(destination, ProtocolMessageKind::ULNDiscRsp))
+        let Some(req_state) = pending_reqs.get_mut(&(destination, ProtocolMessageKind::ULNDiscRsp))
         else {
             return self.init_uln_disc_req(context, destination, underlay_neighbor, timeout);
         };
@@ -2041,13 +2040,27 @@ mod tests {
         let timer = stale_check_timer(&vd);
 
         fire(&mut vd, &ctx, timer);
-        assert_eq!(sent_uln_disc_reqs(&ctx).len(), 1, "first check probes the stale ULN");
-        assert!(has_timer_hook(&vd, timer), "periodic timer hook must be kept");
+        assert_eq!(
+            sent_uln_disc_reqs(&ctx).len(),
+            1,
+            "first check probes the stale ULN"
+        );
+        assert!(
+            has_timer_hook(&vd, timer),
+            "periodic timer hook must be kept"
+        );
 
         // the runtime fires the periodic timer again under the same id
         fire(&mut vd, &ctx, timer);
-        assert_eq!(sent_uln_disc_reqs(&ctx).len(), 1, "second check probes again");
-        assert!(has_timer_hook(&vd, timer), "periodic timer hook must be kept");
+        assert_eq!(
+            sent_uln_disc_reqs(&ctx).len(),
+            1,
+            "second check probes again"
+        );
+        assert!(
+            has_timer_hook(&vd, timer),
+            "periodic timer hook must be kept"
+        );
     }
 
     #[test]
@@ -2094,7 +2107,10 @@ mod tests {
         assert_eq!(after.expected_nonce, before.expected_nonce);
         assert_eq!(after.timeouts, before.timeouts, "retry count is kept");
         let check_timeout = vd.config.uln_discovery_rsp_check_max_wait_time;
-        assert_eq!(after.timeout, check_timeout, "switched to the shorter check timeout");
+        assert_eq!(
+            after.timeout, check_timeout,
+            "switched to the shorter check timeout"
+        );
 
         // the retry timer was replaced
         assert_ne!(after.timer_id, before.timer_id);
@@ -2147,8 +2163,15 @@ mod tests {
             state => state,
         };
         fire(&mut vd, &ctx, before.timer_id);
-        assert!(sent_uln_disc_reqs(&ctx).is_empty(), "outdated timer must not resend");
-        assert_eq!(pending_uln_disc_req(&vd), Some(replaced.clone()), "request unchanged");
+        assert!(
+            sent_uln_disc_reqs(&ctx).is_empty(),
+            "outdated timer must not resend"
+        );
+        assert_eq!(
+            pending_uln_disc_req(&vd),
+            Some(replaced.clone()),
+            "request unchanged"
+        );
 
         // the current timer still works
         fire(&mut vd, &ctx, replaced.timer_id);
@@ -2171,12 +2194,18 @@ mod tests {
         let timer = stale_check_timer(&vd);
         fire(&mut vd, &ctx, timer);
         let req = pending_uln_disc_req(&vd).unwrap();
-        assert_eq!(req.timeouts, vd.config.uln_discovery_max_retries, "retry count is kept");
+        assert_eq!(
+            req.timeouts, vd.config.uln_discovery_max_retries,
+            "retry count is kept"
+        );
 
         fire(&mut vd, &ctx, req.timer_id);
         assert!(pending_uln_disc_req(&vd).is_none(), "request given up");
         assert!(!ctx.uln_table().contains(&uln()), "ULN removed");
-        assert!(ctx.vicinity_graph().entry(&uln()).is_none(), "ULN removed from vicinity");
+        assert!(
+            ctx.vicinity_graph().entry(&uln()).is_none(),
+            "ULN removed from vicinity"
+        );
     }
 
     #[test]
@@ -2196,8 +2225,14 @@ mod tests {
         assert!(!ctx.uln_table().contains(&uln()), "ULN removed");
         let vg = ctx.vicinity_graph();
         // the ULN keeps its edge to the two-hop node, but neither is reachable anymore
-        assert!(vg.entry(&uln()).is_none(), "unreachable ULN removed from vicinity");
-        assert!(vg.entry(&two_hop()).is_none(), "unreachable two-hop node removed from vicinity");
+        assert!(
+            vg.entry(&uln()).is_none(),
+            "unreachable ULN removed from vicinity"
+        );
+        assert!(
+            vg.entry(&two_hop()).is_none(),
+            "unreachable two-hop node removed from vicinity"
+        );
         drop(vg);
         assert!(
             ctx.runtime()
@@ -2250,7 +2285,10 @@ mod tests {
         let via_lost = rt.contact(&two_hop()).unwrap();
         assert!(via_lost.is_invalid(), "contact via lost ULN invalidated");
         for node in [other_uln(), behind_other_uln()] {
-            assert!(rt.contact(&node).unwrap().is_valid(), "contact {node} stays valid");
+            assert!(
+                rt.contact(&node).unwrap().is_valid(),
+                "contact {node} stays valid"
+            );
         }
         assert!(
             rt.iter()
@@ -2275,10 +2313,19 @@ mod tests {
 
         give_up_regular_uln_disc_req(&mut vd, &ctx);
 
-        assert!(ctx.vicinity_graph().entry(&uln()).is_some(), "ULN still in vicinity");
+        assert!(
+            ctx.vicinity_graph().entry(&uln()).is_some(),
+            "ULN still in vicinity"
+        );
         let rt = ctx.routing_table();
-        assert!(rt.contact(&uln()).unwrap().is_invalid(), "direct contact of ULN invalidated");
-        assert!(rt.contact(&two_hop()).unwrap().is_invalid(), "contact via ULN invalidated");
+        assert!(
+            rt.contact(&uln()).unwrap().is_invalid(),
+            "direct contact of ULN invalidated"
+        );
+        assert!(
+            rt.contact(&two_hop()).unwrap().is_invalid(),
+            "contact via ULN invalidated"
+        );
     }
 
     #[test]
@@ -2292,9 +2339,7 @@ mod tests {
         let (mut vd, ctx, _) = setup(config, false);
         vd.handle_event(
             &ctx,
-            UseCaseEvent::UnderlayUpdate(UnderlayNeighborUpdate::InterfaceUp(
-                ulnid().interface_id,
-            )),
+            UseCaseEvent::UnderlayUpdate(UnderlayNeighborUpdate::InterfaceUp(ulnid().interface_id)),
         )
         .unwrap();
         let before = start_regular_uln_disc_req(&mut vd, &ctx);
