@@ -154,7 +154,24 @@ where
                 return Err(ForwardingError::FwdErrDropMessage);
             }
 
+            // A message may have been queued before the neighbor's interface went down and only
+            // be processed after the neighbor was removed from the ULNTable. Such a message
+            // must not revalidate the contact, because the neighbor is unreachable.
             match message {
+                ProtocolMessage::ULNDiscRsp(_) if !context.uln_table().contains(neighbor_id) => {
+                    // ULNDiscReqs are only sent to neighbors in the ULNTable,
+                    // so the response is outdated
+                    log::debug!(target: "forward_protocol_message", "Received ULNDiscRsp from '{neighbor_id}' that is not in ULNTable – dropping outdated message");
+                    return Err(ForwardingError::FwdErrDropMessage);
+                }
+                ProtocolMessage::ULNDiscReq(_) if !context.uln_table().contains(neighbor_id) => {
+                    // either a new neighbor or an outdated request: only create a new contact,
+                    // VicinityDiscovery inserts the neighbor and later messages update the contact
+                    if context.routing_table().contains(neighbor_id) {
+                        log::debug!(target: "forward_protocol_message", "Received ULNDiscReq from '{neighbor_id}' that is not in ULNTable – not updating its contact");
+                        return Err(ForwardingError::FwdErrIgnore);
+                    }
+                }
                 ProtocolMessage::ULNDiscReq(_) | ProtocolMessage::ULNDiscRsp(_) => {}
                 _ => {
                     // this may happen in case the interface is currently disabled and the message arrived before
@@ -671,5 +688,162 @@ where
         } else {
             Ok(HandlingResult::NotHandled)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        context::{
+            ContextConfig,
+            SyncContext,
+        },
+        domain::{
+            ConnectionId,
+            InterfaceId,
+            Nonce,
+            SafeStateSeqNr,
+            StateSeqNr,
+            UnderlayNeighborSource,
+            insertion_strategy::UNSStrategy,
+            path::ShortestFirstPathSimplifier,
+            protocol_message::ULNReqRspMessage,
+            routing_table::SingleBucketRT,
+            underlay_neighbor_table::InMemoryULNTable,
+            vicinity::vicinity_graph::PetVicinityGraph,
+        },
+        runtime::testing::TestingUseCaseRuntime,
+    };
+
+    const BUCKET_SIZE: usize = 20;
+    type RT = SingleBucketRT<BUCKET_SIZE>;
+    type Ctx = SyncContext<
+        RT,
+        TestingUseCaseRuntime,
+        UNSStrategy<RT, InOrderCycleRemover, ShortestFirstPathSimplifier, BUCKET_SIZE>,
+        InMemoryULNTable,
+        PetVicinityGraph,
+    >;
+
+    fn root() -> NodeId {
+        NodeId::with_msb(1)
+    }
+    fn neighbor() -> NodeId {
+        NodeId::with_msb(2)
+    }
+    fn ulnid() -> UnderlayNeighborId {
+        UnderlayNeighborId {
+            interface_id: InterfaceId::try_from(1).unwrap(),
+            connection_id: ConnectionId(0),
+        }
+    }
+    fn ssn(value: u32) -> SafeStateSeqNr {
+        SafeStateSeqNr::try_from(value).unwrap()
+    }
+
+    fn context() -> Ctx {
+        crate::tests::init();
+        Ctx::new(ContextConfig {
+            root_id: root(),
+            routing_table: RT::new(root()),
+            runtime: TestingUseCaseRuntime::default(),
+            insertion_strategy: UNSStrategy::new(InOrderCycleRemover, ShortestFirstPathSimplifier),
+            uln_table: InMemoryULNTable::new(),
+            vicinity_graph: PetVicinityGraph::new(root()),
+        })
+    }
+
+    /// neighbor contact with the direct path, invalidated as after its interface went down
+    fn insert_invalidated_neighbor(ctx: &Ctx) {
+        let mut rt = ctx.routing_table_mut();
+        rt.insert(Contact::new(Path::from(neighbor()), ssn(1)))
+            .unwrap();
+        rt.contact_mut(&neighbor())
+            .unwrap()
+            .set_invalid(NotViaStateList::from(NotViaState::new(
+                Link::new(root(), neighbor()),
+                Timestamp::now(),
+            )));
+    }
+
+    fn uln_disc_message(kind: ProtocolMessageKind, neighbor_ssn: u32) -> ProtocolMessage {
+        let message = ULNReqRspMessage {
+            common_header: CommonHeader::new(
+                kind,
+                neighbor(),
+                root(),
+                Some(Nonce::random()),
+                StateSeqNr::Value(ssn(neighbor_ssn)),
+                0,
+            ),
+            data: RTableData { contacts: vec![] },
+        };
+        match kind {
+            ProtocolMessageKind::ULNDiscReq => ProtocolMessage::ULNDiscReq(message),
+            ProtocolMessageKind::ULNDiscRsp => ProtocolMessage::ULNDiscRsp(message),
+            _ => unreachable!(),
+        }
+    }
+
+    fn receive(ctx: &Ctx, message: ProtocolMessage) -> HandlingResult {
+        ForwardProtocolMessage::<Ctx, BUCKET_SIZE>::default()
+            .handle_event(
+                ctx,
+                UseCaseEvent::Message(message, UnderlayNeighborSource::UnderlayNeighbor(ulnid())),
+            )
+            .unwrap()
+    }
+
+    fn neighbor_contact(ctx: &Ctx) -> Option<Contact> {
+        ctx.routing_table().contact(&neighbor()).cloned()
+    }
+
+    #[test]
+    fn outdated_uln_disc_rsp_of_removed_neighbor_is_dropped() {
+        let ctx = context();
+        insert_invalidated_neighbor(&ctx);
+
+        let result = receive(&ctx, uln_disc_message(ProtocolMessageKind::ULNDiscRsp, 2));
+
+        assert!(matches!(result, HandlingResult::Handled), "not passed to other use cases");
+        assert!(neighbor_contact(&ctx).unwrap().is_invalid(), "contact stays invalid");
+    }
+
+    #[test]
+    fn uln_disc_req_does_not_revalidate_contact_of_removed_neighbor() {
+        let ctx = context();
+        insert_invalidated_neighbor(&ctx);
+
+        let result = receive(&ctx, uln_disc_message(ProtocolMessageKind::ULNDiscReq, 2));
+
+        assert!(matches!(result, HandlingResult::NotHandled), "VicinityDiscovery still has to process the request");
+        assert!(neighbor_contact(&ctx).unwrap().is_invalid(), "contact stays invalid");
+    }
+
+    #[test]
+    fn uln_disc_req_of_new_neighbor_creates_contact() {
+        let ctx = context();
+
+        let result = receive(&ctx, uln_disc_message(ProtocolMessageKind::ULNDiscReq, 1));
+
+        assert!(matches!(result, HandlingResult::NotHandled));
+        let contact = neighbor_contact(&ctx).expect("contact created");
+        assert!(contact.is_valid());
+        assert!(contact.is_uln());
+    }
+
+    #[test]
+    fn uln_disc_rsp_of_known_neighbor_revalidates_contact() {
+        let ctx = context();
+        insert_invalidated_neighbor(&ctx);
+        ctx.uln_table_mut().insert(neighbor(), ulnid());
+
+        let result = receive(&ctx, uln_disc_message(ProtocolMessageKind::ULNDiscRsp, 2));
+
+        assert!(matches!(result, HandlingResult::NotHandled));
+        let contact = neighbor_contact(&ctx).unwrap();
+        assert!(contact.is_valid(), "contact revalidated");
+        assert!(contact.is_uln());
     }
 }

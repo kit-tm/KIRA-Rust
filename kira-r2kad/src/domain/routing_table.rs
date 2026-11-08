@@ -1,5 +1,6 @@
 use std::{
     cmp::Ordering,
+    collections::HashSet,
     num::NonZeroU8,
     ops::DerefMut,
 };
@@ -16,8 +17,12 @@ use crate::domain::{
     Bucket,
     Contact,
     GroupingError,
+    Link,
     NodeId,
+    NotViaState,
+    NotViaStateList,
     SharedPrefix,
+    Timestamp,
     hasher::Hasher,
 };
 pub mod flat_routing_table;
@@ -379,6 +384,32 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// Iterator over mutable references to all contacts in the [RoutingTable].
     fn iter_mut(&'a mut self) -> impl Iterator<Item = Self::ContactWriteGuard>;
 
+    /// Invalidates all [Contact]s whose active path starts with one of the given underlay
+    /// neighbors, as the link from the root to it is broken.
+    ///
+    /// Already invalid [Contact]s keep their active path and get the broken link added.
+    ///
+    /// Returns the [NodeId]s of the invalidated [Contact]s.
+    fn invalidate_contacts_via(&'a mut self, underlay_neighbors: &HashSet<NodeId>) -> Vec<NodeId> {
+        let root = *self.root();
+        let mut invalidated = Vec::new();
+        for mut contact in self.iter_mut() {
+            let Some(first_hop) = contact.path().map(|path| *path.first()) else {
+                continue; // no active path
+            };
+            if !underlay_neighbors.contains(&first_hop) {
+                continue;
+            }
+            contact.set_invalid(NotViaStateList::from(NotViaState::new(
+                Link::new(root, first_hop),
+                Timestamp::now(),
+            )));
+            tracing::trace!(node = %contact.id(), %first_hop, "invalidated contact via broken underlay neighbor");
+            invalidated.push(*contact.id());
+        }
+        invalidated
+    }
+
     /// Iterator over all [Bucket]s in the [RoutingTable]
     fn bucket_iter(&'a self) -> Self::BucketIter;
 
@@ -507,5 +538,35 @@ mod tests {
         test_next_hop_xor_tiebreaker_impl(|root| {
             UnlimitedULNRoutingTable::from(FlatRoutingTable::<4, 1>::new(root).unwrap())
         });
+    }
+
+    #[test]
+    fn invalidate_contacts_via_invalidates_contacts_starting_with_given_neighbors() {
+        crate::tests::init();
+        let [root, lost, behind_lost, other, behind_other] = [1, 2, 3, 4, 5].map(NodeId::with_msb);
+        let ssn = SafeStateSeqNr::try_from(1).unwrap();
+        let mut table = SingleBucketRT::<20>::new(root);
+        for path in [
+            vec![lost],
+            vec![lost, behind_lost],
+            vec![other],
+            vec![other, behind_other],
+        ] {
+            table
+                .add(Contact::new(Path::try_from(path.as_slice()).unwrap(), ssn))
+                .unwrap();
+        }
+
+        let mut invalidated = table.invalidate_contacts_via(&HashSet::from([lost]));
+
+        invalidated.sort();
+        assert_eq!(invalidated, vec![lost, behind_lost]);
+        for node in [lost, behind_lost] {
+            let contact = table.contact(&node).unwrap();
+            assert!(contact.is_invalid(), "contact {node} via lost neighbor invalidated");
+        }
+        for node in [other, behind_other] {
+            assert!(table.contact(&node).unwrap().is_valid(), "contact {node} stays valid");
+        }
     }
 }

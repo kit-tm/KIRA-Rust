@@ -714,20 +714,8 @@ where
         log::trace!(target: "failure_handling", "Underlay neighbors affected by interface {ulnid:?} down: {affected_underlay_neighbors:?}");
 
         // find contacts whose path contain affected underlay neighbors as first hop
-        for mut contact in rt.iter_mut() {
-            if let Some(active_path) = contact.path() {
-                // contact possesses active path
-                // invalidate if it starts with one of the affected ULNs
-                let first_hop = *active_path.first();
-                if affected_underlay_neighbors.contains(&first_hop) {
-                    contact.set_invalid(NotViaStateList::from(NotViaState::new(
-                        Link::new(*context.root_id(), first_hop),
-                        Timestamp::now(),
-                    )));
-
-                    log::trace!(target: "failure_handling", "Invalidated contact {} as it starts with failed underlay neighbor {}", contact.id(), contact.path().unwrap().first());
-                }
-            }
+        for node_id in rt.invalidate_contacts_via(&affected_underlay_neighbors) {
+            log::trace!(target: "failure_handling", "Invalidated contact {node_id} as it starts with a failed underlay neighbor");
         }
 
         // update vicinity graph

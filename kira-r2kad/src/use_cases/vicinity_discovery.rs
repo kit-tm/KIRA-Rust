@@ -28,18 +28,14 @@ use crate::{
         Contact,
         DEFAULT_BUCKET_SIZE,
         InterfaceId,
-        Link,
         NodeId,
         Nonce,
-        NotViaState,
-        NotViaStateList,
         ProtocolMessage,
         ProtocolMessageKind,
         RoutingTable,
         SafeStateSeqNr,
         SourceRoute,
         StateSeqNr,
-        Timestamp,
         ULNState,
         ULNTable,
         UnderlayNeighborDestination::{
@@ -1638,21 +1634,22 @@ where
                                 context.runtime().broadcast_event(VicinityEvent::Changed);
                             }
 
+                            let mut rt = context.routing_table_mut();
                             // if last link has been removed, the node will be deleted also from RT
                             if vg.entry(&destination).is_none() {
-                                context.routing_table_mut().remove(&destination);
-
-                                return Ok(());
+                                rt.remove(&destination);
                             }
-                            // set contact to invalid in case the direct ULN was active (contact may also be in two-hop vicinity)
-                            if let Some(mut contact) =
-                                context.routing_table_mut().contact_mut(&destination)
-                                && contact.is_uln()
-                            {
-                                contact.set_invalid(NotViaStateList::from(NotViaState::new(
-                                    Link::new(*context.root_id(), destination),
-                                    Timestamp::now(),
-                                )));
+                            // invalidate all contacts whose path starts with the lost ULN,
+                            // including its own contact if the direct link was active
+                            // (the contact may also be in the two-hop vicinity)
+                            for node in rt.invalidate_contacts_via(&HashSet::from([destination])) {
+                                tracing::debug!(
+                                    target: "vicinity_discovery",
+                                    %node,
+                                    via = %destination,
+                                    reason = "sync_timeout",
+                                    "invalidated contact",
+                                );
                             }
 
                             return Ok(());
@@ -1899,6 +1896,7 @@ mod tests {
         },
         domain::{
             ConnectionId,
+            Path,
             routing_table::SingleBucketRT,
             underlay_neighbor_table::InMemoryULNTable,
             vicinity::vicinity_graph::PetVicinityGraph,
@@ -2207,6 +2205,80 @@ mod tests {
                 .any(|event| matches!(event, UseCaseEvent::Vicinity(VicinityEvent::Changed))),
             "vicinity change is announced"
         );
+    }
+
+    /// another underlay neighbor, not affected by the loss of [uln]
+    fn other_uln() -> NodeId {
+        NodeId::with_msb(4)
+    }
+    /// two-hop neighbor reachable via [other_uln]
+    fn behind_other_uln() -> NodeId {
+        NodeId::with_msb(5)
+    }
+
+    fn add_contact(ctx: &Ctx, path: &[NodeId]) {
+        ctx.routing_table_mut()
+            .add(Contact::new(Path::try_from(path).unwrap(), ssn(1)))
+            .unwrap();
+    }
+
+    fn give_up_regular_uln_disc_req(vd: &mut VD, ctx: &Ctx) {
+        start_regular_uln_disc_req(vd, ctx);
+        for _ in 0..=vd.config.uln_discovery_max_retries {
+            let timer = pending_uln_disc_req(vd).unwrap().timer_id;
+            fire(vd, ctx, timer);
+        }
+        assert!(pending_uln_disc_req(vd).is_none(), "request given up");
+    }
+
+    #[test]
+    fn sync_timeout_invalidates_contacts_via_lost_uln() {
+        let (mut vd, ctx, _) = setup(VicinityDiscoveryConfig::default(), true);
+        ctx.vicinity_graph_mut()
+            .insert(two_hop(), &uln(), ssn(1))
+            .unwrap();
+        add_contact(&ctx, &[uln()]);
+        add_contact(&ctx, &[uln(), two_hop()]);
+        add_contact(&ctx, &[other_uln()]);
+        add_contact(&ctx, &[other_uln(), behind_other_uln()]);
+
+        give_up_regular_uln_disc_req(&mut vd, &ctx);
+
+        let rt = ctx.routing_table();
+        // the ULN left the vicinity, so its contact is removed
+        assert!(!rt.contains(&uln()), "contact of lost ULN removed");
+        let via_lost = rt.contact(&two_hop()).unwrap();
+        assert!(via_lost.is_invalid(), "contact via lost ULN invalidated");
+        for node in [other_uln(), behind_other_uln()] {
+            assert!(rt.contact(&node).unwrap().is_valid(), "contact {node} stays valid");
+        }
+        assert!(
+            rt.iter()
+                .filter(|contact| contact.is_valid())
+                .filter_map(Contact::path)
+                .all(|path| path.first() != &uln()),
+            "no valid contact starts with the lost ULN"
+        );
+    }
+
+    #[test]
+    fn sync_timeout_invalidates_contact_of_uln_still_in_vicinity() {
+        let (mut vd, ctx, _) = setup(VicinityDiscoveryConfig::default(), false);
+        {
+            // the ULN is also a two-hop neighbor via another ULN
+            let mut vg = ctx.vicinity_graph_mut();
+            vg.insert(other_uln(), &root(), ssn(1)).unwrap();
+            vg.insert(uln(), &other_uln(), ssn(1)).unwrap();
+        }
+        add_contact(&ctx, &[uln()]);
+        add_contact(&ctx, &[uln(), two_hop()]);
+
+        give_up_regular_uln_disc_req(&mut vd, &ctx);
+
+        assert!(ctx.vicinity_graph().entry(&uln()).is_some(), "ULN still in vicinity");
+        let rt = ctx.routing_table();
+        assert!(rt.contact(&uln()).unwrap().is_invalid(), "direct contact of ULN invalidated");
+        assert!(rt.contact(&two_hop()).unwrap().is_invalid(), "contact via ULN invalidated");
     }
 
     #[test]
