@@ -1,8 +1,5 @@
 use std::{
-    collections::{
-        HashMap,
-        HashSet,
-    },
+    collections::HashSet,
     io::Cursor,
     num::NonZeroU64,
     sync::Arc,
@@ -450,12 +447,15 @@ fn binrw_update_route_req() {
         })
         .collect();
 
-    let mut contact_actions = HashMap::new();
-    contact_actions.insert(contacts[0].clone(), RouteUpdateActionType::Announce);
-    contact_actions.insert(contacts[1].clone(), RouteUpdateActionType::WithDraw);
-    contact_actions.insert(contacts[2].clone(), RouteUpdateActionType::Change);
-    contact_actions.insert(contacts[3].clone(), RouteUpdateActionType::Unreachable);
-    contact_actions.insert(contacts[4].clone(), RouteUpdateActionType::Other(42));
+    let contact_actions = vec![
+        (contacts[0].clone(), RouteUpdateActionType::Announce),
+        (contacts[1].clone(), RouteUpdateActionType::WithDraw),
+        (contacts[2].clone(), RouteUpdateActionType::Change),
+        (contacts[3].clone(), RouteUpdateActionType::Unreachable),
+        (contacts[4].clone(), RouteUpdateActionType::Other(42)),
+        // the same contact may occur again, e.g., its latest path after its loss
+        (contacts[3].clone(), RouteUpdateActionType::Change),
+    ];
 
     let msg = ProtocolMessage::UpdateRouteReq(UpdateRouteReq {
         common_header: header.clone(),
@@ -494,20 +494,20 @@ fn binrw_update_route_req() {
     assert_eq!(decoded_req.source_route.source(), header.src_node_id());
     assert_eq!(decoded_req.source_route.destination(), header.dest_id());
 
-    assert_eq!(decoded_req.contact_actions.len(), 5);
-    let mut decoded_contact_actions: Vec<_> = decoded_req.contact_actions.into_iter().collect();
-    decoded_contact_actions.sort_by_key(|(c, _)| *c.id());
-
-    for (i, (decoded_contact, decoded_action)) in decoded_contact_actions.iter().enumerate() {
-        assert_eq!(decoded_contact.id(), contacts[i].id());
-        assert_eq!(decoded_contact.state_seq_nr(), contacts[i].state_seq_nr());
+    // order and repeated contacts are kept
+    assert_eq!(decoded_req.contact_actions.len(), contact_actions.len());
+    for ((decoded_contact, decoded_action), (contact, action)) in
+        decoded_req.contact_actions.iter().zip(&contact_actions)
+    {
+        assert_eq!(decoded_contact.id(), contact.id());
+        assert_eq!(decoded_contact.state_seq_nr(), contact.state_seq_nr());
         assert!(
             decoded_contact
                 .path()
                 .unwrap()
-                .is_same_path_as(contacts[i].path().unwrap())
+                .is_same_path_as(contact.path().unwrap())
         );
-        assert_eq!(decoded_action, contact_actions.get(&contacts[i]).unwrap());
+        assert_eq!(decoded_action, action);
     }
 }
 

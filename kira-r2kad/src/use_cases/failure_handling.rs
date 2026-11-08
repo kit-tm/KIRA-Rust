@@ -45,8 +45,6 @@ use crate::{
             ErrorData,
             FindNodeReqData,
             ReqRspMessage,
-            RouteUpdateActionType,
-            UpdateRouteReq,
             WireFormatMessage,
         },
     },
@@ -75,6 +73,7 @@ const REDISCOVERY_WAITTIME_CLOSEST_NEIGHBORS: Duration = Duration::from_millis(5
 const REDISCOVERY_WAITTIME_CONTACT_WITH_ULN: Duration = Duration::from_millis(1000);
 const REDISCOVERY_WAITTIME_OTHER: Duration = Duration::from_millis(2000);
 const REDISCOVERY_TIMEOUT_MAX: Duration = Duration::from_millis(250);
+const VICINITY_ALTERNATIVE_TIMEOUT: Duration = Duration::from_millis(100);
 
 /// Configuration for use case [FailureHandling].
 ///
@@ -86,7 +85,6 @@ const REDISCOVERY_TIMEOUT_MAX: Duration = Duration::from_millis(250);
 ///
 /// Defaults:
 ///
-/// - Overlay neighbors to notify via `UpdateRouteReq`: 3.
 /// - Number of Bits grouped for calculation of closeness for overlay neighbors: 1 Bit.
 /// - Interval used for calculation of random timeout: `[0.5 t, 1.5 t]`,
 ///   t = 100ms (direct underlay neighbor)
@@ -94,10 +92,10 @@ const REDISCOVERY_TIMEOUT_MAX: Duration = Duration::from_millis(250);
 ///   t = 1s (contact affected by ULN failure),
 ///   t = 2s (all other contacts).
 /// - Max retries for exponential backoff: 5.
+/// - Time to wait for the validation of a fast vicinity alternative before the rediscovery
+///   starts: 100ms.
 #[derive(Debug)]
 pub struct FailureHandlingConfig {
-    /// Number of overlay neighbors to notify about a node failure.
-    pub failure_notification_radius: NonZeroUsize,
     /// Number of bits used for determining closest overlay neighbors.
     pub grouping_bits: NonZeroU8,
     /// Number of contacts to try for rediscovery (normally same as bucket size)
@@ -109,17 +107,20 @@ pub struct FailureHandlingConfig {
     pub max_retry_rounds: NonZeroU32,
     /// Number of parallel rediscoveries
     pub rediscovery_parallelism: NonZeroUsize,
+    /// Minimum time to wait for the validation of a fast vicinity alternative
+    /// (proposed path via the vicinity graph) before the rediscovery starts.
+    pub vicinity_alternative_timeout: Duration,
 }
 
 impl Default for FailureHandlingConfig {
     fn default() -> Self {
         Self {
-            failure_notification_radius: NonZeroUsize::new(4).unwrap(),
             grouping_bits: NonZeroU8::new(1).unwrap(),
             number_via_contacts: NonZeroUsize::new(20).unwrap(),
             backoff_timeout_interval: RediscoveryTimeoutInterval::default(),
             max_retry_rounds: NonZeroU32::new(5).unwrap(),
             rediscovery_parallelism: NonZeroUsize::new(2).unwrap(),
+            vicinity_alternative_timeout: VICINITY_ALTERNATIVE_TIMEOUT,
         }
     }
 }
@@ -184,6 +185,10 @@ impl RediscoveryState {
 /// ## Tasks
 ///
 /// - Listens to [UnderlayNeighborUpdate]s and invalidates all affected contacts in the routing table.
+/// - Proposes fast vicinity alternatives for invalidated contacts:
+///   a path via the vicinity graph that avoids the failed links becomes the proposed path,
+///   which path probing validates. A successful validation sets the contact valid again,
+///   so the rediscovery, which is postponed until then, is skipped.
 #[derive(Debug)]
 pub struct FailureHandling<C, const BUCKET_SIZE: usize> {
     _pd: PhantomData<C>,
@@ -192,6 +197,8 @@ pub struct FailureHandling<C, const BUCKET_SIZE: usize> {
     inflight_rediscoveries: InflightReqMap,
     scheduled_rediscoveries: HashMap<TimerId, NodeId>,
     rate_limit_rediscoveries: HashMap<TimerId, NodeId>,
+    /// Contacts with a proposed vicinity alternative and their postponed rediscovery timer
+    pending_vicinity_alternatives: HashMap<NodeId, TimerId>,
 }
 
 impl<C, const BUCKET_SIZE: usize> FailureHandling<C, BUCKET_SIZE> {
@@ -203,6 +210,7 @@ impl<C, const BUCKET_SIZE: usize> FailureHandling<C, BUCKET_SIZE> {
             inflight_rediscoveries: InflightReqMap::default(),
             scheduled_rediscoveries: HashMap::new(),
             rate_limit_rediscoveries: HashMap::new(),
+            pending_vicinity_alternatives: HashMap::new(),
         }
     }
 }
@@ -388,52 +396,92 @@ where
         }
     }
 
-    fn send_updates(&mut self, context: &C, contact: &Contact, notviastatelist: &NotViaStateList) {
-        let closest_own_contacts = context
-            .routing_table()
-            .closest(
-                context.root_id(),
-                self.config.number_via_contacts.get(),
-                self.config.grouping_bits,
-            )
-            .expect("invalid config");
-
-        let mut updates = HashMap::new();
-        updates.insert(contact.clone(), RouteUpdateActionType::Unreachable);
-        // only use the self.config.failure_notification_radius.get() first contacts of
-        for (_, closest_overlay_neighbor) in closest_own_contacts
-            .iter()
-            .take(self.config.failure_notification_radius.get())
-        {
-            let update_route_message = UpdateRouteReq {
-                common_header: CommonHeader::new(
-                    ProtocolMessageKind::UpdateRouteReq,
-                    *context.root_id(),
-                    *contact.id(),
-                    None,
-                    *context.uln_table().state_seq_nr(),
-                    context.uln_table().size(),
-                ),
-                not_via: From::from(notviastatelist.clone()),
-                contact_actions: updates.clone(),
-                source_route: SourceRoute::new(
-                    *context.root_id(),
-                    closest_overlay_neighbor.path().unwrap().clone(),
-                ),
-            };
-
-            context.runtime().send_message(
-                update_route_message,
-                context.uln_table().deref(),
-                context.root_id(),
-            );
-        }
-    }
-
     // schedule rediscovery for contact
-    fn schedule_rediscovery(&mut self, context: &C, contact: &Contact, wait_time: Duration) {
+    fn schedule_rediscovery(
+        &mut self,
+        context: &C,
+        contact: &Contact,
+        wait_time: Duration,
+    ) -> TimerId {
         let timer_id = context.runtime().register_timer(wait_time);
         self.scheduled_rediscoveries.insert(timer_id, *contact.id());
+        timer_id
+    }
+
+    /// Fast vicinity alternative: proposes a path to the contact via the
+    /// vicinity graph that avoids the failed links of the contact.
+    /// The vicinity graph is typically quite up-to-date due to the
+    ///  synchronization of the 2-hop neighbors using the ULNHellos and sequence numbers.
+    ///
+    /// Path probing validates the proposed path, which sets the contact valid again.
+    ///
+    /// Returns whether the alternative became the proposed path of the contact.
+    fn propose_vicinity_alternative(
+        &self,
+        context: &C,
+        contact: &Contact,
+        notviastatelist: &NotViaStateList,
+    ) -> bool {
+        let failed_links: HashSet<Link> = notviastatelist
+            .nvs_list
+            .iter()
+            .map(|nvs| nvs.link.clone())
+            .collect();
+        let Some(mut alternative) = context
+            .vicinity_graph()
+            .vicinity_alternative_to(*contact.id(), &failed_links)
+        else {
+            return false;
+        };
+        // a direct path is no alternative (underlay neighbors aren't probed directly),
+        // and the first hop must be a current underlay neighbor
+        if alternative.size() < 2
+            || contact
+                .path()
+                .is_some_and(|path| path.is_same_path_as(&alternative))
+            || !context.uln_table().contains_key(alternative.first())
+        {
+            return false;
+        }
+        alternative.set_notvalidated();
+
+        let mut rt = context.routing_table_mut();
+        let Some(mut contact) = rt.contact_mut(contact.id()) else {
+            return false;
+        };
+        // a proposed path via a failed link is useless and would prevent proposing the alternative
+        if contact
+            .proposed_path()
+            .is_some_and(|path| failed_links.iter().any(|link| path.contains_link(link)))
+        {
+            contact.clear_proposed_path();
+        }
+        let proposed = contact.assess_path_candidate_and_update(&alternative)
+            && contact
+                .proposed_path()
+                .is_some_and(|path| path.is_same_path_as(&alternative));
+        if proposed {
+            tracing::debug!(
+                target: "failure_handling",
+                node = %contact.id(),
+                path = %alternative,
+                "proposed fast vicinity alternative"
+            );
+        }
+        proposed
+    }
+
+    /// Starts the rediscovery of the contact right away if it is postponed
+    /// for a fast vicinity alternative.
+    fn start_postponed_rediscovery(&mut self, context: &C, contact_id: &NodeId) {
+        let Some(timer_id) = self.pending_vicinity_alternatives.remove(contact_id) else {
+            return;
+        };
+        if self.scheduled_rediscoveries.remove(&timer_id).is_some() {
+            context.runtime().remove_timer(timer_id);
+            log::trace!(target: "failure_handling", "Vicinity alternative of {contact_id} failed, starting rediscovery");
+            self.send_rediscovery_for_contact(context, contact_id);
+        }
     }
 
     /// Sends UpdateRouteReq to own closest overlay neighbors,
@@ -448,12 +496,8 @@ where
             return Err(FailureHandlingError::WrongContactState);
         };
 
-        // Send updates to id-wise neighbors in case a direct link to a ULN failed
-        // Updates should be sent when direct links have failed and
-        // otherwise after some time for now we sent Unreachable from here
-        if contact.is_uln() {
-            self.send_updates(context, &contact, notviastatelist);
-        }
+        // the bad news about a failed direct link to a ULN (Unreachable with NotVia) is sent by
+        // HandleContactUpdate, aggregated with other updates after the urgent hold time
 
         // in isolation or drastic failure scenarios it may be the case that no via contacts can be found
         let closest_via_contacts = context
@@ -466,6 +510,14 @@ where
             .expect("invalid config");
 
         let initial_wait_time = self.get_rediscovery_wait_time(context, &contact);
+        // if the alternative is validated in time, the contact gets valid and no rediscovery is necessary
+        let has_vicinity_alternative =
+            self.propose_vicinity_alternative(context, &contact, notviastatelist);
+        let first_wait_time = if has_vicinity_alternative {
+            initial_wait_time.max(self.config.vicinity_alternative_timeout)
+        } else {
+            initial_wait_time
+        };
         // contact state changes to Rediscovering
         context
             .routing_table_mut()
@@ -478,7 +530,11 @@ where
                 initial_wait_time,
             );
 
-        self.schedule_rediscovery(context, &contact, initial_wait_time);
+        let timer_id = self.schedule_rediscovery(context, &contact, first_wait_time);
+        if has_vicinity_alternative {
+            self.pending_vicinity_alternatives
+                .insert(*contact.id(), timer_id);
+        }
 
         Ok(())
     }
@@ -790,11 +846,18 @@ where
                         // contact was invalidated
                         if new.is_invalid() && old.is_valid() {
                             self.start_rediscovery(context, *new)?;
+                        } else if old.proposed_path().is_some()
+                            && new.proposed_path().is_none()
+                            && matches!(new.state(), ContactState::Rediscovering(_))
+                        {
+                            // path probing removes a proposed path whose validation failed
+                            self.start_postponed_rediscovery(context, new.id());
                         }
                     }
                     ContactEvent::Removed(contact) => {
                         // a contact may be removed by being replaced by a better contact while in rediscovery
                         self.inflight_rediscoveries.remove_by_id(contact.id());
+                        self.pending_vicinity_alternatives.remove(contact.id());
                         log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got removed from routing table", contact.id());
                     }
                     _ => {}
@@ -837,8 +900,19 @@ where
             }
             UseCaseEvent::Timer(id) => {
                 if let Some(contact_id) = self.scheduled_rediscoveries.remove(&id) {
-                    // start sending the first rediscovery messages in parallel
-                    self.send_rediscovery_for_contact(context, &contact_id);
+                    if self.pending_vicinity_alternatives.get(&contact_id) == Some(&id) {
+                        self.pending_vicinity_alternatives.remove(&contact_id);
+                    }
+                    let rediscovering = context.routing_table().contains_with(&contact_id, |c| {
+                        matches!(c.state(), ContactState::Rediscovering(_))
+                    });
+                    if rediscovering {
+                        // start sending the first rediscovery messages in parallel
+                        self.send_rediscovery_for_contact(context, &contact_id);
+                    } else {
+                        // e.g., a vicinity alternative was validated meanwhile
+                        log::trace!(target: "failure_handling", "Skipping rediscovery of {contact_id} as it is not rediscovering anymore");
+                    }
                 } else {
                     // it is potentially a timeout
                     self.handle_rediscovery_failure(context, None, Some(id))?;
@@ -880,4 +954,228 @@ pub enum FailureHandlingError {
     DuplicateTimerId,
     #[display("Wrong contact state")]
     WrongContactState,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        Output,
+        context::{
+            ContextConfig,
+            SyncContext,
+        },
+        domain::{
+            ConnectionId,
+            InterfaceId,
+            Path,
+            SafeStateSeqNr,
+            routing_table::SingleBucketRT,
+            underlay_neighbor_table::InMemoryULNTable,
+            vicinity::vicinity_graph::PetVicinityGraph,
+        },
+        runtime::testing::TestingUseCaseRuntime,
+    };
+
+    const BUCKET_SIZE: usize = 20;
+    type Ctx = SyncContext<
+        SingleBucketRT<BUCKET_SIZE>,
+        TestingUseCaseRuntime,
+        (),
+        InMemoryULNTable,
+        PetVicinityGraph,
+    >;
+    type FH = FailureHandling<Ctx, BUCKET_SIZE>;
+
+    fn root() -> NodeId {
+        NodeId::with_msb(1)
+    }
+    /// underlay neighbor that stays reachable
+    fn a() -> NodeId {
+        NodeId::with_msb(2)
+    }
+    /// underlay neighbor whose link fails
+    fn b() -> NodeId {
+        NodeId::with_msb(3)
+    }
+    fn ulnid(id: u32) -> UnderlayNeighborId {
+        UnderlayNeighborId {
+            interface_id: InterfaceId::try_from(id).unwrap(),
+            connection_id: ConnectionId(id),
+        }
+    }
+    fn ssn() -> SafeStateSeqNr {
+        SafeStateSeqNr::try_from(1).unwrap()
+    }
+    fn path(nodes: &[NodeId]) -> Path {
+        Path::try_from(nodes).unwrap()
+    }
+
+    /// Context with the underlay neighbors [a] and [b] as contacts and in the vicinity graph.
+    /// If `a_links_b`, [b] can also be reached via [a] (triangle).
+    fn setup(a_links_b: bool) -> (FH, Ctx) {
+        crate::tests::init();
+
+        let ctx = Ctx::new(ContextConfig {
+            root_id: root(),
+            routing_table: SingleBucketRT::<BUCKET_SIZE>::new(root()),
+            runtime: TestingUseCaseRuntime::with_unique_timer_ids(),
+            insertion_strategy: (),
+            uln_table: InMemoryULNTable::new(),
+            vicinity_graph: PetVicinityGraph::new(root()),
+        });
+        ctx.uln_table_mut().insert(a(), ulnid(1));
+        ctx.uln_table_mut().insert(b(), ulnid(2));
+        {
+            let mut vg = ctx.vicinity_graph_mut();
+            vg.insert(a(), &root(), ssn()).unwrap();
+            vg.insert(b(), &root(), ssn()).unwrap();
+            if a_links_b {
+                vg.insert(b(), &a(), ssn()).unwrap();
+            }
+        }
+        for node in [a(), b()] {
+            ctx.routing_table_mut()
+                .add(Contact::new(path(&[node]), ssn()))
+                .unwrap();
+        }
+
+        let mut fh = FH::new(FailureHandlingConfig::default());
+        fh.start(&ctx).unwrap();
+        (fh, ctx)
+    }
+
+    fn contact(ctx: &Ctx, node: NodeId) -> Contact {
+        ctx.routing_table().contact(&node).unwrap().clone()
+    }
+
+    /// Hands the change of the contact by `change` to failure handling,
+    /// as the test routing table doesn't emit contact events.
+    fn change_contact(fh: &mut FH, ctx: &Ctx, node: NodeId, change: impl FnOnce(&mut Contact)) {
+        let old = contact(ctx, node);
+        change(ctx.routing_table_mut().contact_mut(&node).unwrap());
+        let new = contact(ctx, node);
+        fh.handle_event(
+            ctx,
+            UseCaseEvent::Contact(Box::new(ContactEvent::Updated {
+                new: Box::new(new),
+                old: Box::new(old),
+            })),
+        )
+        .unwrap();
+    }
+
+    /// Fails the link to [b] and returns the timer of the scheduled rediscovery of [b].
+    fn fail_link_to_b(fh: &mut FH, ctx: &Ctx) -> TimerId {
+        let old = contact(ctx, b());
+        fh.handle_event(
+            ctx,
+            UseCaseEvent::UnderlayUpdate(UnderlayNeighborUpdate::UnderlayNeighborDown(ulnid(2))),
+        )
+        .unwrap();
+        let new = contact(ctx, b());
+        assert!(new.is_invalid(), "contact of b invalidated");
+        fh.handle_event(
+            ctx,
+            UseCaseEvent::Contact(Box::new(ContactEvent::Updated {
+                new: Box::new(new),
+                old: Box::new(old),
+            })),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            contact(ctx, b()).state(),
+            ContactState::Rediscovering(_)
+        ));
+        fh.scheduled_rediscoveries
+            .iter()
+            .find_map(|(timer, node)| (node == &b()).then_some(*timer))
+            .expect("rediscovery of b scheduled")
+    }
+
+    fn timer_duration(ctx: &Ctx, timer_id: TimerId) -> Duration {
+        ctx.runtime()
+            .registered_timers()
+            .into_iter()
+            .find_map(|(id, duration)| (id == timer_id).then_some(duration))
+            .expect("timer registered")
+    }
+
+    /// Searched nodes (destination ids) of the FindNodeReqs sent since the last call
+    fn sent_find_node_reqs(ctx: &Ctx) -> Vec<NodeId> {
+        ctx.runtime()
+            .output()
+            .filter_map(|output| match output {
+                Output::SendProtocolMessage(ProtocolMessage::FindNodeReq(req), _) => {
+                    Some(*req.common_header.dest_id())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn vicinity_alternative_is_proposed_and_postpones_rediscovery() {
+        let (mut fh, ctx) = setup(true);
+        let timer = fail_link_to_b(&mut fh, &ctx);
+
+        let b_contact = contact(&ctx, b());
+        let proposed = b_contact.proposed_path().expect("alternative proposed");
+        assert_eq!(proposed.as_ref(), [a(), b()]);
+        assert!(!proposed.is_valid(), "alternative must be validated first");
+        assert_eq!(
+            timer_duration(&ctx, timer),
+            FailureHandlingConfig::default().vicinity_alternative_timeout,
+            "rediscovery waits for the validation"
+        );
+        assert!(sent_find_node_reqs(&ctx).is_empty());
+    }
+
+    #[test]
+    fn validated_vicinity_alternative_skips_rediscovery() {
+        let (mut fh, ctx) = setup(true);
+        let timer = fail_link_to_b(&mut fh, &ctx);
+
+        // the ProbeRsp along the alternative validates it
+        let mut validated = path(&[a(), b()]);
+        validated.set_valid();
+        change_contact(&mut fh, &ctx, b(), |contact| {
+            assert!(contact.assess_path_candidate_and_update(&validated));
+        });
+        assert!(contact(&ctx, b()).is_valid());
+
+        fh.handle_event(&ctx, UseCaseEvent::Timer(timer)).unwrap();
+        assert!(sent_find_node_reqs(&ctx).is_empty(), "no rediscovery");
+        assert!(fh.pending_vicinity_alternatives.is_empty());
+        assert_eq!(contact(&ctx, b()).path().unwrap().as_ref(), [a(), b()]);
+    }
+
+    #[test]
+    fn failed_vicinity_alternative_starts_rediscovery_immediately() {
+        let (mut fh, ctx) = setup(true);
+        let timer = fail_link_to_b(&mut fh, &ctx);
+        assert!(sent_find_node_reqs(&ctx).is_empty());
+
+        // path probing removes the proposed path after a SegmentFailure
+        change_contact(&mut fh, &ctx, b(), Contact::clear_proposed_path);
+
+        assert_eq!(sent_find_node_reqs(&ctx), vec![b()]);
+        assert_eq!(ctx.runtime().removed_timers(), vec![timer]);
+        assert!(fh.pending_vicinity_alternatives.is_empty());
+        assert!(!fh.scheduled_rediscoveries.contains_key(&timer));
+    }
+
+    #[test]
+    fn without_vicinity_alternative_rediscovery_is_not_postponed() {
+        let (mut fh, ctx) = setup(false);
+        let timer = fail_link_to_b(&mut fh, &ctx);
+
+        assert!(contact(&ctx, b()).proposed_path().is_none());
+        assert_eq!(timer_duration(&ctx, timer), REDISCOVERY_WAITTIME_ULN);
+        assert!(fh.pending_vicinity_alternatives.is_empty());
+
+        fh.handle_event(&ctx, UseCaseEvent::Timer(timer)).unwrap();
+        assert_eq!(sent_find_node_reqs(&ctx), vec![b()]);
+    }
 }

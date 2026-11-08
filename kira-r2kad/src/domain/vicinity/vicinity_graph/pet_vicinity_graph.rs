@@ -256,6 +256,7 @@ mod test {
     };
 
     use super::*;
+    use crate::domain::Link;
 
     #[test]
     fn empty_graph() {
@@ -585,5 +586,63 @@ mod test {
         // isolated node can't be used as neighbor anymore, but can be reinserted via root
         assert!(graph.insert(two_hop, &uln, ssn).is_err());
         assert!(graph.insert(uln, &root_id, ssn).unwrap());
+    }
+
+    /// root - a - b, root - c - b and b - d, without the direct link root - b
+    fn triangle_graph() -> (PetVicinityGraph, [NodeId; 5]) {
+        let n = [1, 2, 3, 4, 5].map(NodeId::with_msb);
+        let [root_id, a, b, c, d] = n;
+        let ssn = SafeStateSeqNr::try_from(1).unwrap();
+
+        let mut graph = PetVicinityGraph::new(root_id);
+        graph.insert(a, &root_id, ssn).unwrap();
+        graph.insert(c, &root_id, ssn).unwrap();
+        graph.insert(b, &a, ssn).unwrap();
+        graph.insert(b, &c, ssn).unwrap();
+        graph.insert(d, &b, ssn).unwrap();
+        (graph, n)
+    }
+
+    #[test]
+    fn vicinity_alternative_avoids_links_and_omits_root() {
+        let (graph, [_, a, b, c, _]) = triangle_graph();
+
+        let best = graph
+            .vicinity_alternative_to(b, &HashSet::new())
+            .expect("path to b exists");
+        assert!(
+            best.as_ref() == [a, b] || best.as_ref() == [c, b],
+            "two-hop path without root, got {best}"
+        );
+
+        let via_c = graph
+            .vicinity_alternative_to(b, &HashSet::from([Link::new(a, b)]))
+            .expect("path via c exists");
+        assert_eq!(via_c.as_ref(), [c, b]);
+    }
+
+    #[test]
+    fn vicinity_alternative_is_deterministic() {
+        let (graph, [_, _, b, _, _]) = triangle_graph();
+        let first = graph.vicinity_alternative_to(b, &HashSet::new()).unwrap();
+        for _ in 0..10 {
+            assert_eq!(
+                graph
+                    .vicinity_alternative_to(b, &HashSet::new())
+                    .unwrap()
+                    .as_ref(),
+                first.as_ref()
+            );
+        }
+    }
+
+    #[test]
+    fn no_vicinity_alternative_if_all_paths_use_avoided_links() {
+        let (graph, [root_id, a, b, c, d]) = triangle_graph();
+
+        let avoid = HashSet::from([Link::new(a, b), Link::new(root_id, c)]);
+        assert!(graph.vicinity_alternative_to(b, &avoid).is_none());
+        // d is 3 hops away, outside of the paths of the vicinity
+        assert!(graph.vicinity_alternative_to(d, &HashSet::new()).is_none());
     }
 }

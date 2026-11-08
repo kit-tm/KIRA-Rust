@@ -336,6 +336,14 @@ where
                 Some(mut contact) => {
                     // comparing the probed_path is not necessary because if the failed_link is contained,
                     // any affected path has a problem
+                    // (the probe may have been for the active or the proposed path)
+                    if let Some(proposed_path) = contact.proposed_path()
+                        && proposed_path.contains_link(&failed_link)
+                    {
+                        // proposed path does not work, so delete it
+                        log::trace!(target: "path_probing", "Probing for proposed path {:?} of contact {} failed with link {}. Removing proposed path.", contact.proposed_path(), contact.id(), failed_link);
+                        contact.clear_proposed_path();
+                    }
                     if let Some(active_path) = contact.path()
                         && active_path.contains_link(&failed_link)
                     {
@@ -344,16 +352,7 @@ where
                             failed_link,
                             Timestamp::now(),
                         )));
-                    } else {
-                        // maybe it was a probe for the proposed path
-                        if let Some(proposed_path) = contact.proposed_path()
-                            && proposed_path.contains_link(&failed_link)
-                        {
-                            // proposed path does not work, so delete it
-                            log::trace!(target: "path_probing", "Probing for proposed path {:?} of contact {} failed with link {}. Removing proposed path.", contact.proposed_path(), contact.id(), failed_link);
-                            contact.clear_proposed_path();
-                        }
-                    };
+                    }
                 }
                 None => {
                     log::trace!(target: "path_probing", "Removed timeout for non existent contact {contacts_id}")
@@ -713,16 +712,25 @@ where
                         );
                     }
                     ContactEvent::Updated { new, old } => {
-                        // in case there is a new proposed path present, schedule probing for proposed path in case it is not a ULN
-                        if old.proposed_path().is_none()
-                            && new.proposed_path().is_some()
-                            && new.proposed_path().unwrap().size() > 1
+                        // in case there is a new proposed path present, probe it in case it is not a ULN
+                        if let Some(proposed_path) = new.proposed_path()
+                            && proposed_path.size() > 1
+                            && old
+                                .proposed_path()
+                                .is_none_or(|old_path| !old_path.is_same_path_as(proposed_path))
                         {
-                            log::trace!(target: "path_probing", "Probing for contact with newly proposed path {}", new.proposed_path().unwrap());
-                            self.schedule_path_probe_req(
-                                context,
-                                PathProbeAction::ContactProposedPath(*new.id()),
-                            );
+                            if new.is_valid() {
+                                log::trace!(target: "path_probing", "Probing for contact with newly proposed path {proposed_path}");
+                                self.schedule_path_probe_req(
+                                    context,
+                                    PathProbeAction::ContactProposedPath(*new.id()),
+                                );
+                            } else if matches!(self.state, PathProbingState::Running { .. }) {
+                                // the contact is unusable until a path is validated, e.g., a fast
+                                // vicinity alternative of failure handling, so probe right away
+                                log::trace!(target: "path_probing", "Probing immediately for invalid contact {} with newly proposed path {proposed_path}", new.id());
+                                self.send_single_probe_req_for_path(context, proposed_path);
+                            }
                         }
                     }
                     ContactEvent::Removed(contact) => {
@@ -746,5 +754,202 @@ where
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        Output,
+        context::{
+            ContextConfig,
+            SyncContext,
+        },
+        domain::{
+            ConnectionId,
+            InterfaceId,
+            SafeStateSeqNr,
+            UnderlayNeighborSource,
+            routing_table::SingleBucketRT,
+            underlay_neighbor_table::InMemoryULNTable,
+            vicinity::vicinity_graph::PetVicinityGraph,
+        },
+        runtime::testing::TestingUseCaseRuntime,
+    };
+
+    const BUCKET_SIZE: usize = 20;
+    type Ctx = SyncContext<
+        SingleBucketRT<BUCKET_SIZE>,
+        TestingUseCaseRuntime,
+        (),
+        InMemoryULNTable,
+        PetVicinityGraph,
+    >;
+    type PP = PathProbing<Ctx, BUCKET_SIZE>;
+
+    fn root() -> NodeId {
+        NodeId::with_msb(1)
+    }
+    /// underlay neighbor
+    fn a() -> NodeId {
+        NodeId::with_msb(2)
+    }
+    fn b() -> NodeId {
+        NodeId::with_msb(3)
+    }
+    /// probed contact
+    fn c() -> NodeId {
+        NodeId::with_msb(4)
+    }
+    fn d() -> NodeId {
+        NodeId::with_msb(5)
+    }
+    fn ssn() -> SafeStateSeqNr {
+        SafeStateSeqNr::try_from(1).unwrap()
+    }
+    fn path(nodes: &[NodeId]) -> Path {
+        Path::try_from(nodes).unwrap()
+    }
+
+    /// Context with contact [c] via the active path `a, b, d, c`, invalidated if `!valid`.
+    fn setup(valid: bool) -> (PP, Ctx) {
+        crate::tests::init();
+
+        let ctx = Ctx::new(ContextConfig {
+            root_id: root(),
+            routing_table: SingleBucketRT::<BUCKET_SIZE>::new(root()),
+            runtime: TestingUseCaseRuntime::with_unique_timer_ids(),
+            insertion_strategy: (),
+            uln_table: InMemoryULNTable::new(),
+            vicinity_graph: PetVicinityGraph::new(root()),
+        });
+        ctx.uln_table_mut().insert(
+            a(),
+            UnderlayNeighborId {
+                interface_id: InterfaceId::try_from(1).unwrap(),
+                connection_id: ConnectionId(1),
+            },
+        );
+        let mut contact = Contact::new(path(&[a(), b(), d(), c()]), ssn());
+        if !valid {
+            contact.set_invalid(NotViaStateList::default());
+        }
+        ctx.routing_table_mut().add(contact).unwrap();
+
+        let mut pp = PP::new(PathProbingConfig::default());
+        pp.start(&ctx).unwrap();
+        (pp, ctx)
+    }
+
+    /// Proposes the path `a, b, c` for [c] and hands the change to path probing.
+    fn propose_shorter_path(pp: &mut PP, ctx: &Ctx) {
+        let old = ctx.routing_table().contact(&c()).unwrap().clone();
+        let mut proposed = path(&[a(), b(), c()]);
+        proposed.set_notvalidated();
+        assert!(
+            ctx.routing_table_mut()
+                .contact_mut(&c())
+                .unwrap()
+                .assess_path_candidate_and_update(&proposed)
+        );
+        let new = ctx.routing_table().contact(&c()).unwrap().clone();
+        assert!(new.proposed_path().is_some());
+        pp.handle_event(
+            ctx,
+            UseCaseEvent::Contact(Box::new(ContactEvent::Updated {
+                new: Box::new(new),
+                old: Box::new(old),
+            })),
+        )
+        .unwrap();
+    }
+
+    /// ProbeReqs sent since the last call
+    fn sent_probe_reqs(ctx: &Ctx) -> Vec<ReqRspMessage<ProbeReqData>> {
+        ctx.runtime()
+            .output()
+            .filter_map(|output| match output {
+                Output::SendProtocolMessage(ProtocolMessage::ProbeReq(req), _) => Some(req),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn scheduled(pp: &PP) -> &HashMap<PathProbeAction, Timestamp> {
+        let PathProbingState::Running {
+            scheduled_probe_requests,
+            ..
+        } = &pp.state
+        else {
+            panic!("not running");
+        };
+        scheduled_probe_requests
+    }
+
+    #[test]
+    fn proposed_path_of_invalid_contact_is_probed_immediately() {
+        let (mut pp, ctx) = setup(false);
+        propose_shorter_path(&mut pp, &ctx);
+
+        let probes = sent_probe_reqs(&ctx);
+        assert_eq!(probes.len(), 1, "one ProbeReq sent right away");
+        assert_eq!(
+            Path::from(probes[0].source_route.clone()).as_ref(),
+            [root(), a(), b(), c()],
+            "probe follows the proposed path"
+        );
+        assert!(scheduled(&pp).is_empty(), "nothing left to schedule");
+    }
+
+    #[test]
+    fn proposed_path_of_valid_contact_is_scheduled() {
+        let (mut pp, ctx) = setup(true);
+        propose_shorter_path(&mut pp, &ctx);
+
+        assert!(sent_probe_reqs(&ctx).is_empty(), "no immediate probe");
+        assert!(scheduled(&pp).contains_key(&PathProbeAction::ContactProposedPath(c())));
+    }
+
+    #[test]
+    fn failed_probe_removes_proposed_path_also_if_active_path_contains_link() {
+        let (mut pp, ctx) = setup(false);
+        propose_shorter_path(&mut pp, &ctx);
+        let probe = sent_probe_reqs(&ctx).pop().unwrap();
+
+        // the link a - b of the proposed and the active path is broken
+        let failed_link = Link::new(a(), b());
+        let error = ReqRspMessage {
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::Error,
+                a(),
+                root(),
+                Some(probe.common_header.msg_id()),
+                StateSeqNr::Value(ssn()),
+                1,
+            ),
+            data: ErrorData::SegmentFailure {
+                failed_link: failed_link.clone(),
+                source: a(),
+            },
+            not_via: None,
+            source_route: SourceRoute::new(a(), path(&[root()])),
+        };
+        pp.handle_event(
+            &ctx,
+            UseCaseEvent::Message(ProtocolMessage::Error(error), UnderlayNeighborSource::Local),
+        )
+        .unwrap();
+
+        let rt = ctx.routing_table();
+        let contact = rt.contact(&c()).unwrap();
+        assert!(
+            contact.proposed_path().is_none(),
+            "broken proposed path removed"
+        );
+        let ContactState::Invalid(not_via) = contact.state() else {
+            panic!("contact stays invalid");
+        };
+        assert!(not_via.nvs_list.iter().any(|nvs| nvs.link == failed_link));
     }
 }

@@ -1,7 +1,6 @@
 //! Data types for all protocol messages and wrapped in the central enumeration [ProtocolMessage].
 
 use std::{
-    collections::HashMap,
     fmt::{
         Debug,
         Formatter,
@@ -507,13 +506,18 @@ impl From<ReqRspMessage<PathTeardownReqData>> for ProtocolMessage {
     }
 }
 
+/// Routing table updates of an [UpdateRouteReq] in the order they are processed.
+///
+/// A contact may occur several times, e.g., its loss followed by its latest new path.
+pub type ContactActions = Vec<(Contact, RouteUpdateActionType)>;
+
 /// Data struct representing the UpdateRouteReq protocol message.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct UpdateRouteReq {
     pub common_header: CommonHeader,
     pub not_via: Option<NotViaList>,
-    pub contact_actions: HashMap<Contact, RouteUpdateActionType>,
+    pub contact_actions: ContactActions,
     /// Source Path to the next overlay Hop.
     ///
     /// This way if the source route is too large, it can be split and transmitted

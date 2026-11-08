@@ -15,10 +15,7 @@
 //    order is fixed (unlike netlink).
 
 use std::{
-    collections::{
-        HashMap,
-        HashSet,
-    },
+    collections::HashSet,
     error::Error,
     io::{
         Error as IoError,
@@ -49,6 +46,7 @@ use kira_r2kad::domain::{
     SourceRoute,
     protocol_message::{
         CommonHeader,
+        ContactActions,
         ErrorData,
         FindNodeReqData,
         PathSetupReqData,
@@ -1825,9 +1823,7 @@ fn write_rtable_entry<W: Write>(writer: &mut W, contact: &Contact) -> Result<(),
     Ok(())
 }
 
-fn parse_rtable_update_info_from_bytes(
-    payload: &[u8],
-) -> Result<HashMap<Contact, RouteUpdateActionType>, Box<dyn Error>> {
+fn parse_rtable_update_info_from_bytes(payload: &[u8]) -> Result<ContactActions, Box<dyn Error>> {
     let mut payload_cursor = binrw::io::Cursor::new(payload);
     let payload_len = payload.len();
     let mut payload_consumed = 0;
@@ -1852,7 +1848,7 @@ fn parse_rtable_update_info_from_bytes(
 
         if let ProtocolObjectType::RTableUpdateInfo = object_type {
             let mut object_length_remaining = object_length;
-            let mut result: HashMap<Contact, RouteUpdateActionType> = HashMap::new();
+            let mut result = ContactActions::new();
 
             while object_length_remaining > 0 {
                 if object_length_remaining < 2 * NodeId::SIZE + 2 + 4 + 4 + 2 + 1 {
@@ -1916,7 +1912,7 @@ fn parse_rtable_update_info_from_bytes(
                 let action = RouteUpdateActionType::from(action_raw);
 
                 let contact = Contact::new(path, ssn);
-                result.insert(contact, action);
+                result.push((contact, action));
 
                 object_length_remaining -= NodeId::SIZE // Contact-ID
                         + (path_vector_size as usize * NodeId::SIZE)+ 2 // Path
@@ -1934,12 +1930,12 @@ fn parse_rtable_update_info_from_bytes(
     }
 
     // no rtable update info found
-    Ok(HashMap::new())
+    Ok(ContactActions::new())
 }
 
 fn write_rtable_update_info_object<W: Write>(
     writer: &mut W,
-    data: &HashMap<Contact, RouteUpdateActionType>,
+    data: &ContactActions,
 ) -> Result<usize, IoError> {
     if data.is_empty() {
         return Ok(0);
@@ -1953,8 +1949,8 @@ fn write_rtable_update_info_object<W: Write>(
     }
 
     let object_length: usize = data
-        .keys()
-        .map(|c| {
+        .iter()
+        .map(|(c, _)| {
             NodeId::SIZE // Contact-ID
                 + c.path()
                     .map(Path::size).unwrap_or(0)
