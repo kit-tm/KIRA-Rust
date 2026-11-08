@@ -115,6 +115,7 @@ pub use netlink_proto::{
 use crate::{
     domain::{
         InterfaceId,
+        IpPrefixes,
         NodeId,
         NodeIdSubnet,
         PathId,
@@ -132,6 +133,7 @@ pub struct ForwardingNetlink {
     handle_rtnetlink: ConnectionHandle<RouteNetlinkMessage>,
     handle_nfnetlink: ConnectionHandle<NetfilterMessage>,
     kira: InterfaceId,
+    ip_prefixes: IpPrefixes,
 }
 
 /// Default name for the [encap interface](create_encap_interface).
@@ -162,12 +164,14 @@ impl ForwardingNetlink {
     /// Creates a new [ForwardingNetlink] instance.
     ///
     /// As the interface name the [default name](KIRA_INTERFACE_NAME) is used.
+    /// NodeIPs and PathIPs are derived using the given `ip_prefixes`.
     pub async fn new(
         handle_rtnetlink: ConnectionHandle<RouteNetlinkMessage>,
         handle_nfnetlink: ConnectionHandle<NetfilterMessage>,
+        ip_prefixes: IpPrefixes,
     ) -> Result<Self> {
         let kira = create_encap_interface(&handle_rtnetlink, KIRA_INTERFACE_NAME).await?;
-        Self::with_kira_interface(handle_rtnetlink, handle_nfnetlink, kira).await
+        Self::with_kira_interface(handle_rtnetlink, handle_nfnetlink, kira, ip_prefixes).await
     }
 
     /// Creates a new [ForwardingNetlink] instance with the given interface.
@@ -178,6 +182,7 @@ impl ForwardingNetlink {
         handle_rtnetlink: ConnectionHandle<RouteNetlinkMessage>,
         handle_nfnetlink: ConnectionHandle<NetfilterMessage>,
         kira: InterfaceId,
+        ip_prefixes: IpPrefixes,
     ) -> Result<Self> {
         create_initial_nft_rules(
             &handle_nfnetlink,
@@ -185,6 +190,7 @@ impl ForwardingNetlink {
             "hookin".to_string(),
             "forwarding".to_string(),
             KIRA_FORWARDMAP.to_string(),
+            &ip_prefixes,
         )
         .await?;
 
@@ -192,7 +198,13 @@ impl ForwardingNetlink {
             handle_rtnetlink,
             handle_nfnetlink,
             kira,
+            ip_prefixes,
         })
+    }
+
+    /// Returns the prefixes used to derive NodeIPs and PathIPs.
+    pub fn ip_prefixes(&self) -> &IpPrefixes {
+        &self.ip_prefixes
     }
 
     /// Encapsulates packets with a destination ip of `node_id`
@@ -213,7 +225,7 @@ impl ForwardingNetlink {
         node_id: &NodeIdSubnet,
         path_id: &PathId,
     ) -> Result<()> {
-        let (node_ip, prefix_length) = node_id.to_ipv6_subnet();
+        let (node_ip, prefix_length) = self.ip_prefixes.node_ip_subnet(node_id);
 
         let mut nl_hdr = NetlinkHeader::default();
         nl_hdr.flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_REPLACE | NLM_F_ACK;
@@ -237,7 +249,7 @@ impl ForwardingNetlink {
         rt_msg
             .attributes
             .push(RouteAttribute::Encap(vec![RouteLwTunnelEncap::Ip6(
-                RouteIp6Tunnel::Destination(Ipv6Addr::from(path_id)),
+                RouteIp6Tunnel::Destination(self.ip_prefixes.path_ip(path_id)),
             )]));
 
         let msg = NetlinkMessage::new(nl_hdr, RouteNetlinkMessage::NewRoute(rt_msg).into());
@@ -264,7 +276,7 @@ impl ForwardingNetlink {
         out_path_id=%path_id)
     )]
     pub async fn delete_encap_route(&self, node_id: &NodeIdSubnet, path_id: &PathId) -> Result<()> {
-        let (node_ip, prefix_length) = node_id.to_ipv6_subnet();
+        let (node_ip, prefix_length) = self.ip_prefixes.node_ip_subnet(node_id);
 
         let mut nl_hdr = NetlinkHeader::default();
         nl_hdr.flags = NLM_F_REQUEST | NLM_F_ACK;
@@ -288,7 +300,7 @@ impl ForwardingNetlink {
         rt_msg
             .attributes
             .push(RouteAttribute::Encap(vec![RouteLwTunnelEncap::Ip6(
-                RouteIp6Tunnel::Destination(Ipv6Addr::from(path_id)),
+                RouteIp6Tunnel::Destination(self.ip_prefixes.path_ip(path_id)),
             )]));
 
         let msg = NetlinkMessage::new(nl_hdr, RouteNetlinkMessage::DelRoute(rt_msg).into());
@@ -338,7 +350,7 @@ impl ForwardingNetlink {
             ..rt_msg.header
         };
         rt_msg.attributes = vec![
-            RouteAttribute::Destination(RouteAddress::Inet6(path_id.into())),
+            RouteAttribute::Destination(RouteAddress::Inet6(self.ip_prefixes.path_ip(path_id))),
             RouteAttribute::Gateway(RouteAddress::Inet6(next_hop.ll_ipv6)),
             RouteAttribute::Oif(next_hop.interface_id.into()),
         ];
@@ -374,7 +386,7 @@ impl ForwardingNetlink {
         node_id: &NodeIdSubnet,
         interface_id: InterfaceId,
     ) -> Result<()> {
-        let (node_ip, prefix_length) = node_id.to_ipv6_subnet();
+        let (node_ip, prefix_length) = self.ip_prefixes.node_ip_subnet(node_id);
 
         let mut nl_hdr = NetlinkHeader::default();
         nl_hdr.flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_REPLACE | NLM_F_ACK;
@@ -422,7 +434,7 @@ impl ForwardingNetlink {
         node_id: &NodeIdSubnet,
         interface_id: InterfaceId,
     ) -> Result<()> {
-        let (node_ip, prefix_length) = node_id.to_ipv6_subnet();
+        let (node_ip, prefix_length) = self.ip_prefixes.node_ip_subnet(node_id);
 
         let mut nl_hdr = NetlinkHeader::default();
         nl_hdr.flags = NLM_F_REQUEST | NLM_F_ACK;
@@ -681,7 +693,7 @@ impl ForwardingNetlink {
         node_id: &NodeId,
         interface_id: InterfaceId,
     ) -> Result<()> {
-        let node_id = node_id.into();
+        let node_ip = self.ip_prefixes.node_ip(node_id);
 
         let mut nl_hdr = NetlinkHeader::default();
         nl_hdr.flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_REPLACE | NLM_F_ACK;
@@ -695,7 +707,7 @@ impl ForwardingNetlink {
         };
         rt_msg
             .attributes
-            .push(AddressAttribute::Address(std::net::IpAddr::V6(node_id)));
+            .push(AddressAttribute::Address(std::net::IpAddr::V6(node_ip)));
 
         let msg = NetlinkMessage::new(nl_hdr, RouteNetlinkMessage::NewAddress(rt_msg).into());
 
@@ -864,6 +876,7 @@ async fn create_initial_nft_rules(
     hookin_chain: String,
     forwarding_chain: String,
     forwarding_map: String,
+    ip_prefixes: &IpPrefixes,
 ) -> Result<()> {
     // Create table
     let create_new_table = NetlinkMessage::from(NetfilterMessage::new(
@@ -945,7 +958,7 @@ async fn create_initial_nft_rules(
     ]));
 
     // Switch PathIP of packets
-    // => ip6 daddr fcaa::/16 goto <FORWARDING_CHAIN>
+    // => ip6 daddr <PATH_IP_PREFIX> goto <FORWARDING_CHAIN>, e.g. fcaa::/16
     let mut hookin_rule_path_ip = NetlinkMessage::from(NetfilterMessage::new(
         NetfilterHeader::new(NetfilterProtoFamily::IPv6, 0, 0),
         NfTablesMessage::NewRule(RuleMessage {
@@ -954,7 +967,7 @@ async fn create_initial_nft_rules(
                 RuleAttribute::Chain(hookin_chain.clone()),
                 RuleAttribute::Expressions({
                     let mut expressions = Vec::with_capacity(3);
-                    expressions.extend(filter_16_bit_prefix(0xfcaa));
+                    expressions.extend(filter_16_bit_prefix(ip_prefixes.path_ip_prefix().bits()));
                     expressions.push(goto_forwarding_chain.clone());
                     expressions
                 }),
@@ -964,7 +977,7 @@ async fn create_initial_nft_rules(
     hookin_rule_path_ip.header.flags |= NLM_F_CREATE | NLM_F_APPEND;
 
     // Switch NodeIP of packets (but don't disturbe not icmpv6)
-    // => ip6 daddr fc00::/16 meta l4proto != icmpv6 goto <FORWARDING_CHAIN>
+    // => ip6 daddr <NODE_IP_PREFIX> meta l4proto != icmpv6 goto <FORWARDING_CHAIN>, e.g. fc00::/16
     let mut hookin_rule_node_ip = NetlinkMessage::from(NetfilterMessage::new(
         NetfilterHeader::new(NetfilterProtoFamily::IPv6, 0, 0),
         NfTablesMessage::NewRule(RuleMessage {
@@ -973,7 +986,7 @@ async fn create_initial_nft_rules(
                 RuleAttribute::Chain(hookin_chain),
                 RuleAttribute::Expressions({
                     let mut expressions = Vec::with_capacity(5);
-                    expressions.extend(filter_16_bit_prefix(0xfc00));
+                    expressions.extend(filter_16_bit_prefix(ip_prefixes.node_ip_prefix().bits()));
                     expressions.extend(vec![
                         // Don't forward ICMPv6
                         Expressions::Meta(vec![

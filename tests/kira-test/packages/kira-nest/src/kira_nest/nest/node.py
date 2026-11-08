@@ -22,8 +22,6 @@ from urllib.parse import urlencode
 
 import networkx as nx
 from kira_common.domain import (
-    NODE_IP_SN,
-    PATH_IP_SN,
     VICINITY_RADIUS,
     KiraIP,
     NodeID,
@@ -31,6 +29,7 @@ from kira_common.domain import (
     Path,
     PathID,
     PathIP,
+    get_ip_prefixes,
 )
 from kira_common.domain.forwarding import (
     FwdEntry,
@@ -273,9 +272,9 @@ class KIRANode(Node):
         if match:
             next_ip = IPv6Address(match.group(1))
             # label swap or decap
-            if next_ip in PATH_IP_SN:
+            if next_ip in get_ip_prefixes().path_ip:
                 return PathIP(next_ip)
-            if next_ip in NODE_IP_SN:
+            if next_ip in get_ip_prefixes().node_ip:
                 return NodeIP(next_ip)
 
         logger.error(f"{ip} unknown to node {self}: Parsing of output failed: {stdout}")
@@ -309,7 +308,7 @@ class KIRANode(Node):
                 raise RuntimeError(
                     "iproute2 version >= 6.9.0 required for JSON output fix"
                 ) from e
-            assert path_ip in PATH_IP_SN
+            assert path_ip in get_ip_prefixes().path_ip
             return PathIP(path_ip)
 
         # OPTION 2: it's us
@@ -350,13 +349,13 @@ class KIRANode(Node):
         # OPTION 1: it's us
         if result.get("type") == "local":
             assert IPv6Address(result["prefsrc"]) == ip
-            assert ip in NODE_IP_SN
+            assert ip in get_ip_prefixes().node_ip
             return NodeIP(ip)
 
         # OPTION 2: Forward VIA next hop
         elif "gateway" in result:  # gateway == via :/
             gateway = IPv6Address(result["gateway"])
-            if gateway in NODE_IP_SN:
+            if gateway in get_ip_prefixes().node_ip:
                 return NodeIP(gateway)
 
             # in newer implementation we use LL-IPv6 as gateway
@@ -383,7 +382,7 @@ class KIRANode(Node):
                     except AddressValueError:
                         continue
 
-                    if dst in NODE_IP_SN:
+                    if dst in get_ip_prefixes().node_ip:
                         # HACK: this only works in unswitched networks
                         #       where one node is reachable per interface
                         if next_hop is not None:
@@ -395,19 +394,19 @@ class KIRANode(Node):
 
         # OPTION 3: Overlay Hop -- (re)encapsulation on this node required
         elif "encap" in result:
-            assert ip in NODE_IP_SN
+            assert ip in get_ip_prefixes().node_ip
 
             # determine own ip
             if "prefsrc" in result:
                 node_ip = IPv6Address(result["prefsrc"])
-                assert node_ip in NODE_IP_SN
+                assert node_ip in get_ip_prefixes().node_ip
                 return NodeIP(node_ip)
 
             return self.node_id.to_node_ip()
 
         # OPTION 4: Physical neighbor
         elif "dst" in result and IPv6Address(result["dst"]) == ip:
-            assert ip in NODE_IP_SN
+            assert ip in get_ip_prefixes().node_ip
             return NodeIP(ip)
 
         logger.error(f"Unexpected route for {ip} on node {self}: {result}")
