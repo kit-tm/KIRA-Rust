@@ -115,11 +115,20 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
     }
 
     fn replace(&mut self, id: &NodeId, with: Contact) -> Result<Contact, ReplacementError> {
-        if let Some(contact) = self.protected_contacts.insert(*id, with.clone()) {
-            return Ok(contact);
+        if !self.protected_contacts.contains_key(id) {
+            return self.inner.replace(id, with);
         }
 
-        self.inner.replace(id, with)
+        if with.id() != id && self.contains(with.id()) {
+            return Err(ReplacementError::DuplicateId(*with.id()));
+        }
+
+        let old = self
+            .protected_contacts
+            .remove(id)
+            .expect("presence was checked before");
+        self.protected_contacts.insert(*with.id(), with);
+        Ok(old)
     }
 
     fn contact(&self, id: &NodeId) -> Option<&Contact> {
@@ -632,5 +641,106 @@ mod tests {
             !routing_table.inner.contains(&node),
             "promoted underlay neighbor should not be present in inner RT"
         );
+    }
+
+    #[test]
+    fn replace_inner_contact_does_not_protect_it() {
+        let mut routing_table =
+            ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
+
+        let node = NodeId::with_msb(2);
+        let contact = Contact::new(
+            Path::from([NodeId::with_msb(3), node]),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
+        routing_table
+            .insert(contact)
+            .expect("failed to insert contact");
+
+        let other = Contact::new(
+            Path::from([NodeId::with_msb(3), NodeId::with_msb(4)]),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
+        routing_table
+            .replace(&node, other)
+            .expect("failed to replace contact");
+
+        assert!(
+            routing_table.protected_contacts.is_empty(),
+            "replacing an inner contact must not add it to the protected contacts"
+        );
+        assert_eq!(routing_table.len(), 1);
+    }
+
+    #[test]
+    fn replace_unknown_contact_fails() {
+        let mut routing_table =
+            ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
+
+        let contact = Contact::new(
+            Path::from([NodeId::with_msb(2)]),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        );
+
+        assert!(
+            routing_table
+                .replace(&NodeId::with_msb(5), contact)
+                .is_err()
+        );
+        assert!(routing_table.is_empty(), "nothing should have been added");
+    }
+
+    #[test]
+    fn replace_protected_contact() {
+        let mut routing_table =
+            ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
+
+        let uln = NodeId::with_msb(2);
+        routing_table
+            .insert(Contact::new(
+                Path::from([uln]),
+                SafeStateSeqNr::try_from(1).unwrap(),
+            ))
+            .expect("failed to insert contact");
+
+        let new_uln = NodeId::with_msb(5);
+        let replaced = routing_table
+            .replace(
+                &uln,
+                Contact::new(Path::from([new_uln]), SafeStateSeqNr::try_from(1).unwrap()),
+            )
+            .expect("failed to replace contact");
+
+        assert_eq!(replaced.id(), &uln);
+        assert!(!routing_table.contains(&uln));
+        assert!(routing_table.protected_contacts.contains_key(&new_uln));
+        assert_eq!(routing_table.len(), 1);
+    }
+
+    #[test]
+    fn replace_protected_contact_with_existing_id_fails() {
+        let mut routing_table =
+            ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
+
+        let uln = NodeId::with_msb(2);
+        let other = NodeId::with_msb(5);
+        for id in [uln, other] {
+            routing_table
+                .insert(Contact::new(
+                    Path::from([id]),
+                    SafeStateSeqNr::try_from(1).unwrap(),
+                ))
+                .expect("failed to insert contact");
+        }
+
+        assert!(
+            routing_table
+                .replace(
+                    &uln,
+                    Contact::new(Path::from([other]), SafeStateSeqNr::try_from(1).unwrap()),
+                )
+                .is_err()
+        );
+        assert_eq!(routing_table.len(), 2, "no contact should be lost");
     }
 }
