@@ -24,42 +24,46 @@ use crate::domain::{
     },
 };
 
-/// A routing table which uses an additional data structure to store all
-/// underlay neighbors.
+/// A routing table which keeps *protected* contacts in an additional,
+/// unlimited data structure next to the regular k-buckets.
+///
+/// Regular buckets hold at most `BUCKET_SIZE` contacts. Protected contacts are
+/// never evicted due to bucket limits. Currently, underlay neighbors (ULNs) are
+/// the only kind of protected contact.
 ///
 /// In contrast to [FlatRoutingTable] this implementation doesn't replace
-/// existing contacts with underlay neighbors.
-/// Underlay Neighbors will be added as long as they're not already present in the table.
+/// existing contacts with protected ones.
+/// Protected contacts will be added as long as they're not already present in the table.
 ///
 /// # Invariant
 ///
-/// No underlay neighbors are in the inner routing table.
+/// No protected contacts are in the inner routing table.
 ///
 /// # Important
 ///
-/// Calling [`bucket_iter`](UnlimitedULNRoutingTable::bucket_iter) will **not** yield
-/// any underlay neighbors.
+/// Calling [`bucket_iter`](ProtectedRoutingTable::bucket_iter) will **not** yield
+/// any protected contacts.
 #[derive(Debug)]
-pub struct UnlimitedULNRoutingTable<const BUCKET_SIZE: usize, const ACC: u8> {
-    un_contacts: HashMap<NodeId, Contact>,
+pub struct ProtectedRoutingTable<const BUCKET_SIZE: usize, const ACC: u8> {
+    protected_contacts: HashMap<NodeId, Contact>,
     inner: FlatRoutingTable<BUCKET_SIZE, ACC>,
 }
 
 impl<const BUCKET_SIZE: usize, const ACC: u8> From<FlatRoutingTable<BUCKET_SIZE, ACC>>
-    for UnlimitedULNRoutingTable<BUCKET_SIZE, ACC>
+    for ProtectedRoutingTable<BUCKET_SIZE, ACC>
 {
     fn from(routing_table: FlatRoutingTable<BUCKET_SIZE, ACC>) -> Self {
         assert!(routing_table.is_empty(), "FlatRoutingTable should be empty");
 
         Self {
-            un_contacts: Default::default(),
+            protected_contacts: Default::default(),
             inner: routing_table,
         }
     }
 }
 
 impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
-    for UnlimitedULNRoutingTable<BUCKET_SIZE, ACC>
+    for ProtectedRoutingTable<BUCKET_SIZE, ACC>
 {
     type BucketIter = std::slice::Iter<'a, Bucket<BUCKET_SIZE>>;
     type ContactWriteGuard = &'a mut Contact;
@@ -69,25 +73,25 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
     }
 
     fn len(&self) -> usize {
-        self.un_contacts.len() + self.inner.len()
+        self.protected_contacts.len() + self.inner.len()
     }
 
     fn is_empty(&self) -> bool {
-        self.un_contacts.is_empty() && self.inner.is_empty()
+        self.protected_contacts.is_empty() && self.inner.is_empty()
     }
 
     fn add(&mut self, contact: Contact) -> Result<(), AddError> {
-        if let Some(uln_entry) = self.un_contacts.get(contact.id()) {
+        if let Some(protected_entry) = self.protected_contacts.get(contact.id()) {
             // contact to add exists as ULN already
             if contact.is_uln() {
                 return Err(AddError::AlreadyExists(contact.into_id()));
             }
             // the contact is a ULN, but has a longer path now, should be ignored by update
-            if *uln_entry.state() == ContactState::Valid {
+            if *protected_entry.state() == ContactState::Valid {
                 return Err(AddError::AlreadyExists(contact.into_id()));
             } else {
                 // if existing contact was former ULN, but it is not anymore, we may remove it from there
-                self.un_contacts.remove(contact.id());
+                self.protected_contacts.remove(contact.id());
             }
         } else {
             // contact does not exist as ULN
@@ -96,7 +100,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
             if contact.is_uln() {
                 // add to underlay neighbors
                 _ = self.inner.remove(contact.id());
-                self.un_contacts.insert(*contact.id(), contact);
+                self.protected_contacts.insert(*contact.id(), contact);
                 return Ok(());
             }
         }
@@ -105,13 +109,13 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
     }
 
     fn remove(&mut self, id: &NodeId) -> Option<Contact> {
-        self.un_contacts
+        self.protected_contacts
             .remove(id)
             .or_else(|| self.inner.remove(id))
     }
 
     fn replace(&mut self, id: &NodeId, with: Contact) -> Result<Contact, ReplacementError> {
-        if let Some(contact) = self.un_contacts.insert(*id, with.clone()) {
+        if let Some(contact) = self.protected_contacts.insert(*id, with.clone()) {
             return Ok(contact);
         }
 
@@ -119,7 +123,9 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
     }
 
     fn contact(&self, id: &NodeId) -> Option<&Contact> {
-        self.un_contacts.get(id).or_else(|| self.inner.contact(id))
+        self.protected_contacts
+            .get(id)
+            .or_else(|| self.inner.contact(id))
     }
 
     fn random_id(&self) -> Option<&NodeId> {
@@ -131,20 +137,20 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
     }
 
     fn contact_mut(&'a mut self, id: &NodeId) -> Option<Self::ContactWriteGuard> {
-        self.un_contacts
+        self.protected_contacts
             .get_mut(id)
             .or_else(|| self.inner.contact_mut(id))
     }
 
     fn contains(&self, id: &NodeId) -> bool {
-        self.un_contacts.contains_key(id) || self.inner.contains(id)
+        self.protected_contacts.contains_key(id) || self.inner.contains(id)
     }
 
     fn contains_with<F>(&self, id: &NodeId, f: F) -> bool
     where
         F: Fn(&Contact) -> bool,
     {
-        if let Some(contact) = self.un_contacts.get(id) {
+        if let Some(contact) = self.protected_contacts.get(id) {
             f(contact)
         } else {
             self.inner.contains_with(id, f)
@@ -177,7 +183,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
 
     #[tracing::instrument(
         level = Level::TRACE,
-        target = "routing_table::unlimited_uln_routing_table",
+        target = "routing_table::protected_routing_table",
         skip(self),
         ret, err
     )]
@@ -189,7 +195,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
     ) -> Result<Vec<PrefixContact>, GroupingError> {
         let mut closest = self.inner.closest(target, n, shared_prefix_grouping)?;
         closest.extend(
-            self.un_contacts
+            self.protected_contacts
                 .values()
                 .filter(|contact| contact.state() == &ContactState::Valid)
                 .map(|contact| {
@@ -211,7 +217,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
 
             if closest_bucket_index == last_bucket_index {
                 tracing::trace!(
-                    target: "routing_table::unlimited_uln_routing_table",
+                    target: "routing_table::protected_routing_table",
                     reason = "last bucket contacts require sorting by strict XOR-metric",
                     "Truncate collected results",
                 );
@@ -223,11 +229,13 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
     }
 
     fn iter(&self) -> impl Iterator<Item = &Contact> {
-        self.un_contacts.values().chain(self.inner.iter())
+        self.protected_contacts.values().chain(self.inner.iter())
     }
 
     fn iter_mut(&'a mut self) -> impl Iterator<Item = Self::ContactWriteGuard> {
-        self.un_contacts.values_mut().chain(self.inner.iter_mut())
+        self.protected_contacts
+            .values_mut()
+            .chain(self.inner.iter_mut())
     }
 
     fn bucket_iter(&'a self) -> Self::BucketIter {
@@ -253,7 +261,7 @@ mod tests {
         SafeStateSeqNr,
         routing_table::{
             FlatRoutingTable,
-            UnlimitedULNRoutingTable,
+            ProtectedRoutingTable,
         },
     };
 
@@ -265,7 +273,7 @@ mod tests {
         );
 
         let mut routing_table =
-            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
+            ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
 
         let contacts = vec![
             invalid_contact,
@@ -332,7 +340,7 @@ mod tests {
         ];
 
         let mut routing_table =
-            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
+            ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
         routing_table
             .extend(false, contacts.clone())
             .expect("failed to insert all contacts");
@@ -378,7 +386,7 @@ mod tests {
         ];
 
         let mut routing_table =
-            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
+            ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
         routing_table
             .extend(false, contacts.clone())
             .expect("failed to insert all contacts");
@@ -417,7 +425,7 @@ mod tests {
         ];
 
         let mut routing_table =
-            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
+            ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
         routing_table
             .extend(false, contacts.clone())
             .expect("failed to insert all contacts");
@@ -451,7 +459,7 @@ mod tests {
         let contacts = vec![invalid_neighbor, invalid_contact];
 
         let mut routing_table =
-            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
+            ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
         routing_table
             .extend(false, contacts.clone())
             .expect("failed to insert all contacts");
@@ -469,8 +477,7 @@ mod tests {
     fn get_closest_invalid_contacts() {
         crate::tests::init();
         let root = NodeId::ZERO;
-        let mut table =
-            UnlimitedULNRoutingTable::from(FlatRoutingTable::<1, 1>::new(root).unwrap());
+        let mut table = ProtectedRoutingTable::from(FlatRoutingTable::<1, 1>::new(root).unwrap());
 
         let ids = [
             NodeId::with_msb(0b1000_0000),
@@ -515,8 +522,7 @@ mod tests {
     fn get_closest_last_bucket() {
         crate::tests::init();
         let root = NodeId::ZERO;
-        let mut table =
-            UnlimitedULNRoutingTable::from(FlatRoutingTable::<2, 1>::new(root).unwrap());
+        let mut table = ProtectedRoutingTable::from(FlatRoutingTable::<2, 1>::new(root).unwrap());
 
         let uln = NodeId::with_msb(0b1000_0000);
         table
@@ -595,15 +601,15 @@ mod tests {
             return;
         }
 
-        // the newly created UnlimitedULNRoutingTable wouldn't move the existing uln
+        // the newly created ProtectedRoutingTable wouldn't move the existing uln
         // expect a panic
 
-        let _ = UnlimitedULNRoutingTable::from(inner);
+        let _ = ProtectedRoutingTable::from(inner);
     }
     #[test]
     fn delete_uln_from_inner_on_promotion() {
         let mut routing_table =
-            UnlimitedULNRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
+            ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
 
         // node to be promoted to an underlay neighbor shortly
         let node = NodeId::with_msb(2);

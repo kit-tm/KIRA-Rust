@@ -48,7 +48,7 @@ use crate::{
         routing_table::{
             FlatRoutingTable,
             ObservableRoutingTable,
-            UnlimitedULNRoutingTable,
+            ProtectedRoutingTable,
         },
         underlay_neighbor_table::{
             InMemoryULNTable,
@@ -102,13 +102,13 @@ impl<C, const BUCKET_SIZE: usize> Builder<C, BUCKET_SIZE>
 where
     C: UseCaseContext<
             RoutingTable = ObservableRoutingTable<
-                UnlimitedULNRoutingTable<BUCKET_SIZE, 1>,
+                ProtectedRoutingTable<BUCKET_SIZE, 1>,
                 BUCKET_SIZE,
             >,
             UnderlayNeighborTable = ObservableULNTable<InMemoryULNTable>,
             Runtime = Arc<R2KadRuntime>,
             InsertionStrategy = UNSStrategy<
-                ObservableRoutingTable<UnlimitedULNRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
+                ObservableRoutingTable<ProtectedRoutingTable<BUCKET_SIZE, 1>, BUCKET_SIZE>,
                 InOrderCycleRemover,
                 ShortestFirstPathSimplifier,
                 BUCKET_SIZE,
@@ -121,7 +121,7 @@ where
         let runtime = Arc::new(R2KadRuntime::with_startup_time(self.current_time));
         let pipeline = R2KadPipeline::new(self.pipeline_config);
 
-        let mut routing_table = ObservableRoutingTable::from(UnlimitedULNRoutingTable::from(
+        let mut routing_table = ObservableRoutingTable::from(ProtectedRoutingTable::from(
             FlatRoutingTable::new(root_id).expect("FlatRoutingTable parameters should be valid"),
         ));
         {

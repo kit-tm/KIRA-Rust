@@ -27,19 +27,19 @@ use crate::domain::{
 };
 pub mod flat_routing_table;
 pub mod observable_routing_table;
+pub mod protected_routing_table;
 #[cfg(test)]
 pub mod single_bucket;
-pub mod unlimited_uln_routing_table;
 
 #[doc(inline)]
 pub use flat_routing_table::FlatRoutingTable;
 #[doc(inline)]
 pub use observable_routing_table::ObservableRoutingTable;
+#[doc(inline)]
+pub use protected_routing_table::ProtectedRoutingTable;
 #[cfg(test)]
 #[doc(inline)]
 pub use single_bucket::SingleBucketRT;
-#[doc(inline)]
-pub use unlimited_uln_routing_table::UnlimitedULNRoutingTable;
 
 #[derive(Debug, Eq, PartialEq, Display, Error)]
 pub enum AddError {
@@ -83,15 +83,15 @@ impl From<BucketSplitError> for InsertionError {
 ///
 /// A [RoutingTable] has to guarantee to have at least one [Bucket] at any given time.
 ///
-/// # Underlay Neighbors
+/// # Protected Contacts
 ///
-/// As some RoutingTable implementation may handle underlay neighbors in a different way
-/// the caller has to be careful when using [RoutingTable::bucket].
-/// In structures like [UnlimitedULNRoutingTable] the Neighbors may not be included in the buckets.
+/// As some RoutingTable implementations may handle certain contacts (e.g. underlay neighbors)
+/// in a different way the caller has to be careful when using [RoutingTable::bucket].
+/// In structures like [ProtectedRoutingTable] protected contacts are not included in the buckets.
 ///
 /// As mostly accessing the buckets directly only happens if Insertion fails, this will ne problem.
 ///
-///[UnlimitedULNRoutingTable]: crate::domain::routing_table::unlimited_uln_routing_table::UnlimitedULNRoutingTable
+///[ProtectedRoutingTable]: crate::domain::routing_table::protected_routing_table::ProtectedRoutingTable
 pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// Possible Write Guard for a mutable contact reference.
     ///
@@ -454,9 +454,9 @@ mod tests {
     }
 
     #[test]
-    fn test_next_hop_isolated_unlimited_uln_routing_table() {
+    fn test_next_hop_isolated_protected_routing_table() {
         test_next_hop_isolated_impl(|root| {
-            UnlimitedULNRoutingTable::from(FlatRoutingTable::<4, 1>::new(root).unwrap())
+            ProtectedRoutingTable::from(FlatRoutingTable::<4, 1>::new(root).unwrap())
         });
     }
 
@@ -490,9 +490,9 @@ mod tests {
     }
 
     #[test]
-    fn test_next_hop_root_closer_unlimited_uln_routing_table() {
+    fn test_next_hop_root_closer_protected_routing_table() {
         test_next_hop_root_closer_impl(|root| {
-            UnlimitedULNRoutingTable::from(FlatRoutingTable::<4, 1>::new(root).unwrap())
+            ProtectedRoutingTable::from(FlatRoutingTable::<4, 1>::new(root).unwrap())
         });
     }
 
@@ -534,9 +534,9 @@ mod tests {
     }
 
     #[test]
-    fn test_next_hop_xor_tiebreaker_unlimited_uln_routing_table() {
+    fn test_next_hop_xor_tiebreaker_protected_routing_table() {
         test_next_hop_xor_tiebreaker_impl(|root| {
-            UnlimitedULNRoutingTable::from(FlatRoutingTable::<4, 1>::new(root).unwrap())
+            ProtectedRoutingTable::from(FlatRoutingTable::<4, 1>::new(root).unwrap())
         });
     }
 

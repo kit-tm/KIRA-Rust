@@ -25,8 +25,8 @@ use crate::domain::{
         AddError,
         BucketSplitError,
         FlatRoutingTable,
+        ProtectedRoutingTable,
         ReplacementError,
-        UnlimitedULNRoutingTable,
     },
 };
 
@@ -154,7 +154,7 @@ impl<const BUCKET_SIZE: usize, const ACC: u8> NonObservableRoutingTable<'_, BUCK
 }
 
 impl<const BUCKET_SIZE: usize, const ACC: u8> NonObservableRoutingTable<'_, BUCKET_SIZE>
-    for UnlimitedULNRoutingTable<BUCKET_SIZE, ACC>
+    for ProtectedRoutingTable<BUCKET_SIZE, ACC>
 {
 }
 

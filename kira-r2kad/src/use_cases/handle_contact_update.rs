@@ -345,7 +345,7 @@ where
             match *contact_event {
                 ContactEvent::Removed(contact) => {
                     // only send update if underlay neighbor got removed
-                    // this doesn't happen in reality since we use the UnlimitedULNRoutingTable
+                    // this doesn't happen in reality since we use the ProtectedRoutingTable
                     if contact.is_uln() {
                         log::trace!(target: "handle_contact_update", "Update concerning removal of underlay neighbor {}", contact.id());
                         self.record_loss(context, contact.clone(), RouteUpdateActionType::WithDraw);
