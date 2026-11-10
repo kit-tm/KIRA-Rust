@@ -836,16 +836,33 @@ where
             UseCaseEvent::Contact(contact_event) => {
                 match *contact_event {
                     ContactEvent::Updated { new, old } if new.id() == old.id() => {
+                        // Events are processed after the input that caused them, so the contact
+                        // may have changed since: e.g., a message reports a failed link of its
+                        // path (invalid) and revalidates it over another path (valid again).
+                        // Only act on the current state of the contact.
+                        let current = context
+                            .routing_table()
+                            .contact(new.id())
+                            .map(|contact| Contact::clone(&contact));
                         // contact is dead: remove from routing table
                         if new.is_dead() {
-                            log::trace!(target: "failure_handling", "Contact {} is Dead, remove from routing table", new.id());
-                            // this should trigger ContactEvent::Removed
-                            context.routing_table_mut().remove(new.id());
+                            if current.as_ref().is_some_and(Contact::is_dead) {
+                                log::trace!(target: "failure_handling", "Contact {} is Dead, remove from routing table", new.id());
+                                // this should trigger ContactEvent::Removed
+                                context.routing_table_mut().remove(new.id());
+                            }
                             return Ok(());
                         }
                         // contact was invalidated
                         if new.is_invalid() && old.is_valid() {
-                            self.start_rediscovery(context, *new)?;
+                            match current {
+                                Some(current) if current.is_invalid() => {
+                                    self.start_rediscovery(context, current)?;
+                                }
+                                _ => {
+                                    log::trace!(target: "failure_handling", "Contact {} is no longer invalid or was removed, no rediscovery", new.id());
+                                }
+                            }
                         } else if old.proposed_path().is_some()
                             && new.proposed_path().is_none()
                             && matches!(new.state(), ContactState::Rediscovering(_))
@@ -998,6 +1015,10 @@ mod tests {
     fn b() -> NodeId {
         NodeId::with_msb(3)
     }
+    /// overlay contact behind [a] or [b]
+    fn x() -> NodeId {
+        NodeId::with_msb(4)
+    }
     fn ulnid(id: u32) -> UnderlayNeighborId {
         UnderlayNeighborId {
             interface_id: InterfaceId::try_from(id).unwrap(),
@@ -1113,6 +1134,83 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// Contact [x] over [a]: returns the event snapshots of its invalidation by a failed link.
+    fn invalidate_x_over_a(ctx: &Ctx) -> (Contact, Contact) {
+        let mut over_a = path(&[a(), x()]);
+        over_a.set_valid();
+        ctx.routing_table_mut().add(Contact::new(over_a, ssn())).unwrap();
+        let old = contact(ctx, x());
+        ctx.routing_table_mut()
+            .contact_mut(&x())
+            .unwrap()
+            .set_invalid(NotViaStateList::from(NotViaState::from(NotVia::from((
+                Link::new(a(), x()),
+                crate::domain::Age::from(0),
+            )))));
+        let new = contact(ctx, x());
+        assert!(old.is_valid() && new.is_invalid());
+        (old, new)
+    }
+
+    fn contact_updated(fh: &mut FH, ctx: &Ctx, old: Contact, new: Contact) {
+        fh.handle_event(
+            ctx,
+            UseCaseEvent::Contact(Box::new(ContactEvent::Updated {
+                new: Box::new(new),
+                old: Box::new(old),
+            })),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn outdated_invalidation_of_revalidated_contact_starts_no_rediscovery() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut fh, ctx) = setup(false);
+        let (old, new) = invalidate_x_over_a(&ctx);
+        // the same message revalidates x over b before the event is processed
+        let mut over_b = path(&[b(), x()]);
+        over_b.set_valid();
+        assert!(
+            ctx.routing_table_mut()
+                .contact_mut(&x())
+                .unwrap()
+                .assess_path_candidate_and_update(&over_b)
+        );
+
+        contact_updated(&mut fh, &ctx, old, new);
+
+        assert!(contact(&ctx, x()).is_valid());
+        assert!(fh.scheduled_rediscoveries.is_empty());
+    }
+
+    #[test]
+    fn outdated_invalidation_of_removed_contact_is_ignored() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut fh, ctx) = setup(false);
+        let (old, new) = invalidate_x_over_a(&ctx);
+        ctx.routing_table_mut().remove(&x());
+
+        contact_updated(&mut fh, &ctx, old, new);
+
+        assert!(fh.scheduled_rediscoveries.is_empty());
+    }
+
+    #[test]
+    fn invalidation_starts_rediscovery() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut fh, ctx) = setup(false);
+        let (old, new) = invalidate_x_over_a(&ctx);
+
+        contact_updated(&mut fh, &ctx, old, new);
+
+        assert!(matches!(
+            contact(&ctx, x()).state(),
+            ContactState::Rediscovering(_)
+        ));
+        assert_eq!(fh.scheduled_rediscoveries.len(), 1);
     }
 
     #[test]
