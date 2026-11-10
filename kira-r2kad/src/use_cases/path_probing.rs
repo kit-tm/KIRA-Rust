@@ -409,6 +409,19 @@ where
         }
     }
 
+    /// Time since the probe with the given nonce was sent, if it is still tracked.
+    fn elapsed_since_sent(&self, nonce: &Nonce) -> Option<Duration> {
+        let PathProbingState::Running {
+            requests_in_flight, ..
+        } = &self.state
+        else {
+            return None;
+        };
+        requests_in_flight
+            .get(nonce)
+            .map(|(_, _, sent)| sent.to_age_duration())
+    }
+
     fn is_tracked_message(&self, nonce: &Nonce) -> bool {
         match &self.state {
             PathProbingState::Running {
@@ -606,6 +619,8 @@ where
                 rev_source_route.reverse();
 
                 let nonce = common_header.msg_id();
+                // round-trip time of this probe, probes are never retransmitted
+                let rtt = self.elapsed_since_sent(&nonce);
 
                 // in case we have a contact we validate it explicitly (currently this is done in forward_messages already)
                 let mut rt = context.routing_table_mut();
@@ -617,6 +632,9 @@ where
                         assert!(active_path.is_valid());
                         // set_valid() also includes update_last_validated();
                         active_path.set_valid();
+                        if let Some(rtt) = rtt {
+                            active_path.record_rtt(rtt);
+                        }
                         contact.set_last_seen_now();
                         // since this is a solicited reply we unconditionally set the sequence number to a new value
                         if let StateSeqNr::Value(current_state_seq_nr) = common_header.state_seq_num
@@ -637,6 +655,9 @@ where
                         {
                             // this probe message confirms the proposed path
                             proposed_path.set_valid();
+                            if let Some(rtt) = rtt {
+                                proposed_path.record_rtt(rtt);
+                            }
                         }
                     }
                 }
@@ -951,5 +972,79 @@ mod tests {
             panic!("contact stays invalid");
         };
         assert!(not_via.nvs_list.iter().any(|nvs| nvs.link == failed_link));
+    }
+
+    /// ProbeRsp of [c] to the given probe, traveled back along the active path.
+    fn probe_rsp(probe: &ReqRspMessage<ProbeReqData>) -> ProtocolMessage {
+        let mut source_route = SourceRoute::new(c(), path(&[d(), b(), a(), root()]));
+        for _ in 0..3 {
+            source_route.advance();
+        }
+        ProtocolMessage::ProbeRsp(ReqRspMessage {
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::ProbeRsp,
+                c(),
+                root(),
+                Some(probe.common_header.msg_id()),
+                StateSeqNr::Value(ssn()),
+                1,
+            ),
+            data: ProbeRspData,
+            not_via: None,
+            source_route,
+        })
+    }
+
+    #[test]
+    fn probe_rsp_measures_rtt_of_active_path() {
+        let (mut pp, ctx) = setup(true);
+        // active paths are validated in practice
+        ctx.routing_table_mut()
+            .contact_mut(&c())
+            .unwrap()
+            .path_mut()
+            .unwrap()
+            .set_valid();
+        let contact = ctx.routing_table().contact(&c()).unwrap().clone();
+        assert!(contact.srtt().is_none());
+        pp.send_probe_req(&ctx, &contact);
+        let probe = sent_probe_reqs(&ctx).pop().unwrap();
+
+        std::thread::sleep(Duration::from_millis(20));
+        pp.handle_event(
+            &ctx,
+            UseCaseEvent::Message(probe_rsp(&probe), UnderlayNeighborSource::Local),
+        )
+        .unwrap();
+
+        let srtt = ctx.routing_table().contact(&c()).unwrap().srtt();
+        assert!(
+            srtt.is_some_and(|srtt| srtt >= Duration::from_millis(20)),
+            "measured {srtt:?}"
+        );
+    }
+
+    #[test]
+    fn untracked_probe_rsp_does_not_measure_rtt() {
+        let (mut pp, ctx) = setup(true);
+        let contact = ctx.routing_table().contact(&c()).unwrap().clone();
+        pp.send_probe_req(&ctx, &contact);
+        let mut probe = sent_probe_reqs(&ctx).pop().unwrap();
+        probe.common_header = CommonHeader::new(
+            ProtocolMessageKind::ProbeReq,
+            root(),
+            c(),
+            Some(Nonce::random()),
+            StateSeqNr::Value(ssn()),
+            1,
+        );
+
+        pp.handle_event(
+            &ctx,
+            UseCaseEvent::Message(probe_rsp(&probe), UnderlayNeighborSource::Local),
+        )
+        .unwrap();
+
+        assert!(ctx.routing_table().contact(&c()).unwrap().srtt().is_none());
     }
 }

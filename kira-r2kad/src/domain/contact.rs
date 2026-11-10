@@ -230,6 +230,16 @@ impl Contact {
         self.last_seen.to_age()
     }
 
+    /// Smoothed round-trip time to the contact over its active path, if measured.
+    pub fn srtt(&self) -> Option<Duration> {
+        self.path().and_then(Path::srtt)
+    }
+
+    /// Estimated one-way delay to the contact: half of the smoothed round-trip time.
+    pub fn one_way_delay(&self) -> Option<Duration> {
+        self.srtt().map(|srtt| srtt / 2)
+    }
+
     /// Age of the routing information about this contact, as reported to other nodes in
     /// RTable objects (draft §3.9.3).
     ///

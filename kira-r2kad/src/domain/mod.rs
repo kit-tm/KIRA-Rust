@@ -99,6 +99,14 @@ pub use vicinity::{
 #[display("{}ms",self.0)]
 pub struct Age(u64);
 
+impl Age {
+    /// Returns the age increased by `duration`, e.g. by the estimated transit time.
+    pub fn saturating_add(self, duration: Duration) -> Age {
+        let ms = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
+        Age(self.0.saturating_add(ms))
+    }
+}
+
 impl From<Age> for std::time::Duration {
     fn from(Age(age_ms): Age) -> Self {
         std::time::Duration::from_millis(age_ms)

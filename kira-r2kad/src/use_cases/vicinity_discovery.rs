@@ -30,12 +30,14 @@ use crate::{
         InterfaceId,
         NodeId,
         Nonce,
+        Path,
         ProtocolMessage,
         ProtocolMessageKind,
         RoutingTable,
         SafeStateSeqNr,
         SourceRoute,
         StateSeqNr,
+        Timestamp,
         ULNState,
         ULNTable,
         UnderlayNeighborDestination::{
@@ -161,6 +163,9 @@ pub struct RequestState {
     expected_nonce: Nonce,
     /// current timeout timer; timers with another id are outdated
     timer_id: TimerId,
+    /// When the request was sent. Unset after a retransmission, as a response then can't
+    /// be matched to one transmission for measuring the round-trip time (Karn's algorithm).
+    sent: Option<Timestamp>,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -568,6 +573,7 @@ where
                 timeout: initial_timeout,
                 expected_nonce,
                 timer_id: timeout_timer_id,
+                sent: Some(Timestamp::now()),
             },
         );
     }
@@ -666,6 +672,7 @@ where
         timer_hooks.insert(timeout_timer_id, TimerHook::TimeoutULNDiscReq(destination));
         req_state.timer_id = timeout_timer_id;
         req_state.timeout = timeout;
+        req_state.sent = None;
 
         tracing::trace!(
             target: "vicinity_discovery",
@@ -823,7 +830,30 @@ where
         }
     }
 
-    fn finalize_request(&mut self, response: ProtocolMessage) {
+    /// Records the round-trip time of a request at the responding contact, if the response
+    /// arrived over the contact's active path.
+    fn record_rtt(context: &C, response: &ProtocolMessage, rtt: Duration) {
+        // path from us to the responder, reversed from the traveled source route
+        let path = match response.source_route() {
+            Some(source_route) => {
+                let mut path = Path::from(source_route.clone());
+                path.pop(); // ourselves
+                path.reverse();
+                path
+            }
+            // ULNDiscRsp are sent directly
+            None => Path::from(*response.source()),
+        };
+        let mut routing_table = context.routing_table_mut();
+        if let Some(mut contact) = routing_table.contact_mut(response.source())
+            && let Some(active_path) = contact.path_mut()
+            && active_path.is_same_path_as(&path)
+        {
+            active_path.record_rtt(rtt);
+        }
+    }
+
+    fn finalize_request(&mut self, context: &C, response: ProtocolMessage) {
         let VDState::Running { pending_reqs, .. } = &mut self.state else {
             return;
         };
@@ -848,6 +878,9 @@ where
                     reason = "response_received",
                     "request complete",
                 );
+                if let Some(sent) = entry.get().sent {
+                    Self::record_rtt(context, &response, sent.to_age_duration());
+                }
                 entry.remove();
             } else {
                 tracing::trace!(
@@ -920,7 +953,7 @@ where
                     entry.update_synced_ssn(rsp_ssn);
                 }
 
-                self.finalize_request(protocol_message);
+                self.finalize_request(context, protocol_message);
 
                 Ok(())
             }
@@ -1153,7 +1186,7 @@ where
                 }
                 self.process_ulndisc_reqrsp(context, ulndiscrsp);
 
-                self.finalize_request(protocol_message);
+                self.finalize_request(context, protocol_message);
 
                 Ok(())
             }
@@ -1715,6 +1748,7 @@ where
                         req_state.timeouts += 1;
                         req_state.timeout = timeout;
                         req_state.timer_id = timeout_timer_id;
+                        req_state.sent = None;
                     }
                     Some(TimerHook::TimeoutQueryRouteReq(destination)) => {
                         let hash_map::Entry::Occupied(mut entry) =
@@ -1837,6 +1871,7 @@ where
                         req_state.timeouts += 1;
                         req_state.timeout = timeout;
                         req_state.timer_id = timeout_timer_id;
+                        req_state.sent = None;
                     }
                     Some(TimerHook::SendInterfaceHello(interface)) => {
                         let Some(InterfaceState { hello_interval }) =
@@ -2419,5 +2454,72 @@ mod tests {
                 "{node_id_a:x},{node_id_b:x}"
             );
         }
+    }
+
+    fn uln_disc_rsp(nonce: Nonce) -> UseCaseEvent {
+        UseCaseEvent::Message(
+            ProtocolMessage::ULNDiscRsp(ULNReqRspMessage {
+                common_header: CommonHeader::new(
+                    ProtocolMessageKind::ULNDiscRsp,
+                    uln(),
+                    root(),
+                    Some(nonce),
+                    StateSeqNr::Value(ssn(1)),
+                    1,
+                ),
+                data: RTableData { contacts: vec![] },
+            }),
+            UnderlayNeighborSource::UnderlayNeighbor(ulnid()),
+        )
+    }
+
+    /// Setup with the ULN's contact and an active interface to receive its responses.
+    fn setup_for_rtt() -> (VD, Ctx) {
+        let (mut vd, ctx, _) = setup(VicinityDiscoveryConfig::default(), true);
+        add_contact(&ctx, &[uln()]);
+        vd.handle_event(
+            &ctx,
+            UseCaseEvent::UnderlayUpdate(UnderlayNeighborUpdate::InterfaceUp(ulnid().interface_id)),
+        )
+        .unwrap();
+        (vd, ctx)
+    }
+
+    fn uln_srtt(ctx: &Ctx) -> Option<Duration> {
+        ctx.routing_table().contact(&uln()).unwrap().srtt()
+    }
+
+    #[test]
+    fn uln_disc_rsp_measures_rtt() {
+        let (mut vd, ctx) = setup_for_rtt();
+        let request = start_regular_uln_disc_req(&mut vd, &ctx);
+
+        std::thread::sleep(Duration::from_millis(20));
+        vd.handle_event(&ctx, uln_disc_rsp(request.expected_nonce))
+            .unwrap();
+
+        let srtt = uln_srtt(&ctx);
+        assert!(
+            srtt.is_some_and(|srtt| srtt >= Duration::from_millis(20)),
+            "measured {srtt:?}"
+        );
+    }
+
+    #[test]
+    fn uln_disc_rsp_after_retransmission_does_not_measure_rtt() {
+        // the response can't be matched to one of the transmissions (Karn's algorithm)
+        let (mut vd, ctx) = setup_for_rtt();
+        let request = start_regular_uln_disc_req(&mut vd, &ctx);
+        fire(&mut vd, &ctx, request.timer_id);
+        assert_eq!(
+            sent_uln_disc_reqs(&ctx),
+            vec![request.expected_nonce],
+            "resent"
+        );
+
+        vd.handle_event(&ctx, uln_disc_rsp(request.expected_nonce))
+            .unwrap();
+
+        assert_eq!(uln_srtt(&ctx), None);
     }
 }

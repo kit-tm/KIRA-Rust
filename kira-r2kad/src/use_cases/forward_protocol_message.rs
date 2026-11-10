@@ -237,8 +237,23 @@ where
         }
     }
 
+    /// Estimated time a message from `source` took to reach us: half of the smoothed
+    /// round-trip time to it, or zero without measurement.
+    ///
+    /// It is added to received ages, as the information got older on the way.
+    fn transit_delay(context: &C, source: &NodeId) -> std::time::Duration {
+        context
+            .routing_table()
+            .contact(source)
+            .and_then(Contact::one_way_delay)
+            .unwrap_or_default()
+    }
+
     fn extract_rtable_reqrsp(&self, context: &C, rtable: &RTableData, path_to_source: Path) {
+        // the reported information got older on its way to us
+        let delay = Self::transit_delay(context, path_to_source.last());
         for mut reported_contact in rtable.contacts.clone() {
+            reported_contact.set_info_age(reported_contact.age().saturating_add(delay));
             let mut path = path_to_source.clone();
             if reported_contact.path().is_some() {
                 path.extend(reported_contact.path().unwrap().clone());
@@ -301,11 +316,14 @@ where
 
     /// Extracts not_via data and applies them on the routing table.
     fn extract_not_via_data(&self, context: &C, source: &NodeId, new_not_via_data: &NotViaList) {
+        // the failure information got older on its way to us
+        let delay = Self::transit_delay(context, source);
         // we exclude any notvia that contains ourselves, because we know better
         let filtered_not_via_data = new_not_via_data
             .iter()
             .filter(|notvia| !notvia.link.contains(context.root_id()))
-            .collect::<Vec<&NotVia>>();
+            .map(|notvia| NotVia::from((notvia.link.clone(), notvia.age.saturating_add(delay))))
+            .collect::<Vec<NotVia>>();
 
         let mut routing_table = context.routing_table_mut();
 
@@ -320,8 +338,7 @@ where
                     && *last_validated < Timestamp::from(entry.age)
                     && contact.path().unwrap().contains_link(&entry.link)
                 {
-                    contact
-                        .set_invalid(NotViaStateList::from(NotViaState::from((**entry).clone())));
+                    contact.set_invalid(NotViaStateList::from(NotViaState::from(entry.clone())));
                     tracing::debug!(target: "forward_protocol_message", %source, invalidated_contact = %contact.id(), "Invalidated contact based on not-via data");
                     continue;
                 }
@@ -335,6 +352,8 @@ where
         source_id: &NodeId,
         route_updates: I,
     ) {
+        // the reported information got older on its way to us
+        let delay = Self::transit_delay(context, source_id);
         let mut routing_table = context.routing_table_mut();
         let source_contact = routing_table.contact(source_id).cloned();
         if source_contact.is_none() {
@@ -347,7 +366,8 @@ where
         };
 
         // iterate over all given contacts in the update message
-        for (updated_contact, update_action) in route_updates {
+        for (mut updated_contact, update_action) in route_updates {
+            updated_contact.set_info_age(updated_contact.age().saturating_add(delay));
             if let Some(mycontact) = routing_table.contact(updated_contact.id()) {
                 // if updated contact is a ULN of this node, we ignore information about it
                 if mycontact.is_uln() {
@@ -1120,6 +1140,54 @@ mod tests {
         let (ctx, z) = contact_behind_neighbor();
 
         receive(&ctx, unreachable_update(z, 60_000));
+
+        assert!(ctx.routing_table().contact(&z).unwrap().is_valid());
+    }
+
+    /// Creates the neighbor's own contact and sets its smoothed RTT.
+    fn neighbor_with_srtt(ctx: &Ctx, srtt_ms: u64) {
+        receive(ctx, routed_message(&[neighbor()]));
+        ctx.routing_table_mut()
+            .contact_mut(&neighbor())
+            .expect("neighbor contact")
+            .path_mut()
+            .unwrap()
+            .record_rtt(std::time::Duration::from_millis(srtt_ms));
+    }
+
+    #[test]
+    fn not_via_without_rtt_estimate_is_current() {
+        let (ctx, t, link) = stale_failure_setup();
+        receive(&ctx, routed_message(&[neighbor()]));
+        std::thread::sleep(std::time::Duration::from_millis(60));
+
+        // failure 30ms ago, after the path to T was validated
+        receive(&ctx, with_not_via(routed_message(&[neighbor()]), link, 30));
+
+        assert!(ctx.routing_table().contact(&t).unwrap().is_invalid());
+    }
+
+    #[test]
+    fn transit_delay_ages_not_via() {
+        let (ctx, t, link) = stale_failure_setup();
+        // 100ms one-way delay from the neighbor
+        neighbor_with_srtt(&ctx, 200);
+        std::thread::sleep(std::time::Duration::from_millis(60));
+
+        // reported 30ms old, so 130ms old here: before the path to T was validated
+        receive(&ctx, with_not_via(routed_message(&[neighbor()]), link, 30));
+
+        assert!(ctx.routing_table().contact(&t).unwrap().is_valid());
+    }
+
+    #[test]
+    fn transit_delay_ages_route_updates() {
+        let (ctx, z) = contact_behind_neighbor();
+        neighbor_with_srtt(&ctx, 200);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        // reported as current, but 100ms old here: older than the contact information
+        receive(&ctx, unreachable_update(z, 0));
 
         assert!(ctx.routing_table().contact(&z).unwrap().is_valid());
     }
