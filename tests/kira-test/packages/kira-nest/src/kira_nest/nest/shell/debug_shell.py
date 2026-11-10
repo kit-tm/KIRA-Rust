@@ -1053,7 +1053,7 @@ class DebugShell[T](Cmd):
                 self._cmd_failed()
                 return
             missing_pathsetups = next(missing_pathsetups, None) is not None
-            if missing_pathsetups is None:
+            if missing_pathsetups:
                 fail = True
 
             missing_pathsetups_rt = node.missing_pathsetups_rt()
@@ -1062,7 +1062,7 @@ class DebugShell[T](Cmd):
                 self._cmd_failed()
                 return
             missing_pathsetups_rt = next(missing_pathsetups_rt, None) is not None
-            if missing_pathsetups_rt is None:
+            if missing_pathsetups_rt:
                 fail = True
 
             additional_vicinity = topo_node.additional_vicinity(node)

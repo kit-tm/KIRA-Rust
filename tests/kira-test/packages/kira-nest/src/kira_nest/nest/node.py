@@ -6,10 +6,11 @@ import logging
 import os
 import pathlib
 import re
+import shutil
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass
-from functools import cached_property, singledispatchmethod
+from functools import cache, cached_property, singledispatchmethod
 from ipaddress import (
     AddressValueError,
     IPv6Address,
@@ -44,6 +45,17 @@ from nest.topology import Address, Node
 from networkx import Graph
 
 logger = logging.getLogger(__name__)
+
+
+@cache
+def require_nft() -> None:
+    """Raises if `nft` is missing, which is needed to read the nodes' PathID tables."""
+    # without it every lookup fails and would be mistaken for a missing entry
+    if shutil.which("nft") is None:
+        raise RuntimeError(
+            "nft (nftables) not found in PATH: it is required to inspect the "
+            "PathID forwarding tables of the nodes"
+        )
 
 
 @dataclass(frozen=True)
@@ -260,10 +272,14 @@ class KIRANode(Node):
         """Determines the next KiraIP of an encapsulated packet (with PathIP)."""
 
         # lookup nftables forwardmap for translation
+        require_nft()
         cmd = f"nft get element ip6 kira forwardmap {{ {ip} }}"
         p = self.exec(cmd, logfile=PIPE)
-        stdout, _ = p.communicate()
+        stdout, stderr = p.communicate()
         if p.returncode != 0:
+            # usually the element doesn't exist
+            error = stderr.decode("utf-8").strip()
+            logger.debug(f"{ip} unknown to node {self}: {error}")
             return None
         stdout = stdout.decode("utf-8")
 
@@ -521,10 +537,16 @@ class KIRANode(Node):
     def missing_vicinity_path_setups(
         self,
     ) -> Iterator[PathIDEntry] | None:
+        """Returns the missing PathID entries of the vicinity or None on errors."""
+        # not a generator itself, otherwise returning None would only end the iteration
         vicinity_paths = self.paths_vicinity()
         if vicinity_paths is None:
             return None
+        return self._missing_vicinity_path_setups(vicinity_paths)
 
+    def _missing_vicinity_path_setups(
+        self, vicinity_paths: Iterator[Path]
+    ) -> Iterator[PathIDEntry]:
         for path in vicinity_paths:
             in_path = Path([self.node_id, *path])
             out_path = path
@@ -540,10 +562,14 @@ class KIRANode(Node):
                 yield PathIDFwdEntry(out_path)
 
     def missing_pathsetups_rt(self) -> Iterator[FwdEntry] | None:
+        """Returns the missing entries for routing table paths or None on errors."""
+        # not a generator itself, otherwise returning None would only end the iteration
         rt_paths = self.paths_routing_table()
         if rt_paths is None:
             return None
+        return self._missing_pathsetups_rt(rt_paths)
 
+    def _missing_pathsetups_rt(self, rt_paths: Iterator[Path]) -> Iterator[FwdEntry]:
         for path in rt_paths:
             dest = path.destination()
             ulneighbor = len(path) == 1

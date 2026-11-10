@@ -979,7 +979,8 @@ mod tests {
     }
 
     #[test]
-    fn path_is_shortened_via_bidirectional_neighbor() {
+    fn path_shortened_via_bidirectional_neighbor_is_only_proposed() {
+        // the traversed path is validated, the shortcut <B, S> is not (draft §3.9.3)
         let ctx = context();
         let (p, q, b) = (NodeId::with_msb(3), NodeId::with_msb(4), neighbor());
         bidirectional(&ctx, p);
@@ -992,14 +993,17 @@ mod tests {
             .contact(&source())
             .cloned()
             .expect("contact created");
-        assert_eq!(
-            contact
-                .path()
-                .unwrap()
-                .clone()
-                .into_iter()
-                .collect::<Vec<_>>(),
-            [b, source()]
+        let ids = |path: &Path| path.clone().into_iter().collect::<Vec<_>>();
+
+        let active = contact.path().unwrap();
+        assert_eq!(ids(active), [p, q, b, source()], "traversed path is used");
+        assert!(active.is_valid());
+
+        let proposed = contact.proposed_path().expect("shortcut is proposed");
+        assert_eq!(ids(proposed), [b, source()]);
+        assert!(
+            proposed.is_notvalidated(),
+            "shortcut has to be probed first"
         );
     }
 }

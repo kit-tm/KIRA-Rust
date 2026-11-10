@@ -296,9 +296,15 @@ where
             .copied()
             .ok_or(DeriveFwdEntriesError::NeighborNotInULNTable(next_hop))?;
 
-        if context.uln_table().contains_key(contact.id()) && !contact.is_uln() {
+        // A confirmed underlay neighbor has a direct forwarding entry that must not be replaced.
+        // A tentative one has no confirmed direct link, so it is reached via a longer path.
+        let is_bidirectional_uln = matches!(
+            context.uln_table().get(contact.id()),
+            Some((_, ULNState::Bidirectional))
+        );
+        if is_bidirectional_uln && !contact.is_uln() {
             log::warn!(target: "derive_fwd_table_entries",
-                "Contact {contact:?} is not a underlay neighbor but listed in ULNTable -> may overwrite previous route unintentionally!");
+                "Contact {contact:?} is not a underlay neighbor but listed as bidirectional in ULNTable -> may overwrite previous route unintentionally!");
             return Err(DeriveFwdEntriesError::NonUNInULNTable(Box::new(
                 contact.clone(),
             )));
@@ -617,7 +623,7 @@ where
 pub enum DeriveFwdEntriesError {
     #[display("Neighbor listed in contacts path not in ULNTable: {_0}")]
     NeighborNotInULNTable(NodeId),
-    #[display("Contact is not a underlay neighbor but listed in ULNTable: {_0}")]
+    #[display("Contact is not a underlay neighbor but listed as bidirectional in ULNTable: {_0}")]
     NonUNInULNTable(Box<Contact>),
 }
 impl Error for DeriveFwdEntriesError {}
@@ -1148,6 +1154,69 @@ mod tests {
                 2, // +1 for prefix update
                 "Additional forwarding updates present: {fwd_updates:#?}"
             );
+        }
+    }
+
+    mod uln_state {
+        //! Contacts of nodes that are also listed in the ULNTable
+
+        use super::*;
+        use crate::domain::{
+            ConnectionId,
+            InterfaceId,
+        };
+
+        fn ulnid() -> UnderlayNeighborId {
+            UnderlayNeighborId {
+                interface_id: InterfaceId::try_from(1).unwrap(),
+                connection_id: ConnectionId::from(0),
+            }
+        }
+
+        /// Derives the NodeId entry of a contact <neighbor, other> while `other` is in the
+        /// ULNTable with the given state.
+        fn derive(other_state: ULNState) -> Result<NodeIdEntry, DeriveFwdEntriesError> {
+            crate::tests::init();
+            let root_id = NodeId::with_lsb(1);
+            let neighbor_id = NodeId::with_lsb(2);
+            let other_id = NodeId::with_lsb(3);
+
+            let mut uln_table = Box::new(HashMap::new());
+            uln_table.insert(neighbor_id, (ulnid(), ULNState::Bidirectional));
+            uln_table.insert(other_id, (ulnid(), other_state));
+
+            let sync_context = SyncContext::new(ContextConfig {
+                root_id,
+                routing_table: SingleBucketRT::<20>::new(root_id),
+                uln_table,
+                insertion_strategy: (),
+                runtime: TestingUseCaseRuntime::default(),
+                vicinity_graph: (),
+            });
+            let use_case = DeriveFwdTableEntries::new(DeriveFwdTableEntriesConfig {
+                hasher: Hasher::Shake256,
+            });
+
+            let contact = Contact::new(
+                Path::from([neighbor_id, other_id]),
+                SafeStateSeqNr::try_from(1).unwrap(),
+            );
+            use_case.derive_node_id_entry(&sync_context, &contact)
+        }
+
+        #[test]
+        fn tentative_neighbor_reached_via_longer_path() {
+            // the direct link is not confirmed (e.g. asymmetric), so the longer path is used
+            let entry = derive(ULNState::Tentative).expect("entry for tentative neighbor");
+            assert!(matches!(entry, NodeIdEntry::Encapsulate(_)));
+        }
+
+        #[test]
+        fn bidirectional_neighbor_via_longer_path_is_rejected() {
+            assert!(matches!(
+                derive(ULNState::Bidirectional),
+                Err(DeriveFwdEntriesError::NonUNInULNTable(_))
+            ));
         }
     }
 }

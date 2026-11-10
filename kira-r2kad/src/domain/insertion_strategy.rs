@@ -82,6 +82,54 @@ impl<RT, CR, PS, const BUCKET_SIZE: usize> UNSStrategy<RT, CR, PS, BUCKET_SIZE>
 where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
 {
+    /// Inserts a contact whose path has already been checked, cycle-free and simplified.
+    fn insert_prepared(&self, contact: Contact, routing_table: &mut RT) -> InsertionStrategyResult {
+        // contacts with Unknown state contain may new interesting paths for proposed paths
+        // try them first if contact exists
+        if *contact.state() == ContactState::Unknown {
+            if routing_table.contains(contact.id()) {
+                return self.update_existing(contact.clone(), routing_table);
+            }
+            // if the contact does not exist yet, return for now
+            // interesting contacts could be saved for later
+            // TODO need to assess whether it is worth to probe the path
+            return InsertionStrategyResult::NeedsValidation;
+        }
+
+        // insert modified contact into routing table
+        let insertion_result = routing_table.insert(contact.clone());
+
+        let Err(insertion_err) = insertion_result else {
+            tracing::debug!(
+                target: "insertion_strategy",
+                node = %contact.id(),
+                %contact,
+                "inserted contact into routing table"
+            );
+            return InsertionStrategyResult::Inserted;
+        };
+        tracing::trace!(
+            target: "insertion_strategy",
+            node = %contact.id(),
+            %contact,
+            error = %insertion_err,
+            "inserting contact into routing table failed",
+        );
+
+        // try modifying an existing contact in the bucket instead of inserting or check new contact proposal first
+        match insertion_err {
+            InsertionError::BucketSplit(_) | InsertionError::Add(AddError::NotAdded) => {
+                self.replace_in_full_bucket(contact.clone(), routing_table)
+            }
+            InsertionError::Add(AddError::AlreadyExists(_)) => {
+                self.update_existing(contact.clone(), routing_table)
+            }
+            InsertionError::Add(AddError::NeedsValidation) => {
+                return InsertionStrategyResult::NeedsValidation;
+            }
+        }
+    }
+
     /// Update an existing contact in the table instead of inserting.
     fn update_existing(&self, contact: Contact, table: &mut RT) -> InsertionStrategyResult {
         let mut existing = table
@@ -285,56 +333,38 @@ where
         // itself to include it in the process
         let path = contact.path_mut().unwrap();
         self.path_cycle_remover.remove_cycles_in_place(path);
+        // without cycles, the path still only consists of links the message traversed
+        let traversed = path.clone();
         self.path_simplifier.simplify(routing_table, un_table, path);
+        let simplified = !path.is_same_path_as(&traversed);
+        if simplified {
+            // the path was improved with local information, so it is not validated (draft §3.9.3)
+            path.set_notvalidated();
+        }
         // if it is a ULN it is automatically a valid path
         if path.size() == 1 {
             path.set_valid();
         }
 
-        // contacts with Unknown state contain may new interesting paths for proposed paths
-        // try them first if contact exists
-        if *contact.state() == ContactState::Unknown {
+        // A validated traversed path must not get lost by simplification:
+        // use it as candidate and offer the simplified path as proposed path to be probed.
+        if simplified && traversed.is_valid() && path.is_notvalidated() {
+            let mut validated = contact.clone();
+            validated.set_path(traversed);
+            let result = self.insert_prepared(validated, routing_table);
+
             if routing_table.contains(contact.id()) {
-                return self.update_existing(contact.clone(), routing_table);
+                let proposal = self.update_existing(contact, routing_table);
+                if result == InsertionStrategyResult::Dropped
+                    && proposal == InsertionStrategyResult::Updated
+                {
+                    return InsertionStrategyResult::Updated;
+                }
             }
-            // if the contact does not exist yet, return for now
-            // interesting contacts could be saved for later
-            // TODO need to assess whether it is worth to probe the path
-            return InsertionStrategyResult::NeedsValidation;
+            return result;
         }
 
-        // insert modified contact into routing table
-        let insertion_result = routing_table.insert(contact.clone());
-
-        let Err(insertion_err) = insertion_result else {
-            tracing::debug!(
-                target: "insertion_strategy",
-                node = %contact.id(),
-                %contact,
-                "inserted contact into routing table"
-            );
-            return InsertionStrategyResult::Inserted;
-        };
-        tracing::trace!(
-            target: "insertion_strategy",
-            node = %contact.id(),
-            %contact,
-            error = %insertion_err,
-            "inserting contact into routing table failed",
-        );
-
-        // try modifying an existing contact in the bucket instead of inserting or check new contact proposal first
-        match insertion_err {
-            InsertionError::BucketSplit(_) | InsertionError::Add(AddError::NotAdded) => {
-                self.replace_in_full_bucket(contact.clone(), routing_table)
-            }
-            InsertionError::Add(AddError::AlreadyExists(_)) => {
-                self.update_existing(contact.clone(), routing_table)
-            }
-            InsertionError::Add(AddError::NeedsValidation) => {
-                return InsertionStrategyResult::NeedsValidation;
-            }
-        }
+        self.insert_prepared(contact, routing_table)
     }
 }
 
@@ -744,5 +774,89 @@ mod tests {
 
         assert_eq!(result, InsertionStrategyResult::Dropped);
         assert!(!rt.contains(&dest));
+    }
+
+    fn ids(path: &Path) -> Vec<NodeId> {
+        path.clone().into_iter().collect()
+    }
+
+    fn valid_contact(path: &[NodeId], ssn: u32) -> Contact {
+        let mut contact = contact(path, ssn);
+        contact.path_mut().unwrap().set_valid();
+        contact
+    }
+
+    #[test]
+    fn simplified_path_of_validated_contact_is_only_proposed() {
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let (p, q, m, z) = (
+            NodeId::from(1),
+            NodeId::from(2),
+            NodeId::from(3),
+            NodeId::from(4),
+        );
+        let b = NodeId::from(5);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[p, b]);
+        // known valid contact M via <B, M>
+        rt.insert(valid_contact(&[b, m], 1)).unwrap();
+        let mut strategy = UNSStrategy::<_, _, _, BUCKET_SIZE>::new(
+            InOrderCycleRemover,
+            crate::domain::path::ShortestFirstPathSimplifier,
+        );
+
+        // traversed <P, Q, M, Z> can be improved with local information to <B, M, Z>
+        let result = strategy.insert(valid_contact(&[p, q, m, z], 1), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::Inserted);
+        let contact = rt.contact(&z).unwrap();
+        assert_eq!(ids(contact.path().unwrap()), [p, q, m, z]);
+        assert!(contact.path().unwrap().is_valid());
+        let proposed = contact.proposed_path().expect("improved path is proposed");
+        assert_eq!(ids(proposed), [b, m, z]);
+        assert!(proposed.is_notvalidated());
+    }
+
+    #[test]
+    fn shortcut_to_bidirectional_uln_itself_is_valid() {
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let (p, q, b) = (NodeId::from(1), NodeId::from(2), NodeId::from(3));
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[p, b]);
+        let mut strategy = UNSStrategy::<_, _, _, BUCKET_SIZE>::new(
+            InOrderCycleRemover,
+            crate::domain::path::ShortestFirstPathSimplifier,
+        );
+
+        // <P, Q, B> collapses to the direct link <B>, which ULN discovery confirmed
+        let result = strategy.insert(valid_contact(&[p, q, b], 1), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::Inserted);
+        let contact = rt.contact(&b).unwrap();
+        assert_eq!(ids(contact.path().unwrap()), [b]);
+        assert!(contact.path().unwrap().is_valid());
+        assert!(contact.proposed_path().is_none());
+    }
+
+    #[test]
+    fn unchanged_validated_path_is_inserted_as_is() {
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let (p, q) = (NodeId::from(1), NodeId::from(2));
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[p]);
+        let mut strategy = UNSStrategy::<_, _, _, BUCKET_SIZE>::new(
+            InOrderCycleRemover,
+            crate::domain::path::ShortestFirstPathSimplifier,
+        );
+
+        let result = strategy.insert(valid_contact(&[p, q], 1), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::Inserted);
+        let contact = rt.contact(&q).unwrap();
+        assert!(contact.path().unwrap().is_valid());
+        assert!(contact.proposed_path().is_none());
     }
 }
