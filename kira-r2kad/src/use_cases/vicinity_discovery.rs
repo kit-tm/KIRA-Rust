@@ -221,8 +221,11 @@ fn deterministic_heuristic(self_id: &NodeId, other: &NodeId, num_bits: NonZeroU8
     // Unwrapping is safe here, as checked at construction
     let own_bits = self_id.bits(0, num_bits).unwrap();
     let other_bits = other.bits(0, num_bits).unwrap();
-    let delta = other_bits.wrapping_sub(own_bits);
-
+    let (mut delta, _) = other_bits.overflowing_sub(own_bits);
+    let mut mask = u128::MAX;
+    mask <<= u128::BITS - num_bits.get() as u32;
+    mask >>= u128::BITS - num_bits.get() as u32;
+    delta &= mask;
     // Simulation: (delta < 0x80000000) || ((delta == 0 || delta == 0x80000000) && context.root_id() < &source)
     if delta < 0x80000000 && delta != 0 {
         return true;
@@ -2363,5 +2366,29 @@ mod tests {
         assert_eq!(after.expected_nonce, before.expected_nonce);
         assert_ne!(after.timer_id, before.timer_id);
         assert_eq!(ctx.runtime().removed_timers(), vec![before.timer_id]);
+    }
+
+    #[test]
+    fn deterministic_handshake_heuristic() {
+        let mut test_pairs = vec![
+            (NodeId::from_const(0xe3456789u128), NodeId::from_const(0xf3456788u128)),
+            (NodeId::from_const(0x2e3456789u128), NodeId::from_const(0x1f3456788u128)),
+            (NodeId::from_const(0xf2456789u128), NodeId::from_const(0xf1456788u128)),
+            (NodeId::from_const(0xf1456789u128), NodeId::from_const(0xf2456789u128)),
+            (NodeId::from_const(0x80000000u128), NodeId::from_const(0x80000001u128)),
+            (NodeId::from_const(0x80000001u128), NodeId::from_const(0x80000000u128)),
+            (NodeId::from_const(0x100000000u128), NodeId::from_const(0x200000000u128)),
+            (NodeId::from_const(0x200000000u128), NodeId::from_const(0x100000000u128)),
+            (NodeId::from_const(0xd6af3c5d709daef70f9b0ee6ae67u128),NodeId::from_const(0xff305a2c3b78cc824318bb16c474u128)),
+        ];
+
+        for _i in 0..64 {
+          test_pairs.push((NodeId::random(), NodeId::random()));
+        };
+        for (node_id_a, node_id_b) in test_pairs {
+            assert_ne!(deterministic_heuristic(&node_id_a, &node_id_b, NonZeroU8::new(32).unwrap()),
+                       deterministic_heuristic(&node_id_b, &node_id_a, NonZeroU8::new(32).unwrap()),"{node_id_a:x},{node_id_b:x}");
+
+        }
     }
 }
