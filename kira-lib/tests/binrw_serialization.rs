@@ -1131,3 +1131,114 @@ fn binrw_not_via_keeps_age() {
         "saturated"
     );
 }
+
+/// A contact two hops away whose information is `age_ms` old.
+fn aged_contact(last_hop: u8, age_ms: u64) -> Contact {
+    let mut contact = Contact::new(
+        Path::from([NodeId::with_lsb(0xa0), NodeId::with_lsb(last_hop.into())]),
+        SafeStateSeqNr::try_from(3u32).unwrap(),
+    );
+    contact.set_info_age(Age::from(age_ms));
+    contact
+}
+
+fn assert_age_about(contact: &Contact, age_ms: u64) {
+    // the roundtrip itself takes a few ms
+    let age = contact.age();
+    assert!(
+        age >= Age::from(age_ms) && age < Age::from(age_ms + 1_000),
+        "age {age} of {} should be about {age_ms}ms",
+        contact.id()
+    );
+}
+
+fn roundtrip(msg: ProtocolMessage) -> ProtocolMessage {
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::Binrw
+        .serialize(&mut buf, &msg)
+        .expect("serialize");
+    ProtocolMessageFormat::Binrw
+        .deserialize(Cursor::new(&buf))
+        .expect("deserialize")
+}
+
+#[test]
+fn binrw_rtable_keeps_contact_age() {
+    // draft §3.9.3: receivers date the information back by the reported age
+    let header = CommonHeader::new(
+        ProtocolMessageKind::FindNodeRsp,
+        NodeId::with_lsb(0x91),
+        NodeId::with_lsb(0x92),
+        Some(0x8001.into()),
+        0x8002,
+        7,
+    );
+    let uln = Contact::new(
+        Path::from(NodeId::with_lsb(0x93)),
+        SafeStateSeqNr::try_from(9u32).unwrap(),
+    );
+    let msg = ProtocolMessage::FindNodeRsp(ReqRspMessage {
+        common_header: header.clone(),
+        data: RTableData {
+            contacts: vec![uln, aged_contact(0xa1, 7_000)],
+        },
+        not_via: Some(HashSet::new()),
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    });
+
+    let ProtocolMessage::FindNodeRsp(decoded) = roundtrip(msg) else {
+        panic!("unexpected message type");
+    };
+    let contacts = &decoded.data.contacts;
+    assert_age_about(&contacts[0], 0); // information about own links is always current
+    assert_age_about(&contacts[1], 7_000);
+}
+
+#[test]
+fn binrw_rtable_update_keeps_contact_age() {
+    let header = CommonHeader::new(
+        ProtocolMessageKind::UpdateRouteReq,
+        NodeId::with_lsb(0x99),
+        NodeId::with_lsb(0x9a),
+        Some(0x8a01.into()),
+        0x8a02,
+        4,
+    );
+    let msg = ProtocolMessage::UpdateRouteReq(UpdateRouteReq {
+        common_header: header.clone(),
+        not_via: Some(HashSet::new()),
+        contact_actions: vec![(
+            aged_contact(0xa2, 3_000),
+            RouteUpdateActionType::Unreachable,
+        )],
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    });
+
+    let ProtocolMessage::UpdateRouteReq(decoded) = roundtrip(msg) else {
+        panic!("unexpected message type");
+    };
+    assert_age_about(&decoded.contact_actions[0].0, 3_000);
+}
+
+#[test]
+fn binrw_contact_list_keeps_contact_age() {
+    let header = CommonHeader::new(
+        ProtocolMessageKind::ULNDiscReq,
+        NodeId::with_lsb(0x10),
+        NodeId::with_lsb(0x20),
+        Some(0x1111.into()),
+        0x2222,
+        2,
+    );
+    let msg = ProtocolMessage::ULNDiscReq(ULNReqRspMessage {
+        common_header: header,
+        data: RTableData {
+            contacts: vec![aged_contact(0xa3, 5_000)],
+        },
+    });
+
+    let ProtocolMessage::ULNDiscReq(decoded) = roundtrip(msg) else {
+        panic!("unexpected message type");
+    };
+    assert_age_about(&decoded.data.contacts[0], 5_000);
+}

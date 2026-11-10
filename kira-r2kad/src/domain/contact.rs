@@ -230,6 +230,27 @@ impl Contact {
         self.last_seen.to_age()
     }
 
+    /// Age of the routing information about this contact, as reported to other nodes in
+    /// RTable objects (draft §3.9.3).
+    ///
+    /// It is 0 for valid underlay neighbors, as information about own links is always current.
+    /// Otherwise it is the time since the active path was validated or, without validation,
+    /// since the contact was last seen.
+    pub fn info_age(&self) -> Age {
+        if self.is_uln() && self.is_valid() {
+            return Age::from(0);
+        }
+        self.path()
+            .and_then(Path::get_last_validated)
+            .map_or_else(|| self.age(), Timestamp::to_age)
+    }
+
+    /// Dates the contact information back by the age reported by another node
+    /// (draft §3.9.3: `t_j := t_now - ∆T_j`), so it compares correctly with own information.
+    pub fn set_info_age(&mut self, age: Age) {
+        self.last_seen = Timestamp::from(age);
+    }
+
     /// Returns if the contact is older than the given contact `other`.
     pub fn is_older_than(&self, other: &Contact) -> bool {
         self.cmp_actuality(other) == Ordering::Less
@@ -835,5 +856,23 @@ mod tests {
         replacement.set_advertised_labels(Some(ContactLabels::empty()));
         replacement.inherit_labels_from(&previous);
         assert_eq!(replacement.labels(), ContactLabels::Cached);
+    }
+
+    #[test]
+    fn info_age_of_underlay_neighbor_is_zero() {
+        let mut uln = contact_with_path(&[NodeId::from(1)], 1);
+        uln.set_info_age(Age::from(10_000));
+        assert_eq!(uln.info_age(), Age::from(0));
+    }
+
+    #[test]
+    fn info_age_follows_path_validation() {
+        let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
+        contact.set_info_age(Age::from(10_000));
+        // without validation, the age of the contact information is used
+        assert!(contact.info_age() >= Age::from(10_000));
+
+        contact.path_mut().unwrap().set_valid();
+        assert!(contact.info_age() < Age::from(1_000));
     }
 }

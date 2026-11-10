@@ -1105,8 +1105,8 @@ fn parse_req_rsp_payload_from_bytes(
                     let contact_id = NodeId::from(id_bytes);
 
                     let ssn_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
-                    //TODO age and node degree?
-                    let _age_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?; // consume placeholder
+                    let age_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
+                    // TODO: node degree
                     let _node_degree =
                         u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
 
@@ -1117,7 +1117,8 @@ fn parse_req_rsp_payload_from_bytes(
                         )
                     })?;
 
-                    let contact = Contact::new(Path::from(contact_id), ssn);
+                    let mut contact = Contact::new(Path::from(contact_id), ssn);
+                    apply_info_age(&mut contact, age_raw);
                     contacts.push(contact);
                 }
 
@@ -1177,14 +1178,15 @@ fn parse_req_rsp_payload_from_bytes(
                         )
                     })?;
 
-                    // TODO: Age
-                    let _age_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?; // consume placeholder
+                    // Age
+                    let age_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
 
                     // TODO: Node Degree
                     let _node_degree =
                         u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
 
-                    let contact = Contact::new(path, ssn);
+                    let mut contact = Contact::new(path, ssn);
+                    apply_info_age(&mut contact, age_raw);
                     rtable.push(contact);
 
                     object_length_remaining -= NodeId::SIZE // Contact-ID
@@ -1733,6 +1735,25 @@ fn write_contactlist_object<W: Write>(
     Ok(3 + object_length)
 }
 
+/// Age value other implementations write as placeholder when they don't track ages.
+const INFO_AGE_UNKNOWN: u32 = u32::MAX;
+
+/// Encodes the age of contact information in ms, saturated below [INFO_AGE_UNKNOWN].
+fn encode_info_age(age: Age) -> u32 {
+    u32::try_from(std::time::Duration::from(age).as_millis())
+        .unwrap_or(u32::MAX)
+        .min(INFO_AGE_UNKNOWN - 1)
+}
+
+/// Dates a received contact back by its age, unless the age is unknown.
+///
+/// An unknown age keeps the time of receipt, as before ages were evaluated.
+fn apply_info_age(contact: &mut Contact, age_raw: u32) {
+    if age_raw != INFO_AGE_UNKNOWN {
+        contact.set_info_age(Age::from(u64::from(age_raw)));
+    }
+}
+
 fn write_contact_entry<W: Write>(writer: &mut W, contact: &Contact) -> Result<(), IoError> {
     // Contact-ID
     writer.write_all(&contact.id().to_be_bytes())?;
@@ -1742,7 +1763,7 @@ fn write_contact_entry<W: Write>(writer: &mut W, contact: &Contact) -> Result<()
     writer.write_all(&ssn.to_be_bytes())?;
 
     // Age Info
-    writer.write_all(&u32::MAX.to_be_bytes())?; // TODO: Serialize age-info of Contact in rtable
+    writer.write_all(&encode_info_age(contact.info_age()).to_be_bytes())?;
 
     // Node Degree
     writer.write_all(&u16::MAX.to_be_bytes())?; // TODO: Serialize node degree of Contact in rtable
@@ -1810,7 +1831,7 @@ fn write_rtable_entry<W: Write>(writer: &mut W, contact: &Contact) -> Result<(),
     writer.write_all(&ssn.to_be_bytes())?;
 
     // Age Info
-    writer.write_all(&u32::MAX.to_be_bytes())?; // TODO: Serialize age-info of Contact in rtable
+    writer.write_all(&encode_info_age(contact.info_age()).to_be_bytes())?;
 
     // Node Degree
     writer.write_all(&u16::MAX.to_be_bytes())?; // TODO: Serialize node degree of Contact in rtable
@@ -1896,8 +1917,8 @@ fn parse_rtable_update_info_from_bytes(payload: &[u8]) -> Result<ContactActions,
                     )
                 })?;
 
-                // TODO: Age
-                let _age_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?; // consume placeholder
+                // Age
+                let age_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
 
                 // TODO: Node Degree
                 let _node_degree = u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
@@ -1906,7 +1927,8 @@ fn parse_rtable_update_info_from_bytes(payload: &[u8]) -> Result<ContactActions,
                 let action_raw = u8::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
                 let action = RouteUpdateActionType::from(action_raw);
 
-                let contact = Contact::new(path, ssn);
+                let mut contact = Contact::new(path, ssn);
+                apply_info_age(&mut contact, age_raw);
                 result.push((contact, action));
 
                 object_length_remaining -= NodeId::SIZE // Contact-ID
@@ -1997,7 +2019,7 @@ fn write_rtable_update_entry<W: Write>(
     writer.write_all(&ssn.to_be_bytes())?;
 
     // Age Info
-    writer.write_all(&u32::MAX.to_be_bytes())?; // TODO: Serialize age-info of Contact in rtable
+    writer.write_all(&encode_info_age(contact.info_age()).to_be_bytes())?;
 
     // Node Degree
     writer.write_all(&u16::MAX.to_be_bytes())?; // TODO: Serialize node degree of Contact in rtable
@@ -2006,4 +2028,29 @@ fn write_rtable_update_entry<W: Write>(
     writer.write_all(&u8::from(action_type).to_be_bytes())?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn info_age_is_saturated_below_unknown() {
+        assert_eq!(encode_info_age(Age::from(1_234)), 1_234);
+        assert_eq!(encode_info_age(Age::from(u64::MAX)), INFO_AGE_UNKNOWN - 1);
+    }
+
+    #[test]
+    fn unknown_info_age_keeps_time_of_receipt() {
+        // other implementations write the placeholder for every entry
+        let mut contact = Contact::new(
+            Path::from(NodeId::with_lsb(1)),
+            SafeStateSeqNr::try_from(1u32).unwrap(),
+        );
+        apply_info_age(&mut contact, INFO_AGE_UNKNOWN);
+        assert!(contact.age() < Age::from(1_000));
+
+        apply_info_age(&mut contact, 60_000);
+        assert!(contact.age() >= Age::from(60_000));
+    }
 }

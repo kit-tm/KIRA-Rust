@@ -390,9 +390,10 @@ where
                         && affected_path.contains_link(&direct_uln_link)
                         && affected_contact.is_older_than(&updated_contact)
                     {
+                        // date the failure by the reported age, not by the time of receipt
                         affected_contact.set_invalid(NotViaStateList::from(NotViaState::new(
                             direct_uln_link,
-                            Timestamp::now(),
+                            *updated_contact.last_seen(),
                         )));
                         log::trace!(target: "forward_protocol_message", "Invalidated contact {} based on route update (Unreachable) of {} [Removed]", affected_contact.id(), source_id);
                     }
@@ -1069,5 +1070,57 @@ mod tests {
         );
 
         assert!(ctx.routing_table().contact(&t).unwrap().is_valid());
+    }
+
+    /// UpdateRouteReq from the neighbor reporting its link to `z` as unreachable.
+    fn unreachable_update(z: NodeId, age_ms: u64) -> ProtocolMessage {
+        let mut reported = Contact::new(Path::from(z), ssn(1));
+        reported.set_info_age(crate::domain::Age::from(age_ms));
+        ProtocolMessage::UpdateRouteReq(crate::domain::protocol_message::UpdateRouteReq {
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::UpdateRouteReq,
+                neighbor(),
+                root(),
+                None,
+                StateSeqNr::Value(ssn(1)),
+                0,
+            ),
+            not_via: None,
+            contact_actions: vec![(
+                reported,
+                crate::domain::protocol_message::RouteUpdateActionType::Unreachable,
+            )],
+            source_route: SourceRoute::new(neighbor(), Path::from(root())),
+        })
+    }
+
+    fn contact_behind_neighbor() -> (Ctx, NodeId) {
+        let ctx = context();
+        bidirectional(&ctx, neighbor());
+        let z = NodeId::with_msb(7);
+        receive(&ctx, routed_message(&[z, neighbor()]));
+        assert!(ctx.routing_table().contact(&z).unwrap().is_valid());
+        (ctx, z)
+    }
+
+    #[test]
+    fn current_unreachable_update_invalidates_contact() {
+        let (ctx, z) = contact_behind_neighbor();
+        // ages are compared in ms, the report has to be newer than the contact information
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        receive(&ctx, unreachable_update(z, 0));
+
+        assert!(ctx.routing_table().contact(&z).unwrap().is_invalid());
+    }
+
+    #[test]
+    fn outdated_unreachable_update_is_ignored() {
+        // the report is older than what we know about the contact
+        let (ctx, z) = contact_behind_neighbor();
+
+        receive(&ctx, unreachable_update(z, 60_000));
+
+        assert!(ctx.routing_table().contact(&z).unwrap().is_valid());
     }
 }
