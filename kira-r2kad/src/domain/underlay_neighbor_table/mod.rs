@@ -26,7 +26,12 @@ pub trait ULNTable {
     fn confirm(&mut self, id: NodeId, ulnid: UnderlayNeighborId) -> bool;
 
     /// Returns if a Mapping for the [NodeId] is present in the [ULNTable].
+    ///
+    /// This includes tentative mappings, whose link is only known to work towards us.
     fn contains(&self, id: &NodeId) -> bool;
+
+    /// Returns if a Mapping for the [NodeId] is present and confirmed to work in both directions.
+    fn is_bidirectional(&self, id: &NodeId) -> bool;
 
     /// Returns the state sequence number.
     ///

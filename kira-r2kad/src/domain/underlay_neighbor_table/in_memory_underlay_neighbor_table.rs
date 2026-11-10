@@ -117,6 +117,10 @@ impl ULNTable for InMemoryULNTable {
         self.map.contains_key(id)
     }
 
+    fn is_bidirectional(&self, id: &NodeId) -> bool {
+        matches!(self.map.get(id), Some((_, ULNState::Bidirectional)))
+    }
+
     fn state_seq_nr(&self) -> &SafeStateSeqNr {
         &self.state_seq_nr
     }
@@ -188,5 +192,30 @@ mod tests {
     fn ssn_on_fake_remove() {
         let table = InMemoryULNTable::new();
         tests::ssn_on_fake_remove(table);
+    }
+
+    #[test]
+    fn is_bidirectional_only_after_confirm() {
+        let mut table = InMemoryULNTable::new();
+        let id = NodeId::ONE;
+        let ulnid = UnderlayNeighborId {
+            interface_id: crate::domain::InterfaceId::try_from(1).unwrap(),
+            connection_id: crate::domain::ConnectionId::from(1),
+        };
+
+        assert!(!table.is_bidirectional(&id));
+
+        table.insert(id, ulnid);
+        assert!(table.contains(&id));
+        assert!(
+            !table.is_bidirectional(&id),
+            "tentative entry is not bidirectional"
+        );
+
+        table.confirm(id, ulnid);
+        assert!(table.is_bidirectional(&id));
+
+        table.remove(&id);
+        assert!(!table.is_bidirectional(&id));
     }
 }

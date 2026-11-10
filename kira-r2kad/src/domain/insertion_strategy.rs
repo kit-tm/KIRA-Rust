@@ -265,12 +265,14 @@ where
             return InsertionStrategyResult::Dropped;
         }
 
-        // Ignore the path if the first element is no underlay neighbor
-        if contact.path().unwrap().size() > 1 && !un_table.contains(contact.path().unwrap().first())
+        // Ignore the path if the first element is no bidirectional underlay neighbor:
+        // a tentative link is only known to work towards us, not in the direction of the path
+        if contact.path().unwrap().size() > 1
+            && !un_table.is_bidirectional(contact.path().unwrap().first())
         {
             tracing::trace!(
                 target: "routing_table",
-                reason = "path not leading via underlay neighbor",
+                reason = "path not leading via bidirectional underlay neighbor",
                 node = %contact.path().unwrap().first(),
                 path = %contact.path().unwrap(),
                 "ignoring contact",
@@ -410,16 +412,27 @@ mod tests {
         }
     }
 
-    fn uln_table_with(ids: &[NodeId]) -> InMemoryULNTable {
+    fn ulnid() -> UnderlayNeighborId {
+        UnderlayNeighborId {
+            interface_id: InterfaceId::try_from(1).unwrap(),
+            connection_id: ConnectionId::from(1),
+        }
+    }
+
+    /// ULN table with tentative entries (only heard from, link not confirmed).
+    fn tentative_uln_table_with(ids: &[NodeId]) -> InMemoryULNTable {
         let mut table = InMemoryULNTable::new();
         for id in ids {
-            table.insert(
-                *id,
-                UnderlayNeighborId {
-                    interface_id: InterfaceId::try_from(1).unwrap(),
-                    connection_id: ConnectionId::from(1),
-                },
-            );
+            table.insert(*id, ulnid());
+        }
+        table
+    }
+
+    /// ULN table with bidirectional entries.
+    fn uln_table_with(ids: &[NodeId]) -> InMemoryULNTable {
+        let mut table = tentative_uln_table_with(ids);
+        for id in ids {
+            table.confirm(*id, ulnid());
         }
         table
     }
@@ -715,5 +728,21 @@ mod tests {
         newer.set_advertised_labels(Some(ContactLabels::Landmark));
         strategy.insert(newer, &mut rt, &un);
         assert_eq!(rt.contact(&dest).unwrap().labels(), ContactLabels::Landmark);
+    }
+
+    #[test]
+    fn drops_path_via_tentative_neighbor() {
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let uln = NodeId::from(1);
+        let dest = NodeId::from(2);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = tentative_uln_table_with(&[uln]);
+        let mut strategy = strategy();
+
+        let result = strategy.insert(contact(&[uln, dest], 1), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::Dropped);
+        assert!(!rt.contains(&dest));
     }
 }

@@ -179,6 +179,13 @@ where
                         log::debug!(target: "forward_protocol_message", "Received message from '{neighbor_id}' that is not in ULNTable – ignoring");
                         return Err(ForwardingError::FwdErrDropMessage);
                     }
+                    // A tentative link is only known to work towards us, so the reversed path
+                    // may not work. The message itself is still processed and forwarded.
+                    // (ULNDiscReq/Rsp are excluded above: they prove the link works both ways.)
+                    if !context.uln_table().is_bidirectional(neighbor_id) {
+                        log::debug!(target: "forward_protocol_message", "Received message via tentative neighbor '{neighbor_id}' – not updating contact {}", contact.id());
+                        return Ok(contact);
+                    }
                 }
             }
         }
@@ -708,7 +715,10 @@ mod tests {
             UnderlayNeighborSource,
             insertion_strategy::UNSStrategy,
             path::ShortestFirstPathSimplifier,
-            protocol_message::ULNReqRspMessage,
+            protocol_message::{
+                FindNodeReqData,
+                ULNReqRspMessage,
+            },
             routing_table::SingleBucketRT,
             underlay_neighbor_table::InMemoryULNTable,
             vicinity::vicinity_graph::PetVicinityGraph,
@@ -857,5 +867,139 @@ mod tests {
         let contact = neighbor_contact(&ctx).unwrap();
         assert!(contact.is_valid(), "contact revalidated");
         assert!(contact.is_uln());
+    }
+
+    fn bidirectional(ctx: &Ctx, id: NodeId) {
+        let mut uln_table = ctx.uln_table_mut();
+        uln_table.insert(id, ulnid());
+        uln_table.confirm(id, ulnid());
+    }
+
+    fn tentative(ctx: &Ctx, id: NodeId) {
+        ctx.uln_table_mut().insert(id, ulnid());
+    }
+
+    /// A FindNodeReq from `route[0]` that traveled along `route` and just arrived at root.
+    fn routed_message(route: &[NodeId]) -> ProtocolMessage {
+        let source = route[0];
+        let mut path: Vec<NodeId> = route[1..].to_vec();
+        path.push(root());
+        let mut source_route = SourceRoute::new(source, Path::try_from(path.as_slice()).unwrap());
+        for _ in 1..route.len() {
+            source_route.advance();
+        }
+        assert_eq!(source_route.current_hop(), &root());
+
+        ProtocolMessage::FindNodeReq(ReqRspMessage {
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::FindNodeReq,
+                source,
+                root(),
+                Some(Nonce::random()),
+                StateSeqNr::Value(ssn(1)),
+                0,
+            ),
+            data: FindNodeReqData {
+                neighborhood: std::num::NonZeroU64::new(1).unwrap(),
+            },
+            not_via: None,
+            source_route,
+        })
+    }
+
+    fn source() -> NodeId {
+        NodeId::with_msb(5)
+    }
+
+    #[test]
+    fn message_via_bidirectional_neighbor_creates_contact() {
+        let ctx = context();
+        bidirectional(&ctx, neighbor());
+
+        receive(&ctx, routed_message(&[source(), neighbor()]));
+
+        let contact = ctx
+            .routing_table()
+            .contact(&source())
+            .cloned()
+            .expect("contact created");
+        assert!(contact.is_valid());
+        assert_eq!(
+            contact
+                .path()
+                .unwrap()
+                .clone()
+                .into_iter()
+                .collect::<Vec<_>>(),
+            [neighbor(), source()]
+        );
+    }
+
+    #[test]
+    fn message_via_tentative_neighbor_does_not_create_contact() {
+        // the link to the neighbor may only work towards us (e.g. asymmetric radio)
+        let ctx = context();
+        tentative(&ctx, neighbor());
+
+        let result = receive(&ctx, routed_message(&[source(), neighbor()]));
+
+        assert!(
+            matches!(result, HandlingResult::NotHandled),
+            "message is still passed on"
+        );
+        assert!(!ctx.routing_table().contains(&source()));
+        assert!(neighbor_contact(&ctx).is_none());
+    }
+
+    #[test]
+    fn path_is_not_shortened_via_tentative_neighbor() {
+        // message from S over <S, B, Q, P, root>, B only heard from (tentative)
+        let ctx = context();
+        let (p, q, b) = (NodeId::with_msb(3), NodeId::with_msb(4), neighbor());
+        bidirectional(&ctx, p);
+        tentative(&ctx, b);
+
+        receive(&ctx, routed_message(&[source(), b, q, p]));
+
+        let contact = ctx
+            .routing_table()
+            .contact(&source())
+            .cloned()
+            .expect("contact created");
+        assert_eq!(
+            contact
+                .path()
+                .unwrap()
+                .clone()
+                .into_iter()
+                .collect::<Vec<_>>(),
+            [p, q, b, source()],
+            "path must not be shortened to <B, S>"
+        );
+    }
+
+    #[test]
+    fn path_is_shortened_via_bidirectional_neighbor() {
+        let ctx = context();
+        let (p, q, b) = (NodeId::with_msb(3), NodeId::with_msb(4), neighbor());
+        bidirectional(&ctx, p);
+        bidirectional(&ctx, b);
+
+        receive(&ctx, routed_message(&[source(), b, q, p]));
+
+        let contact = ctx
+            .routing_table()
+            .contact(&source())
+            .cloned()
+            .expect("contact created");
+        assert_eq!(
+            contact
+                .path()
+                .unwrap()
+                .clone()
+                .into_iter()
+                .collect::<Vec<_>>(),
+            [b, source()]
+        );
     }
 }

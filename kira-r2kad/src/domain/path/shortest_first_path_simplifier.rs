@@ -31,12 +31,15 @@ impl PathSimplifier for ShortestFirstPathSimplifier {
         //
         // First replace all underlay neighbors as these have the shortest path
         //
+        // Only bidirectional underlay neighbors are used: the shortcut adds a direct link
+        // the path didn't contain, and a tentative link is only known to work towards us.
+        //
         // Not checking index 0, as underlay neighbor paths can't be simplified
         for dest_index in (1..path.size()).rev() {
             let dest_id = path[dest_index];
 
-            // Replace if target is an underlay neighbor
-            if uln_table.contains(&dest_id) {
+            // Replace if target is a bidirectional underlay neighbor
+            if uln_table.is_bidirectional(&dest_id) {
                 path.replace_interval(0, dest_index, [dest_id]);
                 // Breaking, as the remaining path to check is replaced by the underlay neighbors path
                 break;
@@ -96,16 +99,27 @@ mod tests {
 
     const BUCKET_SIZE: usize = 8;
 
-    fn uln_table_with(ids: &[NodeId]) -> InMemoryULNTable {
+    fn ulnid() -> UnderlayNeighborId {
+        UnderlayNeighborId {
+            interface_id: InterfaceId::try_from(1).unwrap(),
+            connection_id: ConnectionId::from(1),
+        }
+    }
+
+    /// ULN table with tentative entries (only heard from, link not confirmed).
+    fn tentative_uln_table_with(ids: &[NodeId]) -> InMemoryULNTable {
         let mut table = InMemoryULNTable::new();
         for id in ids {
-            table.insert(
-                *id,
-                UnderlayNeighborId {
-                    interface_id: InterfaceId::try_from(1).unwrap(),
-                    connection_id: ConnectionId::from(1),
-                },
-            );
+            table.insert(*id, ulnid());
+        }
+        table
+    }
+
+    /// ULN table with bidirectional entries.
+    fn uln_table_with(ids: &[NodeId]) -> InMemoryULNTable {
+        let mut table = tentative_uln_table_with(ids);
+        for id in ids {
+            table.confirm(*id, ulnid());
         }
         table
     }
@@ -238,5 +252,23 @@ mod tests {
 
         assert_eq!(path.size(), 1);
         assert_eq!(path.first(), &NodeId::from(3));
+    }
+
+    #[test]
+    fn does_not_shortcut_via_tentative_underlay_neighbor() {
+        // <P, Q, B, S> with P bidirectional and B only tentative must not become <B, S>
+        let (p, q, b, s) = (
+            NodeId::from(1),
+            NodeId::from(2),
+            NodeId::from(3),
+            NodeId::from(4),
+        );
+        let mut uln = uln_table_with(&[p]);
+        uln.insert(b, ulnid());
+        let rt = SingleBucketRT::<BUCKET_SIZE>::new(NodeId::ZERO);
+
+        let path = simplify(&uln, &rt, &[p, q, b, s]);
+
+        assert_eq!(path.into_iter().collect::<Vec<_>>(), [p, q, b, s]);
     }
 }
