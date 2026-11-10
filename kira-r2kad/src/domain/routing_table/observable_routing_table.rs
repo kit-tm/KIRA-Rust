@@ -87,12 +87,14 @@ pub enum RoutingTableEvent<const BUCKET_SIZE: usize> {
 /// # use kira_r2kad::domain::{
 /// #     Bucket, Contact,
 /// #     Path, RoutingTable,
-/// #     SafeStateSeqNr, NodeId,
+/// #     SafeStateSeqNr, NodeId, Timestamp,
 /// #     routing_table::{
 /// #         FlatRoutingTable, ObservableRoutingTable,
 /// #         observable_routing_table::RoutingTableEvent,
 /// #     },
 /// # };
+/// // the driver provides the time, here the wall clock
+/// let _clock = Timestamp::set_clock(std::time::Instant::now());
 /// let mut observable_rt = ObservableRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
 ///
 /// // A simple debug logger
@@ -454,6 +456,7 @@ mod tests {
 
     #[test]
     fn add_contact() {
+        let _clock = crate::tests::TestClock::new();
         let contact = Contact::new(
             Path::from(NodeId::with_msb(2)),
             SafeStateSeqNr::try_from(2).unwrap(),
@@ -476,6 +479,7 @@ mod tests {
 
     #[test]
     fn remove_contact() {
+        let _clock = crate::tests::TestClock::new();
         let contact = Contact::new(
             Path::from(NodeId::with_msb(2)),
             SafeStateSeqNr::try_from(2).unwrap(),
@@ -498,6 +502,7 @@ mod tests {
 
     #[test]
     fn replace_contact() {
+        let _clock = crate::tests::TestClock::new();
         let contact = Contact::new(
             Path::from(NodeId::with_msb(2)),
             SafeStateSeqNr::try_from(2).unwrap(),
@@ -530,6 +535,7 @@ mod tests {
 
     #[test]
     fn update_contact() {
+        let _clock = crate::tests::TestClock::new();
         let contact = Contact::new(
             Path::from(NodeId::with_msb(2)),
             SafeStateSeqNr::try_from(2).unwrap(),

@@ -79,6 +79,7 @@ fn binrw_hello() {
 
 #[test]
 fn binrw_discreq() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
     let mut header = CommonHeader::new(
         ProtocolMessageKind::ULNDiscReq,
         NodeId::with_lsb(0x10),
@@ -248,6 +249,7 @@ fn binrw_find_node_req() {
 
 #[test]
 fn binrw_disc_rsp() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
     let mut header = CommonHeader::new(
         ProtocolMessageKind::ULNDiscRsp,
         NodeId::with_lsb(0x71),
@@ -300,6 +302,7 @@ fn binrw_disc_rsp() {
 
 #[test]
 fn binrw_query_route_rsp() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
     let mut header = CommonHeader::new(
         ProtocolMessageKind::QueryRouteRsp,
         NodeId::with_lsb(0x81),
@@ -376,6 +379,7 @@ fn binrw_query_route_rsp() {
 
 #[test]
 fn binrw_find_node_rsp() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
     let mut header = CommonHeader::new(
         ProtocolMessageKind::FindNodeRsp,
         NodeId::with_lsb(0x91),
@@ -428,6 +432,7 @@ fn binrw_find_node_rsp() {
 
 #[test]
 fn binrw_update_route_req() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
     let mut header = CommonHeader::new(
         ProtocolMessageKind::UpdateRouteReq,
         NodeId::with_lsb(0x99),
@@ -1164,6 +1169,7 @@ fn roundtrip(msg: ProtocolMessage) -> ProtocolMessage {
 
 #[test]
 fn binrw_rtable_keeps_contact_age() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
     // receivers date the information back by the reported age
     let header = CommonHeader::new(
         ProtocolMessageKind::FindNodeRsp,
@@ -1196,6 +1202,7 @@ fn binrw_rtable_keeps_contact_age() {
 
 #[test]
 fn binrw_rtable_update_keeps_contact_age() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
     let header = CommonHeader::new(
         ProtocolMessageKind::UpdateRouteReq,
         NodeId::with_lsb(0x99),
@@ -1222,6 +1229,7 @@ fn binrw_rtable_update_keeps_contact_age() {
 
 #[test]
 fn binrw_contact_list_keeps_contact_age() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
     let header = CommonHeader::new(
         ProtocolMessageKind::ULNDiscReq,
         NodeId::with_lsb(0x10),

@@ -494,16 +494,19 @@ mod tests {
 
     #[test]
     fn test_next_hop_root_closer_flat_routing_table() {
+        let _clock = crate::tests::TestClock::new();
         test_next_hop_root_closer_impl(|root| FlatRoutingTable::<4, 1>::new(root).unwrap());
     }
 
     #[test]
     fn test_next_hop_root_closer_single_bucket_rt() {
+        let _clock = crate::tests::TestClock::new();
         test_next_hop_root_closer_impl(SingleBucketRT::<4>::new);
     }
 
     #[test]
     fn test_next_hop_root_closer_protected_routing_table() {
+        let _clock = crate::tests::TestClock::new();
         test_next_hop_root_closer_impl(|root| {
             ProtectedRoutingTable::from(FlatRoutingTable::<4, 1>::new(root).unwrap())
         });
@@ -538,16 +541,19 @@ mod tests {
 
     #[test]
     fn test_next_hop_xor_tiebreaker_flat_routing_table() {
+        let _clock = crate::tests::TestClock::new();
         test_next_hop_xor_tiebreaker_impl(|root| FlatRoutingTable::<4, 1>::new(root).unwrap());
     }
 
     #[test]
     fn test_next_hop_xor_tiebreaker_single_bucket_rt() {
+        let _clock = crate::tests::TestClock::new();
         test_next_hop_xor_tiebreaker_impl(SingleBucketRT::<4>::new);
     }
 
     #[test]
     fn test_next_hop_xor_tiebreaker_protected_routing_table() {
+        let _clock = crate::tests::TestClock::new();
         test_next_hop_xor_tiebreaker_impl(|root| {
             ProtectedRoutingTable::from(FlatRoutingTable::<4, 1>::new(root).unwrap())
         });
@@ -555,6 +561,7 @@ mod tests {
 
     #[test]
     fn invalidate_contacts_via_invalidates_contacts_starting_with_given_neighbors() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let [root, lost, behind_lost, other, behind_other] = [1, 2, 3, 4, 5].map(NodeId::with_msb);
         let ssn = SafeStateSeqNr::try_from(1).unwrap();

@@ -508,6 +508,7 @@ mod tests {
 
     #[test]
     fn echoed_not_via_includes_request_transit_time() {
+        let _clock = crate::tests::TestClock::new();
         // 100ms one-way delay from the requester
         let ctx = context(Some(Duration::from_millis(200)));
         let mut use_case = HandleOverlayDiscovery::<Ctx, BUCKET_SIZE>::default();
@@ -519,6 +520,7 @@ mod tests {
 
     #[test]
     fn echoed_not_via_without_rtt_estimate_keeps_age() {
+        let _clock = crate::tests::TestClock::new();
         let ctx = context(None);
         let mut use_case = HandleOverlayDiscovery::<Ctx, BUCKET_SIZE>::default();
 

@@ -831,6 +831,7 @@ mod tests {
 
     #[test]
     fn outdated_uln_disc_rsp_of_removed_neighbor_is_dropped() {
+        let _clock = crate::tests::TestClock::new();
         let ctx = context();
         insert_invalidated_neighbor(&ctx);
 
@@ -848,6 +849,7 @@ mod tests {
 
     #[test]
     fn uln_disc_req_does_not_revalidate_contact_of_removed_neighbor() {
+        let _clock = crate::tests::TestClock::new();
         let ctx = context();
         insert_invalidated_neighbor(&ctx);
 
@@ -865,6 +867,7 @@ mod tests {
 
     #[test]
     fn uln_disc_req_of_new_neighbor_creates_contact() {
+        let _clock = crate::tests::TestClock::new();
         let ctx = context();
 
         let result = receive(&ctx, uln_disc_message(ProtocolMessageKind::ULNDiscReq, 1));
@@ -877,6 +880,7 @@ mod tests {
 
     #[test]
     fn uln_disc_rsp_of_known_neighbor_revalidates_contact() {
+        let _clock = crate::tests::TestClock::new();
         let ctx = context();
         insert_invalidated_neighbor(&ctx);
         ctx.uln_table_mut().insert(neighbor(), ulnid());
@@ -933,6 +937,7 @@ mod tests {
 
     #[test]
     fn message_via_bidirectional_neighbor_creates_contact() {
+        let _clock = crate::tests::TestClock::new();
         let ctx = context();
         bidirectional(&ctx, neighbor());
 
@@ -957,6 +962,7 @@ mod tests {
 
     #[test]
     fn message_via_tentative_neighbor_does_not_create_contact() {
+        let _clock = crate::tests::TestClock::new();
         // the link to the neighbor may only work towards us (e.g. asymmetric radio)
         let ctx = context();
         tentative(&ctx, neighbor());
@@ -973,6 +979,7 @@ mod tests {
 
     #[test]
     fn path_is_not_shortened_via_tentative_neighbor() {
+        let _clock = crate::tests::TestClock::new();
         // message from S over <S, B, Q, P, root>, B only heard from (tentative)
         let ctx = context();
         let (p, q, b) = (NodeId::with_msb(3), NodeId::with_msb(4), neighbor());
@@ -1000,6 +1007,7 @@ mod tests {
 
     #[test]
     fn path_shortened_via_bidirectional_neighbor_is_only_proposed() {
+        let _clock = crate::tests::TestClock::new();
         // the traversed path is validated, the shortcut <B, S> is not
         let ctx = context();
         let (p, q, b) = (NodeId::with_msb(3), NodeId::with_msb(4), neighbor());
@@ -1050,7 +1058,9 @@ mod tests {
 
     #[test]
     fn current_not_via_invalidates_contact() {
+        let mut clock = crate::tests::TestClock::new();
         let (ctx, t, link) = stale_failure_setup();
+        clock.advance(std::time::Duration::from_millis(10));
 
         // the link failed after the path to T was validated
         receive(
@@ -1063,6 +1073,7 @@ mod tests {
 
     #[test]
     fn outdated_not_via_is_ignored() {
+        let _clock = crate::tests::TestClock::new();
         let (ctx, t, link) = stale_failure_setup();
 
         // the failure is older than the validation of the path to T
@@ -1076,9 +1087,10 @@ mod tests {
 
     #[test]
     fn not_via_older_than_revalidation_by_traffic_is_ignored() {
+        let mut clock = crate::tests::TestClock::new();
         // F7: the link failed, but the path to T was used again afterwards
         let (ctx, t, link) = stale_failure_setup();
-        std::thread::sleep(std::time::Duration::from_millis(60));
+        clock.advance(std::time::Duration::from_millis(60));
         // traffic from T over the same path revalidates it
         receive(&ctx, routed_message(&[t, neighbor()]));
 
@@ -1124,9 +1136,10 @@ mod tests {
 
     #[test]
     fn current_unreachable_update_invalidates_contact() {
+        let mut clock = crate::tests::TestClock::new();
         let (ctx, z) = contact_behind_neighbor();
         // ages are compared in ms, the report has to be newer than the contact information
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        clock.advance(std::time::Duration::from_millis(5));
 
         receive(&ctx, unreachable_update(z, 0));
 
@@ -1135,6 +1148,7 @@ mod tests {
 
     #[test]
     fn outdated_unreachable_update_is_ignored() {
+        let _clock = crate::tests::TestClock::new();
         // the report is older than what we know about the contact
         let (ctx, z) = contact_behind_neighbor();
 
@@ -1156,9 +1170,10 @@ mod tests {
 
     #[test]
     fn not_via_without_rtt_estimate_is_current() {
+        let mut clock = crate::tests::TestClock::new();
         let (ctx, t, link) = stale_failure_setup();
         receive(&ctx, routed_message(&[neighbor()]));
-        std::thread::sleep(std::time::Duration::from_millis(60));
+        clock.advance(std::time::Duration::from_millis(60));
 
         // failure 30ms ago, after the path to T was validated
         receive(&ctx, with_not_via(routed_message(&[neighbor()]), link, 30));
@@ -1168,10 +1183,11 @@ mod tests {
 
     #[test]
     fn transit_delay_ages_not_via() {
+        let mut clock = crate::tests::TestClock::new();
         let (ctx, t, link) = stale_failure_setup();
         // 100ms one-way delay from the neighbor
         neighbor_with_srtt(&ctx, 200);
-        std::thread::sleep(std::time::Duration::from_millis(60));
+        clock.advance(std::time::Duration::from_millis(60));
 
         // reported 30ms old, so 130ms old here: before the path to T was validated
         receive(&ctx, with_not_via(routed_message(&[neighbor()]), link, 30));
@@ -1181,9 +1197,10 @@ mod tests {
 
     #[test]
     fn transit_delay_ages_route_updates() {
+        let mut clock = crate::tests::TestClock::new();
         let (ctx, z) = contact_behind_neighbor();
         neighbor_with_srtt(&ctx, 200);
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        clock.advance(std::time::Duration::from_millis(5));
 
         // reported as current, but 100ms old here: older than the contact information
         receive(&ctx, unreachable_update(z, 0));

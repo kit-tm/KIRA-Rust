@@ -79,11 +79,16 @@ impl R2KadRuntime {
         }
     }
 
+    /// Runtime starting at the current wall clock time, only for tests.
+    ///
+    /// The protocol never reads a clock itself, the driver provides the time.
+    #[cfg(test)]
     pub fn new() -> Self {
         Self::with_startup_time(Instant::now())
     }
 }
 
+#[cfg(test)]
 impl Default for R2KadRuntime {
     fn default() -> Self {
         Self::new()

@@ -2073,6 +2073,7 @@ mod tests {
 
     #[test]
     fn stale_check_runs_on_every_period() {
+        let _clock = crate::tests::TestClock::new();
         let (mut vd, ctx, t0) = setup(VicinityDiscoveryConfig::default(), true);
         make_uln_stale(&ctx, t0);
         let timer = stale_check_timer(&vd);
@@ -2113,6 +2114,7 @@ mod tests {
 
     #[test]
     fn stale_check_starts_request_with_check_timeout() {
+        let _clock = crate::tests::TestClock::new();
         let (mut vd, ctx, t0) = setup(VicinityDiscoveryConfig::default(), true);
         make_uln_stale(&ctx, t0);
 
@@ -2129,6 +2131,7 @@ mod tests {
 
     #[test]
     fn stale_check_resends_pending_request_immediately() {
+        let _clock = crate::tests::TestClock::new();
         let (mut vd, ctx, t0) = setup(VicinityDiscoveryConfig::default(), true);
         let before = start_regular_uln_disc_req(&mut vd, &ctx);
         make_uln_stale(&ctx, t0);
@@ -2160,6 +2163,7 @@ mod tests {
 
     #[test]
     fn immediate_resend_keeps_shorter_pending_timeout() {
+        let _clock = crate::tests::TestClock::new();
         let (mut vd, ctx, _) = setup(VicinityDiscoveryConfig::default(), true);
         let check_timeout = vd.config.uln_discovery_rsp_check_max_wait_time;
         vd.init_uln_disc_req(&ctx, uln(), ulnid(), check_timeout)
@@ -2174,6 +2178,7 @@ mod tests {
 
     #[test]
     fn outdated_request_timer_is_ignored() {
+        let _clock = crate::tests::TestClock::new();
         let (mut vd, ctx, t0) = setup(VicinityDiscoveryConfig::default(), true);
         let before = start_regular_uln_disc_req(&mut vd, &ctx);
         make_uln_stale(&ctx, t0);
@@ -2219,6 +2224,7 @@ mod tests {
 
     #[test]
     fn stale_uln_is_removed_after_max_retries_despite_immediate_resend() {
+        let _clock = crate::tests::TestClock::new();
         let (mut vd, ctx, t0) = setup(VicinityDiscoveryConfig::default(), true);
         start_regular_uln_disc_req(&mut vd, &ctx);
         // use up the retries of the pending request
@@ -2248,6 +2254,7 @@ mod tests {
 
     #[test]
     fn sync_timeout_removes_nodes_no_longer_reachable() {
+        let _clock = crate::tests::TestClock::new();
         let (mut vd, ctx, _) = setup(VicinityDiscoveryConfig::default(), true);
         ctx.vicinity_graph_mut()
             .insert(two_hop(), &uln(), ssn(1))
@@ -2306,6 +2313,7 @@ mod tests {
 
     #[test]
     fn sync_timeout_invalidates_contacts_via_lost_uln() {
+        let _clock = crate::tests::TestClock::new();
         let (mut vd, ctx, _) = setup(VicinityDiscoveryConfig::default(), true);
         ctx.vicinity_graph_mut()
             .insert(two_hop(), &uln(), ssn(1))
@@ -2339,6 +2347,7 @@ mod tests {
 
     #[test]
     fn sync_timeout_invalidates_contact_of_uln_still_in_vicinity() {
+        let _clock = crate::tests::TestClock::new();
         let (mut vd, ctx, _) = setup(VicinityDiscoveryConfig::default(), false);
         {
             // the ULN is also a two-hop neighbor via another ULN
@@ -2368,6 +2377,7 @@ mod tests {
 
     #[test]
     fn uln_hello_resends_pending_request_immediately() {
+        let _clock = crate::tests::TestClock::new();
         // always answer ULNHellos regardless of the deterministic heuristic
         let config = VicinityDiscoveryConfig {
             heuristic_max_wait_time: Duration::ZERO,
@@ -2491,10 +2501,11 @@ mod tests {
 
     #[test]
     fn uln_disc_rsp_measures_rtt() {
+        let mut clock = crate::tests::TestClock::new();
         let (mut vd, ctx) = setup_for_rtt();
         let request = start_regular_uln_disc_req(&mut vd, &ctx);
 
-        std::thread::sleep(Duration::from_millis(20));
+        clock.advance(Duration::from_millis(20));
         vd.handle_event(&ctx, uln_disc_rsp(request.expected_nonce))
             .unwrap();
 
@@ -2507,6 +2518,7 @@ mod tests {
 
     #[test]
     fn uln_disc_rsp_after_retransmission_does_not_measure_rtt() {
+        let _clock = crate::tests::TestClock::new();
         // the response can't be matched to one of the transmissions (Karn's algorithm)
         let (mut vd, ctx) = setup_for_rtt();
         let request = start_regular_uln_disc_req(&mut vd, &ctx);

@@ -220,11 +220,12 @@ where
             }
         };
 
+        let now = context.runtime().current_time();
         let invalidated_entries = entries
             .iter()
             // Only include entries which have not been updated lately
             .filter_map(|(id, entry)| {
-                if entry.last_seen.elapsed() < self.config.max_age {
+                if now.saturating_duration_since(entry.last_seen) < self.config.max_age {
                     None
                 } else {
                     Some(id.clone())

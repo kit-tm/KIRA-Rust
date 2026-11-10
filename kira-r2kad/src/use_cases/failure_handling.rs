@@ -1117,6 +1117,7 @@ mod tests {
 
     #[test]
     fn vicinity_alternative_is_proposed_and_postpones_rediscovery() {
+        let _clock = crate::tests::TestClock::new();
         let (mut fh, ctx) = setup(true);
         let timer = fail_link_to_b(&mut fh, &ctx);
 
@@ -1134,6 +1135,7 @@ mod tests {
 
     #[test]
     fn validated_vicinity_alternative_skips_rediscovery() {
+        let _clock = crate::tests::TestClock::new();
         let (mut fh, ctx) = setup(true);
         let timer = fail_link_to_b(&mut fh, &ctx);
 
@@ -1153,6 +1155,7 @@ mod tests {
 
     #[test]
     fn failed_vicinity_alternative_starts_rediscovery_immediately() {
+        let _clock = crate::tests::TestClock::new();
         let (mut fh, ctx) = setup(true);
         let timer = fail_link_to_b(&mut fh, &ctx);
         assert!(sent_find_node_reqs(&ctx).is_empty());
@@ -1168,6 +1171,7 @@ mod tests {
 
     #[test]
     fn without_vicinity_alternative_rediscovery_is_not_postponed() {
+        let _clock = crate::tests::TestClock::new();
         let (mut fh, ctx) = setup(false);
         let timer = fail_link_to_b(&mut fh, &ctx);
 

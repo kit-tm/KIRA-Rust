@@ -656,6 +656,7 @@ mod tests {
 
         #[test]
         fn vicinity_contact_added() {
+            let _clock = crate::tests::TestClock::new();
             crate::tests::init();
 
             let runtime = TestingUseCaseRuntime::default();
@@ -780,6 +781,7 @@ mod tests {
 
         #[test]
         fn uln_contact_added() {
+            let _clock = crate::tests::TestClock::new();
             crate::tests::init();
 
             let runtime = TestingUseCaseRuntime::default();
@@ -892,6 +894,7 @@ mod tests {
 
         #[test]
         fn vicinity_contact_removed() {
+            let _clock = crate::tests::TestClock::new();
             crate::tests::init();
 
             let runtime = TestingUseCaseRuntime::default();
@@ -1005,6 +1008,7 @@ mod tests {
         #[test]
         /// Updates a contact inside the vicinity to a contact outside the vicinity.
         fn vicinity_contact_updated() {
+            let _clock = crate::tests::TestClock::new();
             crate::tests::init();
 
             let runtime = TestingUseCaseRuntime::default();
@@ -1206,6 +1210,7 @@ mod tests {
 
         #[test]
         fn tentative_neighbor_reached_via_longer_path() {
+            let _clock = crate::tests::TestClock::new();
             // the direct link is not confirmed (e.g. asymmetric), so the longer path is used
             let entry = derive(ULNState::Tentative).expect("entry for tentative neighbor");
             assert!(matches!(entry, NodeIdEntry::Encapsulate(_)));
@@ -1213,6 +1218,7 @@ mod tests {
 
         #[test]
         fn bidirectional_neighbor_via_longer_path_is_rejected() {
+            let _clock = crate::tests::TestClock::new();
             assert!(matches!(
                 derive(ULNState::Bidirectional),
                 Err(DeriveFwdEntriesError::NonUNInULNTable(_))

@@ -847,6 +847,7 @@ mod tests {
 
     #[test]
     fn test_store_injection_lifecycle() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
 
         let runtime = TestingUseCaseRuntime::default();

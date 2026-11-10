@@ -325,6 +325,7 @@ mod tests {
 
     #[test]
     fn insert_test() {
+        let _clock = crate::tests::TestClock::new();
         let mut bucket = Bucket::<2>::new();
 
         assert!(bucket.is_empty());
@@ -359,6 +360,7 @@ mod tests {
 
     #[test]
     fn test_replacement() {
+        let _clock = crate::tests::TestClock::new();
         let mut bucket = Bucket::<2>::new();
 
         assert!(bucket.is_empty());
@@ -388,6 +390,7 @@ mod tests {
 
     #[test]
     fn split() {
+        let _clock = crate::tests::TestClock::new();
         let mut bucket = Bucket::<2>::new();
 
         let contact = Contact::new(

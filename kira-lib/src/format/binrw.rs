@@ -2042,6 +2042,7 @@ mod tests {
 
     #[test]
     fn unknown_info_age_keeps_time_of_receipt() {
+        let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
         // other implementations write the placeholder for every entry
         let mut contact = Contact::new(
             Path::from(NodeId::with_lsb(1)),

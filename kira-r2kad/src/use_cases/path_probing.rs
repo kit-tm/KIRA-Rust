@@ -923,6 +923,7 @@ mod tests {
 
     #[test]
     fn proposed_path_of_invalid_contact_is_probed_immediately() {
+        let _clock = crate::tests::TestClock::new();
         let (mut pp, ctx) = setup(false);
         propose_shorter_path(&mut pp, &ctx);
 
@@ -938,6 +939,7 @@ mod tests {
 
     #[test]
     fn proposed_path_of_valid_contact_is_scheduled() {
+        let _clock = crate::tests::TestClock::new();
         let (mut pp, ctx) = setup(true);
         propose_shorter_path(&mut pp, &ctx);
 
@@ -947,6 +949,7 @@ mod tests {
 
     #[test]
     fn failed_probe_removes_proposed_path_also_if_active_path_contains_link() {
+        let _clock = crate::tests::TestClock::new();
         let (mut pp, ctx) = setup(false);
         propose_shorter_path(&mut pp, &ctx);
         let probe = sent_probe_reqs(&ctx).pop().unwrap();
@@ -1010,6 +1013,7 @@ mod tests {
 
     #[test]
     fn probe_rsp_measures_rtt_of_active_path() {
+        let mut clock = crate::tests::TestClock::new();
         let (mut pp, ctx) = setup(true);
         // active paths are validated in practice
         ctx.routing_table_mut()
@@ -1023,7 +1027,7 @@ mod tests {
         pp.send_probe_req(&ctx, &contact);
         let probe = sent_probe_reqs(&ctx).pop().unwrap();
 
-        std::thread::sleep(Duration::from_millis(20));
+        clock.advance(Duration::from_millis(20));
         pp.handle_event(
             &ctx,
             UseCaseEvent::Message(probe_rsp(&probe), UnderlayNeighborSource::Local),
@@ -1039,6 +1043,7 @@ mod tests {
 
     #[test]
     fn untracked_probe_rsp_does_not_measure_rtt() {
+        let _clock = crate::tests::TestClock::new();
         let (mut pp, ctx) = setup(true);
         let contact = ctx.routing_table().contact(&c()).unwrap().clone();
         pp.send_probe_req(&ctx, &contact);
@@ -1063,6 +1068,7 @@ mod tests {
 
     #[test]
     fn echoed_not_via_in_probe_rsp_includes_request_transit_time() {
+        let _clock = crate::tests::TestClock::new();
         let (mut pp, ctx) = setup(true);
         // the underlay neighbor probes us, 100ms one-way delay
         let mut prober = Contact::new(path(&[a()]), ssn());

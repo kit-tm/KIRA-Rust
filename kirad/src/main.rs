@@ -319,6 +319,7 @@ async fn main() {
 
     let r2kad = R2Kad::<SyncContext<_, _, _, _, _>, BUCKET_SIZE>::builder()
         .root_id(root_id)
+        .current_time(std::time::Instant::now())
         .build();
 
     let kira = Kira::with_components(r2kad, fwd_tables, underlay_updates2, pm_receiver, pm_sender);

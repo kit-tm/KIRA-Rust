@@ -585,6 +585,7 @@ mod tests {
 
     #[test]
     fn test_add() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let mut table = FlatRoutingTable::<1, 1>::new(NodeId::ZERO)?;
 
@@ -600,6 +601,7 @@ mod tests {
 
     #[test]
     fn test_add_full() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let mut table = FlatRoutingTable::<1, 1>::new(NodeId::ZERO)?;
 
@@ -622,6 +624,7 @@ mod tests {
 
     #[test]
     fn test_split() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         // Split should move contacts accordingly and bucket_index should change
 
@@ -641,6 +644,7 @@ mod tests {
 
     #[test]
     fn test_insert_to_max_buckets() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let mut table = FlatRoutingTable::<1, 1>::new(NodeId::ZERO)?;
 
@@ -679,6 +683,7 @@ mod tests {
 
     #[test]
     fn test_split_acc() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let mut table = FlatRoutingTable::<2, 2>::new(NodeId::ZERO)?;
 
@@ -775,6 +780,7 @@ mod tests {
 
     #[test]
     fn test_closest_multiple_buckets() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<2, 1>::new(root)?;
@@ -833,6 +839,7 @@ mod tests {
 
     #[test]
     fn test_closest_single_bucket() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<2, 1>::new(root)?;
@@ -872,6 +879,7 @@ mod tests {
 
     #[test]
     fn test_closest_single_bucket_select_same_prefix_progress() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<4, 1>::new(root)?;
@@ -925,6 +933,7 @@ mod tests {
 
     #[test]
     fn test_closest_single_bucket_select_single() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<4, 1>::new(root)?;
@@ -975,6 +984,7 @@ mod tests {
 
     #[test]
     fn test_closest_single_bucket_select_last_bucket() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::with_msb(0xFF); // root changed to 1111...
         let mut table = FlatRoutingTable::<4, 1>::new(root)?;
@@ -1025,6 +1035,7 @@ mod tests {
 
     #[test]
     fn test_closest_down_tree() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<2, 1>::new(root)?;
@@ -1083,6 +1094,7 @@ mod tests {
 
     #[test]
     fn test_closest_up_tree() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<2, 1>::new(root)?;
@@ -1136,6 +1148,7 @@ mod tests {
 
     #[test]
     fn test_closest_invalid_contacts() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<4, 1>::new(root)?;
@@ -1182,6 +1195,7 @@ mod tests {
 
     #[test]
     fn test_closest_invalid_contacts_multiple_buckets() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<4, 1>::new(root)?;
@@ -1232,6 +1246,7 @@ mod tests {
 
     #[test]
     fn test_closest_acc_same_level() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<1, 2>::new(root)?;
@@ -1281,6 +1296,7 @@ mod tests {
 
     #[test]
     fn test_closest_acc_single_last_bucket() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<2, 2>::new(root)?;
@@ -1323,6 +1339,7 @@ mod tests {
 
     #[test]
     fn test_closest_acc_last_level() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<1, 2>::new(root)?;
@@ -1370,6 +1387,7 @@ mod tests {
 
     #[test]
     fn test_closest_acc_multilevel() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<1, 2>::new(root)?;
@@ -1432,6 +1450,7 @@ mod tests {
 
     #[test]
     fn test_closest_n_larger_than_total() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<10, 1>::new(root)?;
@@ -1460,6 +1479,7 @@ mod tests {
 
     #[test]
     fn test_closest_different_grouping() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<10, 1>::new(root)?;
@@ -1504,6 +1524,7 @@ mod tests {
 
     #[test]
     fn test_closest_one_bucket_minimal_topo() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         const BUCKET_SIZE: usize = 20;
         let nodes = crate::tests::minimal_topo_nodes();
@@ -1543,6 +1564,7 @@ mod tests {
 
     #[test]
     fn test_closest_small_bucket_minimal_topo_0() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let nodes = crate::tests::minimal_topo_nodes();
         let root = nodes[0];
@@ -1685,6 +1707,7 @@ mod tests {
 
     #[test]
     fn test_closest_small_bucket_minimal_topo_0_acc() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let nodes = crate::tests::minimal_topo_nodes();
         let root = nodes[0];
@@ -1825,6 +1848,7 @@ mod tests {
 
     #[test]
     fn test_closest_small_bucket_minimal_topo_19() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let nodes = crate::tests::minimal_topo_nodes();
         let root = nodes[19];
@@ -1982,6 +2006,7 @@ mod tests {
 
     #[test]
     fn test_closest_small_bucket_minimal_topo_19_acc() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let nodes = crate::tests::minimal_topo_nodes();
         let root = nodes[19];
@@ -2134,6 +2159,7 @@ mod tests {
 
     #[test]
     fn test_closest_small_bucket_minimal_topo_10() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let nodes = crate::tests::minimal_topo_nodes();
         let root = nodes[10];
@@ -2295,6 +2321,7 @@ mod tests {
 
     #[test]
     fn test_closest_small_bucket_minimal_topo_10_acc() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let nodes = crate::tests::minimal_topo_nodes();
         let root = nodes[10];

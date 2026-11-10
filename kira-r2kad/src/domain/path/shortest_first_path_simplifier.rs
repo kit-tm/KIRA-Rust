@@ -186,6 +186,7 @@ mod tests {
 
     #[test]
     fn replaces_prefix_with_shorter_known_path() {
+        let _clock = crate::tests::TestClock::new();
         // routing table knows a 2-hop path to NodeId(3)
         let uln = uln_table_with(&[NodeId::from(1)]);
         let rt = routing_table_with_contact(&[NodeId::from(1), NodeId::from(3)]);
@@ -203,6 +204,7 @@ mod tests {
 
     #[test]
     fn keeps_path_if_known_path_is_not_shorter() {
+        let _clock = crate::tests::TestClock::new();
         // known path has the same length as the candidate path
         let uln = uln_table_with(&[NodeId::from(1)]);
         let rt = routing_table_with_contact(&[NodeId::from(1), NodeId::from(4), NodeId::from(3)]);
@@ -219,6 +221,7 @@ mod tests {
 
     #[test]
     fn ignores_non_valid_contacts() {
+        let _clock = crate::tests::TestClock::new();
         let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(NodeId::ZERO);
         let mut contact = Contact::new(
             Path::try_from(&[NodeId::from(1), NodeId::from(3)][..]).unwrap(),
@@ -239,6 +242,7 @@ mod tests {
 
     #[test]
     fn uln_replacement_wins_over_known_path() {
+        let _clock = crate::tests::TestClock::new();
         // NodeId(3) is both an ULN and a contact in the routing table;
         // the ULN replacement happens first and terminates the simplification
         let uln = uln_table_with(&[NodeId::from(1), NodeId::from(3)]);

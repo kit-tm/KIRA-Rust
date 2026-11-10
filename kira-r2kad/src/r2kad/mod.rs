@@ -36,6 +36,7 @@ use crate::{
         InsertionStrategy,
         NodeId,
         RoutingTable,
+        Timestamp,
         ULNState,
         ULNTable,
         UnderlayNeighborId,
@@ -78,13 +79,16 @@ pub struct Builder<C, const BUCKET_SIZE: usize> {
     context: PhantomData<C>,
     root_id: Option<NodeId>, // the node's NodeID None => random
     pipeline_config: R2KadPipelineConfig,
-    current_time: Instant,
+    current_time: Option<Instant>,
 }
 
 impl<C, const BUCKET_SIZE: usize> Builder<C, BUCKET_SIZE> {
     /// Sets the initial time of the runtime.
+    ///
+    /// This is required, as the protocol never reads a clock itself: the driver provides the
+    /// time, e.g. the wall clock or the virtual clock of a simulator.
     pub fn current_time(mut self, now: Instant) -> Self {
-        self.current_time = now;
+        self.current_time = Some(now);
         self
     }
 
@@ -116,9 +120,18 @@ where
             VicinityGraph = ObservableVicinityGraph<PetVicinityGraph>,
         >,
 {
+    /// Builds the protocol instance.
+    ///
+    /// # Panics
+    ///
+    /// If [current_time](Self::current_time) was not set.
     pub fn build(&self) -> R2Kad<C, BUCKET_SIZE> {
+        let now = self
+            .current_time
+            .expect("Builder::current_time has to be set, the protocol doesn't read a clock");
+        let _clock = Timestamp::set_clock(now);
         let root_id = self.root_id.unwrap_or_else(NodeId::random);
-        let runtime = Arc::new(R2KadRuntime::with_startup_time(self.current_time));
+        let runtime = Arc::new(R2KadRuntime::with_startup_time(now));
         let pipeline = R2KadPipeline::new(self.pipeline_config);
 
         let mut routing_table = ObservableRoutingTable::from(ProtectedRoutingTable::from(
@@ -185,7 +198,7 @@ impl<C, const BUCKET_SIZE: usize> Default for Builder<C, BUCKET_SIZE> {
             context: Default::default(),
             root_id: None,
             pipeline_config: Default::default(),
-            current_time: Instant::now(),
+            current_time: None,
         }
     }
 }
@@ -223,8 +236,11 @@ pub type Result<T> = core::result::Result<T, R2KadError>;
 /// use kira_r2kad::context::SyncContext;
 /// use kira_r2kad::{Output, R2Kad};
 ///
-/// // create R²/KAD protocol instance with random NodeId
-/// let mut r2kad = R2Kad::<SyncContext<_, _, _, _, _>, 20>::builder().build();
+/// // create R²/KAD protocol instance with random NodeId,
+/// // the driver provides the time (here the wall clock)
+/// let mut r2kad = R2Kad::<SyncContext<_, _, _, _, _>, 20>::builder()
+///     .current_time(Instant::now())
+///     .build();
 ///
 /// // startup R²/KAD instance
 /// {
@@ -308,6 +324,7 @@ where
     /// Startup the protocol instance.
     #[instrument(level = Level::DEBUG, target = "r2kad", skip_all)]
     pub fn startup(&mut self, now: Instant) -> Result<()> {
+        let _clock = Timestamp::set_clock(now);
         log::trace!(target: "r2kad", "startup instance");
         self.context.runtime().set_current_time(now);
         self.pipeline.startup(&self.context)?;
@@ -317,6 +334,7 @@ where
     /// Process received [Input] event.
     #[instrument(level = Level::DEBUG, target = "r2kad", skip_all, fields(reason = ?received_event))]
     pub fn handle_input(&mut self, received_event: Input, now: Instant) -> Result<()> {
+        let _clock = Timestamp::set_clock(now);
         // just to be safe we check for due timers
         self.handle_timeout(now)?;
 
@@ -340,6 +358,7 @@ where
     /// with [poll_timeout](Self::poll_timeout).
     #[instrument(level = Level::DEBUG, target = "r2kad", skip_all, fields(reason = field::Empty))]
     pub fn handle_timeout(&mut self, now: Instant) -> Result<()> {
+        let _clock = Timestamp::set_clock(now);
         self.context.runtime().set_current_time(now);
 
         let mut reason = true;

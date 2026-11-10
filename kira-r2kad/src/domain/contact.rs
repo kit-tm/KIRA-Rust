@@ -45,7 +45,7 @@ pub enum ContactState {
 /// The contact is Invalid if no valid paths are present
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[display("Contact [id: {}, age: {}ms, state_seq_nr: {state_seq_nr}, state: {state}, path: {path_collection:?}]", self.id(), self.last_seen.to_age_duration().as_millis())]
+#[display("Contact [id: {}, age: {}, state_seq_nr: {state_seq_nr}, state: {state}, path: {path_collection:?}]", self.id(), self.display_age())]
 pub struct Contact {
     dest_id: NodeId,
     #[cfg_attr(feature = "serde", serde(skip))]
@@ -224,6 +224,14 @@ impl Contact {
             }
             _ => false,
         }
+    }
+
+    /// Age for log output, which must never panic: unknown outside of handling an event.
+    fn display_age(&self) -> String {
+        Timestamp::try_now().map_or_else(
+            || "?".to_string(),
+            |now| format!("{}", Age::from(self.last_seen.age_at(now))),
+        )
     }
 
     pub fn age(&self) -> Age {
@@ -467,12 +475,14 @@ mod tests {
 
     #[test]
     fn dest_id_is_last_path_element() {
+        let _clock = crate::tests::TestClock::new();
         let contact = contact_with_path(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)], 1);
         assert_eq!(contact.id(), &NodeId::from(3));
     }
 
     #[test]
     fn new_contact_is_valid_with_active_path() {
+        let _clock = crate::tests::TestClock::new();
         let contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
         assert!(contact.is_valid());
         assert!(!contact.is_invalid());
@@ -484,6 +494,7 @@ mod tests {
 
     #[test]
     fn cmp_actuality_prefers_greater_state_seq_nr() {
+        let _clock = crate::tests::TestClock::new();
         let older_info = contact_with_path(&[NodeId::from(1)], 1);
         let mut newer_info = contact_with_path(&[NodeId::from(2)], 2);
         // make `newer_info` older in time to prove SSN dominates the ordering
@@ -501,6 +512,7 @@ mod tests {
 
     #[test]
     fn cmp_actuality_breaks_ties_with_recency() {
+        let _clock = crate::tests::TestClock::new();
         // same SSN: the contact seen more recently carries the newer information
         let mut stale = contact_with_path(&[NodeId::from(1)], 1);
         *stale.last_seen_mut() = Timestamp::from(Age::from(10_000u64));
@@ -513,6 +525,7 @@ mod tests {
 
     #[test]
     fn cmp_actuality_equal_information() {
+        let _clock = crate::tests::TestClock::new();
         let a = contact_with_path(&[NodeId::from(1)], 1);
         let b = contact_with_path(&[NodeId::from(1)], 1);
         assert_eq!(a.cmp_actuality(&b), Ordering::Equal);
@@ -520,6 +533,7 @@ mod tests {
 
     #[test]
     fn is_uln_only_for_single_hop_path() {
+        let _clock = crate::tests::TestClock::new();
         let uln = contact_with_path(&[NodeId::from(1)], 1);
         assert!(uln.is_uln());
 
@@ -529,6 +543,7 @@ mod tests {
 
     #[test]
     fn set_invalid_fresh_contact() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
         let link = Link::new(NodeId::from(1), NodeId::from(9));
 
@@ -542,6 +557,7 @@ mod tests {
 
     #[test]
     fn set_invalid_merges_notvia_links() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
         let link_a = Link::new(NodeId::from(1), NodeId::from(9));
         let link_b = Link::new(NodeId::from(1), NodeId::from(8));
@@ -566,6 +582,7 @@ mod tests {
 
     #[test]
     fn set_invalid_adds_links_while_rediscovering() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
         let link_a = Link::new(NodeId::from(1), NodeId::from(9));
         let link_b = Link::new(NodeId::from(1), NodeId::from(8));
@@ -598,6 +615,7 @@ mod tests {
 
     #[test]
     fn has_broken_first_hop_invalid_state() {
+        let _clock = crate::tests::TestClock::new();
         // path [1 -> 2 -> 3], broken link (2,9) does not affect first hop
         let mut contact =
             contact_with_path(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)], 1);
@@ -619,6 +637,7 @@ mod tests {
 
     #[test]
     fn has_broken_first_hop_rediscovering_state() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
         contact.start_rediscovering(
             notvia_state_list(Link::new(NodeId::from(1), NodeId::from(2))),
@@ -631,6 +650,7 @@ mod tests {
 
     #[test]
     fn has_broken_first_hop_other_states() {
+        let _clock = crate::tests::TestClock::new();
         let contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
         assert!(!contact.has_broken_first_hop(), "valid contact");
 
@@ -641,6 +661,7 @@ mod tests {
 
     #[test]
     fn assess_candidate_shorter_path_updates_proposed_for_valid_contact() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact =
             contact_with_path(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)], 1);
         // shorter, but not validated: only the proposed path may change
@@ -654,6 +675,7 @@ mod tests {
 
     #[test]
     fn assess_candidate_longer_path_rejected_for_valid_contact() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(3)], 1);
         let longer =
             Path::try_from(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)][..]).unwrap();
@@ -664,6 +686,7 @@ mod tests {
 
     #[test]
     fn assess_candidate_same_as_proposed_promotes_proposed_to_active() {
+        let _clock = crate::tests::TestClock::new();
         // For an invalid contact a validated candidate matching the proposed
         // path must promote the proposed path to the active path instead of
         // replacing it directly.
@@ -693,6 +716,7 @@ mod tests {
 
     #[test]
     fn assess_candidate_unvalidated_updates_proposed_path_only() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact =
             contact_with_path(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)], 1);
         // shorter than active but unvalidated: only the proposed path may change
@@ -706,6 +730,7 @@ mod tests {
 
     #[test]
     fn assess_candidate_longer_path_rejected_for_proposed_path() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(3)], 1);
         let longer =
             Path::try_from(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)][..]).unwrap();
@@ -716,6 +741,7 @@ mod tests {
 
     #[test]
     fn assess_candidate_accepts_anything_for_invalid_contact() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact =
             contact_with_path(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)], 1);
         contact.set_invalid(notvia_state_list(Link::new(
@@ -732,6 +758,7 @@ mod tests {
 
     #[test]
     fn assess_candidate_accepts_valid_candidate_for_invalid_contact() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact =
             contact_with_path(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)], 1);
         contact.set_invalid(notvia_state_list(Link::new(
@@ -749,6 +776,7 @@ mod tests {
 
     #[test]
     fn assess_candidate_rejected_for_dead_contact() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(3)], 1);
         contact.set_state(ContactState::Dead);
 
@@ -760,6 +788,7 @@ mod tests {
 
     #[test]
     fn contact_hash_is_by_id() {
+        let _clock = crate::tests::TestClock::new();
         use std::{
             collections::hash_map::DefaultHasher,
             hash::{
@@ -781,6 +810,7 @@ mod tests {
 
     #[test]
     fn uln_label_is_derived_from_path() {
+        let _clock = crate::tests::TestClock::new();
         let uln = contact_with_path(&[NodeId::from(1)], 1);
         assert_eq!(uln.labels(), ContactLabels::Uln);
 
@@ -790,6 +820,7 @@ mod tests {
 
     #[test]
     fn labels_combine_all_sources() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact = contact_with_path(&[NodeId::from(1)], 1);
         contact.add_local_labels(ContactLabels::Cached);
         contact.set_advertised_labels(Some(ContactLabels::Landmark));
@@ -804,6 +835,7 @@ mod tests {
 
     #[test]
     fn labels_from_wrong_source_are_ignored() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
 
         contact.add_local_labels(ContactLabels::all());
@@ -818,6 +850,7 @@ mod tests {
 
     #[test]
     fn update_labels_from_newer() {
+        let _clock = crate::tests::TestClock::new();
         let path = [NodeId::from(1), NodeId::from(2)];
         let mut stored = contact_with_path(&path, 1);
         stored.add_local_labels(ContactLabels::Cached);
@@ -848,6 +881,7 @@ mod tests {
 
     #[test]
     fn inherit_labels_from_previous() {
+        let _clock = crate::tests::TestClock::new();
         let path = [NodeId::from(1), NodeId::from(2)];
         let mut previous = contact_with_path(&path, 1);
         previous.add_local_labels(ContactLabels::Cached);
@@ -870,6 +904,7 @@ mod tests {
 
     #[test]
     fn info_age_of_underlay_neighbor_is_zero() {
+        let _clock = crate::tests::TestClock::new();
         let mut uln = contact_with_path(&[NodeId::from(1)], 1);
         uln.set_info_age(Age::from(10_000));
         assert_eq!(uln.info_age(), Age::from(0));
@@ -877,6 +912,7 @@ mod tests {
 
     #[test]
     fn info_age_follows_path_validation() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
         contact.set_info_age(Age::from(10_000));
         // without validation, the age of the contact information is used

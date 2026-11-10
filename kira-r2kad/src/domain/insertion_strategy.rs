@@ -500,6 +500,7 @@ mod tests {
 
     #[test]
     fn inserts_valid_new_contact() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -516,6 +517,7 @@ mod tests {
 
     #[test]
     fn drops_contact_with_root_id() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -531,6 +533,7 @@ mod tests {
 
     #[test]
     fn drops_path_containing_root() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -548,6 +551,7 @@ mod tests {
 
     #[test]
     fn drops_path_not_starting_at_underlay_neighbor() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -566,6 +570,7 @@ mod tests {
 
     #[test]
     fn unknown_contact_for_new_id_needs_validation() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -582,6 +587,7 @@ mod tests {
 
     #[test]
     fn unknown_contact_updates_existing() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -615,6 +621,7 @@ mod tests {
 
     #[test]
     fn update_existing_drops_older_state_seq_nr() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -641,6 +648,7 @@ mod tests {
 
     #[test]
     fn update_existing_drops_longer_path_with_same_ssn() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -666,6 +674,7 @@ mod tests {
 
     #[test]
     fn update_existing_updates_better_path_with_same_ssn() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -686,6 +695,7 @@ mod tests {
 
     #[test]
     fn full_bucket_replaces_contact_with_longest_path() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -724,6 +734,7 @@ mod tests {
 
     #[test]
     fn full_bucket_drops_contact_without_shorter_path() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -749,6 +760,7 @@ mod tests {
 
     #[test]
     fn update_existing_takes_labels_only_from_newer_info() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -774,6 +786,7 @@ mod tests {
 
     #[test]
     fn drops_path_via_tentative_neighbor() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -800,6 +813,7 @@ mod tests {
 
     #[test]
     fn simplified_path_of_validated_contact_is_only_proposed() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let (p, q, m, z) = (
@@ -832,6 +846,7 @@ mod tests {
 
     #[test]
     fn shortcut_to_bidirectional_uln_itself_is_valid() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let (p, q, b) = (NodeId::from(1), NodeId::from(2), NodeId::from(3));
@@ -854,6 +869,7 @@ mod tests {
 
     #[test]
     fn unchanged_validated_path_is_inserted_as_is() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let (p, q) = (NodeId::from(1), NodeId::from(2));
@@ -883,6 +899,7 @@ mod tests {
 
     #[test]
     fn traversing_the_active_path_refreshes_its_validation() {
+        let mut clock = crate::tests::TestClock::new();
         crate::tests::init();
         let (uln, dest) = (NodeId::from(1), NodeId::from(2));
         let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(NodeId::ZERO);
@@ -891,7 +908,7 @@ mod tests {
         strategy.insert(valid_contact(&[uln, dest], 1), &mut rt, &un);
         let first = last_validated(&rt, &dest);
 
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        clock.advance(std::time::Duration::from_millis(2));
         strategy.insert(valid_contact(&[uln, dest], 1), &mut rt, &un);
 
         assert!(last_validated(&rt, &dest) > first);
@@ -899,6 +916,7 @@ mod tests {
 
     #[test]
     fn unvalidated_information_does_not_refresh_validation() {
+        let mut clock = crate::tests::TestClock::new();
         crate::tests::init();
         let (uln, dest) = (NodeId::from(1), NodeId::from(2));
         let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(NodeId::ZERO);
@@ -907,7 +925,7 @@ mod tests {
         strategy.insert(valid_contact(&[uln, dest], 1), &mut rt, &un);
         let first = last_validated(&rt, &dest);
 
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        clock.advance(std::time::Duration::from_millis(2));
         // e.g. the same path reported in an RTable object
         strategy.insert(unknown_contact(&[uln, dest], 2), &mut rt, &un);
 

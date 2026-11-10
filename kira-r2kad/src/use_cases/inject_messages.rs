@@ -218,7 +218,10 @@ where
                 if let Some(Some(instant)) =
                     message.msg_id().map(|nonce| self.nonces.remove(&nonce))
                 {
-                    let elapsed = instant.elapsed();
+                    let elapsed = context
+                        .runtime()
+                        .current_time()
+                        .saturating_duration_since(instant);
                     if let Err(e) = self
                         .injection_result_sender
                         .send_result(InjectionResult::Answered(Box::new(message.clone())))

@@ -317,6 +317,7 @@ mod tests {
 
     #[test]
     fn yield_underlay_neighbors() {
+        let _clock = crate::tests::TestClock::new();
         let invalid_contact = Contact::new(
             Path::from([NodeId::with_msb(4)]),
             SafeStateSeqNr::try_from(1).unwrap(),
@@ -363,6 +364,7 @@ mod tests {
     }
     #[test]
     fn get_closest_contact() {
+        let _clock = crate::tests::TestClock::new();
         let mut invalid_contact = Contact::new(
             Path::from([NodeId::with_msb(4)]),
             SafeStateSeqNr::try_from(1).unwrap(),
@@ -409,6 +411,7 @@ mod tests {
 
     #[test]
     fn get_closest_neighbor() {
+        let _clock = crate::tests::TestClock::new();
         let mut invalid_contact = Contact::new(
             Path::from([NodeId::with_msb(2)]),
             SafeStateSeqNr::try_from(1).unwrap(),
@@ -455,6 +458,7 @@ mod tests {
 
     #[test]
     fn get_closest_of_only_neighbors() {
+        let _clock = crate::tests::TestClock::new();
         let contacts = vec![
             Contact::new(
                 Path::from([NodeId::with_msb(5)]),
@@ -494,6 +498,7 @@ mod tests {
 
     #[test]
     fn get_closest_in_empty() {
+        let _clock = crate::tests::TestClock::new();
         let mut invalid_neighbor = Contact::new(
             Path::from([NodeId::with_msb(2)]),
             SafeStateSeqNr::try_from(1).unwrap(),
@@ -525,6 +530,7 @@ mod tests {
 
     #[test]
     fn get_closest_invalid_contacts() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = ProtectedRoutingTable::from(FlatRoutingTable::<1, 1>::new(root).unwrap());
@@ -570,6 +576,7 @@ mod tests {
 
     #[test]
     fn get_closest_last_bucket() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = ProtectedRoutingTable::from(FlatRoutingTable::<2, 1>::new(root).unwrap());
@@ -658,6 +665,7 @@ mod tests {
     }
     #[test]
     fn delete_uln_from_inner_on_promotion() {
+        let _clock = crate::tests::TestClock::new();
         let mut routing_table =
             ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
 
@@ -686,6 +694,7 @@ mod tests {
 
     #[test]
     fn replace_inner_contact_does_not_protect_it() {
+        let _clock = crate::tests::TestClock::new();
         let mut routing_table =
             ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
 
@@ -715,6 +724,7 @@ mod tests {
 
     #[test]
     fn replace_unknown_contact_fails() {
+        let _clock = crate::tests::TestClock::new();
         let mut routing_table =
             ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
 
@@ -733,6 +743,7 @@ mod tests {
 
     #[test]
     fn replace_protected_contact() {
+        let _clock = crate::tests::TestClock::new();
         let mut routing_table =
             ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
 
@@ -760,6 +771,7 @@ mod tests {
 
     #[test]
     fn replace_protected_contact_with_existing_id_fails() {
+        let _clock = crate::tests::TestClock::new();
         let mut routing_table =
             ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
 
@@ -800,6 +812,7 @@ mod tests {
 
     #[test]
     fn only_ulns_are_protected_by_default() {
+        let _clock = crate::tests::TestClock::new();
         let mut routing_table =
             ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
         assert_eq!(routing_table.protecting_labels(), ContactLabels::Uln);
@@ -815,6 +828,7 @@ mod tests {
 
     #[test]
     fn contacts_with_protecting_labels_are_protected() {
+        let _clock = crate::tests::TestClock::new();
         let mut routing_table =
             ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO))
                 .with_protecting_labels(ContactLabels::Uln | ContactLabels::Cached);
@@ -848,6 +862,7 @@ mod tests {
 
     #[test]
     fn promotion_keeps_labels() {
+        let _clock = crate::tests::TestClock::new();
         let mut routing_table =
             ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
 
@@ -871,6 +886,7 @@ mod tests {
 
     #[test]
     fn demotion_keeps_labels() {
+        let _clock = crate::tests::TestClock::new();
         let mut routing_table =
             ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
 
@@ -895,6 +911,7 @@ mod tests {
 
     #[test]
     fn no_demotion_while_protected_by_stored_label() {
+        let _clock = crate::tests::TestClock::new();
         let mut routing_table =
             ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO))
                 .with_protecting_labels(ContactLabels::Uln | ContactLabels::Cached);
@@ -918,6 +935,7 @@ mod tests {
 
     #[test]
     fn iter_with_any_label() {
+        let _clock = crate::tests::TestClock::new();
         let mut routing_table =
             ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
 

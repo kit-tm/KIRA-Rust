@@ -155,9 +155,14 @@ impl AsyncProtocolMessageSender for UdpSender {
         let message = message.into();
 
         let mut buffer = Vec::new();
-        self.format
-            .serialize(&mut buffer, &message)
-            .map_err(SenderError::MessageFormat)?;
+        {
+            // encoding reports ages, which needs the current time; the guard must not be held
+            // across an await, as the task may continue on another thread
+            let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
+            self.format
+                .serialize(&mut buffer, &message)
+                .map_err(SenderError::MessageFormat)?;
+        }
 
         if let Some(receiver_addr) = self.get_receiver_addr(destination).await? {
             tracing::trace!( target: "message_sender", %receiver_addr, "Sending ProtocolMessage");

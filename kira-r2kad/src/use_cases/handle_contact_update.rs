@@ -562,6 +562,7 @@ mod tests {
 
     #[test]
     fn loss_and_latest_path_are_sent_together_after_urgent_hold_time() {
+        let _clock = crate::tests::TestClock::new();
         let (mut hcu, ctx) = setup();
 
         invalidate(&mut hcu, &ctx, c(), lost_link());
@@ -605,6 +606,7 @@ mod tests {
 
     #[test]
     fn updates_are_not_sent_to_neighbors_that_ignore_them() {
+        let _clock = crate::tests::TestClock::new();
         let (mut hcu, ctx) = setup();
 
         invalidate(&mut hcu, &ctx, c(), lost_link());
@@ -626,6 +628,7 @@ mod tests {
 
     #[test]
     fn updates_are_sent_only_to_closest_overlay_neighbors() {
+        let _clock = crate::tests::TestClock::new();
         let (_, ctx) = setup();
         let mut hcu = Hcu::new(HandleContactUpdateConfig {
             notified_overlay_neighbors: NonZeroUsize::new(2).unwrap(),
@@ -645,6 +648,7 @@ mod tests {
 
     #[test]
     fn loss_of_contact_that_is_no_underlay_neighbor_is_not_sent() {
+        let _clock = crate::tests::TestClock::new();
         let (mut hcu, ctx) = setup();
         invalidate(&mut hcu, &ctx, d(), Link::new(a(), d()));
         assert!(hcu.pending.is_empty(), "receivers ignore Unreachable for d");
@@ -653,6 +657,7 @@ mod tests {
 
     #[test]
     fn loss_makes_prior_path_change_obsolete() {
+        let _clock = crate::tests::TestClock::new();
         let (mut hcu, ctx) = setup();
 
         change(&mut hcu, &ctx, c(), |contact| {
@@ -674,6 +679,7 @@ mod tests {
 
     #[test]
     fn change_is_sent_only_for_changed_path_after_normal_hold_time() {
+        let _clock = crate::tests::TestClock::new();
         let (mut hcu, ctx) = setup();
 
         // same path, e.g., only a newer state sequence number
@@ -701,6 +707,7 @@ mod tests {
 
     #[test]
     fn new_contact_stays_announced_with_latest_path() {
+        let _clock = crate::tests::TestClock::new();
         let (mut hcu, ctx) = setup();
 
         let new = ctx.routing_table().contact(&d()).unwrap().clone();
@@ -723,6 +730,7 @@ mod tests {
 
     #[test]
     fn unreachable_is_recorded_only_when_contact_gets_invalid() {
+        let _clock = crate::tests::TestClock::new();
         let (mut hcu, ctx) = setup();
         invalidate(&mut hcu, &ctx, c(), lost_link());
         let timer = hcu.urgent_timer.unwrap();

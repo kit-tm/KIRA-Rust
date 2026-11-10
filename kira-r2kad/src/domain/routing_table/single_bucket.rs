@@ -214,6 +214,7 @@ mod tests {
 
     #[test]
     fn test_closest_single() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = SingleBucketRT::<4>::new(root);
@@ -260,6 +261,7 @@ mod tests {
 
     #[test]
     fn test_closest_invalid_contacts() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = SingleBucketRT::<4>::new(root);
