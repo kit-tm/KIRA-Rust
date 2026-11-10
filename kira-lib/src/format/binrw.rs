@@ -1676,28 +1676,23 @@ fn write_notvialist_object<W: Write>(
     writer: &mut W,
     not_via: &Option<HashSet<NotVia>>,
 ) -> Result<usize, IoError> {
-    let mut links: Vec<Link> = Vec::new();
-    if let Some(not_via_set) = not_via {
-        for entry in not_via_set {
-            let link = entry.link.clone();
-            links.push(link);
-        }
-    }
-
-    if links.is_empty() {
+    let entries: Vec<&NotVia> = not_via.iter().flatten().collect();
+    if entries.is_empty() {
         return Ok(0);
     }
 
-    let object_length = links.len() * (NodeId::SIZE * 2 + 4);
+    let object_length = entries.len() * (NodeId::SIZE * 2 + 4);
     write_common_object_header(
         writer,
         CommonObjectHeader::new(ProtocolObjectType::NotViaList, object_length as u16),
     )?;
 
-    for link in links {
-        writer.write_all(&link.first().to_be_bytes())?;
-        writer.write_all(&link.second().to_be_bytes())?;
-        writer.write_all(&0u32.to_be_bytes())?; // age-info placeholder
+    for entry in entries {
+        writer.write_all(&entry.link.first().to_be_bytes())?;
+        writer.write_all(&entry.link.second().to_be_bytes())?;
+        // age of the failure information in ms, saturated to the field size
+        let age_ms = std::time::Duration::from(entry.age).as_millis();
+        writer.write_all(&u32::try_from(age_ms).unwrap_or(u32::MAX).to_be_bytes())?;
     }
 
     Ok(3 + object_length)

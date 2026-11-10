@@ -160,7 +160,24 @@ impl Timestamp {
 impl From<Age> for Timestamp {
     /// Returns the [Timestamp] of the [Age].
     fn from(age: Age) -> Timestamp {
-        Timestamp::from(Timestamp::now().0 - (Duration::from_millis(age.0)))
+        let now = Timestamp::now().0;
+        let age = Duration::from_millis(age.0);
+        // Ages are received from other nodes. On some platforms an Instant can't go back
+        // further than the start of the monotonic clock, so saturate at the oldest
+        // representable Instant instead of panicking.
+        let timestamp = now.checked_sub(age).unwrap_or_else(|| {
+            let (mut representable, mut too_old) = (Duration::ZERO, age);
+            while too_old - representable > Duration::from_millis(1) {
+                let mid = representable + (too_old - representable) / 2;
+                if now.checked_sub(mid).is_some() {
+                    representable = mid;
+                } else {
+                    too_old = mid;
+                }
+            }
+            now - representable
+        });
+        Timestamp::from(timestamp)
     }
 }
 
@@ -318,5 +335,36 @@ impl From<NotViaStateList> for Option<NotViaList> {
         } else {
             Some(notviastatelist.nvs_list.iter().map(NotVia::from).collect())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn timestamp_from_age_lies_in_the_past() {
+        let before = Timestamp::now();
+        let timestamp = Timestamp::from(Age::from(10_000));
+        assert!(timestamp < before);
+        assert!(timestamp.to_age() >= Age::from(10_000));
+    }
+
+    #[test]
+    fn timestamp_from_huge_age_does_not_panic() {
+        // received ages are untrusted and may exceed what the platform's clock represents
+        let timestamp = Timestamp::from(Age::from(u64::MAX));
+        assert!(timestamp < Timestamp::now());
+    }
+
+    #[test]
+    fn not_via_age_survives_conversion_to_state_and_back() {
+        let link = Link::new(NodeId::ONE, NodeId::with_lsb(2));
+        let state = NotViaState::from(NotVia::from((link, Age::from(5_000))));
+        let age = NotVia::from(&state).age;
+        assert!(
+            age >= Age::from(5_000) && age < Age::from(6_000),
+            "age {age}"
+        );
     }
 }

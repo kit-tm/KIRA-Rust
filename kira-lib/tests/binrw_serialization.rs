@@ -11,6 +11,7 @@ use kira_r2kad::domain::{
     Contact,
     Link,
     NodeId,
+    NotVia,
     Path,
     ProtocolMessage,
     ProtocolMessageKind,
@@ -1072,4 +1073,61 @@ fn binrw_payload_only_is_error() {
     let garbage_payload = [0x07u8, 0x00u8, 0x01u8, 0xffu8, 0x10u8];
     let res = ProtocolMessageFormat::Binrw.deserialize(Cursor::new(&garbage_payload));
     assert!(res.is_err());
+}
+
+#[test]
+fn binrw_not_via_keeps_age() {
+    // receivers compare the age against their own path validation (draft §3.9.1)
+    let header = CommonHeader::new(
+        ProtocolMessageKind::FindNodeReq,
+        NodeId::with_lsb(0x60),
+        NodeId::with_lsb(0x70),
+        Some(0x4444.into()),
+        0x5555,
+        4,
+    );
+    let fresh = Link::new(NodeId::with_lsb(1), NodeId::with_lsb(2));
+    let old = Link::new(NodeId::with_lsb(3), NodeId::with_lsb(4));
+    let too_old = Link::new(NodeId::with_lsb(5), NodeId::with_lsb(6));
+    let not_via = HashSet::from([
+        NotVia::from((fresh.clone(), Age::from(0))),
+        NotVia::from((old.clone(), Age::from(12_345))),
+        NotVia::from((too_old.clone(), Age::from(u64::from(u32::MAX) + 1))),
+    ]);
+
+    let req = ReqRspMessage {
+        common_header: header.clone(),
+        data: FindNodeReqData {
+            neighborhood: NonZeroU64::new(3).unwrap(),
+        },
+        not_via: Some(not_via),
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    };
+
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::Binrw
+        .serialize(&mut buf, &ProtocolMessage::FindNodeReq(req))
+        .expect("serialize");
+    let ProtocolMessage::FindNodeReq(decoded) = ProtocolMessageFormat::Binrw
+        .deserialize(Cursor::new(&buf))
+        .expect("deserialize")
+    else {
+        panic!("unexpected message type");
+    };
+
+    let decoded = decoded.not_via.expect("not via list");
+    let age_of = |link: &Link| {
+        decoded
+            .iter()
+            .find(|entry| &entry.link == link)
+            .expect("link present")
+            .age
+    };
+    assert_eq!(age_of(&fresh), Age::from(0));
+    assert_eq!(age_of(&old), Age::from(12_345));
+    assert_eq!(
+        age_of(&too_old),
+        Age::from(u64::from(u32::MAX)),
+        "saturated"
+    );
 }

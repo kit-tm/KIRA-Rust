@@ -158,6 +158,18 @@ where
         // received information is not older: take over its labels
         existing.update_labels_from(&contact);
 
+        // A message that just traversed the active path shows that this path is current
+        // (draft §3.9.3). Refreshing its validation lets older failure reports (NotVia) be
+        // recognized as outdated.
+        if let Some(candidate) = contact.path()
+            && candidate.is_valid()
+            && let Some(active) = existing.path_mut()
+            && active.is_valid()
+            && active.is_same_path_as(candidate)
+        {
+            active.update_last_validated();
+        }
+
         // contact is newer, may provide better path or improves an invalid contact
 
         // don't replace path with longer path if ssn is same
@@ -858,5 +870,47 @@ mod tests {
         let contact = rt.contact(&q).unwrap();
         assert!(contact.path().unwrap().is_valid());
         assert!(contact.proposed_path().is_none());
+    }
+
+    fn last_validated(rt: &SingleBucketRT<BUCKET_SIZE>, id: &NodeId) -> crate::domain::Timestamp {
+        *rt.contact(id)
+            .unwrap()
+            .path()
+            .unwrap()
+            .get_last_validated()
+            .expect("validated path")
+    }
+
+    #[test]
+    fn traversing_the_active_path_refreshes_its_validation() {
+        crate::tests::init();
+        let (uln, dest) = (NodeId::from(1), NodeId::from(2));
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(NodeId::ZERO);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+        strategy.insert(valid_contact(&[uln, dest], 1), &mut rt, &un);
+        let first = last_validated(&rt, &dest);
+
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        strategy.insert(valid_contact(&[uln, dest], 1), &mut rt, &un);
+
+        assert!(last_validated(&rt, &dest) > first);
+    }
+
+    #[test]
+    fn unvalidated_information_does_not_refresh_validation() {
+        crate::tests::init();
+        let (uln, dest) = (NodeId::from(1), NodeId::from(2));
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(NodeId::ZERO);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+        strategy.insert(valid_contact(&[uln, dest], 1), &mut rt, &un);
+        let first = last_validated(&rt, &dest);
+
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        // e.g. the same path reported in an RTable object
+        strategy.insert(unknown_contact(&[uln, dest], 2), &mut rt, &un);
+
+        assert_eq!(last_validated(&rt, &dest), first);
     }
 }

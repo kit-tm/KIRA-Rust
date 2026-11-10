@@ -1006,4 +1006,68 @@ mod tests {
             "shortcut has to be probed first"
         );
     }
+
+    fn with_not_via(mut message: ProtocolMessage, link: Link, age_ms: u64) -> ProtocolMessage {
+        let ProtocolMessage::FindNodeReq(ref mut req) = message else {
+            unreachable!("routed_message creates FindNodeReqs");
+        };
+        req.not_via = Some(NotViaList::from([NotVia::from((
+            link,
+            crate::domain::Age::from(age_ms),
+        ))]));
+        message
+    }
+
+    /// Contact T over <neighbor, T>, the link <neighbor, T> is reported as failed afterwards.
+    fn stale_failure_setup() -> (Ctx, NodeId, Link) {
+        let ctx = context();
+        bidirectional(&ctx, neighbor());
+        let t = NodeId::with_msb(6);
+        receive(&ctx, routed_message(&[t, neighbor()]));
+        assert!(ctx.routing_table().contact(&t).unwrap().is_valid());
+        (ctx, t, Link::new(neighbor(), t))
+    }
+
+    #[test]
+    fn current_not_via_invalidates_contact() {
+        let (ctx, t, link) = stale_failure_setup();
+
+        // the link failed after the path to T was validated
+        receive(
+            &ctx,
+            with_not_via(routed_message(&[source(), neighbor()]), link, 0),
+        );
+
+        assert!(ctx.routing_table().contact(&t).unwrap().is_invalid());
+    }
+
+    #[test]
+    fn outdated_not_via_is_ignored() {
+        let (ctx, t, link) = stale_failure_setup();
+
+        // the failure is older than the validation of the path to T
+        receive(
+            &ctx,
+            with_not_via(routed_message(&[source(), neighbor()]), link, 60_000),
+        );
+
+        assert!(ctx.routing_table().contact(&t).unwrap().is_valid());
+    }
+
+    #[test]
+    fn not_via_older_than_revalidation_by_traffic_is_ignored() {
+        // F7: the link failed, but the path to T was used again afterwards
+        let (ctx, t, link) = stale_failure_setup();
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        // traffic from T over the same path revalidates it
+        receive(&ctx, routed_message(&[t, neighbor()]));
+
+        // the failure happened 30ms ago: after the first, but before the second validation
+        receive(
+            &ctx,
+            with_not_via(routed_message(&[source(), neighbor()]), link, 30),
+        );
+
+        assert!(ctx.routing_table().contact(&t).unwrap().is_valid());
+    }
 }
