@@ -1,5 +1,8 @@
 use std::{
-    collections::HashMap,
+    collections::{
+        HashMap,
+        HashSet,
+    },
     fmt::Debug,
     marker::PhantomData,
     ops::{
@@ -331,17 +334,23 @@ where
             .iter_mut()
             .filter(|c| c.is_valid() && c.path().is_some())
         {
-            //let active_path = ;
-            for entry in &filtered_not_via_data {
-                if let Some(last_validated) = contact.path().unwrap().get_last_validated()
-                    && *last_validated < Timestamp::from(entry.age)
-                    && contact.path().unwrap().contains_link(&entry.link)
-                {
-                    contact.set_invalid(NotViaStateList::from(NotViaState::from(entry.clone())));
-                    tracing::debug!(target: "forward_protocol_message", %source, invalidated_contact = %contact.id(), "Invalidated contact based on not-via data");
-                    continue;
-                }
+            // collect all failed links on the active path before invalidating it,
+            // because invalidate() refreshes last_validated
+            let path = contact.path().unwrap();
+            let Some(last_validated) = path.get_last_validated().copied() else {
+                continue;
+            };
+            let failed: HashSet<NotViaState> = filtered_not_via_data
+                .iter()
+                .filter(|entry| last_validated < Timestamp::from(entry.age) && path.contains_link(&entry.link))
+                .map(|entry| NotViaState::from(entry.clone()))
+                .collect();
+            if failed.is_empty() {
+                continue;
             }
+            let failed_links = failed.len();
+            contact.set_invalid(NotViaStateList::from(failed));
+            tracing::debug!(target: "forward_protocol_message", %source, invalidated_contact = %contact.id(), failed_links, "Invalidated contact based on not-via data");
         }
     }
 
@@ -1069,6 +1078,38 @@ mod tests {
         );
 
         assert!(ctx.routing_table().contact(&t).unwrap().is_invalid());
+    }
+
+    #[test]
+    fn all_failed_links_on_the_path_are_recorded() {
+        let mut clock = crate::tests::TestClock::new();
+        let ctx = context();
+        bidirectional(&ctx, neighbor());
+        let x = NodeId::with_msb(5);
+        let t = NodeId::with_msb(6);
+        // T over <neighbor, X, T>
+        receive(&ctx, routed_message(&[t, x, neighbor()]));
+        assert!(ctx.routing_table().contact(&t).unwrap().is_valid());
+        clock.advance(std::time::Duration::from_millis(10));
+
+        // both links on the path to T failed after it was validated
+        let mut message = routed_message(&[source(), neighbor()]);
+        let ProtocolMessage::FindNodeReq(ref mut req) = message else {
+            unreachable!("routed_message creates FindNodeReqs");
+        };
+        req.not_via = Some(NotViaList::from([
+            NotVia::from((Link::new(neighbor(), x), crate::domain::Age::from(0))),
+            NotVia::from((Link::new(x, t), crate::domain::Age::from(0))),
+        ]));
+        receive(&ctx, message);
+
+        let rt = ctx.routing_table();
+        let contact = rt.contact(&t).unwrap();
+        let crate::domain::ContactState::Invalid(ref nvs) = *contact.state() else {
+            panic!("contact should be invalid, is {:?}", contact.state());
+        };
+        let links: HashSet<Link> = nvs.nvs_list.iter().map(|nvs| nvs.link.clone()).collect();
+        assert_eq!(links, HashSet::from([Link::new(neighbor(), x), Link::new(x, t)]));
     }
 
     #[test]
