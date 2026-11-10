@@ -10,7 +10,7 @@ const PROTOCOL_OBJECT_TYPE_STORE_RSP_DATA: u8 = 0x81;
 const PROTOCOL_OBJECT_TYPE_FETCH_REQ_DATA: u8 = 0x82;
 const PROTOCOL_OBJECT_TYPE_FETCH_RSP_DATA: u8 = 0x83;
 
-/// Object types for protocol message payload objects (see draft section 4.4.2).
+/// Object types for protocol message payload objects.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(
     feature = "serde",
@@ -94,7 +94,7 @@ const RTABLE_REQUEST_TYPE_OVERLAY_NEIGHBORS: u8 = 0x02;
 const RTABLE_REQUEST_TYPE_OVERLAY_NEIGHBORS_SOURCE: u8 = 0x03;
 const RTABLE_REQUEST_TYPE_ULN_VICINITY: u8 = 0x04;
 
-/// Values for `rtable-request-type-object` (draft section 4.4.2.5).
+/// Values for `rtable-request-type-object`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(
     feature = "serde",

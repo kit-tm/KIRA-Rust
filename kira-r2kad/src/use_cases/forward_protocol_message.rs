@@ -244,8 +244,7 @@ where
     fn transit_delay(context: &C, source: &NodeId) -> std::time::Duration {
         context
             .routing_table()
-            .contact(source)
-            .and_then(Contact::one_way_delay)
+            .one_way_delay(source)
             .unwrap_or_default()
     }
 
@@ -1001,7 +1000,7 @@ mod tests {
 
     #[test]
     fn path_shortened_via_bidirectional_neighbor_is_only_proposed() {
-        // the traversed path is validated, the shortcut <B, S> is not (draft §3.9.3)
+        // the traversed path is validated, the shortcut <B, S> is not
         let ctx = context();
         let (p, q, b) = (NodeId::with_msb(3), NodeId::with_msb(4), neighbor());
         bidirectional(&ctx, p);

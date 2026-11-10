@@ -1077,7 +1077,7 @@ fn binrw_payload_only_is_error() {
 
 #[test]
 fn binrw_not_via_keeps_age() {
-    // receivers compare the age against their own path validation (draft §3.9.1)
+    // receivers compare the age against their own path validation
     let header = CommonHeader::new(
         ProtocolMessageKind::FindNodeReq,
         NodeId::with_lsb(0x60),
@@ -1164,7 +1164,7 @@ fn roundtrip(msg: ProtocolMessage) -> ProtocolMessage {
 
 #[test]
 fn binrw_rtable_keeps_contact_age() {
-    // draft §3.9.3: receivers date the information back by the reported age
+    // receivers date the information back by the reported age
     let header = CommonHeader::new(
         ProtocolMessageKind::FindNodeRsp,
         NodeId::with_lsb(0x91),

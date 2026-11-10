@@ -363,6 +363,17 @@ where
 
     fn send_probe_rsp(&mut self, context: &C, req: ReqRspMessage<ProbeReqData>) {
         let source = *req.source();
+        // the echoed NotVia ages have to include the time since the requester sent them
+        let request_delay = context
+            .routing_table()
+            .one_way_delay(&source)
+            .unwrap_or_default();
+        let not_via = req.not_via.as_ref().map(|not_via| {
+            not_via
+                .iter()
+                .map(|entry| entry.aged(request_delay))
+                .collect()
+        });
         let message = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::ProbeRsp,
@@ -373,7 +384,7 @@ where
                 context.uln_table().size(),
             ),
             data: ProbeRspData,
-            not_via: req.not_via,
+            not_via,
             source_route: SourceRoute::from_reversed(req.source_route),
         };
         context
@@ -714,6 +725,8 @@ where
                         contact.update_state_seq_nr(current_state_seq_nr);
                     }
                 }
+                // sending the response reads the routing table
+                drop(rt);
                 self.send_probe_rsp(context, req);
             }
             UseCaseEvent::Contact(contact_event) => {
@@ -1046,5 +1059,52 @@ mod tests {
         .unwrap();
 
         assert!(ctx.routing_table().contact(&c()).unwrap().srtt().is_none());
+    }
+
+    #[test]
+    fn echoed_not_via_in_probe_rsp_includes_request_transit_time() {
+        let (mut pp, ctx) = setup(true);
+        // the underlay neighbor probes us, 100ms one-way delay
+        let mut prober = Contact::new(path(&[a()]), ssn());
+        let active = prober.path_mut().unwrap();
+        active.set_valid();
+        active.record_rtt(Duration::from_millis(200));
+        ctx.routing_table_mut().add(prober).unwrap();
+        let link = Link::new(b(), d());
+
+        let probe = ProtocolMessage::ProbeReq(ReqRspMessage {
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::ProbeReq,
+                a(),
+                root(),
+                Some(Nonce::random()),
+                StateSeqNr::Value(ssn()),
+                1,
+            ),
+            data: ProbeReqData,
+            not_via: Some(crate::domain::NotViaList::from([
+                crate::domain::NotVia::from((link.clone(), crate::domain::Age::from(100))),
+            ])),
+            source_route: SourceRoute::new(a(), path(&[root()])),
+        });
+        pp.handle_event(
+            &ctx,
+            UseCaseEvent::Message(probe, UnderlayNeighborSource::Local),
+        )
+        .unwrap();
+
+        let rsp = ctx
+            .runtime()
+            .output()
+            .find_map(|output| match output {
+                Output::SendProtocolMessage(ProtocolMessage::ProbeRsp(rsp), _) => Some(rsp),
+                _ => None,
+            })
+            .expect("ProbeRsp sent");
+        let not_via = rsp.not_via.expect("NotVia echoed");
+        assert_eq!(
+            not_via.iter().find(|entry| entry.link == link).unwrap().age,
+            crate::domain::Age::from(200)
+        );
     }
 }

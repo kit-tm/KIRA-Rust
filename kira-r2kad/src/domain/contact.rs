@@ -241,7 +241,7 @@ impl Contact {
     }
 
     /// Age of the routing information about this contact, as reported to other nodes in
-    /// RTable objects (draft §3.9.3).
+    /// RTable objects.
     ///
     /// It is 0 for valid underlay neighbors, as information about own links is always current.
     /// Otherwise it is the time since the active path was validated or, without validation,
@@ -256,7 +256,7 @@ impl Contact {
     }
 
     /// Dates the contact information back by the age reported by another node
-    /// (draft §3.9.3: `t_j := t_now - ∆T_j`), so it compares correctly with own information.
+    /// (`t_j := t_now - ∆T_j`), so it compares correctly with own information.
     pub fn set_info_age(&mut self, age: Age) {
         self.last_seen = Timestamp::from(age);
     }

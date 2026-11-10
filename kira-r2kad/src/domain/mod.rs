@@ -240,6 +240,19 @@ pub struct NotVia {
     pub age: Age,
 }
 
+impl NotVia {
+    /// Returns the entry aged by `delay`.
+    ///
+    /// Used when forwarding failure information as own, e.g. echoed in a response: its age
+    /// has to include the time since the original sender sent it.
+    pub fn aged(&self, delay: Duration) -> Self {
+        Self {
+            link: self.link.clone(),
+            age: self.age.saturating_add(delay),
+        }
+    }
+}
+
 impl From<(Link, Age)> for NotVia {
     fn from((first, second): (Link, Age)) -> Self {
         Self {

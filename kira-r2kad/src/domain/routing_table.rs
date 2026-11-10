@@ -382,6 +382,12 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// Iterator over all [Contact]s in the [RoutingTable].
     fn iter(&self) -> impl Iterator<Item = &Contact>;
 
+    /// Estimated one-way delay to the node: half of the smoothed round-trip time over the
+    /// active path of its contact, if known.
+    fn one_way_delay(&self, id: &NodeId) -> Option<std::time::Duration> {
+        self.contact(id).and_then(Contact::one_way_delay)
+    }
+
     /// Iterator over all [Contact]s having at least one of the given labels.
     fn iter_with_any_label(&self, labels: ContactLabels) -> impl Iterator<Item = &Contact> {
         self.iter()

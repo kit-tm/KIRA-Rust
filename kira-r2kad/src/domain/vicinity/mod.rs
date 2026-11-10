@@ -15,9 +15,10 @@ pub use vicinity_graph::VicinityGraph;
 /// - Underlay neighbors with a distance of **1** hops with
 ///   which the following messages are exchanged: `ULNHello`, `ULNDiscReq`, `ULNDiscRsp`.
 ///
-/// An in-depth explanation can be found in the respective [KIRA-Draft section][kira_vg].
+/// An in-depth explanation can be found in the description of the vicinity discovery
+/// in the [KIRA draft][kira_draft].
 ///
-/// [kira_vg]: https://www.ietf.org/archive/id/draft-bless-rtgwg-kira-03.html#section-3.4-3
+/// [kira_draft]: https://datatracker.ietf.org/doc/draft-bless-rtgwg-kira/
 /// [^uln]: Underlay neighbors are _always_ included in the Routing Table.
 /// [^contacts]: Even if they are not Contacts in the Routing Table. Therefor nodes in the vicinity
 /// need to be kept in a separate data structure called *Vicinity Graph*.

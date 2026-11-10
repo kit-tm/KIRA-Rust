@@ -158,9 +158,9 @@ where
         // received information is not older: take over its labels
         existing.update_labels_from(&contact);
 
-        // A message that just traversed the active path shows that this path is current
-        // (draft §3.9.3). Refreshing its validation lets older failure reports (NotVia) be
-        // recognized as outdated.
+        // A message that just traversed the active path shows that this path is current.
+        // Refreshing its validation lets older failure reports (NotVia) be recognized as
+        // outdated.
         if let Some(candidate) = contact.path()
             && candidate.is_valid()
             && let Some(active) = existing.path_mut()
@@ -350,7 +350,7 @@ where
         self.path_simplifier.simplify(routing_table, un_table, path);
         let simplified = !path.is_same_path_as(&traversed);
         if simplified {
-            // the path was improved with local information, so it is not validated (draft §3.9.3)
+            // the path was improved with local information, so it is not validated
             path.set_notvalidated();
         }
         // if it is a ULN it is automatically a valid path
