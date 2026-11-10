@@ -22,6 +22,8 @@ pub use bucket::{
 };
 mod contact;
 pub use contact::*;
+mod contact_labels;
+pub use contact_labels::*;
 
 pub mod dht;
 

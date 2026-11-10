@@ -2371,24 +2371,53 @@ mod tests {
     #[test]
     fn deterministic_handshake_heuristic() {
         let mut test_pairs = vec![
-            (NodeId::from_const(0xe3456789u128), NodeId::from_const(0xf3456788u128)),
-            (NodeId::from_const(0x2e3456789u128), NodeId::from_const(0x1f3456788u128)),
-            (NodeId::from_const(0xf2456789u128), NodeId::from_const(0xf1456788u128)),
-            (NodeId::from_const(0xf1456789u128), NodeId::from_const(0xf2456789u128)),
-            (NodeId::from_const(0x80000000u128), NodeId::from_const(0x80000001u128)),
-            (NodeId::from_const(0x80000001u128), NodeId::from_const(0x80000000u128)),
-            (NodeId::from_const(0x100000000u128), NodeId::from_const(0x200000000u128)),
-            (NodeId::from_const(0x200000000u128), NodeId::from_const(0x100000000u128)),
-            (NodeId::from_const(0xd6af3c5d709daef70f9b0ee6ae67u128),NodeId::from_const(0xff305a2c3b78cc824318bb16c474u128)),
+            (
+                NodeId::from_const(0xe3456789u128),
+                NodeId::from_const(0xf3456788u128),
+            ),
+            (
+                NodeId::from_const(0x2e3456789u128),
+                NodeId::from_const(0x1f3456788u128),
+            ),
+            (
+                NodeId::from_const(0xf2456789u128),
+                NodeId::from_const(0xf1456788u128),
+            ),
+            (
+                NodeId::from_const(0xf1456789u128),
+                NodeId::from_const(0xf2456789u128),
+            ),
+            (
+                NodeId::from_const(0x80000000u128),
+                NodeId::from_const(0x80000001u128),
+            ),
+            (
+                NodeId::from_const(0x80000001u128),
+                NodeId::from_const(0x80000000u128),
+            ),
+            (
+                NodeId::from_const(0x100000000u128),
+                NodeId::from_const(0x200000000u128),
+            ),
+            (
+                NodeId::from_const(0x200000000u128),
+                NodeId::from_const(0x100000000u128),
+            ),
+            (
+                NodeId::from_const(0xd6af3c5d709daef70f9b0ee6ae67u128),
+                NodeId::from_const(0xff305a2c3b78cc824318bb16c474u128),
+            ),
         ];
 
         for _i in 0..64 {
-          test_pairs.push((NodeId::random(), NodeId::random()));
-        };
+            test_pairs.push((NodeId::random(), NodeId::random()));
+        }
         for (node_id_a, node_id_b) in test_pairs {
-            assert_ne!(deterministic_heuristic(&node_id_a, &node_id_b, NonZeroU8::new(32).unwrap()),
-                       deterministic_heuristic(&node_id_b, &node_id_a, NonZeroU8::new(32).unwrap()),"{node_id_a:x},{node_id_b:x}");
-
+            assert_ne!(
+                deterministic_heuristic(&node_id_a, &node_id_b, NonZeroU8::new(32).unwrap()),
+                deterministic_heuristic(&node_id_b, &node_id_a, NonZeroU8::new(32).unwrap()),
+                "{node_id_a:x},{node_id_b:x}"
+            );
         }
     }
 }

@@ -12,6 +12,7 @@ use derive_more::derive::Display;
 use crate::{
     domain::{
         Age,
+        ContactLabels,
         NodeId,
         NotViaStateList,
         Path,
@@ -53,6 +54,14 @@ pub struct Contact {
     last_seen: Timestamp,
     path_collection: PathCollection,
     state_seq_nr: SafeStateSeqNr,
+    /// Labels set by this node, see [ContactLabels::LOCAL].
+    #[cfg_attr(feature = "serde", serde(skip))]
+    local_labels: ContactLabels,
+    /// Labels advertised by other nodes, see [ContactLabels::ADVERTISED].
+    ///
+    /// `None` means no information was received, so existing labels are kept on merge.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    advertised_labels: Option<ContactLabels>,
 }
 
 impl Hash for Contact {
@@ -72,6 +81,8 @@ impl Contact {
             last_seen: Timestamp::now(),
             path_collection: PathCollection::new_with_active_path(path),
             state_seq_nr,
+            local_labels: ContactLabels::empty(),
+            advertised_labels: None,
         }
     }
 
@@ -119,6 +130,71 @@ impl Contact {
             Some(path) => (*path).size() == 1,
             None => false,
         }
+    }
+
+    /// Returns all labels of the [Contact]: derived, local and advertised ones.
+    pub fn labels(&self) -> ContactLabels {
+        let mut labels = self.local_labels | self.advertised_labels.unwrap_or_default();
+        labels.set(ContactLabels::Uln, self.is_uln());
+        labels
+    }
+
+    /// Returns if the [Contact] has at least one of the given labels.
+    pub fn has_any_label(&self, labels: ContactLabels) -> bool {
+        self.labels().intersects(labels)
+    }
+
+    pub fn local_labels(&self) -> ContactLabels {
+        self.local_labels
+    }
+
+    /// Adds local labels. Labels from other sources are ignored.
+    pub fn add_local_labels(&mut self, labels: ContactLabels) {
+        self.local_labels |= labels & ContactLabels::LOCAL;
+    }
+
+    /// Removes local labels. Labels from other sources are ignored.
+    pub fn remove_local_labels(&mut self, labels: ContactLabels) {
+        self.local_labels -= labels & ContactLabels::LOCAL;
+    }
+
+    pub fn advertised_labels(&self) -> Option<ContactLabels> {
+        self.advertised_labels
+    }
+
+    /// Sets the advertised labels. Labels from other sources are ignored.
+    ///
+    /// `None` means that no label information is available.
+    pub fn set_advertised_labels(&mut self, labels: Option<ContactLabels>) {
+        self.advertised_labels = labels.map(|labels| labels & ContactLabels::ADVERTISED);
+    }
+
+    /// Merges labels from `newer`, which carries more recent information about the same node.
+    ///
+    /// Use this when the stored contact is kept and updated with received information.
+    ///
+    /// * Local labels are combined, as they're only changed explicitly.
+    /// * Advertised labels are taken from `newer`, unless it has none (`None`).
+    pub fn update_labels_from(&mut self, newer: &Contact) {
+        debug_assert_eq!(self.id(), newer.id(), "merging labels of different nodes");
+        self.local_labels |= newer.local_labels;
+        self.advertised_labels = newer.advertised_labels.or(self.advertised_labels);
+    }
+
+    /// Takes over labels from `previous`, the stored contact this contact replaces.
+    ///
+    /// Use this when a contact is moved or re-inserted, so no labels get lost.
+    ///
+    /// * Local labels are combined, as they're only changed explicitly.
+    /// * Advertised labels are kept, unless this contact has none (`None`).
+    pub fn inherit_labels_from(&mut self, previous: &Contact) {
+        debug_assert_eq!(
+            self.id(),
+            previous.id(),
+            "merging labels of different nodes"
+        );
+        self.local_labels |= previous.local_labels;
+        self.advertised_labels = self.advertised_labels.or(previous.advertised_labels);
     }
 
     /// Returns if the [Contact] has a failed ULN in its former active path
@@ -670,5 +746,94 @@ mod tests {
         b.hash(&mut hasher_b);
         assert_eq!(hasher_a.finish(), hasher_b.finish(), "same id => same hash");
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn uln_label_is_derived_from_path() {
+        let uln = contact_with_path(&[NodeId::from(1)], 1);
+        assert_eq!(uln.labels(), ContactLabels::Uln);
+
+        let non_uln = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
+        assert_eq!(non_uln.labels(), ContactLabels::empty());
+    }
+
+    #[test]
+    fn labels_combine_all_sources() {
+        let mut contact = contact_with_path(&[NodeId::from(1)], 1);
+        contact.add_local_labels(ContactLabels::Cached);
+        contact.set_advertised_labels(Some(ContactLabels::Landmark));
+
+        assert_eq!(
+            contact.labels(),
+            ContactLabels::Uln | ContactLabels::Cached | ContactLabels::Landmark
+        );
+        assert!(contact.has_any_label(ContactLabels::Landmark | ContactLabels::EndSystem));
+        assert!(!contact.has_any_label(ContactLabels::EndSystem));
+    }
+
+    #[test]
+    fn labels_from_wrong_source_are_ignored() {
+        let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
+
+        contact.add_local_labels(ContactLabels::all());
+        assert_eq!(contact.local_labels(), ContactLabels::LOCAL);
+
+        contact.set_advertised_labels(Some(ContactLabels::all()));
+        assert_eq!(contact.advertised_labels(), Some(ContactLabels::ADVERTISED));
+
+        contact.remove_local_labels(ContactLabels::all());
+        assert_eq!(contact.labels(), ContactLabels::ADVERTISED);
+    }
+
+    #[test]
+    fn update_labels_from_newer() {
+        let path = [NodeId::from(1), NodeId::from(2)];
+        let mut stored = contact_with_path(&path, 1);
+        stored.add_local_labels(ContactLabels::Cached);
+        stored.set_advertised_labels(Some(ContactLabels::Landmark));
+
+        // newer without label information keeps everything
+        stored.update_labels_from(&contact_with_path(&path, 2));
+        assert_eq!(
+            stored.labels(),
+            ContactLabels::Cached | ContactLabels::Landmark
+        );
+
+        // newer advertised labels replace the stored ones, local labels stay
+        let mut newer = contact_with_path(&path, 3);
+        newer.set_advertised_labels(Some(ContactLabels::EndSystem));
+        stored.update_labels_from(&newer);
+        assert_eq!(
+            stored.labels(),
+            ContactLabels::Cached | ContactLabels::EndSystem
+        );
+
+        // explicitly advertising no labels clears them
+        let mut newer = contact_with_path(&path, 4);
+        newer.set_advertised_labels(Some(ContactLabels::empty()));
+        stored.update_labels_from(&newer);
+        assert_eq!(stored.labels(), ContactLabels::Cached);
+    }
+
+    #[test]
+    fn inherit_labels_from_previous() {
+        let path = [NodeId::from(1), NodeId::from(2)];
+        let mut previous = contact_with_path(&path, 1);
+        previous.add_local_labels(ContactLabels::Cached);
+        previous.set_advertised_labels(Some(ContactLabels::Landmark));
+
+        // without own label information everything is inherited
+        let mut replacement = contact_with_path(&path, 2);
+        replacement.inherit_labels_from(&previous);
+        assert_eq!(
+            replacement.labels(),
+            ContactLabels::Cached | ContactLabels::Landmark
+        );
+
+        // own advertised labels win, local labels are combined
+        let mut replacement = contact_with_path(&path, 2);
+        replacement.set_advertised_labels(Some(ContactLabels::empty()));
+        replacement.inherit_labels_from(&previous);
+        assert_eq!(replacement.labels(), ContactLabels::Cached);
     }
 }

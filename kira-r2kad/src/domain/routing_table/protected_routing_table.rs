@@ -9,6 +9,7 @@ use tracing::Level;
 use crate::domain::{
     Bucket,
     Contact,
+    ContactLabels,
     ContactState,
     GroupingError,
     NodeId,
@@ -28,8 +29,8 @@ use crate::domain::{
 /// unlimited data structure next to the regular k-buckets.
 ///
 /// Regular buckets hold at most `BUCKET_SIZE` contacts. Protected contacts are
-/// never evicted due to bucket limits. Currently, underlay neighbors (ULNs) are
-/// the only kind of protected contact.
+/// never evicted due to bucket limits. A contact is protected if it has any of
+/// the table's protecting [ContactLabels] (by default only [ContactLabels::Uln]).
 ///
 /// In contrast to [FlatRoutingTable] this implementation doesn't replace
 /// existing contacts with protected ones.
@@ -45,6 +46,11 @@ use crate::domain::{
 /// any protected contacts.
 #[derive(Debug)]
 pub struct ProtectedRoutingTable<const BUCKET_SIZE: usize, const ACC: u8> {
+    /// Which of a contact's own labels make this table protect it.
+    ///
+    /// The labels belong to the [Contact]; this is only the table's policy.
+    /// Not every label implies protection (some are only used for filtering).
+    protecting_labels: ContactLabels,
     protected_contacts: HashMap<NodeId, Contact>,
     inner: FlatRoutingTable<BUCKET_SIZE, ACC>,
 }
@@ -56,9 +62,43 @@ impl<const BUCKET_SIZE: usize, const ACC: u8> From<FlatRoutingTable<BUCKET_SIZE,
         assert!(routing_table.is_empty(), "FlatRoutingTable should be empty");
 
         Self {
+            protecting_labels: ContactLabels::Uln,
             protected_contacts: Default::default(),
             inner: routing_table,
         }
+    }
+}
+
+impl<const BUCKET_SIZE: usize, const ACC: u8> ProtectedRoutingTable<BUCKET_SIZE, ACC> {
+    /// Sets which labels make a contact protected.
+    ///
+    /// # Panics
+    ///
+    /// If the table isn't empty, as existing contacts would end up in the wrong place.
+    pub fn with_protecting_labels(mut self, labels: ContactLabels) -> Self {
+        assert!(
+            self.is_empty(),
+            "protecting labels can only be changed on an empty table"
+        );
+        self.protecting_labels = labels;
+        self
+    }
+
+    pub fn protecting_labels(&self) -> ContactLabels {
+        self.protecting_labels
+    }
+
+    /// Returns if the contact has to be kept in the protected contacts.
+    pub fn is_protected(&self, contact: &Contact) -> bool {
+        contact.has_any_label(self.protecting_labels)
+    }
+
+    /// Returns if the contact is protected by a stored (local or advertised) label.
+    ///
+    /// Derived labels like [ContactLabels::Uln] depend on the current path and
+    /// are therefore not considered here.
+    fn is_protected_by_stored_labels(&self, contact: &Contact) -> bool {
+        (contact.labels() - ContactLabels::DERIVED).intersects(self.protecting_labels)
     }
 }
 
@@ -80,29 +120,29 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
         self.protected_contacts.is_empty() && self.inner.is_empty()
     }
 
-    fn add(&mut self, contact: Contact) -> Result<(), AddError> {
+    fn add(&mut self, mut contact: Contact) -> Result<(), AddError> {
         if let Some(protected_entry) = self.protected_contacts.get(contact.id()) {
-            // contact to add exists as ULN already
-            if contact.is_uln() {
+            // contact to add exists as protected contact already
+            if self.is_protected(&contact)
+                || *protected_entry.state() == ContactState::Valid
+                || self.is_protected_by_stored_labels(protected_entry)
+            {
                 return Err(AddError::AlreadyExists(contact.into_id()));
             }
-            // the contact is a ULN, but has a longer path now, should be ignored by update
-            if *protected_entry.state() == ContactState::Valid {
-                return Err(AddError::AlreadyExists(contact.into_id()));
-            } else {
-                // if existing contact was former ULN, but it is not anymore, we may remove it from there
-                self.protected_contacts.remove(contact.id());
+            // the existing contact lost its protection (e.g. a former ULN which lost
+            // its direct link), so it moves to the regular buckets
+            let previous = self
+                .protected_contacts
+                .remove(contact.id())
+                .expect("presence was checked before");
+            contact.inherit_labels_from(&previous);
+        } else if self.is_protected(&contact) {
+            // contact is not protected yet, but has to be: move it out of the buckets
+            if let Some(previous) = self.inner.remove(contact.id()) {
+                contact.inherit_labels_from(&previous);
             }
-        } else {
-            // contact does not exist as ULN
-
-            // if contact is ULN, so add it
-            if contact.is_uln() {
-                // add to underlay neighbors
-                _ = self.inner.remove(contact.id());
-                self.protected_contacts.insert(*contact.id(), contact);
-                return Ok(());
-            }
+            self.protected_contacts.insert(*contact.id(), contact);
+            return Ok(());
         }
         // try regular add, returns own result
         self.inner.add(contact)
@@ -262,6 +302,7 @@ mod tests {
 
     use crate::domain::{
         Contact,
+        ContactLabels,
         ContactState,
         NodeId,
         NotViaStateList,
@@ -742,5 +783,165 @@ mod tests {
                 .is_err()
         );
         assert_eq!(routing_table.len(), 2, "no contact should be lost");
+    }
+
+    fn contact(path: &[NodeId]) -> Contact {
+        Contact::new(
+            Path::try_from(path).expect("test path must not be empty"),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        )
+    }
+
+    fn cached(path: &[NodeId]) -> Contact {
+        let mut contact = contact(path);
+        contact.add_local_labels(ContactLabels::Cached);
+        contact
+    }
+
+    #[test]
+    fn only_ulns_are_protected_by_default() {
+        let mut routing_table =
+            ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
+        assert_eq!(routing_table.protecting_labels(), ContactLabels::Uln);
+
+        let node = NodeId::with_msb(2);
+        routing_table
+            .insert(cached(&[NodeId::with_msb(3), node]))
+            .expect("failed to insert contact");
+
+        assert!(routing_table.inner.contains(&node));
+        assert!(routing_table.protected_contacts.is_empty());
+    }
+
+    #[test]
+    fn contacts_with_protecting_labels_are_protected() {
+        let mut routing_table =
+            ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO))
+                .with_protecting_labels(ContactLabels::Uln | ContactLabels::Cached);
+
+        let node = NodeId::with_msb(2);
+        routing_table
+            .insert(cached(&[NodeId::with_msb(3), node]))
+            .expect("failed to insert contact");
+
+        assert!(!routing_table.inner.contains(&node));
+        assert!(routing_table.protected_contacts.contains_key(&node));
+        assert!(
+            routing_table
+                .bucket_iter()
+                .all(|bucket| !bucket.contains(&node)),
+            "protected contacts are not in the buckets"
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn protecting_labels_cannot_change_on_filled_table() {
+        let mut routing_table =
+            ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
+        routing_table
+            .insert(contact(&[NodeId::with_msb(2)]))
+            .expect("failed to insert contact");
+
+        let _ = routing_table.with_protecting_labels(ContactLabels::Cached);
+    }
+
+    #[test]
+    fn promotion_keeps_labels() {
+        let mut routing_table =
+            ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
+
+        let node = NodeId::with_msb(2);
+        let mut stored = cached(&[NodeId::with_msb(3), node]);
+        stored.set_advertised_labels(Some(ContactLabels::Landmark));
+        routing_table
+            .insert(stored)
+            .expect("failed to insert contact");
+
+        // node becomes an underlay neighbor
+        routing_table
+            .insert(contact(&[node]))
+            .expect("failed to insert contact");
+
+        assert_eq!(
+            routing_table.protected_contacts[&node].labels(),
+            ContactLabels::Uln | ContactLabels::Cached | ContactLabels::Landmark
+        );
+    }
+
+    #[test]
+    fn demotion_keeps_labels() {
+        let mut routing_table =
+            ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
+
+        let node = NodeId::with_msb(2);
+        let mut former_uln = cached(&[node]);
+        former_uln.set_state(ContactState::Invalid(NotViaStateList::default()));
+        routing_table
+            .insert(former_uln)
+            .expect("failed to insert contact");
+
+        // node is now reachable via a longer path only
+        routing_table
+            .insert(contact(&[NodeId::with_msb(3), node]))
+            .expect("failed to insert contact");
+
+        assert!(routing_table.protected_contacts.is_empty());
+        assert_eq!(
+            routing_table.inner.contact(&node).unwrap().labels(),
+            ContactLabels::Cached
+        );
+    }
+
+    #[test]
+    fn no_demotion_while_protected_by_stored_label() {
+        let mut routing_table =
+            ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO))
+                .with_protecting_labels(ContactLabels::Uln | ContactLabels::Cached);
+
+        let node = NodeId::with_msb(2);
+        let mut former_uln = cached(&[node]);
+        former_uln.set_state(ContactState::Invalid(NotViaStateList::default()));
+        routing_table
+            .insert(former_uln)
+            .expect("failed to insert contact");
+
+        assert!(
+            routing_table
+                .insert(contact(&[NodeId::with_msb(3), node]))
+                .is_err(),
+            "still cached contact must stay protected"
+        );
+        assert!(routing_table.protected_contacts.contains_key(&node));
+        assert!(!routing_table.inner.contains(&node));
+    }
+
+    #[test]
+    fn iter_with_any_label() {
+        let mut routing_table =
+            ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
+
+        let uln = NodeId::with_msb(2);
+        let cached_node = NodeId::with_msb(3);
+        let plain_node = NodeId::with_msb(4);
+        routing_table
+            .extend(
+                false,
+                [
+                    contact(&[uln]),
+                    cached(&[uln, cached_node]),
+                    contact(&[uln, plain_node]),
+                ],
+            )
+            .expect("failed to insert contacts");
+
+        let mut ids: Vec<_> = routing_table
+            .iter_with_any_label(ContactLabels::Uln | ContactLabels::Cached)
+            .map(|contact| *contact.id())
+            .collect();
+        ids.sort();
+        let mut expected = vec![uln, cached_node];
+        expected.sort();
+        assert_eq!(ids, expected);
     }
 }

@@ -16,6 +16,7 @@ pub use crate::domain::bucket::ReplacementError; // TODO: Create distinct RT-Err
 use crate::domain::{
     Bucket,
     Contact,
+    ContactLabels,
     GroupingError,
     Link,
     NodeId,
@@ -380,6 +381,12 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
 
     /// Iterator over all [Contact]s in the [RoutingTable].
     fn iter(&self) -> impl Iterator<Item = &Contact>;
+
+    /// Iterator over all [Contact]s having at least one of the given labels.
+    fn iter_with_any_label(&self, labels: ContactLabels) -> impl Iterator<Item = &Contact> {
+        self.iter()
+            .filter(move |contact| contact.has_any_label(labels))
+    }
 
     /// Iterator over mutable references to all contacts in the [RoutingTable].
     fn iter_mut(&'a mut self) -> impl Iterator<Item = Self::ContactWriteGuard>;

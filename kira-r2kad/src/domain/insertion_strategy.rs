@@ -107,6 +107,9 @@ where
             return InsertionStrategyResult::Dropped;
         }
 
+        // received information is not older: take over its labels
+        existing.update_labels_from(&contact);
+
         // contact is newer, may provide better path or improves an invalid contact
 
         // don't replace path with longer path if ssn is same
@@ -372,6 +375,7 @@ where
 mod tests {
     use super::*;
     use crate::domain::{
+        ContactLabels,
         ContactState,
         NodeId,
         Path,
@@ -686,5 +690,30 @@ mod tests {
 
         assert_eq!(result, InsertionStrategyResult::Dropped);
         assert!(!rt.contains(&NodeId::from(99)));
+    }
+
+    #[test]
+    fn update_existing_takes_labels_only_from_newer_info() {
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let uln = NodeId::from(1);
+        let dest = NodeId::from(2);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+
+        strategy.insert(contact(&[uln, dest], 2), &mut rt, &un);
+
+        // older information must not change the labels
+        let mut older = contact(&[uln, dest], 1);
+        older.set_advertised_labels(Some(ContactLabels::EndSystem));
+        strategy.insert(older, &mut rt, &un);
+        assert_eq!(rt.contact(&dest).unwrap().labels(), ContactLabels::empty());
+
+        // newer information updates the labels, even if the path isn't better
+        let mut newer = contact(&[uln, dest], 3);
+        newer.set_advertised_labels(Some(ContactLabels::Landmark));
+        strategy.insert(newer, &mut rt, &un);
+        assert_eq!(rt.contact(&dest).unwrap().labels(), ContactLabels::Landmark);
     }
 }
