@@ -256,6 +256,11 @@ impl<C, const BUCKET_SIZE: usize> VicinityDiscovery<C, BUCKET_SIZE> {
             config,
         }
     }
+
+    /// Returns whether the interface is currently up.
+    pub fn is_interface_up(&self, interface: InterfaceId) -> bool {
+        matches!(&self.state, VDState::Running { interfaces, .. } if interfaces.contains_key(&interface))
+    }
 }
 
 impl<C, const BUCKET_SIZE: usize> VicinityDiscovery<C, BUCKET_SIZE>

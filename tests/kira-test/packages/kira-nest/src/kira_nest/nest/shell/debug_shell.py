@@ -8,6 +8,7 @@ import sys
 import time
 import traceback
 from cmd import Cmd
+from collections import Counter
 from collections.abc import Iterable
 from functools import cached_property
 from pathlib import Path
@@ -148,7 +149,12 @@ class DebugShell[T](Cmd):
         verbose = 2 if args.verbose else 0
 
         conn = dict(self.test.topology.connected_components())
+        component_sizes = Counter(conn.values())
         for x in self.test.topology.nodes:
+            # down links isolate the node: there is no one to ping
+            if component_sizes[conn[x]] == 1:
+                print(f"{x:>3} is isolated (all its links are down), not pinged")
+                continue
             for y in self.test.topology.nodes:
                 if x == y or conn[x] != conn[y]:
                     continue
