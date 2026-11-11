@@ -1140,7 +1140,9 @@ mod tests {
     fn invalidate_x_over_a(ctx: &Ctx) -> (Contact, Contact) {
         let mut over_a = path(&[a(), x()]);
         over_a.set_valid();
-        ctx.routing_table_mut().add(Contact::new(over_a, ssn())).unwrap();
+        ctx.routing_table_mut()
+            .add(Contact::new(over_a, ssn()))
+            .unwrap();
         let old = contact(ctx, x());
         ctx.routing_table_mut()
             .contact_mut(&x())

@@ -342,7 +342,9 @@ where
             };
             let failed: HashSet<NotViaState> = filtered_not_via_data
                 .iter()
-                .filter(|entry| last_validated < Timestamp::from(entry.age) && path.contains_link(&entry.link))
+                .filter(|entry| {
+                    last_validated < Timestamp::from(entry.age) && path.contains_link(&entry.link)
+                })
                 .map(|entry| NotViaState::from(entry.clone()))
                 .collect();
             if failed.is_empty() {
@@ -1109,7 +1111,10 @@ mod tests {
             panic!("contact should be invalid, is {:?}", contact.state());
         };
         let links: HashSet<Link> = nvs.nvs_list.iter().map(|nvs| nvs.link.clone()).collect();
-        assert_eq!(links, HashSet::from([Link::new(neighbor(), x), Link::new(x, t)]));
+        assert_eq!(
+            links,
+            HashSet::from([Link::new(neighbor(), x), Link::new(x, t)])
+        );
     }
 
     #[test]

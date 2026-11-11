@@ -194,25 +194,35 @@ where
     C::UnderlayNeighborTable:
         ULNTable + Debug + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
 {
+    /// Changes to the error state: the use case starts running again when it isn't isolated
+    /// anymore. Its timers are removed, so that the periodic exploration timer doesn't keep
+    /// firing next to the one registered by the restart.
+    fn become_isolated(&mut self, context: &C) {
+        if let ONDState::Running { timer_contexts } = &self.state {
+            for timer_id in timer_contexts.iter().filter_map(|tc| tc.timer_id) {
+                context.runtime().remove_timer(timer_id);
+            }
+        }
+        self.state = ONDState::Isolated;
+    }
+
     /// Sets a new timer accordingly and sends a new FindNodeReq with target of our own ID (this is a join)
     /// if exponential backoff allows it.
     fn send_next_join_request(&mut self, context: &C) -> Result<(), <Self as EventHandler>::Error> {
-        let current_timer_context = if let ONDState::Running { timer_contexts } = &mut self.state {
-            &mut timer_contexts[TimerType::PeriodicJoin as usize]
-        } else {
-            panic!("Called send_next_join_request in non-running state!");
-        };
-
         // No need for discovery if currently isolated
         if context.uln_table().is_empty() {
             log::warn!(target: "overlay_neighborhood_discovery",
                 "No underlay neighbors present; Node is isolated"
             );
-            // change to error state
-            // the use case will change to running again if not isolated anymore
-            self.state = ONDState::Isolated;
+            self.become_isolated(context);
             return Ok(());
         }
+
+        let current_timer_context = if let ONDState::Running { timer_contexts } = &mut self.state {
+            &mut timer_contexts[TimerType::PeriodicJoin as usize]
+        } else {
+            panic!("Called send_next_join_request in non-running state!");
+        };
 
         // the initial timer has no exponential backoff (and no state)
         // then a randomized exponential backoff timer is created
@@ -238,6 +248,13 @@ where
             .unwrap()
             .next()
             .expect("Periodic join timer is always expected to have a value");
+        // arm the next join first, so that a round without a usable contact doesn't stop the
+        // periodic join (it also heals partitions)
+        log::trace!(
+            target: "overlay_neighborhood_discovery",
+            "Timer next duration: {next_duration:?}"
+        );
+        current_timer_context.timer_id = Some(context.runtime().register_timer(next_duration));
 
         // check if last message has been answered
         let avoid_contact = if let Some((msg_id, node_id)) = current_timer_context.last_msg_state {
@@ -263,17 +280,13 @@ where
             .expect("config should have been checked before");
 
         // Get the path to the closest node of ourselves
-        // in case the previous FindNodeReq failed, we try to avoid that contact
-        let closest_on = if avoid_contact.is_some() {
-            closest_via_contacts
-                .iter()
-                .find(|(_, contact)| (*contact).id() != &avoid_contact.unwrap())
-                .map(|(_, contact)| (*contact).clone())
-        } else {
-            closest_via_contacts
-                .first()
-                .map(|(_, contact)| (*contact).clone())
-        };
+        // in case the previous FindNodeReq failed, we try to avoid that contact,
+        // unless it is the only one
+        let closest_on = closest_via_contacts
+            .iter()
+            .find(|(_, contact)| Some(*contact.id()) != avoid_contact)
+            .or(closest_via_contacts.first())
+            .map(|(_, contact)| (*contact).clone());
 
         // No one found -> overlay-wise isolated, but underlay neighbors are present
         // this should never happen as the underlay neighbor are then the closest overlay neighbors
@@ -284,6 +297,8 @@ where
                 *context.routing_table(),
                 *context.uln_table()
             );
+            // no request is pending
+            current_timer_context.last_msg_state = None;
             return Ok(());
         }
         let contact = closest_on.unwrap();
@@ -299,6 +314,8 @@ where
                 target: "overlay_neighborhood_discovery",
                 "Contact is valid but its path goes through an invalid neighbor. Contact: {contact}, neighbor: {neighbor}"
             );
+            // no request is pending
+            current_timer_context.last_msg_state = None;
             return Ok(());
         }
 
@@ -330,13 +347,6 @@ where
             .runtime()
             .send_message(request, context.uln_table().deref(), context.root_id());
 
-        log::trace!(
-            target: "overlay_neighborhood_discovery",
-            "Timer next duration: {next_duration:?}"
-        );
-
-        // Start next backoff timer
-        current_timer_context.timer_id = Some(context.runtime().register_timer(next_duration));
         current_timer_context.last_msg_state = Some((new_nonce, contact_via_id));
 
         Ok(())
@@ -347,22 +357,20 @@ where
         &mut self,
         context: &C,
     ) -> Result<(), <Self as EventHandler>::Error> {
-        let current_timer_context = if let ONDState::Running { timer_contexts } = &mut self.state {
-            &mut timer_contexts[TimerType::RandomExploration as usize]
-        } else {
-            panic!("Called send_next_request_to_random_id in non-running state!");
-        };
-
         // No need for randomized exploration if currently isolated
         if context.uln_table().is_empty() {
             log::warn!(target: "overlay_neighborhood_discovery",
                        "No underlay neighbors present; Node is isolated"
             );
-            // change to error state
-            // the use case will change to running again if not isolated anymore
-            self.state = ONDState::Isolated;
+            self.become_isolated(context);
             return Ok(());
         }
+
+        let current_timer_context = if let ONDState::Running { timer_contexts } = &mut self.state {
+            &mut timer_contexts[TimerType::RandomExploration as usize]
+        } else {
+            panic!("Called send_next_request_to_random_id in non-running state!");
+        };
 
         let new_nonce = Nonce::random();
         let random_id = NodeId::random();
@@ -603,5 +611,168 @@ where
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        Output,
+        context::{
+            ContextConfig,
+            SyncContext,
+        },
+        domain::{
+            ConnectionId,
+            Contact,
+            InterfaceId,
+            Path,
+            SafeStateSeqNr,
+            routing_table::SingleBucketRT,
+            underlay_neighbor_table::InMemoryULNTable,
+            vicinity::vicinity_graph::PetVicinityGraph,
+        },
+        runtime::testing::TestingUseCaseRuntime,
+    };
+
+    const BUCKET_SIZE: usize = 20;
+    type Ctx = SyncContext<
+        SingleBucketRT<BUCKET_SIZE>,
+        TestingUseCaseRuntime,
+        (),
+        InMemoryULNTable,
+        PetVicinityGraph,
+    >;
+    type OND = OverlayNeighborhoodDiscovery<Ctx, BUCKET_SIZE>;
+
+    fn root() -> NodeId {
+        NodeId::with_msb(1)
+    }
+    /// the only underlay neighbor
+    fn n() -> NodeId {
+        NodeId::with_msb(2)
+    }
+
+    /// Leaf node with [n] as underlay neighbor, which isn't a contact yet.
+    fn setup() -> (OND, Ctx) {
+        crate::tests::init();
+        let ctx = Ctx::new(ContextConfig {
+            root_id: root(),
+            routing_table: SingleBucketRT::<BUCKET_SIZE>::new(root()),
+            runtime: TestingUseCaseRuntime::with_unique_timer_ids(),
+            insertion_strategy: (),
+            uln_table: InMemoryULNTable::new(),
+            vicinity_graph: PetVicinityGraph::new(root()),
+        });
+        ctx.uln_table_mut().insert(
+            n(),
+            UnderlayNeighborId {
+                interface_id: InterfaceId::try_from(1).unwrap(),
+                connection_id: ConnectionId(1),
+            },
+        );
+        let mut ond = OND::new(ONDConfig::default()).unwrap();
+        ond.start(&ctx).unwrap();
+        (ond, ctx)
+    }
+
+    fn add_contact_n(ctx: &Ctx) {
+        let mut path = Path::try_from(&[n()][..]).unwrap();
+        path.set_valid();
+        ctx.routing_table_mut()
+            .add(Contact::new(path, SafeStateSeqNr::try_from(1).unwrap()))
+            .unwrap();
+    }
+
+    fn join_timer(ond: &OND) -> Option<TimerId> {
+        let ONDState::Running { timer_contexts } = &ond.state else {
+            panic!("not running");
+        };
+        timer_contexts[TimerType::PeriodicJoin as usize].timer_id
+    }
+
+    /// Fires the join timer and returns the destinations of the sent joins.
+    fn fire_join(ond: &mut OND, ctx: &Ctx) -> Vec<NodeId> {
+        let timer = join_timer(ond).expect("join timer armed");
+        ond.handle_event(ctx, UseCaseEvent::Timer(timer)).unwrap();
+        ctx.runtime()
+            .output()
+            .filter_map(|output| match output {
+                Output::SendProtocolMessage(ProtocolMessage::FindNodeReq(req), _) => {
+                    Some(*req.source_route.current_hop())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn join_continues_after_round_without_contact() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut ond, ctx) = setup();
+
+        // n is only a tentative neighbor yet: no contact to send the join to
+        let first = join_timer(&ond);
+        assert!(fire_join(&mut ond, &ctx).is_empty());
+        assert_ne!(join_timer(&ond), first, "next join is armed");
+
+        add_contact_n(&ctx);
+        assert_eq!(fire_join(&mut ond, &ctx), vec![n()]);
+    }
+
+    #[test]
+    fn join_is_retried_via_the_only_contact_without_reply() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut ond, ctx) = setup();
+        add_contact_n(&ctx);
+
+        assert_eq!(fire_join(&mut ond, &ctx), vec![n()]);
+        // no reply in time: n is avoided, but it is the only contact
+        assert_eq!(fire_join(&mut ond, &ctx), vec![n()]);
+        assert_eq!(fire_join(&mut ond, &ctx), vec![n()]);
+    }
+
+    fn timer_ids(ond: &OND) -> Vec<TimerId> {
+        let ONDState::Running { timer_contexts } = &ond.state else {
+            panic!("not running");
+        };
+        timer_contexts.iter().filter_map(|tc| tc.timer_id).collect()
+    }
+
+    #[test]
+    fn isolation_removes_timers_and_restart_registers_new_ones() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut ond, ctx) = setup();
+        let timers = timer_ids(&ond);
+        assert_eq!(timers.len(), 2, "join and exploration timer");
+
+        // the only underlay neighbor is lost, the exploration timer notices it
+        ctx.uln_table_mut().remove(&n());
+        let ONDState::Running { timer_contexts } = &ond.state else {
+            unreachable!()
+        };
+        let exploration = timer_contexts[TimerType::RandomExploration as usize]
+            .timer_id
+            .unwrap();
+        ond.handle_event(&ctx, UseCaseEvent::Timer(exploration))
+            .unwrap();
+        assert!(matches!(ond.state, ONDState::Isolated));
+        let removed = ctx.runtime().removed_timers();
+        assert!(timers.iter().all(|timer| removed.contains(timer)));
+
+        // the neighbor is back
+        ctx.uln_table_mut().insert(
+            n(),
+            UnderlayNeighborId {
+                interface_id: InterfaceId::try_from(1).unwrap(),
+                connection_id: ConnectionId(1),
+            },
+        );
+        ond.handle_event(&ctx, UseCaseEvent::Vicinity(VicinityEvent::Changed))
+            .unwrap();
+        let restarted = timer_ids(&ond);
+        assert_eq!(restarted.len(), 2);
+        assert!(restarted.iter().all(|timer| !timers.contains(timer)));
     }
 }

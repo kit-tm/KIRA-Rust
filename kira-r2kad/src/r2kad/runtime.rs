@@ -209,6 +209,8 @@ impl UseCaseRuntime for R2KadRuntime {
             .write()
             .unwrap()
             .retain(|timer| timer.id != timer_id);
+        // a periodic timer must not be registered again
+        self.periodic_timers.write().unwrap().remove(&timer_id);
     }
 
     fn register_periodic_timer(&self, duration: Duration) -> TimerId {
@@ -336,6 +338,24 @@ mod test {
         );
         runtime.set_current_time(now + duration);
         assert_eq!(runtime.next_timer(), Some(id), "timer should fire on due");
+    }
+
+    #[test]
+    fn removed_periodic_timer_does_not_fire_again() {
+        let runtime = R2KadRuntime::new();
+        let now = Instant::now();
+        runtime.set_current_time(now);
+        let period = Duration::from_millis(400);
+        let id = runtime.register_periodic_timer(period);
+
+        runtime.set_current_time(now + period);
+        assert_eq!(runtime.next_timer(), Some(id), "periodic timer fires");
+        // removed while its event is handled, after it was registered again
+        runtime.remove_timer(id);
+
+        runtime.set_current_time(now + 3 * period);
+        assert_eq!(runtime.next_timer(), None);
+        assert!(runtime.periodic_timers.read().unwrap().is_empty());
     }
 
     // TODO: more unit tests
