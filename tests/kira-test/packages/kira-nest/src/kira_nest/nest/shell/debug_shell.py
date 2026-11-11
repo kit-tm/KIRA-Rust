@@ -615,8 +615,8 @@ class DebugShell[T](Cmd):
                     print(f"{src:>3} --> {dst:>3} ...", end="\r")
                 success = self.test.traceroute(src, dst, verbose=args.verbose)
                 end = "\r" if args.failed and success else "\n"
-                success = "✓   " if success else "✗   "
-                print(f"{src:>3} --> {dst:>3} {success}", end=end, flush=True)
+                mark = "✓   " if success else "✗   "
+                print(f"{src:>3} --> {dst:>3} {mark}", end=end, flush=True)
 
                 # only show unsuccessful traceroutes
                 if not success and not args.verbose:

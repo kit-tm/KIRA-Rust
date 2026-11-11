@@ -62,8 +62,17 @@ pub struct PathProbingConfig {
     ///
     /// Default is **40s** because underlay advertising is about 30s.
     pub probe_age: Duration,
-    /// Maximum duration a [ProbeReq](crate::domain::ProtocolMessage::ProbeReq) is allowed to take.
+    /// Maximum duration a [ProbeReq](crate::domain::ProtocolMessage::ProbeReq) is allowed to take
+    /// if the probed path has no measured SRTT.
+    ///
+    /// Default is **250ms**, which covers the largest round-trip times in the Internet.
     pub request_timeout: Duration,
+    /// The timeout of a [ProbeReq](crate::domain::ProtocolMessage::ProbeReq) over a path
+    /// with a measured SRTT is this multiple of the SRTT.
+    pub srtt_timeout_factor: u32,
+    /// Lower bound of the timeout derived from the SRTT, so that small processing delays
+    /// don't cause spurious timeouts.
+    pub min_request_timeout: Duration,
     /// When scheduled probe requests will start after their initial schedule
     pub scheduled_probe_delay: Duration,
 }
@@ -73,7 +82,9 @@ impl Default for PathProbingConfig {
         Self {
             check_interval: Duration::from_secs(1),
             probe_age: Duration::from_secs(40),
-            request_timeout: Duration::from_secs(10),
+            request_timeout: Duration::from_millis(250),
+            srtt_timeout_factor: 2,
+            min_request_timeout: Duration::from_millis(50),
             scheduled_probe_delay: Duration::from_millis(250),
         }
     }
@@ -216,7 +227,16 @@ where
         log::trace!(target: "path_probing", "Sent probe {} to {} for path {:?}", nonce, path_to_probe.last(), path_to_probe);
     }
 
+    /// Returns the timeout of a ProbeReq over the path, derived from its SRTT if measured.
+    fn request_timeout(&self, path: &Path) -> Duration {
+        match path.srtt() {
+            Some(srtt) => (srtt * self.config.srtt_timeout_factor).max(self.config.min_request_timeout),
+            None => self.config.request_timeout,
+        }
+    }
+
     fn send_probe_req(&mut self, context: &C, contact: &Contact) {
+        let timeout = self.request_timeout(contact.path().unwrap());
         let (probe_timers, requests_in_flight) = match &mut self.state {
             PathProbingState::Running {
                 probe_timers,
@@ -250,9 +270,7 @@ where
             .runtime()
             .send_message(message, context.uln_table().deref(), context.root_id());
 
-        let timeout_timer = context
-            .runtime()
-            .register_timer(self.config.request_timeout);
+        let timeout_timer = context.runtime().register_timer(timeout);
         probe_timers.insert(timeout_timer, nonce);
         requests_in_flight.insert(
             nonce,
@@ -465,16 +483,20 @@ where
         }
     }
 
-    // this function removes single shot probe requests from the inflight_requests that are older than config.request_timeout
+    // this function removes single shot probe requests from the inflight_requests that are older than config.request_timeout,
+    // requests with a timeout timer are removed when it fires
     fn garbage_collect_requests(&mut self, context: &C) {
         if let PathProbingState::Running {
-            requests_in_flight, ..
+            requests_in_flight,
+            probe_timers,
+            ..
         } = &mut self.state
         {
             let now = context.runtime().current_time();
             let old_size = requests_in_flight.len();
-            requests_in_flight.retain(|_, v| {
-                now.saturating_duration_since(v.2.into()) <= self.config.request_timeout
+            requests_in_flight.retain(|nonce, v| {
+                probe_timers.values().any(|timed| timed == nonce)
+                    || now.saturating_duration_since(v.2.into()) <= self.config.request_timeout
             });
             if requests_in_flight.len() < old_size {
                 log::trace!(target: "path_probing", "Garbage collect: removed {} orphaned requests", old_size-requests_in_flight.len());
@@ -1038,6 +1060,78 @@ mod tests {
         assert!(
             srtt.is_some_and(|srtt| srtt >= Duration::from_millis(20)),
             "measured {srtt:?}"
+        );
+    }
+
+    /// Sends a ProbeReq over the active path of [c] with the given SRTT
+    /// and returns the duration of the timeout timer.
+    fn probe_timeout_with_srtt(srtt: Option<Duration>) -> Duration {
+        let (mut pp, ctx) = setup(true);
+        if let Some(srtt) = srtt {
+            ctx.routing_table_mut()
+                .contact_mut(&c())
+                .unwrap()
+                .path_mut()
+                .unwrap()
+                .record_rtt(srtt);
+        }
+        let contact = ctx.routing_table().contact(&c()).unwrap().clone();
+        pp.send_probe_req(&ctx, &contact);
+        ctx.runtime().registered_timers().last().unwrap().1
+    }
+
+    #[test]
+    fn probe_timeout_without_srtt_is_fixed() {
+        let _clock = crate::tests::TestClock::new();
+        assert_eq!(probe_timeout_with_srtt(None), Duration::from_millis(250));
+    }
+
+    #[test]
+    fn probe_timeout_is_derived_from_srtt() {
+        let _clock = crate::tests::TestClock::new();
+        assert_eq!(
+            probe_timeout_with_srtt(Some(Duration::from_millis(40))),
+            Duration::from_millis(80)
+        );
+        assert_eq!(
+            probe_timeout_with_srtt(Some(Duration::from_millis(400))),
+            Duration::from_millis(800),
+            "may exceed the fixed timeout"
+        );
+        assert_eq!(
+            probe_timeout_with_srtt(Some(Duration::from_millis(5))),
+            Duration::from_millis(50),
+            "lower bound"
+        );
+    }
+
+    #[test]
+    fn garbage_collection_keeps_probe_until_its_timeout() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup(true);
+        {
+            let mut rt = ctx.routing_table_mut();
+            let mut contact = rt.contact_mut(&c()).unwrap();
+            let path = contact.path_mut().unwrap();
+            // active paths are validated in practice
+            path.set_valid();
+            path.record_rtt(Duration::from_millis(400));
+        }
+        clock.advance(Duration::from_millis(1));
+        let contact = ctx.routing_table().contact(&c()).unwrap().clone();
+        pp.send_probe_req(&ctx, &contact);
+        let timer = ctx.runtime().registered_timers().last().unwrap().0;
+
+        // collected after the fixed timeout, but before the derived timeout of 800ms
+        clock.advance(Duration::from_millis(500));
+        ctx.runtime().set_current_time(clock.now());
+        pp.garbage_collect_requests(&ctx);
+        clock.advance(Duration::from_millis(300));
+        pp.handle_event(&ctx, UseCaseEvent::Timer(timer)).unwrap();
+
+        assert!(
+            ctx.routing_table().contact(&c()).unwrap().is_invalid(),
+            "timeout invalidates the contact"
         );
     }
 
