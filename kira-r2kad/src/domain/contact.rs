@@ -373,6 +373,14 @@ impl Contact {
                     self.path_collection.set_proposed_to_active();
                 } else {
                     self.path_collection.set_active_path(path_candidate.clone());
+                    // a proposed path is only worth probing if it improves the new active path
+                    if self
+                        .path_collection
+                        .proposed_path()
+                        .is_some_and(|proposed| !proposed.is_better_than(path_candidate))
+                    {
+                        self.path_collection.clear_proposed_path();
+                    }
                 }
                 self.state = ContactState::Valid;
                 return true;
@@ -737,6 +745,49 @@ mod tests {
 
         assert!(!contact.assess_path_candidate_and_update(&longer));
         assert!(contact.proposed_path().is_none());
+    }
+
+    /// Invalid contact to node 5 with the given proposed path.
+    fn invalid_contact_with_proposed(proposed: &[u128]) -> Contact {
+        let ids = |nodes: &[u128]| nodes.iter().map(|n| NodeId::from(*n)).collect::<Vec<_>>();
+        let mut contact = contact_with_path(&ids(&[1, 2, 3, 4, 5]), 1);
+        contact.set_invalid(notvia_state_list(Link::new(
+            NodeId::from(1),
+            NodeId::from(2),
+        )));
+        contact
+            .path_collection
+            .set_proposed_path(Path::try_from(&ids(proposed)[..]).unwrap());
+        contact
+    }
+
+    fn validated(nodes: &[u128]) -> Path {
+        let ids = nodes.iter().map(|n| NodeId::from(*n)).collect::<Vec<_>>();
+        let mut path = Path::try_from(&ids[..]).unwrap();
+        path.set_valid();
+        path
+    }
+
+    #[test]
+    fn proposed_path_not_better_than_new_active_path_is_dropped() {
+        let _clock = crate::tests::TestClock::new();
+        let mut contact = invalid_contact_with_proposed(&[6, 7, 5]);
+
+        assert!(contact.assess_path_candidate_and_update(&validated(&[8, 5])));
+
+        assert!(contact.path().unwrap().is_same_path_as(&validated(&[8, 5])));
+        assert!(contact.proposed_path().is_none());
+    }
+
+    #[test]
+    fn proposed_path_better_than_new_active_path_is_kept() {
+        let _clock = crate::tests::TestClock::new();
+        let mut contact = invalid_contact_with_proposed(&[6, 5]);
+
+        assert!(contact.assess_path_candidate_and_update(&validated(&[8, 9, 5])));
+
+        assert!(contact.path().unwrap().is_same_path_as(&validated(&[8, 9, 5])));
+        assert_eq!(contact.proposed_path().unwrap().size(), 2, "still worth probing");
     }
 
     #[test]

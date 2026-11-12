@@ -181,13 +181,15 @@ where
     }
 
     // sends out a single ProbeReq for the given path
-    // this is a one shot message, so no timer for repetition is started
-    // and garbage collection will remove any unsatisfied request nonces
+    // this is a one shot message without repetition, its timeout timer handles a lost probe
     fn send_single_probe_req_for_path(&mut self, context: &C, path_to_probe: &Path) {
-        let requests_in_flight = match &mut self.state {
+        let timeout = self.request_timeout(path_to_probe);
+        let (probe_timers, requests_in_flight) = match &mut self.state {
             PathProbingState::Running {
-                requests_in_flight, ..
-            } => requests_in_flight,
+                probe_timers,
+                requests_in_flight,
+                ..
+            } => (probe_timers, requests_in_flight),
             _ => panic!("Called sending probe outside of running state"),
         };
 
@@ -215,6 +217,8 @@ where
             .runtime()
             .send_message(message, context.uln_table().deref(), context.root_id());
 
+        let timeout_timer = context.runtime().register_timer(timeout);
+        probe_timers.insert(timeout_timer, nonce);
         requests_in_flight.insert(
             nonce,
             (
@@ -322,11 +326,21 @@ where
                     // invalidate current path but only if it has not been updated meanwhile
                     if let Some(current_path) = contact.path()
                         && current_path.is_same_path_as(&probed_path)
-                        && let Some(last_validated) = current_path.get_last_validated()
-                        && *last_validated < ts_probe_sent
                     {
-                        contact.set_invalid(NotViaStateList::default());
-                        log::trace!(target: "path_probing", "Invalidated contact due to timeout [path: {:?}]", contact.path());
+                        if let Some(last_validated) = current_path.get_last_validated()
+                            && *last_validated < ts_probe_sent
+                        {
+                            contact.set_invalid(NotViaStateList::default());
+                            log::trace!(target: "path_probing", "Invalidated contact due to timeout [path: {:?}]", contact.path());
+                        }
+                    } else if let Some(proposed_path) = contact.proposed_path()
+                        && proposed_path.is_same_path_as(&probed_path)
+                        && !proposed_path.is_valid()
+                    {
+                        // a proposed path that couldn't be validated in time is dropped,
+                        // so that the next candidate is proposed and probed
+                        contact.clear_proposed_path();
+                        log::trace!(target: "path_probing", "Removed proposed path of {} due to timeout [path: {probed_path:?}]", contact.id());
                     }
                 }
                 None => {
@@ -1111,7 +1125,7 @@ mod tests {
         let (mut pp, ctx) = setup(true);
         {
             let mut rt = ctx.routing_table_mut();
-            let mut contact = rt.contact_mut(&c()).unwrap();
+            let contact = rt.contact_mut(&c()).unwrap();
             let path = contact.path_mut().unwrap();
             // active paths are validated in practice
             path.set_valid();
@@ -1133,6 +1147,50 @@ mod tests {
             ctx.routing_table().contact(&c()).unwrap().is_invalid(),
             "timeout invalidates the contact"
         );
+    }
+
+    /// The timer and duration of the last registered timeout
+    fn last_timer(ctx: &Ctx) -> (TimerId, Duration) {
+        *ctx.runtime().registered_timers().last().unwrap()
+    }
+
+    #[test]
+    fn lost_probe_of_proposed_path_removes_it() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup(false);
+        propose_shorter_path(&mut pp, &ctx);
+        assert_eq!(sent_probe_reqs(&ctx).len(), 1);
+        let (timer, timeout) = last_timer(&ctx);
+        assert_eq!(timeout, Duration::from_millis(250), "no SRTT of a proposed path");
+
+        // neither a ProbeRsp nor an error came back
+        pp.handle_event(&ctx, UseCaseEvent::Timer(timer)).unwrap();
+
+        let contact = ctx.routing_table().contact(&c()).unwrap().clone();
+        assert!(contact.proposed_path().is_none(), "next candidate can be proposed");
+        assert!(contact.is_invalid(), "active path is not affected");
+    }
+
+    #[test]
+    fn timeout_keeps_proposed_path_that_was_replaced() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup(false);
+        propose_shorter_path(&mut pp, &ctx);
+        let (timer, _) = last_timer(&ctx);
+        // a better candidate replaced the probed one, it is probed on its own
+        let mut better = path(&[a(), c()]);
+        better.set_notvalidated();
+        assert!(
+            ctx.routing_table_mut()
+                .contact_mut(&c())
+                .unwrap()
+                .assess_path_candidate_and_update(&better)
+        );
+
+        pp.handle_event(&ctx, UseCaseEvent::Timer(timer)).unwrap();
+
+        let contact = ctx.routing_table().contact(&c()).unwrap().clone();
+        assert!(contact.proposed_path().unwrap().is_same_path_as(&better));
     }
 
     #[test]
