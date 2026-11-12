@@ -13,6 +13,7 @@ use kira_forwarding::{
     netlink::{
         NETLINK_NETFILTER,
         new_connection,
+        remove_forwarding_state,
     },
     tables::native_tables::NativeFwdTables,
 };
@@ -289,6 +290,8 @@ async fn main() {
         .spawn(connection_nfnetlink)
         .unwrap();
 
+    // kept to remove the forwarding state on shutdown
+    let cleanup_handles = (handle_rtnetlink.clone(), handle_nfnetlink.clone());
     let (fwd_tables, attach_ips) = NativeFwdTables::new(
         root_id,
         ip_prefixes,
@@ -323,7 +326,7 @@ async fn main() {
         .build();
 
     let kira = Kira::with_components(r2kad, fwd_tables, underlay_updates2, pm_receiver, pm_sender);
-    let kira = tokio::task::Builder::new()
+    let mut kira = tokio::task::Builder::new()
         .name("KIRA main loop")
         .spawn(kira.start())
         .unwrap();
@@ -355,5 +358,13 @@ async fn main() {
     // we only await KIRA and not other tasks spawned
     // since KIRA should "finish" if task was crucial for its operation
     //   e. g.: API endpoint failure is not crucial for KIRA operation
-    tokio::select! { _ = kira => {}, _ = signal => {}}
+    tokio::select! { _ = &mut kira => {}, _ = signal => {}}
+    // no more forwarding updates during the cleanup
+    kira.abort();
+
+    // leave no stale forwarding state behind
+    let (handle_rtnetlink, handle_nfnetlink) = cleanup_handles;
+    if let Err(e) = remove_forwarding_state(&handle_rtnetlink, &handle_nfnetlink, &ip_prefixes).await {
+        log::error!("Removing the forwarding state failed: {e}");
+    }
 }

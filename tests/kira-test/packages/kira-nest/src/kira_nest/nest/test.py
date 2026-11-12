@@ -130,9 +130,12 @@ class KIRATest[T]:  # T = topology id type, usually int or str
             self.processes.append(kira_process)
             self._daemons[tid] = (args, wrapper)
 
-    def stop_daemon(self, node: KIRANode) -> bool:
-        """Stops kirad of the node. Returns if it is not running anymore."""
-        return node.stop_kirad()
+    def stop_daemon(self, node: KIRANode, kill: bool = False) -> bool:
+        """Stops kirad of the node, with `kill` like on a crash.
+
+        Returns if it is not running anymore.
+        """
+        return node.stop_kirad(kill=kill)
 
     def start_daemon(self, node: KIRANode, timeout: float = 10.0) -> bool:
         """Starts kirad of the node again with the same NodeID and arguments.
@@ -141,7 +144,6 @@ class KIRATest[T]:  # T = topology id type, usually int or str
         """
         tid = self.topology.tid(node)
         args, wrapper = self._daemons[tid]
-        node.clean_up_after_kirad()
         kira_process = node.start(self.kirad_binary, *args, wrapper=wrapper, append=True)
         self.processes.append(kira_process)
         deadline = time.monotonic() + timeout

@@ -222,12 +222,14 @@ class KIRANode(Node):
                 pids.append(int(pid))
         return pids
 
-    def stop_kirad(self, timeout: float = 5.0) -> bool:
+    def stop_kirad(self, timeout: float = 5.0, kill: bool = False) -> bool:
         """Stops kirad of the node, killing it if it doesn't terminate within `timeout`.
 
+        With `kill`, kirad is killed right away like on a crash, so it can't clean up.
         Returns if kirad is not running anymore.
         """
-        for sig in (signal.SIGTERM, signal.SIGKILL):
+        signals = (signal.SIGKILL,) if kill else (signal.SIGTERM, signal.SIGKILL)
+        for sig in signals:
             for pid in self.kirad_pids():
                 try:
                     os.kill(pid, sig)
@@ -240,21 +242,6 @@ class KIRANode(Node):
                 time.sleep(0.1)
             logger.warning(f"kirad of {self} did not stop on {sig.name}")
         return not self.kirad_pids()
-
-    def clean_up_after_kirad(self) -> None:
-        """Removes the forwarding state a stopped kirad left behind, like a reboot would.
-
-        kirad doesn't clean up when it stops, so a new kirad would fail to create its
-        `kira` interface. The interface addresses set up by the test are kept.
-        """
-        prefixes = get_ip_prefixes()
-        for cmd in (
-            "ip link del kira",  # also removes the routes via the interface
-            "nft delete table ip6 kira",
-            f"ip -6 route flush root {prefixes.node_ip}",
-            f"ip -6 route flush root {prefixes.path_ip}",
-        ):
-            self.exec(cmd, logfile=PIPE).communicate()
 
     def is_up(self) -> bool:
         path = "node-id"

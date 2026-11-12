@@ -732,7 +732,9 @@ class DebugShell[T](Cmd):
         args.mode = True
         self.do_link(args)
 
-    def _daemon_parser(self, description: str) -> argparse.ArgumentParser:
+    def _daemon_parser(
+        self, description: str, kill: bool = False
+    ) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(description=description)
         parser.add_argument(
             "node",
@@ -740,15 +742,22 @@ class DebugShell[T](Cmd):
             node_view=self.test.topology.nodes,
             help="identifier of the node (name, NodeId, topology id)",
         )
+        if kill:
+            parser.add_argument(
+                "-k",
+                "--kill",
+                action="store_true",
+                help="kill kirad right away like on a crash, so it can't clean up",
+            )
         return parser
 
     @property
     def _stop_parser(self) -> argparse.ArgumentParser:
-        return self._daemon_parser("Stops kirad of the node (links stay up).")
+        return self._daemon_parser("Stops kirad of the node (links stay up).", kill=True)
 
     @with_argparser("_stop_parser")
     def do_stop(self, args: argparse.Namespace) -> None:
-        if not self.test.stop_daemon(args.node):
+        if not self.test.stop_daemon(args.node, kill=args.kill):
             print(f"{args.node} : ERR kirad did not stop")
             self._cmd_failed()
         elif not self.quiet:
@@ -774,12 +783,13 @@ class DebugShell[T](Cmd):
     @property
     def _restart_parser(self) -> argparse.ArgumentParser:
         return self._daemon_parser(
-            "Restarts kirad of the node with the same NodeID (its state is lost)."
+            "Restarts kirad of the node with the same NodeID (its state is lost).",
+            kill=True,
         )
 
     @with_argparser("_restart_parser")
     def do_restart(self, args: argparse.Namespace) -> None:
-        if not self.test.stop_daemon(args.node):
+        if not self.test.stop_daemon(args.node, kill=args.kill):
             print(f"{args.node} : ERR kirad did not stop")
             self._cmd_failed()
         elif not self.test.start_daemon(args.node):
