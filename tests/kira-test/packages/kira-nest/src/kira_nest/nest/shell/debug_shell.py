@@ -732,6 +732,62 @@ class DebugShell[T](Cmd):
         args.mode = True
         self.do_link(args)
 
+    def _daemon_parser(self, description: str) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(description=description)
+        parser.add_argument(
+            "node",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+            help="identifier of the node (name, NodeId, topology id)",
+        )
+        return parser
+
+    @property
+    def _stop_parser(self) -> argparse.ArgumentParser:
+        return self._daemon_parser("Stops kirad of the node (links stay up).")
+
+    @with_argparser("_stop_parser")
+    def do_stop(self, args: argparse.Namespace) -> None:
+        if not self.test.stop_daemon(args.node):
+            print(f"{args.node} : ERR kirad did not stop")
+            self._cmd_failed()
+        elif not self.quiet:
+            print(f"{args.node} : kirad stopped")
+
+    @property
+    def _start_parser(self) -> argparse.ArgumentParser:
+        return self._daemon_parser(
+            "Starts kirad of the node again with the same NodeID (e.g., after stop)."
+        )
+
+    @with_argparser("_start_parser")
+    def do_start(self, args: argparse.Namespace) -> None:
+        if args.node.kirad_pids():
+            print(f"{args.node} : ERR kirad is already running")
+            self._cmd_failed()
+        elif not self.test.start_daemon(args.node):
+            print(f"{args.node} : ERR kirad did not come up")
+            self._cmd_failed()
+        elif not self.quiet:
+            print(f"{args.node} : kirad started")
+
+    @property
+    def _restart_parser(self) -> argparse.ArgumentParser:
+        return self._daemon_parser(
+            "Restarts kirad of the node with the same NodeID (its state is lost)."
+        )
+
+    @with_argparser("_restart_parser")
+    def do_restart(self, args: argparse.Namespace) -> None:
+        if not self.test.stop_daemon(args.node):
+            print(f"{args.node} : ERR kirad did not stop")
+            self._cmd_failed()
+        elif not self.test.start_daemon(args.node):
+            print(f"{args.node} : ERR kirad did not come up")
+            self._cmd_failed()
+        elif not self.quiet:
+            print(f"{args.node} : kirad restarted")
+
     @property
     def _links_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(

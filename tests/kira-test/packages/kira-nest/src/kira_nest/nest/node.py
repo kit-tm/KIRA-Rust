@@ -7,7 +7,9 @@ import os
 import pathlib
 import re
 import shutil
+import signal
 import sys
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from functools import cache, cached_property, singledispatchmethod
@@ -178,7 +180,12 @@ class KIRANode(Node):
         binary: pathlib.Path,
         *args: str,
         wrapper: str | None = None,
+        append: bool = False,
     ) -> Popen:
+        """Starts kirad in the node's namespace.
+
+        With `append`, the log file is continued (e.g., on a restart) instead of truncated.
+        """
         env_vars = os.environ.copy()
         env_vars["RUST_LOG_STYLE"] = "never"
         env_vars["NO_COLOR"] = "1"
@@ -187,14 +194,67 @@ class KIRANode(Node):
 
         arg: str = " ".join(args)
         with (
-            open(self.logfile, "w") as f,
+            open(self.logfile, "a" if append else "w") as f,
         ):
+            if append:
+                f.write(f"\n===== kirad of {self} restarted =====\n\n")
+                f.flush()
             wrapper = f"{wrapper} -- " if wrapper else ""
             return self.exec(
                 f"{wrapper}'{binary}' --root-id '{self.config.node_id}' {arg} && exit",
                 logfile=f,
                 env_vars=env_vars,
             )
+
+    def kirad_pids(self) -> list[int]:
+        """Returns the process ids of kirad in the node's namespace."""
+        p = Popen(["ip", "netns", "pids", self.id], stdout=PIPE)
+        stdout, _ = p.communicate()
+        if p.returncode != 0:
+            return []
+        pids = []
+        for pid in stdout.decode().split():
+            try:
+                comm = pathlib.Path(f"/proc/{pid}/comm").read_text().strip()
+            except OSError:
+                continue  # already terminated
+            if comm == "kirad":
+                pids.append(int(pid))
+        return pids
+
+    def stop_kirad(self, timeout: float = 5.0) -> bool:
+        """Stops kirad of the node, killing it if it doesn't terminate within `timeout`.
+
+        Returns if kirad is not running anymore.
+        """
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            for pid in self.kirad_pids():
+                try:
+                    os.kill(pid, sig)
+                except ProcessLookupError:
+                    pass
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                if not self.kirad_pids():
+                    return True
+                time.sleep(0.1)
+            logger.warning(f"kirad of {self} did not stop on {sig.name}")
+        return not self.kirad_pids()
+
+    def clean_up_after_kirad(self) -> None:
+        """Removes the forwarding state a stopped kirad left behind, like a reboot would.
+
+        kirad doesn't clean up when it stops, so a new kirad would fail to create its
+        `kira` interface. The interface addresses set up by the test are kept.
+        """
+        prefixes = get_ip_prefixes()
+        for cmd in (
+            "ip link del kira",  # also removes the routes via the interface
+            "nft delete table ip6 kira",
+            f"ip -6 route flush root {prefixes.node_ip}",
+            f"ip -6 route flush root {prefixes.path_ip}",
+        ):
+            self.exec(cmd, logfile=PIPE).communicate()
 
     def is_up(self) -> bool:
         path = "node-id"

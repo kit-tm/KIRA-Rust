@@ -1,6 +1,7 @@
 import logging
 import os
 import pathlib
+import time
 from functools import cached_property
 from ipaddress import IPv4Network
 from subprocess import Popen
@@ -49,6 +50,8 @@ class KIRATest[T]:  # T = topology id type, usually int or str
     """
 
     processes = []
+    # arguments and wrapper of each node's kirad to start it again
+    _daemons: dict = {}
 
     def __init__(
         self,
@@ -76,6 +79,8 @@ class KIRATest[T]:  # T = topology id type, usually int or str
         else:
             self.topology = KIRATopology(config)
 
+        self.kirad_binary = kirad_binary
+        self._daemons = {}
         self._otel_ips = iter(self._otel_ip.hosts())
         next(self._otel_ips)  # skip IP for host
 
@@ -123,6 +128,28 @@ class KIRATest[T]:  # T = topology id type, usually int or str
                 wrapper = None
             kira_process = node.start(kirad_binary, *args, wrapper=wrapper)
             self.processes.append(kira_process)
+            self._daemons[tid] = (args, wrapper)
+
+    def stop_daemon(self, node: KIRANode) -> bool:
+        """Stops kirad of the node. Returns if it is not running anymore."""
+        return node.stop_kirad()
+
+    def start_daemon(self, node: KIRANode, timeout: float = 10.0) -> bool:
+        """Starts kirad of the node again with the same NodeID and arguments.
+
+        Returns if its API is up within `timeout`.
+        """
+        tid = self.topology.tid(node)
+        args, wrapper = self._daemons[tid]
+        node.clean_up_after_kirad()
+        kira_process = node.start(self.kirad_binary, *args, wrapper=wrapper, append=True)
+        self.processes.append(kira_process)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if node.is_up():
+                return True
+            time.sleep(0.1)
+        return False
 
     def setup_otel(self, node: KIRANode) -> None:
         if node.is_up():
