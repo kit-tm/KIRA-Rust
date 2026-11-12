@@ -273,12 +273,8 @@ mod tests {
 
     #[test]
     fn binrw_round_trip_special_state_seq_nrs() {
-        // INVALID_SSN (0) and RESET_SSN (u32::MAX) must survive the wire
-        for ssn in [
-            StateSeqNr::Invalid,
-            StateSeqNr::Reset,
-            StateSeqNr::from(42u32),
-        ] {
+        // INVALID_SSN (0) must survive the wire
+        for ssn in [StateSeqNr::Invalid, StateSeqNr::from(42u32)] {
             let original = header(ssn, 1);
 
             let mut buffer = Cursor::new(Vec::new());

@@ -88,12 +88,9 @@ impl ULNTable for InMemoryULNTable {
                     // update to bidirectional and increase the sequence number
                     (existing_ulnid, ULNState::Tentative) if *existing_ulnid == ulnid => {
                         entry.insert((ulnid, ULNState::Bidirectional));
-                        if let Some(new_ssn) = (self.state_seq_nr + 1).value() {
-                            self.state_seq_nr = new_ssn;
-                            true
-                        } else {
-                            todo!("implement reset of SafeStateSeqNr");
-                        }
+                        // wraps around, other nodes handle the lower number like a restart
+                        self.state_seq_nr = self.state_seq_nr + 1;
+                        true
                     }
                     _ => {
                         panic!(
@@ -132,11 +129,8 @@ impl ULNTable for InMemoryULNTable {
         if let Some((_, uln_state)) = result
             && matches!(uln_state, ULNState::Bidirectional)
         {
-            if let Some(new_ssn) = (self.state_seq_nr + 1).value() {
-                self.state_seq_nr = new_ssn;
-            } else {
-                todo!("implement reset of SafeStateSeqNr");
-            }
+            // wraps around, other nodes handle the lower number like a restart
+            self.state_seq_nr = self.state_seq_nr + 1;
         }
 
         result.map(|x| x.0)
@@ -162,6 +156,22 @@ mod tests {
         super::tests,
         *,
     };
+
+    #[test]
+    fn ssn_wraps_around_after_the_largest_value() {
+        let mut table = InMemoryULNTable::new();
+        *table.state_seq_nr_mut() = SafeStateSeqNr::try_from(u32::MAX - 1).unwrap();
+        let ulnid = UnderlayNeighborId {
+            interface_id: crate::domain::InterfaceId::try_from(1).unwrap(),
+            connection_id: crate::domain::ConnectionId(1),
+        };
+        let node = NodeId::with_msb(2);
+        table.insert(node, ulnid);
+
+        assert!(table.confirm(node, ulnid));
+
+        assert_eq!(*table.state_seq_nr(), SafeStateSeqNr::MIN);
+    }
 
     #[test]
     fn ssn_on_insert() {

@@ -1181,22 +1181,10 @@ where
                     }
                 } // endif: do not answer due to heuristic
 
-                // only respond if news (newer SSN, reset, unknown neighbor...)
+                // only respond if news (newer SSN, possible reset, unknown neighbor...)
                 match observed_ssn_from_msg {
-                    StateSeqNr::Invalid => {
-                        panic!(
-                            "Received invalid StateSeqNr from underlay neighbor in VicinityDiscovery use case"
-                        )
-                    }
-                    StateSeqNr::Reset => {
-                        tracing::debug!(
-                            target: "vicinity_discovery",
-                            node = %source,
-                            deterministic_heuristic = "answer",
-                            reason = "ssn_reset",
-                            "init underlay neighbor discovery",
-                        );
-                    }
+                    // handshake messages with invalid SSN are ignored before
+                    StateSeqNr::Invalid => return Ok(()),
                     StateSeqNr::Value(observed_ssn) => {
                         let vicinity_graph = context.vicinity_graph();
                         if let Some(entry) = vicinity_graph.entry(&source) && !new_neighbor {
