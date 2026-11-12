@@ -19,6 +19,7 @@ use tracing::{
 use crate::{
     domain::{
         Contact,
+        ContactState,
         InsertionStrategy,
         Link,
         NodeId,
@@ -273,6 +274,8 @@ where
 
             assert_eq!(reported_contact.id(), path.last());
             reported_contact.set_path(path);
+            // only a validated path makes a contact valid
+            reported_contact.set_state(ContactState::Unknown);
             log::debug!(target: "forward_protocol_message", "Contact from reading rtable: {:?} ", reported_contact);
 
             self.update_contact(context, reported_contact);
@@ -1107,7 +1110,7 @@ mod tests {
 
         let rt = ctx.routing_table();
         let contact = rt.contact(&t).unwrap();
-        let crate::domain::ContactState::Invalid(ref nvs) = *contact.state() else {
+        let ContactState::Invalid(ref nvs) = *contact.state() else {
             panic!("contact should be invalid, is {:?}", contact.state());
         };
         let links: HashSet<Link> = nvs.nvs_list.iter().map(|nvs| nvs.link.clone()).collect();

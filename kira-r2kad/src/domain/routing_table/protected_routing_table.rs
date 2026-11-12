@@ -92,14 +92,6 @@ impl<const BUCKET_SIZE: usize, const ACC: u8> ProtectedRoutingTable<BUCKET_SIZE,
     pub fn is_protected(&self, contact: &Contact) -> bool {
         contact.has_any_label(self.protecting_labels)
     }
-
-    /// Returns if the contact is protected by a stored (local or advertised) label.
-    ///
-    /// Derived labels like [ContactLabels::Uln] depend on the current path and
-    /// are therefore not considered here.
-    fn is_protected_by_stored_labels(&self, contact: &Contact) -> bool {
-        (contact.labels() - ContactLabels::DERIVED).intersects(self.protecting_labels)
-    }
 }
 
 impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
@@ -122,20 +114,29 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
 
     fn add(&mut self, mut contact: Contact) -> Result<(), AddError> {
         if let Some(protected_entry) = self.protected_contacts.get(contact.id()) {
-            // contact to add exists as protected contact already
-            if self.is_protected(&contact)
-                || *protected_entry.state() == ContactState::Valid
-                || self.is_protected_by_stored_labels(protected_entry)
+            // A protected contact is never removed here: the caller updates it instead, so that
+            // its state (e.g., a running rediscovery) is kept. A former ULN that is valid again
+            // via a path that doesn't need protection moves to the regular buckets, but only if
+            // there is room for it.
+            if *protected_entry.state() == ContactState::Valid
+                && !self.is_protected(protected_entry)
+                && !self.is_protected(&contact)
             {
-                return Err(AddError::AlreadyExists(contact.into_id()));
+                let previous = self
+                    .protected_contacts
+                    .remove(contact.id())
+                    .expect("presence was checked before");
+                if let Err(err) = self.inner.add(previous.clone()) {
+                    tracing::trace!(
+                        target: "routing_table",
+                        node = %previous.id(),
+                        ?err,
+                        "former protected contact stays protected",
+                    );
+                    self.protected_contacts.insert(*previous.id(), previous);
+                }
             }
-            // the existing contact lost its protection (e.g. a former ULN which lost
-            // its direct link), so it moves to the regular buckets
-            let previous = self
-                .protected_contacts
-                .remove(contact.id())
-                .expect("presence was checked before");
-            contact.inherit_labels_from(&previous);
+            return Err(AddError::AlreadyExists(contact.into_id()));
         } else if self.is_protected(&contact) {
             // contact is not protected yet, but has to be: move it out of the buckets
             if let Some(previous) = self.inner.remove(contact.id()) {
@@ -884,29 +885,63 @@ mod tests {
         );
     }
 
-    #[test]
-    fn demotion_keeps_labels() {
-        let _clock = crate::tests::TestClock::new();
-        let mut routing_table =
-            ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
-
-        let node = NodeId::with_msb(2);
+    /// Inserts `node` as protected contact whose direct link failed.
+    fn insert_invalid_former_uln<const B: usize, const A: u8>(
+        routing_table: &mut ProtectedRoutingTable<B, A>,
+        node: NodeId,
+    ) {
         let mut former_uln = cached(&[node]);
         former_uln.set_state(ContactState::Invalid(NotViaStateList::default()));
         routing_table
             .insert(former_uln)
             .expect("failed to insert contact");
+    }
 
-        // node is now reachable via a longer path only
-        routing_table
-            .insert(contact(&[NodeId::with_msb(3), node]))
-            .expect("failed to insert contact");
+    #[test]
+    fn invalid_former_uln_stays_protected() {
+        let _clock = crate::tests::TestClock::new();
+        let mut routing_table =
+            ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
+        let node = NodeId::with_msb(2);
+        insert_invalid_former_uln(&mut routing_table, node);
+
+        // node is reported via a longer path while it is rediscovered
+        assert!(
+            routing_table
+                .insert(contact(&[NodeId::with_msb(3), node]))
+                .is_err(),
+            "the caller updates the existing contact instead"
+        );
+
+        let stored = routing_table.protected_contacts.get(&node).expect("kept");
+        assert!(stored.is_invalid(), "state of the existing contact is kept");
+        assert!(!routing_table.inner.contains(&node));
+    }
+
+    #[test]
+    fn former_uln_valid_again_moves_to_buckets_with_labels() {
+        let _clock = crate::tests::TestClock::new();
+        let mut routing_table =
+            ProtectedRoutingTable::from(FlatRoutingTable::default(NodeId::ZERO));
+        let node = NodeId::with_msb(2);
+        insert_invalid_former_uln(&mut routing_table, node);
+        // the caller validated the longer path for the existing contact
+        let mut longer = Path::try_from(&[NodeId::with_msb(3), node][..]).unwrap();
+        longer.set_valid();
+        assert!(
+            routing_table
+                .contact_mut(&node)
+                .unwrap()
+                .assess_path_candidate_and_update(&longer)
+        );
+
+        let _ = routing_table.insert(contact(&[NodeId::with_msb(3), node]));
 
         assert!(routing_table.protected_contacts.is_empty());
-        assert_eq!(
-            routing_table.inner.contact(&node).unwrap().labels(),
-            ContactLabels::Cached
-        );
+        let moved = routing_table.inner.contact(&node).expect("moved to the buckets");
+        assert!(moved.is_valid());
+        assert!(moved.path().unwrap().is_same_path_as(&longer));
+        assert_eq!(moved.labels(), ContactLabels::Cached);
     }
 
     #[test]
