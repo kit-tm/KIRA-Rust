@@ -75,6 +75,9 @@ pub struct PathProbingConfig {
     pub min_request_timeout: Duration,
     /// When scheduled probe requests will start after their initial schedule
     pub scheduled_probe_delay: Duration,
+    /// Minimum interval between two probes of a contact that sent a lower
+    /// [StateSeqNr] than known, e.g., after a restart.
+    pub ssn_check_interval: Duration,
 }
 
 impl Default for PathProbingConfig {
@@ -86,6 +89,7 @@ impl Default for PathProbingConfig {
             srtt_timeout_factor: 2,
             min_request_timeout: Duration::from_millis(50),
             scheduled_probe_delay: Duration::from_millis(250),
+            ssn_check_interval: Duration::from_secs(10),
         }
     }
 }
@@ -111,6 +115,8 @@ pub enum PathProbingState {
         scheduled_probe_requests: HashMap<PathProbeAction, Timestamp>,
         /// Timer for sending scheduled probe requests
         scheduled_sending_timer: Option<TimerId>,
+        /// Last probe of a contact because of a lower StateSeqNr
+        ssn_checks: HashMap<NodeId, Timestamp>,
     },
     Error,
 }
@@ -237,6 +243,51 @@ where
             Some(srtt) => (srtt * self.config.srtt_timeout_factor).max(self.config.min_request_timeout),
             None => self.config.request_timeout,
         }
+    }
+
+    /// Probes a contact that sent us a message with a lower [StateSeqNr] than known,
+    /// because only its answer to our request may lower the known one (e.g., after a restart).
+    ///
+    /// At most one probe per contact is in flight and the checks are rate limited.
+    fn check_lower_state_seq_nr(&mut self, context: &C, message: &ProtocolMessage) {
+        let PathProbingState::Running {
+            requests_in_flight,
+            ssn_checks,
+            ..
+        } = &self.state
+        else {
+            return;
+        };
+        let source = message.source();
+        let Some(received) = message.source_state_seq_nr().value() else {
+            return;
+        };
+        let contact = {
+            let rt = context.routing_table();
+            let Some(contact) = rt.contact(source) else {
+                return;
+            };
+            if received >= *contact.state_seq_nr()
+                || contact.path().is_none()
+                || contact.is_uln()
+            {
+                // not lower, or a ULN, whose reset is handled by vicinity discovery
+                return;
+            }
+            contact.clone()
+        };
+        if requests_in_flight.values().any(|(id, _, _)| id == source)
+            || ssn_checks
+                .get(source)
+                .is_some_and(|last| last.to_age_duration() < self.config.ssn_check_interval)
+        {
+            return;
+        }
+        log::debug!(target: "path_probing", "Contact {source} sent lower StateSeqNr {received} (known {}), probing it", contact.state_seq_nr());
+        if let PathProbingState::Running { ssn_checks, .. } = &mut self.state {
+            ssn_checks.insert(*source, Timestamp::now());
+        }
+        self.send_probe_req(context, &contact);
     }
 
     fn send_probe_req(&mut self, context: &C, contact: &Contact) {
@@ -601,6 +652,7 @@ where
             requests_in_flight: HashMap::new(),
             scheduled_probe_requests: HashMap::new(),
             scheduled_sending_timer: None,
+            ssn_checks: HashMap::new(),
         };
 
         Ok(())
@@ -683,11 +735,6 @@ where
                             active_path.record_rtt(rtt);
                         }
                         contact.set_last_seen_now();
-                        // since this is a solicited reply we unconditionally set the sequence number to a new value
-                        if let StateSeqNr::Value(current_state_seq_nr) = common_header.state_seq_num
-                        {
-                            contact.set_state_seq_nr(current_state_seq_nr);
-                        }
 
                         // if same path exists as proposed path, remove it
                         if let Some(proposed_path) = contact.proposed_path()
@@ -706,6 +753,14 @@ where
                                 proposed_path.record_rtt(rtt);
                             }
                         }
+                    }
+                    // the answer to our request is authoritative, also for a lower sequence
+                    // number (e.g., after a restart of the node), whichever path it took
+                    if let StateSeqNr::Value(current_state_seq_nr) = common_header.state_seq_num {
+                        if current_state_seq_nr < *contact.state_seq_nr() {
+                            log::info!(target: "path_probing", "Contact {source} was reset, accepting its lower StateSeqNr {current_state_seq_nr} (was {})", contact.state_seq_nr());
+                        }
+                        contact.set_state_seq_nr(current_state_seq_nr);
                     }
                 }
                 self.remove_from_tracked_messages(nonce);
@@ -730,6 +785,14 @@ where
                         probe_timers.retain(|_, v| *v != nonce);
                     }
                 }
+            }
+            UseCaseEvent::Message(ref message, _)
+                if !matches!(message, ProtocolMessage::ProbeReq(_))
+                    && message
+                        .source_route()
+                        .is_some_and(|route| route.destination() == context.root_id()) =>
+            {
+                self.check_lower_state_seq_nr(context, message);
             }
             UseCaseEvent::Message(ProtocolMessage::ProbeReq(req), _) => {
                 if !req.exact() {
@@ -763,7 +826,9 @@ where
                 }
                 // sending the response reads the routing table
                 drop(rt);
+                let request = ProtocolMessage::ProbeReq(req.clone());
                 self.send_probe_rsp(context, req);
+                self.check_lower_state_seq_nr(context, &request);
             }
             UseCaseEvent::Contact(contact_event) => {
                 match *contact_event {
@@ -807,9 +872,11 @@ where
                         // remove from scheduled requests then
                         if let PathProbingState::Running {
                             scheduled_probe_requests,
+                            ssn_checks,
                             ..
                         } = &mut self.state
                         {
+                            ssn_checks.remove(contact.id());
                             scheduled_probe_requests
                                 .remove(&PathProbeAction::ContactActivePath(*contact.id()));
                             scheduled_probe_requests
@@ -1191,6 +1258,115 @@ mod tests {
 
         let contact = ctx.routing_table().contact(&c()).unwrap().clone();
         assert!(contact.proposed_path().unwrap().is_same_path_as(&better));
+    }
+
+    /// Contact [c] is known with StateSeqNr 10.
+    fn setup_known_ssn() -> (PP, Ctx) {
+        let (pp, ctx) = setup(true);
+        {
+            let mut rt = ctx.routing_table_mut();
+            let contact = rt.contact_mut(&c()).unwrap();
+            contact.path_mut().unwrap().set_valid();
+            contact.set_state_seq_nr(SafeStateSeqNr::try_from(10).unwrap());
+        }
+        (pp, ctx)
+    }
+
+    /// Message of [c] to us with the given StateSeqNr.
+    fn message_from_c(kind: ProtocolMessageKind, nonce: Nonce, c_ssn: u32) -> ProtocolMessage {
+        let mut source_route = SourceRoute::new(c(), path(&[d(), b(), a(), root()]));
+        for _ in 0..3 {
+            source_route.advance();
+        }
+        let common_header = CommonHeader::new(
+            kind,
+            c(),
+            root(),
+            Some(nonce),
+            StateSeqNr::from(c_ssn),
+            1,
+        );
+        match kind {
+            ProtocolMessageKind::ProbeReq => ProtocolMessage::ProbeReq(ReqRspMessage {
+                common_header,
+                data: ProbeReqData,
+                not_via: None,
+                source_route,
+            }),
+            _ => ProtocolMessage::ProbeRsp(ReqRspMessage {
+                common_header,
+                data: ProbeRspData,
+                not_via: None,
+                source_route,
+            }),
+        }
+    }
+
+    fn receive(pp: &mut PP, ctx: &Ctx, message: ProtocolMessage) {
+        pp.handle_event(ctx, UseCaseEvent::Message(message, UnderlayNeighborSource::Local))
+            .unwrap();
+    }
+
+    fn known_ssn(ctx: &Ctx) -> SafeStateSeqNr {
+        *ctx.routing_table().contact(&c()).unwrap().state_seq_nr()
+    }
+
+    #[test]
+    fn lower_ssn_of_contact_triggers_one_probe() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup_known_ssn();
+
+        // e.g., the contact restarted with the same NodeID
+        receive(&mut pp, &ctx, message_from_c(ProtocolMessageKind::ProbeRsp, Nonce::random(), 2));
+        receive(&mut pp, &ctx, message_from_c(ProtocolMessageKind::ProbeRsp, Nonce::random(), 3));
+
+        assert_eq!(sent_probe_reqs(&ctx).len(), 1, "one probe in flight");
+        assert_eq!(known_ssn(&ctx), SafeStateSeqNr::try_from(10).unwrap(), "not accepted");
+    }
+
+    #[test]
+    fn higher_ssn_triggers_no_probe() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup_known_ssn();
+
+        receive(&mut pp, &ctx, message_from_c(ProtocolMessageKind::ProbeRsp, Nonce::random(), 11));
+
+        assert!(sent_probe_reqs(&ctx).is_empty());
+    }
+
+    #[test]
+    fn probe_req_with_lower_ssn_is_answered_and_triggers_a_probe() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup_known_ssn();
+
+        receive(&mut pp, &ctx, message_from_c(ProtocolMessageKind::ProbeReq, Nonce::random(), 2));
+
+        let sent: Vec<_> = ctx.runtime().output().collect();
+        let count = |kind: ProtocolMessageKind| {
+            sent.iter()
+                .filter(|output| {
+                    matches!(output, Output::SendProtocolMessage(message, _) if message.kind() == kind)
+                })
+                .count()
+        };
+        assert_eq!(count(ProtocolMessageKind::ProbeRsp), 1, "answered");
+        assert_eq!(count(ProtocolMessageKind::ProbeReq), 1, "own probe");
+    }
+
+    #[test]
+    fn answer_to_probe_lowers_the_known_ssn() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup_known_ssn();
+        receive(&mut pp, &ctx, message_from_c(ProtocolMessageKind::ProbeRsp, Nonce::random(), 2));
+        let probe = sent_probe_reqs(&ctx).pop().unwrap();
+
+        receive(
+            &mut pp,
+            &ctx,
+            message_from_c(ProtocolMessageKind::ProbeRsp, probe.common_header.msg_id(), 2),
+        );
+
+        assert_eq!(known_ssn(&ctx), SafeStateSeqNr::try_from(2).unwrap());
     }
 
     #[test]
