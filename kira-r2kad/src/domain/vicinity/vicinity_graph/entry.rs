@@ -10,6 +10,8 @@ pub struct Entry {
     last_seen: Option<Instant>,
     synced_ssn: Option<SafeStateSeqNr>, // SSN up to which state has been synchronized (ULNDiscReq/Rsp or QueryRouteReq/Rsp exchange)
     observed_ssn: SafeStateSeqNr,
+    /// A lower SSN than observed was seen: the node may have restarted.
+    reset_suspected: bool,
 }
 
 impl Entry {
@@ -26,6 +28,7 @@ impl Entry {
             last_seen: None,
             synced_ssn: None, // should only be updated by ULNDiscRsp
             observed_ssn,     // can be updated by any message
+            reset_suspected: false,
         }
     }
 
@@ -49,6 +52,25 @@ impl Entry {
         if self.observed_ssn < synced_ssn {
             self.observed_ssn = synced_ssn;
         }
+        // synchronized up to the greatest observed SSN: no restart happened
+        if self.observed_ssn == synced_ssn {
+            self.reset_suspected = false;
+        }
+    }
+
+    /// Marks that a lower SSN than observed was seen, e.g., because the node restarted.
+    ///
+    /// The node has to be synchronized to get an authoritative answer.
+    pub fn suspect_reset(&mut self) {
+        self.reset_suspected = true;
+    }
+
+    /// Accepts the SSN of an authoritative answer of the node, also if it is lower,
+    /// i.e., the node was reset.
+    pub fn reset_ssn(&mut self, ssn: SafeStateSeqNr) {
+        self.observed_ssn = ssn;
+        self.synced_ssn = Some(ssn);
+        self.reset_suspected = false;
     }
 
     /// Update the last time the node was successfully contacted *directly*
@@ -96,5 +118,44 @@ impl Entry {
     /// the maximum state sequence number.
     pub fn observed_ssn(&self) -> &SafeStateSeqNr {
         &self.observed_ssn
+    }
+
+    /// Whether a lower SSN than observed was seen and the node has to be synchronized.
+    pub fn is_reset_suspected(&self) -> bool {
+        self.reset_suspected
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ssn(value: u32) -> SafeStateSeqNr {
+        SafeStateSeqNr::try_from(value).unwrap()
+    }
+
+    #[test]
+    fn reset_accepts_lower_ssn() {
+        let mut entry = Entry::new(ssn(10));
+        entry.update_synced_ssn(ssn(10));
+        entry.suspect_reset();
+
+        entry.reset_ssn(ssn(2));
+
+        assert_eq!(*entry.observed_ssn(), ssn(2));
+        assert_eq!(entry.synced_ssn(), Some(&ssn(2)));
+        assert!(!entry.is_reset_suspected());
+    }
+
+    #[test]
+    fn sync_up_to_observed_ssn_clears_suspicion() {
+        let mut entry = Entry::new(ssn(10));
+        entry.suspect_reset();
+
+        entry.update_synced_ssn(ssn(9));
+        assert!(entry.is_reset_suspected(), "not synchronized up to observed SSN");
+
+        entry.update_synced_ssn(ssn(10));
+        assert!(!entry.is_reset_suspected());
     }
 }
