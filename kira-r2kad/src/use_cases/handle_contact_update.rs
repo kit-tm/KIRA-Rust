@@ -27,6 +27,7 @@ use crate::{
         ULNState,
         ULNTable,
         UnderlayNeighborId,
+        VicinityGraph,
         protocol_message::{
             CommonHeader,
             ContactActions,
@@ -318,6 +319,7 @@ where
     for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE>,
     C::UnderlayNeighborTable:
         ULNTable + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
+    C::VicinityGraph: VicinityGraph,
 {
     type Context = C;
     type Error = NeverError;
@@ -355,6 +357,12 @@ where
 
                     if context.uln_table_mut().remove(contact.id()).is_some() {
                         log::trace!(target: "handle_contact_update", "removed {} from underlay neighbors", contact.id());
+                        // keep the vicinity graph consistent with the ULN table
+                        let mut vg = context.vicinity_graph_mut();
+                        vg.remove_edge(context.root_id(), contact.id());
+                        for removed_node in vg.retain_vicinity() {
+                            log::trace!(target: "handle_contact_update", "removed {removed_node} from vicinity graph, outside vicinity");
+                        }
                     }
                 }
                 ContactEvent::Updated { new, old } => {
@@ -750,5 +758,29 @@ mod tests {
         });
         assert!(hcu.pending.is_empty(), "no repeated bad news");
         assert!(hcu.urgent_timer.is_none() && hcu.normal_timer.is_none());
+    }
+
+    #[test]
+    fn removed_uln_is_removed_from_vicinity_graph() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut hcu, ctx) = setup();
+        {
+            let mut vg = ctx.vicinity_graph_mut();
+            vg.insert(c(), &root(), ssn(1)).unwrap();
+            // only reachable via c
+            vg.insert(d(), &c(), ssn(1)).unwrap();
+        }
+        let contact = ctx.routing_table_mut().remove(&c()).unwrap();
+
+        hcu.handle_event(
+            &ctx,
+            UseCaseEvent::Contact(Box::new(ContactEvent::Removed(contact))),
+        )
+        .unwrap();
+
+        assert!(!ctx.uln_table().contains(&c()));
+        let vg = ctx.vicinity_graph();
+        assert!(!vg.vicinity(&root()).any(|node| node == c()), "edge removed");
+        assert!(vg.entry(&d()).is_none(), "nodes outside the vicinity are removed");
     }
 }

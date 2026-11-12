@@ -139,7 +139,14 @@ where
         let mut path = self.extract_path_to_source(message);
         let ssn = message.source_state_seq_nr();
         if ssn.is_reset() {
-            todo!("implement reset of StateSeqNr")
+            // TODO: implement the reset of a StateSeqNr, until then the message is dropped
+            tracing::warn!(
+                target: "forward_protocol_message",
+                source = %message.source(),
+                kind = ?message.kind(),
+                "Dropping message with reset StateSeqNr, reset is not implemented yet"
+            );
+            return Err(ForwardingError::FwdErrDropMessage);
         }
 
         let ssn = ssn.value().ok_or(ForwardingError::FwdErrIgnore)?;
@@ -890,6 +897,29 @@ mod tests {
         let contact = neighbor_contact(&ctx).expect("contact created");
         assert!(contact.is_valid());
         assert!(contact.is_uln());
+    }
+
+    #[test]
+    fn message_with_reset_ssn_is_dropped() {
+        let _clock = crate::tests::TestClock::new();
+        let ctx = context();
+        let mut message = uln_disc_message(ProtocolMessageKind::ULNDiscReq, 1);
+        let ProtocolMessage::ULNDiscReq(ref mut req) = message else {
+            unreachable!()
+        };
+        req.common_header = CommonHeader::new(
+            ProtocolMessageKind::ULNDiscReq,
+            neighbor(),
+            root(),
+            Some(Nonce::random()),
+            StateSeqNr::Reset,
+            0,
+        );
+
+        let result = receive(&ctx, message);
+
+        assert!(matches!(result, HandlingResult::Handled), "not passed on");
+        assert!(neighbor_contact(&ctx).is_none());
     }
 
     #[test]

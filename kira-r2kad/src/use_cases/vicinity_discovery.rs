@@ -479,17 +479,17 @@ where
         let mut contacts = Vec::with_capacity(neighbors.len());
         // NOTE that unless handshake is complete some of the nodes in the uln_table
         // may not be a regular contact yet. However, since we only filter for bidirectional
-        // entries, every ULN should be present in the RoutingTable
+        // entries, every ULN should be present in the RoutingTable. A missing one is left out,
+        // so that the handshakes with all other neighbors keep working.
         for uln_node_id in neighbors {
             if let Some(contact) = rt_lock.contact(uln_node_id).cloned() {
                 contacts.push(contact);
             } else {
-                tracing::error!(
+                tracing::warn!(
                     target: "vicinity_discovery",
                     underlay_neighbor = %uln_node_id,
-                    "contact of confirmed underlay neighbor not found"
+                    "contact of confirmed underlay neighbor not found, leaving it out"
                 );
-                return Err(VDError::NeighborInconsistency);
             }
         }
         Ok((*uln_lock.state_seq_nr(), contacts))
@@ -1310,7 +1310,13 @@ where
                         );
                     }
                     // if arrived here, synced_ssn < observed_ssn, so ask neighbor for current state
-                    self.init_new_uln_disc_req(context, sync_candidate, underlay_neighbor)?
+                    match self.init_new_uln_disc_req(context, sync_candidate, underlay_neighbor) {
+                        Ok(new_sync) => new_sync,
+                        Err(err) => {
+                            tracing::warn!(target: "vicinity_discovery", node = %sync_candidate, %err, "skipping sync candidate");
+                            continue;
+                        }
+                    }
                 } else {
                     // sync_candidate is not a ULN, so it is two hops away
                     // check if sync with QueryRouteReq is required
@@ -1368,7 +1374,13 @@ where
                     // send QueryRouteReq
                     let source_route = SourceRoute::try_from(path)
                         .expect("Paths of vicinity graph include start of path");
-                    self.init_new_query_route_req(context, source_route)?
+                    match self.init_new_query_route_req(context, source_route) {
+                        Ok(new_sync) => new_sync,
+                        Err(err) => {
+                            tracing::warn!(target: "vicinity_discovery", node = %sync_candidate, %err, "skipping sync candidate");
+                            continue;
+                        }
+                    }
                 };
                 if !new_sync {
                     tracing::trace!(
@@ -1505,6 +1517,25 @@ where
                     );
                     return Ok(());
                 }
+                // the handshake must not confirm a neighbor whose state can't be tracked
+                if matches!(
+                    message,
+                    ProtocolMessage::ULNHello(_)
+                        | ProtocolMessage::ULNDiscReq(_)
+                        | ProtocolMessage::ULNDiscRsp(_)
+                ) && message.source_state_seq_nr().value().is_none()
+                {
+                    tracing::warn!(
+                        target: "vicinity_discovery",
+                        %underlay_source,
+                        source = %message.source(),
+                        ssn = ?message.source_state_seq_nr(),
+                        reason = "invalid state sequence number",
+                        "ignoring message {:?}",
+                        message.kind()
+                    );
+                    return Ok(());
+                }
                 self.handle_protocol_message(context, message, underlay_source)
             }
             // ========== Underlay Changes ==========
@@ -1565,9 +1596,10 @@ where
                     resync_timer_id, ..
                 },
             ) if &timer_id == resync_timer_id => {
-                self.schedule_syncs(context)?;
+                // an error must not stop the periodic resynchronisation
+                let result = self.schedule_syncs(context);
                 self.set_next_resync_timeout(context);
-                Ok(())
+                result
             }
             (UseCaseEvent::Vicinity(VicinityEvent::SSNChanged), _) => {
                 tracing::debug!(target: "vicinity_discovery", reason = "ssn_changed", "broadcast ULNHello");
@@ -2378,6 +2410,66 @@ mod tests {
             rt.contact(&two_hop()).unwrap().is_invalid(),
             "contact via ULN invalidated"
         );
+    }
+
+    fn resync_timer(vd: &VD) -> TimerId {
+        let VDState::Running {
+            resync_timer_id, ..
+        } = &vd.state
+        else {
+            panic!("not running");
+        };
+        *resync_timer_id
+    }
+
+    #[test]
+    fn resync_continues_with_confirmed_neighbor_without_contact() {
+        let _clock = crate::tests::TestClock::new();
+        // the neighbor in the vicinity graph is due for a sync
+        let (mut vd, ctx, _) = setup(VicinityDiscoveryConfig::default(), true);
+        // confirmed, but its contact is missing in the routing table
+        assert!(ctx.uln_table_mut().confirm(uln(), ulnid()));
+        let timer = resync_timer(&vd);
+
+        fire(&mut vd, &ctx, timer);
+
+        assert_eq!(sent_uln_disc_reqs(&ctx).len(), 1, "sync with the neighbor");
+        assert_ne!(resync_timer(&vd), timer, "next resync is scheduled");
+    }
+
+    #[test]
+    fn handshake_message_with_invalid_ssn_is_ignored() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut vd, ctx, _) = setup(VicinityDiscoveryConfig::default(), false);
+        vd.handle_event(
+            &ctx,
+            UseCaseEvent::UnderlayUpdate(UnderlayNeighborUpdate::InterfaceUp(ulnid().interface_id)),
+        )
+        .unwrap();
+        let _ = ctx.runtime().output().count();
+
+        let request = ProtocolMessage::ULNDiscReq(ULNReqRspMessage {
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::ULNDiscReq,
+                uln(),
+                root(),
+                Some(Nonce::random()),
+                StateSeqNr::Invalid,
+                0,
+            ),
+            data: RTableData { contacts: vec![] },
+        });
+        vd.handle_event(
+            &ctx,
+            UseCaseEvent::Message(request, UnderlayNeighborSource::UnderlayNeighbor(ulnid())),
+        )
+        .unwrap();
+
+        assert!(
+            matches!(ctx.uln_table().get(&uln()), Some((_, ULNState::Tentative))),
+            "neighbor not confirmed"
+        );
+        assert_eq!(ctx.runtime().output().count(), 0, "no response sent");
     }
 
     #[test]
