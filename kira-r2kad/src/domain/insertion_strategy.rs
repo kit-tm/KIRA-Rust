@@ -155,8 +155,18 @@ where
             return InsertionStrategyResult::Dropped;
         }
 
-        // received information is not older: take over its labels
+        // received information is not older: take over its labels and a newer sequence
+        // number (it only increases here, a lower one is accepted from authoritative
+        // answers of the node only)
         existing.update_labels_from(&contact);
+        existing.update_state_seq_nr(*contact.state_seq_nr());
+        // a message of the node itself (over a validated source route) shows when it was
+        // last heard of, relayed information is someone else's observation
+        if *contact.state() == ContactState::Valid
+            && contact.path().is_some_and(|path| path.is_valid())
+        {
+            existing.refresh_last_seen(*contact.last_seen());
+        }
 
         // A message that just traversed the active path shows that this path is current.
         // Refreshing its validation lets older failure reports (NotVia) be recognized as
@@ -930,5 +940,45 @@ mod tests {
         strategy.insert(unknown_contact(&[uln, dest], 2), &mut rt, &un);
 
         assert_eq!(last_validated(&rt, &dest), first);
+    }
+
+    #[test]
+    fn newer_information_raises_the_stored_ssn() {
+        let _clock = crate::tests::TestClock::new();
+        crate::tests::init();
+        let (uln, dest) = (NodeId::from(1), NodeId::from(2));
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(NodeId::ZERO);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+        strategy.insert(valid_contact(&[uln, dest], 1), &mut rt, &un);
+
+        // relayed by another node (RTable object), not better, but newer
+        strategy.insert(unknown_contact(&[uln, NodeId::from(9), dest], 5), &mut rt, &un);
+
+        assert_eq!(
+            rt.contact(&dest).unwrap().state_seq_nr(),
+            &SafeStateSeqNr::try_from(5).unwrap()
+        );
+    }
+
+    #[test]
+    fn only_first_hand_messages_refresh_last_seen() {
+        let mut clock = crate::tests::TestClock::new();
+        crate::tests::init();
+        let (uln, dest) = (NodeId::from(1), NodeId::from(2));
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(NodeId::ZERO);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+        strategy.insert(valid_contact(&[uln, dest], 1), &mut rt, &un);
+        let first = *rt.contact(&dest).unwrap().last_seen();
+
+        clock.advance(std::time::Duration::from_millis(2));
+        strategy.insert(unknown_contact(&[uln, dest], 2), &mut rt, &un);
+        assert_eq!(*rt.contact(&dest).unwrap().last_seen(), first, "relayed");
+
+        clock.advance(std::time::Duration::from_millis(2));
+        // a message of the node over another path
+        strategy.insert(valid_contact(&[uln, NodeId::from(9), dest], 2), &mut rt, &un);
+        assert!(*rt.contact(&dest).unwrap().last_seen() > first, "first-hand");
     }
 }

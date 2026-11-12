@@ -358,6 +358,13 @@ impl Contact {
         &self.last_seen
     }
 
+    /// Refreshes when the node was last heard of, if `seen` is later.
+    pub fn refresh_last_seen(&mut self, seen: Timestamp) {
+        if seen > self.last_seen {
+            self.last_seen = seen;
+        }
+    }
+
     pub fn set_last_seen_now(&mut self) {
         self.last_seen = Timestamp::now();
     }

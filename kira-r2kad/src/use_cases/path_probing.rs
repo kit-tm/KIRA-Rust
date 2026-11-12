@@ -58,7 +58,7 @@ pub struct PathProbingConfig {
     /// Interval to perform periodic checks if a [Contact]
     /// is about to expire.
     pub check_interval: Duration,
-    /// Maximum age of a [Contact] before it has to be probed.
+    /// Maximum time since the active path of a [Contact] was validated before it has to be probed.
     ///
     /// Default is **40s** because underlay advertising is about 30s.
     pub probe_age: Duration,
@@ -164,17 +164,26 @@ where
     fn send_probe_reqs(&mut self, context: &C) {
         let rt = context.routing_table();
         for bucket in rt.bucket_iter() {
+            // the active path is probed if it was not validated for probe_age, messages over
+            // other paths don't show that it still works
+            let validated = |contact: &Contact| {
+                contact
+                    .path()
+                    .and_then(|path| path.get_last_validated())
+                    .copied()
+                    .unwrap_or(*contact.last_seen())
+            };
             let mut considered_contacts: Vec<_> = bucket
                 .into_iter()
                 .filter(|contact| {
-                    contact.last_seen().to_age_duration() >= self.config.probe_age &&
+                    validated(contact).to_age_duration() >= self.config.probe_age &&
                         contact.state() == &ContactState::Valid &&
                         // should never be the case
                         !contact.is_uln()
                 })
                 .collect();
 
-            considered_contacts.sort_unstable_by_key(|contact| contact.last_seen());
+            considered_contacts.sort_unstable_by_key(|contact| validated(contact));
             // put oldest to the front
             considered_contacts.reverse();
 
@@ -1421,6 +1430,40 @@ mod tests {
         invalidate_c(&ctx);
 
         receive(&mut pp, &ctx, message_from_c(ProtocolMessageKind::ProbeRsp, Nonce::random(), 2));
+
+        assert!(sent_probe_reqs(&ctx).is_empty());
+    }
+
+    #[test]
+    fn active_path_not_validated_for_probe_age_is_probed_although_heard_of() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup_known_ssn();
+        clock.advance(PathProbingConfig::default().probe_age);
+        // the contact reached us over another path recently
+        ctx.routing_table_mut()
+            .contact_mut(&c())
+            .unwrap()
+            .set_last_seen_now();
+
+        pp.send_probe_reqs(&ctx);
+
+        assert_eq!(sent_probe_reqs(&ctx).len(), 1);
+    }
+
+    #[test]
+    fn recently_validated_active_path_is_not_probed() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup_known_ssn();
+        clock.advance(PathProbingConfig::default().probe_age);
+        // e.g., a message traversed the active path
+        ctx.routing_table_mut()
+            .contact_mut(&c())
+            .unwrap()
+            .path_mut()
+            .unwrap()
+            .update_last_validated();
+
+        pp.send_probe_reqs(&ctx);
 
         assert!(sent_probe_reqs(&ctx).is_empty());
     }
