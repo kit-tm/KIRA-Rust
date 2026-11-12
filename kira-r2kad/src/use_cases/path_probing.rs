@@ -267,11 +267,8 @@ where
             let Some(contact) = rt.contact(source) else {
                 return;
             };
-            if received >= *contact.state_seq_nr()
-                || contact.path().is_none()
-                || contact.is_uln()
-            {
-                // not lower, or a ULN, whose reset is handled by vicinity discovery
+            if received >= *contact.state_seq_nr() || !contact.is_valid() {
+                // not lower, or the contact is rediscovered by failure handling anyway
                 return;
             }
             contact.clone()
@@ -727,12 +724,18 @@ where
                     if let Some(active_path) = contact.path_mut()
                         && active_path.is_same_path_as(&rev_source_route)
                     {
-                        // this probe message confirms the active path
-                        assert!(active_path.is_valid());
-                        // set_valid() also includes update_last_validated();
-                        active_path.set_valid();
-                        if let Some(rtt) = rtt {
-                            active_path.record_rtt(rtt);
+                        if active_path.is_valid() {
+                            // this probe message confirms the active path
+                            // set_valid() also includes update_last_validated();
+                            active_path.set_valid();
+                            if let Some(rtt) = rtt {
+                                active_path.record_rtt(rtt);
+                            }
+                        } else {
+                            // the contact was invalidated while the probe was in flight, the
+                            // failure may have happened after the answer was sent: the
+                            // rediscovery takes care of it
+                            log::debug!(target: "path_probing", "Answer of {source} over its invalidated active path does not validate it");
                         }
                         contact.set_last_seen_now();
 
@@ -759,8 +762,10 @@ where
                     if let StateSeqNr::Value(current_state_seq_nr) = common_header.state_seq_num {
                         if current_state_seq_nr < *contact.state_seq_nr() {
                             log::info!(target: "path_probing", "Contact {source} was reset, accepting its lower StateSeqNr {current_state_seq_nr} (was {})", contact.state_seq_nr());
+                            contact.reset_state_seq_nr(current_state_seq_nr);
+                        } else {
+                            contact.set_state_seq_nr(current_state_seq_nr);
                         }
-                        contact.set_state_seq_nr(current_state_seq_nr);
                     }
                 }
                 self.remove_from_tracked_messages(nonce);
@@ -814,9 +819,10 @@ where
                 if let Some(mut contact) = rt.contact_mut(&source)
                     && let Some(active_path) = contact.path_mut()
                     && active_path.is_same_path_as(&rev_source_route)
+                    // an invalidated path is not revalidated, the rediscovery takes care of it
+                    && active_path.is_valid()
                 {
                     // this probe message confirms the active path
-                    assert!(active_path.is_valid());
                     // set_valid() also includes update_last_validated();
                     active_path.set_valid();
                     contact.set_last_seen_now();
@@ -1367,6 +1373,56 @@ mod tests {
         );
 
         assert_eq!(known_ssn(&ctx), SafeStateSeqNr::try_from(2).unwrap());
+    }
+
+    fn invalidate_c(ctx: &Ctx) {
+        ctx.routing_table_mut()
+            .contact_mut(&c())
+            .unwrap()
+            .set_invalid(NotViaStateList::default());
+    }
+
+    #[test]
+    fn answer_over_invalidated_active_path_does_not_validate_it() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup_known_ssn();
+        let contact = ctx.routing_table().contact(&c()).unwrap().clone();
+        pp.send_probe_req(&ctx, &contact);
+        let probe = sent_probe_reqs(&ctx).pop().unwrap();
+        // the contact got invalidated while the probe was in flight
+        invalidate_c(&ctx);
+
+        receive(
+            &mut pp,
+            &ctx,
+            message_from_c(ProtocolMessageKind::ProbeRsp, probe.common_header.msg_id(), 2),
+        );
+
+        assert!(ctx.routing_table().contact(&c()).unwrap().is_invalid());
+        assert_eq!(known_ssn(&ctx), SafeStateSeqNr::try_from(2).unwrap(), "still authoritative");
+    }
+
+    #[test]
+    fn probe_req_over_invalidated_active_path_is_answered() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup_known_ssn();
+        invalidate_c(&ctx);
+
+        receive(&mut pp, &ctx, message_from_c(ProtocolMessageKind::ProbeReq, Nonce::random(), 10));
+
+        assert!(ctx.routing_table().contact(&c()).unwrap().is_invalid());
+        assert_eq!(sent_probe_reqs(&ctx).len(), 0, "no own probe of an invalid contact");
+    }
+
+    #[test]
+    fn lower_ssn_of_invalid_contact_triggers_no_probe() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup_known_ssn();
+        invalidate_c(&ctx);
+
+        receive(&mut pp, &ctx, message_from_c(ProtocolMessageKind::ProbeRsp, Nonce::random(), 2));
+
+        assert!(sent_probe_reqs(&ctx).is_empty());
     }
 
     #[test]

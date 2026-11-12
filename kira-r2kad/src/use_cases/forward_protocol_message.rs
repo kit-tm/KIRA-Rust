@@ -1225,6 +1225,28 @@ mod tests {
         assert!(ctx.routing_table().contact(&z).unwrap().is_valid());
     }
 
+    #[test]
+    fn unreachable_update_from_before_a_reset_is_ignored() {
+        let mut clock = crate::tests::TestClock::new();
+        let (ctx, z) = contact_behind_neighbor();
+        clock.advance(std::time::Duration::from_secs(5));
+        // z restarted and its answer was accepted
+        ctx.routing_table_mut()
+            .contact_mut(&z)
+            .unwrap()
+            .reset_state_seq_nr(ssn(2));
+
+        // reported by a node that still knew z from before its restart (3s ago)
+        let mut update = unreachable_update(z, 3_000);
+        let ProtocolMessage::UpdateRouteReq(ref mut req) = update else {
+            unreachable!()
+        };
+        req.contact_actions[0].0.set_state_seq_nr(ssn(9));
+        receive(&ctx, update);
+
+        assert!(ctx.routing_table().contact(&z).unwrap().is_valid());
+    }
+
     /// Creates the neighbor's own contact and sets its smoothed RTT.
     fn neighbor_with_srtt(ctx: &Ctx, srtt_ms: u64) {
         receive(ctx, routed_message(&[neighbor()]));

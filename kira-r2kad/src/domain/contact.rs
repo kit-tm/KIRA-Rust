@@ -62,6 +62,11 @@ pub struct Contact {
     /// `None` means no information was received, so existing labels are kept on merge.
     #[cfg_attr(feature = "serde", serde(skip))]
     advertised_labels: Option<ContactLabels>,
+    /// When a lower [SafeStateSeqNr] of the node was accepted, e.g., after its restart.
+    ///
+    /// Information dated before is outdated, whatever its sequence number.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    ssn_reset_at: Option<Timestamp>,
 }
 
 impl Hash for Contact {
@@ -83,6 +88,7 @@ impl Contact {
             state_seq_nr,
             local_labels: ContactLabels::empty(),
             advertised_labels: None,
+            ssn_reset_at: None,
         }
     }
 
@@ -276,10 +282,24 @@ impl Contact {
 
     /// Returns an [Ordering] based on the [SafeStateSeqNr] and [Age] of the contacts.
     ///
+    /// Information dated before a known reset of the node's sequence number is older,
+    /// whatever its sequence number.
+    ///
     /// - Greater: self has newer information.
     /// - Less: other has newer information.
     /// - Equals: Have the same information.
     pub fn cmp_actuality(&self, other: &Contact) -> Ordering {
+        let self_predates_reset = other
+            .ssn_reset_at
+            .is_some_and(|reset| self.last_seen < reset);
+        let other_predates_reset = self
+            .ssn_reset_at
+            .is_some_and(|reset| other.last_seen < reset);
+        match (self_predates_reset, other_predates_reset) {
+            (true, false) => return Ordering::Less,
+            (false, true) => return Ordering::Greater,
+            _ => {}
+        }
         match (
             self.state_seq_nr.cmp(&other.state_seq_nr),
             self.age().cmp(&other.age()),
@@ -447,6 +467,13 @@ impl Contact {
         self.state_seq_nr = new_state_seq_nr;
     }
 
+    /// Accepts a lower sequence number from an authoritative answer of the node
+    /// (e.g., after its restart) and remembers when.
+    pub fn reset_state_seq_nr(&mut self, new_state_seq_nr: SafeStateSeqNr) {
+        self.state_seq_nr = new_state_seq_nr;
+        self.ssn_reset_at = Some(Timestamp::now());
+    }
+
     pub fn update_state_seq_nr(&mut self, new_state_seq_nr: SafeStateSeqNr) -> bool {
         if self.state_seq_nr < new_state_seq_nr {
             self.state_seq_nr = new_state_seq_nr;
@@ -498,6 +525,40 @@ mod tests {
         assert!(contact.state() == &ContactState::Valid);
         assert!(contact.path().is_some());
         assert!(contact.proposed_path().is_none());
+    }
+
+    fn ssn(value: u32) -> SafeStateSeqNr {
+        SafeStateSeqNr::try_from(value).unwrap()
+    }
+
+    #[test]
+    fn information_from_before_a_reset_is_older_whatever_its_ssn() {
+        let mut clock = crate::tests::TestClock::new();
+        let mut known = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 10);
+        clock.advance(std::time::Duration::from_secs(5));
+        // the node restarted and its answer was accepted
+        known.reset_state_seq_nr(ssn(2));
+
+        // relayed by a node that still knows the node from before the restart (3s ago)
+        let mut stale = contact_with_path(&[NodeId::from(3), NodeId::from(2)], 9);
+        stale.set_info_age(Age::from(3_000));
+
+        assert!(stale.is_older_than(&known));
+        assert!(!known.is_older_than(&stale));
+    }
+
+    #[test]
+    fn information_after_a_reset_compares_by_ssn() {
+        let mut clock = crate::tests::TestClock::new();
+        let mut known = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 10);
+        known.reset_state_seq_nr(ssn(2));
+        clock.advance(std::time::Duration::from_secs(1));
+
+        let newer = contact_with_path(&[NodeId::from(3), NodeId::from(2)], 3);
+        let outdated = contact_with_path(&[NodeId::from(3), NodeId::from(2)], 1);
+
+        assert!(known.is_older_than(&newer));
+        assert!(outdated.is_older_than(&known));
     }
 
     #[test]
