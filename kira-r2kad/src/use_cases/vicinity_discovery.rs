@@ -2814,6 +2814,10 @@ mod tests {
     }
 
     fn uln_disc_rsp(nonce: Nonce) -> UseCaseEvent {
+        uln_disc_rsp_via(nonce, ulnid())
+    }
+
+    fn uln_disc_rsp_via(nonce: Nonce, underlay_source: UnderlayNeighborId) -> UseCaseEvent {
         UseCaseEvent::Message(
             ProtocolMessage::ULNDiscRsp(ULNReqRspMessage {
                 common_header: CommonHeader::new(
@@ -2826,7 +2830,7 @@ mod tests {
                 ),
                 data: RTableData { contacts: vec![] },
             }),
-            UnderlayNeighborSource::UnderlayNeighbor(ulnid()),
+            UnderlayNeighborSource::UnderlayNeighbor(underlay_source),
         )
     }
 
@@ -2880,5 +2884,33 @@ mod tests {
             .unwrap();
 
         assert_eq!(uln_srtt(&ctx), None);
+    }
+
+    #[test]
+    fn uln_disc_rsp_via_another_interface_confirms_nothing() {
+        let _clock = crate::tests::TestClock::new();
+        // the ULN is known at interface 1, a second interface leads to the same neighbor
+        let (mut vd, ctx) = setup_for_rtt();
+        let second = UnderlayNeighborId {
+            interface_id: InterfaceId::try_from(2).unwrap(),
+            connection_id: ConnectionId(2),
+        };
+        vd.handle_event(
+            &ctx,
+            UseCaseEvent::UnderlayUpdate(UnderlayNeighborUpdate::InterfaceUp(second.interface_id)),
+        )
+        .unwrap();
+        let request = start_regular_uln_disc_req(&mut vd, &ctx);
+        let ssn = *ctx.uln_table().state_seq_nr();
+
+        vd.handle_event(&ctx, uln_disc_rsp_via(request.expected_nonce, second))
+            .unwrap();
+
+        assert!(!ctx.uln_table().is_bidirectional(&uln()));
+        assert_eq!(
+            ctx.uln_table().get(&uln()).map(|(id, _)| *id),
+            Some(ulnid())
+        );
+        assert_eq!(*ctx.uln_table().state_seq_nr(), ssn);
     }
 }

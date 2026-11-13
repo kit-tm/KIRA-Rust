@@ -1147,15 +1147,16 @@ fn parse_req_rsp_payload_from_bytes(
                     // Path
                     let path_vector_size =
                         u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
-                    if object_length_remaining
-                        < NodeId::SIZE + path_vector_size as usize + 2 + 4 + 4 + 2
-                    {
+                    let entry_length = NodeId::SIZE // Contact-ID
+                        + path_vector_size as usize * NodeId::SIZE + 2 // Path
+                        + 4 // SSN
+                        + 4 // Age Info
+                        + 2; // Node Degree
+                    if object_length_remaining < entry_length {
                         return Err(Box::new(IoError::new(
                             ErrorKind::InvalidData,
                             format!(
-                                "rtable-entry object too short (length = {}, expected = {})",
-                                object_length_remaining,
-                                NodeId::SIZE + path_vector_size as usize + 2 + 4 + 4 + 2
+                                "rtable-entry object too short (length = {object_length_remaining}, expected = {entry_length})"
                             ),
                         )));
                     }
@@ -1167,7 +1168,7 @@ fn parse_req_rsp_payload_from_bytes(
                         path.push(hop_id);
                     }
                     let path = Path::try_from(path)?; // or domain model uses non-empty paths
-                    assert_eq!(&contact_id, path.last()); // and does include the final destination
+                    check_path_ends_at_contact(&contact_id, &path)?;
 
                     // SSN
                     let ssn_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
@@ -1189,11 +1190,8 @@ fn parse_req_rsp_payload_from_bytes(
                     apply_info_age(&mut contact, age_raw);
                     rtable.push(contact);
 
-                    object_length_remaining -= NodeId::SIZE // Contact-ID
-                        + (path_vector_size as usize * NodeId::SIZE) + 2 // Path
-                        + 4 // SSN
-                        + 4 // Age Info
-                        + 2 // Node Degree;
+                    // cannot underflow, checked above
+                    object_length_remaining -= entry_length;
                 }
 
                 payload_consumed += object_length;
@@ -1754,6 +1752,24 @@ fn apply_info_age(contact: &mut Contact, age_raw: u32) {
     }
 }
 
+/// Checks that the path of a received RTable or rtable-update entry ends at its contact.
+///
+/// The domain model expects the destination as the path's last hop. A path vector without the
+/// destination (as the draft encodes it) is rejected instead of crashing the node.
+fn check_path_ends_at_contact(contact_id: &NodeId, path: &Path) -> Result<(), IoError> {
+    if path.last() == contact_id {
+        Ok(())
+    } else {
+        Err(IoError::new(
+            ErrorKind::InvalidData,
+            format!(
+                "path of contact {contact_id} does not end at the contact (last hop {})",
+                path.last()
+            ),
+        ))
+    }
+}
+
 fn write_contact_entry<W: Write>(writer: &mut W, contact: &Contact) -> Result<(), IoError> {
     // Contact-ID
     writer.write_all(&contact.id().to_be_bytes())?;
@@ -1873,7 +1889,7 @@ fn parse_rtable_update_info_from_bytes(payload: &[u8]) -> Result<ContactActions,
                         format!(
                             "rtable-update-entry object too short (length = {}, expected at least {})",
                             object_length_remaining,
-                            NodeId::SIZE + 5
+                            2 * NodeId::SIZE + 2 + 4 + 4 + 2 + 1
                         ),
                     )));
                 }
@@ -1886,15 +1902,17 @@ fn parse_rtable_update_info_from_bytes(payload: &[u8]) -> Result<ContactActions,
                 // Path
                 let path_vector_size =
                     u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
-                if object_length_remaining
-                    < NodeId::SIZE + path_vector_size as usize + 2 + 4 + 4 + 2 + 1
-                {
+                let entry_length = NodeId::SIZE // Contact-ID
+                    + path_vector_size as usize * NodeId::SIZE + 2 // Path
+                    + 4 // SSN
+                    + 4 // Age Info
+                    + 2 // Node Degree
+                    + 1; // RouteUpdateAction
+                if object_length_remaining < entry_length {
                     return Err(Box::new(IoError::new(
                         ErrorKind::InvalidData,
                         format!(
-                            "rtable-update-entry object too short (length = {}, expected = {})",
-                            object_length_remaining,
-                            NodeId::SIZE + path_vector_size as usize + 2 + 4 + 4 + 2 + 1
+                            "rtable-update-entry object too short (length = {object_length_remaining}, expected = {entry_length})"
                         ),
                     )));
                 }
@@ -1906,7 +1924,7 @@ fn parse_rtable_update_info_from_bytes(payload: &[u8]) -> Result<ContactActions,
                     path.push(hop_id);
                 }
                 let path = Path::try_from(path)?; // or domain model uses non-empty paths
-                assert_eq!(&contact_id, path.last()); // and does include the final destination
+                check_path_ends_at_contact(&contact_id, &path)?;
 
                 // SSN
                 let ssn_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
@@ -1931,12 +1949,8 @@ fn parse_rtable_update_info_from_bytes(payload: &[u8]) -> Result<ContactActions,
                 apply_info_age(&mut contact, age_raw);
                 result.push((contact, action));
 
-                object_length_remaining -= NodeId::SIZE // Contact-ID
-                        + (path_vector_size as usize * NodeId::SIZE)+ 2 // Path
-                        + 4 // SSN
-                        + 4 // Age Info
-                        + 1 // RouteUpdateAction
-                        + 2 // Node Degree;
+                // cannot underflow, checked above
+                object_length_remaining -= entry_length;
             }
 
             return Ok(result);
@@ -2053,5 +2067,26 @@ mod tests {
 
         apply_info_age(&mut contact, 60_000);
         assert!(contact.age() >= Age::from(60_000));
+    }
+
+    #[test]
+    fn rtable_update_entry_longer_than_its_object_is_rejected() {
+        let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
+        let contact = Contact::new(
+            Path::from([NodeId::with_lsb(0xa0), NodeId::with_lsb(0xa1)]),
+            SafeStateSeqNr::try_from(3u32).unwrap(),
+        );
+        let mut object = Vec::new();
+        write_rtable_update_info_object(
+            &mut object,
+            &vec![(contact, RouteUpdateActionType::Unreachable)],
+        )
+        .unwrap();
+        assert!(parse_rtable_update_info_from_bytes(&object).is_ok());
+
+        // the object claims one byte less than its entry needs, the bytes are still there
+        let length = u16::from_be_bytes([object[1], object[2]]) - 1;
+        object[1..3].copy_from_slice(&length.to_be_bytes());
+        assert!(parse_rtable_update_info_from_bytes(&object).is_err());
     }
 }

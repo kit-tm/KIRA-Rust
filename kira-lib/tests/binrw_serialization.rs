@@ -1227,6 +1227,97 @@ fn binrw_rtable_update_keeps_contact_age() {
     assert_age_about(&decoded.contact_actions[0].0, 3_000);
 }
 
+/// A FindNodeRsp with one RTable contact 0xa1 over ⟨0xa0, 0xa1⟩.
+fn rtable_message() -> ProtocolMessage {
+    let header = CommonHeader::new(
+        ProtocolMessageKind::FindNodeRsp,
+        NodeId::with_lsb(0x91),
+        NodeId::with_lsb(0x92),
+        Some(0x8001.into()),
+        0x8002,
+        7,
+    );
+    ProtocolMessage::FindNodeRsp(ReqRspMessage {
+        common_header: header.clone(),
+        data: RTableData {
+            contacts: vec![aged_contact(0xa1, 0)],
+        },
+        not_via: Some(HashSet::new()),
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    })
+}
+
+/// An UpdateRouteReq with one contact 0xa1 over ⟨0xa0, 0xa1⟩.
+fn rtable_update_message() -> ProtocolMessage {
+    let header = CommonHeader::new(
+        ProtocolMessageKind::UpdateRouteReq,
+        NodeId::with_lsb(0x99),
+        NodeId::with_lsb(0x9a),
+        Some(0x8a01.into()),
+        0x8a02,
+        4,
+    );
+    ProtocolMessage::UpdateRouteReq(UpdateRouteReq {
+        common_header: header.clone(),
+        not_via: Some(HashSet::new()),
+        contact_actions: vec![(aged_contact(0xa1, 0), RouteUpdateActionType::Unreachable)],
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    })
+}
+
+/// Serializes the message, lets `patch` change the bytes, given the index of the entry of
+/// contact 0xa1 (its Contact-ID), and deserializes the result.
+fn deserialize_patched(
+    msg: ProtocolMessage,
+    patch: impl FnOnce(&mut [u8], usize),
+) -> Result<ProtocolMessage, Box<dyn std::error::Error>> {
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::Binrw
+        .serialize(&mut buf, &msg)
+        .expect("serialize");
+    // the Contact-ID is the first occurrence of the contact's ID, the path follows it
+    let id = NodeId::with_lsb(0xa1).to_be_bytes();
+    let entry = buf
+        .windows(id.len())
+        .position(|window| window == id)
+        .expect("contact entry");
+    patch(&mut buf, entry);
+    ProtocolMessageFormat::Binrw.deserialize(Cursor::new(&buf))
+}
+
+/// The contact no longer matches the last hop of its path.
+fn change_contact_id(buf: &mut [u8], entry: usize) {
+    buf[entry..entry + NodeId::SIZE].copy_from_slice(&NodeId::with_lsb(0xbb).to_be_bytes());
+}
+
+/// The object is one byte shorter than its only entry. The object length directly precedes
+/// the entry.
+fn shorten_object(buf: &mut [u8], entry: usize) {
+    let length = &mut buf[entry - 2..entry];
+    let shortened = u16::from_be_bytes([length[0], length[1]]) - 1;
+    length.copy_from_slice(&shortened.to_be_bytes());
+}
+
+#[test]
+fn binrw_rtable_entry_not_ending_at_contact_is_rejected() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
+    assert!(deserialize_patched(rtable_message(), |_, _| {}).is_ok());
+    assert!(deserialize_patched(rtable_message(), change_contact_id).is_err());
+}
+
+#[test]
+fn binrw_rtable_update_entry_not_ending_at_contact_is_rejected() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
+    assert!(deserialize_patched(rtable_update_message(), |_, _| {}).is_ok());
+    assert!(deserialize_patched(rtable_update_message(), change_contact_id).is_err());
+}
+
+#[test]
+fn binrw_rtable_entry_longer_than_its_object_is_rejected() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
+    assert!(deserialize_patched(rtable_message(), shorten_object).is_err());
+}
+
 #[test]
 fn binrw_contact_list_keeps_contact_age() {
     let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());

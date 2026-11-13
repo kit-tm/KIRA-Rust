@@ -850,17 +850,20 @@ where
             UseCaseEvent::Contact(contact_event) => {
                 match *contact_event {
                     ContactEvent::Proposed(proposed_contact) => {
-                        // sanity check
-                        assert!(
-                            context
-                                .uln_table()
-                                .contains_key(proposed_contact.path().unwrap().first())
-                        );
-                        log::trace!(target: "path_probing", "Probing for proposed contact with path {}", proposed_contact.path().unwrap());
+                        let Some(path) = proposed_contact.path() else {
+                            return Ok(());
+                        };
+                        // events are queued: the first hop may have been removed from the
+                        // ULNTable since the contact was proposed, so the path is unusable
+                        if !context.uln_table().contains_key(path.first()) {
+                            log::debug!(target: "path_probing", "Not probing proposed contact {}: first hop of {path} is no underlay neighbor anymore", proposed_contact.id());
+                            return Ok(());
+                        }
+                        log::trace!(target: "path_probing", "Probing for proposed contact with path {path}");
                         // this is not a contact yet, so we need to use the path
                         self.schedule_path_probe_req(
                             context,
-                            PathProbeAction::ProbePath(proposed_contact.path().unwrap().clone()),
+                            PathProbeAction::ProbePath(path.clone()),
                         );
                     }
                     ContactEvent::Updated { new, old } => {
@@ -1593,5 +1596,42 @@ mod tests {
             not_via.iter().find(|entry| entry.link == link).unwrap().age,
             crate::domain::Age::from(200)
         );
+    }
+
+    fn propose(pp: &mut PP, ctx: &Ctx, proposed_path: Path) {
+        let mut proposed_path = proposed_path;
+        proposed_path.set_notvalidated();
+        let contact = Contact::new(proposed_path, ssn());
+        pp.handle_event(
+            ctx,
+            UseCaseEvent::Contact(Box::new(ContactEvent::Proposed(contact))),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn proposed_contact_is_probed() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup(true);
+
+        propose(&mut pp, &ctx, path(&[a(), b(), d()]));
+
+        let expected = path(&[a(), b(), d()]);
+        assert!(scheduled(&pp).keys().any(|action| matches!(
+            action,
+            PathProbeAction::ProbePath(probed) if probed.is_same_path_as(&expected)
+        )));
+    }
+
+    #[test]
+    fn proposed_contact_whose_neighbor_was_removed_is_not_probed() {
+        let _clock = crate::tests::TestClock::new();
+        // the neighbor was removed from the ULNTable before the queued event was handled
+        let (mut pp, ctx) = setup(true);
+        ctx.uln_table_mut().remove(&a());
+
+        propose(&mut pp, &ctx, path(&[a(), b(), d()]));
+
+        assert!(scheduled(&pp).is_empty());
     }
 }

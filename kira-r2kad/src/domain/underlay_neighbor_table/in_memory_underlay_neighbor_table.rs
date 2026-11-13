@@ -92,20 +92,25 @@ impl ULNTable for InMemoryULNTable {
                         self.state_seq_nr = self.state_seq_nr + 1;
                         true
                     }
-                    _ => {
-                        panic!(
-                            "Internal errror - Trying to confirm entry for NodeID {} with new ulnid {} w/o inserting it first",
-                            id, ulnid
+                    // the neighbor is known via another underlay link, e.g., a second interface
+                    // to the same neighbor: a message over this link doesn't confirm the stored one
+                    (existing_ulnid, _) => {
+                        log::warn!(
+                            target: "uln_table",
+                            "Not confirming neighbor {id} at ulnid {ulnid}: it is known at ulnid {existing_ulnid}"
                         );
+                        false
                     }
                 }
             }
             Entry::Vacant(_) => {
-                // for a confirm we expect that there exists a prior entry for that ulnid
-                panic!(
-                    "Internal errror - Trying to confirm formerly unknown entry for NodeID {} and ulnid {}",
-                    id, ulnid
+                // a confirmation needs a prior (tentative) entry, e.g., a late response to a request
+                // to a neighbor that was removed meanwhile confirms nothing
+                log::warn!(
+                    target: "uln_table",
+                    "Not confirming unknown neighbor {id} at ulnid {ulnid}"
                 );
+                false
             }
         }
     }
@@ -186,7 +191,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn ssn_on_wrong_confirm() {
         let table = InMemoryULNTable::new();
         tests::ssn_on_wrong_confirm(table);

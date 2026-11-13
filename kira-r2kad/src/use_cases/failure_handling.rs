@@ -743,15 +743,15 @@ where
             context.root_id(),
         );
 
-        // the following is only necessary for subsequent the logging message
-        let current_retries = match context.routing_table().contact(&node_id).unwrap().state() {
-            ContactState::Rediscovering(rds) => rds.backoff.current_retries,
-            _ => {
-                panic!("handle rediscovery failure: contact should be in Rediscovering state");
-            }
-        };
-        // Just some logging, if logging is disabled this will be eliminated through dead code elimination
-        log::trace!(target: "failure_handling", "handle rediscovery failure: Sent rediscovery find node for {} to {} [round {} of {}]", node_id, next_via_contact_id, current_retries, self.config.max_retry_rounds.get());
+        // only for logging, which must not fail
+        let current_retries = context
+            .routing_table()
+            .contact(&node_id)
+            .and_then(|contact| match contact.state() {
+                ContactState::Rediscovering(rds) => Some(rds.backoff.current_retries),
+                _ => None,
+            });
+        log::trace!(target: "failure_handling", "handle rediscovery failure: Sent rediscovery find node for {} to {} [round {:?} of {}]", node_id, next_via_contact_id, current_retries, self.config.max_retry_rounds.get());
 
         Ok(())
     }
