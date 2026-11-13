@@ -1200,6 +1200,64 @@ mod tests {
         assert!(fh.scheduled_rediscoveries.is_empty());
     }
 
+    fn vicinity_change_announced(ctx: &Ctx) -> bool {
+        ctx.runtime()
+            .broadcast()
+            .any(|event| matches!(event, UseCaseEvent::Vicinity(VicinityEvent::Changed)))
+    }
+
+    /// Takes down the underlay link `ulnid` after the setup's changes of the vicinity graph
+    /// have been processed.
+    fn uln_down(fh: &mut FH, ctx: &Ctx, ulnid: UnderlayNeighborId) {
+        ctx.vicinity_graph_mut().vicinity_processed();
+        ctx.runtime().broadcast().for_each(drop);
+        fh.handle_event(
+            ctx,
+            UseCaseEvent::UnderlayUpdate(UnderlayNeighborUpdate::UnderlayNeighborDown(ulnid)),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn uln_down_removes_the_neighbor_from_the_vicinity_and_announces_the_change() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut fh, ctx) = setup(false);
+
+        uln_down(&mut fh, &ctx, ulnid(2));
+
+        assert!(!ctx.uln_table().contains(&b()));
+        assert!(ctx.vicinity_graph().entry(&b()).is_none());
+        assert!(
+            vicinity_change_announced(&ctx),
+            "precomputed PathIDs over the lost ULN must be recomputed"
+        );
+    }
+
+    #[test]
+    fn uln_down_announces_the_removed_edge_of_a_neighbor_still_in_the_vicinity() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut fh, ctx) = setup(true);
+
+        uln_down(&mut fh, &ctx, ulnid(2));
+
+        assert_eq!(
+            ctx.vicinity_graph().root_distance(&b()),
+            Some(2),
+            "b is reached via a"
+        );
+        assert!(vicinity_change_announced(&ctx));
+    }
+
+    #[test]
+    fn down_of_an_unknown_uln_announces_no_vicinity_change() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut fh, ctx) = setup(false);
+
+        uln_down(&mut fh, &ctx, ulnid(9));
+
+        assert!(!vicinity_change_announced(&ctx));
+    }
+
     #[test]
     fn invalidation_starts_rediscovery() {
         let _clock = crate::tests::TestClock::new();

@@ -292,3 +292,183 @@ impl UseCaseState for PrecomputeState {
         self == &Self::Error
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        Output,
+        context::{
+            ContextConfig,
+            SyncContext,
+        },
+        domain::{
+            ConnectionId,
+            ForwardingTablesUpdate,
+            InterfaceId,
+            PathId,
+            SafeStateSeqNr,
+            ULNTable,
+            routing_table::SingleBucketRT,
+            underlay_neighbor_table::InMemoryULNTable,
+            vicinity::vicinity_graph::PetVicinityGraph,
+        },
+        runtime::testing::TestingUseCaseRuntime,
+    };
+
+    const BUCKET_SIZE: usize = 20;
+    type Ctx = SyncContext<
+        SingleBucketRT<BUCKET_SIZE>,
+        TestingUseCaseRuntime,
+        (),
+        InMemoryULNTable,
+        PetVicinityGraph,
+    >;
+    type PP = PrecomputePathIds<Ctx, BUCKET_SIZE>;
+
+    fn root() -> NodeId {
+        NodeId::with_msb(1)
+    }
+    /// underlay neighbor that stays reachable
+    fn a() -> NodeId {
+        NodeId::with_msb(2)
+    }
+    /// underlay neighbor whose link fails
+    fn b() -> NodeId {
+        NodeId::with_msb(3)
+    }
+    /// two-hop neighbor behind [b]
+    fn x() -> NodeId {
+        NodeId::with_msb(4)
+    }
+    fn ulnid(id: u32) -> UnderlayNeighborId {
+        UnderlayNeighborId {
+            interface_id: InterfaceId::try_from(id).unwrap(),
+            connection_id: ConnectionId(id),
+        }
+    }
+    fn ssn() -> SafeStateSeqNr {
+        SafeStateSeqNr::try_from(1).unwrap()
+    }
+    fn path_id(nodes: &[NodeId]) -> PathId {
+        Hasher::default().hash(nodes)
+    }
+
+    /// Vicinity root–[a] (ulnid 1), root–[b] (ulnid 2) and [b]–[x];
+    /// precomputation on every change.
+    fn setup() -> (PP, Ctx) {
+        crate::tests::init();
+
+        let ctx = Ctx::new(ContextConfig {
+            root_id: root(),
+            routing_table: SingleBucketRT::<BUCKET_SIZE>::new(root()),
+            runtime: TestingUseCaseRuntime::with_unique_timer_ids(),
+            insertion_strategy: (),
+            uln_table: InMemoryULNTable::new(),
+            vicinity_graph: PetVicinityGraph::new(root()),
+        });
+        ctx.uln_table_mut().insert(a(), ulnid(1));
+        ctx.uln_table_mut().insert(b(), ulnid(2));
+        {
+            let mut vg = ctx.vicinity_graph_mut();
+            vg.insert(a(), &root(), ssn()).unwrap();
+            vg.insert(b(), &root(), ssn()).unwrap();
+            vg.insert(x(), &b(), ssn()).unwrap();
+        }
+
+        let mut pp = PP::new(PrecomputePathIdsConfig::default());
+        pp.start(&ctx).unwrap();
+        (pp, ctx)
+    }
+
+    fn handle(pp: &mut PP, ctx: &Ctx, event: UseCaseEvent) {
+        pp.handle_event(ctx, event).unwrap();
+    }
+
+    /// in_path_ids of the installed and of the removed entries since the last call
+    fn fwd_table_updates(ctx: &Ctx) -> (HashSet<PathId>, HashSet<PathId>) {
+        let mut installed = HashSet::new();
+        let mut removed = HashSet::new();
+        for output in ctx.runtime().output() {
+            match output {
+                Output::UpdateForwardingTables(ForwardingTablesUpdate::PathIdTableUpdate(
+                    PathIdTableUpdate::CreateOrUpdate(entry),
+                )) => assert!(installed.insert(entry.in_path_id().clone())),
+                Output::UpdateForwardingTables(ForwardingTablesUpdate::PathIdTableUpdate(
+                    PathIdTableUpdate::Remove(in_path_id),
+                )) => assert!(removed.insert(in_path_id)),
+                other => panic!("unexpected output {other:?}"),
+            }
+        }
+        (installed, removed)
+    }
+
+    fn all_entries() -> HashSet<PathId> {
+        HashSet::from([
+            path_id(&[root(), a()]),
+            path_id(&[root(), b()]),
+            path_id(&[root(), b(), x()]),
+        ])
+    }
+    fn entries_via_b() -> HashSet<PathId> {
+        HashSet::from([path_id(&[root(), b()]), path_id(&[root(), b(), x()])])
+    }
+
+    #[test]
+    fn vicinity_change_installs_new_and_removes_vanished_entries() {
+        let (mut pp, ctx) = setup();
+
+        handle(
+            &mut pp,
+            &ctx,
+            UseCaseEvent::Vicinity(VicinityEvent::Changed),
+        );
+        assert_eq!(fwd_table_updates(&ctx), (all_entries(), HashSet::new()));
+        assert!(!ctx.vicinity_graph().vicinity_changed(), "change processed");
+
+        // the link to b fails
+        {
+            let mut vg = ctx.vicinity_graph_mut();
+            assert!(vg.remove_edge(&root(), &b()));
+            let _ = vg.retain_vicinity().count();
+        }
+        ctx.uln_table_mut().remove(&b());
+        handle(
+            &mut pp,
+            &ctx,
+            UseCaseEvent::Vicinity(VicinityEvent::Changed),
+        );
+
+        assert_eq!(fwd_table_updates(&ctx), (HashSet::new(), entries_via_b()));
+    }
+
+    #[test]
+    fn uln_down_purges_its_entries_so_they_are_reinstalled() {
+        let (mut pp, ctx) = setup();
+        handle(
+            &mut pp,
+            &ctx,
+            UseCaseEvent::Vicinity(VicinityEvent::Changed),
+        );
+        let _ = fwd_table_updates(&ctx);
+
+        handle(
+            &mut pp,
+            &ctx,
+            UseCaseEvent::UnderlayUpdate(UnderlayNeighborUpdate::UnderlayNeighborDown(ulnid(2))),
+        );
+        assert_eq!(
+            fwd_table_updates(&ctx),
+            (HashSet::new(), entries_via_b()),
+            "entries via the lost ULN are removed at once"
+        );
+
+        // b comes back with the same ulnid, the vicinity looks as before
+        handle(
+            &mut pp,
+            &ctx,
+            UseCaseEvent::Vicinity(VicinityEvent::Changed),
+        );
+        assert_eq!(fwd_table_updates(&ctx), (entries_via_b(), HashSet::new()));
+    }
+}

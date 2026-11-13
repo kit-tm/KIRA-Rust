@@ -2518,6 +2518,33 @@ mod tests {
     }
 
     #[test]
+    fn resync_removes_isolated_nodes_and_announces_the_change() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut vd, ctx, _) = setup(VicinityDiscoveryConfig::default(), true);
+        {
+            let mut vg = ctx.vicinity_graph_mut();
+            vg.insert(two_hop(), &uln(), ssn(1)).unwrap();
+            // the link to the ULN is gone, but the nodes behind it are still in the graph
+            assert!(vg.remove_edge(&root(), &uln()));
+            vg.vicinity_processed();
+        }
+        let timer = resync_timer(&vd);
+
+        fire(&mut vd, &ctx, timer);
+
+        assert!(
+            ctx.vicinity_graph().entry(&two_hop()).is_none(),
+            "isolated node removed"
+        );
+        assert!(
+            ctx.runtime()
+                .broadcast()
+                .any(|event| matches!(event, UseCaseEvent::Vicinity(VicinityEvent::Changed))),
+            "vicinity change is announced"
+        );
+    }
+
+    #[test]
     fn handshake_message_with_invalid_ssn_is_ignored() {
         let _clock = crate::tests::TestClock::new();
         let (mut vd, ctx, _) = setup(VicinityDiscoveryConfig::default(), false);
