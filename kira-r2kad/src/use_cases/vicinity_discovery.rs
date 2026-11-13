@@ -226,16 +226,16 @@ fn deterministic_heuristic(self_id: &NodeId, other: &NodeId, num_bits: NonZeroU8
     // Unwrapping is safe here, as checked at construction
     let own_bits = self_id.bits(0, num_bits).unwrap();
     let other_bits = other.bits(0, num_bits).unwrap();
-    let (mut delta, _) = other_bits.overflowing_sub(own_bits);
-    let mut mask = u128::MAX;
-    mask <<= u128::BITS - num_bits.get() as u32;
-    mask >>= u128::BITS - num_bits.get() as u32;
-    delta &= mask;
-    // Simulation: (delta < 0x80000000) || ((delta == 0 || delta == 0x80000000) && context.root_id() < &source)
-    if delta < 0x80000000 && delta != 0 {
+    // compute the difference mod 2^num_bits
+    let mask = u128::MAX >> (u128::BITS - num_bits.get() as u32);
+    let delta = other_bits.wrapping_sub(own_bits) & mask;
+    // half of the value range, i.e., 0x80000000 for 32 bits
+    let half = 1u128 << (num_bits.get() - 1);
+    // Simulation (32 bits): (delta < 0x80000000) || ((delta == 0 || delta == 0x80000000) && context.root_id() < &source)
+    if delta < half && delta != 0 {
         return true;
     }
-    if (delta == 0 || delta == 0x80000000) && self_id < other {
+    if (delta == 0 || delta == half) && self_id < other {
         return true;
     }
 
@@ -2652,7 +2652,11 @@ mod tests {
         assert_eq!(*entry.observed_ssn(), ssn(10));
         assert_eq!(entry.synced_ssn(), Some(&ssn(10)));
         assert!(entry.is_reset_suspected());
-        assert_eq!(sent_uln_disc_reqs(&ctx).len(), 1, "own request for an authoritative answer");
+        assert_eq!(
+            sent_uln_disc_reqs(&ctx).len(),
+            1,
+            "own request for an authoritative answer"
+        );
     }
 
     #[test]
@@ -2767,13 +2771,46 @@ mod tests {
         for _i in 0..64 {
             test_pairs.push((NodeId::random(), NodeId::random()));
         }
-        for (node_id_a, node_id_b) in test_pairs {
-            assert_ne!(
-                deterministic_heuristic(&node_id_a, &node_id_b, NonZeroU8::new(32).unwrap()),
-                deterministic_heuristic(&node_id_b, &node_id_a, NonZeroU8::new(32).unwrap()),
-                "{node_id_a:x},{node_id_b:x}"
-            );
+        // exactly one side answers, whatever number of bits is used
+        for bits in [1, 8, 16, 31, 32, 33, 64, 111, NodeId::BITS] {
+            let num_bits = NonZeroU8::new(bits).unwrap();
+            for (node_id_a, node_id_b) in &test_pairs {
+                assert_ne!(
+                    deterministic_heuristic(node_id_a, node_id_b, num_bits),
+                    deterministic_heuristic(node_id_b, node_id_a, num_bits),
+                    "{bits} bits: {node_id_a:x},{node_id_b:x}"
+                );
+            }
         }
+    }
+
+    #[test]
+    fn deterministic_heuristic_uses_half_of_the_value_range() {
+        let own = NodeId::from_const(0x1000u128);
+        let num_bits = NonZeroU8::new(16).unwrap();
+        // other − own mod 2^16 = 0x7fff < 0x8000: answer
+        assert!(deterministic_heuristic(
+            &own,
+            &NodeId::from_const(0x8fffu128),
+            num_bits
+        ));
+        // other − own mod 2^16 = 0x8001 > 0x8000: don't answer
+        assert!(!deterministic_heuristic(
+            &own,
+            &NodeId::from_const(0x9001u128),
+            num_bits
+        ));
+        // other − own mod 2^16 = 0x8000: the full NodeId decides
+        assert!(deterministic_heuristic(
+            &own,
+            &NodeId::from_const(0x9000u128),
+            num_bits
+        ));
+        assert!(!deterministic_heuristic(
+            &NodeId::from_const(0x9000u128),
+            &own,
+            num_bits
+        ));
     }
 
     fn uln_disc_rsp(nonce: Nonce) -> UseCaseEvent {
