@@ -938,7 +938,10 @@ mod tests {
         let _ = routing_table.insert(contact(&[NodeId::with_msb(3), node]));
 
         assert!(routing_table.protected_contacts.is_empty());
-        let moved = routing_table.inner.contact(&node).expect("moved to the buckets");
+        let moved = routing_table
+            .inner
+            .contact(&node)
+            .expect("moved to the buckets");
         assert!(moved.is_valid());
         assert!(moved.path().unwrap().is_same_path_as(&longer));
         assert_eq!(moved.labels(), ContactLabels::Cached);

@@ -364,7 +364,9 @@ async fn main() {
 
     // leave no stale forwarding state behind
     let (handle_rtnetlink, handle_nfnetlink) = cleanup_handles;
-    if let Err(e) = remove_forwarding_state(&handle_rtnetlink, &handle_nfnetlink, &ip_prefixes).await {
+    if let Err(e) =
+        remove_forwarding_state(&handle_rtnetlink, &handle_nfnetlink, &ip_prefixes).await
+    {
         log::error!("Removing the forwarding state failed: {e}");
     }
 }

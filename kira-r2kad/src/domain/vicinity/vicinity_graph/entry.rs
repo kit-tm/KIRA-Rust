@@ -153,7 +153,10 @@ mod tests {
         entry.suspect_reset();
 
         entry.update_synced_ssn(ssn(9));
-        assert!(entry.is_reset_suspected(), "not synchronized up to observed SSN");
+        assert!(
+            entry.is_reset_suspected(),
+            "not synchronized up to observed SSN"
+        );
 
         entry.update_synced_ssn(ssn(10));
         assert!(!entry.is_reset_suspected());

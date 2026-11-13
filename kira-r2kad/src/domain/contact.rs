@@ -854,8 +854,17 @@ mod tests {
 
         assert!(contact.assess_path_candidate_and_update(&validated(&[8, 9, 5])));
 
-        assert!(contact.path().unwrap().is_same_path_as(&validated(&[8, 9, 5])));
-        assert_eq!(contact.proposed_path().unwrap().size(), 2, "still worth probing");
+        assert!(
+            contact
+                .path()
+                .unwrap()
+                .is_same_path_as(&validated(&[8, 9, 5]))
+        );
+        assert_eq!(
+            contact.proposed_path().unwrap().size(),
+            2,
+            "still worth probing"
+        );
     }
 
     #[test]

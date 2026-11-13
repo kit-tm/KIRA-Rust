@@ -780,7 +780,13 @@ mod tests {
 
         assert!(!ctx.uln_table().contains(&c()));
         let vg = ctx.vicinity_graph();
-        assert!(!vg.vicinity(&root()).any(|node| node == c()), "edge removed");
-        assert!(vg.entry(&d()).is_none(), "nodes outside the vicinity are removed");
+        assert!(
+            !vg.vicinity(&root()).any(|node| node == c()),
+            "edge removed"
+        );
+        assert!(
+            vg.entry(&d()).is_none(),
+            "nodes outside the vicinity are removed"
+        );
     }
 }

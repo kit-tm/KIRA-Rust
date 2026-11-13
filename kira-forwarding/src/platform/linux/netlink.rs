@@ -770,7 +770,12 @@ async fn request_ignoring<T>(
     ignored_codes: &[i32],
 ) -> Result<()>
 where
-    T: std::fmt::Debug + netlink_packet_core::NetlinkSerializable + netlink_packet_core::NetlinkDeserializable + Clone + Send + 'static,
+    T: std::fmt::Debug
+        + netlink_packet_core::NetlinkSerializable
+        + netlink_packet_core::NetlinkDeserializable
+        + Clone
+        + Send
+        + 'static,
 {
     let mut response = handle.request(msg, SocketAddr::new(0, 0))?;
     while let Some(response) = response.next().await {

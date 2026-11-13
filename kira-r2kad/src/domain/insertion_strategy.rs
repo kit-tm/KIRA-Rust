@@ -953,7 +953,11 @@ mod tests {
         strategy.insert(valid_contact(&[uln, dest], 1), &mut rt, &un);
 
         // relayed by another node (RTable object), not better, but newer
-        strategy.insert(unknown_contact(&[uln, NodeId::from(9), dest], 5), &mut rt, &un);
+        strategy.insert(
+            unknown_contact(&[uln, NodeId::from(9), dest], 5),
+            &mut rt,
+            &un,
+        );
 
         assert_eq!(
             rt.contact(&dest).unwrap().state_seq_nr(),
@@ -978,7 +982,14 @@ mod tests {
 
         clock.advance(std::time::Duration::from_millis(2));
         // a message of the node over another path
-        strategy.insert(valid_contact(&[uln, NodeId::from(9), dest], 2), &mut rt, &un);
-        assert!(*rt.contact(&dest).unwrap().last_seen() > first, "first-hand");
+        strategy.insert(
+            valid_contact(&[uln, NodeId::from(9), dest], 2),
+            &mut rt,
+            &un,
+        );
+        assert!(
+            *rt.contact(&dest).unwrap().last_seen() > first,
+            "first-hand"
+        );
     }
 }

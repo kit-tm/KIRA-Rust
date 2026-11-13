@@ -249,7 +249,9 @@ where
     /// Returns the timeout of a ProbeReq over the path, derived from its SRTT if measured.
     fn request_timeout(&self, path: &Path) -> Duration {
         match path.srtt() {
-            Some(srtt) => (srtt * self.config.srtt_timeout_factor).max(self.config.min_request_timeout),
+            Some(srtt) => {
+                (srtt * self.config.srtt_timeout_factor).max(self.config.min_request_timeout)
+            }
             None => self.config.request_timeout,
         }
     }
@@ -1243,13 +1245,20 @@ mod tests {
         propose_shorter_path(&mut pp, &ctx);
         assert_eq!(sent_probe_reqs(&ctx).len(), 1);
         let (timer, timeout) = last_timer(&ctx);
-        assert_eq!(timeout, Duration::from_millis(250), "no SRTT of a proposed path");
+        assert_eq!(
+            timeout,
+            Duration::from_millis(250),
+            "no SRTT of a proposed path"
+        );
 
         // neither a ProbeRsp nor an error came back
         pp.handle_event(&ctx, UseCaseEvent::Timer(timer)).unwrap();
 
         let contact = ctx.routing_table().contact(&c()).unwrap().clone();
-        assert!(contact.proposed_path().is_none(), "next candidate can be proposed");
+        assert!(
+            contact.proposed_path().is_none(),
+            "next candidate can be proposed"
+        );
         assert!(contact.is_invalid(), "active path is not affected");
     }
 
@@ -1293,14 +1302,8 @@ mod tests {
         for _ in 0..3 {
             source_route.advance();
         }
-        let common_header = CommonHeader::new(
-            kind,
-            c(),
-            root(),
-            Some(nonce),
-            StateSeqNr::from(c_ssn),
-            1,
-        );
+        let common_header =
+            CommonHeader::new(kind, c(), root(), Some(nonce), StateSeqNr::from(c_ssn), 1);
         match kind {
             ProtocolMessageKind::ProbeReq => ProtocolMessage::ProbeReq(ReqRspMessage {
                 common_header,
@@ -1318,8 +1321,11 @@ mod tests {
     }
 
     fn receive(pp: &mut PP, ctx: &Ctx, message: ProtocolMessage) {
-        pp.handle_event(ctx, UseCaseEvent::Message(message, UnderlayNeighborSource::Local))
-            .unwrap();
+        pp.handle_event(
+            ctx,
+            UseCaseEvent::Message(message, UnderlayNeighborSource::Local),
+        )
+        .unwrap();
     }
 
     fn known_ssn(ctx: &Ctx) -> SafeStateSeqNr {
@@ -1332,11 +1338,23 @@ mod tests {
         let (mut pp, ctx) = setup_known_ssn();
 
         // e.g., the contact restarted with the same NodeID
-        receive(&mut pp, &ctx, message_from_c(ProtocolMessageKind::ProbeRsp, Nonce::random(), 2));
-        receive(&mut pp, &ctx, message_from_c(ProtocolMessageKind::ProbeRsp, Nonce::random(), 3));
+        receive(
+            &mut pp,
+            &ctx,
+            message_from_c(ProtocolMessageKind::ProbeRsp, Nonce::random(), 2),
+        );
+        receive(
+            &mut pp,
+            &ctx,
+            message_from_c(ProtocolMessageKind::ProbeRsp, Nonce::random(), 3),
+        );
 
         assert_eq!(sent_probe_reqs(&ctx).len(), 1, "one probe in flight");
-        assert_eq!(known_ssn(&ctx), SafeStateSeqNr::try_from(10).unwrap(), "not accepted");
+        assert_eq!(
+            known_ssn(&ctx),
+            SafeStateSeqNr::try_from(10).unwrap(),
+            "not accepted"
+        );
     }
 
     #[test]
@@ -1344,7 +1362,11 @@ mod tests {
         let _clock = crate::tests::TestClock::new();
         let (mut pp, ctx) = setup_known_ssn();
 
-        receive(&mut pp, &ctx, message_from_c(ProtocolMessageKind::ProbeRsp, Nonce::random(), 11));
+        receive(
+            &mut pp,
+            &ctx,
+            message_from_c(ProtocolMessageKind::ProbeRsp, Nonce::random(), 11),
+        );
 
         assert!(sent_probe_reqs(&ctx).is_empty());
     }
@@ -1354,7 +1376,11 @@ mod tests {
         let _clock = crate::tests::TestClock::new();
         let (mut pp, ctx) = setup_known_ssn();
 
-        receive(&mut pp, &ctx, message_from_c(ProtocolMessageKind::ProbeReq, Nonce::random(), 2));
+        receive(
+            &mut pp,
+            &ctx,
+            message_from_c(ProtocolMessageKind::ProbeReq, Nonce::random(), 2),
+        );
 
         let sent: Vec<_> = ctx.runtime().output().collect();
         let count = |kind: ProtocolMessageKind| {
@@ -1372,13 +1398,21 @@ mod tests {
     fn answer_to_probe_lowers_the_known_ssn() {
         let _clock = crate::tests::TestClock::new();
         let (mut pp, ctx) = setup_known_ssn();
-        receive(&mut pp, &ctx, message_from_c(ProtocolMessageKind::ProbeRsp, Nonce::random(), 2));
+        receive(
+            &mut pp,
+            &ctx,
+            message_from_c(ProtocolMessageKind::ProbeRsp, Nonce::random(), 2),
+        );
         let probe = sent_probe_reqs(&ctx).pop().unwrap();
 
         receive(
             &mut pp,
             &ctx,
-            message_from_c(ProtocolMessageKind::ProbeRsp, probe.common_header.msg_id(), 2),
+            message_from_c(
+                ProtocolMessageKind::ProbeRsp,
+                probe.common_header.msg_id(),
+                2,
+            ),
         );
 
         assert_eq!(known_ssn(&ctx), SafeStateSeqNr::try_from(2).unwrap());
@@ -1404,11 +1438,19 @@ mod tests {
         receive(
             &mut pp,
             &ctx,
-            message_from_c(ProtocolMessageKind::ProbeRsp, probe.common_header.msg_id(), 2),
+            message_from_c(
+                ProtocolMessageKind::ProbeRsp,
+                probe.common_header.msg_id(),
+                2,
+            ),
         );
 
         assert!(ctx.routing_table().contact(&c()).unwrap().is_invalid());
-        assert_eq!(known_ssn(&ctx), SafeStateSeqNr::try_from(2).unwrap(), "still authoritative");
+        assert_eq!(
+            known_ssn(&ctx),
+            SafeStateSeqNr::try_from(2).unwrap(),
+            "still authoritative"
+        );
     }
 
     #[test]
@@ -1417,10 +1459,18 @@ mod tests {
         let (mut pp, ctx) = setup_known_ssn();
         invalidate_c(&ctx);
 
-        receive(&mut pp, &ctx, message_from_c(ProtocolMessageKind::ProbeReq, Nonce::random(), 10));
+        receive(
+            &mut pp,
+            &ctx,
+            message_from_c(ProtocolMessageKind::ProbeReq, Nonce::random(), 10),
+        );
 
         assert!(ctx.routing_table().contact(&c()).unwrap().is_invalid());
-        assert_eq!(sent_probe_reqs(&ctx).len(), 0, "no own probe of an invalid contact");
+        assert_eq!(
+            sent_probe_reqs(&ctx).len(),
+            0,
+            "no own probe of an invalid contact"
+        );
     }
 
     #[test]
@@ -1429,7 +1479,11 @@ mod tests {
         let (mut pp, ctx) = setup_known_ssn();
         invalidate_c(&ctx);
 
-        receive(&mut pp, &ctx, message_from_c(ProtocolMessageKind::ProbeRsp, Nonce::random(), 2));
+        receive(
+            &mut pp,
+            &ctx,
+            message_from_c(ProtocolMessageKind::ProbeRsp, Nonce::random(), 2),
+        );
 
         assert!(sent_probe_reqs(&ctx).is_empty());
     }
