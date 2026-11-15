@@ -50,6 +50,7 @@ use kira_r2kad::domain::{
         ErrorData,
         FindNodeReqData,
         PathSetupReqData,
+        PathSetupRspData,
         PathTeardownReqData,
         ProbeReqData,
         ProbeRspData,
@@ -114,6 +115,7 @@ pub fn from_reader<R: Read>(mut reader: R) -> Result<ProtocolMessage, Box<dyn Er
         ProtocolMessageKind::ProbeRsp => deserialize_probe_rsp(header, &mut reader),
 
         ProtocolMessageKind::PathSetupReq => deserialize_path_setup_req(header, &mut reader),
+        ProtocolMessageKind::PathSetupRsp => deserialize_path_setup_rsp(header, &mut reader),
         ProtocolMessageKind::PathTeardownReq => deserialize_path_teardown_req(header, &mut reader),
 
         ProtocolMessageKind::Error => deserialize_error(header, &mut reader),
@@ -157,6 +159,7 @@ pub fn serialize<W: Write>(
         ProtocolMessage::ProbeReq(req) => serialize_probe_req(writer, req),
         ProtocolMessage::ProbeRsp(req) => serialize_probe_rsp(writer, req),
         ProtocolMessage::PathSetupReq(req) => serialize_path_setup_req(writer, req),
+        ProtocolMessage::PathSetupRsp(req) => serialize_path_setup_rsp(writer, req),
         ProtocolMessage::PathTeardownReq(req) => serialize_path_teardown_req(writer, req),
         ProtocolMessage::Error(req) => serialize_error(writer, req),
         ProtocolMessage::StoreReq(req) => serialize_store_req(writer, req),
@@ -340,6 +343,18 @@ fn deserialize_path_setup_req<R: Read>(
         reader,
         PathSetupReqData,
         ProtocolMessage::PathSetupReq,
+    )
+}
+
+fn deserialize_path_setup_rsp<R: Read>(
+    header: CommonHeader,
+    reader: &mut R,
+) -> Result<ProtocolMessage, Box<dyn Error>> {
+    deserialize_req_rsp_no_data(
+        header,
+        reader,
+        PathSetupRspData,
+        ProtocolMessage::PathSetupRsp,
     )
 }
 
@@ -1257,6 +1272,13 @@ fn serialize_probe_rsp<W: Write>(
 fn serialize_path_setup_req<W: Write>(
     writer: W,
     req: &ReqRspMessage<PathSetupReqData>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    serialize_req_rsp_no_data(writer, req)
+}
+
+fn serialize_path_setup_rsp<W: Write>(
+    writer: W,
+    req: &ReqRspMessage<PathSetupRspData>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     serialize_req_rsp_no_data(writer, req)
 }

@@ -7,7 +7,10 @@ use std::cell::{
 
 pub use sync_context::SyncContext;
 
-use crate::domain::NodeId;
+use crate::domain::{
+    NodeId,
+    PathIdFwdState,
+};
 
 pub mod sync_context;
 
@@ -63,4 +66,9 @@ pub trait UseCaseContext {
     fn vicinity_graph(&self) -> Ref<'_, Self::VicinityGraph>;
 
     fn vicinity_graph_mut(&self) -> RefMut<'_, Self::VicinityGraph>;
+
+    /// State of the PathId forwarding table shared by all use cases.
+    fn fwd_state(&self) -> Ref<'_, PathIdFwdState>;
+
+    fn fwd_state_mut(&self) -> RefMut<'_, PathIdFwdState>;
 }

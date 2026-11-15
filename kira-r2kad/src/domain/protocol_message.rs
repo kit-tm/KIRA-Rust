@@ -98,6 +98,7 @@ pub enum ProtocolMessage {
     ProbeReq(ReqRspMessage<ProbeReqData>),
     ProbeRsp(ReqRspMessage<ProbeRspData>),
     PathSetupReq(ReqRspMessage<PathSetupReqData>),
+    PathSetupRsp(ReqRspMessage<PathSetupRspData>),
     PathTeardownReq(ReqRspMessage<PathTeardownReqData>),
     // TODO: add Rsp for Setup and Teardown and handle them accordingly
     UpdateRouteReq(UpdateRouteReq),
@@ -120,6 +121,7 @@ impl ProtocolMessage {
             Self::ProbeReq(req) => Some(&mut req.source_route),
             Self::ProbeRsp(req) => Some(&mut req.source_route),
             Self::PathSetupReq(req) => Some(&mut req.source_route),
+            Self::PathSetupRsp(req) => Some(&mut req.source_route),
             Self::PathTeardownReq(req) => Some(&mut req.source_route),
             Self::UpdateRouteReq(req) => Some(&mut req.source_route),
             Self::StoreReq(req) => Some(&mut req.source_route),
@@ -140,6 +142,7 @@ impl ProtocolMessage {
             Self::ProbeReq(req) => Some(&req.source_route),
             Self::ProbeRsp(req) => Some(&req.source_route),
             Self::PathSetupReq(req) => Some(&req.source_route),
+            Self::PathSetupRsp(req) => Some(&req.source_route),
             Self::PathTeardownReq(req) => Some(&req.source_route),
             Self::UpdateRouteReq(req) => Some(&req.source_route),
             Self::StoreReq(req) => Some(&req.source_route),
@@ -163,6 +166,7 @@ impl ProtocolMessage {
             Self::ProbeReq(req) => Some(req.destination()),
             Self::ProbeRsp(req) => Some(req.destination()),
             Self::PathSetupReq(req) => Some(req.destination()),
+            Self::PathSetupRsp(req) => Some(req.destination()),
             Self::PathTeardownReq(req) => Some(req.destination()),
             Self::UpdateRouteReq(req) => Some(req.source_route.destination()),
             Self::StoreReq(req) => Some(req.destination()),
@@ -185,6 +189,7 @@ impl ProtocolMessage {
             Self::ProbeReq(req) => Some(req.common_header.msg_id()),
             Self::ProbeRsp(req) => Some(req.common_header.msg_id()),
             Self::PathSetupReq(req) => Some(req.common_header.msg_id()),
+            Self::PathSetupRsp(req) => Some(req.common_header.msg_id()),
             Self::PathTeardownReq(req) => Some(req.common_header.msg_id()),
             Self::UpdateRouteReq(_) => None,
             Self::StoreReq(req) => Some(req.common_header.msg_id()),
@@ -219,6 +224,7 @@ impl ProtocolMessage {
             Self::ProbeReq(req) => req.source(),
             Self::ProbeRsp(req) => req.source(),
             Self::PathSetupReq(req) => req.source(),
+            Self::PathSetupRsp(req) => req.source(),
             Self::PathTeardownReq(req) => req.source(),
             Self::UpdateRouteReq(req) => req.source_route.source(),
             ProtocolMessage::StoreReq(req) => req.source(),
@@ -241,6 +247,7 @@ impl ProtocolMessage {
             Self::ProbeReq(req) => req.common_header().state_seq_num(),
             Self::ProbeRsp(req) => req.common_header().state_seq_num(),
             Self::PathSetupReq(req) => req.common_header().state_seq_num(),
+            Self::PathSetupRsp(req) => req.common_header().state_seq_num(),
             Self::PathTeardownReq(req) => req.common_header().state_seq_num(),
             Self::UpdateRouteReq(req) => req.common_header().state_seq_num(),
             ProtocolMessage::StoreReq(req) => req.common_header().state_seq_num(),
@@ -261,6 +268,7 @@ impl ProtocolMessage {
             Self::ProbeReq(req) => req.not_via.as_ref(),
             Self::ProbeRsp(req) => req.not_via.as_ref(),
             Self::PathSetupReq(req) => req.not_via.as_ref(),
+            Self::PathSetupRsp(req) => req.not_via.as_ref(),
             Self::PathTeardownReq(req) => req.not_via.as_ref(),
             Self::UpdateRouteReq(req) => req.not_via.as_ref(),
             Self::StoreReq(req) => req.not_via.as_ref(),
@@ -310,6 +318,7 @@ impl ProtocolMessage {
             Self::ProbeReq(_) => ProtocolMessageKind::ProbeReq,
             Self::ProbeRsp(_) => ProtocolMessageKind::ProbeRsp,
             Self::PathSetupReq(_) => ProtocolMessageKind::PathSetupReq,
+            Self::PathSetupRsp(_) => ProtocolMessageKind::PathSetupRsp,
             Self::PathTeardownReq(_) => ProtocolMessageKind::PathTeardownReq,
             Self::UpdateRouteReq(_) => ProtocolMessageKind::UpdateRouteReq,
             Self::Error(_) => ProtocolMessageKind::Error,
@@ -407,6 +416,7 @@ impl WireFormatMessage for ProtocolMessage {
             Self::ProbeReq(req) => &req.common_header,
             Self::ProbeRsp(req) => &req.common_header,
             Self::PathSetupReq(req) => &req.common_header,
+            Self::PathSetupRsp(req) => &req.common_header,
             Self::PathTeardownReq(req) => &req.common_header,
             Self::UpdateRouteReq(req) => &req.common_header,
             Self::StoreReq(req) => &req.common_header,
@@ -429,6 +439,7 @@ impl WireFormatMessage for ProtocolMessage {
             Self::ProbeReq(req) => req.common_header_mut(),
             Self::ProbeRsp(req) => req.common_header_mut(),
             Self::PathSetupReq(req) => req.common_header_mut(),
+            Self::PathSetupRsp(req) => req.common_header_mut(),
             Self::PathTeardownReq(req) => req.common_header_mut(),
             Self::UpdateRouteReq(req) => req.common_header_mut(),
             Self::StoreReq(req) => req.common_header_mut(),
@@ -492,6 +503,17 @@ pub struct PathSetupReqData;
 impl From<ReqRspMessage<PathSetupReqData>> for ProtocolMessage {
     fn from(message: ReqRspMessage<PathSetupReqData>) -> Self {
         Self::PathSetupReq(message)
+    }
+}
+
+/// Data struct representing the PathSetupRsp protocol message.
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct PathSetupRspData;
+
+impl From<ReqRspMessage<PathSetupRspData>> for ProtocolMessage {
+    fn from(message: ReqRspMessage<PathSetupRspData>) -> Self {
+        Self::PathSetupRsp(message)
     }
 }
 

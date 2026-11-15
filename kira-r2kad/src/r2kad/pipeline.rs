@@ -17,15 +17,24 @@ use crate::use_cases::{
     EventHandler,
     UseCase,
     UseCaseEvent,
-    derive_fwd_table_entries::DeriveFwdTableEntries,
+    derive_fwd_table_entries::{
+        DeriveFwdTableEntries,
+        DeriveFwdTableEntriesConfig,
+    },
     distributed_hash_table::DistributedHashTable,
     distributed_hash_table_injector::DistributedHashTableInjector,
-    explicit_path_management::ExplicitPathManagement,
+    explicit_path_management::{
+        EPMConfig,
+        ExplicitPathManagement,
+    },
     failure_handling::FailureHandling,
     forward_protocol_message::ForwardProtocolMessage,
     //inject_messages::InjectMessages,
     overlay_neighborhood_discovery::OverlayNeighborhoodDiscovery,
-    path_probing::PathProbing,
+    path_probing::{
+        PathProbing,
+        PathProbingConfig,
+    },
     precompute_paths_and_path_ids::PrecomputePathIds,
     vicinity_discovery::VicinityDiscovery,
 };
@@ -34,6 +43,7 @@ use crate::{
     domain::{
         InsertionStrategy,
         NodeId,
+        PathSegmentation,
         RoutingTable,
         ULNState,
         ULNTable,
@@ -55,6 +65,11 @@ use crate::{
 #[derive(Debug, Clone, Copy, Default)]
 pub struct R2KadPipelineConfig {
     //pub benchmark_path: Option<BufWriter<File>>,
+    /// How paths to contacts are split into path segments by the forwarding tier.
+    ///
+    /// Has to match the capabilities of the forwarding tables in use
+    /// and has to be the same on all nodes of the network.
+    pub path_segmentation: PathSegmentation,
 }
 
 // NOTE: in the future this can be refactored into a trait
@@ -78,12 +93,19 @@ pub struct R2KadPipeline<C, const BUCKET_SIZE: usize> {
 }
 
 impl<C, const BUCKET_SIZE: usize> R2KadPipeline<C, BUCKET_SIZE> {
-    pub fn new(_config: R2KadPipelineConfig) -> Self {
-        let derive_forwarding_tables = DeriveFwdTableEntries::new(Default::default());
+    pub fn new(config: R2KadPipelineConfig) -> Self {
+        let segmentation = config.path_segmentation;
+        let derive_forwarding_tables = DeriveFwdTableEntries::new(DeriveFwdTableEntriesConfig {
+            segmentation,
+            ..Default::default()
+        });
         let distributed_hash_table: DistributedHashTable<_, ComplexHashTable, BUCKET_SIZE> =
             DistributedHashTable::default();
         let distributed_hash_table_injector = DistributedHashTableInjector::default();
-        let explicit_path_management = ExplicitPathManagement::new(Default::default());
+        let explicit_path_management = ExplicitPathManagement::new(EPMConfig {
+            segmentation,
+            ..Default::default()
+        });
         let failure_handling = FailureHandling::new(Default::default());
         let forward_message = ForwardProtocolMessage::default();
         let handle_api = HandleApi::default();
@@ -93,7 +115,10 @@ impl<C, const BUCKET_SIZE: usize> R2KadPipeline<C, BUCKET_SIZE> {
             .expect("default grouping should be valid");
         let vicinity_disc = VicinityDiscovery::default();
 
-        let path_probing = PathProbing::new(Default::default());
+        let path_probing = PathProbing::new(PathProbingConfig {
+            segmentation,
+            ..Default::default()
+        });
         let precomputation = PrecomputePathIds::default();
 
         //let mut inject_messages = if let Some(injection_sender) = injection_sender.as_ref() {

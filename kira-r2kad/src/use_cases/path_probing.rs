@@ -21,6 +21,8 @@ use crate::{
         NotViaState,
         NotViaStateList,
         Path,
+        PathSegmentation,
+        PathSegments,
         ProtocolMessage,
         ProtocolMessageKind,
         RoutingTable,
@@ -78,6 +80,19 @@ pub struct PathProbingConfig {
     /// Minimum interval between two probes of a contact that sent a lower
     /// [StateSeqNr] than known, e.g., after a restart.
     pub ssn_check_interval: Duration,
+    /// Interval in which the forwarding state of a path that
+    /// [requires a setup](PathSegments::requires_setup) is refreshed by a
+    /// [ProbeReq](crate::domain::ProtocolMessage::ProbeReq).
+    ///
+    /// The entries of the PathId forwarding tables of the nodes on such a path are soft state
+    /// and expire unless they are refreshed (see
+    /// [EPMConfig::max_age](super::explicit_path_management::EPMConfig::max_age)).
+    pub path_refresh_interval: Duration,
+    /// Time to wait for the confirmation of the setup of a path before it is probed instead,
+    /// which sets up the path as well.
+    pub path_setup_timeout: Duration,
+    /// How paths to contacts are split into path segments.
+    pub segmentation: PathSegmentation,
 }
 
 impl Default for PathProbingConfig {
@@ -90,6 +105,9 @@ impl Default for PathProbingConfig {
             min_request_timeout: Duration::from_millis(50),
             scheduled_probe_delay: Duration::from_millis(250),
             ssn_check_interval: Duration::from_secs(10),
+            path_refresh_interval: Duration::from_secs(30),
+            path_setup_timeout: Duration::from_secs(2),
+            segmentation: PathSegmentation::default(),
         }
     }
 }
@@ -173,10 +191,29 @@ where
                     .copied()
                     .unwrap_or(*contact.last_seen())
             };
+            // The forwarding state of a path that requires a setup is soft state in the nodes
+            // on the path. A probe traveling along the path refreshes it (or sets it up, if
+            // the setup was not confirmed).
+            let refresh_due = |contact: &Contact| {
+                contact
+                    .path()
+                    .filter(|path| {
+                        PathSegments::split(path, self.config.segmentation).requires_setup()
+                    })
+                    .is_some_and(|path| match path.get_last_path_refresh() {
+                        Some(refreshed) => {
+                            refreshed.to_age_duration() >= self.config.path_refresh_interval
+                        }
+                        None => {
+                            validated(contact).to_age_duration() >= self.config.path_setup_timeout
+                        }
+                    })
+            };
             let mut considered_contacts: Vec<_> = bucket
                 .into_iter()
                 .filter(|contact| {
-                    validated(contact).to_age_duration() >= self.config.probe_age &&
+                    (validated(contact).to_age_duration() >= self.config.probe_age
+                        || refresh_due(contact)) &&
                         contact.state() == &ContactState::Valid &&
                         // should never be the case
                         !contact.is_uln()
@@ -739,6 +776,9 @@ where
                             // this probe message confirms the active path
                             // set_valid() also includes update_last_validated();
                             active_path.set_valid();
+                            // the probe refreshed the forwarding state of all nodes on the
+                            // path (PathIds are unidirectional, so only our probes count)
+                            active_path.update_last_path_refresh(Timestamp::now());
                             if let Some(rtt) = rtt {
                                 active_path.record_rtt(rtt);
                             }
@@ -1162,6 +1202,87 @@ mod tests {
             srtt.is_some_and(|srtt| srtt >= Duration::from_millis(20)),
             "measured {srtt:?}"
         );
+    }
+
+    #[test]
+    fn probe_rsp_refreshes_forwarding_state_of_active_path() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup(true);
+        ctx.routing_table_mut()
+            .contact_mut(&c())
+            .unwrap()
+            .path_mut()
+            .unwrap()
+            .set_valid();
+        let contact = ctx.routing_table().contact(&c()).unwrap().clone();
+        assert!(contact.path().unwrap().get_last_path_refresh().is_none());
+        pp.send_probe_req(&ctx, &contact);
+        let probe = sent_probe_reqs(&ctx).pop().unwrap();
+
+        pp.handle_event(
+            &ctx,
+            UseCaseEvent::Message(probe_rsp(&probe), UnderlayNeighborSource::Local),
+        )
+        .unwrap();
+
+        let rt = ctx.routing_table();
+        let path = rt.contact(&c()).unwrap().path().unwrap();
+        assert!(path.get_last_path_refresh().is_some());
+    }
+
+    /// Context with a contact via a validated path of six hops, which requires a setup.
+    fn setup_long_path() -> (PP, Ctx, NodeId) {
+        let (pp, ctx) = setup(true);
+        let far = NodeId::with_msb(9);
+        let mut long_path = path(&[a(), b(), d(), NodeId::with_msb(7), NodeId::with_msb(8), far]);
+        long_path.set_valid();
+        ctx.routing_table_mut()
+            .add(Contact::new(long_path, ssn()))
+            .unwrap();
+        (pp, ctx, far)
+    }
+
+    /// Destinations of the ProbeReqs sent by the periodic check.
+    fn periodically_probed(pp: &mut PP, ctx: &Ctx) -> Vec<NodeId> {
+        pp.send_probe_reqs(ctx);
+        sent_probe_reqs(ctx)
+            .iter()
+            .map(|probe| *probe.source_route.destination())
+            .collect()
+    }
+
+    #[test]
+    fn unconfirmed_path_setup_is_probed() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut pp, ctx, far) = setup_long_path();
+        assert!(periodically_probed(&mut pp, &ctx).is_empty());
+
+        // no PathSetupRsp arrived, the probe sets up the path as well
+        clock.advance(PathProbingConfig::default().path_setup_timeout);
+        assert_eq!(periodically_probed(&mut pp, &ctx), [far]);
+    }
+
+    #[test]
+    fn forwarding_state_of_long_path_is_refreshed_periodically() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut pp, ctx, far) = setup_long_path();
+        let config = PathProbingConfig::default();
+        let refresh = |ctx: &Ctx| {
+            let mut rt = ctx.routing_table_mut();
+            let contact = rt.contact_mut(&far).unwrap();
+            let path = contact.path_mut().unwrap();
+            path.set_valid();
+            path.update_last_path_refresh(Timestamp::now());
+        };
+        refresh(&ctx);
+
+        clock.advance(config.path_refresh_interval - Duration::from_secs(1));
+        assert!(periodically_probed(&mut pp, &ctx).is_empty());
+
+        // long before the path has to be probed for its validation
+        clock.advance(Duration::from_secs(1));
+        assert!(config.path_refresh_interval < config.probe_age);
+        assert_eq!(periodically_probed(&mut pp, &ctx), [far]);
     }
 
     /// Sends a ProbeReq over the active path of [c] with the given SRTT

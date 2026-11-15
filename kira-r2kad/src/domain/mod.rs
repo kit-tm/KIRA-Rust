@@ -27,6 +27,10 @@ pub use contact_labels::*;
 
 pub mod dht;
 
+pub mod fwd_state;
+#[doc(inline)]
+pub use fwd_state::PathIdFwdState;
+
 mod hasher;
 pub use hasher::*;
 
@@ -53,6 +57,8 @@ pub mod path;
 pub use path::{
     Path,
     PathCollection,
+    PathSegmentation,
+    PathSegments,
     PathState,
 };
 

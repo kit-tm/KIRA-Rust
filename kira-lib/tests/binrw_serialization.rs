@@ -22,6 +22,7 @@ use kira_r2kad::domain::{
         ErrorData,
         FindNodeReqData,
         PathSetupReqData,
+        PathSetupRspData,
         PathTeardownReqData,
         ProbeReqData,
         ProbeRspData,
@@ -751,6 +752,48 @@ fn binrw_path_setup_req() {
         .expect("deserialize");
 
     let ProtocolMessage::PathSetupReq(decoded_req) = decoded else {
+        panic!("unexpected message type");
+    };
+    assert_eq!(decoded_req.common_header.msg_id(), header.msg_id());
+    assert_eq!(decoded_req.source_route.source(), header.src_node_id());
+    assert_eq!(decoded_req.source_route.destination(), header.dest_id());
+}
+
+#[test]
+fn binrw_path_setup_rsp() {
+    let mut header = CommonHeader::new(
+        ProtocolMessageKind::PathSetupRsp,
+        NodeId::with_lsb(0xc5),
+        NodeId::with_lsb(0xc6),
+        Some(0x9501.into()),
+        0x9502,
+        1,
+    );
+    header.set_domain_id(0x4242);
+
+    let msg = ProtocolMessage::PathSetupRsp(ReqRspMessage {
+        common_header: header.clone(),
+        data: PathSetupRspData,
+        not_via: Some(HashSet::new()),
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    });
+
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::Binrw
+        .serialize(&mut buf, &msg)
+        .expect("serialize");
+
+    println!("Serialized PathSetupRsp:");
+    for byte in &buf {
+        print!("{:02x} ", byte);
+    }
+    println!();
+
+    let decoded = ProtocolMessageFormat::Binrw
+        .deserialize(Cursor::new(&buf))
+        .expect("deserialize");
+
+    let ProtocolMessage::PathSetupRsp(decoded_req) = decoded else {
         panic!("unexpected message type");
     };
     assert_eq!(decoded_req.common_header.msg_id(), header.msg_id());

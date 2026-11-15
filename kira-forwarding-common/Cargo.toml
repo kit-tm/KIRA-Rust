@@ -1,0 +1,16 @@
+[package]
+name = "kira-forwarding-common"
+version = "0.1.0"
+description = "Types shared by the KIRA eBPF forwarding program and its user space"
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+# Types usable as keys and values of eBPF maps from user space
+user = ["aya"]
+
+[dependencies]
+aya = { workspace = true, optional = true }

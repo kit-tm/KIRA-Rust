@@ -507,6 +507,7 @@ where
             | ProtocolMessage::ProbeReq(_)
             | ProtocolMessage::ProbeRsp(_)
             | ProtocolMessage::PathSetupReq(_)
+            | ProtocolMessage::PathSetupRsp(_)
             | ProtocolMessage::PathTeardownReq(_)
             | ProtocolMessage::StoreReq(_)
             | ProtocolMessage::StoreRsp(_)

@@ -32,6 +32,7 @@ from kira_common.domain import (
     Path,
     PathID,
     PathIP,
+    forwarding_mode,
     get_ip_prefixes,
 )
 from kira_common.domain.forwarding import (
@@ -47,6 +48,16 @@ from nest.topology import Address, Node
 from networkx import Graph
 
 logger = logging.getLogger(__name__)
+
+
+# A packet is encapsulated at most once per path segment.
+MAX_ENCAP_LABELS = 2
+
+# eBPF program and map of the SRv6 forwarding (see kira-forwarding-common)
+EBPF_INGRESS_PROGRAM = "kira_ingress"
+EBPF_PATH_TABLE = "PATH_TABLE"
+EBPF_ACTION_SWAP = 1
+EBPF_ACTION_END = 2
 
 
 @cache
@@ -142,6 +153,7 @@ class KIRANode(Node):
 
         self.config: NodeConfig = config
         self.__node_id: NodeID | None = None
+        self.__path_table_id: int | None = None
 
     def exec(
         self, cmd: str, env_vars: dict | None = None, logfile: Any = None
@@ -314,9 +326,73 @@ class KIRANode(Node):
         _ = ip
         raise NotImplementedError("next_ip only implemented for NodeIP or PathIP")
 
+    def _path_table_id(self) -> int | None:
+        """
+        Returns the id of the eBPF map with the PathIPs handled by this node
+        (SRv6 forwarding) or None if it can't be determined.
+
+        The map belongs to the eBPF program attached to the node's interfaces.
+        """
+        if self.__path_table_id is not None:
+            return self.__path_table_id
+
+        def bpftool(args: str) -> Any:
+            p = self.exec(f"bpftool -j {args}", logfile=PIPE)
+            stdout, _ = p.communicate()
+            if p.returncode != 0:
+                return None
+            return json.loads(stdout.decode("utf-8"))
+
+        attachments = bpftool("net show") or []
+        prog_ids = {
+            prog["prog_id"]
+            for netns in attachments
+            for prog in netns.get("tc", [])
+            if prog.get("name") == EBPF_INGRESS_PROGRAM
+        }
+        for prog_id in prog_ids:
+            prog = bpftool(f"prog show id {prog_id}") or {}
+            for map_id in prog.get("map_ids", []):
+                bpf_map = bpftool(f"map show id {map_id}") or {}
+                if bpf_map.get("name") == EBPF_PATH_TABLE:
+                    self.__path_table_id = map_id
+                    return map_id
+        return None
+
+    def _next_ip_srv6(self, ip: PathIP) -> KiraIP | None:
+        """Looks up the PathIP in the eBPF map of the SRv6 forwarding."""
+        map_id = self._path_table_id()
+        if map_id is None:
+            logger.error(f"eBPF path table of node {self} not found")
+            return None
+
+        key = " ".join(f"{byte:02x}" for byte in ip.packed)
+        p = self.exec(f"bpftool -j map lookup id {map_id} key hex {key}", logfile=PIPE)
+        stdout, stderr = p.communicate()
+        if p.returncode != 0:
+            # usually the element doesn't exist
+            error = (stdout + stderr).decode("utf-8").strip()
+            logger.debug(f"{ip} unknown to node {self}: {error}")
+            return None
+
+        # value: kind (u32), outgoing PathIP
+        value = bytes(int(byte, 16) for byte in json.loads(stdout)["value"])
+        kind = int.from_bytes(value[:4], sys.byteorder)
+        if kind == EBPF_ACTION_SWAP:
+            return PathIP(IPv6Address(value[4:20]))
+        if kind == EBPF_ACTION_END:
+            # end of the path segment, like the translation to the own NodeIP with GRE
+            return self.node_id.to_node_ip()
+
+        logger.error(f"{ip} on node {self}: unknown action {kind}")
+        return None
+
     @next_ip.register
     def next_ip_encap(self, ip: PathIP) -> KiraIP | None:
         """Determines the next KiraIP of an encapsulated packet (with PathIP)."""
+
+        if forwarding_mode() == "srv6":
+            return self._next_ip_srv6(ip)
 
         # lookup nftables forwardmap for translation
         require_nft()
@@ -386,6 +462,49 @@ class KIRANode(Node):
         logger.error(f"Unexpected route for {ip} on node {self}: {result}")
         return None
 
+    def encap_labels(self, ip: KiraIP) -> list[PathIP] | None:
+        """
+        Returns the PathIPs the node encapsulates a packet destined to `ip` with,
+        the outermost one (used for forwarding to the next hop) first.
+
+        Paths to contacts are split into up to two path segments, each with its own
+        PathIP. The list is empty if the packet is not encapsulated and None on errors.
+        """
+
+        labels: list[PathIP] = []
+        # nested encapsulation: the encapsulated packet may be encapsulated once more
+        for _ in range(MAX_ENCAP_LABELS + 1):
+            cmd = f"ip -6 -j route get {ip}"
+            p = self.exec(cmd, logfile=PIPE)
+            stdout, _ = p.communicate()
+            if p.returncode != 0:
+                return None
+            result = json.loads(stdout.decode("utf-8"))
+            assert len(result) == 1
+            result = result[0]
+
+            encap = result.get("encap")
+            if encap is None:
+                return labels
+            if isinstance(encap, dict) and encap.get("encap_type") == "seg6":
+                # SRv6: all segments at once, in the order they are traveled
+                assert not labels
+                return [PathIP(IPv6Address(seg)) for seg in encap["segs"]]
+            try:
+                # GRE: one PathIP per encapsulation
+                path_ip = IPv6Address(encap["dst"])
+            except TypeError as e:
+                # See https://git.kernel.org/pub/scm/network/iproute2/iproute2.git/commit/?id=0f32ef97babcbe77140a69218917937e6a50fb6c
+                raise RuntimeError(
+                    "iproute2 version >= 6.9.0 required for JSON output fix"
+                ) from e
+            assert path_ip in get_ip_prefixes().path_ip
+            ip = PathIP(path_ip)
+            labels.insert(0, ip)
+
+        logger.error(f"Too many nested encapsulations on node {self}: {labels}")
+        return None
+
     # TODO: reduce complexity
     def next_hop(self, ip: KiraIP) -> NodeIP | None:  # noqa: PLR0911,PLR0912 -- ignore complexity warnings
         """
@@ -438,7 +557,12 @@ class KIRANode(Node):
             # find NODE_IP dev <dev> entry to obtain NODE_IP
             next_hop = None
             for route in routes:
-                if route.get("dev") == dev and route.get("protocol") == "static":
+                # routes of underlay neighbors, not the encapsulating ones of contacts
+                if (
+                    route.get("dev") == dev
+                    and route.get("protocol") == "static"
+                    and "encap" not in route
+                ):
                     dst = route.get("dst")
                     try:
                         dst = IPv6Address(dst)
@@ -621,21 +745,20 @@ class KIRANode(Node):
             dest = path.destination()
             ulneighbor = len(path) == 1
             dest_ip = dest.to_node_ip()
-            next_ip = self.next_ip(dest_ip)
-
-            out_path = path
-            out_path_id = path.to_path_id()
-            out_path_ip = out_path_id.to_path_ip()
 
             if ulneighbor:
                 # underlay neighbors don't need encapsulation routes
-                if next_ip is None:
+                if self.next_ip(dest_ip) is None:
                     yield NodeIDFwdEntry(dest)
-            else:
-                if next_ip != out_path_ip:
-                    yield NodeIDEncapEntry(dest, out_path)
-                if self.next_hop(out_path_ip) is None:
-                    yield PathIDFwdEntry(out_path)
+                continue
+
+            # one PathIP per path segment
+            first, second = path.segments()
+            expected = [segment.to_path_ip() for segment in (first, second) if segment]
+            if self.encap_labels(dest_ip) != expected:
+                yield NodeIDEncapEntry(dest, path)
+            if self.next_hop(first.to_path_ip()) is None:
+                yield PathIDFwdEntry(first)
 
     def __format__(self, fmt: str) -> str:
         return f"{self.name:{fmt}}"

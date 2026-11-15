@@ -11,6 +11,7 @@ This _only_ includes dependencies not managed by [uv].
 - [uv]: Python package and project manager
 - [iproute] >= 6.9.0 [^1]: Probing setup IPv6-routes by `kirad`.
 - _Userspace_ utilities of [nftables]: Check the current state of the forwarding tier
+- `bpftool`: Check the current state of the forwarding tier with SRv6 forwarding
 - Linux based operating system with root privileges:
   [NeST] is utilizing network [namespaces] for emulating the different topology nodes.
   This is a Linux exclusive feature and requires `CAP_SYS_ADMIN`.
@@ -53,6 +54,13 @@ Running the tests can be as simple as just running this command from the root
 of the repository:
 ```sh
 KIRA_TOPOS="tests/topos/minimal.gml" uv --project=tests/kira-test run pytest
+```
+
+The daemons inherit the environment of the tests. To run the tests with the SRv6-based
+fast forwarding (requires `kirad` binaries built with the `srv6` feature and `bpftool`)
+set `KIRA_FORWARDING`:
+```sh
+KIRA_FORWARDING=srv6 KIRAD_BIN=... KIRAD_BIN_SMALL-K=... uv --project=tests/kira-test run pytest
 ```
 
 ## Topology files (GML)

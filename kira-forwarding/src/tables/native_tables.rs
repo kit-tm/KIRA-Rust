@@ -183,8 +183,17 @@ where
             NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry {
                 destination,
                 out_path_id,
+                second_path_id,
                 next_hop,
             }) => {
+                // A second GRE header can't be added by the kernel (its tunnel devices
+                // refuse nested encapsulation by the same device), so the routing tier has
+                // to use a single path segment (PathSegmentation::OneSegment).
+                if second_path_id.is_some() {
+                    return Err(error::FwdTableError::UnsupportedSecondSegment(
+                        entry.to_string(),
+                    ));
+                }
                 log::trace!(target: "native_fwd_table", "Trying to replace encap route {destination:?} dst {out_path_id:?}");
                 self.netlink
                     .replace_encap_route(destination, out_path_id)
@@ -214,11 +223,7 @@ where
             }
         }
 
-        if let Some(old_entry) = self.node_id_table.get_mut(&destination) {
-            *old_entry = entry;
-        } else {
-            self.node_id_table.insert(destination, entry);
-        }
+        self.node_id_table.insert(destination, entry);
 
         Ok(())
     }
@@ -423,6 +428,19 @@ pub mod error {
         UnknownUnderlayNeighborId(#[error(ignore)] UnderlayNeighborId),
         UnderlayInformationProviderErr(Box<dyn std::error::Error>),
         NetlinkErr(Box<ForwardingNetlinkError>),
+        /// The entry uses a second path segment, which the GRE encapsulation can't carry.
+        #[display("Second path segment is not supported with GRE encapsulation: {_0}")]
+        UnsupportedSecondSegment(#[error(ignore)] String),
+        /// Loading or managing the eBPF program of the SRv6 forwarding failed.
+        #[cfg(feature = "srv6")]
+        EbpfErr(Box<crate::ebpf::ForwardingEbpfError>),
+    }
+
+    #[cfg(feature = "srv6")]
+    impl From<crate::ebpf::ForwardingEbpfError> for FwdTableError {
+        fn from(ebpf_err: crate::ebpf::ForwardingEbpfError) -> Self {
+            Self::EbpfErr(Box::new(ebpf_err))
+        }
     }
 
     impl From<ForwardingNetlinkError> for FwdTableError {

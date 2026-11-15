@@ -35,6 +35,7 @@ use crate::{
     domain::{
         InsertionStrategy,
         NodeId,
+        PathSegmentation,
         RoutingTable,
         Timestamp,
         ULNState,
@@ -89,6 +90,18 @@ impl<C, const BUCKET_SIZE: usize> Builder<C, BUCKET_SIZE> {
     /// time, e.g. the wall clock or the virtual clock of a simulator.
     pub fn current_time(mut self, now: Instant) -> Self {
         self.current_time = Some(now);
+        self
+    }
+
+    /// Sets how paths to contacts are split into path segments by the forwarding tier.
+    ///
+    /// Has to match the capabilities of the forwarding tables in use
+    /// and has to be the same on all nodes of the network.
+    ///
+    /// # Default
+    /// [PathSegmentation::TwoSegments]
+    pub fn path_segmentation(mut self, segmentation: PathSegmentation) -> Self {
+        self.pipeline_config.path_segmentation = segmentation;
         self
     }
 

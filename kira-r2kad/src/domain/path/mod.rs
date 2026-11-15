@@ -12,6 +12,7 @@ use derive_more::{
 };
 pub use in_order_cycle_remover::*;
 pub use pathcollection::*;
+pub use segments::*;
 pub use shortest_first_path_simplifier::*;
 pub use simplifier::*;
 
@@ -25,6 +26,7 @@ use crate::domain::{
 mod cycle_remover;
 mod in_order_cycle_remover;
 mod pathcollection;
+mod segments;
 mod shortest_first_path_simplifier;
 mod simplifier;
 
@@ -395,8 +397,17 @@ impl Path {
     }
 
     pub fn unset_last_path_refresh(&mut self) {
-        // instant should be CurrentRuntime::now()
-        self.last_validated = None;
+        self.last_path_refresh = None;
+    }
+
+    /// Returns if the forwarding tier is able to forward data packets along this path.
+    ///
+    /// This is always the case for paths whose PathIds are precomputed by all nodes on the
+    /// path. Longer paths [require a setup](PathSegments::requires_setup), which is
+    /// confirmed by the first [path refresh](Path::update_last_path_refresh).
+    pub fn is_forwarding_established(&self, segmentation: PathSegmentation) -> bool {
+        !PathSegments::hops_require_setup(self.ids.len(), segmentation)
+            || self.last_path_refresh.is_some()
     }
 
     fn path_hasher(&self) -> Hasher {

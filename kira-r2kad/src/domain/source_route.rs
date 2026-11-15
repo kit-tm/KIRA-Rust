@@ -166,6 +166,16 @@ impl SourceRoute {
         }
     }
 
+    /// Returns the path the source uses to reach the destination, i.e., all [NodeId]s
+    /// after the source, together with the index of the current hop in it.
+    ///
+    /// Returns [None] if the current hop is the source itself.
+    pub fn path_of_source(&self) -> Option<(Vec<NodeId>, usize)> {
+        let index = self.progress.checked_sub(1)?;
+        let path: Vec<NodeId> = self.ids.iter().skip(1).copied().collect();
+        (index < path.len()).then_some((path, index))
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &NodeId> {
         assert!(
             self.ids.len() >= 2,
@@ -237,6 +247,17 @@ mod tests {
         assert!(src_route_2.contains(&first));
         assert!(src_route_2.contains(&second));
         assert!(src_route_2.contains(&third));
+    }
+
+    #[test]
+    fn path_of_source_follows_progress() {
+        let ids: Vec<NodeId> = (1..=4u128).map(NodeId::from).collect();
+        let mut src_route =
+            SourceRoute::new(ids[0], Path::try_from(&ids[1..]).expect("non-empty path"));
+
+        assert_eq!(src_route.path_of_source(), Some((ids[1..].to_vec(), 0)));
+        src_route.advance();
+        assert_eq!(src_route.path_of_source(), Some((ids[1..].to_vec(), 1)));
     }
 
     #[test]

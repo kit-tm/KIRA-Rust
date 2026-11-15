@@ -1,5 +1,12 @@
 [workspace]
-members = ["kira-lib", "kira-r2kad", "kira-forwarding", "kirad"]
+members = [
+  "kira-lib",
+  "kira-r2kad",
+  "kira-forwarding",
+  "kira-forwarding-common",
+  "kira-forwarding-ebpf",
+  "kirad",
+]
 default-members = ["kirad", "kira-lib"]
 resolver = "2"
 
@@ -33,6 +40,12 @@ license = "MIT"
 # a custom implementation.
 
 [workspace.dependencies]
+# Loading and managing eBPF programs (SRv6 forwarding)
+aya = "0.16.0"
+# Building the eBPF program of the SRv6 forwarding
+aya-build = "0.2.1"
+# Writing eBPF programs (SRv6 forwarding)
+aya-ebpf = "0.3.0"
 bitflags = "2.13.1"
 binrw = "0.15.1"
 serde_cbor = "0.11.2"

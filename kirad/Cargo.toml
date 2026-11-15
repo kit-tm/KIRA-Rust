@@ -34,6 +34,9 @@ format-cbor = ["kira-lib/format-cbor"]
 format-mp = ["kira-lib/format-mp"]
 # json (de)serialization support [debug]
 format-json = ["kira-lib/format-json"]
+# SRv6-based fast forwarding using an eBPF program.
+# Building requires a nightly toolchain with the `rust-src` component and `bpf-linker`.
+srv6 = ["kira-forwarding/srv6"]
 
 [lib]
 name = "kirad_lib"

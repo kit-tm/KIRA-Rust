@@ -27,7 +27,6 @@ use crate::{
         protocol_event::forwarding::{
             PathIdEntry,
             PathIdForwardingEntry,
-            PathIdTableUpdate,
         },
     },
     use_cases::{
@@ -154,17 +153,21 @@ where
         let deleted_entries = self.old_entries.difference(&graph_entries);
 
         tracing::debug!(target: "precompute_paths_and_path_ids", ?new_entries, ?deleted_entries, "changes of paths in the vicinity");
+        // The entries may also be required by local contacts or other nodes,
+        // so the shared forwarding state decides on the actual changes.
         for deleted_entry in deleted_entries {
-            context
-                .runtime()
-                .update_fwd_tables(PathIdTableUpdate::Remove(
-                    deleted_entry.in_path_id().clone(),
-                ));
+            let update = context
+                .fwd_state_mut()
+                .del_precalc(deleted_entry.in_path_id());
+            if let Some(update) = update {
+                context.runtime().update_fwd_tables(update);
+            }
         }
         for new_entry in new_entries {
-            context
-                .runtime()
-                .update_fwd_tables(PathIdTableUpdate::CreateOrUpdate(new_entry.clone()));
+            let update = context.fwd_state_mut().add_precalc(new_entry.clone());
+            if let Some(update) = update {
+                context.runtime().update_fwd_tables(update);
+            }
         }
 
         self.old_entries = graph_entries;
@@ -177,20 +180,19 @@ where
     /// forgotten here as well. Otherwise they would not be recognized as new
     /// (and thus not be reinstalled) when the neighbor comes back with the
     /// same [UnderlayNeighborId] and the vicinity graph looks as before.
+    ///
+    /// This applies to all entries of the shared forwarding state via this neighbor,
+    /// no matter why they are required.
     fn purge_entries_via(&mut self, context: &C, ulnid: &UnderlayNeighborId) {
         self.old_entries.retain(|entry| {
-            let PathIdEntry::Forward(PathIdForwardingEntry { next_hop, .. }) = entry else {
-                return true;
-            };
-            if next_hop != ulnid {
-                return true;
-            }
-            tracing::debug!(target: "precompute_paths_and_path_ids", %entry, %ulnid, "removing entry via lost underlay neighbor");
-            context
-                .runtime()
-                .update_fwd_tables(PathIdTableUpdate::Remove(entry.in_path_id().clone()));
-            false
+            !matches!(entry, PathIdEntry::Forward(PathIdForwardingEntry { next_hop, .. }) if next_hop == ulnid)
         });
+
+        let updates = context.fwd_state_mut().invalidate_via(ulnid);
+        for update in updates {
+            tracing::debug!(target: "precompute_paths_and_path_ids", %update, %ulnid, "removing entry via lost underlay neighbor");
+            context.runtime().update_fwd_tables(update);
+        }
     }
 }
 
@@ -307,6 +309,7 @@ mod tests {
             ForwardingTablesUpdate,
             InterfaceId,
             PathId,
+            PathIdTableUpdate,
             SafeStateSeqNr,
             ULNTable,
             routing_table::SingleBucketRT,
@@ -416,6 +419,7 @@ mod tests {
 
     #[test]
     fn vicinity_change_installs_new_and_removes_vanished_entries() {
+        let _clock = crate::tests::TestClock::new();
         let (mut pp, ctx) = setup();
 
         handle(
@@ -444,6 +448,7 @@ mod tests {
 
     #[test]
     fn uln_down_purges_its_entries_so_they_are_reinstalled() {
+        let _clock = crate::tests::TestClock::new();
         let (mut pp, ctx) = setup();
         handle(
             &mut pp,

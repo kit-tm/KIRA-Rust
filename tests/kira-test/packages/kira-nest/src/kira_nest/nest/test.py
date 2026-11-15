@@ -5,14 +5,13 @@ import time
 from functools import cached_property
 from ipaddress import IPv4Network
 from subprocess import Popen
-from typing import overload
 
 import networkx
 from kira_common.domain import (
     ENV_NODE_IP_PREFIX,
     ENV_PATH_IP_PREFIX,
     IPPrefixes,
-    NodeIP,
+    KiraIP,
     Path,
     PathIP,
     get_ip_prefixes,
@@ -259,106 +258,71 @@ class KIRATest[T]:  # T = topology id type, usually int or str
                 self._display_node(self.topology.nodes[hop]) for hop in path
             )
 
-    @overload
-    def _describe_hop_action(
-        self,
-        current_hop: KIRANode,
-        from_addr: NodeIP,
-        to_addr: PathIP,
-        path: Path | None,
-    ) -> str: ...
-
-    @overload
-    def _describe_hop_action(
-        self,
-        current_hop: KIRANode,
-        from_addr: PathIP,
-        to_addr: NodeIP,
-        path: Path | None,
-    ) -> str: ...
-
-    @overload
-    def _describe_hop_action(
-        self,
-        current_hop: KIRANode,
-        from_addr: PathIP,
-        to_addr: PathIP,
-        path: Path | None,
-    ) -> str: ...
-
-    def _describe_hop_action(
-        self,
-        current_hop,
-        from_addr,
-        to_addr,
-        path,
-    ) -> str:
-        path_str = self._display_path(path)
-
-        # print action that lead to label change
-        if isinstance(from_addr, PathIP) and isinstance(to_addr, PathIP):
-            return f"{current_hop:<3} : SWAP Path-ID : {from_addr} --> {to_addr} ({path_str})"  # noqa: E501
-        elif isinstance(from_addr, PathIP):
-            return f"{current_hop:<3} : POP  Path-ID : {from_addr} --> {to_addr}"
-        elif isinstance(to_addr, PathIP):
-            return f"{current_hop:<3} : PUSH Path-ID : {to_addr} ({path_str})"
-        else:
-            return "??? Unknown Action ???"
-
-    def traceroute(  # noqa: PLR0912
+    def traceroute(  # noqa: PLR0911,PLR0912,PLR0915
         self, start: KIRANode, dest: KIRANode, maxhops: int = 50, verbose: bool = False
     ) -> bool:
+        """
+        Follows the forwarding tables of the nodes from `start` to `dest`.
+
+        The packet carries a stack of destination IPs: the NodeIP of `dest` at the
+        bottom and on top of it the PathIPs of the path segments it is forwarded on.
+        """
         current_hop = start
         current_ip = current_hop.node_id.to_node_ip()
 
         dst_hop = dest
         dst_ip = dst_hop.node_id.to_node_ip()
-        outer_ip = dst_ip
-        current_path = None
+        stack: list[KiraIP] = [dst_ip]
+
+        def log(action: str) -> None:
+            if verbose:
+                print(f"{current_hop:<3} : {action}")
 
         if verbose:
             print(f"Tracerouting from {current_hop} to {dst_ip} ({dst_hop}):")
 
         hc = 0
         while hc <= maxhops:
-            prev_outer_ip = outer_ip
-            outer_ip = current_hop.next_ip(outer_ip)
-            if outer_ip is None:
-                if verbose:
-                    print(f"{current_hop:<3} : ERR unknown  : {prev_outer_ip}")
-                return False
-
-            # label change
-            if prev_outer_ip != outer_ip:
-                # pop label
-                # done automagically by nftables
-                if outer_ip == current_ip:
-                    outer_ip = dst_ip
-
-                # lookup corresponding path on node
-                # that rerouted the packet (overlay hop)
-                if isinstance(prev_outer_ip, NodeIP) and isinstance(outer_ip, PathIP):
-                    current_path = current_hop.path(outer_ip.to_path_id())
-                elif current_path is not None:
-                    if len(current_path) == 1:
-                        current_path = None  # path is finished
-                    else:
-                        current_path = Path(current_path[1:])  # advance path
-
-                # don't change intended destination!
-                assert isinstance(prev_outer_ip, PathIP) or isinstance(outer_ip, PathIP)
-
-                # print action that lead to label change
-                if verbose:
-                    descr = self._describe_hop_action(
-                        current_hop,
-                        prev_outer_ip,  # type: ignore -- guaranteed by assertion
-                        outer_ip,  # type: ignore -- guaranteed by assertion
-                        current_path,
+            # process the stack until the packet leaves the node
+            while True:
+                top = stack[-1]
+                if isinstance(top, PathIP):
+                    # PathIPs on arriving packets are swapped or popped
+                    next_ip = current_hop.next_ip(top)
+                    if next_ip is None:
+                        log(f"ERR unknown  : {top}")
+                        return False
+                    if next_ip == current_ip:
+                        # end of the path segment
+                        stack.pop()
+                        log(f"POP  Path-ID : {top} --> {stack[-1]}")
+                        continue
+                    path_str = self._display_path(
+                        current_hop.path(next_ip.to_path_id())  # type: ignore -- PathIP
                     )
-                    print(descr)
+                    log(f"SWAP Path-ID : {top} --> {next_ip} ({path_str})")
+                    stack[-1] = next_ip
+                    break
 
-            next_ip = current_hop.next_hop(outer_ip)
+                if top == current_ip:
+                    if len(stack) == 1:
+                        log("ACK")
+                        return True
+                    log(f"ERR : unexpected encapsulation of own NodeIP: {stack}")
+                    return False
+
+                # overlay hop: encapsulate with the PathIPs of the path segments
+                labels = current_hop.encap_labels(top)
+                if labels is None:
+                    log(f"ERR unknown  : {top}")
+                    return False
+                for label in reversed(labels):
+                    path_str = self._display_path(current_hop.path(label.to_path_id()))
+                    log(f"PUSH Path-ID : {label} ({path_str})")
+                    stack.append(label)
+                break
+
+            next_ip = current_hop.next_hop(stack[-1])
             if next_ip is None:
                 print(f"{current_hop:<3} : ERR : Can't determine next ip")
                 return False
@@ -372,17 +336,10 @@ class KIRATest[T]:  # T = topology id type, usually int or str
 
             if current_hop != next_hop:
                 hc += 1
-                if verbose:
-                    print(f"{current_hop:<3} : FORWARD to {next_hop}")
+                log(f"FORWARD to {next_hop}")
 
             current_hop = next_hop
             current_ip = next_ip
-
-            # packet reached destination hop unencapsulated
-            if current_ip == dst_ip and outer_ip == dst_ip:
-                if verbose:
-                    print(f"{current_hop:<3} : ACK")
-                return True
 
         # maxhop limit reached
         if verbose:

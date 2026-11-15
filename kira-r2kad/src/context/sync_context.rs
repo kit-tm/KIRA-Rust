@@ -6,7 +6,10 @@ use std::cell::{
 
 use crate::{
     context::ContextConfig,
-    domain::NodeId,
+    domain::{
+        NodeId,
+        PathIdFwdState,
+    },
     use_cases::UseCaseContext,
 };
 
@@ -19,6 +22,7 @@ pub struct SyncContext<RT, RU, IS, UN, VG> {
     un_table: RefCell<UN>,
     runtime: RU,
     vicinity_graph: RefCell<VG>,
+    fwd_state: RefCell<PathIdFwdState>,
 }
 
 impl<RT, RU, IS, UN, VG> UseCaseContext for SyncContext<RT, RU, IS, UN, VG> {
@@ -36,6 +40,7 @@ impl<RT, RU, IS, UN, VG> UseCaseContext for SyncContext<RT, RU, IS, UN, VG> {
             un_table: RefCell::new(config.uln_table),
             runtime: config.runtime,
             vicinity_graph: RefCell::new(config.vicinity_graph),
+            fwd_state: RefCell::default(),
         }
     }
 
@@ -73,5 +78,13 @@ impl<RT, RU, IS, UN, VG> UseCaseContext for SyncContext<RT, RU, IS, UN, VG> {
 
     fn vicinity_graph_mut(&self) -> RefMut<'_, Self::VicinityGraph> {
         self.vicinity_graph.borrow_mut()
+    }
+
+    fn fwd_state(&self) -> Ref<'_, PathIdFwdState> {
+        self.fwd_state.borrow()
+    }
+
+    fn fwd_state_mut(&self) -> RefMut<'_, PathIdFwdState> {
+        self.fwd_state.borrow_mut()
     }
 }
