@@ -1,10 +1,14 @@
+import atexit
+import contextlib
 import logging
 import os
 import pathlib
+import signal
 import time
 from functools import cached_property
 from ipaddress import IPv4Network
-from subprocess import Popen
+from subprocess import Popen, TimeoutExpired
+from typing import ClassVar, Self
 
 import networkx
 from kira_common.domain import (
@@ -46,11 +50,14 @@ class KIRATest[T]:  # T = topology id type, usually int or str
     ip_prefixes : IPPrefixes, optional
         Prefixes of NodeIPs and PathIPs used by all nodes.
         Defaults to the prefixes from the environment variables also used by kirad.
+
+    The daemons run until `close()` (also on leaving a `with` block). Tests that are
+    still running at interpreter exit are closed then. Nest deletes the namespaces at
+    exit, but that doesn't terminate the processes inside them.
     """
 
-    processes = []
-    # arguments and wrapper of each node's kirad to start it again
-    _daemons: dict = {}
+    # tests whose daemons may still run
+    _running: ClassVar[list["KIRATest"]] = []
 
     def __init__(
         self,
@@ -79,7 +86,10 @@ class KIRATest[T]:  # T = topology id type, usually int or str
             self.topology = KIRATopology(config)
 
         self.kirad_binary = kirad_binary
-        self._daemons = {}
+        self.processes: list[Popen] = []
+        # arguments and wrapper of each node's kirad to start it again
+        self._daemons: dict = {}
+        KIRATest._running.append(self)
         self._otel_ips = iter(self._otel_ip.hosts())
         next(self._otel_ips)  # skip IP for host
 
@@ -129,6 +139,55 @@ class KIRATest[T]:  # T = topology id type, usually int or str
             self.processes.append(kira_process)
             self._daemons[tid] = (args, wrapper)
 
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+    def close(self, timeout: float = 10.0) -> bool:
+        """Stops the daemons of all nodes; see `stop_all_daemons`.
+
+        Can be called more than once.
+        """
+        stopped = self.stop_all_daemons(timeout)
+        with contextlib.suppress(ValueError):
+            KIRATest._running.remove(self)
+        return stopped
+
+    def stop_all_daemons(self, timeout: float = 10.0) -> bool:
+        """Stops kirad of all nodes, killing those still running after `timeout`.
+
+        All daemons are signalled at once, so the time doesn't grow with the network.
+        Returns if no kirad is running anymore.
+        """
+        pids = [pid for node in self.topology.nodes for pid in node.kirad_pids()]
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            for pid in pids:
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(pid, sig)
+            deadline = time.monotonic() + timeout
+            while (pids := [p for p in pids if _is_running(p)]) and (
+                time.monotonic() < deadline
+            ):
+                time.sleep(0.1)
+            if not pids:
+                break
+            logger.warning(f"{len(pids)} kirad did not stop on {sig.name}")
+
+        # reap the shells that started the daemons
+        for p in self.processes:
+            with contextlib.suppress(TimeoutExpired):
+                p.wait(timeout=1)
+        self.processes = [p for p in self.processes if p.returncode is None]
+        return not pids
+
+    @classmethod
+    def close_all(cls) -> None:
+        """Closes all tests that have not been closed."""
+        for test in list(cls._running):
+            test.close()
+
     def stop_daemon(self, node: KIRANode, kill: bool = False) -> bool:
         """Stops kirad of the node, with `kill` like on a crash.
 
@@ -143,7 +202,9 @@ class KIRATest[T]:  # T = topology id type, usually int or str
         """
         tid = self.topology.tid(node)
         args, wrapper = self._daemons[tid]
-        kira_process = node.start(self.kirad_binary, *args, wrapper=wrapper, append=True)
+        kira_process = node.start(
+            self.kirad_binary, *args, wrapper=wrapper, append=True
+        )
         self.processes.append(kira_process)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -345,3 +406,19 @@ class KIRATest[T]:  # T = topology id type, usually int or str
         if verbose:
             print(f"{current_hop:<3} : HLIMIT = {maxhops} reached")
         return False
+
+
+def _is_running(pid: int) -> bool:
+    """Returns if the process exists and is not a zombie."""
+    try:
+        stat = pathlib.Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return False
+    # the state follows the command name, which is in parentheses
+    return stat.rpartition(")")[2].split()[0] != "Z"
+
+
+# Nest registered the deletion of the namespaces when it was imported (above). Exit
+# handlers run in reverse order, so this one runs first, while `ip netns pids` still
+# finds the daemons.
+atexit.register(KIRATest.close_all)

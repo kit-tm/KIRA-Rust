@@ -152,6 +152,8 @@ class KIRANode(Node):
         super().__init__(config.name)
 
         self.config: NodeConfig = config
+        # binary of the last started kirad, which identifies its processes
+        self.__kirad_binary: pathlib.Path | None = None
         self.__node_id: NodeID | None = None
         self.__path_table_id: int | None = None
 
@@ -205,6 +207,7 @@ class KIRANode(Node):
         env_vars["RUST_BACKTRACE"] = "1"
 
         arg: str = " ".join(args)
+        self.__kirad_binary = binary.resolve()
         with (
             open(self.logfile, "a" if append else "w") as f,
         ):
@@ -219,7 +222,11 @@ class KIRANode(Node):
             )
 
     def kirad_pids(self) -> list[int]:
-        """Returns the process ids of kirad in the node's namespace."""
+        """Returns the process ids of kirad in the node's namespace.
+
+        These are the processes running the binary kirad was last started from (the
+        binary may have any name), otherwise those whose command is `kirad`.
+        """
         p = Popen(["ip", "netns", "pids", self.id], stdout=PIPE)
         stdout, _ = p.communicate()
         if p.returncode != 0:
@@ -227,10 +234,18 @@ class KIRANode(Node):
         pids = []
         for pid in stdout.decode().split():
             try:
-                comm = pathlib.Path(f"/proc/{pid}/comm").read_text().strip()
+                if self.__kirad_binary is not None:
+                    exe = os.readlink(f"/proc/{pid}/exe")
+                    # the binary may have been replaced since kirad was started
+                    is_kirad = exe.removesuffix(" (deleted)") == str(
+                        self.__kirad_binary
+                    )
+                else:
+                    comm = pathlib.Path(f"/proc/{pid}/comm").read_text().strip()
+                    is_kirad = comm == "kirad"
             except OSError:
                 continue  # already terminated
-            if comm == "kirad":
+            if is_kirad:
                 pids.append(int(pid))
         return pids
 

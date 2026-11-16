@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from kira_common.paths import REPO_ROOT
 from kira_nest.nest.node import KIRANode
+from kira_nest.nest.test import KIRATest
 from nest.topology import Address
 
 logger = logging.getLogger(__name__)
@@ -105,6 +106,16 @@ def kira_topo(request) -> Path:
 @pytest.fixture(autouse=True)
 def kira_logs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setenv(KIRANode.ENV_LOG_PATH, str(tmp_path / "log"))
+
+
+@pytest.fixture(autouse=True)
+def stop_daemons():
+    """Stops the daemons of the networks a test created when the test ends.
+
+    Otherwise they would keep running during the following tests and load the host.
+    """
+    yield
+    KIRATest.close_all()
 
 
 class ConnectivityHelpers:
