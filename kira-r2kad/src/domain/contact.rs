@@ -1,5 +1,6 @@
 use std::{
     cmp::Ordering,
+    collections::HashSet,
     hash::{
         Hash,
         Hasher,
@@ -67,6 +68,26 @@ pub struct Contact {
     /// Information dated before is outdated, whatever its sequence number.
     #[cfg_attr(feature = "serde", serde(skip))]
     ssn_reset_at: Option<Timestamp>,
+    /// Number of underlay neighbors of the node, [None] if unknown.
+    ///
+    /// Like the [SafeStateSeqNr], which changes with the underlay neighbors of the node,
+    /// it is taken from the most recent information.
+    #[cfg_attr(feature = "serde", serde(default))]
+    degree: Option<u16>,
+}
+
+/// Converts the value of a Node Degree field of a message into the degree of a node.
+///
+/// `0` and `0xFFFF` mean that the degree is unknown (`0xFFFF` was used for that by earlier
+/// implementations); larger degrees are saturated at `0xFFFE`.
+pub fn node_degree_from_wire(raw: u16) -> Option<u16> {
+    (raw != 0 && raw != u16::MAX).then_some(raw)
+}
+
+/// Converts the degree of a node into the value of a Node Degree field, see
+/// [node_degree_from_wire].
+pub fn node_degree_to_wire(degree: Option<u16>) -> u16 {
+    degree.map_or(0, |degree| degree.min(u16::MAX - 1))
 }
 
 impl Hash for Contact {
@@ -89,6 +110,7 @@ impl Contact {
             local_labels: ContactLabels::empty(),
             advertised_labels: None,
             ssn_reset_at: None,
+            degree: None,
         }
     }
 
@@ -488,6 +510,55 @@ impl Contact {
         } else {
             false
         }
+    }
+
+    /// The number of underlay neighbors of the node, [None] if unknown.
+    pub fn degree(&self) -> Option<u16> {
+        self.degree
+    }
+
+    /// Sets the number of underlay neighbors of the node, [None] if unknown.
+    pub fn set_degree(&mut self, degree: Option<u16>) {
+        self.degree = degree;
+    }
+
+    /// Takes over the degree from `newer`, which carries more recent information about the
+    /// same node, unless its degree is unknown.
+    pub fn update_degree_from(&mut self, newer: &Contact) {
+        debug_assert_eq!(self.id(), newer.id(), "merging degrees of different nodes");
+        self.degree = newer.degree.or(self.degree);
+    }
+
+    /// Returns if the node has lost all its links: the failed links of the node in the
+    /// [NotViaStateList] of the (invalid or rediscovering) contact are at least as many as
+    /// its known degree.
+    ///
+    /// Rediscovering such a contact is useless; it gets reachable again only after a link
+    /// of the node is repaired, which the node announces.
+    pub fn has_lost_all_links(&self) -> bool {
+        let Some(degree) = self.degree else {
+            return false;
+        };
+        let failed = match &self.state {
+            ContactState::Invalid(notviastate_list) => notviastate_list,
+            ContactState::Rediscovering(rds) => rds.get_notviastate_list(),
+            _ => return false,
+        };
+        let lost_neighbors: HashSet<&NodeId> = failed
+            .nvs_list
+            .iter()
+            .filter_map(|nvs| {
+                let link = &nvs.link;
+                if link.first() == self.id() {
+                    Some(link.second())
+                } else if link.second() == self.id() {
+                    Some(link.first())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        lost_neighbors.len() >= usize::from(degree)
     }
 }
 
@@ -1048,5 +1119,77 @@ mod tests {
 
         contact.path_mut().unwrap().set_valid();
         assert!(contact.info_age() < Age::from(1_000));
+    }
+
+    #[test]
+    fn node_degree_wire_values() {
+        assert_eq!(node_degree_from_wire(0), None);
+        assert_eq!(node_degree_from_wire(u16::MAX), None);
+        assert_eq!(node_degree_from_wire(3), Some(3));
+        assert_eq!(node_degree_to_wire(None), 0);
+        assert_eq!(node_degree_to_wire(Some(3)), 3);
+        assert_eq!(node_degree_to_wire(Some(u16::MAX)), u16::MAX - 1);
+    }
+
+    #[test]
+    fn newer_degree_is_taken_unless_unknown() {
+        let _clock = crate::tests::TestClock::new();
+        let path = [NodeId::from(1), NodeId::from(2)];
+        let mut stored = contact_with_path(&path, 1);
+        let mut newer = contact_with_path(&path, 2);
+        newer.set_degree(Some(3));
+        stored.update_degree_from(&newer);
+        assert_eq!(stored.degree(), Some(3));
+
+        stored.update_degree_from(&contact_with_path(&path, 3));
+        assert_eq!(
+            stored.degree(),
+            Some(3),
+            "an unknown degree keeps the known one"
+        );
+    }
+
+    #[test]
+    fn lost_all_links_counts_failed_links_of_the_node() {
+        let _clock = crate::tests::TestClock::new();
+        let [a, b, x] = [1, 2, 3].map(NodeId::from);
+        let mut contact = contact_with_path(&[a, x], 1);
+        contact.set_invalid(notvia_state_list(Link::new(a, x)));
+        assert!(!contact.has_lost_all_links(), "unknown degree");
+
+        contact.set_degree(Some(1));
+        assert!(contact.has_lost_all_links(), "its only link failed");
+
+        contact.set_degree(Some(2));
+        assert!(!contact.has_lost_all_links(), "one link left");
+        // the same link reported in the other direction is no other link
+        contact.set_invalid(notvia_state_list(Link::new(x, a)));
+        assert!(!contact.has_lost_all_links());
+        contact.set_invalid(notvia_state_list(Link::new(x, b)));
+        assert!(contact.has_lost_all_links(), "both links failed");
+    }
+
+    #[test]
+    fn failed_links_of_other_nodes_do_not_isolate_the_contact() {
+        let _clock = crate::tests::TestClock::new();
+        let [root, a, x] = [1, 2, 3].map(NodeId::from);
+        let mut contact = contact_with_path(&[a, x], 1);
+        contact.set_degree(Some(1));
+        contact.set_invalid(notvia_state_list(Link::new(root, a)));
+        assert!(!contact.has_lost_all_links());
+
+        // also while rediscovering
+        let ContactState::Invalid(notvias) = contact.state().clone() else {
+            panic!("contact is invalid");
+        };
+        contact.start_rediscovering(notvias, vec![], 1, Duration::from_millis(1));
+        assert!(!contact.has_lost_all_links());
+        contact.set_invalid(notvia_state_list(Link::new(a, x)));
+        assert!(contact.has_lost_all_links());
+
+        // a valid contact has lost nothing
+        let mut valid = contact_with_path(&[a, x], 1);
+        valid.set_degree(Some(1));
+        assert!(!valid.has_lost_all_links());
     }
 }

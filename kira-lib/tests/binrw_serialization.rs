@@ -1384,3 +1384,91 @@ fn binrw_contact_list_keeps_contact_age() {
     };
     assert_age_about(&decoded.data.contacts[0], 5_000);
 }
+
+/// Contact 0xa1 of [aged_contact] with the given degree.
+fn contact_with_degree(last_hop: u8, degree: Option<u16>) -> Contact {
+    let mut contact = aged_contact(last_hop, 0);
+    contact.set_degree(degree);
+    contact
+}
+
+#[test]
+fn binrw_rtable_objects_keep_node_degrees() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
+    let degrees = [Some(1), Some(42), None];
+    let contacts: Vec<Contact> = degrees
+        .iter()
+        .zip(0xa1u8..)
+        .map(|(degree, hop)| contact_with_degree(hop, *degree))
+        .collect();
+    let decoded_degrees =
+        |contacts: &[Contact]| contacts.iter().map(Contact::degree).collect::<Vec<_>>();
+
+    // RTable object
+    let ProtocolMessage::FindNodeRsp(mut rsp) = rtable_message() else {
+        unreachable!()
+    };
+    rsp.data.contacts = contacts.clone();
+    let ProtocolMessage::FindNodeRsp(decoded) = roundtrip(ProtocolMessage::FindNodeRsp(rsp)) else {
+        panic!("unexpected message type");
+    };
+    assert_eq!(decoded_degrees(&decoded.data.contacts), degrees);
+
+    // RTableUpdateInfo object
+    let ProtocolMessage::UpdateRouteReq(mut req) = rtable_update_message() else {
+        unreachable!()
+    };
+    req.contact_actions = contacts
+        .iter()
+        .map(|contact| (contact.clone(), RouteUpdateActionType::Change))
+        .collect();
+    let ProtocolMessage::UpdateRouteReq(decoded) = roundtrip(ProtocolMessage::UpdateRouteReq(req))
+    else {
+        panic!("unexpected message type");
+    };
+    let decoded_contacts: Vec<Contact> = decoded
+        .contact_actions
+        .into_iter()
+        .map(|(contact, _)| contact)
+        .collect();
+    assert_eq!(decoded_degrees(&decoded_contacts), degrees);
+
+    // ContactList object
+    let header = CommonHeader::new(
+        ProtocolMessageKind::ULNDiscReq,
+        NodeId::with_lsb(0x10),
+        NodeId::with_lsb(0x20),
+        Some(0x1111.into()),
+        0x2222,
+        2,
+    );
+    let msg = ProtocolMessage::ULNDiscReq(ULNReqRspMessage {
+        common_header: header,
+        data: RTableData { contacts },
+    });
+    let ProtocolMessage::ULNDiscReq(decoded) = roundtrip(msg) else {
+        panic!("unexpected message type");
+    };
+    assert_eq!(decoded_degrees(&decoded.data.contacts), degrees);
+}
+
+#[test]
+fn binrw_placeholder_node_degree_is_unknown() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
+    // earlier implementations write 0xFFFF into the Node Degree field
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::Binrw
+        .serialize(&mut buf, &rtable_message())
+        .expect("serialize");
+    // the Node Degree field ends the only RTable entry, which ends the message
+    let len = buf.len();
+    assert_eq!(&buf[len - 2..], [0, 0], "unknown degree is sent as 0");
+    buf[len - 2..].copy_from_slice(&u16::MAX.to_be_bytes());
+    let ProtocolMessage::FindNodeRsp(decoded) = ProtocolMessageFormat::Binrw
+        .deserialize(Cursor::new(&buf))
+        .expect("deserialize")
+    else {
+        panic!("unexpected message type");
+    };
+    assert_eq!(decoded.data.contacts[0].degree(), None);
+}

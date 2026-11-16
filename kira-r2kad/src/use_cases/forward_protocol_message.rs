@@ -144,7 +144,12 @@ where
         // so especially we ignore information about ULNs (this message may have been received after the interface went down)
         path.set_valid();
         // new automatically creates a Contact in Valid state but requires a valid path
-        let contact = Contact::new(path.clone(), ssn);
+        let mut contact = Contact::new(path.clone(), ssn);
+        // the sender reports its own degree, which belongs to its sequence number
+        let (sender, degree) = message.sender_degree();
+        if sender == *contact.id() {
+            contact.set_degree(degree);
+        }
         //log::trace!(target: "forward_protocol_message", "extract_source_information for contact {} = {}",contact.id(),contact);
 
         {
@@ -967,6 +972,56 @@ mod tests {
 
     fn source() -> NodeId {
         NodeId::with_msb(5)
+    }
+
+    /// [routed_message] from a sender with the given sequence number and degree.
+    fn routed_message_with_degree(
+        route: &[NodeId],
+        sender_ssn: u32,
+        degree: u16,
+    ) -> ProtocolMessage {
+        let mut message = routed_message(route);
+        let ProtocolMessage::FindNodeReq(req) = &mut message else {
+            unreachable!()
+        };
+        req.common_header.state_seq_num = StateSeqNr::Value(ssn(sender_ssn));
+        req.common_header.src_node_degree = degree;
+        message
+    }
+
+    #[test]
+    fn degree_of_the_sender_is_recorded_from_its_newest_messages() {
+        let _clock = crate::tests::TestClock::new();
+        let ctx = context();
+        bidirectional(&ctx, neighbor());
+        let degree = |ctx: &Ctx| ctx.routing_table().contact(&source()).unwrap().degree();
+
+        receive(
+            &ctx,
+            routed_message_with_degree(&[source(), neighbor()], 2, 3),
+        );
+        assert_eq!(degree(&ctx), Some(3));
+
+        // an unknown degree keeps the known one
+        receive(
+            &ctx,
+            routed_message_with_degree(&[source(), neighbor()], 2, 0),
+        );
+        assert_eq!(degree(&ctx), Some(3));
+
+        // information of an older state of the node is ignored
+        receive(
+            &ctx,
+            routed_message_with_degree(&[source(), neighbor()], 1, 5),
+        );
+        assert_eq!(degree(&ctx), Some(3));
+
+        // the node lost a neighbor, which increased its sequence number
+        receive(
+            &ctx,
+            routed_message_with_degree(&[source(), neighbor()], 3, 2),
+        );
+        assert_eq!(degree(&ctx), Some(2));
     }
 
     #[test]

@@ -189,6 +189,10 @@ impl RediscoveryState {
 ///   a path via the vicinity graph that avoids the failed links becomes the proposed path,
 ///   which path probing validates. A successful validation sets the contact valid again,
 ///   so the rediscovery, which is postponed until then, is skipped.
+/// - Doesn't rediscover contacts that have lost all their links (their failed links are at
+///   least as many as their degree, see [Contact::has_lost_all_links]), and stops their
+///   rediscovery once further failures show this: they stay invalid until the node is heard
+///   of again.
 #[derive(Debug)]
 pub struct FailureHandling<C, const BUCKET_SIZE: usize> {
     _pd: PhantomData<C>,
@@ -307,7 +311,42 @@ where
         None
     }
 
+    /// Stops the rediscovery of a contact that has lost all its links meanwhile, e.g., due to
+    /// reported failures of further links: it stays invalid (see
+    /// [Contact::has_lost_all_links]).
+    ///
+    /// Returns if the rediscovery was stopped. Its pending timers find the contact not
+    /// rediscovering anymore and are ignored.
+    fn stop_rediscovery_if_isolated(&mut self, context: &C, contact_id: &NodeId) -> bool {
+        {
+            let mut rt = context.routing_table_mut();
+            let Some(mut contact) = rt.contact_mut(contact_id) else {
+                return false;
+            };
+            let ContactState::Rediscovering(rds) = contact.state() else {
+                return false;
+            };
+            if !contact.has_lost_all_links() {
+                return false;
+            }
+            let notviastate_list = rds.get_notviastate_list().clone();
+            contact.set_state(ContactState::Invalid(notviastate_list));
+            tracing::debug!(
+                target: "failure_handling",
+                node = %contact_id,
+                degree = ?contact.degree(),
+                "stopped rediscovery: contact has lost all its links"
+            );
+        }
+        self.inflight_rediscoveries.remove_by_id(contact_id);
+        self.pending_vicinity_alternatives.remove(contact_id);
+        true
+    }
+
     fn send_rediscovery_for_contact(&mut self, context: &C, contact_id: &NodeId) {
+        if self.stop_rediscovery_if_isolated(context, contact_id) {
+            return;
+        }
         // extracts up to (usually) two via contacts from the Rediscovery State
         let Some(closest_via_contacts) = self.extract_eligible_via_contacts(
             context,
@@ -496,6 +535,18 @@ where
             return Err(FailureHandlingError::WrongContactState);
         };
 
+        // a node without links can't be rediscovered: once a link is repaired, the node
+        // announces itself and gets valid again
+        if contact.has_lost_all_links() {
+            tracing::debug!(
+                target: "failure_handling",
+                node = %contact.id(),
+                degree = ?contact.degree(),
+                "no rediscovery: contact has lost all its links"
+            );
+            return Ok(());
+        }
+
         // the bad news about a failed direct link to a ULN (Unreachable with NotVia) is sent by
         // HandleContactUpdate, aggregated with other updates after the urgent hold time
 
@@ -583,6 +634,9 @@ where
 
         // it may be the case that the node has been removed from the routing table
         if !context.routing_table().contains(&node_id) {
+            return Ok(());
+        }
+        if self.stop_rediscovery_if_isolated(context, &node_id) {
             return Ok(());
         }
 
@@ -1339,5 +1393,73 @@ mod tests {
 
         fh.handle_event(&ctx, UseCaseEvent::Timer(timer)).unwrap();
         assert_eq!(sent_find_node_reqs(&ctx), vec![b()]);
+    }
+
+    fn set_degree(ctx: &Ctx, node: NodeId, degree: u16) {
+        ctx.routing_table_mut()
+            .contact_mut(&node)
+            .unwrap()
+            .set_degree(Some(degree));
+    }
+
+    #[test]
+    fn underlay_neighbor_that_lost_its_only_link_is_not_rediscovered() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut fh, ctx) = setup(true);
+        set_degree(&ctx, b(), 1);
+        let old = contact(&ctx, b());
+
+        uln_down(&mut fh, &ctx, ulnid(2));
+        let new = contact(&ctx, b());
+        contact_updated(&mut fh, &ctx, old, new);
+
+        let b_contact = contact(&ctx, b());
+        assert!(b_contact.is_invalid(), "b stays invalid: {b_contact}");
+        assert!(fh.scheduled_rediscoveries.is_empty());
+        assert!(fh.pending_vicinity_alternatives.is_empty());
+        assert!(
+            b_contact.proposed_path().is_none(),
+            "no vicinity alternative either"
+        );
+        assert!(sent_find_node_reqs(&ctx).is_empty());
+    }
+
+    #[test]
+    fn underlay_neighbor_with_further_links_is_rediscovered() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut fh, ctx) = setup(false);
+        set_degree(&ctx, b(), 2);
+
+        let timer = fail_link_to_b(&mut fh, &ctx);
+
+        fh.handle_event(&ctx, UseCaseEvent::Timer(timer)).unwrap();
+        assert_eq!(sent_find_node_reqs(&ctx), vec![b()]);
+    }
+
+    #[test]
+    fn rediscovery_stops_when_the_last_link_of_the_contact_fails() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut fh, ctx) = setup(false);
+        let (old, new) = invalidate_x_over_a(&ctx);
+        set_degree(&ctx, x(), 2);
+        contact_updated(&mut fh, &ctx, old, new);
+        assert!(matches!(
+            contact(&ctx, x()).state(),
+            ContactState::Rediscovering(_)
+        ));
+        let timer = *fh.scheduled_rediscoveries.keys().next().unwrap();
+
+        // the other link of x is reported to have failed meanwhile
+        ctx.routing_table_mut()
+            .contact_mut(&x())
+            .unwrap()
+            .set_invalid(NotViaStateList::from(NotViaState::from(NotVia::from((
+                Link::new(x(), b()),
+                crate::domain::Age::from(0),
+            )))));
+
+        fh.handle_event(&ctx, UseCaseEvent::Timer(timer)).unwrap();
+        assert!(sent_find_node_reqs(&ctx).is_empty(), "no rediscovery sent");
+        assert!(contact(&ctx, x()).is_invalid(), "x is invalid again");
     }
 }

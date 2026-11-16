@@ -32,6 +32,7 @@ use crate::{
         ULNState,
         ULNTable,
         UnderlayNeighborId,
+        node_degree_from_wire,
         protocol_message::{
             CommonHeader,
             ErrorData,
@@ -810,6 +811,9 @@ where
                     }
                     // the answer to our request is authoritative, also for a lower sequence
                     // number (e.g., after a restart of the node), whichever path it took
+                    if let Some(degree) = node_degree_from_wire(common_header.src_node_degree()) {
+                        contact.set_degree(Some(degree));
+                    }
                     if let StateSeqNr::Value(current_state_seq_nr) = common_header.state_seq_num {
                         if current_state_seq_nr < *contact.state_seq_nr() {
                             log::info!(target: "path_probing", "Contact {source} was reset, accepting its lower StateSeqNr {current_state_seq_nr} (was {})", contact.state_seq_nr());

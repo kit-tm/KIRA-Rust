@@ -141,6 +141,9 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
             // contact is not protected yet, but has to be: move it out of the buckets
             if let Some(previous) = self.inner.remove(contact.id()) {
                 contact.inherit_labels_from(&previous);
+                if contact.degree().is_none() {
+                    contact.set_degree(previous.degree());
+                }
             }
             self.protected_contacts.insert(*contact.id(), contact);
             return Ok(());

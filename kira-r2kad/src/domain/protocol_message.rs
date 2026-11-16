@@ -22,6 +22,7 @@ use crate::domain::{
     NotViaList,
     SourceRoute,
     StateSeqNr,
+    node_degree_from_wire,
     protocol_message::dht::{
         LHTInput,
         LHTOutput,
@@ -232,6 +233,43 @@ impl ProtocolMessage {
             ProtocolMessage::FetchReq(req) => req.source(),
             ProtocolMessage::FetchRsp(req) => req.source(),
         }
+    }
+
+    /// The common header of the message.
+    pub fn common_header(&self) -> &CommonHeader {
+        match self {
+            Self::ULNHello(header) => header,
+            Self::ULNDiscReq(req) => &req.common_header,
+            Self::ULNDiscRsp(req) => &req.common_header,
+            Self::QueryRouteReq(req) => &req.common_header,
+            Self::QueryRouteRsp(req) => req.common_header(),
+            Self::FindNodeReq(req) => req.common_header(),
+            Self::FindNodeRsp(req) => req.common_header(),
+            Self::Error(req) => req.common_header(),
+            Self::ProbeReq(req) => req.common_header(),
+            Self::ProbeRsp(req) => req.common_header(),
+            Self::PathSetupReq(req) => req.common_header(),
+            Self::PathSetupRsp(req) => req.common_header(),
+            Self::PathTeardownReq(req) => req.common_header(),
+            Self::UpdateRouteReq(req) => req.common_header(),
+            Self::StoreReq(req) => req.common_header(),
+            Self::StoreRsp(req) => req.common_header(),
+            Self::FetchReq(req) => req.common_header(),
+            Self::FetchRsp(req) => req.common_header(),
+        }
+    }
+
+    /// The degree of the node that sent the message, as reported in its common header,
+    /// [None] if unknown.
+    ///
+    /// It is the degree of the node with the source NodeId of the common header, which
+    /// may differ from the source of the source route (e.g., of an error message).
+    pub fn sender_degree(&self) -> (NodeId, Option<u16>) {
+        let header = self.common_header();
+        (
+            *header.src_node_id(),
+            node_degree_from_wire(header.src_node_degree()),
+        )
     }
 
     pub fn source_state_seq_nr(&self) -> StateSeqNr {

@@ -44,6 +44,8 @@ use kira_r2kad::domain::{
     ProtocolMessageKind,
     SafeStateSeqNr,
     SourceRoute,
+    node_degree_from_wire,
+    node_degree_to_wire,
     protocol_message::{
         CommonHeader,
         ContactActions,
@@ -1121,8 +1123,7 @@ fn parse_req_rsp_payload_from_bytes(
 
                     let ssn_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
                     let age_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
-                    // TODO: node degree
-                    let _node_degree =
+                    let node_degree =
                         u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
 
                     let ssn = SafeStateSeqNr::try_from(ssn_raw).map_err(|_| {
@@ -1134,6 +1135,7 @@ fn parse_req_rsp_payload_from_bytes(
 
                     let mut contact = Contact::new(Path::from(contact_id), ssn);
                     apply_info_age(&mut contact, age_raw);
+                    contact.set_degree(node_degree_from_wire(node_degree));
                     contacts.push(contact);
                 }
 
@@ -1197,12 +1199,12 @@ fn parse_req_rsp_payload_from_bytes(
                     // Age
                     let age_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
 
-                    // TODO: Node Degree
-                    let _node_degree =
+                    let node_degree =
                         u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
 
                     let mut contact = Contact::new(path, ssn);
                     apply_info_age(&mut contact, age_raw);
+                    contact.set_degree(node_degree_from_wire(node_degree));
                     rtable.push(contact);
 
                     // cannot underflow, checked above
@@ -1741,7 +1743,7 @@ fn write_contactlist_object<W: Write>(
                 + 4 // SSN
                 + 4 // TODO: Age Info
                 + 2
-            // TODO: Node Degree
+            // Node Degree
         );
     write_common_object_header(
         writer,
@@ -1804,7 +1806,7 @@ fn write_contact_entry<W: Write>(writer: &mut W, contact: &Contact) -> Result<()
     writer.write_all(&encode_info_age(contact.info_age()).to_be_bytes())?;
 
     // Node Degree
-    writer.write_all(&u16::MAX.to_be_bytes())?; // TODO: Serialize node degree of Contact in rtable
+    writer.write_all(&node_degree_to_wire(contact.degree()).to_be_bytes())?;
 
     Ok(())
 }
@@ -1830,7 +1832,7 @@ fn write_rtable_object<W: Write>(writer: &mut W, contacts: &[Contact]) -> Result
                     * NodeId::SIZE + 2 // Path-Vector
                 + 4 // SSN
                 + 4 // TODO: Age Info
-                + 2 // TODO: Node Degree
+                + 2 // Node Degree
         })
         .sum();
     write_common_object_header(
@@ -1872,7 +1874,7 @@ fn write_rtable_entry<W: Write>(writer: &mut W, contact: &Contact) -> Result<(),
     writer.write_all(&encode_info_age(contact.info_age()).to_be_bytes())?;
 
     // Node Degree
-    writer.write_all(&u16::MAX.to_be_bytes())?; // TODO: Serialize node degree of Contact in rtable
+    writer.write_all(&node_degree_to_wire(contact.degree()).to_be_bytes())?;
 
     Ok(())
 }
@@ -1960,8 +1962,7 @@ fn parse_rtable_update_info_from_bytes(payload: &[u8]) -> Result<ContactActions,
                 // Age
                 let age_raw = u32::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
 
-                // TODO: Node Degree
-                let _node_degree = u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
+                let node_degree = u16::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
 
                 // RouteUpdateAction
                 let action_raw = u8::read_options(&mut payload_cursor, binrw::Endian::Big, ())?;
@@ -1969,6 +1970,7 @@ fn parse_rtable_update_info_from_bytes(payload: &[u8]) -> Result<ContactActions,
 
                 let mut contact = Contact::new(path, ssn);
                 apply_info_age(&mut contact, age_raw);
+                contact.set_degree(node_degree_from_wire(node_degree));
                 result.push((contact, action));
 
                 // cannot underflow, checked above
@@ -2010,7 +2012,7 @@ fn write_rtable_update_info_object<W: Write>(
                     * NodeId::SIZE + 2 // Path-Vector
                 + 4 // SSN
                 + 4 // TODO: Age Info
-                + 2 // TODO: Node Degree
+                + 2 // Node Degree
 
                 + 1 // RouteUpdateActionType
         })
@@ -2058,7 +2060,7 @@ fn write_rtable_update_entry<W: Write>(
     writer.write_all(&encode_info_age(contact.info_age()).to_be_bytes())?;
 
     // Node Degree
-    writer.write_all(&u16::MAX.to_be_bytes())?; // TODO: Serialize node degree of Contact in rtable
+    writer.write_all(&node_degree_to_wire(contact.degree()).to_be_bytes())?;
 
     // RouteUpdateActionType
     writer.write_all(&u8::from(action_type).to_be_bytes())?;

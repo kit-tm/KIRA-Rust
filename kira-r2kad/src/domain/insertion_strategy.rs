@@ -159,6 +159,7 @@ where
         // number (it only increases here, a lower one is accepted from authoritative
         // answers of the node only)
         existing.update_labels_from(&contact);
+        existing.update_degree_from(&contact);
         existing.update_state_seq_nr(*contact.state_seq_nr());
         // a message of the node itself (over a validated source route) shows when it was
         // last heard of, relayed information is someone else's observation
