@@ -286,12 +286,21 @@ async fn main() {
     // duplicate mpsc underlay updates channel for fwd_tables and R²/KAD
     let (tx1, underlay_updates1) = futures::channel::mpsc::unbounded();
     let (tx2, underlay_updates2) = futures::channel::mpsc::unbounded();
+    // With SRv6 forwarding, R²/KAD gets the updates from the forwarding tables after they
+    // prepared the interfaces (see Srv6FwdTables::new).
+    let fork_to_r2kad = match args.forwarding {
+        ForwardingMode::Gre => Some(tx2.clone()),
+        #[cfg(feature = "srv6")]
+        ForwardingMode::Srv6 => None,
+    };
     tokio::task::Builder::new()
         .name("fork underlay updates")
         .spawn(async move {
             while let Some(update) = underlay_updates.next().await {
-                if tx1.unbounded_send(update.clone()).is_err()
-                    || tx2.unbounded_send(update).is_err()
+                if fork_to_r2kad
+                    .as_ref()
+                    .is_some_and(|tx2| tx2.unbounded_send(update.clone()).is_err())
+                    || tx1.unbounded_send(update).is_err()
                 {
                     break;
                 }
@@ -386,6 +395,7 @@ async fn main() {
                 handle_rtnetlink.clone(),
                 handle,
                 underlay_updates1,
+                tx2,
             )
             .await
             .expect("SRv6 forwarding should successfully be set up");

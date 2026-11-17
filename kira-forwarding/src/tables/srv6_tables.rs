@@ -37,7 +37,10 @@ use std::{
 
 use futures::{
     StreamExt,
-    channel::mpsc::UnboundedReceiver,
+    channel::mpsc::{
+        UnboundedReceiver,
+        UnboundedSender,
+    },
 };
 use kira_r2kad::domain::UnderlayNeighborUpdate;
 use netlink_packet_route::RouteNetlinkMessage;
@@ -101,12 +104,18 @@ impl<I> Srv6FwdTables<I> {
     /// The returned future is responsible for attaching the NodeIP and the eBPF program to
     /// upcoming interfaces. The eBPF program is detached from all interfaces when the future
     /// is dropped. NodeIPs and PathIPs are derived using the given `ip_prefixes`.
+    ///
+    /// The future passes all `underlay_updates` on to `prepared_updates` in their order, an
+    /// [InterfaceUp](UnderlayNeighborUpdate::InterfaceUp) only after the eBPF program is
+    /// attached to the interface: until then, packets to PathIPs arriving on the interface
+    /// are not forwarded, so neighbors must not learn about the node via the interface.
     pub async fn new(
         root_id: NodeId,
         ip_prefixes: IpPrefixes,
         handle_rtnetlink: ConnectionHandle<RouteNetlinkMessage>,
         underlay_information: I,
         mut underlay_updates: UnboundedReceiver<UnderlayNeighborUpdate>,
+        prepared_updates: UnboundedSender<UnderlayNeighborUpdate>,
     ) -> Result<(Self, impl Future<Output = ()> + 'static), FwdTableError> {
         // a previous instance (e.g., after a crash) may have left its routes behind
         remove_routes(&handle_rtnetlink, &ip_prefixes).await?;
@@ -119,15 +128,17 @@ impl<I> Srv6FwdTables<I> {
             let routes = routes.clone();
             async move {
                 while let Some(update) = underlay_updates.next().await {
-                    let UnderlayNeighborUpdate::InterfaceUp(id) = update else {
-                        continue;
-                    };
-                    if let Err(e) = routes.attach_node_id_ip(&root_id, id).await {
-                        log::error!(target: "srv6_fwd_table", "Attaching NodeIP to interface {id:?} failed: {e}");
+                    if let UnderlayNeighborUpdate::InterfaceUp(id) = update {
+                        if let Err(e) = routes.attach_node_id_ip(&root_id, id).await {
+                            log::error!(target: "srv6_fwd_table", "Attaching NodeIP to interface {id:?} failed: {e}");
+                        }
+                        if let Err(e) = program.attach(id) {
+                            log::error!(target: "srv6_fwd_table", "Attaching eBPF program to interface {id:?} failed: {e}");
+                        }
                     }
-                    if let Err(e) = program.attach(id) {
-                        log::error!(target: "srv6_fwd_table", "Attaching eBPF program to interface {id:?} failed: {e}");
-                    }
+                    // the receiver may be gone on shutdown, the program stays attached until
+                    // this future is dropped
+                    let _ = prepared_updates.unbounded_send(update);
                 }
             }
         };
