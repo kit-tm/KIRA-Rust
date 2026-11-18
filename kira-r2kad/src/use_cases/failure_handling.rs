@@ -894,9 +894,7 @@ where
                         // may have changed since: e.g., a message reports a failed link of its
                         // path (invalid) and revalidates it over another path (valid again).
                         // Only act on the current state of the contact.
-                        let current = context
-                            .routing_table()
-                            .contact(new.id()).cloned();
+                        let current = context.routing_table().contact(new.id()).cloned();
                         // contact is dead: remove from routing table
                         if new.is_dead() {
                             if current.as_ref().is_some_and(Contact::is_dead) {
