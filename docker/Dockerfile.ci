@@ -3,7 +3,7 @@
 # Built by the `build-rust-ci-image` job (see .gitlab-ci/ci-image.yml).
 # Image is only rebuilt when this file (or the build job definition) changes.
 
-ARG RUST_VERSION=1.99
+ARG RUST_VERSION=1.100
 FROM rust:${RUST_VERSION}-alpine
 
 # System packages:
