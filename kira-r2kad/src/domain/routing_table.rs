@@ -213,7 +213,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     ///
     /// When more than `n` contacts are returned, the caller can select the
     /// "best" `n` contacts among them based on physical proximity
-    /// (e.g., shortest path)
+    /// (e.g., shortest path)[^shared_prefix_length_select].
     ///
     /// # Invariants
     ///

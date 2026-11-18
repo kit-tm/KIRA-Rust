@@ -8,7 +8,11 @@
 //!   GRE encapsulation, PathIds are handled by nftables. It carries a single PathId, so the
 //!   routing tier has to use the one-segment scheme
 //!   ([`PathSegmentation::OneSegment`](kira_r2kad::domain::PathSegmentation::OneSegment)).
-//! - [`Srv6FwdTables`](tables::srv6_tables::Srv6FwdTables) (feature `srv6`):
+#![cfg_attr(
+    feature = "srv6",
+    doc = "- [`Srv6FwdTables`](tables::srv6_tables::Srv6FwdTables) (feature `srv6`):"
+)]
+#![cfg_attr(not(feature = "srv6"), doc = "- `Srv6FwdTables` (feature `srv6`):")]
 //!   SRv6 encapsulation, PathIds are handled by an eBPF program. Paths to contacts are split
 //!   into up to two path segments, each identified by its own PathId.
 //!
