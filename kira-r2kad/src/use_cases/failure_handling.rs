@@ -896,8 +896,7 @@ where
                         // Only act on the current state of the contact.
                         let current = context
                             .routing_table()
-                            .contact(new.id())
-                            .map(|contact| Contact::clone(&contact));
+                            .contact(new.id()).cloned();
                         // contact is dead: remove from routing table
                         if new.is_dead() {
                             if current.as_ref().is_some_and(Contact::is_dead) {

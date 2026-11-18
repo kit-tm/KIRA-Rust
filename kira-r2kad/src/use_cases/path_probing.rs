@@ -135,7 +135,7 @@ pub enum PathProbingState {
         /// Timer for sending scheduled probe requests
         scheduled_sending_timer: Option<TimerId>,
         /// Last probe of a contact because of a lower StateSeqNr
-        ssn_checks: HashMap<NodeId, Timestamp>,
+        ssn_checks: Box<HashMap<NodeId, Timestamp>>,
     },
     Error,
 }
@@ -698,7 +698,7 @@ where
             requests_in_flight: HashMap::new(),
             scheduled_probe_requests: HashMap::new(),
             scheduled_sending_timer: None,
-            ssn_checks: HashMap::new(),
+            ssn_checks: Box::new(HashMap::new()),
         };
 
         Ok(())

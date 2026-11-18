@@ -644,7 +644,7 @@ mod tests {
         InMemoryULNTable,
         PetVicinityGraph,
     >;
-    type OND = OverlayNeighborhoodDiscovery<Ctx, BUCKET_SIZE>;
+    type Ond = OverlayNeighborhoodDiscovery<Ctx, BUCKET_SIZE>;
 
     fn root() -> NodeId {
         NodeId::with_msb(1)
@@ -655,7 +655,7 @@ mod tests {
     }
 
     /// Leaf node with [n] as underlay neighbor, which isn't a contact yet.
-    fn setup() -> (OND, Ctx) {
+    fn setup() -> (Ond, Ctx) {
         crate::tests::init();
         let ctx = Ctx::new(ContextConfig {
             root_id: root(),
@@ -672,7 +672,7 @@ mod tests {
                 connection_id: ConnectionId(1),
             },
         );
-        let mut ond = OND::new(ONDConfig::default()).unwrap();
+        let mut ond = Ond::new(ONDConfig::default()).unwrap();
         ond.start(&ctx).unwrap();
         (ond, ctx)
     }
@@ -685,7 +685,7 @@ mod tests {
             .unwrap();
     }
 
-    fn join_timer(ond: &OND) -> Option<TimerId> {
+    fn join_timer(ond: &Ond) -> Option<TimerId> {
         let ONDState::Running { timer_contexts } = &ond.state else {
             panic!("not running");
         };
@@ -693,7 +693,7 @@ mod tests {
     }
 
     /// Fires the join timer and returns the destinations of the sent joins.
-    fn fire_join(ond: &mut OND, ctx: &Ctx) -> Vec<NodeId> {
+    fn fire_join(ond: &mut Ond, ctx: &Ctx) -> Vec<NodeId> {
         let timer = join_timer(ond).expect("join timer armed");
         ond.handle_event(ctx, UseCaseEvent::Timer(timer)).unwrap();
         ctx.runtime()
@@ -733,7 +733,7 @@ mod tests {
         assert_eq!(fire_join(&mut ond, &ctx), vec![n()]);
     }
 
-    fn timer_ids(ond: &OND) -> Vec<TimerId> {
+    fn timer_ids(ond: &Ond) -> Vec<TimerId> {
         let ONDState::Running { timer_contexts } = &ond.state else {
             panic!("not running");
         };

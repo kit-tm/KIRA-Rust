@@ -125,7 +125,7 @@ where
                 self.update_existing(contact.clone(), routing_table)
             }
             InsertionError::Add(AddError::NeedsValidation) => {
-                return InsertionStrategyResult::NeedsValidation;
+                InsertionStrategyResult::NeedsValidation
             }
         }
     }
