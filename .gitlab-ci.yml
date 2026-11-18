@@ -13,7 +13,7 @@ spec:
       default: sccache
     rust_version:
       type: string
-      default: 1.97
+      default: 1.99.1
       description: "Version of Rust"
 
 ---
