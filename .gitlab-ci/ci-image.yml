@@ -33,6 +33,7 @@ build-rust-ci-image:
         --local context=. \
         --local dockerfile=docker \
         --opt filename=Dockerfile.ci \
+        --opt build-arg:RUST_VERSION=${RUST_VERSION} \
         --import-cache "type=registry,ref=${RUST_CI_IMAGE_DEFAULT}" \
         --output "type=image,name=${RUST_CI_IMAGE},push=true"
   rules:
