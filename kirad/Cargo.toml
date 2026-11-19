@@ -59,6 +59,7 @@ kira-forwarding = { path = "../kira-forwarding", default-features = false, featu
 kira-r2kad = { path = "../kira-r2kad", default-features = false }
 
 futures = { workspace = true }
+serde_json = { workspace = true }
 signal-hook = "0.4.4"
 signal-hook-tokio = { version = "0.4", features = ["futures-v0_3"] }
 tokio = { workspace = true, default-features = true, features = [
