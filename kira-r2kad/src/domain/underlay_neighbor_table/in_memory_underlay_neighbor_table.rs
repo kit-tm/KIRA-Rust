@@ -88,33 +88,39 @@ impl ULNTable for InMemoryULNTable {
                     // update to bidirectional and increase the sequence number
                     (existing_ulnid, ULNState::Tentative) if *existing_ulnid == ulnid => {
                         entry.insert((ulnid, ULNState::Bidirectional));
-                        if let Some(new_ssn) = (self.state_seq_nr + 1).value() {
-                            self.state_seq_nr = new_ssn;
-                            true
-                        } else {
-                            todo!("implement reset of SafeStateSeqNr");
-                        }
+                        // wraps around, other nodes handle the lower number like a restart
+                        self.state_seq_nr = self.state_seq_nr + 1;
+                        true
                     }
-                    _ => {
-                        panic!(
-                            "Internal errror - Trying to confirm entry for NodeID {} with new ulnid {} w/o inserting it first",
-                            id, ulnid
+                    // the neighbor is known via another underlay link, e.g., a second interface
+                    // to the same neighbor: a message over this link doesn't confirm the stored one
+                    (existing_ulnid, _) => {
+                        log::warn!(
+                            target: "uln_table",
+                            "Not confirming neighbor {id} at ulnid {ulnid}: it is known at ulnid {existing_ulnid}"
                         );
+                        false
                     }
                 }
             }
             Entry::Vacant(_) => {
-                // for a confirm we expect that there exists a prior entry for that ulnid
-                panic!(
-                    "Internal errror - Trying to confirm formerly unknown entry for NodeID {} and ulnid {}",
-                    id, ulnid
+                // a confirmation needs a prior (tentative) entry, e.g., a late response to a request
+                // to a neighbor that was removed meanwhile confirms nothing
+                log::warn!(
+                    target: "uln_table",
+                    "Not confirming unknown neighbor {id} at ulnid {ulnid}"
                 );
+                false
             }
         }
     }
 
     fn contains(&self, id: &NodeId) -> bool {
         self.map.contains_key(id)
+    }
+
+    fn is_bidirectional(&self, id: &NodeId) -> bool {
+        matches!(self.map.get(id), Some((_, ULNState::Bidirectional)))
     }
 
     fn state_seq_nr(&self) -> &SafeStateSeqNr {
@@ -128,11 +134,8 @@ impl ULNTable for InMemoryULNTable {
         if let Some((_, uln_state)) = result
             && matches!(uln_state, ULNState::Bidirectional)
         {
-            if let Some(new_ssn) = (self.state_seq_nr + 1).value() {
-                self.state_seq_nr = new_ssn;
-            } else {
-                todo!("implement reset of SafeStateSeqNr");
-            }
+            // wraps around, other nodes handle the lower number like a restart
+            self.state_seq_nr = self.state_seq_nr + 1;
         }
 
         result.map(|x| x.0)
@@ -160,6 +163,22 @@ mod tests {
     };
 
     #[test]
+    fn ssn_wraps_around_after_the_largest_value() {
+        let mut table = InMemoryULNTable::new();
+        *table.state_seq_nr_mut() = SafeStateSeqNr::try_from(u32::MAX - 1).unwrap();
+        let ulnid = UnderlayNeighborId {
+            interface_id: crate::domain::InterfaceId::try_from(1).unwrap(),
+            connection_id: crate::domain::ConnectionId(1),
+        };
+        let node = NodeId::with_msb(2);
+        table.insert(node, ulnid);
+
+        assert!(table.confirm(node, ulnid));
+
+        assert_eq!(*table.state_seq_nr(), SafeStateSeqNr::MIN);
+    }
+
+    #[test]
     fn ssn_on_insert() {
         let table = InMemoryULNTable::new();
         tests::ssn_on_insert(table);
@@ -172,7 +191,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn ssn_on_wrong_confirm() {
         let table = InMemoryULNTable::new();
         tests::ssn_on_wrong_confirm(table);
@@ -188,5 +206,30 @@ mod tests {
     fn ssn_on_fake_remove() {
         let table = InMemoryULNTable::new();
         tests::ssn_on_fake_remove(table);
+    }
+
+    #[test]
+    fn is_bidirectional_only_after_confirm() {
+        let mut table = InMemoryULNTable::new();
+        let id = NodeId::ONE;
+        let ulnid = UnderlayNeighborId {
+            interface_id: crate::domain::InterfaceId::try_from(1).unwrap(),
+            connection_id: crate::domain::ConnectionId::from(1),
+        };
+
+        assert!(!table.is_bidirectional(&id));
+
+        table.insert(id, ulnid);
+        assert!(table.contains(&id));
+        assert!(
+            !table.is_bidirectional(&id),
+            "tentative entry is not bidirectional"
+        );
+
+        table.confirm(id, ulnid);
+        assert!(table.is_bidirectional(&id));
+
+        table.remove(&id);
+        assert!(!table.is_bidirectional(&id));
     }
 }

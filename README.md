@@ -41,6 +41,52 @@ To generate and view the documentation for the respective packages, run:
 make doc
 ```
 
+## Fast Forwarding
+
+Data packets are forwarded along paths identified by PathIDs (see section 3.10 of the [KIRA] draft).
+The encapsulation carrying the PathIDs is selected with `--forwarding` (or `KIRA_FORWARDING`).
+It has to be the same on all nodes of a network, as the modes also differ in how a path to
+a contact is split into path segments, each with its own PathID:
+
+| Mode             | Path segments | Encapsulation                                                                                         | PathID handling             | Overhead |
+|:-----------------|:--------------|:------------------------------------------------------------------------------------------------------|:----------------------------|:---------|
+| `gre` (default)  | one           | [GRE](https://datatracker.ietf.org/doc/rfc7676/) header                                                | nftables                    | 44 bytes |
+| `srv6`           | up to two     | outer IPv6 header and, for two segments, a Reduced Segment Routing Header ([RFC 8754](https://datatracker.ietf.org/doc/rfc8754/)) | eBPF program at TC ingress  | 40 bytes, 64 bytes with two segments |
+
+- **One segment**: the whole path has a single PathID. Paths of more than three hops require an
+  explicit path setup in all nodes that are more than two hops away from the end of the path.
+- **Two segments** (as specified in the draft): paths of up to three hops consist of one segment,
+  longer paths get a second segment of two hops (paths of four and five hops) or three hops
+  (longer paths). Only paths of six or more hops require an explicit path setup, and only in
+  some of the nodes on the path.
+
+The forwarding state installed by a path setup is soft state that is refreshed by the periodic
+path probing. (GRE can't carry a second PathID with the tunnel devices of the Linux kernel,
+which refuse to nest the encapsulation.)
+
+### SRv6
+
+The `srv6` mode is only available if `kirad` is built with the `srv6` feature:
+```sh
+cargo build --release --features srv6
+```
+Intermediate nodes replace the PathID in the destination address of the outer header,
+which regular SRv6 endpoints don't do. This is done by an eBPF program ([`kira-forwarding-ebpf`](kira-forwarding-ebpf))
+that is embedded into `kirad` and attached to the ingress of all interfaces managed by it.
+
+Building it additionally requires:
+
+- a nightly toolchain with the `rust-src` component: `rustup toolchain install nightly --component rust-src`
+- [`bpf-linker`](https://github.com/aya-rs/bpf-linker#installation)
+
+Running it requires:
+
+- Linux >= 6.0 with `CONFIG_IPV6_SEG6_LWTUNNEL` and `CONFIG_BPF_SYSCALL`
+- `CAP_NET_ADMIN` and `CAP_BPF` (or root)
+- interfaces with Ethernet framing
+
+The state of the eBPF program can be inspected with `bpftool net show` and `bpftool map dump name PATH_TABLE`.
+
 ## Cloning the repository
 
 To simply clone the repository use this:
@@ -120,6 +166,8 @@ You should install the following additional dependencies for development:
 - _Userspace_ utilities of [nftables](https://wiki.nftables.org/wiki-nftables/index.php/Main_Page#Installing_nftables):
   [`kira-test`] uses the `nft` utility to query to current state of the forwarding tier;
   Generally handy for debugging the forwarding tier.
+- [`bpftool`](https://github.com/libbpf/bpftool): the counterpart for the SRv6 forwarding,
+  used by [`kira-test`] if `KIRA_FORWARDING=srv6` is set.
 
 If you want to contribute to the Python-based emulation powered by [NeST]
 at [`kira-test`](tests/kira-test), you should additionally install the used

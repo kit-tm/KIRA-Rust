@@ -16,6 +16,7 @@ pub use crate::domain::bucket::ReplacementError; // TODO: Create distinct RT-Err
 use crate::domain::{
     Bucket,
     Contact,
+    ContactLabels,
     GroupingError,
     Link,
     NodeId,
@@ -27,19 +28,19 @@ use crate::domain::{
 };
 pub mod flat_routing_table;
 pub mod observable_routing_table;
+pub mod protected_routing_table;
 #[cfg(test)]
 pub mod single_bucket;
-pub mod unlimited_uln_routing_table;
 
 #[doc(inline)]
 pub use flat_routing_table::FlatRoutingTable;
 #[doc(inline)]
 pub use observable_routing_table::ObservableRoutingTable;
+#[doc(inline)]
+pub use protected_routing_table::ProtectedRoutingTable;
 #[cfg(test)]
 #[doc(inline)]
 pub use single_bucket::SingleBucketRT;
-#[doc(inline)]
-pub use unlimited_uln_routing_table::UnlimitedULNRoutingTable;
 
 #[derive(Debug, Eq, PartialEq, Display, Error)]
 pub enum AddError {
@@ -83,15 +84,15 @@ impl From<BucketSplitError> for InsertionError {
 ///
 /// A [RoutingTable] has to guarantee to have at least one [Bucket] at any given time.
 ///
-/// # Underlay Neighbors
+/// # Protected Contacts
 ///
-/// As some RoutingTable implementation may handle underlay neighbors in a different way
-/// the caller has to be careful when using [RoutingTable::bucket].
-/// In structures like [UnlimitedULNRoutingTable] the Neighbors may not be included in the buckets.
+/// As some RoutingTable implementations may handle certain contacts (e.g. underlay neighbors)
+/// in a different way the caller has to be careful when using [RoutingTable::bucket].
+/// In structures like [ProtectedRoutingTable] protected contacts are not included in the buckets.
 ///
 /// As mostly accessing the buckets directly only happens if Insertion fails, this will ne problem.
 ///
-///[UnlimitedULNRoutingTable]: crate::domain::routing_table::unlimited_uln_routing_table::UnlimitedULNRoutingTable
+///[ProtectedRoutingTable]: crate::domain::routing_table::protected_routing_table::ProtectedRoutingTable
 pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// Possible Write Guard for a mutable contact reference.
     ///
@@ -212,7 +213,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     ///
     /// When more than `n` contacts are returned, the caller can select the
     /// "best" `n` contacts among them based on physical proximity
-    /// (e.g., shortest path)
+    /// (e.g., shortest path)[^shared_prefix_length_select].
     ///
     /// # Invariants
     ///
@@ -381,6 +382,18 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// Iterator over all [Contact]s in the [RoutingTable].
     fn iter(&self) -> impl Iterator<Item = &Contact>;
 
+    /// Estimated one-way delay to the node: half of the smoothed round-trip time over the
+    /// active path of its contact, if known.
+    fn one_way_delay(&self, id: &NodeId) -> Option<std::time::Duration> {
+        self.contact(id).and_then(Contact::one_way_delay)
+    }
+
+    /// Iterator over all [Contact]s having at least one of the given labels.
+    fn iter_with_any_label(&self, labels: ContactLabels) -> impl Iterator<Item = &Contact> {
+        self.iter()
+            .filter(move |contact| contact.has_any_label(labels))
+    }
+
     /// Iterator over mutable references to all contacts in the [RoutingTable].
     fn iter_mut(&'a mut self) -> impl Iterator<Item = Self::ContactWriteGuard>;
 
@@ -454,9 +467,9 @@ mod tests {
     }
 
     #[test]
-    fn test_next_hop_isolated_unlimited_uln_routing_table() {
+    fn test_next_hop_isolated_protected_routing_table() {
         test_next_hop_isolated_impl(|root| {
-            UnlimitedULNRoutingTable::from(FlatRoutingTable::<4, 1>::new(root).unwrap())
+            ProtectedRoutingTable::from(FlatRoutingTable::<4, 1>::new(root).unwrap())
         });
     }
 
@@ -481,18 +494,21 @@ mod tests {
 
     #[test]
     fn test_next_hop_root_closer_flat_routing_table() {
+        let _clock = crate::tests::TestClock::new();
         test_next_hop_root_closer_impl(|root| FlatRoutingTable::<4, 1>::new(root).unwrap());
     }
 
     #[test]
     fn test_next_hop_root_closer_single_bucket_rt() {
+        let _clock = crate::tests::TestClock::new();
         test_next_hop_root_closer_impl(SingleBucketRT::<4>::new);
     }
 
     #[test]
-    fn test_next_hop_root_closer_unlimited_uln_routing_table() {
+    fn test_next_hop_root_closer_protected_routing_table() {
+        let _clock = crate::tests::TestClock::new();
         test_next_hop_root_closer_impl(|root| {
-            UnlimitedULNRoutingTable::from(FlatRoutingTable::<4, 1>::new(root).unwrap())
+            ProtectedRoutingTable::from(FlatRoutingTable::<4, 1>::new(root).unwrap())
         });
     }
 
@@ -525,23 +541,27 @@ mod tests {
 
     #[test]
     fn test_next_hop_xor_tiebreaker_flat_routing_table() {
+        let _clock = crate::tests::TestClock::new();
         test_next_hop_xor_tiebreaker_impl(|root| FlatRoutingTable::<4, 1>::new(root).unwrap());
     }
 
     #[test]
     fn test_next_hop_xor_tiebreaker_single_bucket_rt() {
+        let _clock = crate::tests::TestClock::new();
         test_next_hop_xor_tiebreaker_impl(SingleBucketRT::<4>::new);
     }
 
     #[test]
-    fn test_next_hop_xor_tiebreaker_unlimited_uln_routing_table() {
+    fn test_next_hop_xor_tiebreaker_protected_routing_table() {
+        let _clock = crate::tests::TestClock::new();
         test_next_hop_xor_tiebreaker_impl(|root| {
-            UnlimitedULNRoutingTable::from(FlatRoutingTable::<4, 1>::new(root).unwrap())
+            ProtectedRoutingTable::from(FlatRoutingTable::<4, 1>::new(root).unwrap())
         });
     }
 
     #[test]
     fn invalidate_contacts_via_invalidates_contacts_starting_with_given_neighbors() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let [root, lost, behind_lost, other, behind_other] = [1, 2, 3, 4, 5].map(NodeId::with_msb);
         let ssn = SafeStateSeqNr::try_from(1).unwrap();

@@ -13,8 +13,8 @@ spec:
       default: sccache
     rust_version:
       type: string
-      default: 1.99.1
-      description: "Version of Rust"
+      default: ""
+      description: "Override the Rust version of the CI image (empty: use ARG RUST_VERSION from docker/Dockerfile.ci)"
 
 ---
 

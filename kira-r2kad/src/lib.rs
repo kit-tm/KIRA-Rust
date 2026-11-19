@@ -71,7 +71,52 @@ pub use crate::r2kad::{
 #[cfg(test)]
 #[allow(dead_code)]
 pub(crate) mod tests {
-    use crate::domain::NodeId;
+    use std::time::{
+        Duration,
+        Instant,
+    };
+
+    use crate::domain::{
+        ClockGuard,
+        NodeId,
+        Timestamp,
+    };
+
+    /// Clock for tests, as the protocol only reads the time provided by its driver.
+    ///
+    /// It is set on the test's thread while alive and only advances explicitly, so tests
+    /// depending on time are deterministic.
+    pub struct TestClock {
+        now: Instant,
+        guard: Option<ClockGuard>,
+    }
+
+    impl TestClock {
+        /// Starts at the current wall clock time.
+        pub fn new() -> Self {
+            Self::at(Instant::now())
+        }
+
+        /// Starts at the given time, e.g. the time of a test runtime.
+        pub fn at(now: Instant) -> Self {
+            Self {
+                now,
+                guard: Some(Timestamp::set_clock(now)),
+            }
+        }
+
+        pub fn now(&self) -> Instant {
+            self.now
+        }
+
+        /// Lets the given time pass.
+        pub fn advance(&mut self, duration: Duration) {
+            self.now += duration;
+            // restore the previous clock first, then set the new time on top of it
+            drop(self.guard.take());
+            self.guard = Some(Timestamp::set_clock(self.now));
+        }
+    }
 
     pub fn init() {
         // setup pretty trace logs to be captured in tests

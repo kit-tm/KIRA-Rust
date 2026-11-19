@@ -11,6 +11,7 @@ This _only_ includes dependencies not managed by [uv].
 - [uv]: Python package and project manager
 - [iproute] >= 6.9.0 [^1]: Probing setup IPv6-routes by `kirad`.
 - _Userspace_ utilities of [nftables]: Check the current state of the forwarding tier
+- `bpftool`: Check the current state of the forwarding tier with SRv6 forwarding
 - Linux based operating system with root privileges:
   [NeST] is utilizing network [namespaces] for emulating the different topology nodes.
   This is a Linux exclusive feature and requires `CAP_SYS_ADMIN`.
@@ -55,6 +56,13 @@ of the repository:
 KIRA_TOPOS="tests/topos/minimal.gml" uv --project=tests/kira-test run pytest
 ```
 
+The daemons inherit the environment of the tests. To run the tests with the SRv6-based
+fast forwarding (requires `kirad` binaries built with the `srv6` feature and `bpftool`)
+set `KIRA_FORWARDING`:
+```sh
+KIRA_FORWARDING=srv6 KIRAD_BIN=... KIRAD_BIN_SMALL-K=... uv --project=tests/kira-test run pytest
+```
+
 ## Topology files (GML)
 
 Topologies are defined in the [GML format].
@@ -92,6 +100,30 @@ on existing files, or randomize the NodeIds:
 uv --project=tests/kira-test run alter_gml_config tests/topos/tiny.gml prune 1 > tiny_pruned.gml
 uv --project=tests/kira-test run alter_gml_config tests/topos/tiny.gml randomize > tiny_random.gml
 ```
+
+## Large topologies
+
+All network namespaces share the kernel's neighbor tables, whose size is limited
+host-wide by the sysctls `net.ipv6.neigh.default.gc_thresh{1,2,3}` of the initial
+namespace (defaults 128/512/1024 entries). Every interface needs neighbor entries,
+including one for the multicast address `ff02::1`, so topologies with more than about
+1000 interface ends exceed the limit. For example, 200 nodes with about six links each
+fail, while 100 such nodes work.
+
+The kernel then can't create neighbor entries (`ENOBUFS`), and UDP multicast sends fail
+with `EINVAL`, even in namespaces unrelated to the topology. `kirad` logs
+`Multicast to interface failed unexpectedly` and `Sending protocol message failed:
+... Invalid argument`, its underlay neighbor discovery breaks, and the network doesn't
+converge, while `ping` between existing neighbors may still work.
+
+Raise the limits before emulating large topologies (IPv4 has the same limits):
+```sh
+sudo sysctl -w net.ipv6.neigh.default.gc_thresh1=8192 \
+    net.ipv6.neigh.default.gc_thresh2=65536 \
+    net.ipv6.neigh.default.gc_thresh3=131072
+```
+The setting lasts until the next reboot. To keep it, add the same values to a file in
+`/etc/sysctl.d/`, e.g. `/etc/sysctl.d/90-kira-nest.conf`.
 
 # Development
 

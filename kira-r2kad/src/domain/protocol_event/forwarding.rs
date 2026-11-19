@@ -91,6 +91,16 @@ impl NodeIdEntry {
             }
         }
     }
+
+    /// [PathId] of the second path segment the packet is forwarded on after the first one.
+    pub fn second_path_id(&self) -> Option<&PathId> {
+        match self {
+            NodeIdEntry::Forward(_) => None,
+            NodeIdEntry::Encapsulate(NodeIdEncapsulationEntry { second_path_id, .. }) => {
+                second_path_id.as_ref()
+            }
+        }
+    }
 }
 
 /// An entry in the NodeIdTable for forwarding packets to a underlay neighbor.
@@ -105,12 +115,20 @@ pub struct NodeIdForwardingEntry {
 
 /// An entry in the NodeIdTable for encapsulating packets to a contact.
 #[derive(Debug, Clone, Display, PartialEq, Eq, Hash)]
-#[display("{destination} => {next_hop} ({out_path_id})")]
+#[display(
+    "{destination} => {next_hop} ({out_path_id}{})",
+    second_path_id.as_ref().map(|id| format!(", {id}")).unwrap_or_default()
+)]
 pub struct NodeIdEncapsulationEntry {
     /// [NodeIdSubnet] of the contact this entry goes to.
     pub destination: NodeIdSubnet,
-    /// [PathId] to use for forwarding
+    /// [PathId] of the first path segment, used for forwarding to the next hop.
     pub out_path_id: PathId,
+    /// [PathId] of the second path segment, if the path to the contact is split into
+    /// [two segments](crate::domain::PathSegments).
+    ///
+    /// It is the incoming [PathId] at the last node of the first path segment.
+    pub second_path_id: Option<PathId>,
     /// [UnderlayNeighborId] of the next underlay hop to forward the data packet to.
     pub next_hop: UnderlayNeighborId,
 }

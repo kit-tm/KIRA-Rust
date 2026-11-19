@@ -26,6 +26,12 @@ $(BIN_PATH):
 build-release: # force rebuild of release binary
 	cargo build --release
 
+# Daemon with SRv6-based fast forwarding.
+# Requires a nightly toolchain with the rust-src component and bpf-linker.
+.PHONY: build-srv6
+build-srv6:
+	cargo build --release --features srv6
+
 
 DOCFLAGS = --all-features --open --no-deps
 .PHONY: doc

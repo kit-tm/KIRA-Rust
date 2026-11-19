@@ -2,7 +2,8 @@ spec:
   inputs:
     rust_version:
       type: string
-      description: "Version of Rust baked into the CI image (passed as build-arg)"
+      default: ""
+      description: "Override the Rust version baked into the CI image (empty: use the Dockerfile's ARG default)"
     rust_image:
       type: string
       description: "Publish name of the Rust CI image"
@@ -33,6 +34,7 @@ build-rust-ci-image:
         --local context=. \
         --local dockerfile=docker \
         --opt filename=Dockerfile.ci \
+        ${RUST_VERSION:+--opt=build-arg:RUST_VERSION=${RUST_VERSION}} \
         --import-cache "type=registry,ref=${RUST_CI_IMAGE_DEFAULT}" \
         --output "type=image,name=${RUST_CI_IMAGE},push=true"
   rules:
@@ -40,6 +42,8 @@ build-rust-ci-image:
       changes: *rust_image_paths
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *rust_image_paths
-    - if: $CI_PIPELINE_SOURCE == "web"
+    # only on the default branch: elsewhere CI_IMAGE_TAG is $CI_DEFAULT_BRANCH and the
+    # build would overwrite the default branch's image with this branch's Dockerfile
+    - if: $CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: manual
       allow_failure: true

@@ -82,6 +82,54 @@ impl<RT, CR, PS, const BUCKET_SIZE: usize> UNSStrategy<RT, CR, PS, BUCKET_SIZE>
 where
     for<'a> RT: RoutingTable<'a, BUCKET_SIZE>,
 {
+    /// Inserts a contact whose path has already been checked, cycle-free and simplified.
+    fn insert_prepared(&self, contact: Contact, routing_table: &mut RT) -> InsertionStrategyResult {
+        // contacts with Unknown state contain may new interesting paths for proposed paths
+        // try them first if contact exists
+        if *contact.state() == ContactState::Unknown {
+            if routing_table.contains(contact.id()) {
+                return self.update_existing(contact.clone(), routing_table);
+            }
+            // if the contact does not exist yet, return for now
+            // interesting contacts could be saved for later
+            // TODO need to assess whether it is worth to probe the path
+            return InsertionStrategyResult::NeedsValidation;
+        }
+
+        // insert modified contact into routing table
+        let insertion_result = routing_table.insert(contact.clone());
+
+        let Err(insertion_err) = insertion_result else {
+            tracing::debug!(
+                target: "insertion_strategy",
+                node = %contact.id(),
+                %contact,
+                "inserted contact into routing table"
+            );
+            return InsertionStrategyResult::Inserted;
+        };
+        tracing::trace!(
+            target: "insertion_strategy",
+            node = %contact.id(),
+            %contact,
+            error = %insertion_err,
+            "inserting contact into routing table failed",
+        );
+
+        // try modifying an existing contact in the bucket instead of inserting or check new contact proposal first
+        match insertion_err {
+            InsertionError::BucketSplit(_) | InsertionError::Add(AddError::NotAdded) => {
+                self.replace_in_full_bucket(contact.clone(), routing_table)
+            }
+            InsertionError::Add(AddError::AlreadyExists(_)) => {
+                self.update_existing(contact.clone(), routing_table)
+            }
+            InsertionError::Add(AddError::NeedsValidation) => {
+                InsertionStrategyResult::NeedsValidation
+            }
+        }
+    }
+
     /// Update an existing contact in the table instead of inserting.
     fn update_existing(&self, contact: Contact, table: &mut RT) -> InsertionStrategyResult {
         let mut existing = table
@@ -105,6 +153,32 @@ where
                 existing.state_seq_nr(),
             );
             return InsertionStrategyResult::Dropped;
+        }
+
+        // received information is not older: take over its labels and a newer sequence
+        // number (it only increases here, a lower one is accepted from authoritative
+        // answers of the node only)
+        existing.update_labels_from(&contact);
+        existing.update_degree_from(&contact);
+        existing.update_state_seq_nr(*contact.state_seq_nr());
+        // a message of the node itself (over a validated source route) shows when it was
+        // last heard of, relayed information is someone else's observation
+        if *contact.state() == ContactState::Valid
+            && contact.path().is_some_and(|path| path.is_valid())
+        {
+            existing.refresh_last_seen(*contact.last_seen());
+        }
+
+        // A message that just traversed the active path shows that this path is current.
+        // Refreshing its validation lets older failure reports (NotVia) be recognized as
+        // outdated.
+        if let Some(candidate) = contact.path()
+            && candidate.is_valid()
+            && let Some(active) = existing.path_mut()
+            && active.is_valid()
+            && active.is_same_path_as(candidate)
+        {
+            active.update_last_validated();
         }
 
         // contact is newer, may provide better path or improves an invalid contact
@@ -262,12 +336,14 @@ where
             return InsertionStrategyResult::Dropped;
         }
 
-        // Ignore the path if the first element is no underlay neighbor
-        if contact.path().unwrap().size() > 1 && !un_table.contains(contact.path().unwrap().first())
+        // Ignore the path if the first element is no bidirectional underlay neighbor:
+        // a tentative link is only known to work towards us, not in the direction of the path
+        if contact.path().unwrap().size() > 1
+            && !un_table.is_bidirectional(contact.path().unwrap().first())
         {
             tracing::trace!(
                 target: "routing_table",
-                reason = "path not leading via underlay neighbor",
+                reason = "path not leading via bidirectional underlay neighbor",
                 node = %contact.path().unwrap().first(),
                 path = %contact.path().unwrap(),
                 "ignoring contact",
@@ -280,56 +356,38 @@ where
         // itself to include it in the process
         let path = contact.path_mut().unwrap();
         self.path_cycle_remover.remove_cycles_in_place(path);
+        // without cycles, the path still only consists of links the message traversed
+        let traversed = path.clone();
         self.path_simplifier.simplify(routing_table, un_table, path);
+        let simplified = !path.is_same_path_as(&traversed);
+        if simplified {
+            // the path was improved with local information, so it is not validated
+            path.set_notvalidated();
+        }
         // if it is a ULN it is automatically a valid path
         if path.size() == 1 {
             path.set_valid();
         }
 
-        // contacts with Unknown state contain may new interesting paths for proposed paths
-        // try them first if contact exists
-        if *contact.state() == ContactState::Unknown {
+        // A validated traversed path must not get lost by simplification:
+        // use it as candidate and offer the simplified path as proposed path to be probed.
+        if simplified && traversed.is_valid() && path.is_notvalidated() {
+            let mut validated = contact.clone();
+            validated.set_path(traversed);
+            let result = self.insert_prepared(validated, routing_table);
+
             if routing_table.contains(contact.id()) {
-                return self.update_existing(contact.clone(), routing_table);
+                let proposal = self.update_existing(contact, routing_table);
+                if result == InsertionStrategyResult::Dropped
+                    && proposal == InsertionStrategyResult::Updated
+                {
+                    return InsertionStrategyResult::Updated;
+                }
             }
-            // if the contact does not exist yet, return for now
-            // interesting contacts could be saved for later
-            // TODO need to assess whether it is worth to probe the path
-            return InsertionStrategyResult::NeedsValidation;
+            return result;
         }
 
-        // insert modified contact into routing table
-        let insertion_result = routing_table.insert(contact.clone());
-
-        let Err(insertion_err) = insertion_result else {
-            tracing::debug!(
-                target: "insertion_strategy",
-                node = %contact.id(),
-                %contact,
-                "inserted contact into routing table"
-            );
-            return InsertionStrategyResult::Inserted;
-        };
-        tracing::trace!(
-            target: "insertion_strategy",
-            node = %contact.id(),
-            %contact,
-            error = %insertion_err,
-            "inserting contact into routing table failed",
-        );
-
-        // try modifying an existing contact in the bucket instead of inserting or check new contact proposal first
-        match insertion_err {
-            InsertionError::BucketSplit(_) | InsertionError::Add(AddError::NotAdded) => {
-                self.replace_in_full_bucket(contact.clone(), routing_table)
-            }
-            InsertionError::Add(AddError::AlreadyExists(_)) => {
-                self.update_existing(contact.clone(), routing_table)
-            }
-            InsertionError::Add(AddError::NeedsValidation) => {
-                return InsertionStrategyResult::NeedsValidation;
-            }
-        }
+        self.insert_prepared(contact, routing_table)
     }
 }
 
@@ -372,6 +430,7 @@ where
 mod tests {
     use super::*;
     use crate::domain::{
+        ContactLabels,
         ContactState,
         NodeId,
         Path,
@@ -406,16 +465,27 @@ mod tests {
         }
     }
 
-    fn uln_table_with(ids: &[NodeId]) -> InMemoryULNTable {
+    fn ulnid() -> UnderlayNeighborId {
+        UnderlayNeighborId {
+            interface_id: InterfaceId::try_from(1).unwrap(),
+            connection_id: ConnectionId::from(1),
+        }
+    }
+
+    /// ULN table with tentative entries (only heard from, link not confirmed).
+    fn tentative_uln_table_with(ids: &[NodeId]) -> InMemoryULNTable {
         let mut table = InMemoryULNTable::new();
         for id in ids {
-            table.insert(
-                *id,
-                UnderlayNeighborId {
-                    interface_id: InterfaceId::try_from(1).unwrap(),
-                    connection_id: ConnectionId::from(1),
-                },
-            );
+            table.insert(*id, ulnid());
+        }
+        table
+    }
+
+    /// ULN table with bidirectional entries.
+    fn uln_table_with(ids: &[NodeId]) -> InMemoryULNTable {
+        let mut table = tentative_uln_table_with(ids);
+        for id in ids {
+            table.confirm(*id, ulnid());
         }
         table
     }
@@ -441,6 +511,7 @@ mod tests {
 
     #[test]
     fn inserts_valid_new_contact() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -457,6 +528,7 @@ mod tests {
 
     #[test]
     fn drops_contact_with_root_id() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -472,6 +544,7 @@ mod tests {
 
     #[test]
     fn drops_path_containing_root() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -489,6 +562,7 @@ mod tests {
 
     #[test]
     fn drops_path_not_starting_at_underlay_neighbor() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -507,6 +581,7 @@ mod tests {
 
     #[test]
     fn unknown_contact_for_new_id_needs_validation() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -523,6 +598,7 @@ mod tests {
 
     #[test]
     fn unknown_contact_updates_existing() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -556,6 +632,7 @@ mod tests {
 
     #[test]
     fn update_existing_drops_older_state_seq_nr() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -582,6 +659,7 @@ mod tests {
 
     #[test]
     fn update_existing_drops_longer_path_with_same_ssn() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -607,6 +685,7 @@ mod tests {
 
     #[test]
     fn update_existing_updates_better_path_with_same_ssn() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -627,6 +706,7 @@ mod tests {
 
     #[test]
     fn full_bucket_replaces_contact_with_longest_path() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -665,6 +745,7 @@ mod tests {
 
     #[test]
     fn full_bucket_drops_contact_without_shorter_path() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let uln = NodeId::from(1);
@@ -686,5 +767,230 @@ mod tests {
 
         assert_eq!(result, InsertionStrategyResult::Dropped);
         assert!(!rt.contains(&NodeId::from(99)));
+    }
+
+    #[test]
+    fn update_existing_takes_labels_only_from_newer_info() {
+        let _clock = crate::tests::TestClock::new();
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let uln = NodeId::from(1);
+        let dest = NodeId::from(2);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+
+        strategy.insert(contact(&[uln, dest], 2), &mut rt, &un);
+
+        // older information must not change the labels
+        let mut older = contact(&[uln, dest], 1);
+        older.set_advertised_labels(Some(ContactLabels::EndSystem));
+        strategy.insert(older, &mut rt, &un);
+        assert_eq!(rt.contact(&dest).unwrap().labels(), ContactLabels::empty());
+
+        // newer information updates the labels, even if the path isn't better
+        let mut newer = contact(&[uln, dest], 3);
+        newer.set_advertised_labels(Some(ContactLabels::Landmark));
+        strategy.insert(newer, &mut rt, &un);
+        assert_eq!(rt.contact(&dest).unwrap().labels(), ContactLabels::Landmark);
+    }
+
+    #[test]
+    fn drops_path_via_tentative_neighbor() {
+        let _clock = crate::tests::TestClock::new();
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let uln = NodeId::from(1);
+        let dest = NodeId::from(2);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = tentative_uln_table_with(&[uln]);
+        let mut strategy = strategy();
+
+        let result = strategy.insert(contact(&[uln, dest], 1), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::Dropped);
+        assert!(!rt.contains(&dest));
+    }
+
+    fn ids(path: &Path) -> Vec<NodeId> {
+        path.clone().into_iter().collect()
+    }
+
+    fn valid_contact(path: &[NodeId], ssn: u32) -> Contact {
+        let mut contact = contact(path, ssn);
+        contact.path_mut().unwrap().set_valid();
+        contact
+    }
+
+    #[test]
+    fn simplified_path_of_validated_contact_is_only_proposed() {
+        let _clock = crate::tests::TestClock::new();
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let (p, q, m, z) = (
+            NodeId::from(1),
+            NodeId::from(2),
+            NodeId::from(3),
+            NodeId::from(4),
+        );
+        let b = NodeId::from(5);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[p, b]);
+        // known valid contact M via <B, M>
+        rt.insert(valid_contact(&[b, m], 1)).unwrap();
+        let mut strategy = UNSStrategy::<_, _, _, BUCKET_SIZE>::new(
+            InOrderCycleRemover,
+            crate::domain::path::ShortestFirstPathSimplifier,
+        );
+
+        // traversed <P, Q, M, Z> can be improved with local information to <B, M, Z>
+        let result = strategy.insert(valid_contact(&[p, q, m, z], 1), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::Inserted);
+        let contact = rt.contact(&z).unwrap();
+        assert_eq!(ids(contact.path().unwrap()), [p, q, m, z]);
+        assert!(contact.path().unwrap().is_valid());
+        let proposed = contact.proposed_path().expect("improved path is proposed");
+        assert_eq!(ids(proposed), [b, m, z]);
+        assert!(proposed.is_notvalidated());
+    }
+
+    #[test]
+    fn shortcut_to_bidirectional_uln_itself_is_valid() {
+        let _clock = crate::tests::TestClock::new();
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let (p, q, b) = (NodeId::from(1), NodeId::from(2), NodeId::from(3));
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[p, b]);
+        let mut strategy = UNSStrategy::<_, _, _, BUCKET_SIZE>::new(
+            InOrderCycleRemover,
+            crate::domain::path::ShortestFirstPathSimplifier,
+        );
+
+        // <P, Q, B> collapses to the direct link <B>, which ULN discovery confirmed
+        let result = strategy.insert(valid_contact(&[p, q, b], 1), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::Inserted);
+        let contact = rt.contact(&b).unwrap();
+        assert_eq!(ids(contact.path().unwrap()), [b]);
+        assert!(contact.path().unwrap().is_valid());
+        assert!(contact.proposed_path().is_none());
+    }
+
+    #[test]
+    fn unchanged_validated_path_is_inserted_as_is() {
+        let _clock = crate::tests::TestClock::new();
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let (p, q) = (NodeId::from(1), NodeId::from(2));
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[p]);
+        let mut strategy = UNSStrategy::<_, _, _, BUCKET_SIZE>::new(
+            InOrderCycleRemover,
+            crate::domain::path::ShortestFirstPathSimplifier,
+        );
+
+        let result = strategy.insert(valid_contact(&[p, q], 1), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::Inserted);
+        let contact = rt.contact(&q).unwrap();
+        assert!(contact.path().unwrap().is_valid());
+        assert!(contact.proposed_path().is_none());
+    }
+
+    fn last_validated(rt: &SingleBucketRT<BUCKET_SIZE>, id: &NodeId) -> crate::domain::Timestamp {
+        *rt.contact(id)
+            .unwrap()
+            .path()
+            .unwrap()
+            .get_last_validated()
+            .expect("validated path")
+    }
+
+    #[test]
+    fn traversing_the_active_path_refreshes_its_validation() {
+        let mut clock = crate::tests::TestClock::new();
+        crate::tests::init();
+        let (uln, dest) = (NodeId::from(1), NodeId::from(2));
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(NodeId::ZERO);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+        strategy.insert(valid_contact(&[uln, dest], 1), &mut rt, &un);
+        let first = last_validated(&rt, &dest);
+
+        clock.advance(std::time::Duration::from_millis(2));
+        strategy.insert(valid_contact(&[uln, dest], 1), &mut rt, &un);
+
+        assert!(last_validated(&rt, &dest) > first);
+    }
+
+    #[test]
+    fn unvalidated_information_does_not_refresh_validation() {
+        let mut clock = crate::tests::TestClock::new();
+        crate::tests::init();
+        let (uln, dest) = (NodeId::from(1), NodeId::from(2));
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(NodeId::ZERO);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+        strategy.insert(valid_contact(&[uln, dest], 1), &mut rt, &un);
+        let first = last_validated(&rt, &dest);
+
+        clock.advance(std::time::Duration::from_millis(2));
+        // e.g. the same path reported in an RTable object
+        strategy.insert(unknown_contact(&[uln, dest], 2), &mut rt, &un);
+
+        assert_eq!(last_validated(&rt, &dest), first);
+    }
+
+    #[test]
+    fn newer_information_raises_the_stored_ssn() {
+        let _clock = crate::tests::TestClock::new();
+        crate::tests::init();
+        let (uln, dest) = (NodeId::from(1), NodeId::from(2));
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(NodeId::ZERO);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+        strategy.insert(valid_contact(&[uln, dest], 1), &mut rt, &un);
+
+        // relayed by another node (RTable object), not better, but newer
+        strategy.insert(
+            unknown_contact(&[uln, NodeId::from(9), dest], 5),
+            &mut rt,
+            &un,
+        );
+
+        assert_eq!(
+            rt.contact(&dest).unwrap().state_seq_nr(),
+            &SafeStateSeqNr::try_from(5).unwrap()
+        );
+    }
+
+    #[test]
+    fn only_first_hand_messages_refresh_last_seen() {
+        let mut clock = crate::tests::TestClock::new();
+        crate::tests::init();
+        let (uln, dest) = (NodeId::from(1), NodeId::from(2));
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(NodeId::ZERO);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+        strategy.insert(valid_contact(&[uln, dest], 1), &mut rt, &un);
+        let first = *rt.contact(&dest).unwrap().last_seen();
+
+        clock.advance(std::time::Duration::from_millis(2));
+        strategy.insert(unknown_contact(&[uln, dest], 2), &mut rt, &un);
+        assert_eq!(*rt.contact(&dest).unwrap().last_seen(), first, "relayed");
+
+        clock.advance(std::time::Duration::from_millis(2));
+        // a message of the node over another path
+        strategy.insert(
+            valid_contact(&[uln, NodeId::from(9), dest], 2),
+            &mut rt,
+            &un,
+        );
+        assert!(
+            *rt.contact(&dest).unwrap().last_seen() > first,
+            "first-hand"
+        );
     }
 }

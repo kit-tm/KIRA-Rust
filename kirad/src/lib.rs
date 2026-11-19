@@ -10,12 +10,32 @@
 //! - **`format-cbor`**  —  Protocol Message Format support: CBOR (Concise Binary Object Notation)
 //! - **`format-mp`**  —  Protocol Message Format support: Message Pack
 //! - **`format-json`**  —  Protocol Message Format support: Json
+//! - **`srv6`**  —  SRv6-based fast forwarding using an eBPF program
+//!   (building requires a nightly toolchain with `rust-src` and `bpf-linker`)
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
 use clap::ValueEnum;
 use kira_lib::format::ProtocolMessageFormat;
+
+#[derive(ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// Determines the encapsulation used by the fast forwarding of data packets.
+///
+/// Must be the same for all nodes, as nodes only handle the encapsulation they use themselves
+/// and as the modes differ in how paths are split into path segments.
+pub enum ForwardingMode {
+    /// [GRE](https://datatracker.ietf.org/doc/rfc7676/) encapsulation with a single PathID
+    /// for the whole path (one-segment scheme), PathIDs are handled by nftables.
+    #[default]
+    Gre,
+    #[cfg(feature = "srv6")]
+    /// [SRv6](https://datatracker.ietf.org/doc/rfc8754/) encapsulation with up to two path
+    /// segments (two-segment scheme): an outer IPv6 header and, for two path segments,
+    /// a Reduced Segment Routing Header.
+    /// PathIDs are handled by an eBPF program.
+    Srv6,
+}
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 /// Determines the serialization format of the protocol messages of R²/KAD.

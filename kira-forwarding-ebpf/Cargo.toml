@@ -1,0 +1,23 @@
+[package]
+name = "kira-forwarding-ebpf"
+version = "0.1.0"
+description = "eBPF program of the SRv6-based KIRA fast forwarding"
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+edition.workspace = true
+publish = false
+
+# The program is only meaningful for the BPF targets. It is built by the build script of
+# `kira-forwarding` (feature `srv6`). For all other targets the binary is an empty stub,
+# so that commands on the whole workspace keep working.
+[target.'cfg(target_arch = "bpf")'.dependencies]
+aya-ebpf = { workspace = true }
+kira-forwarding-common = { path = "../kira-forwarding-common" }
+
+[[bin]]
+name = "kira-forwarding-ebpf"
+path = "src/main.rs"
+test = false
+doctest = false
+bench = false

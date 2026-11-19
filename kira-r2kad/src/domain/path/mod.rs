@@ -2,6 +2,7 @@ use std::{
     ops::Index,
     slice::SliceIndex,
     sync::LazyLock,
+    time::Duration,
 };
 
 pub use cycle_remover::*;
@@ -11,6 +12,7 @@ use derive_more::{
 };
 pub use in_order_cycle_remover::*;
 pub use pathcollection::*;
+pub use segments::*;
 pub use shortest_first_path_simplifier::*;
 pub use simplifier::*;
 
@@ -24,6 +26,7 @@ use crate::domain::{
 mod cycle_remover;
 mod in_order_cycle_remover;
 mod pathcollection;
+mod segments;
 mod shortest_first_path_simplifier;
 mod simplifier;
 
@@ -66,6 +69,11 @@ pub struct Path {
     /// Instant when the path was successfully refreshed.
     #[cfg_attr(feature = "serde", serde(skip))]
     last_path_refresh: Option<Timestamp>,
+    /// Smoothed round-trip time measured over this path (SRTT as in RFC 6298).
+    ///
+    /// It belongs to the path, so a new active path starts without an estimate.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    srtt: Option<Duration>,
 }
 
 /// Converts a Vector of [NodeId]s to a Path.
@@ -85,6 +93,7 @@ impl TryFrom<Vec<NodeId>> for Path {
             path_state: Default::default(),
             last_validated: None,
             last_path_refresh: None,
+            srtt: None,
         })
     }
 }
@@ -106,6 +115,7 @@ impl TryFrom<&[NodeId]> for Path {
             path_state: Default::default(),
             last_validated: None,
             last_path_refresh: None,
+            srtt: None,
         })
     }
 }
@@ -121,6 +131,7 @@ impl<const PATH_SIZE: usize> From<[NodeId; PATH_SIZE]> for Path {
             path_state: PathState::Valid,
             last_validated: None,
             last_path_refresh: None,
+            srtt: None,
         }
     }
 }
@@ -132,6 +143,7 @@ impl From<NodeId> for Path {
             path_state: PathState::Valid,
             last_validated: None,
             last_path_refresh: None,
+            srtt: None,
         }
     }
 }
@@ -155,6 +167,7 @@ impl FromIterator<NodeId> for Result<Path, EmptyPathError> {
             path_state: PathState::Valid,
             last_validated: None,
             last_path_refresh: None,
+            srtt: None,
         })
     }
 }
@@ -353,6 +366,21 @@ impl Path {
         self.last_path_refresh.as_ref()
     }
 
+    /// Returns the smoothed round-trip time measured over this path.
+    pub fn srtt(&self) -> Option<Duration> {
+        self.srtt
+    }
+
+    /// Adds a round-trip time sample to the smoothed estimate.
+    ///
+    /// Uses the exponentially weighted moving average of RFC 6298 with alpha = 1/8.
+    pub fn record_rtt(&mut self, sample: Duration) {
+        self.srtt = Some(match self.srtt {
+            None => sample,
+            Some(srtt) => srtt - srtt / 8 + sample / 8,
+        });
+    }
+
     pub fn update_last_validated(&mut self) {
         // instant should be CurrentRuntime::now()
         self.last_validated = Some(Timestamp::now());
@@ -369,8 +397,17 @@ impl Path {
     }
 
     pub fn unset_last_path_refresh(&mut self) {
-        // instant should be CurrentRuntime::now()
-        self.last_validated = None;
+        self.last_path_refresh = None;
+    }
+
+    /// Returns if the forwarding tier is able to forward data packets along this path.
+    ///
+    /// This is always the case for paths whose PathIds are precomputed by all nodes on the
+    /// path. Longer paths [require a setup](PathSegments::requires_setup), which is
+    /// confirmed by the first [path refresh](Path::update_last_path_refresh).
+    pub fn is_forwarding_established(&self, segmentation: PathSegmentation) -> bool {
+        !PathSegments::hops_require_setup(self.ids.len(), segmentation)
+            || self.last_path_refresh.is_some()
     }
 
     fn path_hasher(&self) -> Hasher {
@@ -644,5 +681,22 @@ mod tests {
         assert!(!path.contains_link(&Link::from((NodeId::from(2u128), NodeId::from(5u128)))));
         assert!(!path.contains_link(&Link::from((NodeId::from(2u128), NodeId::from(6u128)))));
         assert!(!path.contains_link(&Link::from((NodeId::from(4u128), NodeId::from(6u128)))));
+    }
+
+    #[test]
+    fn rtt_is_smoothed_with_alpha_one_eighth() {
+        use std::time::Duration;
+        let mut path = Path::from(NodeId::ONE);
+        assert_eq!(path.srtt(), None);
+
+        path.record_rtt(Duration::from_millis(80));
+        assert_eq!(path.srtt(), Some(Duration::from_millis(80)), "first sample");
+
+        path.record_rtt(Duration::from_millis(160));
+        assert_eq!(
+            path.srtt(),
+            Some(Duration::from_millis(90)),
+            "80 * 7/8 + 160 / 8"
+        );
     }
 }

@@ -1,24 +1,32 @@
+import atexit
+import contextlib
 import logging
 import os
 import pathlib
+import signal
+import time
+import uuid
 from functools import cached_property
 from ipaddress import IPv4Network
-from subprocess import Popen
-from typing import overload
+from subprocess import Popen, TimeoutExpired
+from typing import ClassVar, Self
 
 import networkx
 from kira_common.domain import (
     ENV_NODE_IP_PREFIX,
     ENV_PATH_IP_PREFIX,
     IPPrefixes,
-    NodeIP,
+    KiraIP,
     Path,
     PathIP,
     get_ip_prefixes,
     set_ip_prefixes,
 )
+from nest import engine
 from nest.topology import Node, Switch, connect
+from nest.topology.id_generator import IdGen
 from nest.topology.interface.interface import create_veth_pair
+from nest.topology_map import TopologyMap
 from networkx import Graph
 
 from kira_nest.domain.topology import KIRATopology
@@ -46,9 +54,13 @@ class KIRATest[T]:  # T = topology id type, usually int or str
     ip_prefixes : IPPrefixes, optional
         Prefixes of NodeIPs and PathIPs used by all nodes.
         Defaults to the prefixes from the environment variables also used by kirad.
+
+    The daemons and namespaces exist until `close()` (also on leaving a `with` block).
+    Tests that are still running at interpreter exit are closed then.
     """
 
-    processes = []
+    # tests whose daemons may still run
+    _running: ClassVar[list["KIRATest"]] = []
 
     def __init__(
         self,
@@ -76,10 +88,16 @@ class KIRATest[T]:  # T = topology id type, usually int or str
         else:
             self.topology = KIRATopology(config)
 
+        self.kirad_binary = kirad_binary
+        self.processes: list[Popen] = []
+        # arguments and wrapper of each node's kirad to start it again
+        self._daemons: dict = {}
+        KIRATest._running.append(self)
         self._otel_ips = iter(self._otel_ip.hosts())
         next(self._otel_ips)  # skip IP for host
 
         logger.info("Setting up the topology ...")
+        _restart_nest_ids()
 
         # Create the Nest topology according to the configuration
         for tid, cfg in self.topology.configs():
@@ -123,6 +141,99 @@ class KIRATest[T]:  # T = topology id type, usually int or str
                 wrapper = None
             kira_process = node.start(kirad_binary, *args, wrapper=wrapper)
             self.processes.append(kira_process)
+            self._daemons[tid] = (args, wrapper)
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+    def close(self, timeout: float = 10.0) -> bool:
+        """Stops the daemons of all nodes (see `stop_all_daemons`) and deletes the
+        namespaces of the test.
+
+        Nest deletes namespaces only at interpreter exit. Namespaces of finished tests
+        would pile up during a test session, together with their interfaces, routes
+        and eBPF programs, and slow down the host until nodes don't come up in time.
+        Can be called more than once.
+        """
+        stopped = self.stop_all_daemons(timeout)
+        self._delete_namespaces()
+        with contextlib.suppress(ValueError):
+            KIRATest._running.remove(self)
+        return stopped
+
+    def _delete_namespaces(self) -> None:
+        """Deletes the namespaces of the nodes and of the OTel switch, if created."""
+        namespaces = [node.id for node in self.topology.nodes]
+        if "_otel_node" in self.__dict__:
+            namespaces.append(self._otel_node.id)
+        with TopologyMap.lock:
+            nodes = TopologyMap.get_nodes()
+            for ns_id in namespaces:
+                if nodes.pop(ns_id, None) is None:
+                    continue  # already deleted
+                TopologyMap.devices.pop(ns_id, None)
+                engine.delete_ns(ns_id)
+
+    def stop_all_daemons(self, timeout: float = 10.0) -> bool:
+        """Stops kirad of all nodes, killing those still running after `timeout`.
+
+        All daemons are signalled at once, so the time doesn't grow with the network.
+        Returns if no kirad is running anymore.
+        """
+        pids = [pid for node in self.topology.nodes for pid in node.kirad_pids()]
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            for pid in pids:
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(pid, sig)
+            deadline = time.monotonic() + timeout
+            while (pids := [p for p in pids if _is_running(p)]) and (
+                time.monotonic() < deadline
+            ):
+                time.sleep(0.1)
+            if not pids:
+                break
+            logger.warning(f"{len(pids)} kirad did not stop on {sig.name}")
+
+        # reap the shells that started the daemons
+        for p in self.processes:
+            with contextlib.suppress(TimeoutExpired):
+                p.wait(timeout=1)
+        self.processes = [p for p in self.processes if p.returncode is None]
+        return not pids
+
+    @classmethod
+    def close_all(cls) -> None:
+        """Closes all tests that have not been closed."""
+        for test in list(cls._running):
+            test.close()
+
+    def stop_daemon(self, node: KIRANode, kill: bool = False) -> bool:
+        """Stops kirad of the node, with `kill` like on a crash.
+
+        Returns if it is not running anymore.
+        """
+        return node.stop_kirad(kill=kill)
+
+    def start_daemon(self, node: KIRANode, timeout: float = 10.0) -> bool:
+        """Starts kirad of the node again with the same NodeID and arguments.
+
+        Returns if its API is up within `timeout`.
+        """
+        tid = self.topology.tid(node)
+        args, wrapper = self._daemons[tid]
+        kira_process = node.start(
+            self.kirad_binary, *args, wrapper=wrapper, append=True
+        )
+        self.processes.append(kira_process)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if node.is_up():
+                return True
+            time.sleep(0.1)
+        return False
 
     def setup_otel(self, node: KIRANode) -> None:
         if node.is_up():
@@ -230,106 +341,71 @@ class KIRATest[T]:  # T = topology id type, usually int or str
                 self._display_node(self.topology.nodes[hop]) for hop in path
             )
 
-    @overload
-    def _describe_hop_action(
-        self,
-        current_hop: KIRANode,
-        from_addr: NodeIP,
-        to_addr: PathIP,
-        path: Path | None,
-    ) -> str: ...
-
-    @overload
-    def _describe_hop_action(
-        self,
-        current_hop: KIRANode,
-        from_addr: PathIP,
-        to_addr: NodeIP,
-        path: Path | None,
-    ) -> str: ...
-
-    @overload
-    def _describe_hop_action(
-        self,
-        current_hop: KIRANode,
-        from_addr: PathIP,
-        to_addr: PathIP,
-        path: Path | None,
-    ) -> str: ...
-
-    def _describe_hop_action(
-        self,
-        current_hop,
-        from_addr,
-        to_addr,
-        path,
-    ) -> str:
-        path_str = self._display_path(path)
-
-        # print action that lead to label change
-        if isinstance(from_addr, PathIP) and isinstance(to_addr, PathIP):
-            return f"{current_hop:<3} : SWAP Path-ID : {from_addr} --> {to_addr} ({path_str})"  # noqa: E501
-        elif isinstance(from_addr, PathIP):
-            return f"{current_hop:<3} : POP  Path-ID : {from_addr} --> {to_addr}"
-        elif isinstance(to_addr, PathIP):
-            return f"{current_hop:<3} : PUSH Path-ID : {to_addr} ({path_str})"
-        else:
-            return "??? Unknown Action ???"
-
-    def traceroute(  # noqa: PLR0912
+    def traceroute(  # noqa: PLR0911,PLR0912,PLR0915
         self, start: KIRANode, dest: KIRANode, maxhops: int = 50, verbose: bool = False
     ) -> bool:
+        """
+        Follows the forwarding tables of the nodes from `start` to `dest`.
+
+        The packet carries a stack of destination IPs: the NodeIP of `dest` at the
+        bottom and on top of it the PathIPs of the path segments it is forwarded on.
+        """
         current_hop = start
         current_ip = current_hop.node_id.to_node_ip()
 
         dst_hop = dest
         dst_ip = dst_hop.node_id.to_node_ip()
-        outer_ip = dst_ip
-        current_path = None
+        stack: list[KiraIP] = [dst_ip]
+
+        def log(action: str) -> None:
+            if verbose:
+                print(f"{current_hop:<3} : {action}")
 
         if verbose:
             print(f"Tracerouting from {current_hop} to {dst_ip} ({dst_hop}):")
 
         hc = 0
         while hc <= maxhops:
-            prev_outer_ip = outer_ip
-            outer_ip = current_hop.next_ip(outer_ip)
-            if outer_ip is None:
-                if verbose:
-                    print(f"{current_hop:<3} : ERR unknown  : {prev_outer_ip}")
-                return False
-
-            # label change
-            if prev_outer_ip != outer_ip:
-                # pop label
-                # done automagically by nftables
-                if outer_ip == current_ip:
-                    outer_ip = dst_ip
-
-                # lookup corresponding path on node
-                # that rerouted the packet (overlay hop)
-                if isinstance(prev_outer_ip, NodeIP) and isinstance(outer_ip, PathIP):
-                    current_path = current_hop.path(outer_ip.to_path_id())
-                elif current_path is not None:
-                    if len(current_path) == 1:
-                        current_path = None  # path is finished
-                    else:
-                        current_path = Path(current_path[1:])  # advance path
-
-                # don't change intended destination!
-                assert isinstance(prev_outer_ip, PathIP) or isinstance(outer_ip, PathIP)
-
-                # print action that lead to label change
-                if verbose:
-                    descr = self._describe_hop_action(
-                        current_hop,
-                        prev_outer_ip,  # type: ignore -- guaranteed by assertion
-                        outer_ip,  # type: ignore -- guaranteed by assertion
-                        current_path,
+            # process the stack until the packet leaves the node
+            while True:
+                top = stack[-1]
+                if isinstance(top, PathIP):
+                    # PathIPs on arriving packets are swapped or popped
+                    next_ip = current_hop.next_ip(top)
+                    if next_ip is None:
+                        log(f"ERR unknown  : {top}")
+                        return False
+                    if next_ip == current_ip:
+                        # end of the path segment
+                        stack.pop()
+                        log(f"POP  Path-ID : {top} --> {stack[-1]}")
+                        continue
+                    path_str = self._display_path(
+                        current_hop.path(next_ip.to_path_id())  # type: ignore -- PathIP
                     )
-                    print(descr)
+                    log(f"SWAP Path-ID : {top} --> {next_ip} ({path_str})")
+                    stack[-1] = next_ip
+                    break
 
-            next_ip = current_hop.next_hop(outer_ip)
+                if top == current_ip:
+                    if len(stack) == 1:
+                        log("ACK")
+                        return True
+                    log(f"ERR : unexpected encapsulation of own NodeIP: {stack}")
+                    return False
+
+                # overlay hop: encapsulate with the PathIPs of the path segments
+                labels = current_hop.encap_labels(top)
+                if labels is None:
+                    log(f"ERR unknown  : {top}")
+                    return False
+                for label in reversed(labels):
+                    path_str = self._display_path(current_hop.path(label.to_path_id()))
+                    log(f"PUSH Path-ID : {label} ({path_str})")
+                    stack.append(label)
+                break
+
+            next_ip = current_hop.next_hop(stack[-1])
             if next_ip is None:
                 print(f"{current_hop:<3} : ERR : Can't determine next ip")
                 return False
@@ -343,19 +419,41 @@ class KIRATest[T]:  # T = topology id type, usually int or str
 
             if current_hop != next_hop:
                 hc += 1
-                if verbose:
-                    print(f"{current_hop:<3} : FORWARD to {next_hop}")
+                log(f"FORWARD to {next_hop}")
 
             current_hop = next_hop
             current_ip = next_ip
-
-            # packet reached destination hop unencapsulated
-            if current_ip == dst_ip and outer_ip == dst_ip:
-                if verbose:
-                    print(f"{current_hop:<3} : ACK")
-                return True
 
         # maxhop limit reached
         if verbose:
             print(f"{current_hop:<3} : HLIMIT = {maxhops} reached")
         return False
+
+
+def _is_running(pid: int) -> bool:
+    """Returns if the process exists and is not a zombie."""
+    try:
+        stat = pathlib.Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return False
+    # the state follows the command name, which is in parentheses
+    return stat.rpartition(")")[2].split()[0] != "Z"
+
+
+def _restart_nest_ids() -> None:
+    """Lets Nest number the namespaces and interfaces of a new test from the start.
+
+    Nest names them `<10 hex digits>-<counter>` with one counter for the whole process.
+    From counter 10000 on, the names exceed the 15 characters Linux allows for
+    interface names, and Nest fails silently to create the interfaces. A fresh prefix
+    keeps the names unique, also next to the namespaces of tests still running.
+    """
+    with IdGen.lock:
+        IdGen.topology_id = uuid.uuid4().hex[:10]
+        IdGen.counter = 0
+
+
+# Nest registered the deletion of the namespaces when it was imported (above). Exit
+# handlers run in reverse order, so this one runs first, while `ip netns pids` still
+# finds the daemons.
+atexit.register(KIRATest.close_all)

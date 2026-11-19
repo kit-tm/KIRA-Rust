@@ -3,7 +3,7 @@
 # Built by the `build-rust-ci-image` job (see .gitlab-ci/ci-image.yml).
 # Image is only rebuilt when this file (or the build job definition) changes.
 
-ARG RUST_VERSION=1.97
+ARG RUST_VERSION=1.100
 FROM rust:${RUST_VERSION}-alpine
 
 # System packages:
@@ -22,8 +22,14 @@ RUN apk add --no-cache \
 # Stable toolchain components
 RUN rustup component add clippy
 
-# Nightly rustfmt
-RUN rustup toolchain install nightly --profile minimal --component rustfmt
+# Nightly rustfmt; rust-src to build the eBPF program of the SRv6 forwarding
+RUN rustup toolchain install nightly --profile minimal --component rustfmt --component rust-src
+
+# Linker for the eBPF program of the SRv6 forwarding (statically linked release binary)
+ARG BPF_LINKER_VERSION=0.13.0
+RUN apk add --no-cache zstd \
+ && wget -qO- "https://github.com/aya-rs/bpf-linker/releases/download/v${BPF_LINKER_VERSION}/bpf-linker-$(uname -m)-unknown-linux-musl.tar.zst" \
+    | tar --zstd -x -C /usr/local/cargo/bin bpf-linker
 
 # Cargo tooling
 RUN cargo install cargo-nextest --locked \

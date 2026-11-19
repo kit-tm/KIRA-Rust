@@ -1313,6 +1313,7 @@ mod tests {
 
     #[test]
     fn test_routing_next_hop() {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
 
         let runtime = TestingUseCaseRuntime::default();

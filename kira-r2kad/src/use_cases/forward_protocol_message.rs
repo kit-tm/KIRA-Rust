@@ -1,5 +1,8 @@
 use std::{
-    collections::HashMap,
+    collections::{
+        HashMap,
+        HashSet,
+    },
     fmt::Debug,
     marker::PhantomData,
     ops::{
@@ -16,6 +19,7 @@ use tracing::{
 use crate::{
     domain::{
         Contact,
+        ContactState,
         InsertionStrategy,
         Link,
         NodeId,
@@ -134,17 +138,18 @@ where
 
         let mut path = self.extract_path_to_source(message);
         let ssn = message.source_state_seq_nr();
-        if ssn.is_reset() {
-            todo!("implement reset of StateSeqNr")
-        }
-
         let ssn = ssn.value().ok_or(ForwardingError::FwdErrIgnore)?;
         // source routes are automatically validated
         // however, if this is a queued message it's information may not be true anymore
         // so especially we ignore information about ULNs (this message may have been received after the interface went down)
         path.set_valid();
         // new automatically creates a Contact in Valid state but requires a valid path
-        let contact = Contact::new(path.clone(), ssn);
+        let mut contact = Contact::new(path.clone(), ssn);
+        // the sender reports its own degree, which belongs to its sequence number
+        let (sender, degree) = message.sender_degree();
+        if sender == *contact.id() {
+            contact.set_degree(degree);
+        }
         //log::trace!(target: "forward_protocol_message", "extract_source_information for contact {} = {}",contact.id(),contact);
 
         {
@@ -178,6 +183,13 @@ where
                     if !context.uln_table().contains(neighbor_id) {
                         log::debug!(target: "forward_protocol_message", "Received message from '{neighbor_id}' that is not in ULNTable – ignoring");
                         return Err(ForwardingError::FwdErrDropMessage);
+                    }
+                    // A tentative link is only known to work towards us, so the reversed path
+                    // may not work. The message itself is still processed and forwarded.
+                    // (ULNDiscReq/Rsp are excluded above: they prove the link works both ways.)
+                    if !context.uln_table().is_bidirectional(neighbor_id) {
+                        log::debug!(target: "forward_protocol_message", "Received message via tentative neighbor '{neighbor_id}' – not updating contact {}", contact.id());
+                        return Ok(contact);
                     }
                 }
             }
@@ -230,8 +242,22 @@ where
         }
     }
 
+    /// Estimated time a message from `source` took to reach us: half of the smoothed
+    /// round-trip time to it, or zero without measurement.
+    ///
+    /// It is added to received ages, as the information got older on the way.
+    fn transit_delay(context: &C, source: &NodeId) -> std::time::Duration {
+        context
+            .routing_table()
+            .one_way_delay(source)
+            .unwrap_or_default()
+    }
+
     fn extract_rtable_reqrsp(&self, context: &C, rtable: &RTableData, path_to_source: Path) {
+        // the reported information got older on its way to us
+        let delay = Self::transit_delay(context, path_to_source.last());
         for mut reported_contact in rtable.contacts.clone() {
+            reported_contact.set_info_age(reported_contact.age().saturating_add(delay));
             let mut path = path_to_source.clone();
             if reported_contact.path().is_some() {
                 path.extend(reported_contact.path().unwrap().clone());
@@ -249,6 +275,8 @@ where
 
             assert_eq!(reported_contact.id(), path.last());
             reported_contact.set_path(path);
+            // only a validated path makes a contact valid
+            reported_contact.set_state(ContactState::Unknown);
             log::debug!(target: "forward_protocol_message", "Contact from reading rtable: {:?} ", reported_contact);
 
             self.update_contact(context, reported_contact);
@@ -294,11 +322,14 @@ where
 
     /// Extracts not_via data and applies them on the routing table.
     fn extract_not_via_data(&self, context: &C, source: &NodeId, new_not_via_data: &NotViaList) {
+        // the failure information got older on its way to us
+        let delay = Self::transit_delay(context, source);
         // we exclude any notvia that contains ourselves, because we know better
         let filtered_not_via_data = new_not_via_data
             .iter()
             .filter(|notvia| !notvia.link.contains(context.root_id()))
-            .collect::<Vec<&NotVia>>();
+            .map(|notvia| NotVia::from((notvia.link.clone(), notvia.age.saturating_add(delay))))
+            .collect::<Vec<NotVia>>();
 
         let mut routing_table = context.routing_table_mut();
 
@@ -307,18 +338,25 @@ where
             .iter_mut()
             .filter(|c| c.is_valid() && c.path().is_some())
         {
-            //let active_path = ;
-            for entry in &filtered_not_via_data {
-                if let Some(last_validated) = contact.path().unwrap().get_last_validated()
-                    && *last_validated < Timestamp::from(entry.age)
-                    && contact.path().unwrap().contains_link(&entry.link)
-                {
-                    contact
-                        .set_invalid(NotViaStateList::from(NotViaState::from((**entry).clone())));
-                    tracing::debug!(target: "forward_protocol_message", %source, invalidated_contact = %contact.id(), "Invalidated contact based on not-via data");
-                    continue;
-                }
+            // collect all failed links on the active path before invalidating it,
+            // because invalidate() refreshes last_validated
+            let path = contact.path().unwrap();
+            let Some(last_validated) = path.get_last_validated().copied() else {
+                continue;
+            };
+            let failed: HashSet<NotViaState> = filtered_not_via_data
+                .iter()
+                .filter(|entry| {
+                    last_validated < Timestamp::from(entry.age) && path.contains_link(&entry.link)
+                })
+                .map(|entry| NotViaState::from(entry.clone()))
+                .collect();
+            if failed.is_empty() {
+                continue;
             }
+            let failed_links = failed.len();
+            contact.set_invalid(NotViaStateList::from(failed));
+            tracing::debug!(target: "forward_protocol_message", %source, invalidated_contact = %contact.id(), failed_links, "Invalidated contact based on not-via data");
         }
     }
 
@@ -328,6 +366,8 @@ where
         source_id: &NodeId,
         route_updates: I,
     ) {
+        // the reported information got older on its way to us
+        let delay = Self::transit_delay(context, source_id);
         let mut routing_table = context.routing_table_mut();
         let source_contact = routing_table.contact(source_id).cloned();
         if source_contact.is_none() {
@@ -340,7 +380,8 @@ where
         };
 
         // iterate over all given contacts in the update message
-        for (updated_contact, update_action) in route_updates {
+        for (mut updated_contact, update_action) in route_updates {
+            updated_contact.set_info_age(updated_contact.age().saturating_add(delay));
             if let Some(mycontact) = routing_table.contact(updated_contact.id()) {
                 // if updated contact is a ULN of this node, we ignore information about it
                 if mycontact.is_uln() {
@@ -383,9 +424,10 @@ where
                         && affected_path.contains_link(&direct_uln_link)
                         && affected_contact.is_older_than(&updated_contact)
                     {
+                        // date the failure by the reported age, not by the time of receipt
                         affected_contact.set_invalid(NotViaStateList::from(NotViaState::new(
                             direct_uln_link,
-                            Timestamp::now(),
+                            *updated_contact.last_seen(),
                         )));
                         log::trace!(target: "forward_protocol_message", "Invalidated contact {} based on route update (Unreachable) of {} [Removed]", affected_contact.id(), source_id);
                     }
@@ -470,6 +512,7 @@ where
             | ProtocolMessage::ProbeReq(_)
             | ProtocolMessage::ProbeRsp(_)
             | ProtocolMessage::PathSetupReq(_)
+            | ProtocolMessage::PathSetupRsp(_)
             | ProtocolMessage::PathTeardownReq(_)
             | ProtocolMessage::StoreReq(_)
             | ProtocolMessage::StoreRsp(_)
@@ -708,7 +751,10 @@ mod tests {
             UnderlayNeighborSource,
             insertion_strategy::UNSStrategy,
             path::ShortestFirstPathSimplifier,
-            protocol_message::ULNReqRspMessage,
+            protocol_message::{
+                FindNodeReqData,
+                ULNReqRspMessage,
+            },
             routing_table::SingleBucketRT,
             underlay_neighbor_table::InMemoryULNTable,
             vicinity::vicinity_graph::PetVicinityGraph,
@@ -801,6 +847,7 @@ mod tests {
 
     #[test]
     fn outdated_uln_disc_rsp_of_removed_neighbor_is_dropped() {
+        let _clock = crate::tests::TestClock::new();
         let ctx = context();
         insert_invalidated_neighbor(&ctx);
 
@@ -818,6 +865,7 @@ mod tests {
 
     #[test]
     fn uln_disc_req_does_not_revalidate_contact_of_removed_neighbor() {
+        let _clock = crate::tests::TestClock::new();
         let ctx = context();
         insert_invalidated_neighbor(&ctx);
 
@@ -835,6 +883,7 @@ mod tests {
 
     #[test]
     fn uln_disc_req_of_new_neighbor_creates_contact() {
+        let _clock = crate::tests::TestClock::new();
         let ctx = context();
 
         let result = receive(&ctx, uln_disc_message(ProtocolMessageKind::ULNDiscReq, 1));
@@ -846,7 +895,31 @@ mod tests {
     }
 
     #[test]
+    fn message_with_reserved_ssn_creates_no_contact() {
+        let _clock = crate::tests::TestClock::new();
+        let ctx = context();
+        let mut message = uln_disc_message(ProtocolMessageKind::ULNDiscReq, 1);
+        let ProtocolMessage::ULNDiscReq(ref mut req) = message else {
+            unreachable!()
+        };
+        // the reserved value 0xffffffff is decoded as invalid
+        req.common_header = CommonHeader::new(
+            ProtocolMessageKind::ULNDiscReq,
+            neighbor(),
+            root(),
+            Some(Nonce::random()),
+            StateSeqNr::from(u32::MAX),
+            0,
+        );
+
+        receive(&ctx, message);
+
+        assert!(neighbor_contact(&ctx).is_none());
+    }
+
+    #[test]
     fn uln_disc_rsp_of_known_neighbor_revalidates_contact() {
+        let _clock = crate::tests::TestClock::new();
         let ctx = context();
         insert_invalidated_neighbor(&ctx);
         ctx.uln_table_mut().insert(neighbor(), ulnid());
@@ -857,5 +930,427 @@ mod tests {
         let contact = neighbor_contact(&ctx).unwrap();
         assert!(contact.is_valid(), "contact revalidated");
         assert!(contact.is_uln());
+    }
+
+    fn bidirectional(ctx: &Ctx, id: NodeId) {
+        let mut uln_table = ctx.uln_table_mut();
+        uln_table.insert(id, ulnid());
+        uln_table.confirm(id, ulnid());
+    }
+
+    fn tentative(ctx: &Ctx, id: NodeId) {
+        ctx.uln_table_mut().insert(id, ulnid());
+    }
+
+    /// A FindNodeReq from `route[0]` that traveled along `route` and just arrived at root.
+    fn routed_message(route: &[NodeId]) -> ProtocolMessage {
+        let source = route[0];
+        let mut path: Vec<NodeId> = route[1..].to_vec();
+        path.push(root());
+        let mut source_route = SourceRoute::new(source, Path::try_from(path.as_slice()).unwrap());
+        for _ in 1..route.len() {
+            source_route.advance();
+        }
+        assert_eq!(source_route.current_hop(), &root());
+
+        ProtocolMessage::FindNodeReq(ReqRspMessage {
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::FindNodeReq,
+                source,
+                root(),
+                Some(Nonce::random()),
+                StateSeqNr::Value(ssn(1)),
+                0,
+            ),
+            data: FindNodeReqData {
+                neighborhood: std::num::NonZeroU64::new(1).unwrap(),
+            },
+            not_via: None,
+            source_route,
+        })
+    }
+
+    fn source() -> NodeId {
+        NodeId::with_msb(5)
+    }
+
+    /// [routed_message] from a sender with the given sequence number and degree.
+    fn routed_message_with_degree(
+        route: &[NodeId],
+        sender_ssn: u32,
+        degree: u16,
+    ) -> ProtocolMessage {
+        let mut message = routed_message(route);
+        let ProtocolMessage::FindNodeReq(req) = &mut message else {
+            unreachable!()
+        };
+        req.common_header.state_seq_num = StateSeqNr::Value(ssn(sender_ssn));
+        req.common_header.src_node_degree = degree;
+        message
+    }
+
+    #[test]
+    fn degree_of_the_sender_is_recorded_from_its_newest_messages() {
+        let _clock = crate::tests::TestClock::new();
+        let ctx = context();
+        bidirectional(&ctx, neighbor());
+        let degree = |ctx: &Ctx| ctx.routing_table().contact(&source()).unwrap().degree();
+
+        receive(
+            &ctx,
+            routed_message_with_degree(&[source(), neighbor()], 2, 3),
+        );
+        assert_eq!(degree(&ctx), Some(3));
+
+        // an unknown degree keeps the known one
+        receive(
+            &ctx,
+            routed_message_with_degree(&[source(), neighbor()], 2, 0),
+        );
+        assert_eq!(degree(&ctx), Some(3));
+
+        // information of an older state of the node is ignored
+        receive(
+            &ctx,
+            routed_message_with_degree(&[source(), neighbor()], 1, 5),
+        );
+        assert_eq!(degree(&ctx), Some(3));
+
+        // the node lost a neighbor, which increased its sequence number
+        receive(
+            &ctx,
+            routed_message_with_degree(&[source(), neighbor()], 3, 2),
+        );
+        assert_eq!(degree(&ctx), Some(2));
+    }
+
+    #[test]
+    fn message_via_bidirectional_neighbor_creates_contact() {
+        let _clock = crate::tests::TestClock::new();
+        let ctx = context();
+        bidirectional(&ctx, neighbor());
+
+        receive(&ctx, routed_message(&[source(), neighbor()]));
+
+        let contact = ctx
+            .routing_table()
+            .contact(&source())
+            .cloned()
+            .expect("contact created");
+        assert!(contact.is_valid());
+        assert_eq!(
+            contact
+                .path()
+                .unwrap()
+                .clone()
+                .into_iter()
+                .collect::<Vec<_>>(),
+            [neighbor(), source()]
+        );
+    }
+
+    #[test]
+    fn message_via_tentative_neighbor_does_not_create_contact() {
+        let _clock = crate::tests::TestClock::new();
+        // the link to the neighbor may only work towards us (e.g. asymmetric radio)
+        let ctx = context();
+        tentative(&ctx, neighbor());
+
+        let result = receive(&ctx, routed_message(&[source(), neighbor()]));
+
+        assert!(
+            matches!(result, HandlingResult::NotHandled),
+            "message is still passed on"
+        );
+        assert!(!ctx.routing_table().contains(&source()));
+        assert!(neighbor_contact(&ctx).is_none());
+    }
+
+    #[test]
+    fn path_is_not_shortened_via_tentative_neighbor() {
+        let _clock = crate::tests::TestClock::new();
+        // message from S over <S, B, Q, P, root>, B only heard from (tentative)
+        let ctx = context();
+        let (p, q, b) = (NodeId::with_msb(3), NodeId::with_msb(4), neighbor());
+        bidirectional(&ctx, p);
+        tentative(&ctx, b);
+
+        receive(&ctx, routed_message(&[source(), b, q, p]));
+
+        let contact = ctx
+            .routing_table()
+            .contact(&source())
+            .cloned()
+            .expect("contact created");
+        assert_eq!(
+            contact
+                .path()
+                .unwrap()
+                .clone()
+                .into_iter()
+                .collect::<Vec<_>>(),
+            [p, q, b, source()],
+            "path must not be shortened to <B, S>"
+        );
+    }
+
+    #[test]
+    fn path_shortened_via_bidirectional_neighbor_is_only_proposed() {
+        let _clock = crate::tests::TestClock::new();
+        // the traversed path is validated, the shortcut <B, S> is not
+        let ctx = context();
+        let (p, q, b) = (NodeId::with_msb(3), NodeId::with_msb(4), neighbor());
+        bidirectional(&ctx, p);
+        bidirectional(&ctx, b);
+
+        receive(&ctx, routed_message(&[source(), b, q, p]));
+
+        let contact = ctx
+            .routing_table()
+            .contact(&source())
+            .cloned()
+            .expect("contact created");
+        let ids = |path: &Path| path.clone().into_iter().collect::<Vec<_>>();
+
+        let active = contact.path().unwrap();
+        assert_eq!(ids(active), [p, q, b, source()], "traversed path is used");
+        assert!(active.is_valid());
+
+        let proposed = contact.proposed_path().expect("shortcut is proposed");
+        assert_eq!(ids(proposed), [b, source()]);
+        assert!(
+            proposed.is_notvalidated(),
+            "shortcut has to be probed first"
+        );
+    }
+
+    fn with_not_via(mut message: ProtocolMessage, link: Link, age_ms: u64) -> ProtocolMessage {
+        let ProtocolMessage::FindNodeReq(ref mut req) = message else {
+            unreachable!("routed_message creates FindNodeReqs");
+        };
+        req.not_via = Some(NotViaList::from([NotVia::from((
+            link,
+            crate::domain::Age::from(age_ms),
+        ))]));
+        message
+    }
+
+    /// Contact T over <neighbor, T>, the link <neighbor, T> is reported as failed afterwards.
+    fn stale_failure_setup() -> (Ctx, NodeId, Link) {
+        let ctx = context();
+        bidirectional(&ctx, neighbor());
+        let t = NodeId::with_msb(6);
+        receive(&ctx, routed_message(&[t, neighbor()]));
+        assert!(ctx.routing_table().contact(&t).unwrap().is_valid());
+        (ctx, t, Link::new(neighbor(), t))
+    }
+
+    #[test]
+    fn current_not_via_invalidates_contact() {
+        let mut clock = crate::tests::TestClock::new();
+        let (ctx, t, link) = stale_failure_setup();
+        clock.advance(std::time::Duration::from_millis(10));
+
+        // the link failed after the path to T was validated
+        receive(
+            &ctx,
+            with_not_via(routed_message(&[source(), neighbor()]), link, 0),
+        );
+
+        assert!(ctx.routing_table().contact(&t).unwrap().is_invalid());
+    }
+
+    #[test]
+    fn all_failed_links_on_the_path_are_recorded() {
+        let mut clock = crate::tests::TestClock::new();
+        let ctx = context();
+        bidirectional(&ctx, neighbor());
+        let x = NodeId::with_msb(5);
+        let t = NodeId::with_msb(6);
+        // T over <neighbor, X, T>
+        receive(&ctx, routed_message(&[t, x, neighbor()]));
+        assert!(ctx.routing_table().contact(&t).unwrap().is_valid());
+        clock.advance(std::time::Duration::from_millis(10));
+
+        // both links on the path to T failed after it was validated
+        let mut message = routed_message(&[source(), neighbor()]);
+        let ProtocolMessage::FindNodeReq(ref mut req) = message else {
+            unreachable!("routed_message creates FindNodeReqs");
+        };
+        req.not_via = Some(NotViaList::from([
+            NotVia::from((Link::new(neighbor(), x), crate::domain::Age::from(0))),
+            NotVia::from((Link::new(x, t), crate::domain::Age::from(0))),
+        ]));
+        receive(&ctx, message);
+
+        let rt = ctx.routing_table();
+        let contact = rt.contact(&t).unwrap();
+        let ContactState::Invalid(ref nvs) = *contact.state() else {
+            panic!("contact should be invalid, is {:?}", contact.state());
+        };
+        let links: HashSet<Link> = nvs.nvs_list.iter().map(|nvs| nvs.link.clone()).collect();
+        assert_eq!(
+            links,
+            HashSet::from([Link::new(neighbor(), x), Link::new(x, t)])
+        );
+    }
+
+    #[test]
+    fn outdated_not_via_is_ignored() {
+        let _clock = crate::tests::TestClock::new();
+        let (ctx, t, link) = stale_failure_setup();
+
+        // the failure is older than the validation of the path to T
+        receive(
+            &ctx,
+            with_not_via(routed_message(&[source(), neighbor()]), link, 60_000),
+        );
+
+        assert!(ctx.routing_table().contact(&t).unwrap().is_valid());
+    }
+
+    #[test]
+    fn not_via_older_than_revalidation_by_traffic_is_ignored() {
+        let mut clock = crate::tests::TestClock::new();
+        // F7: the link failed, but the path to T was used again afterwards
+        let (ctx, t, link) = stale_failure_setup();
+        clock.advance(std::time::Duration::from_millis(60));
+        // traffic from T over the same path revalidates it
+        receive(&ctx, routed_message(&[t, neighbor()]));
+
+        // the failure happened 30ms ago: after the first, but before the second validation
+        receive(
+            &ctx,
+            with_not_via(routed_message(&[source(), neighbor()]), link, 30),
+        );
+
+        assert!(ctx.routing_table().contact(&t).unwrap().is_valid());
+    }
+
+    /// UpdateRouteReq from the neighbor reporting its link to `z` as unreachable.
+    fn unreachable_update(z: NodeId, age_ms: u64) -> ProtocolMessage {
+        let mut reported = Contact::new(Path::from(z), ssn(1));
+        reported.set_info_age(crate::domain::Age::from(age_ms));
+        ProtocolMessage::UpdateRouteReq(crate::domain::protocol_message::UpdateRouteReq {
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::UpdateRouteReq,
+                neighbor(),
+                root(),
+                None,
+                StateSeqNr::Value(ssn(1)),
+                0,
+            ),
+            not_via: None,
+            contact_actions: vec![(
+                reported,
+                crate::domain::protocol_message::RouteUpdateActionType::Unreachable,
+            )],
+            source_route: SourceRoute::new(neighbor(), Path::from(root())),
+        })
+    }
+
+    fn contact_behind_neighbor() -> (Ctx, NodeId) {
+        let ctx = context();
+        bidirectional(&ctx, neighbor());
+        let z = NodeId::with_msb(7);
+        receive(&ctx, routed_message(&[z, neighbor()]));
+        assert!(ctx.routing_table().contact(&z).unwrap().is_valid());
+        (ctx, z)
+    }
+
+    #[test]
+    fn current_unreachable_update_invalidates_contact() {
+        let mut clock = crate::tests::TestClock::new();
+        let (ctx, z) = contact_behind_neighbor();
+        // ages are compared in ms, the report has to be newer than the contact information
+        clock.advance(std::time::Duration::from_millis(5));
+
+        receive(&ctx, unreachable_update(z, 0));
+
+        assert!(ctx.routing_table().contact(&z).unwrap().is_invalid());
+    }
+
+    #[test]
+    fn outdated_unreachable_update_is_ignored() {
+        let _clock = crate::tests::TestClock::new();
+        // the report is older than what we know about the contact
+        let (ctx, z) = contact_behind_neighbor();
+
+        receive(&ctx, unreachable_update(z, 60_000));
+
+        assert!(ctx.routing_table().contact(&z).unwrap().is_valid());
+    }
+
+    #[test]
+    fn unreachable_update_from_before_a_reset_is_ignored() {
+        let mut clock = crate::tests::TestClock::new();
+        let (ctx, z) = contact_behind_neighbor();
+        clock.advance(std::time::Duration::from_secs(5));
+        // z restarted and its answer was accepted
+        ctx.routing_table_mut()
+            .contact_mut(&z)
+            .unwrap()
+            .reset_state_seq_nr(ssn(2));
+
+        // reported by a node that still knew z from before its restart (3s ago)
+        let mut update = unreachable_update(z, 3_000);
+        let ProtocolMessage::UpdateRouteReq(ref mut req) = update else {
+            unreachable!()
+        };
+        req.contact_actions[0].0.set_state_seq_nr(ssn(9));
+        receive(&ctx, update);
+
+        assert!(ctx.routing_table().contact(&z).unwrap().is_valid());
+    }
+
+    /// Creates the neighbor's own contact and sets its smoothed RTT.
+    fn neighbor_with_srtt(ctx: &Ctx, srtt_ms: u64) {
+        receive(ctx, routed_message(&[neighbor()]));
+        ctx.routing_table_mut()
+            .contact_mut(&neighbor())
+            .expect("neighbor contact")
+            .path_mut()
+            .unwrap()
+            .record_rtt(std::time::Duration::from_millis(srtt_ms));
+    }
+
+    #[test]
+    fn not_via_without_rtt_estimate_is_current() {
+        let mut clock = crate::tests::TestClock::new();
+        let (ctx, t, link) = stale_failure_setup();
+        receive(&ctx, routed_message(&[neighbor()]));
+        clock.advance(std::time::Duration::from_millis(60));
+
+        // failure 30ms ago, after the path to T was validated
+        receive(&ctx, with_not_via(routed_message(&[neighbor()]), link, 30));
+
+        assert!(ctx.routing_table().contact(&t).unwrap().is_invalid());
+    }
+
+    #[test]
+    fn transit_delay_ages_not_via() {
+        let mut clock = crate::tests::TestClock::new();
+        let (ctx, t, link) = stale_failure_setup();
+        // 100ms one-way delay from the neighbor
+        neighbor_with_srtt(&ctx, 200);
+        clock.advance(std::time::Duration::from_millis(60));
+
+        // reported 30ms old, so 130ms old here: before the path to T was validated
+        receive(&ctx, with_not_via(routed_message(&[neighbor()]), link, 30));
+
+        assert!(ctx.routing_table().contact(&t).unwrap().is_valid());
+    }
+
+    #[test]
+    fn transit_delay_ages_route_updates() {
+        let mut clock = crate::tests::TestClock::new();
+        let (ctx, z) = contact_behind_neighbor();
+        neighbor_with_srtt(&ctx, 200);
+        clock.advance(std::time::Duration::from_millis(5));
+
+        // reported as current, but 100ms old here: older than the contact information
+        receive(&ctx, unreachable_update(z, 0));
+
+        assert!(ctx.routing_table().contact(&z).unwrap().is_valid());
     }
 }

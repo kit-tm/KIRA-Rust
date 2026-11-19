@@ -3,6 +3,8 @@
 pub mod in_memory_tables;
 #[cfg(feature = "nft")]
 pub mod native_tables;
+#[cfg(feature = "srv6")]
+pub mod srv6_tables;
 
 use crate::domain::{
     NodeIdSubnet,

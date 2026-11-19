@@ -87,6 +87,8 @@ impl UdpReceiver {
     }
 
     fn deserialize(&self, buffer: &[u8]) -> Option<ProtocolMessage> {
+        // decoded information is dated by its reported age relative to the time of receipt
+        let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
         let deserialized = match self.format.deserialize(buffer) {
             Ok(message) => message,
             Err(e) => {

@@ -4,7 +4,10 @@ pub mod entry;
 pub mod observable_vicinity_graph;
 pub mod pet_vicinity_graph;
 
-use std::error::Error;
+use std::{
+    collections::HashSet,
+    error::Error,
+};
 
 pub use entry::Entry;
 #[doc(inline)]
@@ -13,6 +16,7 @@ pub use observable_vicinity_graph::ObservableVicinityGraph;
 pub use pet_vicinity_graph::PetVicinityGraph;
 
 use crate::domain::{
+    Link,
     NodeId,
     Path,
     SafeStateSeqNr,
@@ -93,13 +97,31 @@ pub trait VicinityGraph {
     /// The paths must be inside the vicinity.
     fn vicinity_paths_to(&self, destination: NodeId) -> impl Iterator<Item = Path> {
         self.vicinity_paths()
-            .filter(move |path| path.first() == &destination)
+            .filter(move |path| path.last() == &destination)
     }
 
     /// Computes the shortest path from the root to the destination.
     fn vicinity_path_to(&self, destination: NodeId) -> Option<Path> {
         self.vicinity_paths_to(destination)
             .min_by_key(|path| path.size())
+    }
+
+    /// Computes the best path from the root to the destination that contains none of the
+    /// links to `avoid`, e.g., to find an alternative path after these links failed.
+    ///
+    /// Unlike the other paths of the [VicinityGraph], the returned path doesn't start with
+    /// the root, so it can be used as path of a [Contact](crate::domain::Contact).
+    fn vicinity_alternative_to(&self, destination: NodeId, avoid: &HashSet<Link>) -> Option<Path> {
+        self.vicinity_paths_to(destination)
+            .filter(|path| !avoid.iter().any(|link| path.contains_link(link)))
+            .reduce(|best, path| {
+                if path.is_better_than(&best) {
+                    path
+                } else {
+                    best
+                }
+            })
+            .and_then(|path| Path::try_from(&path.as_ref()[1..]).ok())
     }
 
     /// returns whether the vicinity has been changed since last time the vicinity_processed was called

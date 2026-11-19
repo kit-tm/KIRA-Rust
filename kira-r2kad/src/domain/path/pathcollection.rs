@@ -202,6 +202,7 @@ mod tests {
 
     #[test]
     fn test_set_proposed_to_active() {
+        let _clock = crate::tests::TestClock::new();
         let p = Path::try_from(vec![
             NODE_ID_ONE,
             NODE_ID_TWO,
@@ -223,6 +224,7 @@ mod tests {
 
     #[test]
     fn move_proposed_to_active_to_alternative() {
+        let _clock = crate::tests::TestClock::new();
         let p = Path::try_from(vec![
             NODE_ID_ONE,
             NODE_ID_TWO,
@@ -284,6 +286,35 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .is_same_path_as(&s)
+        );
+    }
+
+    fn measured(ids: &[NodeId], rtt_ms: u64) -> Path {
+        let mut path = Path::try_from(ids).expect("not empty");
+        path.set_valid();
+        path.record_rtt(std::time::Duration::from_millis(rtt_ms));
+        path
+    }
+
+    #[test]
+    fn new_active_path_starts_without_rtt() {
+        let _clock = crate::tests::TestClock::new();
+        let mut pc =
+            PathCollection::new_with_active_path(measured(&[NODE_ID_ONE, NODE_ID_THREE], 50));
+        pc.set_active_path(Path::try_from(&[NODE_ID_TWO, NODE_ID_THREE][..]).unwrap());
+        assert_eq!(pc.active_path().unwrap().srtt(), None);
+    }
+
+    #[test]
+    fn proposed_path_keeps_its_rtt_when_activated() {
+        let _clock = crate::tests::TestClock::new();
+        let mut pc =
+            PathCollection::new_with_active_path(measured(&[NODE_ID_ONE, NODE_ID_THREE], 50));
+        pc.set_proposed_path(measured(&[NODE_ID_TWO, NODE_ID_THREE], 20));
+        pc.set_proposed_to_active();
+        assert_eq!(
+            pc.active_path().unwrap().srtt(),
+            Some(std::time::Duration::from_millis(20))
         );
     }
 }

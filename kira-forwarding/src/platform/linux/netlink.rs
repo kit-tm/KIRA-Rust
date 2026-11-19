@@ -21,6 +21,7 @@ use netlink_packet_core::{
     NLM_F_ACK,
     NLM_F_APPEND,
     NLM_F_CREATE,
+    NLM_F_DUMP,
     NLM_F_EXCL,
     NLM_F_REPLACE,
     NLM_F_REQUEST,
@@ -97,6 +98,9 @@ use netlink_packet_route::{
         RouteLwTunnelEncap,
         RouteMessage,
         RouteProtocol,
+        RouteSeg6IpTunnel,
+        Seg6Header,
+        Seg6Mode,
     },
 };
 use netlink_proto::{
@@ -130,76 +134,43 @@ use crate::{
 /// Additionally a Netfilter Netlink component is required for realizing the Nftables rules
 /// that manage the KIRA GRE encapsulation interface.
 pub struct ForwardingNetlink {
+    routes: RouteNetlink,
     handle_rtnetlink: ConnectionHandle<RouteNetlinkMessage>,
     handle_nfnetlink: ConnectionHandle<NetfilterMessage>,
     kira: InterfaceId,
     ip_prefixes: IpPrefixes,
 }
 
-/// Default name for the [encap interface](create_encap_interface).
-pub const KIRA_INTERFACE_NAME: &str = "kira";
+impl std::ops::Deref for ForwardingNetlink {
+    type Target = RouteNetlink;
 
-const KIRA_TABLE: &str = "kira";
-const KIRA_FORWARDMAP: &str = "forwardmap";
-
-#[allow(non_upper_case_globals)]
-const ICMPv6_PROTO: u8 = 0x3a;
-const TYPE_IP6ADDR: u32 = 8;
-
-#[derive(Debug, Display, Error, From)]
-/// Error type used in [ForwardingNetlink].
-pub enum ForwardingNetlinkError {
-    /// Failed to deliver the RtNetlink message.
-    #[display("Delivering the Netlink message failed: {_0}")]
-    NetlinkNetlinkDeliveryFailure(netlink_proto::NetlinkProtoError),
-    #[display("Received netlink error as response: {_0:?}")]
-    /// The netlink socket responded with an [ErrorMessage] to the request.
-    NetlinkResponseError(#[error(ignore)] ErrorMessage),
+    /// The routes and addresses that don't depend on the kind of encapsulation.
+    fn deref(&self) -> &Self::Target {
+        &self.routes
+    }
 }
 
-/// Result used by [ForwardingNetlink].
-pub type Result<T> = std::result::Result<T, ForwardingNetlinkError>;
+#[derive(Debug, Clone)]
+/// Manages the addresses and routes that are independent of the kind of encapsulation:
+/// the NodeIPs of the node, routes to underlay neighbors and routes of PathIPs via underlay
+/// neighbors.
+pub struct RouteNetlink {
+    handle_rtnetlink: ConnectionHandle<RouteNetlinkMessage>,
+    ip_prefixes: IpPrefixes,
+}
 
-impl ForwardingNetlink {
-    /// Creates a new [ForwardingNetlink] instance.
+impl RouteNetlink {
+    /// Creates a new [RouteNetlink] instance.
     ///
-    /// As the interface name the [default name](KIRA_INTERFACE_NAME) is used.
     /// NodeIPs and PathIPs are derived using the given `ip_prefixes`.
-    pub async fn new(
+    pub fn new(
         handle_rtnetlink: ConnectionHandle<RouteNetlinkMessage>,
-        handle_nfnetlink: ConnectionHandle<NetfilterMessage>,
         ip_prefixes: IpPrefixes,
-    ) -> Result<Self> {
-        let kira = create_encap_interface(&handle_rtnetlink, KIRA_INTERFACE_NAME).await?;
-        Self::with_kira_interface(handle_rtnetlink, handle_nfnetlink, kira, ip_prefixes).await
-    }
-
-    /// Creates a new [ForwardingNetlink] instance with the given interface.
-    ///
-    /// You must ensure that the supplied `kira` [InterfaceId] points to
-    /// a valid encap interface. You can create one using [create_encap_interface].
-    pub async fn with_kira_interface(
-        handle_rtnetlink: ConnectionHandle<RouteNetlinkMessage>,
-        handle_nfnetlink: ConnectionHandle<NetfilterMessage>,
-        kira: InterfaceId,
-        ip_prefixes: IpPrefixes,
-    ) -> Result<Self> {
-        create_initial_nft_rules(
-            &handle_nfnetlink,
-            KIRA_TABLE.to_string(),
-            "hookin".to_string(),
-            "forwarding".to_string(),
-            KIRA_FORWARDMAP.to_string(),
-            &ip_prefixes,
-        )
-        .await?;
-
-        Ok(Self {
+    ) -> Self {
+        Self {
             handle_rtnetlink,
-            handle_nfnetlink,
-            kira,
             ip_prefixes,
-        })
+        }
     }
 
     /// Returns the prefixes used to derive NodeIPs and PathIPs.
@@ -207,28 +178,47 @@ impl ForwardingNetlink {
         &self.ip_prefixes
     }
 
-    /// Encapsulates packets with a destination ip of `node_id`
-    /// using the encapsulation device `kira` and sets the new outer destination to `path_id`.
+    /// Returns the handle of the route netlink connection.
+    pub fn handle(&self) -> &ConnectionHandle<RouteNetlinkMessage> {
+        &self.handle_rtnetlink
+    }
+
+    /// Encapsulates packets with a destination ip of `node_id` with an outer IPv6 header
+    /// whose destination is the PathIP of the first of the given path `segments`.
+    /// A Segment Routing Header ([RFC 8754]) carries the PathIPs of the following segments.
     ///
-    /// This rule is used for realizing an [NodeIdEncapsulationEntry].
-    /// An existing rule is overwritten.
+    /// The reduced encapsulation mode is used: the first segment is not repeated in the
+    /// Segment Routing Header, which is omitted completely for a single segment.
+    ///
+    /// This rule is used for realizing an [NodeIdEncapsulationEntry] with SRv6.
+    /// An existing rule is overwritten. The outgoing interface is `interface_id`; the packet
+    /// is forwarded according to the route of the PathIP of the first segment, though.
     ///
     /// [NodeIdEncapsulationEntry]: crate::domain::NodeIdEncapsulationEntry
+    /// [RFC 8754]: https://datatracker.ietf.org/doc/rfc8754/
     #[tracing::instrument(
         level = "trace",
         target = "native_fwd_table::netlink",
         skip_all,
-        fields(%node_id, out_path_id=%path_id)
+        fields(%node_id, ?segments, interface=%interface_id)
     )]
-    pub async fn replace_encap_route(
+    pub async fn replace_seg6_route(
         &self,
         node_id: &NodeIdSubnet,
-        path_id: &PathId,
+        segments: &[&PathId],
+        interface_id: InterfaceId,
     ) -> Result<()> {
         let (node_ip, prefix_length) = self.ip_prefixes.node_ip_subnet(node_id);
 
         let mut nl_hdr = NetlinkHeader::default();
         nl_hdr.flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_REPLACE | NLM_F_ACK;
+
+        let mut seg6 = Seg6Header::default();
+        seg6.mode = Seg6Mode::Other(SEG6_IPTUN_MODE_ENCAP_RED);
+        seg6.segments = segments
+            .iter()
+            .map(|path_id| self.ip_prefixes.path_ip(path_id))
+            .collect();
 
         let mut rt_msg = RouteMessage::default();
         rt_msg.header = RouteHeader {
@@ -237,20 +227,14 @@ impl ForwardingNetlink {
             protocol: RouteProtocol::Static,
             ..rt_msg.header
         };
-        rt_msg
-            .attributes
-            .push(RouteAttribute::Destination(RouteAddress::Inet6(node_ip)));
-        rt_msg
-            .attributes
-            .push(RouteAttribute::Oif(self.kira.into()));
-        rt_msg
-            .attributes
-            .push(RouteAttribute::EncapType(RouteLwEnCapType::Ip6));
-        rt_msg
-            .attributes
-            .push(RouteAttribute::Encap(vec![RouteLwTunnelEncap::Ip6(
-                RouteIp6Tunnel::Destination(self.ip_prefixes.path_ip(path_id)),
-            )]));
+        rt_msg.attributes = vec![
+            RouteAttribute::Destination(RouteAddress::Inet6(node_ip)),
+            RouteAttribute::Oif(interface_id.into()),
+            RouteAttribute::EncapType(RouteLwEnCapType::Seg6),
+            RouteAttribute::Encap(vec![RouteLwTunnelEncap::Seg6(RouteSeg6IpTunnel::Seg6(
+                seg6,
+            ))]),
+        ];
 
         let msg = NetlinkMessage::new(nl_hdr, RouteNetlinkMessage::NewRoute(rt_msg).into());
 
@@ -262,20 +246,19 @@ impl ForwardingNetlink {
             }
         }
 
-        log::debug!(target: "native_fwd_table::netlink", "encap route replaced: {:?} encap {:?} ", node_id, path_id);
+        log::debug!(target: "native_fwd_table::netlink", "seg6 route replaced: {node_id} segs {segments:?}");
 
         Ok(())
     }
 
-    /// Stops encapsulating packets with destination `node_id`.
+    /// Stops [encapsulating](Self::replace_seg6_route) packets with destination `node_id`.
     #[tracing::instrument(
         level = "trace",
         target = "native_fwd_table::netlink",
         skip_all,
-        fields(%node_id,
-        out_path_id=%path_id)
+        fields(%node_id)
     )]
-    pub async fn delete_encap_route(&self, node_id: &NodeIdSubnet, path_id: &PathId) -> Result<()> {
+    pub async fn delete_seg6_route(&self, node_id: &NodeIdSubnet) -> Result<()> {
         let (node_ip, prefix_length) = self.ip_prefixes.node_ip_subnet(node_id);
 
         let mut nl_hdr = NetlinkHeader::default();
@@ -291,17 +274,6 @@ impl ForwardingNetlink {
         rt_msg
             .attributes
             .push(RouteAttribute::Destination(RouteAddress::Inet6(node_ip)));
-        rt_msg
-            .attributes
-            .push(RouteAttribute::Oif(self.kira.into()));
-        rt_msg
-            .attributes
-            .push(RouteAttribute::EncapType(RouteLwEnCapType::Ip6));
-        rt_msg
-            .attributes
-            .push(RouteAttribute::Encap(vec![RouteLwTunnelEncap::Ip6(
-                RouteIp6Tunnel::Destination(self.ip_prefixes.path_ip(path_id)),
-            )]));
 
         let msg = NetlinkMessage::new(nl_hdr, RouteNetlinkMessage::DelRoute(rt_msg).into());
 
@@ -313,7 +285,7 @@ impl ForwardingNetlink {
             }
         }
 
-        log::debug!(target: "native_fwd_table::netlink", "encap route deleted: {:?} encap {:?} ", node_id, path_id);
+        log::debug!(target: "native_fwd_table::netlink", "seg6 route deleted: {node_id}");
 
         Ok(())
     }
@@ -322,11 +294,12 @@ impl ForwardingNetlink {
     ///
     /// This rule is used to determine to which underlay neighbor (`next_hop_ip`)
     /// a packet with a given [PathId] is forwarded.
-    /// This rule is used in combination with a [forwarding_rule] to realize A [PathIdForwardingEntry].
+    /// This rule is used in combination with the rule that replaces an incoming PathIP by
+    /// `path_ip` (e.g. a [forwarding_rule]) to realize a [PathIdForwardingEntry].
     /// An existing rule is overwritten.
     ///
     /// [PathIdForwardingEntry]: crate::domain::PathIdForwardingEntry
-    /// [forwarding_rule]: Self::add_forwarding_rule
+    /// [forwarding_rule]: ForwardingNetlink::add_forwarding_rule
     #[tracing::instrument(
         level = "trace",
         target = "native_fwd_table::netlink",
@@ -464,6 +437,232 @@ impl ForwardingNetlink {
         }
 
         log::debug!(target: "native_fwd_table::netlink", "route deleted: {} dev {}", node_id, interface_id);
+
+        Ok(())
+    }
+
+    /// Attaches the corresponding IPv6 address of `node_id` to the interface with name `interface`.
+    ///
+    /// The `node_id` usually is the root-id of KIRA instance running on the node.
+    #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink")]
+    pub async fn attach_node_id_ip(
+        &self,
+        node_id: &NodeId,
+        interface_id: InterfaceId,
+    ) -> Result<()> {
+        let node_ip = self.ip_prefixes.node_ip(node_id);
+
+        let mut nl_hdr = NetlinkHeader::default();
+        nl_hdr.flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_REPLACE | NLM_F_ACK;
+
+        let mut rt_msg = AddressMessage::default();
+        rt_msg.header = AddressHeader {
+            family: AddressFamily::Inet6,
+            prefix_len: 128,
+            index: interface_id.into(),
+            ..rt_msg.header
+        };
+        rt_msg
+            .attributes
+            .push(AddressAttribute::Address(std::net::IpAddr::V6(node_ip)));
+
+        let msg = NetlinkMessage::new(nl_hdr, RouteNetlinkMessage::NewAddress(rt_msg).into());
+
+        let mut response = self.handle_rtnetlink.request(msg, SocketAddr::new(0, 0))?;
+
+        while let Some(response) = response.next().await {
+            if let NetlinkPayload::Error(err) = response.payload {
+                return Err(err.into());
+            }
+        }
+
+        log::debug!(target: "native_fwd_table::netlink", "added node-id ip to interface: {} dev {}", node_id, interface_id);
+
+        Ok(())
+    }
+}
+
+/// Handle of a route netlink connection, see [new_connection].
+pub type RouteNetlinkHandle = ConnectionHandle<RouteNetlinkMessage>;
+/// Handle of a netfilter netlink connection, see [new_connection].
+pub type NetfilterNetlinkHandle = ConnectionHandle<NetfilterMessage>;
+
+/// Default name for the [encap interface](create_encap_interface).
+pub const KIRA_INTERFACE_NAME: &str = "kira";
+
+const KIRA_TABLE: &str = "kira";
+const KIRA_FORWARDMAP: &str = "forwardmap";
+
+/// Reduced SRv6 encapsulation mode (`SEG6_IPTUN_MODE_ENCAP_RED`, Linux >= 6.0).
+const SEG6_IPTUN_MODE_ENCAP_RED: u32 = 3;
+
+#[allow(non_upper_case_globals)]
+const ICMPv6_PROTO: u8 = 0x3a;
+const TYPE_IP6ADDR: u32 = 8;
+
+#[derive(Debug, Display, Error, From)]
+/// Error type used in [ForwardingNetlink].
+pub enum ForwardingNetlinkError {
+    /// Failed to deliver the RtNetlink message.
+    #[display("Delivering the Netlink message failed: {_0}")]
+    NetlinkNetlinkDeliveryFailure(netlink_proto::NetlinkProtoError),
+    #[display("Received netlink error as response: {_0:?}")]
+    /// The netlink socket responded with an [ErrorMessage] to the request.
+    NetlinkResponseError(#[error(ignore)] ErrorMessage),
+}
+
+/// Result used by [ForwardingNetlink].
+pub type Result<T> = std::result::Result<T, ForwardingNetlinkError>;
+
+impl ForwardingNetlink {
+    /// Creates a new [ForwardingNetlink] instance.
+    ///
+    /// As the interface name the [default name](KIRA_INTERFACE_NAME) is used.
+    /// NodeIPs and PathIPs are derived using the given `ip_prefixes`.
+    pub async fn new(
+        handle_rtnetlink: ConnectionHandle<RouteNetlinkMessage>,
+        handle_nfnetlink: ConnectionHandle<NetfilterMessage>,
+        ip_prefixes: IpPrefixes,
+    ) -> Result<Self> {
+        // a previous instance (e.g., after a crash) may have left its state behind
+        remove_forwarding_state(&handle_rtnetlink, &handle_nfnetlink, &ip_prefixes).await?;
+        let kira = create_encap_interface(&handle_rtnetlink, KIRA_INTERFACE_NAME).await?;
+        Self::with_kira_interface(handle_rtnetlink, handle_nfnetlink, kira, ip_prefixes).await
+    }
+
+    /// Creates a new [ForwardingNetlink] instance with the given interface.
+    ///
+    /// You must ensure that the supplied `kira` [InterfaceId] points to
+    /// a valid encap interface. You can create one using [create_encap_interface].
+    pub async fn with_kira_interface(
+        handle_rtnetlink: ConnectionHandle<RouteNetlinkMessage>,
+        handle_nfnetlink: ConnectionHandle<NetfilterMessage>,
+        kira: InterfaceId,
+        ip_prefixes: IpPrefixes,
+    ) -> Result<Self> {
+        create_initial_nft_rules(
+            &handle_nfnetlink,
+            KIRA_TABLE.to_string(),
+            "hookin".to_string(),
+            "forwarding".to_string(),
+            KIRA_FORWARDMAP.to_string(),
+            &ip_prefixes,
+        )
+        .await?;
+
+        Ok(Self {
+            routes: RouteNetlink::new(handle_rtnetlink.clone(), ip_prefixes),
+            handle_rtnetlink,
+            handle_nfnetlink,
+            kira,
+            ip_prefixes,
+        })
+    }
+
+    /// Returns the prefixes used to derive NodeIPs and PathIPs.
+    pub fn ip_prefixes(&self) -> &IpPrefixes {
+        &self.ip_prefixes
+    }
+
+    /// Encapsulates packets with a destination ip of `node_id`
+    /// using the encapsulation device `kira` and sets the new outer destination to `path_id`.
+    ///
+    /// This rule is used for realizing an [NodeIdEncapsulationEntry].
+    /// An existing rule is overwritten.
+    ///
+    /// [NodeIdEncapsulationEntry]: crate::domain::NodeIdEncapsulationEntry
+    #[tracing::instrument(
+        level = "trace",
+        target = "native_fwd_table::netlink",
+        skip_all,
+        fields(%node_id, out_path_id=%path_id)
+    )]
+    pub async fn replace_encap_route(
+        &self,
+        node_id: &NodeIdSubnet,
+        path_id: &PathId,
+    ) -> Result<()> {
+        let (node_ip, prefix_length) = self.ip_prefixes.node_ip_subnet(node_id);
+        self.change_encap_route(node_ip, prefix_length, path_id, true)
+            .await?;
+
+        log::debug!(target: "native_fwd_table::netlink", "encap route replaced: {:?} encap {:?} ", node_id, path_id);
+
+        Ok(())
+    }
+
+    /// Stops encapsulating packets with destination `node_id`.
+    #[tracing::instrument(
+        level = "trace",
+        target = "native_fwd_table::netlink",
+        skip_all,
+        fields(%node_id,
+        out_path_id=%path_id)
+    )]
+    pub async fn delete_encap_route(&self, node_id: &NodeIdSubnet, path_id: &PathId) -> Result<()> {
+        let (node_ip, prefix_length) = self.ip_prefixes.node_ip_subnet(node_id);
+        self.change_encap_route(node_ip, prefix_length, path_id, false)
+            .await?;
+
+        log::debug!(target: "native_fwd_table::netlink", "encap route deleted: {:?} encap {:?} ", node_id, path_id);
+
+        Ok(())
+    }
+
+    /// Replaces (or deletes) the route that encapsulates packets destined to `destination`
+    /// using the encapsulation device `kira` with the PathIP of `path_id` as outer destination.
+    async fn change_encap_route(
+        &self,
+        destination: Ipv6Addr,
+        prefix_length: u8,
+        path_id: &PathId,
+        replace: bool,
+    ) -> Result<()> {
+        let mut nl_hdr = NetlinkHeader::default();
+        nl_hdr.flags = if replace {
+            NLM_F_REQUEST | NLM_F_CREATE | NLM_F_REPLACE | NLM_F_ACK
+        } else {
+            NLM_F_REQUEST | NLM_F_ACK
+        };
+
+        let mut rt_msg = RouteMessage::default();
+        rt_msg.header = RouteHeader {
+            address_family: AddressFamily::Inet6,
+            destination_prefix_length: prefix_length,
+            protocol: RouteProtocol::Static,
+            ..rt_msg.header
+        };
+        rt_msg
+            .attributes
+            .push(RouteAttribute::Destination(RouteAddress::Inet6(
+                destination,
+            )));
+        rt_msg
+            .attributes
+            .push(RouteAttribute::Oif(self.kira.into()));
+        rt_msg
+            .attributes
+            .push(RouteAttribute::EncapType(RouteLwEnCapType::Ip6));
+        rt_msg
+            .attributes
+            .push(RouteAttribute::Encap(vec![RouteLwTunnelEncap::Ip6(
+                RouteIp6Tunnel::Destination(self.ip_prefixes.path_ip(path_id)),
+            )]));
+
+        let payload = if replace {
+            RouteNetlinkMessage::NewRoute(rt_msg)
+        } else {
+            RouteNetlinkMessage::DelRoute(rt_msg)
+        };
+        let msg = NetlinkMessage::new(nl_hdr, payload.into());
+
+        let mut response = self.handle_rtnetlink.request(msg, SocketAddr::new(0, 0))?;
+
+        while let Some(response) = response.next().await {
+            if let NetlinkPayload::Error(err) = response.payload {
+                return Err(err.into());
+            }
+        }
 
         Ok(())
     }
@@ -684,46 +883,6 @@ impl ForwardingNetlink {
         Ok(())
     }
 
-    /// Attaches the corresponding IPv6 address of `node_id` to the interface with name `interface`.
-    ///
-    /// The `node_id` usually is the root-id of KIRA instance running on the node.
-    #[tracing::instrument(level = "trace", target = "native_fwd_table::netlink")]
-    pub async fn attach_node_id_ip(
-        &self,
-        node_id: &NodeId,
-        interface_id: InterfaceId,
-    ) -> Result<()> {
-        let node_ip = self.ip_prefixes.node_ip(node_id);
-
-        let mut nl_hdr = NetlinkHeader::default();
-        nl_hdr.flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_REPLACE | NLM_F_ACK;
-
-        let mut rt_msg = AddressMessage::default();
-        rt_msg.header = AddressHeader {
-            family: AddressFamily::Inet6,
-            prefix_len: 128,
-            index: interface_id.into(),
-            ..rt_msg.header
-        };
-        rt_msg
-            .attributes
-            .push(AddressAttribute::Address(std::net::IpAddr::V6(node_ip)));
-
-        let msg = NetlinkMessage::new(nl_hdr, RouteNetlinkMessage::NewAddress(rt_msg).into());
-
-        let mut response = self.handle_rtnetlink.request(msg, SocketAddr::new(0, 0))?;
-
-        while let Some(response) = response.next().await {
-            if let NetlinkPayload::Error(err) = response.payload {
-                return Err(err.into());
-            }
-        }
-
-        log::debug!(target: "native_fwd_table::netlink", "added node-id ip to interface: {} dev {}", node_id, interface_id);
-
-        Ok(())
-    }
-
     /// Deletes the encapsulation interface.
     ///
     /// This method consumes the struct because other methods rely on the interface
@@ -753,6 +912,156 @@ impl ForwardingNetlink {
 
         Ok(())
     }
+}
+
+/// Error codes of netlink answers to delete requests for things that don't exist.
+const ENOENT: i32 = -2;
+const ESRCH: i32 = -3;
+const ENODEV: i32 = -19;
+
+/// Sends the request and checks the answers, ignoring the given error codes.
+async fn request_ignoring<T>(
+    handle: &ConnectionHandle<T>,
+    msg: NetlinkMessage<T>,
+    ignored_codes: &[i32],
+) -> Result<()>
+where
+    T: std::fmt::Debug
+        + netlink_packet_core::NetlinkSerializable
+        + netlink_packet_core::NetlinkDeserializable
+        + Clone
+        + Send
+        + 'static,
+{
+    let mut response = handle.request(msg, SocketAddr::new(0, 0))?;
+    while let Some(response) = response.next().await {
+        if let NetlinkPayload::Error(err) = response.payload
+            && let Some(code) = err.code
+            && !ignored_codes.contains(&code.get())
+        {
+            return Err(err.into());
+        }
+    }
+    Ok(())
+}
+
+/// Removes the forwarding state of KIRA: the encapsulation interface (and the routes via it),
+/// the nftables table and the routes kirad added into the NodeIP and PathIP prefixes.
+///
+/// It is used on shutdown and on startup, in case a previous instance (e.g., after a crash)
+/// left its state behind. Missing parts are ignored.
+#[tracing::instrument(level = "trace", target = "native_fwd_table::netlink", skip_all)]
+pub async fn remove_forwarding_state(
+    handle_rtnetlink: &ConnectionHandle<RouteNetlinkMessage>,
+    handle_nfnetlink: &ConnectionHandle<NetfilterMessage>,
+    ip_prefixes: &IpPrefixes,
+) -> Result<()> {
+    // encapsulation interface, deleted by name
+    {
+        let mut nl_hdr = NetlinkHeader::default();
+        nl_hdr.flags = NLM_F_REQUEST | NLM_F_ACK;
+        let mut rt_msg = LinkMessage::default();
+        rt_msg.attributes = vec![LinkAttribute::IfName(KIRA_INTERFACE_NAME.to_string())];
+        let msg = NetlinkMessage::new(nl_hdr, RouteNetlinkMessage::DelLink(rt_msg).into());
+        request_ignoring(handle_rtnetlink, msg, &[ENODEV]).await?;
+    }
+
+    // nftables table with its chains, rules and forwarding map
+    {
+        let control = |message| {
+            NetlinkMessage::from(NetfilterMessage::new(
+                NetfilterHeader::new(
+                    NetfilterProtoFamily::Unspec,
+                    0,
+                    u8::from(NetfilterSubsystem::NfTables) as _,
+                ),
+                message,
+            ))
+        };
+        let mut delete_table = NetlinkMessage::from(NetfilterMessage::new(
+            NetfilterHeader::new(NetfilterProtoFamily::IPv6, 0, 0),
+            NfTablesMessage::DeleteTable(TableMessage {
+                attributes: vec![TableAttribute::Name(KIRA_TABLE.to_string())],
+            }),
+        ));
+        delete_table.header.flags = NLM_F_REQUEST | NLM_F_ACK;
+        let mut batch_begin = control(ControlMessage::BatchBegin);
+        batch_begin.header.flags = NLM_F_REQUEST;
+        let mut batch_end = control(ControlMessage::BatchEnd);
+        batch_end.header.flags = NLM_F_REQUEST;
+        let batch = [
+            (batch_begin, ReplyExpectation::NotExpected),
+            (delete_table, ReplyExpectation::Expected),
+            (batch_end, ReplyExpectation::NotExpected),
+        ];
+        let mut response =
+            handle_nfnetlink.request_batch_with_expectation(batch, SocketAddr::new(0, 0))?;
+        while let Some(response) = response.next().await {
+            if let NetlinkPayload::Error(err) = response.payload
+                && let Some(code) = err.code
+                && code.get() != ENOENT
+            {
+                return Err(err.into());
+            }
+        }
+    }
+
+    remove_routes(handle_rtnetlink, ip_prefixes).await?;
+
+    log::debug!(target: "native_fwd_table::netlink", "removed KIRA's forwarding state");
+    Ok(())
+}
+
+/// Removes the routes kirad added into the NodeIP and PathIP prefixes.
+///
+/// These are all static routes of the main routing table into these prefixes, no matter
+/// which kind of encapsulation they use.
+#[tracing::instrument(level = "trace", target = "native_fwd_table::netlink", skip_all)]
+pub async fn remove_routes(
+    handle_rtnetlink: &ConnectionHandle<RouteNetlinkMessage>,
+    ip_prefixes: &IpPrefixes,
+) -> Result<()> {
+    let routes = {
+        let mut nl_hdr = NetlinkHeader::default();
+        nl_hdr.flags = NLM_F_REQUEST | NLM_F_DUMP;
+        let mut rt_msg = RouteMessage::default();
+        rt_msg.header.address_family = AddressFamily::Inet6;
+        let msg = NetlinkMessage::new(nl_hdr, RouteNetlinkMessage::GetRoute(rt_msg).into());
+        let mut response = handle_rtnetlink.request(msg, SocketAddr::new(0, 0))?;
+        let prefixes = [
+            ip_prefixes.node_ip_prefix().bits(),
+            ip_prefixes.path_ip_prefix().bits(),
+        ];
+        let mut routes = Vec::new();
+        while let Some(response) = response.next().await {
+            match response.payload {
+                NetlinkPayload::Error(err) if err.code.is_some() => return Err(err.into()),
+                NetlinkPayload::InnerMessage(RouteNetlinkMessage::NewRoute(route))
+                    if route.header.protocol == RouteProtocol::Static
+                        && route.header.table == RouteHeader::RT_TABLE_MAIN
+                        && route.attributes.iter().any(|attribute| {
+                            matches!(
+                                attribute,
+                                RouteAttribute::Destination(RouteAddress::Inet6(destination))
+                                    if prefixes.contains(&destination.segments()[0])
+                            )
+                        }) =>
+                {
+                    routes.push(route);
+                }
+                _ => {}
+            }
+        }
+        routes
+    };
+    for route in routes {
+        let mut nl_hdr = NetlinkHeader::default();
+        nl_hdr.flags = NLM_F_REQUEST | NLM_F_ACK;
+        let msg = NetlinkMessage::new(nl_hdr, RouteNetlinkMessage::DelRoute(route).into());
+        request_ignoring(handle_rtnetlink, msg, &[ESRCH]).await?;
+    }
+
+    Ok(())
 }
 
 /// Creates an interface for encapsulating and decapsulating

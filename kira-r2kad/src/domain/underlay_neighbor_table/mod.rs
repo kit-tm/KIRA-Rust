@@ -22,11 +22,17 @@ pub trait ULNTable {
     fn insert(&mut self, id: NodeId, ulnid: UnderlayNeighborId) -> Option<UnderlayNeighborId>;
 
     /// confirms a Mapping to actually work in a bidirectional manner
-    /// returns true if the sequence number state changed and false in case the state did not change
+    /// returns true if the sequence number state changed and false in case the state did not change.
+    /// A neighbor that isn't in the table, or is in it with another [UnderlayNeighborId], is not confirmed.
     fn confirm(&mut self, id: NodeId, ulnid: UnderlayNeighborId) -> bool;
 
     /// Returns if a Mapping for the [NodeId] is present in the [ULNTable].
+    ///
+    /// This includes tentative mappings, whose link is only known to work towards us.
     fn contains(&self, id: &NodeId) -> bool;
+
+    /// Returns if a Mapping for the [NodeId] is present and confirmed to work in both directions.
+    fn is_bidirectional(&self, id: &NodeId) -> bool;
 
     /// Returns the state sequence number.
     ///
@@ -123,8 +129,19 @@ mod tests {
         };
 
         table.insert(id, neighbor);
-        // confirming an unseen ULN should panic
-        table.confirm(id, new_neighbor);
+        let ssn = *table.state_seq_nr();
+        // a message via another underlay link doesn't confirm the stored one
+        assert!(!table.confirm(id, new_neighbor));
+        assert!(!table.is_bidirectional(&id));
+        assert_eq!(*table.state_seq_nr(), ssn);
+
+        // nor does one from a neighbor that isn't in the table
+        assert!(!table.confirm(NodeId::with_lsb(7), neighbor));
+        assert!(!table.contains(&NodeId::with_lsb(7)));
+        assert_eq!(*table.state_seq_nr(), ssn);
+
+        // the stored link can still be confirmed
+        assert!(table.confirm(id, neighbor));
     }
 
     pub fn ssn_on_remove<P: ULNTable>(mut table: P) {

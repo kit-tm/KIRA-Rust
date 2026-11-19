@@ -1,8 +1,5 @@
 use std::{
-    collections::{
-        HashMap,
-        HashSet,
-    },
+    collections::HashSet,
     io::Cursor,
     num::NonZeroU64,
     sync::Arc,
@@ -14,6 +11,7 @@ use kira_r2kad::domain::{
     Contact,
     Link,
     NodeId,
+    NotVia,
     Path,
     ProtocolMessage,
     ProtocolMessageKind,
@@ -24,6 +22,7 @@ use kira_r2kad::domain::{
         ErrorData,
         FindNodeReqData,
         PathSetupReqData,
+        PathSetupRspData,
         PathTeardownReqData,
         ProbeReqData,
         ProbeRspData,
@@ -81,6 +80,7 @@ fn binrw_hello() {
 
 #[test]
 fn binrw_discreq() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
     let mut header = CommonHeader::new(
         ProtocolMessageKind::ULNDiscReq,
         NodeId::with_lsb(0x10),
@@ -250,6 +250,7 @@ fn binrw_find_node_req() {
 
 #[test]
 fn binrw_disc_rsp() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
     let mut header = CommonHeader::new(
         ProtocolMessageKind::ULNDiscRsp,
         NodeId::with_lsb(0x71),
@@ -302,6 +303,7 @@ fn binrw_disc_rsp() {
 
 #[test]
 fn binrw_query_route_rsp() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
     let mut header = CommonHeader::new(
         ProtocolMessageKind::QueryRouteRsp,
         NodeId::with_lsb(0x81),
@@ -378,6 +380,7 @@ fn binrw_query_route_rsp() {
 
 #[test]
 fn binrw_find_node_rsp() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
     let mut header = CommonHeader::new(
         ProtocolMessageKind::FindNodeRsp,
         NodeId::with_lsb(0x91),
@@ -430,6 +433,7 @@ fn binrw_find_node_rsp() {
 
 #[test]
 fn binrw_update_route_req() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
     let mut header = CommonHeader::new(
         ProtocolMessageKind::UpdateRouteReq,
         NodeId::with_lsb(0x99),
@@ -450,12 +454,15 @@ fn binrw_update_route_req() {
         })
         .collect();
 
-    let mut contact_actions = HashMap::new();
-    contact_actions.insert(contacts[0].clone(), RouteUpdateActionType::Announce);
-    contact_actions.insert(contacts[1].clone(), RouteUpdateActionType::WithDraw);
-    contact_actions.insert(contacts[2].clone(), RouteUpdateActionType::Change);
-    contact_actions.insert(contacts[3].clone(), RouteUpdateActionType::Unreachable);
-    contact_actions.insert(contacts[4].clone(), RouteUpdateActionType::Other(42));
+    let contact_actions = vec![
+        (contacts[0].clone(), RouteUpdateActionType::Announce),
+        (contacts[1].clone(), RouteUpdateActionType::WithDraw),
+        (contacts[2].clone(), RouteUpdateActionType::Change),
+        (contacts[3].clone(), RouteUpdateActionType::Unreachable),
+        (contacts[4].clone(), RouteUpdateActionType::Other(42)),
+        // the same contact may occur again, e.g., its latest path after its loss
+        (contacts[3].clone(), RouteUpdateActionType::Change),
+    ];
 
     let msg = ProtocolMessage::UpdateRouteReq(UpdateRouteReq {
         common_header: header.clone(),
@@ -494,20 +501,20 @@ fn binrw_update_route_req() {
     assert_eq!(decoded_req.source_route.source(), header.src_node_id());
     assert_eq!(decoded_req.source_route.destination(), header.dest_id());
 
-    assert_eq!(decoded_req.contact_actions.len(), 5);
-    let mut decoded_contact_actions: Vec<_> = decoded_req.contact_actions.into_iter().collect();
-    decoded_contact_actions.sort_by_key(|(c, _)| *c.id());
-
-    for (i, (decoded_contact, decoded_action)) in decoded_contact_actions.iter().enumerate() {
-        assert_eq!(decoded_contact.id(), contacts[i].id());
-        assert_eq!(decoded_contact.state_seq_nr(), contacts[i].state_seq_nr());
+    // order and repeated contacts are kept
+    assert_eq!(decoded_req.contact_actions.len(), contact_actions.len());
+    for ((decoded_contact, decoded_action), (contact, action)) in
+        decoded_req.contact_actions.iter().zip(&contact_actions)
+    {
+        assert_eq!(decoded_contact.id(), contact.id());
+        assert_eq!(decoded_contact.state_seq_nr(), contact.state_seq_nr());
         assert!(
             decoded_contact
                 .path()
                 .unwrap()
-                .is_same_path_as(contacts[i].path().unwrap())
+                .is_same_path_as(contact.path().unwrap())
         );
-        assert_eq!(decoded_action, contact_actions.get(&contacts[i]).unwrap());
+        assert_eq!(decoded_action, action);
     }
 }
 
@@ -745,6 +752,48 @@ fn binrw_path_setup_req() {
         .expect("deserialize");
 
     let ProtocolMessage::PathSetupReq(decoded_req) = decoded else {
+        panic!("unexpected message type");
+    };
+    assert_eq!(decoded_req.common_header.msg_id(), header.msg_id());
+    assert_eq!(decoded_req.source_route.source(), header.src_node_id());
+    assert_eq!(decoded_req.source_route.destination(), header.dest_id());
+}
+
+#[test]
+fn binrw_path_setup_rsp() {
+    let mut header = CommonHeader::new(
+        ProtocolMessageKind::PathSetupRsp,
+        NodeId::with_lsb(0xc5),
+        NodeId::with_lsb(0xc6),
+        Some(0x9501.into()),
+        0x9502,
+        1,
+    );
+    header.set_domain_id(0x4242);
+
+    let msg = ProtocolMessage::PathSetupRsp(ReqRspMessage {
+        common_header: header.clone(),
+        data: PathSetupRspData,
+        not_via: Some(HashSet::new()),
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    });
+
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::Binrw
+        .serialize(&mut buf, &msg)
+        .expect("serialize");
+
+    println!("Serialized PathSetupRsp:");
+    for byte in &buf {
+        print!("{:02x} ", byte);
+    }
+    println!();
+
+    let decoded = ProtocolMessageFormat::Binrw
+        .deserialize(Cursor::new(&buf))
+        .expect("deserialize");
+
+    let ProtocolMessage::PathSetupRsp(decoded_req) = decoded else {
         panic!("unexpected message type");
     };
     assert_eq!(decoded_req.common_header.msg_id(), header.msg_id());
@@ -1072,4 +1121,354 @@ fn binrw_payload_only_is_error() {
     let garbage_payload = [0x07u8, 0x00u8, 0x01u8, 0xffu8, 0x10u8];
     let res = ProtocolMessageFormat::Binrw.deserialize(Cursor::new(&garbage_payload));
     assert!(res.is_err());
+}
+
+#[test]
+fn binrw_not_via_keeps_age() {
+    // receivers compare the age against their own path validation
+    let header = CommonHeader::new(
+        ProtocolMessageKind::FindNodeReq,
+        NodeId::with_lsb(0x60),
+        NodeId::with_lsb(0x70),
+        Some(0x4444.into()),
+        0x5555,
+        4,
+    );
+    let fresh = Link::new(NodeId::with_lsb(1), NodeId::with_lsb(2));
+    let old = Link::new(NodeId::with_lsb(3), NodeId::with_lsb(4));
+    let too_old = Link::new(NodeId::with_lsb(5), NodeId::with_lsb(6));
+    let not_via = HashSet::from([
+        NotVia::from((fresh.clone(), Age::from(0))),
+        NotVia::from((old.clone(), Age::from(12_345))),
+        NotVia::from((too_old.clone(), Age::from(u64::from(u32::MAX) + 1))),
+    ]);
+
+    let req = ReqRspMessage {
+        common_header: header.clone(),
+        data: FindNodeReqData {
+            neighborhood: NonZeroU64::new(3).unwrap(),
+        },
+        not_via: Some(not_via),
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    };
+
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::Binrw
+        .serialize(&mut buf, &ProtocolMessage::FindNodeReq(req))
+        .expect("serialize");
+    let ProtocolMessage::FindNodeReq(decoded) = ProtocolMessageFormat::Binrw
+        .deserialize(Cursor::new(&buf))
+        .expect("deserialize")
+    else {
+        panic!("unexpected message type");
+    };
+
+    let decoded = decoded.not_via.expect("not via list");
+    let age_of = |link: &Link| {
+        decoded
+            .iter()
+            .find(|entry| &entry.link == link)
+            .expect("link present")
+            .age
+    };
+    assert_eq!(age_of(&fresh), Age::from(0));
+    assert_eq!(age_of(&old), Age::from(12_345));
+    assert_eq!(
+        age_of(&too_old),
+        Age::from(u64::from(u32::MAX)),
+        "saturated"
+    );
+}
+
+/// A contact two hops away whose information is `age_ms` old.
+fn aged_contact(last_hop: u8, age_ms: u64) -> Contact {
+    let mut contact = Contact::new(
+        Path::from([NodeId::with_lsb(0xa0), NodeId::with_lsb(last_hop)]),
+        SafeStateSeqNr::try_from(3u32).unwrap(),
+    );
+    contact.set_info_age(Age::from(age_ms));
+    contact
+}
+
+fn assert_age_about(contact: &Contact, age_ms: u64) {
+    // the roundtrip itself takes a few ms
+    let age = contact.age();
+    assert!(
+        age >= Age::from(age_ms) && age < Age::from(age_ms + 1_000),
+        "age {age} of {} should be about {age_ms}ms",
+        contact.id()
+    );
+}
+
+fn roundtrip(msg: ProtocolMessage) -> ProtocolMessage {
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::Binrw
+        .serialize(&mut buf, &msg)
+        .expect("serialize");
+    ProtocolMessageFormat::Binrw
+        .deserialize(Cursor::new(&buf))
+        .expect("deserialize")
+}
+
+#[test]
+fn binrw_rtable_keeps_contact_age() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
+    // receivers date the information back by the reported age
+    let header = CommonHeader::new(
+        ProtocolMessageKind::FindNodeRsp,
+        NodeId::with_lsb(0x91),
+        NodeId::with_lsb(0x92),
+        Some(0x8001.into()),
+        0x8002,
+        7,
+    );
+    let uln = Contact::new(
+        Path::from(NodeId::with_lsb(0x93)),
+        SafeStateSeqNr::try_from(9u32).unwrap(),
+    );
+    let msg = ProtocolMessage::FindNodeRsp(ReqRspMessage {
+        common_header: header.clone(),
+        data: RTableData {
+            contacts: vec![uln, aged_contact(0xa1, 7_000)],
+        },
+        not_via: Some(HashSet::new()),
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    });
+
+    let ProtocolMessage::FindNodeRsp(decoded) = roundtrip(msg) else {
+        panic!("unexpected message type");
+    };
+    let contacts = &decoded.data.contacts;
+    assert_age_about(&contacts[0], 0); // information about own links is always current
+    assert_age_about(&contacts[1], 7_000);
+}
+
+#[test]
+fn binrw_rtable_update_keeps_contact_age() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
+    let header = CommonHeader::new(
+        ProtocolMessageKind::UpdateRouteReq,
+        NodeId::with_lsb(0x99),
+        NodeId::with_lsb(0x9a),
+        Some(0x8a01.into()),
+        0x8a02,
+        4,
+    );
+    let msg = ProtocolMessage::UpdateRouteReq(UpdateRouteReq {
+        common_header: header.clone(),
+        not_via: Some(HashSet::new()),
+        contact_actions: vec![(
+            aged_contact(0xa2, 3_000),
+            RouteUpdateActionType::Unreachable,
+        )],
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    });
+
+    let ProtocolMessage::UpdateRouteReq(decoded) = roundtrip(msg) else {
+        panic!("unexpected message type");
+    };
+    assert_age_about(&decoded.contact_actions[0].0, 3_000);
+}
+
+/// A FindNodeRsp with one RTable contact 0xa1 over ⟨0xa0, 0xa1⟩.
+fn rtable_message() -> ProtocolMessage {
+    let header = CommonHeader::new(
+        ProtocolMessageKind::FindNodeRsp,
+        NodeId::with_lsb(0x91),
+        NodeId::with_lsb(0x92),
+        Some(0x8001.into()),
+        0x8002,
+        7,
+    );
+    ProtocolMessage::FindNodeRsp(ReqRspMessage {
+        common_header: header.clone(),
+        data: RTableData {
+            contacts: vec![aged_contact(0xa1, 0)],
+        },
+        not_via: Some(HashSet::new()),
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    })
+}
+
+/// An UpdateRouteReq with one contact 0xa1 over ⟨0xa0, 0xa1⟩.
+fn rtable_update_message() -> ProtocolMessage {
+    let header = CommonHeader::new(
+        ProtocolMessageKind::UpdateRouteReq,
+        NodeId::with_lsb(0x99),
+        NodeId::with_lsb(0x9a),
+        Some(0x8a01.into()),
+        0x8a02,
+        4,
+    );
+    ProtocolMessage::UpdateRouteReq(UpdateRouteReq {
+        common_header: header.clone(),
+        not_via: Some(HashSet::new()),
+        contact_actions: vec![(aged_contact(0xa1, 0), RouteUpdateActionType::Unreachable)],
+        source_route: SourceRoute::new(*header.src_node_id(), Path::from(*header.dest_id())),
+    })
+}
+
+/// Serializes the message, lets `patch` change the bytes, given the index of the entry of
+/// contact 0xa1 (its Contact-ID), and deserializes the result.
+fn deserialize_patched(
+    msg: ProtocolMessage,
+    patch: impl FnOnce(&mut [u8], usize),
+) -> Result<ProtocolMessage, Box<dyn std::error::Error>> {
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::Binrw
+        .serialize(&mut buf, &msg)
+        .expect("serialize");
+    // the Contact-ID is the first occurrence of the contact's ID, the path follows it
+    let id = NodeId::with_lsb(0xa1).to_be_bytes();
+    let entry = buf
+        .windows(id.len())
+        .position(|window| window == id)
+        .expect("contact entry");
+    patch(&mut buf, entry);
+    ProtocolMessageFormat::Binrw.deserialize(Cursor::new(&buf))
+}
+
+/// The contact no longer matches the last hop of its path.
+fn change_contact_id(buf: &mut [u8], entry: usize) {
+    buf[entry..entry + NodeId::SIZE].copy_from_slice(&NodeId::with_lsb(0xbb).to_be_bytes());
+}
+
+/// The object is one byte shorter than its only entry. The object length directly precedes
+/// the entry.
+fn shorten_object(buf: &mut [u8], entry: usize) {
+    let length = &mut buf[entry - 2..entry];
+    let shortened = u16::from_be_bytes([length[0], length[1]]) - 1;
+    length.copy_from_slice(&shortened.to_be_bytes());
+}
+
+#[test]
+fn binrw_rtable_entry_not_ending_at_contact_is_rejected() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
+    assert!(deserialize_patched(rtable_message(), |_, _| {}).is_ok());
+    assert!(deserialize_patched(rtable_message(), change_contact_id).is_err());
+}
+
+#[test]
+fn binrw_rtable_update_entry_not_ending_at_contact_is_rejected() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
+    assert!(deserialize_patched(rtable_update_message(), |_, _| {}).is_ok());
+    assert!(deserialize_patched(rtable_update_message(), change_contact_id).is_err());
+}
+
+#[test]
+fn binrw_rtable_entry_longer_than_its_object_is_rejected() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
+    assert!(deserialize_patched(rtable_message(), shorten_object).is_err());
+}
+
+#[test]
+fn binrw_contact_list_keeps_contact_age() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
+    let header = CommonHeader::new(
+        ProtocolMessageKind::ULNDiscReq,
+        NodeId::with_lsb(0x10),
+        NodeId::with_lsb(0x20),
+        Some(0x1111.into()),
+        0x2222,
+        2,
+    );
+    let msg = ProtocolMessage::ULNDiscReq(ULNReqRspMessage {
+        common_header: header,
+        data: RTableData {
+            contacts: vec![aged_contact(0xa3, 5_000)],
+        },
+    });
+
+    let ProtocolMessage::ULNDiscReq(decoded) = roundtrip(msg) else {
+        panic!("unexpected message type");
+    };
+    assert_age_about(&decoded.data.contacts[0], 5_000);
+}
+
+/// Contact 0xa1 of [aged_contact] with the given degree.
+fn contact_with_degree(last_hop: u8, degree: Option<u16>) -> Contact {
+    let mut contact = aged_contact(last_hop, 0);
+    contact.set_degree(degree);
+    contact
+}
+
+#[test]
+fn binrw_rtable_objects_keep_node_degrees() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
+    let degrees = [Some(1), Some(42), None];
+    let contacts: Vec<Contact> = degrees
+        .iter()
+        .zip(0xa1u8..)
+        .map(|(degree, hop)| contact_with_degree(hop, *degree))
+        .collect();
+    let decoded_degrees =
+        |contacts: &[Contact]| contacts.iter().map(Contact::degree).collect::<Vec<_>>();
+
+    // RTable object
+    let ProtocolMessage::FindNodeRsp(mut rsp) = rtable_message() else {
+        unreachable!()
+    };
+    rsp.data.contacts = contacts.clone();
+    let ProtocolMessage::FindNodeRsp(decoded) = roundtrip(ProtocolMessage::FindNodeRsp(rsp)) else {
+        panic!("unexpected message type");
+    };
+    assert_eq!(decoded_degrees(&decoded.data.contacts), degrees);
+
+    // RTableUpdateInfo object
+    let ProtocolMessage::UpdateRouteReq(mut req) = rtable_update_message() else {
+        unreachable!()
+    };
+    req.contact_actions = contacts
+        .iter()
+        .map(|contact| (contact.clone(), RouteUpdateActionType::Change))
+        .collect();
+    let ProtocolMessage::UpdateRouteReq(decoded) = roundtrip(ProtocolMessage::UpdateRouteReq(req))
+    else {
+        panic!("unexpected message type");
+    };
+    let decoded_contacts: Vec<Contact> = decoded
+        .contact_actions
+        .into_iter()
+        .map(|(contact, _)| contact)
+        .collect();
+    assert_eq!(decoded_degrees(&decoded_contacts), degrees);
+
+    // ContactList object
+    let header = CommonHeader::new(
+        ProtocolMessageKind::ULNDiscReq,
+        NodeId::with_lsb(0x10),
+        NodeId::with_lsb(0x20),
+        Some(0x1111.into()),
+        0x2222,
+        2,
+    );
+    let msg = ProtocolMessage::ULNDiscReq(ULNReqRspMessage {
+        common_header: header,
+        data: RTableData { contacts },
+    });
+    let ProtocolMessage::ULNDiscReq(decoded) = roundtrip(msg) else {
+        panic!("unexpected message type");
+    };
+    assert_eq!(decoded_degrees(&decoded.data.contacts), degrees);
+}
+
+#[test]
+fn binrw_placeholder_node_degree_is_unknown() {
+    let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
+    // earlier implementations write 0xFFFF into the Node Degree field
+    let mut buf = Vec::new();
+    ProtocolMessageFormat::Binrw
+        .serialize(&mut buf, &rtable_message())
+        .expect("serialize");
+    // the Node Degree field ends the only RTable entry, which ends the message
+    let len = buf.len();
+    assert_eq!(&buf[len - 2..], [0, 0], "unknown degree is sent as 0");
+    buf[len - 2..].copy_from_slice(&u16::MAX.to_be_bytes());
+    let ProtocolMessage::FindNodeRsp(decoded) = ProtocolMessageFormat::Binrw
+        .deserialize(Cursor::new(&buf))
+        .expect("deserialize")
+    else {
+        panic!("unexpected message type");
+    };
+    assert_eq!(decoded.data.contacts[0].degree(), None);
 }

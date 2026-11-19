@@ -1,5 +1,6 @@
 use std::{
     cmp::Ordering,
+    collections::HashSet,
     hash::{
         Hash,
         Hasher,
@@ -12,6 +13,7 @@ use derive_more::derive::Display;
 use crate::{
     domain::{
         Age,
+        ContactLabels,
         NodeId,
         NotViaStateList,
         Path,
@@ -44,7 +46,7 @@ pub enum ContactState {
 /// The contact is Invalid if no valid paths are present
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[display("Contact [id: {}, age: {}ms, state_seq_nr: {state_seq_nr}, state: {state}, path: {path_collection:?}]", self.id(), self.last_seen.to_age_duration().as_millis())]
+#[display("Contact [id: {}, age: {}, state_seq_nr: {state_seq_nr}, state: {state}, path: {path_collection:?}]", self.id(), self.display_age())]
 pub struct Contact {
     dest_id: NodeId,
     #[cfg_attr(feature = "serde", serde(skip))]
@@ -53,6 +55,39 @@ pub struct Contact {
     last_seen: Timestamp,
     path_collection: PathCollection,
     state_seq_nr: SafeStateSeqNr,
+    /// Labels set by this node, see [ContactLabels::LOCAL].
+    #[cfg_attr(feature = "serde", serde(skip))]
+    local_labels: ContactLabels,
+    /// Labels advertised by other nodes, see [ContactLabels::ADVERTISED].
+    ///
+    /// `None` means no information was received, so existing labels are kept on merge.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    advertised_labels: Option<ContactLabels>,
+    /// When a lower [SafeStateSeqNr] of the node was accepted, e.g., after its restart.
+    ///
+    /// Information dated before is outdated, whatever its sequence number.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    ssn_reset_at: Option<Timestamp>,
+    /// Number of underlay neighbors of the node, [None] if unknown.
+    ///
+    /// Like the [SafeStateSeqNr], which changes with the underlay neighbors of the node,
+    /// it is taken from the most recent information.
+    #[cfg_attr(feature = "serde", serde(default))]
+    degree: Option<u16>,
+}
+
+/// Converts the value of a Node Degree field of a message into the degree of a node.
+///
+/// `0` and `0xFFFF` mean that the degree is unknown (`0xFFFF` was used for that by earlier
+/// implementations); larger degrees are saturated at `0xFFFE`.
+pub fn node_degree_from_wire(raw: u16) -> Option<u16> {
+    (raw != 0 && raw != u16::MAX).then_some(raw)
+}
+
+/// Converts the degree of a node into the value of a Node Degree field, see
+/// [node_degree_from_wire].
+pub fn node_degree_to_wire(degree: Option<u16>) -> u16 {
+    degree.map_or(0, |degree| degree.min(u16::MAX - 1))
 }
 
 impl Hash for Contact {
@@ -72,6 +107,10 @@ impl Contact {
             last_seen: Timestamp::now(),
             path_collection: PathCollection::new_with_active_path(path),
             state_seq_nr,
+            local_labels: ContactLabels::empty(),
+            advertised_labels: None,
+            ssn_reset_at: None,
+            degree: None,
         }
     }
 
@@ -121,6 +160,71 @@ impl Contact {
         }
     }
 
+    /// Returns all labels of the [Contact]: derived, local and advertised ones.
+    pub fn labels(&self) -> ContactLabels {
+        let mut labels = self.local_labels | self.advertised_labels.unwrap_or_default();
+        labels.set(ContactLabels::Uln, self.is_uln());
+        labels
+    }
+
+    /// Returns if the [Contact] has at least one of the given labels.
+    pub fn has_any_label(&self, labels: ContactLabels) -> bool {
+        self.labels().intersects(labels)
+    }
+
+    pub fn local_labels(&self) -> ContactLabels {
+        self.local_labels
+    }
+
+    /// Adds local labels. Labels from other sources are ignored.
+    pub fn add_local_labels(&mut self, labels: ContactLabels) {
+        self.local_labels |= labels & ContactLabels::LOCAL;
+    }
+
+    /// Removes local labels. Labels from other sources are ignored.
+    pub fn remove_local_labels(&mut self, labels: ContactLabels) {
+        self.local_labels -= labels & ContactLabels::LOCAL;
+    }
+
+    pub fn advertised_labels(&self) -> Option<ContactLabels> {
+        self.advertised_labels
+    }
+
+    /// Sets the advertised labels. Labels from other sources are ignored.
+    ///
+    /// `None` means that no label information is available.
+    pub fn set_advertised_labels(&mut self, labels: Option<ContactLabels>) {
+        self.advertised_labels = labels.map(|labels| labels & ContactLabels::ADVERTISED);
+    }
+
+    /// Merges labels from `newer`, which carries more recent information about the same node.
+    ///
+    /// Use this when the stored contact is kept and updated with received information.
+    ///
+    /// * Local labels are combined, as they're only changed explicitly.
+    /// * Advertised labels are taken from `newer`, unless it has none (`None`).
+    pub fn update_labels_from(&mut self, newer: &Contact) {
+        debug_assert_eq!(self.id(), newer.id(), "merging labels of different nodes");
+        self.local_labels |= newer.local_labels;
+        self.advertised_labels = newer.advertised_labels.or(self.advertised_labels);
+    }
+
+    /// Takes over labels from `previous`, the stored contact this contact replaces.
+    ///
+    /// Use this when a contact is moved or re-inserted, so no labels get lost.
+    ///
+    /// * Local labels are combined, as they're only changed explicitly.
+    /// * Advertised labels are kept, unless this contact has none (`None`).
+    pub fn inherit_labels_from(&mut self, previous: &Contact) {
+        debug_assert_eq!(
+            self.id(),
+            previous.id(),
+            "merging labels of different nodes"
+        );
+        self.local_labels |= previous.local_labels;
+        self.advertised_labels = self.advertised_labels.or(previous.advertised_labels);
+    }
+
     /// Returns if the [Contact] has a failed ULN in its former active path
     pub fn has_broken_first_hop(&self) -> bool {
         match self.state {
@@ -150,8 +254,47 @@ impl Contact {
         }
     }
 
+    /// Age for log output, which must never panic: unknown outside of handling an event.
+    fn display_age(&self) -> String {
+        Timestamp::try_now().map_or_else(
+            || "?".to_string(),
+            |now| format!("{}", Age::from(self.last_seen.age_at(now))),
+        )
+    }
+
     pub fn age(&self) -> Age {
         self.last_seen.to_age()
+    }
+
+    /// Smoothed round-trip time to the contact over its active path, if measured.
+    pub fn srtt(&self) -> Option<Duration> {
+        self.path().and_then(Path::srtt)
+    }
+
+    /// Estimated one-way delay to the contact: half of the smoothed round-trip time.
+    pub fn one_way_delay(&self) -> Option<Duration> {
+        self.srtt().map(|srtt| srtt / 2)
+    }
+
+    /// Age of the routing information about this contact, as reported to other nodes in
+    /// RTable objects.
+    ///
+    /// It is 0 for valid underlay neighbors, as information about own links is always current.
+    /// Otherwise it is the time since the active path was validated or, without validation,
+    /// since the contact was last seen.
+    pub fn info_age(&self) -> Age {
+        if self.is_uln() && self.is_valid() {
+            return Age::from(0);
+        }
+        self.path()
+            .and_then(Path::get_last_validated)
+            .map_or_else(|| self.age(), Timestamp::to_age)
+    }
+
+    /// Dates the contact information back by the age reported by another node
+    /// (`t_j := t_now - ∆T_j`), so it compares correctly with own information.
+    pub fn set_info_age(&mut self, age: Age) {
+        self.last_seen = Timestamp::from(age);
     }
 
     /// Returns if the contact is older than the given contact `other`.
@@ -161,10 +304,24 @@ impl Contact {
 
     /// Returns an [Ordering] based on the [SafeStateSeqNr] and [Age] of the contacts.
     ///
+    /// Information dated before a known reset of the node's sequence number is older,
+    /// whatever its sequence number.
+    ///
     /// - Greater: self has newer information.
     /// - Less: other has newer information.
     /// - Equals: Have the same information.
     pub fn cmp_actuality(&self, other: &Contact) -> Ordering {
+        let self_predates_reset = other
+            .ssn_reset_at
+            .is_some_and(|reset| self.last_seen < reset);
+        let other_predates_reset = self
+            .ssn_reset_at
+            .is_some_and(|reset| other.last_seen < reset);
+        match (self_predates_reset, other_predates_reset) {
+            (true, false) => return Ordering::Less,
+            (false, true) => return Ordering::Greater,
+            _ => {}
+        }
         match (
             self.state_seq_nr.cmp(&other.state_seq_nr),
             self.age().cmp(&other.age()),
@@ -223,6 +380,13 @@ impl Contact {
         &self.last_seen
     }
 
+    /// Refreshes when the node was last heard of, if `seen` is later.
+    pub fn refresh_last_seen(&mut self, seen: Timestamp) {
+        if seen > self.last_seen {
+            self.last_seen = seen;
+        }
+    }
+
     pub fn set_last_seen_now(&mut self) {
         self.last_seen = Timestamp::now();
     }
@@ -258,6 +422,14 @@ impl Contact {
                     self.path_collection.set_proposed_to_active();
                 } else {
                     self.path_collection.set_active_path(path_candidate.clone());
+                    // a proposed path is only worth probing if it improves the new active path
+                    if self
+                        .path_collection
+                        .proposed_path()
+                        .is_some_and(|proposed| !proposed.is_better_than(path_candidate))
+                    {
+                        self.path_collection.clear_proposed_path();
+                    }
                 }
                 self.state = ContactState::Valid;
                 return true;
@@ -324,6 +496,13 @@ impl Contact {
         self.state_seq_nr = new_state_seq_nr;
     }
 
+    /// Accepts a lower sequence number from an authoritative answer of the node
+    /// (e.g., after its restart) and remembers when.
+    pub fn reset_state_seq_nr(&mut self, new_state_seq_nr: SafeStateSeqNr) {
+        self.state_seq_nr = new_state_seq_nr;
+        self.ssn_reset_at = Some(Timestamp::now());
+    }
+
     pub fn update_state_seq_nr(&mut self, new_state_seq_nr: SafeStateSeqNr) -> bool {
         if self.state_seq_nr < new_state_seq_nr {
             self.state_seq_nr = new_state_seq_nr;
@@ -331,6 +510,55 @@ impl Contact {
         } else {
             false
         }
+    }
+
+    /// The number of underlay neighbors of the node, [None] if unknown.
+    pub fn degree(&self) -> Option<u16> {
+        self.degree
+    }
+
+    /// Sets the number of underlay neighbors of the node, [None] if unknown.
+    pub fn set_degree(&mut self, degree: Option<u16>) {
+        self.degree = degree;
+    }
+
+    /// Takes over the degree from `newer`, which carries more recent information about the
+    /// same node, unless its degree is unknown.
+    pub fn update_degree_from(&mut self, newer: &Contact) {
+        debug_assert_eq!(self.id(), newer.id(), "merging degrees of different nodes");
+        self.degree = newer.degree.or(self.degree);
+    }
+
+    /// Returns if the node has lost all its links: the failed links of the node in the
+    /// [NotViaStateList] of the (invalid or rediscovering) contact are at least as many as
+    /// its known degree.
+    ///
+    /// Rediscovering such a contact is useless; it gets reachable again only after a link
+    /// of the node is repaired, which the node announces.
+    pub fn has_lost_all_links(&self) -> bool {
+        let Some(degree) = self.degree else {
+            return false;
+        };
+        let failed = match &self.state {
+            ContactState::Invalid(notviastate_list) => notviastate_list,
+            ContactState::Rediscovering(rds) => rds.get_notviastate_list(),
+            _ => return false,
+        };
+        let lost_neighbors: HashSet<&NodeId> = failed
+            .nvs_list
+            .iter()
+            .filter_map(|nvs| {
+                let link = &nvs.link;
+                if link.first() == self.id() {
+                    Some(link.second())
+                } else if link.second() == self.id() {
+                    Some(link.first())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        lost_neighbors.len() >= usize::from(degree)
     }
 }
 
@@ -360,12 +588,14 @@ mod tests {
 
     #[test]
     fn dest_id_is_last_path_element() {
+        let _clock = crate::tests::TestClock::new();
         let contact = contact_with_path(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)], 1);
         assert_eq!(contact.id(), &NodeId::from(3));
     }
 
     #[test]
     fn new_contact_is_valid_with_active_path() {
+        let _clock = crate::tests::TestClock::new();
         let contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
         assert!(contact.is_valid());
         assert!(!contact.is_invalid());
@@ -375,8 +605,43 @@ mod tests {
         assert!(contact.proposed_path().is_none());
     }
 
+    fn ssn(value: u32) -> SafeStateSeqNr {
+        SafeStateSeqNr::try_from(value).unwrap()
+    }
+
+    #[test]
+    fn information_from_before_a_reset_is_older_whatever_its_ssn() {
+        let mut clock = crate::tests::TestClock::new();
+        let mut known = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 10);
+        clock.advance(std::time::Duration::from_secs(5));
+        // the node restarted and its answer was accepted
+        known.reset_state_seq_nr(ssn(2));
+
+        // relayed by a node that still knows the node from before the restart (3s ago)
+        let mut stale = contact_with_path(&[NodeId::from(3), NodeId::from(2)], 9);
+        stale.set_info_age(Age::from(3_000));
+
+        assert!(stale.is_older_than(&known));
+        assert!(!known.is_older_than(&stale));
+    }
+
+    #[test]
+    fn information_after_a_reset_compares_by_ssn() {
+        let mut clock = crate::tests::TestClock::new();
+        let mut known = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 10);
+        known.reset_state_seq_nr(ssn(2));
+        clock.advance(std::time::Duration::from_secs(1));
+
+        let newer = contact_with_path(&[NodeId::from(3), NodeId::from(2)], 3);
+        let outdated = contact_with_path(&[NodeId::from(3), NodeId::from(2)], 1);
+
+        assert!(known.is_older_than(&newer));
+        assert!(outdated.is_older_than(&known));
+    }
+
     #[test]
     fn cmp_actuality_prefers_greater_state_seq_nr() {
+        let _clock = crate::tests::TestClock::new();
         let older_info = contact_with_path(&[NodeId::from(1)], 1);
         let mut newer_info = contact_with_path(&[NodeId::from(2)], 2);
         // make `newer_info` older in time to prove SSN dominates the ordering
@@ -394,6 +659,7 @@ mod tests {
 
     #[test]
     fn cmp_actuality_breaks_ties_with_recency() {
+        let _clock = crate::tests::TestClock::new();
         // same SSN: the contact seen more recently carries the newer information
         let mut stale = contact_with_path(&[NodeId::from(1)], 1);
         *stale.last_seen_mut() = Timestamp::from(Age::from(10_000u64));
@@ -406,6 +672,7 @@ mod tests {
 
     #[test]
     fn cmp_actuality_equal_information() {
+        let _clock = crate::tests::TestClock::new();
         let a = contact_with_path(&[NodeId::from(1)], 1);
         let b = contact_with_path(&[NodeId::from(1)], 1);
         assert_eq!(a.cmp_actuality(&b), Ordering::Equal);
@@ -413,6 +680,7 @@ mod tests {
 
     #[test]
     fn is_uln_only_for_single_hop_path() {
+        let _clock = crate::tests::TestClock::new();
         let uln = contact_with_path(&[NodeId::from(1)], 1);
         assert!(uln.is_uln());
 
@@ -422,6 +690,7 @@ mod tests {
 
     #[test]
     fn set_invalid_fresh_contact() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
         let link = Link::new(NodeId::from(1), NodeId::from(9));
 
@@ -435,6 +704,7 @@ mod tests {
 
     #[test]
     fn set_invalid_merges_notvia_links() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
         let link_a = Link::new(NodeId::from(1), NodeId::from(9));
         let link_b = Link::new(NodeId::from(1), NodeId::from(8));
@@ -459,6 +729,7 @@ mod tests {
 
     #[test]
     fn set_invalid_adds_links_while_rediscovering() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
         let link_a = Link::new(NodeId::from(1), NodeId::from(9));
         let link_b = Link::new(NodeId::from(1), NodeId::from(8));
@@ -491,6 +762,7 @@ mod tests {
 
     #[test]
     fn has_broken_first_hop_invalid_state() {
+        let _clock = crate::tests::TestClock::new();
         // path [1 -> 2 -> 3], broken link (2,9) does not affect first hop
         let mut contact =
             contact_with_path(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)], 1);
@@ -512,6 +784,7 @@ mod tests {
 
     #[test]
     fn has_broken_first_hop_rediscovering_state() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
         contact.start_rediscovering(
             notvia_state_list(Link::new(NodeId::from(1), NodeId::from(2))),
@@ -524,6 +797,7 @@ mod tests {
 
     #[test]
     fn has_broken_first_hop_other_states() {
+        let _clock = crate::tests::TestClock::new();
         let contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
         assert!(!contact.has_broken_first_hop(), "valid contact");
 
@@ -534,6 +808,7 @@ mod tests {
 
     #[test]
     fn assess_candidate_shorter_path_updates_proposed_for_valid_contact() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact =
             contact_with_path(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)], 1);
         // shorter, but not validated: only the proposed path may change
@@ -547,6 +822,7 @@ mod tests {
 
     #[test]
     fn assess_candidate_longer_path_rejected_for_valid_contact() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(3)], 1);
         let longer =
             Path::try_from(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)][..]).unwrap();
@@ -557,6 +833,7 @@ mod tests {
 
     #[test]
     fn assess_candidate_same_as_proposed_promotes_proposed_to_active() {
+        let _clock = crate::tests::TestClock::new();
         // For an invalid contact a validated candidate matching the proposed
         // path must promote the proposed path to the active path instead of
         // replacing it directly.
@@ -586,6 +863,7 @@ mod tests {
 
     #[test]
     fn assess_candidate_unvalidated_updates_proposed_path_only() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact =
             contact_with_path(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)], 1);
         // shorter than active but unvalidated: only the proposed path may change
@@ -599,6 +877,7 @@ mod tests {
 
     #[test]
     fn assess_candidate_longer_path_rejected_for_proposed_path() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(3)], 1);
         let longer =
             Path::try_from(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)][..]).unwrap();
@@ -607,8 +886,61 @@ mod tests {
         assert!(contact.proposed_path().is_none());
     }
 
+    /// Invalid contact to node 5 with the given proposed path.
+    fn invalid_contact_with_proposed(proposed: &[u128]) -> Contact {
+        let ids = |nodes: &[u128]| nodes.iter().map(|n| NodeId::from(*n)).collect::<Vec<_>>();
+        let mut contact = contact_with_path(&ids(&[1, 2, 3, 4, 5]), 1);
+        contact.set_invalid(notvia_state_list(Link::new(
+            NodeId::from(1),
+            NodeId::from(2),
+        )));
+        contact
+            .path_collection
+            .set_proposed_path(Path::try_from(&ids(proposed)[..]).unwrap());
+        contact
+    }
+
+    fn validated(nodes: &[u128]) -> Path {
+        let ids = nodes.iter().map(|n| NodeId::from(*n)).collect::<Vec<_>>();
+        let mut path = Path::try_from(&ids[..]).unwrap();
+        path.set_valid();
+        path
+    }
+
+    #[test]
+    fn proposed_path_not_better_than_new_active_path_is_dropped() {
+        let _clock = crate::tests::TestClock::new();
+        let mut contact = invalid_contact_with_proposed(&[6, 7, 5]);
+
+        assert!(contact.assess_path_candidate_and_update(&validated(&[8, 5])));
+
+        assert!(contact.path().unwrap().is_same_path_as(&validated(&[8, 5])));
+        assert!(contact.proposed_path().is_none());
+    }
+
+    #[test]
+    fn proposed_path_better_than_new_active_path_is_kept() {
+        let _clock = crate::tests::TestClock::new();
+        let mut contact = invalid_contact_with_proposed(&[6, 5]);
+
+        assert!(contact.assess_path_candidate_and_update(&validated(&[8, 9, 5])));
+
+        assert!(
+            contact
+                .path()
+                .unwrap()
+                .is_same_path_as(&validated(&[8, 9, 5]))
+        );
+        assert_eq!(
+            contact.proposed_path().unwrap().size(),
+            2,
+            "still worth probing"
+        );
+    }
+
     #[test]
     fn assess_candidate_accepts_anything_for_invalid_contact() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact =
             contact_with_path(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)], 1);
         contact.set_invalid(notvia_state_list(Link::new(
@@ -625,6 +957,7 @@ mod tests {
 
     #[test]
     fn assess_candidate_accepts_valid_candidate_for_invalid_contact() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact =
             contact_with_path(&[NodeId::from(1), NodeId::from(2), NodeId::from(3)], 1);
         contact.set_invalid(notvia_state_list(Link::new(
@@ -642,6 +975,7 @@ mod tests {
 
     #[test]
     fn assess_candidate_rejected_for_dead_contact() {
+        let _clock = crate::tests::TestClock::new();
         let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(3)], 1);
         contact.set_state(ContactState::Dead);
 
@@ -653,6 +987,7 @@ mod tests {
 
     #[test]
     fn contact_hash_is_by_id() {
+        let _clock = crate::tests::TestClock::new();
         use std::{
             collections::hash_map::DefaultHasher,
             hash::{
@@ -670,5 +1005,191 @@ mod tests {
         b.hash(&mut hasher_b);
         assert_eq!(hasher_a.finish(), hasher_b.finish(), "same id => same hash");
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn uln_label_is_derived_from_path() {
+        let _clock = crate::tests::TestClock::new();
+        let uln = contact_with_path(&[NodeId::from(1)], 1);
+        assert_eq!(uln.labels(), ContactLabels::Uln);
+
+        let non_uln = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
+        assert_eq!(non_uln.labels(), ContactLabels::empty());
+    }
+
+    #[test]
+    fn labels_combine_all_sources() {
+        let _clock = crate::tests::TestClock::new();
+        let mut contact = contact_with_path(&[NodeId::from(1)], 1);
+        contact.add_local_labels(ContactLabels::Cached);
+        contact.set_advertised_labels(Some(ContactLabels::Landmark));
+
+        assert_eq!(
+            contact.labels(),
+            ContactLabels::Uln | ContactLabels::Cached | ContactLabels::Landmark
+        );
+        assert!(contact.has_any_label(ContactLabels::Landmark | ContactLabels::EndSystem));
+        assert!(!contact.has_any_label(ContactLabels::EndSystem));
+    }
+
+    #[test]
+    fn labels_from_wrong_source_are_ignored() {
+        let _clock = crate::tests::TestClock::new();
+        let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
+
+        contact.add_local_labels(ContactLabels::all());
+        assert_eq!(contact.local_labels(), ContactLabels::LOCAL);
+
+        contact.set_advertised_labels(Some(ContactLabels::all()));
+        assert_eq!(contact.advertised_labels(), Some(ContactLabels::ADVERTISED));
+
+        contact.remove_local_labels(ContactLabels::all());
+        assert_eq!(contact.labels(), ContactLabels::ADVERTISED);
+    }
+
+    #[test]
+    fn update_labels_from_newer() {
+        let _clock = crate::tests::TestClock::new();
+        let path = [NodeId::from(1), NodeId::from(2)];
+        let mut stored = contact_with_path(&path, 1);
+        stored.add_local_labels(ContactLabels::Cached);
+        stored.set_advertised_labels(Some(ContactLabels::Landmark));
+
+        // newer without label information keeps everything
+        stored.update_labels_from(&contact_with_path(&path, 2));
+        assert_eq!(
+            stored.labels(),
+            ContactLabels::Cached | ContactLabels::Landmark
+        );
+
+        // newer advertised labels replace the stored ones, local labels stay
+        let mut newer = contact_with_path(&path, 3);
+        newer.set_advertised_labels(Some(ContactLabels::EndSystem));
+        stored.update_labels_from(&newer);
+        assert_eq!(
+            stored.labels(),
+            ContactLabels::Cached | ContactLabels::EndSystem
+        );
+
+        // explicitly advertising no labels clears them
+        let mut newer = contact_with_path(&path, 4);
+        newer.set_advertised_labels(Some(ContactLabels::empty()));
+        stored.update_labels_from(&newer);
+        assert_eq!(stored.labels(), ContactLabels::Cached);
+    }
+
+    #[test]
+    fn inherit_labels_from_previous() {
+        let _clock = crate::tests::TestClock::new();
+        let path = [NodeId::from(1), NodeId::from(2)];
+        let mut previous = contact_with_path(&path, 1);
+        previous.add_local_labels(ContactLabels::Cached);
+        previous.set_advertised_labels(Some(ContactLabels::Landmark));
+
+        // without own label information everything is inherited
+        let mut replacement = contact_with_path(&path, 2);
+        replacement.inherit_labels_from(&previous);
+        assert_eq!(
+            replacement.labels(),
+            ContactLabels::Cached | ContactLabels::Landmark
+        );
+
+        // own advertised labels win, local labels are combined
+        let mut replacement = contact_with_path(&path, 2);
+        replacement.set_advertised_labels(Some(ContactLabels::empty()));
+        replacement.inherit_labels_from(&previous);
+        assert_eq!(replacement.labels(), ContactLabels::Cached);
+    }
+
+    #[test]
+    fn info_age_of_underlay_neighbor_is_zero() {
+        let _clock = crate::tests::TestClock::new();
+        let mut uln = contact_with_path(&[NodeId::from(1)], 1);
+        uln.set_info_age(Age::from(10_000));
+        assert_eq!(uln.info_age(), Age::from(0));
+    }
+
+    #[test]
+    fn info_age_follows_path_validation() {
+        let _clock = crate::tests::TestClock::new();
+        let mut contact = contact_with_path(&[NodeId::from(1), NodeId::from(2)], 1);
+        contact.set_info_age(Age::from(10_000));
+        // without validation, the age of the contact information is used
+        assert!(contact.info_age() >= Age::from(10_000));
+
+        contact.path_mut().unwrap().set_valid();
+        assert!(contact.info_age() < Age::from(1_000));
+    }
+
+    #[test]
+    fn node_degree_wire_values() {
+        assert_eq!(node_degree_from_wire(0), None);
+        assert_eq!(node_degree_from_wire(u16::MAX), None);
+        assert_eq!(node_degree_from_wire(3), Some(3));
+        assert_eq!(node_degree_to_wire(None), 0);
+        assert_eq!(node_degree_to_wire(Some(3)), 3);
+        assert_eq!(node_degree_to_wire(Some(u16::MAX)), u16::MAX - 1);
+    }
+
+    #[test]
+    fn newer_degree_is_taken_unless_unknown() {
+        let _clock = crate::tests::TestClock::new();
+        let path = [NodeId::from(1), NodeId::from(2)];
+        let mut stored = contact_with_path(&path, 1);
+        let mut newer = contact_with_path(&path, 2);
+        newer.set_degree(Some(3));
+        stored.update_degree_from(&newer);
+        assert_eq!(stored.degree(), Some(3));
+
+        stored.update_degree_from(&contact_with_path(&path, 3));
+        assert_eq!(
+            stored.degree(),
+            Some(3),
+            "an unknown degree keeps the known one"
+        );
+    }
+
+    #[test]
+    fn lost_all_links_counts_failed_links_of_the_node() {
+        let _clock = crate::tests::TestClock::new();
+        let [a, b, x] = [1, 2, 3].map(NodeId::from);
+        let mut contact = contact_with_path(&[a, x], 1);
+        contact.set_invalid(notvia_state_list(Link::new(a, x)));
+        assert!(!contact.has_lost_all_links(), "unknown degree");
+
+        contact.set_degree(Some(1));
+        assert!(contact.has_lost_all_links(), "its only link failed");
+
+        contact.set_degree(Some(2));
+        assert!(!contact.has_lost_all_links(), "one link left");
+        // the same link reported in the other direction is no other link
+        contact.set_invalid(notvia_state_list(Link::new(x, a)));
+        assert!(!contact.has_lost_all_links());
+        contact.set_invalid(notvia_state_list(Link::new(x, b)));
+        assert!(contact.has_lost_all_links(), "both links failed");
+    }
+
+    #[test]
+    fn failed_links_of_other_nodes_do_not_isolate_the_contact() {
+        let _clock = crate::tests::TestClock::new();
+        let [root, a, x] = [1, 2, 3].map(NodeId::from);
+        let mut contact = contact_with_path(&[a, x], 1);
+        contact.set_degree(Some(1));
+        contact.set_invalid(notvia_state_list(Link::new(root, a)));
+        assert!(!contact.has_lost_all_links());
+
+        // also while rediscovering
+        let ContactState::Invalid(notvias) = contact.state().clone() else {
+            panic!("contact is invalid");
+        };
+        contact.start_rediscovering(notvias, vec![], 1, Duration::from_millis(1));
+        assert!(!contact.has_lost_all_links());
+        contact.set_invalid(notvia_state_list(Link::new(a, x)));
+        assert!(contact.has_lost_all_links());
+
+        // a valid contact has lost nothing
+        let mut valid = contact_with_path(&[a, x], 1);
+        valid.set_degree(Some(1));
+        assert!(!valid.has_lost_all_links());
     }
 }

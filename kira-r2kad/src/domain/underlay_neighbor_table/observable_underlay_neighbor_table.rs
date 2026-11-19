@@ -110,6 +110,10 @@ impl<UN: ULNTable> ULNTable for ObservableULNTable<UN> {
         self.inner.contains(id)
     }
 
+    fn is_bidirectional(&self, id: &NodeId) -> bool {
+        self.inner.is_bidirectional(id)
+    }
+
     fn state_seq_nr(&self) -> &SafeStateSeqNr {
         self.inner.state_seq_nr()
     }

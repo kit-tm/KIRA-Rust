@@ -363,57 +363,45 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
             for (bucket_offset, _) in sorted_offsets_at_level {
                 if bucket_offset == level_width {
                     // Splittable bucket prefix: Explore deeper levels.
-                    let deeper_buckets = &self.buckets[target_level_start_index + level_width..];
-                    for (relative_depth, buckets) in deeper_buckets.chunks(level_width).enumerate()
-                    {
-                        let current_level = target_level + relative_depth + 1;
-                        let _span = tracing::trace_span!(
-                            target: "routing_table::flat_routing_table",
-                            "Collecting nodes of level",
-                            level = current_level,
-                            dlvl = relative_depth + 1,
-                        )
-                        .entered();
+                    //
+                    // All contacts of deeper buckets share the prefix of the root up to and
+                    // including this level, so they all make the same prefix progress
+                    // towards the target and their order by XOR-metric is determined by
+                    // bits of deeper levels. Buckets of deeper levels aren't ordered by
+                    // XOR-metric to the target (e.g., the bucket of the next level is
+                    // farther than all buckets below it if the target shares the root's
+                    // bits at that level), so collect all of them before returning.
+                    let deeper_start_index = target_level_start_index + level_width;
+                    let _span = tracing::trace_span!(
+                        target: "routing_table::flat_routing_table",
+                        "Collecting nodes of deeper levels",
+                        level = target_level + 1,
+                    )
+                    .entered();
+                    let deeper_content = self.buckets[deeper_start_index..]
+                        .iter()
+                        .enumerate()
+                        .flat_map(|(offset, bucket)| {
+                            let index = deeper_start_index + offset;
+                            assert_ne!(
+                                index, target_bucket_index,
+                                "No duplicate collection of target's bucket"
+                            );
 
-                        let level_content =
-                            buckets.iter().enumerate().flat_map(|(offset, bucket)| {
-                                let index = current_level * level_width + offset;
-                                assert_ne!(
-                                    index, target_bucket_index,
-                                    "No duplicate collection of target's bucket"
-                                );
-
-                                tracing::trace!(
-                                    target: "routing_table::flat_routing_table",
-                                    index,
-                                    ?bucket,
-                                    "Consider valid contacts of bucket"
-                                );
-
-                                bucket.iter_valid_with_prefix(target, shared_prefix_grouping)
-                            });
-                        result.extend(level_content);
-
-                        // last bucket is part of last level (ACC > 1)
-                        let is_at_last_level = current_level * level_width + 1 == last_bucket_index;
-                        if is_at_last_level && last_bucket_index != target_bucket_index && ACC > 1 {
                             tracing::trace!(
                                 target: "routing_table::flat_routing_table",
-                                index = last_bucket_index,
-                                reason = "Collect very last bucket as part of level",
+                                index,
+                                ?bucket,
                                 "Consider valid contacts of bucket"
                             );
 
-                            result.extend(
-                                self.buckets[last_bucket_index]
-                                    .iter_valid_with_prefix(target, shared_prefix_grouping),
-                            );
-                        }
+                            bucket.iter_valid_with_prefix(target, shared_prefix_grouping)
+                        });
+                    result.extend(deeper_content);
 
-                        if result.len() >= n {
-                            result.sort_unstable_by(sorter_xor);
-                            return Ok(result);
-                        }
+                    if result.len() >= n {
+                        result.sort_unstable_by(sorter_xor);
+                        return Ok(result);
                     }
                 } else {
                     // Unsplittable bucket prefix:
@@ -585,6 +573,7 @@ mod tests {
 
     #[test]
     fn test_add() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let mut table = FlatRoutingTable::<1, 1>::new(NodeId::ZERO)?;
 
@@ -600,6 +589,7 @@ mod tests {
 
     #[test]
     fn test_add_full() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let mut table = FlatRoutingTable::<1, 1>::new(NodeId::ZERO)?;
 
@@ -622,6 +612,7 @@ mod tests {
 
     #[test]
     fn test_split() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         // Split should move contacts accordingly and bucket_index should change
 
@@ -641,6 +632,7 @@ mod tests {
 
     #[test]
     fn test_insert_to_max_buckets() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let mut table = FlatRoutingTable::<1, 1>::new(NodeId::ZERO)?;
 
@@ -679,6 +671,7 @@ mod tests {
 
     #[test]
     fn test_split_acc() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let mut table = FlatRoutingTable::<2, 2>::new(NodeId::ZERO)?;
 
@@ -775,6 +768,7 @@ mod tests {
 
     #[test]
     fn test_closest_multiple_buckets() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<2, 1>::new(root)?;
@@ -833,6 +827,7 @@ mod tests {
 
     #[test]
     fn test_closest_single_bucket() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<2, 1>::new(root)?;
@@ -872,6 +867,7 @@ mod tests {
 
     #[test]
     fn test_closest_single_bucket_select_same_prefix_progress() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<4, 1>::new(root)?;
@@ -925,6 +921,7 @@ mod tests {
 
     #[test]
     fn test_closest_single_bucket_select_single() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<4, 1>::new(root)?;
@@ -975,6 +972,7 @@ mod tests {
 
     #[test]
     fn test_closest_single_bucket_select_last_bucket() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::with_msb(0xFF); // root changed to 1111...
         let mut table = FlatRoutingTable::<4, 1>::new(root)?;
@@ -1025,6 +1023,7 @@ mod tests {
 
     #[test]
     fn test_closest_down_tree() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<2, 1>::new(root)?;
@@ -1083,6 +1082,7 @@ mod tests {
 
     #[test]
     fn test_closest_up_tree() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<2, 1>::new(root)?;
@@ -1136,6 +1136,7 @@ mod tests {
 
     #[test]
     fn test_closest_invalid_contacts() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<4, 1>::new(root)?;
@@ -1182,6 +1183,7 @@ mod tests {
 
     #[test]
     fn test_closest_invalid_contacts_multiple_buckets() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<4, 1>::new(root)?;
@@ -1232,6 +1234,7 @@ mod tests {
 
     #[test]
     fn test_closest_acc_same_level() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<1, 2>::new(root)?;
@@ -1281,6 +1284,7 @@ mod tests {
 
     #[test]
     fn test_closest_acc_single_last_bucket() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<2, 2>::new(root)?;
@@ -1323,6 +1327,7 @@ mod tests {
 
     #[test]
     fn test_closest_acc_last_level() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<1, 2>::new(root)?;
@@ -1370,6 +1375,7 @@ mod tests {
 
     #[test]
     fn test_closest_acc_multilevel() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<1, 2>::new(root)?;
@@ -1432,6 +1438,7 @@ mod tests {
 
     #[test]
     fn test_closest_n_larger_than_total() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<10, 1>::new(root)?;
@@ -1460,6 +1467,7 @@ mod tests {
 
     #[test]
     fn test_closest_different_grouping() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
         let mut table = FlatRoutingTable::<10, 1>::new(root)?;
@@ -1504,6 +1512,7 @@ mod tests {
 
     #[test]
     fn test_closest_one_bucket_minimal_topo() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         const BUCKET_SIZE: usize = 20;
         let nodes = crate::tests::minimal_topo_nodes();
@@ -1543,6 +1552,7 @@ mod tests {
 
     #[test]
     fn test_closest_small_bucket_minimal_topo_0() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let nodes = crate::tests::minimal_topo_nodes();
         let root = nodes[0];
@@ -1685,6 +1695,7 @@ mod tests {
 
     #[test]
     fn test_closest_small_bucket_minimal_topo_0_acc() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let nodes = crate::tests::minimal_topo_nodes();
         let root = nodes[0];
@@ -1825,6 +1836,7 @@ mod tests {
 
     #[test]
     fn test_closest_small_bucket_minimal_topo_19() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let nodes = crate::tests::minimal_topo_nodes();
         let root = nodes[19];
@@ -1982,6 +1994,7 @@ mod tests {
 
     #[test]
     fn test_closest_small_bucket_minimal_topo_19_acc() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let nodes = crate::tests::minimal_topo_nodes();
         let root = nodes[19];
@@ -2134,6 +2147,7 @@ mod tests {
 
     #[test]
     fn test_closest_small_bucket_minimal_topo_10() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let nodes = crate::tests::minimal_topo_nodes();
         let root = nodes[10];
@@ -2295,6 +2309,7 @@ mod tests {
 
     #[test]
     fn test_closest_small_bucket_minimal_topo_10_acc() -> Result<(), Box<dyn Error>> {
+        let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let nodes = crate::tests::minimal_topo_nodes();
         let root = nodes[10];
@@ -2452,5 +2467,63 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    /// Scenario observed in a NeST DNS integration test (bucket size 3, ACC 1):
+    /// node k1 didn't forward a FetchReq for key `d8bc…` but answered it itself,
+    /// although its contact k7 is closer to the key.
+    ///
+    /// ```text
+    /// key       d8bc… = 1101 1000 …
+    /// root (k1) f728… = 1111 0111 …  xor key = 2f94…  bucket 2 (target's bucket, empty)
+    /// contact   eb11… = 1110 1011 …  xor key = 33ad…  bucket 3
+    /// k7        fcbd… = 1111 1100 …  xor key = 2401…  bucket 4 (last bucket)
+    /// ```
+    ///
+    /// All three share 2 prefix bits with the key, so the next hop has to be selected
+    /// by XOR: k7 is closest.
+    fn test_next_hop_closest_in_deeper_bucket_impl<RT>(table_factory: impl FnOnce(NodeId) -> RT)
+    where
+        for<'a> RT: RoutingTable<'a, 3>,
+    {
+        crate::tests::init();
+        let root: NodeId = "f72842485e3a0a5d2f346baa9455".parse().unwrap();
+        let target: NodeId = "d8bcf2a8afeb6e387323ef2b8b3f".parse().unwrap();
+        let farther: NodeId = "eb1167a9c3787c65c1e582e2e662".parse().unwrap();
+        let closest: NodeId = "fcbd40212ef7cca5a5a19e4d6e3c".parse().unwrap();
+        assert!((closest ^ target) < (root ^ target));
+        assert!((root ^ target) < (farther ^ target));
+
+        let mut table = table_factory(root);
+        // buckets 0..=3 and the last bucket 4
+        for _ in 0..4 {
+            table.split_bucket(&root).unwrap();
+        }
+        // Both are reached via an underlay neighbor (which isn't relevant for the key),
+        // so they are regular contacts in the buckets, not protected ones.
+        let via = NodeId::ZERO;
+        let ssn = SafeStateSeqNr::try_from(1).unwrap();
+        for id in [farther, closest] {
+            let path = Path::try_from([via, id].as_slice()).unwrap();
+            table.add(Contact::new(path, ssn)).unwrap();
+        }
+        assert_eq!(table.get_bucket_index(&target), 2);
+        assert_eq!(table.get_bucket_index(&farther), 3);
+        assert_eq!(table.get_bucket_index(&closest), 4);
+
+        let res = table.next_hop(&target, NonZeroU8::MIN).unwrap();
+        assert_eq!(
+            res.as_ref().map(Contact::id),
+            Some(&closest),
+            "contact {closest} is closer to {target} than root {root}"
+        );
+    }
+
+    #[test]
+    fn test_next_hop_closest_in_deeper_bucket_flat_routing_table() {
+        let _clock = crate::tests::TestClock::new();
+        test_next_hop_closest_in_deeper_bucket_impl(|root| {
+            FlatRoutingTable::<3, 1>::new(root).unwrap()
+        });
     }
 }

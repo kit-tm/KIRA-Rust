@@ -9,10 +9,18 @@ use clap::{
     error::ErrorKind,
 };
 use futures::StreamExt;
+#[cfg(feature = "srv6")]
+use kira_forwarding::{
+    netlink::remove_routes,
+    tables::srv6_tables::Srv6FwdTables,
+};
 use kira_forwarding::{
     netlink::{
         NETLINK_NETFILTER,
+        NetfilterNetlinkHandle,
+        RouteNetlinkHandle,
         new_connection,
+        remove_forwarding_state,
     },
     tables::native_tables::NativeFwdTables,
 };
@@ -30,9 +38,13 @@ use kira_r2kad::{
         IpPrefixes,
         Ipv6Prefix16,
         NodeId,
+        PathSegmentation,
     },
 };
-use kirad_lib::R2KadMessageFormat;
+use kirad_lib::{
+    ForwardingMode,
+    R2KadMessageFormat,
+};
 use signal_hook::consts::{
     SIGHUP,
     SIGINT,
@@ -117,6 +129,12 @@ struct Args {
 
     #[arg(short, long, env = "KIRAD_FORMAT", value_enum, default_value_t)]
     format: R2KadMessageFormat,
+
+    /// Encapsulation used by the fast forwarding of data packets.
+    ///
+    /// Must be the same on all nodes of the network.
+    #[arg(long, env = "KIRA_FORWARDING", value_enum, default_value_t)]
+    forwarding: ForwardingMode,
 }
 
 #[tokio::main]
@@ -268,12 +286,21 @@ async fn main() {
     // duplicate mpsc underlay updates channel for fwd_tables and R²/KAD
     let (tx1, underlay_updates1) = futures::channel::mpsc::unbounded();
     let (tx2, underlay_updates2) = futures::channel::mpsc::unbounded();
+    // With SRv6 forwarding, R²/KAD gets the updates from the forwarding tables after they
+    // prepared the interfaces (see Srv6FwdTables::new).
+    let fork_to_r2kad = match args.forwarding {
+        ForwardingMode::Gre => Some(tx2.clone()),
+        #[cfg(feature = "srv6")]
+        ForwardingMode::Srv6 => None,
+    };
     tokio::task::Builder::new()
         .name("fork underlay updates")
         .spawn(async move {
             while let Some(update) = underlay_updates.next().await {
-                if tx1.unbounded_send(update.clone()).is_err()
-                    || tx2.unbounded_send(update).is_err()
+                if fork_to_r2kad
+                    .as_ref()
+                    .is_some_and(|tx2| tx2.unbounded_send(update.clone()).is_err())
+                    || tx1.unbounded_send(update).is_err()
                 {
                     break;
                 }
@@ -283,32 +310,11 @@ async fn main() {
         })
         .unwrap();
 
-    let (connection_nfnetlink, handle_nfnetlink, _) = new_connection(NETLINK_NETFILTER).unwrap();
-    tokio::task::Builder::new()
-        .name("Netfilter Connection")
-        .spawn(connection_nfnetlink)
-        .unwrap();
-
-    let (fwd_tables, attach_ips) = NativeFwdTables::new(
-        root_id,
-        ip_prefixes,
-        handle_rtnetlink,
-        handle_nfnetlink,
-        handle.clone(),
-        underlay_updates1,
-    )
-    .await;
-
-    tokio::task::Builder::new()
-        .name("attach NodeIds to interfaces")
-        .spawn(attach_ips)
-        .unwrap();
-
     // create message sender and receiver
     let (pm_sender, pm_receiver) = async_channel(
         args.socket_port,
         args.format.into(),
-        handle,
+        handle.clone(),
         excluded_interfaces,
         root_id,
     )
@@ -317,15 +323,102 @@ async fn main() {
     let addr = pm_sender.local_addr().expect("failed to get bind addr");
     tracing::info!(socket_address = %addr, "Bound to socket");
 
+    // GRE carries a single PathID, SRv6 one per path segment
+    let path_segmentation = match args.forwarding {
+        ForwardingMode::Gre => PathSegmentation::OneSegment,
+        #[cfg(feature = "srv6")]
+        ForwardingMode::Srv6 => PathSegmentation::TwoSegments,
+    };
     let r2kad = R2Kad::<SyncContext<_, _, _, _, _>, BUCKET_SIZE>::builder()
         .root_id(root_id)
+        .path_segmentation(path_segmentation)
+        .current_time(std::time::Instant::now())
         .build();
 
-    let kira = Kira::with_components(r2kad, fwd_tables, underlay_updates2, pm_receiver, pm_sender);
-    let kira = tokio::task::Builder::new()
-        .name("KIRA main loop")
-        .spawn(kira.start())
-        .unwrap();
+    tracing::info!(forwarding = ?args.forwarding, "Setting up fast forwarding");
+    // The forwarding tables and what is needed to remove the forwarding state on shutdown
+    let (mut kira, cleanup) = match args.forwarding {
+        ForwardingMode::Gre => {
+            let (connection_nfnetlink, handle_nfnetlink, _) =
+                new_connection(NETLINK_NETFILTER).unwrap();
+            tokio::task::Builder::new()
+                .name("Netfilter Connection")
+                .spawn(connection_nfnetlink)
+                .unwrap();
+
+            let cleanup = ForwardingCleanup::Gre {
+                handle_rtnetlink: handle_rtnetlink.clone(),
+                handle_nfnetlink: handle_nfnetlink.clone(),
+            };
+            let (fwd_tables, attach_ips) = NativeFwdTables::new(
+                root_id,
+                ip_prefixes,
+                handle_rtnetlink,
+                handle_nfnetlink,
+                handle,
+                underlay_updates1,
+            )
+            .await;
+
+            tokio::task::Builder::new()
+                .name("attach NodeIds to interfaces")
+                .spawn(attach_ips)
+                .unwrap();
+
+            let kira =
+                Kira::with_components(r2kad, fwd_tables, underlay_updates2, pm_receiver, pm_sender);
+            let kira = tokio::task::Builder::new()
+                .name("KIRA main loop")
+                .spawn(kira.start())
+                .unwrap();
+            (kira, cleanup)
+        }
+        #[cfg(feature = "srv6")]
+        ForwardingMode::Srv6 => {
+            // a previous instance using GRE may have left its state behind (best effort)
+            if let Ok((connection_nfnetlink, handle_nfnetlink, _)) =
+                new_connection(NETLINK_NETFILTER)
+            {
+                let connection = tokio::spawn(connection_nfnetlink);
+                if let Err(e) =
+                    remove_forwarding_state(&handle_rtnetlink, &handle_nfnetlink, &ip_prefixes)
+                        .await
+                {
+                    log::debug!("Removing forwarding state of GRE forwarding failed: {e}");
+                }
+                connection.abort();
+            }
+
+            let (fwd_tables, attach) = Srv6FwdTables::new(
+                root_id,
+                ip_prefixes,
+                handle_rtnetlink.clone(),
+                handle,
+                underlay_updates1,
+                tx2,
+            )
+            .await
+            .expect("SRv6 forwarding should successfully be set up");
+
+            // the eBPF program is detached from the interfaces when this task ends
+            let attach = tokio::task::Builder::new()
+                .name("attach NodeIds and eBPF program to interfaces")
+                .spawn(attach)
+                .unwrap();
+            let cleanup = ForwardingCleanup::Srv6 {
+                handle_rtnetlink,
+                attach,
+            };
+
+            let kira =
+                Kira::with_components(r2kad, fwd_tables, underlay_updates2, pm_receiver, pm_sender);
+            let kira = tokio::task::Builder::new()
+                .name("KIRA main loop")
+                .spawn(kira.start())
+                .unwrap();
+            (kira, cleanup)
+        }
+    };
 
     log::debug!("Waiting for stop signal");
     let mut signals: Signals = Signals::new([SIGHUP, SIGTERM, SIGINT, SIGQUIT, SIGPIPE])
@@ -354,5 +447,47 @@ async fn main() {
     // we only await KIRA and not other tasks spawned
     // since KIRA should "finish" if task was crucial for its operation
     //   e. g.: API endpoint failure is not crucial for KIRA operation
-    tokio::select! { _ = kira => {}, _ = signal => {}}
+    tokio::select! { _ = &mut kira => {}, _ = signal => {}}
+    // no more forwarding updates during the cleanup
+    kira.abort();
+
+    // leave no stale forwarding state behind
+    match cleanup {
+        ForwardingCleanup::Gre {
+            handle_rtnetlink,
+            handle_nfnetlink,
+        } => {
+            if let Err(e) =
+                remove_forwarding_state(&handle_rtnetlink, &handle_nfnetlink, &ip_prefixes).await
+            {
+                log::error!("Removing the forwarding state failed: {e}");
+            }
+        }
+        #[cfg(feature = "srv6")]
+        ForwardingCleanup::Srv6 {
+            handle_rtnetlink,
+            attach,
+        } => {
+            // detaches the eBPF program from all interfaces
+            attach.abort();
+            let _ = attach.await;
+            if let Err(e) = remove_routes(&handle_rtnetlink, &ip_prefixes).await {
+                log::error!("Removing the forwarding state failed: {e}");
+            }
+        }
+    }
+}
+
+/// What is needed to remove the forwarding state on shutdown.
+enum ForwardingCleanup {
+    Gre {
+        handle_rtnetlink: RouteNetlinkHandle,
+        handle_nfnetlink: NetfilterNetlinkHandle,
+    },
+    #[cfg(feature = "srv6")]
+    Srv6 {
+        handle_rtnetlink: RouteNetlinkHandle,
+        /// Task holding the eBPF program
+        attach: tokio::task::JoinHandle<()>,
+    },
 }

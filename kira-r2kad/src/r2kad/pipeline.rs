@@ -17,15 +17,24 @@ use crate::use_cases::{
     EventHandler,
     UseCase,
     UseCaseEvent,
-    derive_fwd_table_entries::DeriveFwdTableEntries,
+    derive_fwd_table_entries::{
+        DeriveFwdTableEntries,
+        DeriveFwdTableEntriesConfig,
+    },
     distributed_hash_table::DistributedHashTable,
     distributed_hash_table_injector::DistributedHashTableInjector,
-    explicit_path_management::ExplicitPathManagement,
+    explicit_path_management::{
+        EPMConfig,
+        ExplicitPathManagement,
+    },
     failure_handling::FailureHandling,
     forward_protocol_message::ForwardProtocolMessage,
     //inject_messages::InjectMessages,
     overlay_neighborhood_discovery::OverlayNeighborhoodDiscovery,
-    path_probing::PathProbing,
+    path_probing::{
+        PathProbing,
+        PathProbingConfig,
+    },
     precompute_paths_and_path_ids::PrecomputePathIds,
     vicinity_discovery::VicinityDiscovery,
 };
@@ -34,10 +43,12 @@ use crate::{
     domain::{
         InsertionStrategy,
         NodeId,
+        PathSegmentation,
         RoutingTable,
         ULNState,
         ULNTable,
         UnderlayNeighborId,
+        UnderlayNeighborSource,
         VicinityGraph,
         dht::ComplexHashTable,
     },
@@ -54,6 +65,11 @@ use crate::{
 #[derive(Debug, Clone, Copy, Default)]
 pub struct R2KadPipelineConfig {
     //pub benchmark_path: Option<BufWriter<File>>,
+    /// How paths to contacts are split into path segments by the forwarding tier.
+    ///
+    /// Has to match the capabilities of the forwarding tables in use
+    /// and has to be the same on all nodes of the network.
+    pub path_segmentation: PathSegmentation,
 }
 
 // NOTE: in the future this can be refactored into a trait
@@ -77,12 +93,19 @@ pub struct R2KadPipeline<C, const BUCKET_SIZE: usize> {
 }
 
 impl<C, const BUCKET_SIZE: usize> R2KadPipeline<C, BUCKET_SIZE> {
-    pub fn new(_config: R2KadPipelineConfig) -> Self {
-        let derive_forwarding_tables = DeriveFwdTableEntries::new(Default::default());
+    pub fn new(config: R2KadPipelineConfig) -> Self {
+        let segmentation = config.path_segmentation;
+        let derive_forwarding_tables = DeriveFwdTableEntries::new(DeriveFwdTableEntriesConfig {
+            segmentation,
+            ..Default::default()
+        });
         let distributed_hash_table: DistributedHashTable<_, ComplexHashTable, BUCKET_SIZE> =
             DistributedHashTable::default();
         let distributed_hash_table_injector = DistributedHashTableInjector::default();
-        let explicit_path_management = ExplicitPathManagement::new(Default::default());
+        let explicit_path_management = ExplicitPathManagement::new(EPMConfig {
+            segmentation,
+            ..Default::default()
+        });
         let failure_handling = FailureHandling::new(Default::default());
         let forward_message = ForwardProtocolMessage::default();
         let handle_api = HandleApi::default();
@@ -92,7 +115,10 @@ impl<C, const BUCKET_SIZE: usize> R2KadPipeline<C, BUCKET_SIZE> {
             .expect("default grouping should be valid");
         let vicinity_disc = VicinityDiscovery::default();
 
-        let path_probing = PathProbing::new(Default::default());
+        let path_probing = PathProbing::new(PathProbingConfig {
+            segmentation,
+            ..Default::default()
+        });
         let precomputation = PrecomputePathIds::default();
 
         //let mut inject_messages = if let Some(injection_sender) = injection_sender.as_ref() {
@@ -246,6 +272,16 @@ where
         }
         .entered();
 
+        // A message received on an interface that is down was sent before the link failed.
+        // It must not create or refresh any state, e.g., a contact over the failed link.
+        if let UseCaseEvent::Message(message, UnderlayNeighborSource::UnderlayNeighbor(ulnid)) =
+            &event
+            && !self.vicinity_disc.is_interface_up(ulnid.interface_id)
+        {
+            log::debug!(target: "r2kad", "Dismissing {:?} from {} received on interface {} that is down", message.kind(), message.source(), ulnid.interface_id);
+            return Ok(());
+        }
+
         // Setup paths before we forward them to setup paths on intermediate nodes too
         match self
             .explicit_path_management
@@ -343,5 +379,141 @@ where
         } else {
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        context::{
+            ContextConfig,
+            SyncContext,
+        },
+        domain::{
+            ConnectionId,
+            InterfaceId,
+            Nonce,
+            ProtocolMessage,
+            ProtocolMessageKind,
+            SafeStateSeqNr,
+            StateSeqNr,
+            UnderlayNeighborUpdate,
+            insertion_strategy::UNSStrategy,
+            path::{
+                InOrderCycleRemover,
+                ShortestFirstPathSimplifier,
+            },
+            protocol_message::{
+                CommonHeader,
+                RTableData,
+                ULNReqRspMessage,
+            },
+            routing_table::SingleBucketRT,
+            underlay_neighbor_table::InMemoryULNTable,
+            vicinity::vicinity_graph::PetVicinityGraph,
+        },
+        runtime::testing::TestingUseCaseRuntime,
+        use_cases::UseCaseEvent,
+    };
+
+    const BUCKET_SIZE: usize = 20;
+    type RT = SingleBucketRT<BUCKET_SIZE>;
+    type Ctx = SyncContext<
+        RT,
+        TestingUseCaseRuntime,
+        UNSStrategy<RT, InOrderCycleRemover, ShortestFirstPathSimplifier, BUCKET_SIZE>,
+        InMemoryULNTable,
+        PetVicinityGraph,
+    >;
+
+    fn root() -> NodeId {
+        NodeId::with_msb(1)
+    }
+    fn neighbor() -> NodeId {
+        NodeId::with_msb(2)
+    }
+    fn ulnid() -> UnderlayNeighborId {
+        UnderlayNeighborId {
+            interface_id: InterfaceId::try_from(1).unwrap(),
+            connection_id: ConnectionId(0),
+        }
+    }
+
+    fn started_pipeline() -> (R2KadPipeline<Ctx, BUCKET_SIZE>, Ctx) {
+        crate::tests::init();
+        let ctx = Ctx::new(ContextConfig {
+            root_id: root(),
+            routing_table: RT::new(root()),
+            runtime: TestingUseCaseRuntime::with_unique_timer_ids(),
+            insertion_strategy: UNSStrategy::new(InOrderCycleRemover, ShortestFirstPathSimplifier),
+            uln_table: InMemoryULNTable::new(),
+            vicinity_graph: PetVicinityGraph::new(root()),
+        });
+        let mut pipeline = R2KadPipeline::default();
+        pipeline.startup(&ctx).unwrap();
+        (pipeline, ctx)
+    }
+
+    fn interface(pipeline: &mut R2KadPipeline<Ctx, BUCKET_SIZE>, ctx: &Ctx, up: bool) {
+        let interface = ulnid().interface_id;
+        let update = if up {
+            UnderlayNeighborUpdate::InterfaceUp(interface)
+        } else {
+            UnderlayNeighborUpdate::InterfaceDown(interface)
+        };
+        pipeline
+            .process_event(ctx, UseCaseEvent::UnderlayUpdate(update))
+            .unwrap();
+    }
+
+    /// ULNDiscReq of [neighbor], which isn't known yet, received on the interface of [ulnid].
+    fn receive_uln_disc_req(pipeline: &mut R2KadPipeline<Ctx, BUCKET_SIZE>, ctx: &Ctx) {
+        let request = ProtocolMessage::ULNDiscReq(ULNReqRspMessage {
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::ULNDiscReq,
+                neighbor(),
+                root(),
+                Some(Nonce::random()),
+                StateSeqNr::Value(SafeStateSeqNr::try_from(1).unwrap()),
+                0,
+            ),
+            data: RTableData { contacts: vec![] },
+        });
+        pipeline
+            .process_event(
+                ctx,
+                UseCaseEvent::Message(request, UnderlayNeighborSource::UnderlayNeighbor(ulnid())),
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn uln_disc_req_on_up_interface_adds_neighbor() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut pipeline, ctx) = started_pipeline();
+        interface(&mut pipeline, &ctx, true);
+
+        receive_uln_disc_req(&mut pipeline, &ctx);
+
+        assert!(ctx.uln_table().contains(&neighbor()));
+        assert!(ctx.routing_table().contact(&neighbor()).is_some());
+    }
+
+    #[test]
+    fn message_on_down_interface_is_dismissed() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut pipeline, ctx) = started_pipeline();
+        interface(&mut pipeline, &ctx, true);
+        interface(&mut pipeline, &ctx, false);
+        // discard the hellos sent when the interface went up
+        let _ = ctx.runtime().output().count();
+
+        // the neighbor sent the request before the interface went down
+        receive_uln_disc_req(&mut pipeline, &ctx);
+
+        assert!(!ctx.uln_table().contains(&neighbor()));
+        assert!(ctx.routing_table().contact(&neighbor()).is_none());
+        assert_eq!(ctx.runtime().output().count(), 0, "no response sent");
     }
 }

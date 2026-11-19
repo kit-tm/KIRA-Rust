@@ -8,6 +8,7 @@ import sys
 import time
 import traceback
 from cmd import Cmd
+from collections import Counter
 from collections.abc import Iterable
 from functools import cached_property
 from pathlib import Path
@@ -148,7 +149,12 @@ class DebugShell[T](Cmd):
         verbose = 2 if args.verbose else 0
 
         conn = dict(self.test.topology.connected_components())
+        component_sizes = Counter(conn.values())
         for x in self.test.topology.nodes:
+            # down links isolate the node: there is no one to ping
+            if component_sizes[conn[x]] == 1:
+                print(f"{x:>3} is isolated (all its links are down), not pinged")
+                continue
             for y in self.test.topology.nodes:
                 if x == y or conn[x] != conn[y]:
                     continue
@@ -609,8 +615,8 @@ class DebugShell[T](Cmd):
                     print(f"{src:>3} --> {dst:>3} ...", end="\r")
                 success = self.test.traceroute(src, dst, verbose=args.verbose)
                 end = "\r" if args.failed and success else "\n"
-                success = "✓   " if success else "✗   "
-                print(f"{src:>3} --> {dst:>3} {success}", end=end, flush=True)
+                mark = "✓   " if success else "✗   "
+                print(f"{src:>3} --> {dst:>3} {mark}", end=end, flush=True)
 
                 # only show unsuccessful traceroutes
                 if not success and not args.verbose:
@@ -725,6 +731,72 @@ class DebugShell[T](Cmd):
     def do_up(self, args: argparse.Namespace) -> None:
         args.mode = True
         self.do_link(args)
+
+    def _daemon_parser(
+        self, description: str, kill: bool = False
+    ) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(description=description)
+        parser.add_argument(
+            "node",
+            action=StoreNode,
+            node_view=self.test.topology.nodes,
+            help="identifier of the node (name, NodeId, topology id)",
+        )
+        if kill:
+            parser.add_argument(
+                "-k",
+                "--kill",
+                action="store_true",
+                help="kill kirad right away like on a crash, so it can't clean up",
+            )
+        return parser
+
+    @property
+    def _stop_parser(self) -> argparse.ArgumentParser:
+        return self._daemon_parser("Stops kirad of the node (links stay up).", kill=True)
+
+    @with_argparser("_stop_parser")
+    def do_stop(self, args: argparse.Namespace) -> None:
+        if not self.test.stop_daemon(args.node, kill=args.kill):
+            print(f"{args.node} : ERR kirad did not stop")
+            self._cmd_failed()
+        elif not self.quiet:
+            print(f"{args.node} : kirad stopped")
+
+    @property
+    def _start_parser(self) -> argparse.ArgumentParser:
+        return self._daemon_parser(
+            "Starts kirad of the node again with the same NodeID (e.g., after stop)."
+        )
+
+    @with_argparser("_start_parser")
+    def do_start(self, args: argparse.Namespace) -> None:
+        if args.node.kirad_pids():
+            print(f"{args.node} : ERR kirad is already running")
+            self._cmd_failed()
+        elif not self.test.start_daemon(args.node):
+            print(f"{args.node} : ERR kirad did not come up")
+            self._cmd_failed()
+        elif not self.quiet:
+            print(f"{args.node} : kirad started")
+
+    @property
+    def _restart_parser(self) -> argparse.ArgumentParser:
+        return self._daemon_parser(
+            "Restarts kirad of the node with the same NodeID (its state is lost).",
+            kill=True,
+        )
+
+    @with_argparser("_restart_parser")
+    def do_restart(self, args: argparse.Namespace) -> None:
+        if not self.test.stop_daemon(args.node, kill=args.kill):
+            print(f"{args.node} : ERR kirad did not stop")
+            self._cmd_failed()
+        elif not self.test.start_daemon(args.node):
+            print(f"{args.node} : ERR kirad did not come up")
+            self._cmd_failed()
+        elif not self.quiet:
+            print(f"{args.node} : kirad restarted")
 
     @property
     def _links_parser(self) -> argparse.ArgumentParser:
@@ -915,7 +987,7 @@ class DebugShell[T](Cmd):
                 print(f"{unknown:>3}")
                 self._cmd_failed()
         else:
-            print("All vicinity nodes where discovered.")
+            print("All vicinity nodes were discovered.")
         print()
 
         unknown_edges = topo_node.unknown_vicinity_edges(node)
@@ -926,7 +998,7 @@ class DebugShell[T](Cmd):
             for u, v in unknown_edges:
                 print(f"{u:>3} -?- {v:>3}")
         else:
-            print("All edges in the vicinity where discovered.")
+            print("All edges in the vicinity were discovered.")
         print()
 
         def _print_fwd_entry(entry: FwdEntry) -> None:
@@ -1053,7 +1125,7 @@ class DebugShell[T](Cmd):
                 self._cmd_failed()
                 return
             missing_pathsetups = next(missing_pathsetups, None) is not None
-            if missing_pathsetups is None:
+            if missing_pathsetups:
                 fail = True
 
             missing_pathsetups_rt = node.missing_pathsetups_rt()
@@ -1062,7 +1134,7 @@ class DebugShell[T](Cmd):
                 self._cmd_failed()
                 return
             missing_pathsetups_rt = next(missing_pathsetups_rt, None) is not None
-            if missing_pathsetups_rt is None:
+            if missing_pathsetups_rt:
                 fail = True
 
             additional_vicinity = topo_node.additional_vicinity(node)

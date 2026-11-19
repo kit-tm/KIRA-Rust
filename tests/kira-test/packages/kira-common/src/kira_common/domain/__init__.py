@@ -149,6 +149,26 @@ class PathID(bytes):
         return self.hex()
 
 
+# Environment variable selecting the encapsulation of the fast forwarding of kirad,
+# which inherits the environment.
+ENV_FORWARDING = "KIRA_FORWARDING"
+
+
+def forwarding_mode() -> str:
+    """Returns the encapsulation used by the fast forwarding: `gre` or `srv6`."""
+    return os.environ.get(ENV_FORWARDING, "gre").lower()
+
+
+def two_path_segments() -> bool:
+    """Returns if paths are split into up to two path segments (SRv6 forwarding)."""
+    return forwarding_mode() == "srv6"
+
+
+# Longest path in hops that is covered by a single path segment.
+# Path-IDs of these paths are precomputed by all nodes on the path.
+MAX_SINGLE_SEGMENT_HOPS = 3
+
+
 class Path(list[NodeID]):
     """
     A Path is a list of nodes and excludes the starting node.
@@ -174,6 +194,26 @@ class Path(list[NodeID]):
 
     def to_path_ip(self) -> PathIP:
         return self.to_path_id().to_path_ip()
+
+    def segments(self) -> tuple[Path, Path | None]:
+        """
+        Splits the path into the path segments used by the forwarding tier.
+
+        Paths of up to three hops consist of a single segment. Longer paths have
+        a second segment of two hops (paths of four and five hops) or three hops.
+        The second segment starts with the last node of the first segment,
+        as its Path-ID is the incoming one at this node.
+
+        With GRE forwarding the whole path is always a single segment.
+        """
+        hops = len(self)
+        if hops <= MAX_SINGLE_SEGMENT_HOPS or not two_path_segments():
+            return self, None
+        if hops < 2 * MAX_SINGLE_SEGMENT_HOPS:
+            first_hops = hops - (MAX_SINGLE_SEGMENT_HOPS - 1)
+        else:
+            first_hops = hops - MAX_SINGLE_SEGMENT_HOPS
+        return Path(self[:first_hops]), Path(self[first_hops - 1 :])
 
     def __str__(self) -> str:
         return ", ".join(str(n) for n in self)

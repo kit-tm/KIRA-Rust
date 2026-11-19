@@ -22,8 +22,14 @@ pub use bucket::{
 };
 mod contact;
 pub use contact::*;
+mod contact_labels;
+pub use contact_labels::*;
 
 pub mod dht;
+
+pub mod fwd_state;
+#[doc(inline)]
+pub use fwd_state::PathIdFwdState;
 
 mod hasher;
 pub use hasher::*;
@@ -51,6 +57,8 @@ pub mod path;
 pub use path::{
     Path,
     PathCollection,
+    PathSegmentation,
+    PathSegments,
     PathState,
 };
 
@@ -97,6 +105,14 @@ pub use vicinity::{
 #[display("{}ms",self.0)]
 pub struct Age(u64);
 
+impl Age {
+    /// Returns the age increased by `duration`, e.g. by the estimated transit time.
+    pub fn saturating_add(self, duration: Duration) -> Age {
+        let ms = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
+        Age(self.0.saturating_add(ms))
+    }
+}
+
 impl From<Age> for std::time::Duration {
     fn from(Age(age_ms): Age) -> Self {
         std::time::Duration::from_millis(age_ms)
@@ -131,26 +147,74 @@ impl Default for Timestamp {
     }
 }
 
+thread_local! {
+    /// The current time of the event being handled on this thread, see [Timestamp::set_clock].
+    static CLOCK: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) };
+}
+
+/// Restores the previous clock of the thread when dropped, see [Timestamp::set_clock].
+#[must_use = "the clock is only set while the guard is alive"]
+#[derive(Debug)]
+pub struct ClockGuard {
+    previous: Option<Instant>,
+}
+
+impl Drop for ClockGuard {
+    fn drop(&mut self) {
+        CLOCK.with(|clock| clock.set(self.previous));
+    }
+}
+
 impl Timestamp {
-    /// Creates a new Timestamp at current time.
+    /// Sets the current time returned by [Timestamp::now] on this thread until the returned
+    /// guard is dropped.
+    ///
+    /// The protocol never reads a clock itself. Whoever drives it (e.g. the event loop or a
+    /// simulator with a virtual clock) provides the time of every event this way. Guards may
+    /// be nested; dropping one restores the time that was set before.
+    pub fn set_clock(now: Instant) -> ClockGuard {
+        let previous = CLOCK.with(|clock| clock.replace(Some(now)));
+        ClockGuard { previous }
+    }
+
+    /// Returns the current time as provided by [Timestamp::set_clock].
+    ///
+    /// # Panics
+    ///
+    /// If no clock is set on this thread, i.e. outside of handling an event.
     pub fn now() -> Self {
-        Self(Instant::now()) // TODO replace with runtime::current_time()
+        let now = CLOCK.with(std::cell::Cell::get).expect(
+            "no clock set: Timestamp::now() is only available while handling an event \
+             (see Timestamp::set_clock)",
+        );
+        Self(now)
+    }
+
+    /// Returns the current time if a clock is set on this thread, see [Timestamp::now].
+    pub fn try_now() -> Option<Self> {
+        CLOCK.with(std::cell::Cell::get).map(Self)
+    }
+
+    /// Returns the age in ms of the [Timestamp] at the given time.
+    pub fn age_at(&self, now: Timestamp) -> u64 {
+        u64::try_from(now.0.saturating_duration_since(self.0).as_millis()).unwrap_or(u64::MAX)
     }
 
     /// Returns the [Age] of the [Timestamp].
     pub fn to_age(&self) -> Age {
-        // OK since stored timestamp should always be >= current time
-        Age::from(u64::try_from(self.0.elapsed().as_millis()).expect("Age value too large"))
+        Age::from(self.to_age_duration_ms())
     }
 
     /// Returns the [std::time::Duration] representation of the [Age] of the [Timestamp].
+    ///
+    /// Timestamps from the future have no age.
     pub fn to_age_duration(&self) -> Duration {
-        self.0.elapsed()
+        Self::now().0.saturating_duration_since(self.0)
     }
 
     /// Returns the [std::time::Duration] representation of the [Age] of the [Timestamp].
     pub fn to_age_duration_ms(&self) -> u64 {
-        u64::try_from(self.0.elapsed().as_millis())
+        u64::try_from(self.to_age_duration().as_millis())
             .expect("age value should never exceed 64bit in ms")
     }
 }
@@ -158,7 +222,24 @@ impl Timestamp {
 impl From<Age> for Timestamp {
     /// Returns the [Timestamp] of the [Age].
     fn from(age: Age) -> Timestamp {
-        Timestamp::from(Timestamp::now().0 - (Duration::from_millis(age.0)))
+        let now = Timestamp::now().0;
+        let age = Duration::from_millis(age.0);
+        // Ages are received from other nodes. On some platforms an Instant can't go back
+        // further than the start of the monotonic clock, so saturate at the oldest
+        // representable Instant instead of panicking.
+        let timestamp = now.checked_sub(age).unwrap_or_else(|| {
+            let (mut representable, mut too_old) = (Duration::ZERO, age);
+            while too_old - representable > Duration::from_millis(1) {
+                let mid = representable + (too_old - representable) / 2;
+                if now.checked_sub(mid).is_some() {
+                    representable = mid;
+                } else {
+                    too_old = mid;
+                }
+            }
+            now - representable
+        });
+        Timestamp::from(timestamp)
     }
 }
 
@@ -211,6 +292,19 @@ impl From<(NodeId, NodeId)> for Link {
 pub struct NotVia {
     pub link: Link,
     pub age: Age,
+}
+
+impl NotVia {
+    /// Returns the entry aged by `delay`.
+    ///
+    /// Used when forwarding failure information as own, e.g. echoed in a response: its age
+    /// has to include the time since the original sender sent it.
+    pub fn aged(&self, delay: Duration) -> Self {
+        Self {
+            link: self.link.clone(),
+            age: self.age.saturating_add(delay),
+        }
+    }
 }
 
 impl From<(Link, Age)> for NotVia {
@@ -316,5 +410,81 @@ impl From<NotViaStateList> for Option<NotViaList> {
         } else {
             Some(notviastatelist.nvs_list.iter().map(NotVia::from).collect())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[should_panic(expected = "no clock set")]
+    fn now_without_clock_panics() {
+        // the protocol must never fall back to reading a clock itself
+        let _ = Timestamp::now();
+    }
+
+    #[test]
+    fn clock_guards_restore_the_previous_time() {
+        let t0 = Instant::now();
+        let outer = Timestamp::set_clock(t0);
+        {
+            let _inner = Timestamp::set_clock(t0 + Duration::from_secs(5));
+            assert_eq!(Instant::from(Timestamp::now()), t0 + Duration::from_secs(5));
+        }
+        assert_eq!(Instant::from(Timestamp::now()), t0);
+        drop(outer);
+        assert!(Timestamp::try_now().is_none());
+    }
+
+    #[test]
+    fn ages_follow_the_provided_clock() {
+        // e.g. the virtual clock of a simulator, independent of the wall clock
+        let mut clock = crate::tests::TestClock::new();
+        let timestamp = Timestamp::now();
+        clock.advance(Duration::from_secs(3_600));
+        assert_eq!(timestamp.to_age(), Age::from(3_600_000));
+    }
+
+    #[test]
+    fn contact_display_without_clock_does_not_panic() {
+        // log output may happen outside of handling an event
+        let contact = {
+            let _clock = crate::tests::TestClock::new();
+            Contact::new(
+                Path::from(NodeId::ONE),
+                SafeStateSeqNr::try_from(1).unwrap(),
+            )
+        };
+        assert!(contact.to_string().contains("age: ?"));
+    }
+
+    #[test]
+    fn timestamp_from_age_lies_in_the_past() {
+        let _clock = crate::tests::TestClock::new();
+        let before = Timestamp::now();
+        let timestamp = Timestamp::from(Age::from(10_000));
+        assert!(timestamp < before);
+        assert!(timestamp.to_age() >= Age::from(10_000));
+    }
+
+    #[test]
+    fn timestamp_from_huge_age_does_not_panic() {
+        let _clock = crate::tests::TestClock::new();
+        // received ages are untrusted and may exceed what the platform's clock represents
+        let timestamp = Timestamp::from(Age::from(u64::MAX));
+        assert!(timestamp < Timestamp::now());
+    }
+
+    #[test]
+    fn not_via_age_survives_conversion_to_state_and_back() {
+        let _clock = crate::tests::TestClock::new();
+        let link = Link::new(NodeId::ONE, NodeId::with_lsb(2));
+        let state = NotViaState::from(NotVia::from((link, Age::from(5_000))));
+        let age = NotVia::from(&state).age;
+        assert!(
+            age >= Age::from(5_000) && age < Age::from(6_000),
+            "age {age}"
+        );
     }
 }
