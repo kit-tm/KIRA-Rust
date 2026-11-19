@@ -1183,7 +1183,7 @@ fn binrw_not_via_keeps_age() {
 /// A contact two hops away whose information is `age_ms` old.
 fn aged_contact(last_hop: u8, age_ms: u64) -> Contact {
     let mut contact = Contact::new(
-        Path::from([NodeId::with_lsb(0xa0), NodeId::with_lsb(last_hop.into())]),
+        Path::from([NodeId::with_lsb(0xa0), NodeId::with_lsb(last_hop)]),
         SafeStateSeqNr::try_from(3u32).unwrap(),
     );
     contact.set_info_age(Age::from(age_ms));

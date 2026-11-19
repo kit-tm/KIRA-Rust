@@ -4,5 +4,6 @@
 
 #[cfg(target_os = "linux")]
 pub mod linux;
-#[cfg(target_os = "linux")]
+// `linux` is empty without these features, which would make the glob re-export unused.
+#[cfg(all(target_os = "linux", any(feature = "nft", feature = "srv6")))]
 pub use linux::*;

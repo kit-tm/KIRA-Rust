@@ -20,7 +20,6 @@ netlink = [
   "netlink-packet-core",
   "netlink-packet-netfilter",
   "netlink-packet-route",
-  "netlink-packet-utils",
   "futures",
 ]
 
@@ -35,12 +34,11 @@ netlink-proto = { workspace = true, optional = true }
 netlink-packet-core = { workspace = true, optional = true }
 netlink-packet-netfilter = { workspace = true, optional = true }
 netlink-packet-route = { workspace = true, optional = true }
-netlink-packet-utils = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
 trait-variant = { workspace = true }
 # eBPF program management of the SRv6 forwarding
 aya = { workspace = true, optional = true }
-kira-forwarding-common = { path = "../kira-forwarding-common" }
+kira-forwarding-common = { path = "../kira-forwarding-common", optional = true }
 
 [build-dependencies]
 aya-build = { workspace = true, optional = true }
