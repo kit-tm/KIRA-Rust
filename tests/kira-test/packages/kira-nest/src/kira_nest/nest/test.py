@@ -5,6 +5,7 @@ import os
 import pathlib
 import signal
 import time
+import uuid
 from functools import cached_property
 from ipaddress import IPv4Network
 from subprocess import Popen, TimeoutExpired
@@ -21,8 +22,11 @@ from kira_common.domain import (
     get_ip_prefixes,
     set_ip_prefixes,
 )
+from nest import engine
 from nest.topology import Node, Switch, connect
+from nest.topology.id_generator import IdGen
 from nest.topology.interface.interface import create_veth_pair
+from nest.topology_map import TopologyMap
 from networkx import Graph
 
 from kira_nest.domain.topology import KIRATopology
@@ -51,9 +55,8 @@ class KIRATest[T]:  # T = topology id type, usually int or str
         Prefixes of NodeIPs and PathIPs used by all nodes.
         Defaults to the prefixes from the environment variables also used by kirad.
 
-    The daemons run until `close()` (also on leaving a `with` block). Tests that are
-    still running at interpreter exit are closed then. Nest deletes the namespaces at
-    exit, but that doesn't terminate the processes inside them.
+    The daemons and namespaces exist until `close()` (also on leaving a `with` block).
+    Tests that are still running at interpreter exit are closed then.
     """
 
     # tests whose daemons may still run
@@ -94,6 +97,7 @@ class KIRATest[T]:  # T = topology id type, usually int or str
         next(self._otel_ips)  # skip IP for host
 
         logger.info("Setting up the topology ...")
+        _restart_nest_ids()
 
         # Create the Nest topology according to the configuration
         for tid, cfg in self.topology.configs():
@@ -146,14 +150,32 @@ class KIRATest[T]:  # T = topology id type, usually int or str
         self.close()
 
     def close(self, timeout: float = 10.0) -> bool:
-        """Stops the daemons of all nodes; see `stop_all_daemons`.
+        """Stops the daemons of all nodes (see `stop_all_daemons`) and deletes the
+        namespaces of the test.
 
+        Nest deletes namespaces only at interpreter exit. Namespaces of finished tests
+        would pile up during a test session, together with their interfaces, routes
+        and eBPF programs, and slow down the host until nodes don't come up in time.
         Can be called more than once.
         """
         stopped = self.stop_all_daemons(timeout)
+        self._delete_namespaces()
         with contextlib.suppress(ValueError):
             KIRATest._running.remove(self)
         return stopped
+
+    def _delete_namespaces(self) -> None:
+        """Deletes the namespaces of the nodes and of the OTel switch, if created."""
+        namespaces = [node.id for node in self.topology.nodes]
+        if "_otel_node" in self.__dict__:
+            namespaces.append(self._otel_node.id)
+        with TopologyMap.lock:
+            nodes = TopologyMap.get_nodes()
+            for ns_id in namespaces:
+                if nodes.pop(ns_id, None) is None:
+                    continue  # already deleted
+                TopologyMap.devices.pop(ns_id, None)
+                engine.delete_ns(ns_id)
 
     def stop_all_daemons(self, timeout: float = 10.0) -> bool:
         """Stops kirad of all nodes, killing those still running after `timeout`.
@@ -416,6 +438,19 @@ def _is_running(pid: int) -> bool:
         return False
     # the state follows the command name, which is in parentheses
     return stat.rpartition(")")[2].split()[0] != "Z"
+
+
+def _restart_nest_ids() -> None:
+    """Lets Nest number the namespaces and interfaces of a new test from the start.
+
+    Nest names them `<10 hex digits>-<counter>` with one counter for the whole process.
+    From counter 10000 on, the names exceed the 15 characters Linux allows for
+    interface names, and Nest fails silently to create the interfaces. A fresh prefix
+    keeps the names unique, also next to the namespaces of tests still running.
+    """
+    with IdGen.lock:
+        IdGen.topology_id = uuid.uuid4().hex[:10]
+        IdGen.counter = 0
 
 
 # Nest registered the deletion of the namespaces when it was imported (above). Exit
