@@ -421,7 +421,17 @@ where
     C: DerefMut<Target = Contact>,
 {
     fn drop(&mut self) {
-        if self.contact.deref() != &self.original {
+        // Contacts compare equal irrespective of path attributes. The first refresh of the
+        // active path (e.g., its setup was confirmed) establishes its forwarding state, so
+        // the forwarding entries can be derived now: this change has to be notified as well.
+        let refreshed = |contact: &Contact| {
+            contact
+                .path()
+                .is_some_and(|path| path.get_last_path_refresh().is_some())
+        };
+        if self.contact.deref() != &self.original
+            || refreshed(self.contact.deref()) != refreshed(&self.original)
+        {
             notify_all(
                 self.observers,
                 RoutingTableEvent::UpdatedContact {
@@ -579,5 +589,42 @@ mod tests {
                 }),
             "{events:?}"
         );
+    }
+
+    #[test]
+    fn first_path_refresh_is_notified_later_ones_are_not() {
+        let _clock = crate::tests::TestClock::new();
+        let contact = Contact::new(
+            Path::try_from(&[NodeId::with_msb(2), NodeId::with_msb(3)][..]).unwrap(),
+            SafeStateSeqNr::try_from(2).unwrap(),
+        );
+        let mut rt = SingleBucketRT::<10>::new(NodeId::ONE);
+        assert!(rt.add(contact.clone()).is_ok());
+        let mut observable = ObservableRoutingTable::from(rt);
+        let events = Arc::new(RwLock::new(vec![]));
+        let observable_events = Arc::clone(&events);
+        observable.add_observer(move |event| observable_events.write().unwrap().push(event));
+        let refresh = |observable: &mut ObservableRoutingTable<SingleBucketRT<10>, 10>| {
+            observable
+                .contact_mut(contact.id())
+                .unwrap()
+                .path_mut()
+                .unwrap()
+                .update_last_path_refresh(Timestamp::now());
+        };
+
+        // e.g., the setup of the path was confirmed: its forwarding state is established
+        refresh(&mut observable);
+        assert_eq!(events.read().unwrap().len(), 1, "{events:?}");
+        assert!(matches!(
+            &events.read().unwrap()[0],
+            RoutingTableEvent::UpdatedContact { new, old }
+                if new.path().unwrap().get_last_path_refresh().is_some()
+                    && old.path().unwrap().get_last_path_refresh().is_none()
+        ));
+
+        // periodic refreshes don't change anything relevant
+        refresh(&mut observable);
+        assert_eq!(events.read().unwrap().len(), 1, "{events:?}");
     }
 }
