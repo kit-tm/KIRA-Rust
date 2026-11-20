@@ -65,6 +65,12 @@ pub struct PathProbingConfig {
     ///
     /// Default is **40s** because underlay advertising is about 30s.
     pub probe_age: Duration,
+    /// Maximum time since the active path of a close contact (in one of the two deepest
+    /// buckets) was validated before it has to be probed.
+    ///
+    /// Close contacts keep up the overlay connectivity, so their failures have to be
+    /// detected faster. Default is **10s**.
+    pub close_contact_probe_age: Duration,
     /// Maximum duration a [ProbeReq](crate::domain::ProtocolMessage::ProbeReq) is allowed to take
     /// if the probed path has no measured SRTT.
     ///
@@ -107,6 +113,7 @@ impl Default for PathProbingConfig {
         Self {
             check_interval: Duration::from_secs(1),
             probe_age: Duration::from_secs(40),
+            close_contact_probe_age: Duration::from_secs(10),
             request_timeout: Duration::from_millis(250),
             srtt_timeout_factor: 2,
             min_request_timeout: Duration::from_millis(50),
@@ -219,10 +226,17 @@ where
                         }
                     })
             };
+            let probe_age = |contact: &Contact| {
+                if rt.is_close_contact(contact.id()) {
+                    self.config.close_contact_probe_age
+                } else {
+                    self.config.probe_age
+                }
+            };
             let mut considered_contacts: Vec<_> = bucket
                 .into_iter()
                 .filter(|contact| {
-                    (validated(contact).to_age_duration() >= self.config.probe_age
+                    (validated(contact).to_age_duration() >= probe_age(contact)
                         || refresh_due(contact)) &&
                         contact.state() == &ContactState::Valid &&
                         // should never be the case
@@ -632,6 +646,35 @@ where
         }
     }
 
+    /// Schedules probes of the active paths that traverse `node`, whose vicinity changed (its
+    /// [StateSeqNr] increased): one of its links on these paths may have failed.
+    ///
+    /// Without this, a failure beyond the vicinity is only detected when the path is probed
+    /// periodically or a message over it fails.
+    fn probe_paths_via(&mut self, context: &C, node: &NodeId) {
+        if !matches!(self.state, PathProbingState::Running { .. }) {
+            return;
+        }
+        let affected: Vec<NodeId> = context
+            .routing_table()
+            .iter()
+            .filter(|contact| {
+                contact.is_valid()
+                    && contact.path().is_some_and(|path| {
+                        // the node is an intermediate hop, so links behind it are used
+                        path.size() > 1 && path.last() != node && path.contains(node)
+                    })
+            })
+            .map(|contact| *contact.id())
+            .collect();
+        if !affected.is_empty() {
+            log::debug!(target: "path_probing", "StateSeqNr of {node} increased, probing {} contacts via it", affected.len());
+        }
+        for id in affected {
+            self.schedule_path_probe_req(context, PathProbeAction::ContactActivePath(id));
+        }
+    }
+
     /// Returns if a proposed contact should be probed over `path` and records the probe:
     /// not if it was probed within the hold-down over a path that is not longer.
     fn should_probe_proposed(&mut self, id: &NodeId, path: &Path) -> bool {
@@ -952,6 +995,9 @@ where
                         );
                     }
                     ContactEvent::Updated { new, old } => {
+                        if new.state_seq_nr() > old.state_seq_nr() {
+                            self.probe_paths_via(context, new.id());
+                        }
                         // in case there is a new proposed path present, probe it in case it is not a ULN
                         if let Some(proposed_path) = new.proposed_path()
                             && proposed_path.size() > 1
@@ -1315,6 +1361,8 @@ mod tests {
         let mut clock = crate::tests::TestClock::new();
         let (mut pp, ctx, far) = setup_long_path();
         let config = PathProbingConfig::default();
+        // all contacts of the single bucket are close contacts
+        pp.config.close_contact_probe_age = config.probe_age;
         let refresh = |ctx: &Ctx| {
             let mut rt = ctx.routing_table_mut();
             let contact = rt.contact_mut(&far).unwrap();
@@ -1896,4 +1944,64 @@ mod tests {
         assert!(proposed_probes.is_empty());
     }
 
+    #[test]
+    fn close_contact_is_probed_after_shorter_probe_age() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup_known_ssn();
+        let config = PathProbingConfig::default();
+        assert!(config.close_contact_probe_age < config.probe_age);
+
+        clock.advance(config.close_contact_probe_age - Duration::from_secs(1));
+        pp.send_probe_reqs(&ctx);
+        assert!(sent_probe_reqs(&ctx).is_empty());
+
+        // the single bucket is the deepest one
+        clock.advance(Duration::from_secs(1));
+        pp.send_probe_reqs(&ctx);
+        assert_eq!(sent_probe_reqs(&ctx).len(), 1);
+    }
+
+    /// Hands an increase of the StateSeqNr of `node` (with the given path) to path probing.
+    fn ssn_increased(pp: &mut PP, ctx: &Ctx, node_path: &[NodeId]) {
+        let mut node_path = path(node_path);
+        node_path.set_valid();
+        let old = Contact::new(node_path, ssn());
+        let mut new = old.clone();
+        new.update_state_seq_nr(SafeStateSeqNr::try_from(2).unwrap());
+        pp.handle_event(
+            ctx,
+            UseCaseEvent::Contact(Box::new(ContactEvent::Updated {
+                new: Box::new(new),
+                old: Box::new(old),
+            })),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn ssn_increase_of_intermediate_hop_probes_paths_via_it() {
+        let _clock = crate::tests::TestClock::new();
+        // c is reached via a, b, d
+        let (mut pp, ctx) = setup(true);
+
+        ssn_increased(&mut pp, &ctx, &[a(), b()]);
+
+        assert!(
+            scheduled(&pp).contains_key(&PathProbeAction::ContactActivePath(c())),
+            "active path of c traverses b"
+        );
+    }
+
+    #[test]
+    fn ssn_increase_of_destination_or_other_node_probes_nothing() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup(true);
+
+        // the destination itself: the links of the path are not behind it
+        ssn_increased(&mut pp, &ctx, &[a(), b(), d(), c()]);
+        // a node not on the path
+        ssn_increased(&mut pp, &ctx, &[a(), NodeId::with_msb(6)]);
+
+        assert!(scheduled(&pp).is_empty());
+    }
 }
