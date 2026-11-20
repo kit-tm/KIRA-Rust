@@ -670,8 +670,9 @@ where
         }
     }
 
-    /// Schedules probes of the active paths that traverse `node`, whose vicinity changed (its
-    /// [StateSeqNr] increased): one of its links on these paths may have failed.
+    /// Schedules probes of the active paths that traverse or end at `node`, whose vicinity
+    /// changed (its [StateSeqNr] increased): one of its links on these paths may have failed,
+    /// also the last link of a path to the node itself.
     ///
     /// Without this, a failure beyond the vicinity is only detected when the path is probed
     /// periodically or a message over it fails.
@@ -685,8 +686,9 @@ where
             .filter(|contact| {
                 contact.is_valid()
                     && contact.path().is_some_and(|path| {
-                        // the node is an intermediate hop, so links behind it are used
-                        path.size() > 1 && path.last() != node && path.contains(node)
+                        // a link of the node is used, unless the path is the direct link to
+                        // an underlay neighbor, which vicinity discovery keeps track of
+                        path.size() > 1 && path.contains(node)
                     })
             })
             .map(|contact| *contact.id())
@@ -2039,13 +2041,21 @@ mod tests {
     }
 
     #[test]
-    fn ssn_increase_of_destination_or_other_node_probes_nothing() {
+    fn ssn_increase_of_destination_probes_its_path() {
         let _clock = crate::tests::TestClock::new();
         let (mut pp, ctx) = setup(true);
 
-        // the destination itself: the links of the path are not behind it
+        // the last link of the path (d, c) is a link of the destination
         ssn_increased(&mut pp, &ctx, &[a(), b(), d(), c()]);
-        // a node not on the path
+
+        assert!(scheduled(&pp).contains_key(&PathProbeAction::ContactActivePath(c())));
+    }
+
+    #[test]
+    fn ssn_increase_of_node_not_on_path_probes_nothing() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup(true);
+
         ssn_increased(&mut pp, &ctx, &[a(), NodeId::with_msb(6)]);
 
         assert!(scheduled(&pp).is_empty());
