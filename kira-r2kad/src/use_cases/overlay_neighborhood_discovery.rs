@@ -34,6 +34,7 @@ use crate::{
     },
     runtime::UseCaseRuntime,
     use_cases::{
+        ContactEvent,
         EventHandler,
         TimerId,
         UseCase,
@@ -52,8 +53,14 @@ use crate::{
 pub struct ONDConfig<const BUCKET_SIZE: usize> {
     /// Default minimal [Duration] between subsequent sent FindNodeReq.
     pub send_timeout: Duration,
-    /// Default [Duration] between subsequent sent FindNodeReq for random exploration.
+    /// Minimum [Duration] between subsequent FindNodeReqs for random exploration.
+    ///
+    /// The interval is doubled after every exploration round that didn't change the
+    /// routing table, up to [Self::random_exploration_max_interval], and falls back to
+    /// this minimum as soon as the routing table or the underlay vicinity changes.
     pub random_exploration_interval: Duration,
+    /// Maximum [Duration] between subsequent FindNodeReqs for random exploration.
+    pub random_exploration_max_interval: Duration,
     /// Number of contacts in the overlay Neighborhood to include in the FindNodeReq
     /// and to be returned by the FindNodeRsp.
     pub overlay_neighborhood_size: NonZeroU64,
@@ -79,6 +86,7 @@ impl<const BUCKET_SIZE: usize> Default for ONDConfig<BUCKET_SIZE> {
             // TODO: Useful timeout duration?
             send_timeout: Duration::from_millis(250),
             random_exploration_interval: Duration::from_millis(400),
+            random_exploration_max_interval: Duration::from_secs(30),
             overlay_neighborhood_size: NonZeroU64::new(BUCKET_SIZE.try_into().unwrap()).unwrap(),
             backoff_base: NonZeroU32::new(2).unwrap(),
             backoff_max_retries: NonZeroU32::new(10).unwrap(), // 0,25s*1024=256s = 4min 16s
@@ -161,6 +169,10 @@ pub struct OverlayNeighborhoodDiscovery<C, const BUCKET_SIZE: usize> {
     _pd: PhantomData<C>,
     state: ONDState,
     config: ONDConfig<BUCKET_SIZE>,
+    /// Current interval of the random exploration
+    exploration_interval: Duration,
+    /// The routing table or underlay vicinity changed since the last exploration round
+    exploration_progress: bool,
 }
 
 impl<C, const BUCKET_SIZE: usize> Default for OverlayNeighborhoodDiscovery<C, BUCKET_SIZE> {
@@ -181,6 +193,8 @@ impl<C, const BUCKET_SIZE: usize> OverlayNeighborhoodDiscovery<C, BUCKET_SIZE> {
         Ok(Self {
             _pd: PhantomData,
             state: ONDState::Initialized,
+            exploration_interval: config.random_exploration_interval,
+            exploration_progress: true,
             config,
         })
     }
@@ -198,7 +212,7 @@ where
     /// anymore. Its timers are removed, so that the periodic exploration timer doesn't keep
     /// firing next to the one registered by the restart.
     fn become_isolated(&mut self, context: &C) {
-        if let ONDState::Running { timer_contexts } = &self.state {
+        if let ONDState::Running { timer_contexts, .. } = &self.state {
             for timer_id in timer_contexts.iter().filter_map(|tc| tc.timer_id) {
                 context.runtime().remove_timer(timer_id);
             }
@@ -218,11 +232,12 @@ where
             return Ok(());
         }
 
-        let current_timer_context = if let ONDState::Running { timer_contexts } = &mut self.state {
-            &mut timer_contexts[TimerType::PeriodicJoin as usize]
-        } else {
-            panic!("Called send_next_join_request in non-running state!");
-        };
+        let current_timer_context =
+            if let ONDState::Running { timer_contexts, .. } = &mut self.state {
+                &mut timer_contexts[TimerType::PeriodicJoin as usize]
+            } else {
+                panic!("Called send_next_join_request in non-running state!");
+            };
 
         // the initial timer has no exponential backoff (and no state)
         // then a randomized exponential backoff timer is created
@@ -366,11 +381,22 @@ where
             return Ok(());
         }
 
-        let current_timer_context = if let ONDState::Running { timer_contexts } = &mut self.state {
-            &mut timer_contexts[TimerType::RandomExploration as usize]
+        // adapt the interval: keep exploring quickly while the routing table changes,
+        // back off while the exploration doesn't find anything new
+        self.exploration_interval = if std::mem::take(&mut self.exploration_progress) {
+            self.config.random_exploration_interval
         } else {
+            (self.exploration_interval * 2).min(self.config.random_exploration_max_interval)
+        };
+        let exploration_interval = self.exploration_interval;
+        let ONDState::Running { timer_contexts, .. } = &mut self.state else {
             panic!("Called send_next_request_to_random_id in non-running state!");
         };
+        let current_timer_context = &mut timer_contexts[TimerType::RandomExploration as usize];
+        // arm the next round first, so that a round without a usable contact doesn't stop it
+        current_timer_context.timer_id =
+            Some(context.runtime().register_rand_timer(exploration_interval));
+        log::trace!(target: "overlay_neighborhood_discovery", "Next random exploration in about {exploration_interval:?}");
 
         let new_nonce = Nonce::random();
         let random_id = NodeId::random();
@@ -443,6 +469,59 @@ pub enum ONDError {
     NeighborInconsistency,
 }
 
+/// Returns if the routing table change may be a result of, or a reason for, exploration:
+/// contacts were added, removed, replaced, or got another path, state, or StateSeqNr.
+///
+/// A changed StateSeqNr shows a topology change near the contact. Exploring quickly then
+/// spreads the new state (and alternative paths) through the network, as nodes not
+/// adjacent to a failure only learn about it from the messages of others.
+fn is_exploration_progress(event: &ContactEvent) -> bool {
+    match event {
+        ContactEvent::New(_) | ContactEvent::Removed(_) | ContactEvent::NewBucket(_) => true,
+        ContactEvent::Updated { new, old } => {
+            new.id() != old.id()
+                || new.state() != old.state()
+                || new.state_seq_nr() != old.state_seq_nr()
+                || match (new.path(), old.path()) {
+                    (Some(new), Some(old)) => !new.is_same_path_as(old),
+                    (new, old) => new.is_some() != old.is_some(),
+                }
+        }
+        ContactEvent::Proposed(_) | ContactEvent::BucketUpdated(_) => false,
+    }
+}
+
+impl<C, const BUCKET_SIZE: usize> OverlayNeighborhoodDiscovery<C, BUCKET_SIZE>
+where
+    C: UseCaseContext,
+    C::Runtime: UseCaseRuntime,
+    for<'a> C::RoutingTable: RoutingTable<'a, BUCKET_SIZE> + Debug,
+    C::UnderlayNeighborTable:
+        ULNTable + Debug + Deref<Target = HashMap<NodeId, (UnderlayNeighborId, ULNState)>>,
+{
+    /// Notes a change that makes exploration worthwhile: the next round uses the minimum
+    /// interval and a pending round that is due later is brought forward.
+    fn exploration_progress(&mut self, context: &C) {
+        let ONDState::Running { timer_contexts, .. } = &mut self.state else {
+            return;
+        };
+        self.exploration_progress = true;
+        if self.exploration_interval > self.config.random_exploration_interval {
+            let timer_context = &mut timer_contexts[TimerType::RandomExploration as usize];
+            if let Some(timer_id) = timer_context.timer_id {
+                context.runtime().remove_timer(timer_id);
+            }
+            self.exploration_interval = self.config.random_exploration_interval;
+            timer_context.timer_id = Some(
+                context
+                    .runtime()
+                    .register_rand_timer(self.exploration_interval),
+            );
+            log::trace!(target: "overlay_neighborhood_discovery", "Routing table changed: next random exploration in about {:?}", self.exploration_interval);
+        }
+    }
+}
+
 impl<C, const BUCKET_SIZE: usize> UseCase for OverlayNeighborhoodDiscovery<C, BUCKET_SIZE>
 where
     C: UseCaseContext,
@@ -462,6 +541,9 @@ where
                 last_msg_state: None,
             }; TimerType::Max as usize],
         };
+        // explore quickly until the routing table settles
+        self.exploration_interval = self.config.random_exploration_interval;
+        self.exploration_progress = true;
 
         // the first messages should be sent after a small delay because this
         // node needs to learn its underlay vicinity first, before it can send
@@ -469,7 +551,7 @@ where
         let join_timer_id = context.runtime().register_timer(self.config.send_timeout);
         let random_exploration_timer_id = context
             .runtime()
-            .register_periodic_timer(self.config.random_exploration_interval);
+            .register_rand_timer(self.config.random_exploration_interval);
         if let ONDState::Running { timer_contexts, .. } = &mut self.state {
             // remember the just registered initial timer, however, timer_context is None
             timer_contexts[TimerType::PeriodicJoin as usize].timer_id = Some(join_timer_id);
@@ -541,7 +623,7 @@ where
             }
             // A successful response was received
             (
-                ONDState::Running { timer_contexts },
+                ONDState::Running { timer_contexts, .. },
                 UseCaseEvent::Message(
                     ProtocolMessage::FindNodeRsp(ReqRspMessage { common_header, .. }),
                     _,
@@ -569,7 +651,7 @@ where
             }
             // An error response was received
             (
-                ONDState::Running { timer_contexts },
+                ONDState::Running { timer_contexts, .. },
                 UseCaseEvent::Message(
                     ProtocolMessage::Error(ReqRspMessage {
                         common_header,
@@ -595,6 +677,18 @@ where
                     // no need for further actions, one can assume that a rediscovery will repair the contact
                     // before the next join is sent
                 }
+            }
+            (ONDState::Running { .. }, UseCaseEvent::Contact(contact_event)) => {
+                if is_exploration_progress(&contact_event) {
+                    self.exploration_progress(context);
+                }
+            }
+            (
+                ONDState::Running { .. },
+                UseCaseEvent::Vicinity(VicinityEvent::Changed | VicinityEvent::SSNChanged),
+            ) => {
+                // the underlay vicinity changed: shorter paths may be found
+                self.exploration_progress(context);
             }
             // check for restarting use case after isolation
             (ONDState::Isolated, UseCaseEvent::Vicinity(vicinity_event)) => {
@@ -686,7 +780,7 @@ mod tests {
     }
 
     fn join_timer(ond: &Ond) -> Option<TimerId> {
-        let ONDState::Running { timer_contexts } = &ond.state else {
+        let ONDState::Running { timer_contexts, .. } = &ond.state else {
             panic!("not running");
         };
         timer_contexts[TimerType::PeriodicJoin as usize].timer_id
@@ -734,7 +828,7 @@ mod tests {
     }
 
     fn timer_ids(ond: &Ond) -> Vec<TimerId> {
-        let ONDState::Running { timer_contexts } = &ond.state else {
+        let ONDState::Running { timer_contexts, .. } = &ond.state else {
             panic!("not running");
         };
         timer_contexts.iter().filter_map(|tc| tc.timer_id).collect()
@@ -749,7 +843,7 @@ mod tests {
 
         // the only underlay neighbor is lost, the exploration timer notices it
         ctx.uln_table_mut().remove(&n());
-        let ONDState::Running { timer_contexts } = &ond.state else {
+        let ONDState::Running { timer_contexts, .. } = &ond.state else {
             unreachable!()
         };
         let exploration = timer_contexts[TimerType::RandomExploration as usize]
@@ -774,5 +868,144 @@ mod tests {
         let restarted = timer_ids(&ond);
         assert_eq!(restarted.len(), 2);
         assert!(restarted.iter().all(|timer| !timers.contains(timer)));
+    }
+
+    /// Timer and interval of the random exploration
+    fn exploration(ond: &Ond) -> (TimerId, Duration) {
+        let ONDState::Running { timer_contexts, .. } = &ond.state else {
+            panic!("not running");
+        };
+        (
+            timer_contexts[TimerType::RandomExploration as usize]
+                .timer_id
+                .expect("exploration timer armed"),
+            ond.exploration_interval,
+        )
+    }
+
+    fn fire_exploration(ond: &mut Ond, ctx: &Ctx) -> Duration {
+        let (timer, _) = exploration(ond);
+        ond.handle_event(ctx, UseCaseEvent::Timer(timer)).unwrap();
+        let (next, interval) = exploration(ond);
+        assert_ne!(next, timer, "next exploration is armed");
+        interval
+    }
+
+    fn contact_event(ond: &mut Ond, ctx: &Ctx, event: ContactEvent) {
+        ond.handle_event(ctx, UseCaseEvent::Contact(Box::new(event)))
+            .unwrap();
+    }
+
+    fn contact_n() -> Contact {
+        let mut path = Path::try_from(&[n()][..]).unwrap();
+        path.set_valid();
+        Contact::new(path, SafeStateSeqNr::try_from(1).unwrap())
+    }
+
+    #[test]
+    fn exploration_backs_off_without_routing_table_changes() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut ond, ctx) = setup();
+        add_contact_n(&ctx);
+        let config = ONDConfig::<BUCKET_SIZE>::default();
+        let min = config.random_exploration_interval;
+
+        // the first round after the start uses the minimum interval
+        assert_eq!(fire_exploration(&mut ond, &ctx), min);
+        assert_eq!(fire_exploration(&mut ond, &ctx), min * 2);
+        assert_eq!(fire_exploration(&mut ond, &ctx), min * 4);
+        for _ in 0..10 {
+            fire_exploration(&mut ond, &ctx);
+        }
+        assert_eq!(
+            exploration(&ond).1,
+            config.random_exploration_max_interval,
+            "interval is capped"
+        );
+    }
+
+    #[test]
+    fn new_contact_brings_exploration_forward() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut ond, ctx) = setup();
+        for _ in 0..5 {
+            fire_exploration(&mut ond, &ctx);
+        }
+        let (backed_off_timer, backed_off) = exploration(&ond);
+        let min = ONDConfig::<BUCKET_SIZE>::default().random_exploration_interval;
+        assert!(backed_off > min);
+
+        contact_event(&mut ond, &ctx, ContactEvent::New(contact_n()));
+
+        let (timer, interval) = exploration(&ond);
+        assert_eq!(interval, min);
+        assert_ne!(timer, backed_off_timer, "exploration is rescheduled");
+        assert!(ctx.runtime().removed_timers().contains(&backed_off_timer));
+        // the round after the change keeps the minimum interval
+        assert_eq!(fire_exploration(&mut ond, &ctx), min);
+        assert_eq!(fire_exploration(&mut ond, &ctx), min * 2);
+    }
+
+    #[test]
+    fn contact_update_without_new_path_or_state_is_no_progress() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut ond, ctx) = setup();
+        for _ in 0..3 {
+            fire_exploration(&mut ond, &ctx);
+        }
+        let before = exploration(&ond);
+
+        let old = contact_n();
+        let mut new = old.clone();
+        new.set_last_seen_now();
+        contact_event(
+            &mut ond,
+            &ctx,
+            ContactEvent::Updated {
+                new: Box::new(new),
+                old: Box::new(old),
+            },
+        );
+        contact_event(&mut ond, &ctx, ContactEvent::BucketUpdated(0));
+
+        assert_eq!(exploration(&ond), before);
+    }
+
+    #[test]
+    fn changed_path_ssn_and_vicinity_are_progress() {
+        let _clock = crate::tests::TestClock::new();
+        let progress_path = {
+            let old = contact_n();
+            let mut new = old.clone();
+            let mut path = Path::try_from(&[n(), NodeId::with_msb(3)][..]).unwrap();
+            path.set_valid();
+            new.set_path(path);
+            ContactEvent::Updated {
+                new: Box::new(new),
+                old: Box::new(old),
+            }
+        };
+        assert!(is_exploration_progress(&progress_path));
+        let progress_ssn = {
+            let old = contact_n();
+            let mut new = old.clone();
+            new.update_state_seq_nr(SafeStateSeqNr::try_from(2).unwrap());
+            ContactEvent::Updated {
+                new: Box::new(new),
+                old: Box::new(old),
+            }
+        };
+        assert!(is_exploration_progress(&progress_ssn));
+
+        let (mut ond, ctx) = setup();
+        for _ in 0..3 {
+            fire_exploration(&mut ond, &ctx);
+        }
+        ond.handle_event(&ctx, UseCaseEvent::Vicinity(VicinityEvent::SSNChanged))
+            .unwrap();
+        assert_eq!(
+            exploration(&ond).1,
+            ONDConfig::<BUCKET_SIZE>::default().random_exploration_interval
+        );
     }
 }
