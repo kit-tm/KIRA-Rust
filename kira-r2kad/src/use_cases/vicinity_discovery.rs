@@ -28,8 +28,11 @@ use crate::{
         Contact,
         DEFAULT_BUCKET_SIZE,
         InterfaceId,
+        Link,
         NodeId,
         Nonce,
+        NotViaState,
+        NotViaStateList,
         Path,
         ProtocolMessage,
         ProtocolMessageKind,
@@ -875,7 +878,50 @@ where
         if vg.vicinity_changed() {
             context.runtime().broadcast_event(VicinityEvent::Changed);
         }
+        drop(vg);
+
+        // contacts must not keep using links that disappeared from the vicinity
+        let removed_links: Vec<Link> = removed_source_neighbors
+            .iter()
+            .map(|neighbor| Link::new(*source_node, *neighbor))
+            .collect();
+        Self::invalidate_contacts_via_links(context, &removed_links);
         false
+    }
+
+    /// Invalidates the contacts whose active path contains one of the (failed) links, so that
+    /// failure handling finds another path. The links are reported as NotVia.
+    fn invalidate_contacts_via_links(context: &C, links: &[Link]) {
+        if links.is_empty() {
+            return;
+        }
+        let now = Timestamp::now();
+        let mut routing_table = context.routing_table_mut();
+        for mut contact in routing_table.iter_mut() {
+            let Some(path) = contact.path() else {
+                continue;
+            };
+            let not_via: Vec<NotViaState> = links
+                .iter()
+                .filter(|link| path.contains_link(link))
+                .map(|link| NotViaState::new(link.clone(), now))
+                .collect();
+            if not_via.is_empty() || !contact.is_valid() {
+                continue;
+            }
+            tracing::debug!(
+                target: "vicinity_discovery",
+                node = %contact.id(),
+                path = %path,
+                reason = "link_removed_from_vicinity",
+                "invalidating contact",
+            );
+            contact.set_invalid(NotViaStateList::from(
+                not_via
+                    .into_iter()
+                    .collect::<std::collections::HashSet<_>>(),
+            ));
+        }
     }
 
     /// Records the round-trip time of a request at the responding contact, if the response
@@ -2939,5 +2985,46 @@ mod tests {
             Some(ulnid())
         );
         assert_eq!(*ctx.uln_table().state_seq_nr(), ssn);
+    }
+
+    #[test]
+    fn link_removed_from_vicinity_invalidates_contacts_using_it() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut vd, ctx, _) = setup(VicinityDiscoveryConfig::default(), true);
+        ctx.vicinity_graph_mut()
+            .insert(two_hop(), &uln(), ssn(1))
+            .unwrap();
+        let behind = NodeId::with_msb(4);
+        let other = NodeId::with_msb(5);
+        add_contact(&ctx, &[uln()]);
+        add_contact(&ctx, &[uln(), two_hop(), behind]);
+        add_contact(&ctx, &[uln(), other]);
+
+        // the neighbor lost its link to two_hop
+        let ProtocolMessage::ULNDiscRsp(rsp) =
+            uln_disc_message(ProtocolMessageKind::ULNDiscRsp, Nonce::random(), 2)
+        else {
+            unreachable!()
+        };
+        vd.process_ulndisc_reqrsp(&ctx, &rsp, true);
+
+        assert!(
+            !ctx.vicinity_graph()
+                .vicinity(&uln())
+                .any(|n| n == two_hop())
+        );
+        let rt = ctx.routing_table();
+        let crate::domain::ContactState::Invalid(not_via) = rt.contact(&behind).unwrap().state()
+        else {
+            panic!("contact via the removed link is invalidated");
+        };
+        assert!(
+            not_via
+                .nvs_list
+                .iter()
+                .any(|nvs| nvs.link == Link::new(uln(), two_hop()))
+        );
+        assert!(rt.contact(&uln()).unwrap().is_valid());
+        assert!(rt.contact(&other).unwrap().is_valid());
     }
 }
