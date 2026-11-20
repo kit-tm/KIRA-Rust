@@ -940,9 +940,10 @@ where
                         self.inflight_rediscoveries.remove_by_nonce(rsp.msg_id())
                     {
                         log::trace!(target: "failure_handling", "Removed rediscovery for {} as it got a successful answer [timer: {:?}, nonce: {:?}]", rsp.source_route.source(), timer, rsp.msg_id());
+                        // only answers to rediscovery requests; other FindNodeRsps (e.g., to
+                        // joins or random exploration) come from valid contacts all the time
+                        log::debug!(target: "failure_handling", "Rediscovery of {} was successful!", rsp.source());
                     }
-
-                    log::debug!(target: "failure_handling", "Rediscovery of {} was successful!", rsp.source());
                 } else {
                     // in pathological cases the FindNodeRsp may not validate the contact
                     // (e.g., with lower sequence number after node restart) and we should keep on
