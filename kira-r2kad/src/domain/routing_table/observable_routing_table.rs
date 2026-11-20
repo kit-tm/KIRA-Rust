@@ -271,6 +271,10 @@ where
         self.inner.is_close_contact(id)
     }
 
+    fn has_room_for(&self, contact: &Contact) -> bool {
+        self.inner.has_room_for(contact)
+    }
+
     fn split_bucket(&mut self, id: &NodeId) -> Result<usize, BucketSplitError> {
         let bucket_old = self.inner.bucket(id).clone();
         let index = self.inner.split_bucket(id)?;

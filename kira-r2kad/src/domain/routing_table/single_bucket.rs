@@ -114,6 +114,10 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
         true
     }
 
+    fn has_room_for(&self, _contact: &Contact) -> bool {
+        !self.bucket.is_full()
+    }
+
     /// Emits an [BucketSplitError::MaxBucketsReached] every time.
     fn split_bucket(&mut self, _id: &NodeId) -> Result<usize, BucketSplitError> {
         Err(BucketSplitError::MaxBucketsReached)
