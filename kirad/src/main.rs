@@ -22,6 +22,7 @@ use kira_forwarding::{
         new_connection,
         remove_forwarding_state,
     },
+    nflog::listen_dropped_packets,
     tables::native_tables::NativeFwdTables,
 };
 use kira_lib::{
@@ -60,6 +61,10 @@ const BUCKET_SIZE: usize = 3;
 #[cfg(not(feature = "small_buckets"))]
 // for large networks the recommendation is 40
 const BUCKET_SIZE: usize = 20;
+
+/// Buffer of the packets the forwarding tier dropped because of an unknown PathIP, which
+/// are discarded while it is full.
+const DROPPED_PACKETS_BUFFER: usize = 64;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -391,8 +396,20 @@ async fn main() {
                 .spawn(attach_ips)
                 .unwrap();
 
+            // packets the forwarding tier dropped because of an obsolete path
+            let (dropped_tx, dropped_rx) = tokio::sync::mpsc::channel(DROPPED_PACKETS_BUFFER);
+            tokio::task::Builder::new()
+                .name("Dropped packets (NFLOG)")
+                .spawn(async move {
+                    if let Err(e) = listen_dropped_packets(ip_prefixes, dropped_tx).await {
+                        log::warn!("No notification about packets with unknown PathIP: {e}");
+                    }
+                })
+                .unwrap();
+
             let kira =
-                Kira::with_components(r2kad, fwd_tables, underlay_updates2, pm_receiver, pm_sender);
+                Kira::with_components(r2kad, fwd_tables, underlay_updates2, pm_receiver, pm_sender)
+                    .with_dropped_packets(dropped_rx);
             let kira = tokio::task::Builder::new()
                 .name("KIRA main loop")
                 .spawn(kira.start())

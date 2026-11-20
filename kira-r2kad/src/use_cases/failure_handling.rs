@@ -976,6 +976,10 @@ where
             UseCaseEvent::UnderlayUpdate(UnderlayNeighborUpdate::UnderlayNeighborDown(ulnid)) => {
                 self.invalidate_affected_contacts(context, ulnid);
             }
+            UseCaseEvent::DroppedPacket(dropped) => {
+                // TODO: notify the encapsulator about the obsolete path (SegmentFailure)
+                log::debug!(target: "failure_handling", "Forwarding tier dropped a packet with unknown PathIP {} of {} (destination {:?})", dropped.path_ip, dropped.encapsulator, dropped.destination);
+            }
             _ => {}
         }
 

@@ -225,6 +225,7 @@ where
             debug: api_rx,
             protocol_input: pm_receiver_rx,
             underlay: underlay_rx,
+            dropped_packets: None,
         };
 
         let tx_channels = R2KadOutputChannels {
@@ -236,6 +237,17 @@ where
     }
 }
 impl<C, const BUCKET_SIZE: usize, FT> Kira<C, BUCKET_SIZE, FT> {
+    /// Feeds the data packets the forwarding tier dropped because of an unknown PathIP into
+    /// the routing protocol, e.g., from
+    /// [listen_dropped_packets](kira_forwarding::nflog::listen_dropped_packets).
+    pub fn with_dropped_packets(
+        mut self,
+        dropped_packets: channels::DroppedPacketReceiver,
+    ) -> Self {
+        self.rx_channels.dropped_packets = Some(dropped_packets);
+        self
+    }
+
     /// Create a new [Kira] instance.
     ///
     /// This instance can be started using [Kira::start].

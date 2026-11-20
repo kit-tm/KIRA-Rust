@@ -28,7 +28,10 @@ use kira_r2kad::domain::{
     UnderlayNeighborDestination,
     UnderlayNeighborId,
     UnderlayNeighborUpdate,
-    protocol_event::DebugEvent,
+    protocol_event::{
+        DebugEvent,
+        DroppedPacket,
+    },
 };
 pub use kira_r2kad::{
     Input,
@@ -58,6 +61,10 @@ pub type DebugReceiver = Receiver<DebugEvent>;
 /// This [Receiver] is used in the [R2KadInputChannels] to construct [Input::UnderlayUpdate] events.
 pub type UnderlayReceiver = Receiver<UnderlayNeighborUpdate>;
 
+/// [Receiver] of the data packets the forwarding tier dropped because of an unknown PathIP.
+///
+/// This [Receiver] is used in the [R2KadInputChannels] to construct [Input::DroppedPacket] events.
+pub type DroppedPacketReceiver = Receiver<DroppedPacket>;
 /// [Sender] of [ProtocolMessages](ProtocolMessage)  to an [UnderlayNeighborDestination].
 ///
 /// See [crate::io::sender] for implementations of message senders.
@@ -75,6 +82,8 @@ pub struct R2KadInputChannels {
     pub debug: DebugReceiver,
     pub protocol_input: MessageReceiver,
     pub underlay: UnderlayReceiver,
+    /// Only forwarding tiers reporting dropped packets provide it.
+    pub dropped_packets: Option<DroppedPacketReceiver>,
 }
 
 /// Instance output channels.
@@ -101,10 +110,23 @@ pub(super) async fn input_fan_in(input_channels: &mut R2KadInputChannels) -> Opt
         Some(api) = input_channels.debug.recv() => {
             Input::Debug(api)
         }
+        Some(dropped) = recv_optional(&mut input_channels.dropped_packets) => {
+            Input::DroppedPacket(dropped)
+        }
         else => return None,
     };
 
     Some(input)
+}
+
+/// Receives from the optional [Receiver]: [None] (disabling the branch of the
+/// [select](tokio::select)) if there is none or it is closed, which also removes it.
+async fn recv_optional<T>(receiver: &mut Option<Receiver<T>>) -> Option<T> {
+    let value = receiver.as_mut()?.recv().await;
+    if value.is_none() {
+        *receiver = None;
+    }
+    value
 }
 
 /// Distributes all [Output] events by an [OutputReceiver] to the dedicated [output

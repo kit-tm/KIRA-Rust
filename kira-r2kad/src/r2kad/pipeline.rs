@@ -267,6 +267,9 @@ where
             UseCaseEvent::Timer(id) => {
                 span!(target: "r2kad", Level::INFO, "event", "type" = "Timer", %id)
             }
+            UseCaseEvent::DroppedPacket(dropped) => {
+                span!(target: "r2kad", Level::INFO, "event", "type" = "DroppedPacket", details = ?dropped)
+            }
         }
         .entered();
 

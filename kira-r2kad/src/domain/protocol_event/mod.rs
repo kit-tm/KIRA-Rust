@@ -2,6 +2,8 @@
 
 pub mod forwarding;
 
+use std::net::Ipv6Addr;
+
 #[doc(inline)]
 pub use forwarding::{
     ForwardingTablesUpdate,
@@ -11,6 +13,7 @@ pub use forwarding::{
 
 use crate::{
     domain::{
+        NodeId,
         protocol_message::{
             Nonce,
             ProtocolMessage,
@@ -38,8 +41,24 @@ pub enum Input {
     Debug(DebugEvent),
     /// Some underlay connections where changed.
     UnderlayUpdate(UnderlayNeighborUpdate),
+    /// The forwarding tier dropped a data packet because its PathIP is unknown.
+    DroppedPacket(DroppedPacket),
     ///// Failed to send a requested [ProtocolMessage].
     //SendFailed(ProtocolMessage, UnderlayNeighborId),
+}
+
+/// A data packet the forwarding tier of this node dropped because it has no entry for its
+/// PathIP, e.g., as the link to the next hop failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DroppedPacket {
+    /// The node that encapsulated the packet with the PathIP, i.e., its last overlay hop,
+    /// which used an obsolete path.
+    pub encapsulator: NodeId,
+    /// The unknown PathIP, i.e., the PathId of the remaining path at this node (first 112
+    /// bits, see [IpPrefixes::path_ip](crate::domain::IpPrefixes::path_ip)).
+    pub path_ip: Ipv6Addr,
+    /// Destination of the encapsulated packet, if it is a NodeIP.
+    pub destination: Option<NodeId>,
 }
 
 /// Events from the [R2Kad](crate::R2Kad) protocol to respond to.
@@ -76,6 +95,7 @@ impl From<Input> for UseCaseEvent {
                 Self::InjectMessage(nonce, data)
             }
             Input::UnderlayUpdate(up) => Self::UnderlayUpdate(up),
+            Input::DroppedPacket(dropped) => Self::DroppedPacket(dropped),
         }
     }
 }

@@ -17,6 +17,7 @@ use derive_more::derive::{
 };
 use futures::StreamExt;
 use netlink_packet_core::{
+    DefaultNla,
     ErrorMessage,
     NLM_F_ACK,
     NLM_F_APPEND,
@@ -498,6 +499,20 @@ const SEG6_IPTUN_MODE_ENCAP_RED: u32 = 3;
 
 #[allow(non_upper_case_globals)]
 const ICMPv6_PROTO: u8 = 0x3a;
+/// NFLOG group of the packets with a PathIP the forwarding map has no entry for.
+///
+/// Network namespaces have their own NFLOG groups, so the constant is unique per node.
+pub const DROP_NFLOG_GROUP: u16 = 19219;
+/// Bytes of a dropped packet copied to the NFLOG message: the outer IPv6 header, the GRE
+/// header and the inner IPv6 header.
+pub(crate) const DROP_NFLOG_SNAPLEN: u32 = 128;
+/// Maximum number of dropped packets per second logged to the NFLOG group (all flows).
+const DROP_NFLOG_RATE: u64 = 50;
+/// Burst of dropped packets logged to the NFLOG group.
+const DROP_NFLOG_BURST: u32 = 20;
+/// Netfilter verdicts
+const NF_DROP: u32 = 0;
+const NF_ACCEPT: u32 = 1;
 const TYPE_IP6ADDR: u32 = 8;
 
 #[derive(Debug, Display, Error, From)]
@@ -549,6 +564,20 @@ impl ForwardingNetlink {
             &ip_prefixes,
         )
         .await?;
+        // without these rules, packets with an unknown PathIP are still not forwarded
+        if let Err(err) = create_drop_nflog_nft_rules(
+            &handle_nfnetlink,
+            KIRA_TABLE.to_string(),
+            "forwarding".to_string(),
+            &ip_prefixes,
+        )
+        .await
+        {
+            log::warn!(
+                target: "native_fwd_table::netlink",
+                "No notification about packets with unknown PathIP (NFLOG rules failed): {err}"
+            );
+        }
 
         Ok(Self {
             routes: RouteNetlink::new(handle_rtnetlink.clone(), ip_prefixes),
@@ -1352,6 +1381,9 @@ async fn create_initial_nft_rules(
                     ])
                     .into(),
                     ListAttribute::Element(vec![ExpressionAttribute::Name("notrack".to_string())]),
+                    // Packets with a rewritten PathIP must not reach the rules for missing
+                    // entries (the end of the chain accepts them anyway)
+                    verdict(NF_ACCEPT),
                 ]),
             ],
         }),
@@ -1406,5 +1438,140 @@ async fn create_initial_nft_rules(
         "KIRA's NfTables table created"
     );
 
+    Ok(())
+}
+
+/// Immediate expression setting a netfilter verdict (e.g., [NF_ACCEPT]).
+fn verdict(code: u32) -> ListAttribute<ExpressionAttribute> {
+    Expressions::Immediate(vec![
+        Immediate::DestinationRegister(Register::Verdict),
+        Immediate::Data(DataAttribute::Verdict(vec![VerdictAttribute::Code(
+            Verdict::Other(code),
+        )])),
+    ])
+    .into()
+}
+
+/// Expressions matching packets whose destination address has the given 16 bit prefix.
+fn match_16_bit_prefix(prefix: u16) -> [ListAttribute<ExpressionAttribute>; 2] {
+    [
+        Expressions::Payload(vec![
+            Payload::DestinationRegister(Register::Reg1),
+            Payload::Base(1),    // start at IPv6 header
+            Payload::Offset(24), // destination address
+            Payload::Len(2),     // 16-bit prefix
+        ])
+        .into(),
+        Expressions::Cmp(vec![
+            Cmp::SourceRegister(Register::Reg1),
+            Cmp::Op(Operator::Equal),
+            Cmp::Data(DataAttribute::Value(prefix.to_be_bytes().to_vec())),
+        ])
+        .into(),
+    ]
+}
+
+/// Creates the rules for packets whose PathIP has no entry in the forwarding map (the
+/// rewriting rule before accepts all other packets): they are logged to [DROP_NFLOG_GROUP]
+/// (rate limited) and dropped, so that the routing tier can notify the node that used the
+/// obsolete path.
+///
+/// => ip6 daddr <PATH_IP_PREFIX> limit rate <RATE>/second burst <BURST> packets
+///    log group <GROUP> snaplen <SNAPLEN>
+/// => ip6 daddr <PATH_IP_PREFIX> drop
+async fn create_drop_nflog_nft_rules(
+    handle_nfnetlink: &ConnectionHandle<NetfilterMessage>,
+    table: String,
+    forwarding_chain: String,
+    ip_prefixes: &IpPrefixes,
+) -> Result<()> {
+    // attribute numbers of the kernel's nft_limit and nft_log expressions
+    const NFTA_LIMIT_RATE: u16 = 1;
+    const NFTA_LIMIT_UNIT: u16 = 2;
+    const NFTA_LIMIT_BURST: u16 = 3;
+    const NFTA_LIMIT_TYPE: u16 = 4;
+    const NFT_LIMIT_PKTS: u32 = 0;
+    const NFTA_LOG_GROUP: u16 = 1;
+    const NFTA_LOG_SNAPLEN: u16 = 3;
+
+    let path_ip_prefix = ip_prefixes.path_ip_prefix().bits();
+    let limit = ListAttribute::from(Expressions::Other {
+        expression_type: "limit".to_string(),
+        attributes: vec![
+            DefaultNla::new(NFTA_LIMIT_RATE, DROP_NFLOG_RATE.to_be_bytes().to_vec()),
+            DefaultNla::new(NFTA_LIMIT_UNIT, 1u64.to_be_bytes().to_vec()), // per second
+            DefaultNla::new(NFTA_LIMIT_BURST, DROP_NFLOG_BURST.to_be_bytes().to_vec()),
+            DefaultNla::new(NFTA_LIMIT_TYPE, NFT_LIMIT_PKTS.to_be_bytes().to_vec()),
+        ],
+    });
+    let log = ListAttribute::from(Expressions::Other {
+        expression_type: "log".to_string(),
+        attributes: vec![
+            DefaultNla::new(NFTA_LOG_GROUP, DROP_NFLOG_GROUP.to_be_bytes().to_vec()),
+            DefaultNla::new(NFTA_LOG_SNAPLEN, DROP_NFLOG_SNAPLEN.to_be_bytes().to_vec()),
+        ],
+    });
+    let rule = |expressions: Vec<ListAttribute<ExpressionAttribute>>| {
+        let mut message = NetlinkMessage::from(NetfilterMessage::new(
+            NetfilterHeader::new(NetfilterProtoFamily::IPv6, 0, 0),
+            NfTablesMessage::NewRule(RuleMessage {
+                attributes: vec![
+                    RuleAttribute::Table(table.clone()),
+                    RuleAttribute::Chain(forwarding_chain.clone()),
+                    RuleAttribute::Expressions(expressions),
+                ],
+            }),
+        ));
+        message.header.flags |= NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_APPEND;
+        message
+    };
+    let log_rule = rule({
+        let mut expressions = match_16_bit_prefix(path_ip_prefix).to_vec();
+        expressions.extend([limit, log]);
+        expressions
+    });
+    let drop_rule = rule({
+        let mut expressions = match_16_bit_prefix(path_ip_prefix).to_vec();
+        expressions.push(verdict(NF_DROP));
+        expressions
+    });
+
+    let control = |message| {
+        let mut message = NetlinkMessage::from(NetfilterMessage::new(
+            NetfilterHeader::new(
+                NetfilterProtoFamily::Unspec,
+                0,
+                u8::from(NetfilterSubsystem::NfTables) as _,
+            ),
+            message,
+        ));
+        message.header.flags |= NLM_F_REQUEST;
+        message
+    };
+    // both rules or none: without notification, the kernel reports the missing route
+    let batch = [
+        (
+            control(ControlMessage::BatchBegin),
+            ReplyExpectation::NotExpected,
+        ),
+        (log_rule, ReplyExpectation::Expected),
+        (drop_rule, ReplyExpectation::Expected),
+        (
+            control(ControlMessage::BatchEnd),
+            ReplyExpectation::NotExpected,
+        ),
+    ];
+    let mut response =
+        handle_nfnetlink.request_batch_with_expectation(batch, SocketAddr::new(0, 0))?;
+    while let Some(response) = response.next().await {
+        if let NetlinkPayload::Error(err) = response.payload {
+            return Err(err.into());
+        }
+    }
+
+    log::debug!(
+        target: "native_fwd_table::netlink",
+        "Packets with unknown PathIP are logged to NFLOG group {DROP_NFLOG_GROUP} and dropped"
+    );
     Ok(())
 }
