@@ -790,7 +790,7 @@ class KIRANode(Node):
         return self.__format__("")
 
     def __eq__(self, other: Any) -> bool:
-        return other is KIRANode and self.name == other.name
+        return isinstance(other, KIRANode) and self.name == other.name
 
     def __hash__(self) -> int:
         return hash(self.name)
