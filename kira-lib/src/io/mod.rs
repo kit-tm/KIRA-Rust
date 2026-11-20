@@ -15,6 +15,7 @@ use derive_more::{
 
 pub mod receiver;
 pub mod sender;
+pub mod stats;
 
 /// Well-known link-local multicast address `ALL-KIRA-NODES`.
 ///
@@ -55,6 +56,7 @@ pub mod udp {
             SocketCreationErr,
             receiver::udp_tokio::UdpReceiver,
             sender::udp_tokio::UdpSender,
+            stats::MessageStats,
         },
         underlay::UnderlayObserverHandle,
     };
@@ -68,6 +70,8 @@ pub mod udp {
     /// same [tokio::net::UdpSocket].
     /// But all [ProtocolMessages](kira_r2kad::domain::ProtocolMessage) will only arrive
     /// *at one receiver* at the time.
+    ///
+    /// Both count their traffic in the same [MessageStats], see [UdpSender::stats].
     pub async fn async_channel(
         port: u16,
         format: ProtocolMessageFormat,
@@ -83,13 +87,21 @@ pub mod udp {
             .join_multicast_v6(&ALL_KIRA_NODES, 0)
             .map_err(SocketCreationErr::MulticastJoinFailed)?;
         let socket = Arc::new(udp_socket);
-        let sender = UdpSender::from_socket(socket.clone(), port, format, underlay_handle.clone());
+        let stats = Arc::new(MessageStats::new());
+        let sender = UdpSender::from_socket(
+            socket.clone(),
+            port,
+            format,
+            underlay_handle.clone(),
+            stats.clone(),
+        );
         let receiver = UdpReceiver::from_socket(
             socket,
             format,
             underlay_handle,
             excluded_interfaces,
             root_id,
+            stats,
         );
         Ok((sender, receiver))
     }

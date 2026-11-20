@@ -218,6 +218,11 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
         self.inner.split_bucket(id)
     }
 
+    fn has_room_for(&self, contact: &Contact) -> bool {
+        // protected contacts are kept outside the buckets
+        self.is_protected(contact) || self.inner.has_room_for(contact)
+    }
+
     fn bucket(&self, of: &NodeId) -> &Bucket<BUCKET_SIZE> {
         self.inner.bucket(of)
     }

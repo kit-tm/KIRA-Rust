@@ -19,6 +19,7 @@ use super::*;
 use crate::{
     domain::underlay::UnderlayNeighbor,
     format::ProtocolMessageFormat,
+    io::stats::MessageStats,
     underlay::{
         UnderlayObserverHandle,
         handle::UnderlayObserverHandleError,
@@ -45,6 +46,7 @@ pub struct UdpReceiver {
     underlay_handle: UnderlayObserverHandle,
     excluded_interfaces: HashSet<InterfaceId>,
     root_id: NodeId,
+    stats: Arc<MessageStats>,
 }
 
 impl Clone for UdpReceiver {
@@ -57,6 +59,7 @@ impl Clone for UdpReceiver {
             underlay_handle: self.underlay_handle.clone(),
             excluded_interfaces: self.excluded_interfaces.clone(),
             root_id: self.root_id,
+            stats: Arc::clone(&self.stats),
         }
     }
 }
@@ -69,6 +72,7 @@ impl UdpReceiver {
         underlay_handle: UnderlayObserverHandle,
         excluded_interfaces: HashSet<InterfaceId>,
         root_id: NodeId,
+        stats: Arc<MessageStats>,
     ) -> Self {
         // Don't receive multicast ULNHello the node sent itself.
         if let Err(err) = socket.set_multicast_loop_v6(false) {
@@ -83,6 +87,7 @@ impl UdpReceiver {
             underlay_handle,
             excluded_interfaces,
             root_id,
+            stats,
         }
     }
 
@@ -157,6 +162,7 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
             }
 
             let Some(message) = self.deserialize(&self.buffer[..received_bytes]) else {
+                self.stats.record_rx_invalid(received_bytes);
                 continue;
             };
             let span = tracing::Span::current();
@@ -176,6 +182,8 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
                 );
                 continue;
             }
+
+            self.stats.record_rx(message.kind(), received_bytes);
 
             let neighbor = UnderlayNeighbor::new(*received_from.ip(), interface_id);
             let ulnid = match self.underlay_handle.register_neighbor(neighbor).await {

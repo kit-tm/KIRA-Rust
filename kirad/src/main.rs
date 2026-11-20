@@ -74,11 +74,18 @@ struct Args {
     socket_port: u16,
     #[clap(short, long, value_parser, env = "NODE_ID")]
     root_id: Option<NodeId>,
-    /// The path to print the benchmarks after execution.
+    /// Path of a JSON file to write the R²/KAD message statistics to on shutdown.
     ///
-    /// This also enables benchmarking mode which disables logging.
+    /// It contains the sent and received messages and bytes (UDP payload and on the wire
+    /// incl. IPv6/UDP headers) in total and per message kind, also as averages per second.
     #[clap(short, long, value_parser, env = "BENCH_PATH")]
-    benchmark_path: Option<String>,
+    benchmark_path: Option<std::path::PathBuf>,
+    /// Interval in seconds for appending snapshots of the cumulative message statistics
+    /// as JSON lines to `<BENCH_PATH>.jsonl` (0 disables it).
+    ///
+    /// Requires `--benchmark-path`.
+    #[clap(long, value_parser, env = "STATS_INTERVAL", default_value_t = 0)]
+    stats_interval: u64,
     #[clap(short, long, value_parser, value_delimiter = ',')]
     excluded_interfaces: Option<Vec<u32>>,
     /// IPv6 prefix of the addresses derived from NodeIds (NodeIPs).
@@ -323,6 +330,25 @@ async fn main() {
     let addr = pm_sender.local_addr().expect("failed to get bind addr");
     tracing::info!(socket_address = %addr, "Bound to socket");
 
+    let stats = pm_sender.stats();
+    let stats_format = format!("{:?}", args.format).to_lowercase();
+    if let Some(path) = args.benchmark_path.as_ref()
+        && args.stats_interval > 0
+    {
+        let mut jsonl = path.as_os_str().to_owned();
+        jsonl.push(".jsonl");
+        tokio::task::Builder::new()
+            .name("Message statistics")
+            .spawn(kirad_lib::stats::write_periodically(
+                jsonl.into(),
+                std::time::Duration::from_secs(args.stats_interval),
+                stats.clone(),
+                root_id.to_string(),
+                stats_format.clone(),
+            ))
+            .unwrap();
+    }
+
     // GRE carries a single PathID, SRv6 one per path segment
     let path_segmentation = match args.forwarding {
         ForwardingMode::Gre => PathSegmentation::OneSegment,
@@ -450,6 +476,15 @@ async fn main() {
     tokio::select! { _ = &mut kira => {}, _ = signal => {}}
     // no more forwarding updates during the cleanup
     kira.abort();
+
+    if let Some(path) = args.benchmark_path.as_ref() {
+        match kirad_lib::stats::write_summary(path, &stats, &root_id.to_string(), &stats_format) {
+            Ok(()) => tracing::info!(path = %path.display(), "Wrote message statistics"),
+            Err(err) => {
+                tracing::error!(path = %path.display(), %err, "Writing message statistics failed")
+            }
+        }
+    }
 
     // leave no stale forwarding state behind
     match cleanup {

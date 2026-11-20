@@ -144,6 +144,8 @@ class KIRANodeApi:
 
 class KIRANode(Node):
     ENV_LOG_PATH = "KIRAD_LOG_PATH"
+    # directory for the message statistics of kirad (`<node>.json`, see kira_nest.stats)
+    ENV_STATS_DIR = "KIRA_STATS_DIR"
 
     def __init__(
         self,
@@ -205,6 +207,12 @@ class KIRANode(Node):
         env_vars["NO_COLOR"] = "1"
         env_vars["RUST_LOG"] = env_vars.get("RUST_LOG", "info")
         env_vars["RUST_BACKTRACE"] = "1"
+        # message statistics of kirad (STATS_INTERVAL is passed through as well)
+        stats_dir = env_vars.get(self.ENV_STATS_DIR)
+        if stats_dir:
+            stats_path = pathlib.Path(stats_dir).resolve()
+            stats_path.mkdir(parents=True, exist_ok=True)
+            env_vars["BENCH_PATH"] = str(stats_path / f"{self:02}.json")
 
         arg: str = " ".join(args)
         self.__kirad_binary = binary.resolve()
@@ -782,7 +790,7 @@ class KIRANode(Node):
         return self.__format__("")
 
     def __eq__(self, other: Any) -> bool:
-        return other is KIRANode and self.name == other.name
+        return isinstance(other, KIRANode) and self.name == other.name
 
     def __hash__(self) -> int:
         return hash(self.name)

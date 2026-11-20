@@ -65,6 +65,12 @@ pub struct PathProbingConfig {
     ///
     /// Default is **40s** because underlay advertising is about 30s.
     pub probe_age: Duration,
+    /// Maximum time since the active path of a close contact (in one of the two deepest
+    /// buckets) was validated before it has to be probed.
+    ///
+    /// Close contacts keep up the overlay connectivity, so their failures have to be
+    /// detected faster. Default is **10s**.
+    pub close_contact_probe_age: Duration,
     /// Maximum duration a [ProbeReq](crate::domain::ProtocolMessage::ProbeReq) is allowed to take
     /// if the probed path has no measured SRTT.
     ///
@@ -94,6 +100,12 @@ pub struct PathProbingConfig {
     pub path_setup_timeout: Duration,
     /// How paths to contacts are split into path segments.
     pub segmentation: PathSegmentation,
+    /// Minimum interval between two probes of a proposed (not yet inserted) contact,
+    /// unless the newly proposed path is shorter than the probed one.
+    ///
+    /// The same contacts are reported repeatedly (e.g., in every FindNodeRsp), but a probe
+    /// that did not get them inserted won't succeed with the same or a longer path soon.
+    pub proposed_contact_holddown: Duration,
 }
 
 impl Default for PathProbingConfig {
@@ -101,6 +113,7 @@ impl Default for PathProbingConfig {
         Self {
             check_interval: Duration::from_secs(1),
             probe_age: Duration::from_secs(40),
+            close_contact_probe_age: Duration::from_secs(10),
             request_timeout: Duration::from_millis(250),
             srtt_timeout_factor: 2,
             min_request_timeout: Duration::from_millis(50),
@@ -109,6 +122,7 @@ impl Default for PathProbingConfig {
             path_refresh_interval: Duration::from_secs(30),
             path_setup_timeout: Duration::from_secs(2),
             segmentation: PathSegmentation::default(),
+            proposed_contact_holddown: Duration::from_secs(40),
         }
     }
 }
@@ -120,6 +134,19 @@ pub enum PathProbeAction {
     ProbePath(Path),
 }
 
+/// A sent ProbeReq waiting for its answer.
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub struct InFlightProbe {
+    /// Destination of the probe
+    contact: NodeId,
+    /// Probed path
+    path: Path,
+    /// When the probe was sent first
+    sent: Timestamp,
+    /// The probe was retransmitted after its first timeout
+    retried: bool,
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub enum PathProbingState {
     Initialized,
@@ -129,13 +156,15 @@ pub enum PathProbingState {
         /// Maps timeout timers per message.
         probe_timers: HashMap<TimerId, Nonce>,
         /// Maps the in flight requests to their contacts id.
-        requests_in_flight: HashMap<Nonce, (NodeId, Path, Timestamp)>,
+        requests_in_flight: HashMap<Nonce, InFlightProbe>,
         /// Scheduled probe request, mainly for path validation of proposed paths
         scheduled_probe_requests: HashMap<PathProbeAction, Timestamp>,
         /// Timer for sending scheduled probe requests
         scheduled_sending_timer: Option<TimerId>,
         /// Last probe of a contact because of a lower StateSeqNr
         ssn_checks: Box<HashMap<NodeId, Timestamp>>,
+        /// Last probe of a proposed contact with the size of the probed path
+        proposed_probes: Box<HashMap<NodeId, (usize, Timestamp)>>,
     },
     Error,
 }
@@ -210,10 +239,17 @@ where
                         }
                     })
             };
+            let probe_age = |contact: &Contact| {
+                if rt.is_close_contact(contact.id()) {
+                    self.config.close_contact_probe_age
+                } else {
+                    self.config.probe_age
+                }
+            };
             let mut considered_contacts: Vec<_> = bucket
                 .into_iter()
                 .filter(|contact| {
-                    (validated(contact).to_age_duration() >= self.config.probe_age
+                    (validated(contact).to_age_duration() >= probe_age(contact)
                         || refresh_due(contact)) &&
                         contact.state() == &ContactState::Valid &&
                         // should never be the case
@@ -233,8 +269,10 @@ where
         }
     }
 
-    // sends out a single ProbeReq for the given path
-    // this is a one shot message without repetition, its timeout timer handles a lost probe
+    /// Sends a ProbeReq over `path_to_probe` and tracks it until its answer or timeout.
+    ///
+    /// A probe that is not answered in time is retransmitted once (see
+    /// [Self::handle_probe_timeout]).
     fn send_single_probe_req_for_path(&mut self, context: &C, path_to_probe: &Path) {
         let timeout = self.request_timeout(path_to_probe);
         let (probe_timers, requests_in_flight) = match &mut self.state {
@@ -252,7 +290,26 @@ where
             nonce = Nonce::random();
         }
 
-        let route = SourceRoute::new(*context.root_id(), path_to_probe.clone());
+        Self::send_probe_message(context, path_to_probe, nonce);
+
+        let timeout_timer = context.runtime().register_timer(timeout);
+        probe_timers.insert(timeout_timer, nonce);
+        requests_in_flight.insert(
+            nonce,
+            InFlightProbe {
+                contact: *path_to_probe.last(),
+                path: path_to_probe.clone(),
+                sent: Timestamp::now(),
+                retried: false,
+            },
+        );
+
+        log::trace!(target: "path_probing", "Sent probe {} to {} for path {:?}", nonce, path_to_probe.last(), path_to_probe);
+    }
+
+    /// Sends a ProbeReq with the nonce over the path.
+    fn send_probe_message(context: &C, path: &Path, nonce: Nonce) {
+        let route = SourceRoute::new(*context.root_id(), path.clone());
         let message = ReqRspMessage {
             common_header: CommonHeader::new(
                 ProtocolMessageKind::ProbeReq,
@@ -269,19 +326,6 @@ where
         context
             .runtime()
             .send_message(message, context.uln_table().deref(), context.root_id());
-
-        let timeout_timer = context.runtime().register_timer(timeout);
-        probe_timers.insert(timeout_timer, nonce);
-        requests_in_flight.insert(
-            nonce,
-            (
-                *path_to_probe.last(),
-                path_to_probe.clone(),
-                Timestamp::now(),
-            ),
-        );
-
-        log::trace!(target: "path_probing", "Sent probe {} to {} for path {:?}", nonce, path_to_probe.last(), path_to_probe);
     }
 
     /// Returns the timeout of a ProbeReq over the path, derived from its SRTT if measured.
@@ -322,7 +366,9 @@ where
             }
             contact.clone()
         };
-        if requests_in_flight.values().any(|(id, _, _)| id == source)
+        if requests_in_flight
+            .values()
+            .any(|probe| &probe.contact == source)
             || ssn_checks
                 .get(source)
                 .is_some_and(|last| last.to_age_duration() < self.config.ssn_check_interval)
@@ -337,52 +383,11 @@ where
     }
 
     fn send_probe_req(&mut self, context: &C, contact: &Contact) {
-        let timeout = self.request_timeout(contact.path().unwrap());
-        let (probe_timers, requests_in_flight) = match &mut self.state {
-            PathProbingState::Running {
-                probe_timers,
-                requests_in_flight,
-                ..
-            } => (probe_timers, requests_in_flight),
-            _ => panic!("Called sending probe outside of running state"),
-        };
-
-        // generate new unused nonce for our message
-        let mut nonce = Nonce::random();
-        while requests_in_flight.contains_key(&nonce) {
-            nonce = Nonce::random();
-        }
-
-        let route = SourceRoute::new(*context.root_id(), contact.path().unwrap().clone());
-        let message = ReqRspMessage {
-            common_header: CommonHeader::new(
-                ProtocolMessageKind::ProbeReq,
-                *context.root_id(),
-                *route.destination(),
-                Some(nonce),
-                *context.uln_table().state_seq_nr(),
-                context.uln_table().size(),
-            ),
-            data: ProbeReqData,
-            not_via: None,
-            source_route: route,
-        };
-        context
-            .runtime()
-            .send_message(message, context.uln_table().deref(), context.root_id());
-
-        let timeout_timer = context.runtime().register_timer(timeout);
-        probe_timers.insert(timeout_timer, nonce);
-        requests_in_flight.insert(
-            nonce,
-            (
-                *contact.id(),
-                contact.path().unwrap().clone(),
-                Timestamp::now(),
-            ),
-        );
-
-        log::trace!(target: "path_probing", "Sent probe {} to {}", nonce, contact.id());
+        let path = contact
+            .path()
+            .expect("probed contact has an active path")
+            .clone();
+        self.send_single_probe_req_for_path(context, &path);
     }
 
     fn remove_from_tracked_messages(&mut self, nonce: Nonce) {
@@ -399,19 +404,55 @@ where
         }
     }
 
-    // ProbeReq was not answered timely
-    fn invalidate_contact_for_timer(&mut self, context: &C, timer_id: TimerId) {
-        if let PathProbingState::Running {
+    /// A ProbeReq was not answered in time: it is retransmitted once with the same nonce (a
+    /// late answer to the first transmission still counts) and twice the timeout. Only if
+    /// the retransmission isn't answered either, the probed path is considered failed.
+    ///
+    /// A single lost or delayed message (e.g., at a busy node) must not invalidate a contact.
+    fn handle_probe_timeout(&mut self, context: &C, timer_id: TimerId) {
+        let PathProbingState::Running {
             requests_in_flight,
             probe_timers,
             ..
         } = &mut self.state
+        else {
+            return;
+        };
+        let nonce = probe_timers
+            .remove(&timer_id)
+            .expect("called on timeout without timer existence");
+        let Some(probe) = requests_in_flight.get_mut(&nonce) else {
+            // it may be that the contact has been removed meanwhile
+            return;
+        };
+        if probe.retried {
+            self.invalidate_contact_for_timeout(context, nonce);
+            return;
+        }
+        probe.retried = true;
+        let path = probe.path.clone();
+        let timeout = self.request_timeout(&path) * 2;
+        Self::send_probe_message(context, &path, nonce);
+        let timeout_timer = context.runtime().register_timer(timeout);
+        if let PathProbingState::Running { probe_timers, .. } = &mut self.state {
+            probe_timers.insert(timeout_timer, nonce);
+        }
+        log::debug!(target: "path_probing", "Probe {nonce} to {} not answered in time, retransmitted [path: {path}]", path.last());
+    }
+
+    // ProbeReq and its retransmission were not answered timely
+    fn invalidate_contact_for_timeout(&mut self, context: &C, nonce: Nonce) {
+        if let PathProbingState::Running {
+            requests_in_flight, ..
+        } = &mut self.state
         {
-            let nonce = probe_timers.remove(&timer_id);
-            assert!(nonce.is_some(), "called invalidate without timer existence");
-            let nonce = nonce.unwrap();
-            let contact_ts_tuple = requests_in_flight.remove(&nonce);
-            let Some((contacts_id, probed_path, ts_probe_sent)) = contact_ts_tuple else {
+            let Some(InFlightProbe {
+                contact: contacts_id,
+                path: probed_path,
+                sent: ts_probe_sent,
+                ..
+            }) = requests_in_flight.remove(&nonce)
+            else {
                 // it may be that the contact has been removed meanwhile
                 return;
             };
@@ -456,7 +497,10 @@ where
         } = &mut self.state
         {
             let contact_ts_tuple = requests_in_flight.remove(&nonce);
-            let (contacts_id, _, _) = contact_ts_tuple
+            let InFlightProbe {
+                contact: contacts_id,
+                ..
+            } = contact_ts_tuple
                 .expect("It's assumed that for every timer entry a request entry exists");
             probe_timers.retain(|_, v| *v != nonce);
 
@@ -549,7 +593,8 @@ where
         }
     }
 
-    /// Time since the probe with the given nonce was sent, if it is still tracked.
+    /// Time since the probe with the given nonce was sent, if it is still tracked and was not
+    /// retransmitted.
     fn elapsed_since_sent(&self, nonce: &Nonce) -> Option<Duration> {
         let PathProbingState::Running {
             requests_in_flight, ..
@@ -559,7 +604,9 @@ where
         };
         requests_in_flight
             .get(nonce)
-            .map(|(_, _, sent)| sent.to_age_duration())
+            // the answer of a retransmitted probe can't be matched to a transmission
+            .filter(|probe| !probe.retried)
+            .map(|probe| probe.sent.to_age_duration())
     }
 
     fn is_tracked_message(&self, nonce: &Nonce) -> bool {
@@ -607,12 +654,70 @@ where
             let old_size = requests_in_flight.len();
             requests_in_flight.retain(|nonce, v| {
                 probe_timers.values().any(|timed| timed == nonce)
-                    || now.saturating_duration_since(v.2.into()) <= self.config.request_timeout
+                    || now.saturating_duration_since(v.sent.into()) <= self.config.request_timeout
             });
             if requests_in_flight.len() < old_size {
                 log::trace!(target: "path_probing", "Garbage collect: removed {} orphaned requests", old_size-requests_in_flight.len());
             }
         }
+        if let PathProbingState::Running {
+            proposed_probes, ..
+        } = &mut self.state
+        {
+            proposed_probes.retain(|_, (_, probed)| {
+                probed.to_age_duration() < self.config.proposed_contact_holddown
+            });
+        }
+    }
+
+    /// Schedules probes of the active paths that traverse or end at `node`, whose vicinity
+    /// changed (its [StateSeqNr] increased): one of its links on these paths may have failed,
+    /// also the last link of a path to the node itself.
+    ///
+    /// Without this, a failure beyond the vicinity is only detected when the path is probed
+    /// periodically or a message over it fails.
+    fn probe_paths_via(&mut self, context: &C, node: &NodeId) {
+        if !matches!(self.state, PathProbingState::Running { .. }) {
+            return;
+        }
+        let affected: Vec<NodeId> = context
+            .routing_table()
+            .iter()
+            .filter(|contact| {
+                contact.is_valid()
+                    && contact.path().is_some_and(|path| {
+                        // a link of the node is used, unless the path is the direct link to
+                        // an underlay neighbor, which vicinity discovery keeps track of
+                        path.size() > 1 && path.contains(node)
+                    })
+            })
+            .map(|contact| *contact.id())
+            .collect();
+        if !affected.is_empty() {
+            log::debug!(target: "path_probing", "StateSeqNr of {node} increased, probing {} contacts via it", affected.len());
+        }
+        for id in affected {
+            self.schedule_path_probe_req(context, PathProbeAction::ContactActivePath(id));
+        }
+    }
+
+    /// Returns if a proposed contact should be probed over `path` and records the probe:
+    /// not if it was probed within the hold-down over a path that is not longer.
+    fn should_probe_proposed(&mut self, id: &NodeId, path: &Path) -> bool {
+        let PathProbingState::Running {
+            proposed_probes, ..
+        } = &mut self.state
+        else {
+            return false;
+        };
+        if let Some((probed_size, probed)) = proposed_probes.get(id)
+            && probed.to_age_duration() < self.config.proposed_contact_holddown
+            && path.size() >= *probed_size
+        {
+            return false;
+        }
+        proposed_probes.insert(*id, (path.size(), Timestamp::now()));
+        true
     }
 
     fn send_scheduled_probe_requests(&mut self, context: &C) {
@@ -699,6 +804,7 @@ where
             scheduled_probe_requests: HashMap::new(),
             scheduled_sending_timer: None,
             ssn_checks: Box::new(HashMap::new()),
+            proposed_probes: Box::new(HashMap::new()),
         };
 
         Ok(())
@@ -743,7 +849,7 @@ where
                 }
                 // A timeout happened before the answer was received => invalidate contact
                 if self.is_tracked_timer(&timer_id) {
-                    self.invalidate_contact_for_timer(context, timer_id);
+                    self.handle_probe_timeout(context, timer_id);
                 }
                 if self.is_scheduled_probe_timer(&timer_id) {
                     self.send_scheduled_probe_requests(context);
@@ -903,6 +1009,10 @@ where
                             log::debug!(target: "path_probing", "Not probing proposed contact {}: first hop of {path} is no underlay neighbor anymore", proposed_contact.id());
                             return Ok(());
                         }
+                        if !self.should_probe_proposed(proposed_contact.id(), path) {
+                            log::trace!(target: "path_probing", "Not probing proposed contact {} again within hold-down: {path} is not shorter", proposed_contact.id());
+                            return Ok(());
+                        }
                         log::trace!(target: "path_probing", "Probing for proposed contact with path {path}");
                         // this is not a contact yet, so we need to use the path
                         self.schedule_path_probe_req(
@@ -911,6 +1021,9 @@ where
                         );
                     }
                     ContactEvent::Updated { new, old } => {
+                        if new.state_seq_nr() > old.state_seq_nr() {
+                            self.probe_paths_via(context, new.id());
+                        }
                         // in case there is a new proposed path present, probe it in case it is not a ULN
                         if let Some(proposed_path) = new.proposed_path()
                             && proposed_path.size() > 1
@@ -937,10 +1050,13 @@ where
                         if let PathProbingState::Running {
                             scheduled_probe_requests,
                             ssn_checks,
+                            proposed_probes,
                             ..
                         } = &mut self.state
                         {
                             ssn_checks.remove(contact.id());
+                            // a removed contact may be proposed again right away, e.g., on rejoin
+                            proposed_probes.remove(contact.id());
                             scheduled_probe_requests
                                 .remove(&PathProbeAction::ContactActivePath(*contact.id()));
                             scheduled_probe_requests
@@ -1271,6 +1387,8 @@ mod tests {
         let mut clock = crate::tests::TestClock::new();
         let (mut pp, ctx, far) = setup_long_path();
         let config = PathProbingConfig::default();
+        // all contacts of the single bucket are close contacts
+        pp.config.close_contact_probe_age = config.probe_age;
         let refresh = |ctx: &Ctx| {
             let mut rt = ctx.routing_table_mut();
             let contact = rt.contact_mut(&far).unwrap();
@@ -1354,10 +1472,21 @@ mod tests {
         pp.garbage_collect_requests(&ctx);
         clock.advance(Duration::from_millis(300));
         pp.handle_event(&ctx, UseCaseEvent::Timer(timer)).unwrap();
+        assert!(
+            ctx.routing_table().contact(&c()).unwrap().is_valid(),
+            "first timeout only retransmits"
+        );
+        let retry_timer = ctx.runtime().registered_timers().last().unwrap().0;
+        // still kept beyond the fixed timeout while the retransmission is pending
+        clock.advance(Duration::from_millis(500));
+        ctx.runtime().set_current_time(clock.now());
+        pp.garbage_collect_requests(&ctx);
+        pp.handle_event(&ctx, UseCaseEvent::Timer(retry_timer))
+            .unwrap();
 
         assert!(
             ctx.routing_table().contact(&c()).unwrap().is_invalid(),
-            "timeout invalidates the contact"
+            "timeout of the retransmission invalidates the contact"
         );
     }
 
@@ -1379,8 +1508,19 @@ mod tests {
             "no SRTT of a proposed path"
         );
 
-        // neither a ProbeRsp nor an error came back
+        // neither a ProbeRsp nor an error came back, not even for the retransmission
         pp.handle_event(&ctx, UseCaseEvent::Timer(timer)).unwrap();
+        assert!(
+            ctx.routing_table()
+                .contact(&c())
+                .unwrap()
+                .proposed_path()
+                .is_some(),
+            "kept until the retransmission timed out"
+        );
+        let (retry_timer, _) = last_timer(&ctx);
+        pp.handle_event(&ctx, UseCaseEvent::Timer(retry_timer))
+            .unwrap();
 
         let contact = ctx.routing_table().contact(&c()).unwrap().clone();
         assert!(
@@ -1758,5 +1898,217 @@ mod tests {
         propose(&mut pp, &ctx, path(&[a(), b(), d()]));
 
         assert!(scheduled(&pp).is_empty());
+    }
+
+    /// Number of scheduled probes over paths to `dest`
+    fn scheduled_probes_to(pp: &PP, dest: NodeId) -> usize {
+        scheduled(pp)
+            .keys()
+            .filter(|action| matches!(action, PathProbeAction::ProbePath(p) if *p.last() == dest))
+            .count()
+    }
+
+    /// Sends the scheduled probes so that later ones are scheduled anew
+    fn send_scheduled(pp: &mut PP, ctx: &Ctx, clock: &mut crate::tests::TestClock) {
+        clock.advance(PathProbingConfig::default().scheduled_probe_delay);
+        ctx.runtime().set_current_time(clock.now());
+        pp.send_scheduled_probe_requests(ctx);
+        assert!(scheduled(pp).is_empty());
+    }
+
+    #[test]
+    fn proposed_contact_is_not_probed_again_within_holddown() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup(true);
+        propose(&mut pp, &ctx, path(&[a(), b(), d()]));
+        send_scheduled(&mut pp, &ctx, &mut clock);
+        assert_eq!(sent_probe_reqs(&ctx).len(), 1);
+
+        // reported again over the same or a longer path
+        propose(&mut pp, &ctx, path(&[a(), b(), d()]));
+        propose(&mut pp, &ctx, path(&[a(), c(), b(), d()]));
+
+        assert_eq!(scheduled_probes_to(&pp, d()), 0);
+    }
+
+    #[test]
+    fn proposed_contact_with_shorter_path_is_probed_within_holddown() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup(true);
+        propose(&mut pp, &ctx, path(&[a(), c(), b(), d()]));
+        send_scheduled(&mut pp, &ctx, &mut clock);
+
+        propose(&mut pp, &ctx, path(&[a(), b(), d()]));
+
+        assert_eq!(scheduled_probes_to(&pp, d()), 1);
+    }
+
+    #[test]
+    fn proposed_contact_is_probed_again_after_holddown() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup(true);
+        propose(&mut pp, &ctx, path(&[a(), b(), d()]));
+        send_scheduled(&mut pp, &ctx, &mut clock);
+
+        clock.advance(PathProbingConfig::default().proposed_contact_holddown);
+        propose(&mut pp, &ctx, path(&[a(), b(), d()]));
+
+        assert_eq!(scheduled_probes_to(&pp, d()), 1);
+    }
+
+    #[test]
+    fn removed_contact_is_probed_again_when_proposed() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup(true);
+        propose(&mut pp, &ctx, path(&[a(), b(), d()]));
+        send_scheduled(&mut pp, &ctx, &mut clock);
+
+        let removed = Contact::new(path(&[a(), b(), d()]), ssn());
+        pp.handle_event(
+            &ctx,
+            UseCaseEvent::Contact(Box::new(ContactEvent::Removed(removed))),
+        )
+        .unwrap();
+        propose(&mut pp, &ctx, path(&[a(), b(), d()]));
+
+        assert_eq!(scheduled_probes_to(&pp, d()), 1);
+    }
+
+    #[test]
+    fn holddown_entries_are_garbage_collected() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup(true);
+        propose(&mut pp, &ctx, path(&[a(), b(), d()]));
+        clock.advance(PathProbingConfig::default().proposed_contact_holddown);
+
+        pp.garbage_collect_requests(&ctx);
+
+        let PathProbingState::Running {
+            proposed_probes, ..
+        } = &pp.state
+        else {
+            panic!("not running");
+        };
+        assert!(proposed_probes.is_empty());
+    }
+
+    #[test]
+    fn close_contact_is_probed_after_shorter_probe_age() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup_known_ssn();
+        let config = PathProbingConfig::default();
+        assert!(config.close_contact_probe_age < config.probe_age);
+
+        clock.advance(config.close_contact_probe_age - Duration::from_secs(1));
+        pp.send_probe_reqs(&ctx);
+        assert!(sent_probe_reqs(&ctx).is_empty());
+
+        // the single bucket is the deepest one
+        clock.advance(Duration::from_secs(1));
+        pp.send_probe_reqs(&ctx);
+        assert_eq!(sent_probe_reqs(&ctx).len(), 1);
+    }
+
+    /// Hands an increase of the StateSeqNr of `node` (with the given path) to path probing.
+    fn ssn_increased(pp: &mut PP, ctx: &Ctx, node_path: &[NodeId]) {
+        let mut node_path = path(node_path);
+        node_path.set_valid();
+        let old = Contact::new(node_path, ssn());
+        let mut new = old.clone();
+        new.update_state_seq_nr(SafeStateSeqNr::try_from(2).unwrap());
+        pp.handle_event(
+            ctx,
+            UseCaseEvent::Contact(Box::new(ContactEvent::Updated {
+                new: Box::new(new),
+                old: Box::new(old),
+            })),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn ssn_increase_of_intermediate_hop_probes_paths_via_it() {
+        let _clock = crate::tests::TestClock::new();
+        // c is reached via a, b, d
+        let (mut pp, ctx) = setup(true);
+
+        ssn_increased(&mut pp, &ctx, &[a(), b()]);
+
+        assert!(
+            scheduled(&pp).contains_key(&PathProbeAction::ContactActivePath(c())),
+            "active path of c traverses b"
+        );
+    }
+
+    #[test]
+    fn ssn_increase_of_destination_probes_its_path() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup(true);
+
+        // the last link of the path (d, c) is a link of the destination
+        ssn_increased(&mut pp, &ctx, &[a(), b(), d(), c()]);
+
+        assert!(scheduled(&pp).contains_key(&PathProbeAction::ContactActivePath(c())));
+    }
+
+    #[test]
+    fn ssn_increase_of_node_not_on_path_probes_nothing() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup(true);
+
+        ssn_increased(&mut pp, &ctx, &[a(), NodeId::with_msb(6)]);
+
+        assert!(scheduled(&pp).is_empty());
+    }
+
+    #[test]
+    fn lost_probe_is_retransmitted_once_with_same_nonce() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup_known_ssn();
+        let contact = ctx.routing_table().contact(&c()).unwrap().clone();
+        pp.send_probe_req(&ctx, &contact);
+        let first = sent_probe_reqs(&ctx);
+        assert_eq!(first.len(), 1);
+        let (timer, timeout) = last_timer(&ctx);
+
+        pp.handle_event(&ctx, UseCaseEvent::Timer(timer)).unwrap();
+
+        let retransmitted = sent_probe_reqs(&ctx);
+        assert_eq!(retransmitted.len(), 1);
+        assert_eq!(retransmitted[0].msg_id(), first[0].msg_id(), "same nonce");
+        assert_eq!(
+            Path::from(retransmitted[0].source_route.clone()),
+            Path::from(first[0].source_route.clone())
+        );
+        let (_, retry_timeout) = last_timer(&ctx);
+        assert_eq!(retry_timeout, timeout * 2);
+        assert!(ctx.routing_table().contact(&c()).unwrap().is_valid());
+    }
+
+    #[test]
+    fn answer_after_retransmission_validates_without_rtt_sample() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup_known_ssn();
+        let contact = ctx.routing_table().contact(&c()).unwrap().clone();
+        assert!(contact.path().unwrap().srtt().is_none());
+        pp.send_probe_req(&ctx, &contact);
+        let request = sent_probe_reqs(&ctx).remove(0);
+        let (timer, _) = last_timer(&ctx);
+        clock.advance(Duration::from_millis(300));
+        pp.handle_event(&ctx, UseCaseEvent::Timer(timer)).unwrap();
+
+        pp.handle_event(
+            &ctx,
+            UseCaseEvent::Message(probe_rsp(&request), UnderlayNeighborSource::Local),
+        )
+        .unwrap();
+
+        let contact = ctx.routing_table().contact(&c()).unwrap().clone();
+        assert!(contact.is_valid());
+        assert!(
+            contact.path().unwrap().srtt().is_none(),
+            "answer can't be matched to a transmission"
+        );
+        assert!(!pp.is_tracked_message(&request.msg_id()));
     }
 }

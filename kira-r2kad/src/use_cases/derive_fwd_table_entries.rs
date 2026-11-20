@@ -367,6 +367,36 @@ where
             .is_some_and(|path| path.is_forwarding_established(self.config.segmentation))
     }
 
+    /// Returns if the first segment of the active path to the contact can be used by this
+    /// node: the contact needs no entry in the PathId forwarding table (underlay neighbors and
+    /// precomputed paths in the vicinity) or the entry for this path was installed (see
+    /// [Self::derive_local_entry]).
+    ///
+    /// Otherwise, packets encapsulated with the PathId of the first segment are dropped.
+    fn has_local_entry(&self, contact: &Contact) -> bool {
+        let Some(path) = contact.path() else {
+            return false;
+        };
+        if contact.is_uln()
+            || PathSegments::split(path, self.config.segmentation)
+                .first()
+                .len()
+                < VICINITY_RADIUS
+        {
+            return true;
+        }
+        let (out_path_id, _) = self.segment_path_ids(path);
+        matches!(
+            &self.state,
+            DeriveFwdTableEntriesState::Running { local_entries, .. }
+                if local_entries.get(contact.id()).is_some_and(|entry| matches!(
+                    entry,
+                    PathIdEntry::Forward(PathIdForwardingEntry { out_path_id: local, .. })
+                        if local == &out_path_id
+                ))
+        )
+    }
+
     /// Returns the [PathId]s of the first and second [segment](PathSegments) of the path.
     fn segment_path_ids(&self, path: &Path) -> (PathId, Option<PathId>) {
         let segments = PathSegments::split(path, self.config.segmentation);
@@ -473,7 +503,9 @@ where
         // Proximity Neighbor Selection:
         // Select contact with shortest path in bucket as prefix entry
         let Some(closest) = iter
-            .filter(|c| c.is_valid() && self.is_forwarding_established(c))
+            .filter(|c| {
+                c.is_valid() && self.is_forwarding_established(c) && self.has_local_entry(c)
+            })
             .min_by_key(|c| {
                 c.path()
                     .expect("valid contact should have an active path")
@@ -1553,6 +1585,42 @@ mod tests {
             assert_eq!(encaps[0].second_path_id, Some(hash(4..=7)));
             assert_eq!(installed.len(), 1);
             assert_eq!(installed[0].in_path_id(), &hash(1..=4));
+        }
+
+        #[test]
+        fn bucket_entry_only_uses_contacts_with_installed_local_entry() {
+            let _clock = crate::tests::TestClock::new();
+            let (mut use_case, ctx) = setup();
+            let established = |hops| {
+                let mut contact = contact(hops);
+                contact
+                    .path_mut()
+                    .unwrap()
+                    .update_last_path_refresh(Timestamp::now());
+                contact
+            };
+            // the establishment of x was not notified, so its local entry is missing
+            let x = established(6); // 2 3 4 | 5 6 7
+            let y = established(7); // 2 3 4 5 | 5 6 7 8
+            ctx.routing_table_mut().add(x).unwrap();
+            ctx.routing_table_mut().add(y.clone()).unwrap();
+
+            handle(&mut use_case, &ctx, ContactEvent::New(y));
+
+            let bucket_entries: Vec<_> = ctx
+                .runtime()
+                .output()
+                .filter_map(|output| match output {
+                    Output::UpdateForwardingTables(ForwardingTablesUpdate::NodeIdTableUpdate(
+                        NodeIdTableUpdate::CreateOrUpdate(NodeIdEntry::Encapsulate(entry)),
+                    )) if entry.destination.node_id() == &node(0) => Some(entry),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(bucket_entries.len(), 1, "{bucket_entries:?}");
+            // the shorter path of x can't be used by this node yet
+            assert_eq!(bucket_entries[0].out_path_id, hash(2..=5));
+            assert_eq!(bucket_entries[0].second_path_id, Some(hash(5..=8)));
         }
 
         #[test]

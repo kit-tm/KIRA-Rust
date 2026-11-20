@@ -151,6 +151,26 @@ systemctl enable --now kirad@$(systemd-escape 4,2).service
 This will exclude the interface `4` and `2` interface from being managed by the routing daemon.
 You can obtain a list of all your interfaces by running `ip link`.
 
+## Message Statistics
+
+To measure the overhead of KIRA, `kirad` counts the sent and received R²/KAD messages
+and their bytes per message type and writes them as JSON on shutdown (SIGTERM/SIGINT):
+```sh
+kirad --benchmark-path stats.json --stats-interval 10   # or BENCH_PATH=… STATS_INTERVAL=…
+```
+- `stats.json`: totals and per message type (`per_kind`) the messages, the UDP payload bytes
+  and the bytes on the wire (incl. 48 B of IPv6/UDP headers), each also as average per second.
+  A message sent to several interfaces is counted once per interface.
+- `stats.json.jsonl` (only with `--stats-interval N`, N > 0): a snapshot of the cumulative
+  counters every N seconds, one JSON object per line, for rates over time. It survives a SIGKILL,
+  which prevents writing `stats.json`.
+
+In the NeST emulation, set `KIRA_STATS_DIR` to get a file per node and sum them up afterwards:
+```sh
+KIRA_STATS_DIR=stats STATS_INTERVAL=5 KIRA_TOPOS="tests/topos/minimal.gml" uv --project=tests/kira-test run pytest
+uv --project=tests/kira-test run python -m kira_nest.stats stats [--json]
+```
+
 ## Development
 
 You should install the following additional dependencies for development:

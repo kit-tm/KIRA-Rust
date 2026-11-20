@@ -15,14 +15,20 @@ use derive_more::{
     Display,
     Error,
 };
-use kira_r2kad::domain::UnderlayNeighborId;
+use kira_r2kad::domain::{
+    ProtocolMessageKind,
+    UnderlayNeighborId,
+};
 use tokio::net::UdpSocket;
 use tracing::Level;
 
 use super::*;
 use crate::{
     format::ProtocolMessageFormat,
-    io::ALL_KIRA_NODES,
+    io::{
+        ALL_KIRA_NODES,
+        stats::MessageStats,
+    },
     underlay::{
         UnderlayObserverHandle,
         handle::UnderlayObserverSenderClosedError,
@@ -40,6 +46,7 @@ pub struct UdpSender {
     format: ProtocolMessageFormat,
     underlay_handle: UnderlayObserverHandle,
     port: u16,
+    stats: Arc<MessageStats>,
 }
 
 impl UdpSender {
@@ -48,13 +55,21 @@ impl UdpSender {
         port: u16,
         format: ProtocolMessageFormat,
         underlay_handle: UnderlayObserverHandle,
+        stats: Arc<MessageStats>,
     ) -> Self {
         Self {
             socket,
             format,
             port,
             underlay_handle,
+            stats,
         }
+    }
+
+    /// Returns the [MessageStats] counting the traffic of this sender and of the
+    /// receiver sharing its socket.
+    pub fn stats(&self) -> Arc<MessageStats> {
+        Arc::clone(&self.stats)
     }
 
     /// Returns the [SocketAddr] the sender is using.
@@ -62,7 +77,11 @@ impl UdpSender {
         self.socket.local_addr()
     }
 
-    async fn broadcast_message(&mut self, buffer: &[u8]) -> Result<(), SenderError> {
+    async fn broadcast_message(
+        &mut self,
+        kind: ProtocolMessageKind,
+        buffer: &[u8],
+    ) -> Result<(), SenderError> {
         let indices = self.underlay_handle.get_available().await.map_err(|err| {
             tracing::error!(target: "message_sender", %err, "UnderlayObserverHandle closed");
             SenderError::Closed
@@ -85,12 +104,15 @@ impl UdpSender {
                 .await
                 .map_err(SenderError::SendError)
             {
+                self.stats.record_tx_error();
                 tracing::error!(
                     target: "message_sender",
                     interface = %interface_id,
                     addr = %ALL_KIRA_NODES,
                     %err,
                     "Multicast to interface failed unexpectedly");
+            } else {
+                self.stats.record_tx(kind, buffer.len());
             }
         }
         Ok(())
@@ -153,6 +175,7 @@ impl AsyncProtocolMessageSender for UdpSender {
         M: Into<ProtocolMessage> + Send + Sync + std::fmt::Debug,
     {
         let message = message.into();
+        let kind = message.kind();
 
         let mut buffer = Vec::new();
         {
@@ -167,12 +190,14 @@ impl AsyncProtocolMessageSender for UdpSender {
         if let Some(receiver_addr) = self.get_receiver_addr(destination).await? {
             tracing::trace!( target: "message_sender", %receiver_addr, "Sending ProtocolMessage");
 
-            self.socket
-                .send_to(&buffer[..buffer.len()], receiver_addr)
-                .await?;
+            if let Err(err) = self.socket.send_to(&buffer, receiver_addr).await {
+                self.stats.record_tx_error();
+                return Err(err.into());
+            }
+            self.stats.record_tx(kind, buffer.len());
         } else {
             tracing::trace!( target: "message_sender", "Broadcasting ProtocolMessage");
-            self.broadcast_message(&buffer).await?;
+            self.broadcast_message(kind, &buffer).await?;
         }
 
         Ok(())

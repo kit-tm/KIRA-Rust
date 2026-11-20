@@ -153,6 +153,12 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     /// This doesn't require a [Contact] inside the [Bucket] with the id.
     fn split_bucket(&mut self, id: &NodeId) -> Result<usize, BucketSplitError>;
 
+    /// Returns if the [Contact] (not present yet) could be added without replacing another
+    /// one: its [Bucket] has room, could be split, or the contact is kept outside the buckets.
+    ///
+    /// This allows checking whether validating a path of an unknown contact is worth it.
+    fn has_room_for(&self, contact: &Contact) -> bool;
+
     /// Returns the Bucket the [NodeId] should be located in based on the
     /// current state of the [RoutingTable].
     fn bucket(&self, of: &NodeId) -> &Bucket<BUCKET_SIZE>;

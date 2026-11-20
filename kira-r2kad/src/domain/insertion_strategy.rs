@@ -90,9 +90,19 @@ where
             if routing_table.contains(contact.id()) {
                 return self.update_existing(contact.clone(), routing_table);
             }
-            // if the contact does not exist yet, return for now
-            // interesting contacts could be saved for later
-            // TODO need to assess whether it is worth to probe the path
+            // the path of a new contact has to be validated (probed) before insertion, but
+            // only if the validated contact would be accepted: otherwise it is dropped after
+            // the probe and probed again whenever it is reported
+            if !Self::is_worth_validating(&contact, routing_table) {
+                tracing::trace!(
+                    target: "insertion_strategy",
+                    node = %contact.id(),
+                    %contact,
+                    reason = "bucket full without contact with longer path",
+                    "not validating reported contact",
+                );
+                return InsertionStrategyResult::Dropped;
+            }
             return InsertionStrategyResult::NeedsValidation;
         }
 
@@ -128,6 +138,20 @@ where
                 InsertionStrategyResult::NeedsValidation
             }
         }
+    }
+
+    /// Returns if a contact that is not in the routing table yet would be accepted once its
+    /// path is validated: there is room for it, or it can replace a contact with a longer
+    /// path, see [Self::replace_in_full_bucket].
+    fn is_worth_validating(contact: &Contact, table: &RT) -> bool {
+        let Some(path) = contact.path() else {
+            return false;
+        };
+        table.has_room_for(contact)
+            || table
+                .bucket(contact.id())
+                .iter()
+                .any(|c| c.path().is_some_and(|p| p.size() > path.size()))
     }
 
     /// Update an existing contact in the table instead of inserting.
@@ -766,6 +790,66 @@ mod tests {
         let result = strategy.insert(contact(&[uln, NodeId::from(99)], 1), &mut rt, &un);
 
         assert_eq!(result, InsertionStrategyResult::Dropped);
+        assert!(!rt.contains(&NodeId::from(99)));
+    }
+
+    /// Fills the single bucket with contacts reached via `uln` and paths of `path_len` nodes.
+    fn fill_bucket(
+        strategy: &mut UNSStrategy<
+            SingleBucketRT<BUCKET_SIZE>,
+            InOrderCycleRemover,
+            NoopSimplifier,
+            BUCKET_SIZE,
+        >,
+        rt: &mut SingleBucketRT<BUCKET_SIZE>,
+        un: &InMemoryULNTable,
+        uln: NodeId,
+        path_len: u128,
+    ) {
+        for i in 0..u128::try_from(BUCKET_SIZE).unwrap() {
+            let mut path = vec![uln];
+            path.extend((2..path_len).map(|hop| NodeId::from(100 + i * 10 + hop)));
+            path.push(NodeId::from(10 + i));
+            assert_eq!(
+                strategy.insert(contact(&path, 1), rt, un),
+                InsertionStrategyResult::Inserted
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_contact_for_full_bucket_is_not_validated() {
+        let _clock = crate::tests::TestClock::new();
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let uln = NodeId::from(1);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+        fill_bucket(&mut strategy, &mut rt, &un, uln, 2);
+
+        // a validated contact would be dropped, so its path is not worth probing
+        let result = strategy.insert(unknown_contact(&[uln, NodeId::from(99)], 1), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::Dropped);
+        assert!(!rt.contains(&NodeId::from(99)));
+    }
+
+    #[test]
+    fn unknown_contact_replacing_longer_path_needs_validation() {
+        let _clock = crate::tests::TestClock::new();
+        crate::tests::init();
+        let root = NodeId::ZERO;
+        let uln = NodeId::from(1);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(root);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+        fill_bucket(&mut strategy, &mut rt, &un, uln, 3);
+
+        // the shorter path could replace a stored contact (PNS) once validated
+        let result = strategy.insert(unknown_contact(&[uln, NodeId::from(99)], 1), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::NeedsValidation);
         assert!(!rt.contains(&NodeId::from(99)));
     }
 
