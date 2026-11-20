@@ -94,6 +94,12 @@ pub struct PathProbingConfig {
     pub path_setup_timeout: Duration,
     /// How paths to contacts are split into path segments.
     pub segmentation: PathSegmentation,
+    /// Minimum interval between two probes of a proposed (not yet inserted) contact,
+    /// unless the newly proposed path is shorter than the probed one.
+    ///
+    /// The same contacts are reported repeatedly (e.g., in every FindNodeRsp), but a probe
+    /// that did not get them inserted won't succeed with the same or a longer path soon.
+    pub proposed_contact_holddown: Duration,
 }
 
 impl Default for PathProbingConfig {
@@ -109,6 +115,7 @@ impl Default for PathProbingConfig {
             path_refresh_interval: Duration::from_secs(30),
             path_setup_timeout: Duration::from_secs(2),
             segmentation: PathSegmentation::default(),
+            proposed_contact_holddown: Duration::from_secs(40),
         }
     }
 }
@@ -136,6 +143,8 @@ pub enum PathProbingState {
         scheduled_sending_timer: Option<TimerId>,
         /// Last probe of a contact because of a lower StateSeqNr
         ssn_checks: Box<HashMap<NodeId, Timestamp>>,
+        /// Last probe of a proposed contact with the size of the probed path
+        proposed_probes: Box<HashMap<NodeId, (usize, Timestamp)>>,
     },
     Error,
 }
@@ -613,6 +622,33 @@ where
                 log::trace!(target: "path_probing", "Garbage collect: removed {} orphaned requests", old_size-requests_in_flight.len());
             }
         }
+        if let PathProbingState::Running {
+            proposed_probes, ..
+        } = &mut self.state
+        {
+            proposed_probes.retain(|_, (_, probed)| {
+                probed.to_age_duration() < self.config.proposed_contact_holddown
+            });
+        }
+    }
+
+    /// Returns if a proposed contact should be probed over `path` and records the probe:
+    /// not if it was probed within the hold-down over a path that is not longer.
+    fn should_probe_proposed(&mut self, id: &NodeId, path: &Path) -> bool {
+        let PathProbingState::Running {
+            proposed_probes, ..
+        } = &mut self.state
+        else {
+            return false;
+        };
+        if let Some((probed_size, probed)) = proposed_probes.get(id)
+            && probed.to_age_duration() < self.config.proposed_contact_holddown
+            && path.size() >= *probed_size
+        {
+            return false;
+        }
+        proposed_probes.insert(*id, (path.size(), Timestamp::now()));
+        true
     }
 
     fn send_scheduled_probe_requests(&mut self, context: &C) {
@@ -699,6 +735,7 @@ where
             scheduled_probe_requests: HashMap::new(),
             scheduled_sending_timer: None,
             ssn_checks: Box::new(HashMap::new()),
+            proposed_probes: Box::new(HashMap::new()),
         };
 
         Ok(())
@@ -903,6 +940,10 @@ where
                             log::debug!(target: "path_probing", "Not probing proposed contact {}: first hop of {path} is no underlay neighbor anymore", proposed_contact.id());
                             return Ok(());
                         }
+                        if !self.should_probe_proposed(proposed_contact.id(), path) {
+                            log::trace!(target: "path_probing", "Not probing proposed contact {} again within hold-down: {path} is not shorter", proposed_contact.id());
+                            return Ok(());
+                        }
                         log::trace!(target: "path_probing", "Probing for proposed contact with path {path}");
                         // this is not a contact yet, so we need to use the path
                         self.schedule_path_probe_req(
@@ -937,10 +978,13 @@ where
                         if let PathProbingState::Running {
                             scheduled_probe_requests,
                             ssn_checks,
+                            proposed_probes,
                             ..
                         } = &mut self.state
                         {
                             ssn_checks.remove(contact.id());
+                            // a removed contact may be proposed again right away, e.g., on rejoin
+                            proposed_probes.remove(contact.id());
                             scheduled_probe_requests
                                 .remove(&PathProbeAction::ContactActivePath(*contact.id()));
                             scheduled_probe_requests
@@ -1759,4 +1803,97 @@ mod tests {
 
         assert!(scheduled(&pp).is_empty());
     }
+
+    /// Number of scheduled probes over paths to `dest`
+    fn scheduled_probes_to(pp: &PP, dest: NodeId) -> usize {
+        scheduled(pp)
+            .keys()
+            .filter(|action| matches!(action, PathProbeAction::ProbePath(p) if *p.last() == dest))
+            .count()
+    }
+
+    /// Sends the scheduled probes so that later ones are scheduled anew
+    fn send_scheduled(pp: &mut PP, ctx: &Ctx, clock: &mut crate::tests::TestClock) {
+        clock.advance(PathProbingConfig::default().scheduled_probe_delay);
+        ctx.runtime().set_current_time(clock.now());
+        pp.send_scheduled_probe_requests(ctx);
+        assert!(scheduled(pp).is_empty());
+    }
+
+    #[test]
+    fn proposed_contact_is_not_probed_again_within_holddown() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup(true);
+        propose(&mut pp, &ctx, path(&[a(), b(), d()]));
+        send_scheduled(&mut pp, &ctx, &mut clock);
+        assert_eq!(sent_probe_reqs(&ctx).len(), 1);
+
+        // reported again over the same or a longer path
+        propose(&mut pp, &ctx, path(&[a(), b(), d()]));
+        propose(&mut pp, &ctx, path(&[a(), c(), b(), d()]));
+
+        assert_eq!(scheduled_probes_to(&pp, d()), 0);
+    }
+
+    #[test]
+    fn proposed_contact_with_shorter_path_is_probed_within_holddown() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup(true);
+        propose(&mut pp, &ctx, path(&[a(), c(), b(), d()]));
+        send_scheduled(&mut pp, &ctx, &mut clock);
+
+        propose(&mut pp, &ctx, path(&[a(), b(), d()]));
+
+        assert_eq!(scheduled_probes_to(&pp, d()), 1);
+    }
+
+    #[test]
+    fn proposed_contact_is_probed_again_after_holddown() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup(true);
+        propose(&mut pp, &ctx, path(&[a(), b(), d()]));
+        send_scheduled(&mut pp, &ctx, &mut clock);
+
+        clock.advance(PathProbingConfig::default().proposed_contact_holddown);
+        propose(&mut pp, &ctx, path(&[a(), b(), d()]));
+
+        assert_eq!(scheduled_probes_to(&pp, d()), 1);
+    }
+
+    #[test]
+    fn removed_contact_is_probed_again_when_proposed() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup(true);
+        propose(&mut pp, &ctx, path(&[a(), b(), d()]));
+        send_scheduled(&mut pp, &ctx, &mut clock);
+
+        let removed = Contact::new(path(&[a(), b(), d()]), ssn());
+        pp.handle_event(
+            &ctx,
+            UseCaseEvent::Contact(Box::new(ContactEvent::Removed(removed))),
+        )
+        .unwrap();
+        propose(&mut pp, &ctx, path(&[a(), b(), d()]));
+
+        assert_eq!(scheduled_probes_to(&pp, d()), 1);
+    }
+
+    #[test]
+    fn holddown_entries_are_garbage_collected() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup(true);
+        propose(&mut pp, &ctx, path(&[a(), b(), d()]));
+        clock.advance(PathProbingConfig::default().proposed_contact_holddown);
+
+        pp.garbage_collect_requests(&ctx);
+
+        let PathProbingState::Running {
+            proposed_probes, ..
+        } = &pp.state
+        else {
+            panic!("not running");
+        };
+        assert!(proposed_probes.is_empty());
+    }
+
 }
