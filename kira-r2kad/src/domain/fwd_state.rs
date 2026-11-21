@@ -17,12 +17,14 @@ use std::{
         HashMap,
         hash_map::Entry,
     },
+    net::Ipv6Addr,
     time::Duration,
 };
 
 use bitflags::bitflags;
 
 use crate::domain::{
+    Link,
     PathId,
     Timestamp,
     UnderlayNeighborId,
@@ -114,9 +116,42 @@ impl FwdStateEntry {
 #[derive(Debug, Default)]
 pub struct PathIdFwdState {
     entries: HashMap<PathId, FwdStateEntry>,
+    /// Incoming PathIds of entries removed because a link of their path failed, with the
+    /// failed link and when it was recorded (see [Self::lost_link])
+    lost_paths: HashMap<PathId, (Link, Timestamp)>,
+}
+
+/// How long the failed link of a removed entry is remembered, to name it to nodes still
+/// using the path (see [PathIdFwdState::lost_link]).
+pub const LOST_PATH_MEMORY: Duration = Duration::from_secs(30);
+
+/// Returns if the PathIP (containing the first 112 bits of a [PathId]) belongs to the
+/// [PathId], independent of the PathIP prefix.
+fn is_path_ip_of(path_ip: &Ipv6Addr, path_id: &PathId) -> bool {
+    path_id.as_ref().get(..14) == Some(&path_ip.octets()[2..])
 }
 
 impl PathIdFwdState {
+    /// Records that the entry with the incoming [PathId] was (or is about to be) removed
+    /// because the link of its path failed.
+    pub fn record_lost_path(&mut self, in_path_id: PathId, failed_link: Link) {
+        self.lost_paths
+            .retain(|_, (_, recorded)| recorded.to_age_duration() <= LOST_PATH_MEMORY);
+        self.lost_paths
+            .insert(in_path_id, (failed_link, Timestamp::now()));
+    }
+
+    /// Returns the failed link of the path of a removed entry recorded within
+    /// [LOST_PATH_MEMORY], identified by the PathIP of its incoming [PathId].
+    pub fn lost_link(&self, path_ip: &Ipv6Addr) -> Option<&Link> {
+        self.lost_paths
+            .iter()
+            .find(|(path_id, (_, recorded))| {
+                is_path_ip_of(path_ip, path_id) && recorded.to_age_duration() <= LOST_PATH_MEMORY
+            })
+            .map(|(_, (link, _))| link)
+    }
+
     /// Returns the entry with the given incoming [PathId].
     pub fn get(&self, in_path_id: &PathId) -> Option<&FwdStateEntry> {
         self.entries.get(in_path_id)
@@ -546,5 +581,22 @@ mod tests {
         expected.sort_by_key(|id| id.as_ref().to_vec());
         assert_eq!(removed, expected);
         assert_eq!(state.len(), 2);
+    }
+
+    #[test]
+    fn failed_link_of_lost_path_is_found_by_its_path_ip() {
+        let mut clock = crate::tests::TestClock::new();
+        let mut state = PathIdFwdState::default();
+        let lost = PathId::from_shake256(&[NodeId::with_msb(1), NodeId::with_msb(2)]);
+        let other = PathId::from_shake256(&[NodeId::with_msb(1), NodeId::with_msb(3)]);
+        let link = Link::new(NodeId::with_msb(1), NodeId::with_msb(2));
+        let prefixes = crate::domain::IpPrefixes::default();
+
+        state.record_lost_path(lost.clone(), link.clone());
+
+        assert_eq!(state.lost_link(&prefixes.path_ip(&lost)), Some(&link));
+        assert_eq!(state.lost_link(&prefixes.path_ip(&other)), None);
+        clock.advance(LOST_PATH_MEMORY + Duration::from_millis(1));
+        assert_eq!(state.lost_link(&prefixes.path_ip(&lost)), None, "forgotten");
     }
 }

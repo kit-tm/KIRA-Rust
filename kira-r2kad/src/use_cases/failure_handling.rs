@@ -70,17 +70,9 @@ use crate::{
 };
 
 const REDISCOVERY_WAITTIME_RATELIMIT: Duration = Duration::from_millis(100);
-/// How long the PathIds forwarded via a lost underlay neighbor are remembered, to name the
-/// failed link to nodes still using such a path (see [DroppedPacket]).
-const LOST_PATH_MEMORY: Duration = Duration::from_secs(30);
 /// Minimum interval between two notifications of the same node about the same obsolete path.
 const DROPPED_PACKET_NOTIFICATION_INTERVAL: Duration = Duration::from_secs(1);
 
-/// Returns if the PathIP (containing the first 112 bits of a [PathId]) belongs to the
-/// [PathId], independent of the PathIP prefix.
-fn is_path_ip_of(path_ip: &Ipv6Addr, path_id: &PathId) -> bool {
-    path_id.as_ref().get(..14) == Some(&path_ip.octets()[2..])
-}
 const REDISCOVERY_WAITTIME_ULN: Duration = Duration::from_millis(100);
 const REDISCOVERY_WAITTIME_CLOSEST_NEIGHBORS: Duration = Duration::from_millis(500);
 const REDISCOVERY_WAITTIME_CONTACT_WITH_ULN: Duration = Duration::from_millis(1000);
@@ -213,9 +205,6 @@ pub struct FailureHandling<C, const BUCKET_SIZE: usize> {
     rate_limit_rediscoveries: HashMap<TimerId, NodeId>,
     /// Contacts with a proposed vicinity alternative and their postponed rediscovery timer
     pending_vicinity_alternatives: HashMap<NodeId, TimerId>,
-    /// Incoming PathIds of entries that forwarded via a lost underlay neighbor, with the
-    /// neighbor and when it was lost
-    lost_paths: HashMap<PathId, (NodeId, Timestamp)>,
     /// Last notification about a dropped packet per encapsulator and PathIP
     dropped_packet_notifications: HashMap<(NodeId, Ipv6Addr), Timestamp>,
 }
@@ -230,7 +219,6 @@ impl<C, const BUCKET_SIZE: usize> FailureHandling<C, BUCKET_SIZE> {
             scheduled_rediscoveries: HashMap::new(),
             rate_limit_rediscoveries: HashMap::new(),
             pending_vicinity_alternatives: HashMap::new(),
-            lost_paths: HashMap::new(),
             dropped_packet_notifications: HashMap::new(),
         }
     }
@@ -830,16 +818,19 @@ where
         ulnid: &UnderlayNeighborId,
         neighbors: &HashSet<NodeId>,
     ) {
-        self.lost_paths
-            .retain(|_, (_, lost)| lost.to_age_duration() <= LOST_PATH_MEMORY);
         let [neighbor] = neighbors.iter().collect::<Vec<_>>()[..] else {
             return;
         };
-        let now = Timestamp::now();
-        for (in_path_id, entry) in context.fwd_state().iter() {
-            if entry.next_hop() == Some(ulnid) {
-                self.lost_paths.insert(in_path_id.clone(), (*neighbor, now));
-            }
+        let lost: Vec<PathId> = context
+            .fwd_state()
+            .iter()
+            .filter(|(_, entry)| entry.next_hop() == Some(ulnid))
+            .map(|(in_path_id, _)| in_path_id.clone())
+            .collect();
+        let failed_link = Link::new(*context.root_id(), *neighbor);
+        let mut fwd_state = context.fwd_state_mut();
+        for in_path_id in lost {
+            fwd_state.record_lost_path(in_path_id, failed_link.clone());
         }
     }
 
@@ -861,15 +852,7 @@ where
         self.dropped_packet_notifications
             .retain(|_, last| last.to_age_duration() < DROPPED_PACKET_NOTIFICATION_INTERVAL);
 
-        let Some(lost_neighbor) = self
-            .lost_paths
-            .iter()
-            .find(|(path_id, (_, lost))| {
-                is_path_ip_of(&dropped.path_ip, path_id)
-                    && lost.to_age_duration() <= LOST_PATH_MEMORY
-            })
-            .map(|(_, (neighbor, _))| *neighbor)
-        else {
+        let Some(failed_link) = context.fwd_state().lost_link(&dropped.path_ip).cloned() else {
             log::debug!(target: "failure_handling", "Dropped packet of {} with PathIP {}: failed link unknown, no notification", dropped.encapsulator, dropped.path_ip);
             return;
         };
@@ -887,11 +870,10 @@ where
                 .and_then(|contact| contact.path().cloned())
         };
         let Some(path) = path else {
-            log::debug!(target: "failure_handling", "No route to {} to notify it about failed link to {lost_neighbor}", dropped.encapsulator);
+            log::debug!(target: "failure_handling", "No route to {} to notify it about failed link {failed_link}", dropped.encapsulator);
             return;
         };
 
-        let failed_link = Link::new(root_id, lost_neighbor);
         log::debug!(target: "failure_handling", "Notifying {} about failed link {failed_link} of its obsolete path (PathIP {}) via {path}", dropped.encapsulator, dropped.path_ip);
         let message = ReqRspMessage {
             common_header: CommonHeader::new(
@@ -1669,7 +1651,7 @@ mod tests {
     fn lost_paths_are_forgotten() {
         let mut clock = crate::tests::TestClock::new();
         let (mut fh, ctx, in_path_id) = setup_lost_path();
-        clock.advance(LOST_PATH_MEMORY + Duration::from_secs(1));
+        clock.advance(crate::domain::fwd_state::LOST_PATH_MEMORY + Duration::from_secs(1));
 
         fh.handle_event(&ctx, dropped(&in_path_id)).unwrap();
 
