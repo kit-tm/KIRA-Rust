@@ -97,10 +97,6 @@ impl<const BUCKET_SIZE: usize, const ACC: u8> FlatRoutingTable<BUCKET_SIZE, ACC>
         (1 << ACC) - 1
     }
 
-    const fn first_bucket_on_level(index: usize) -> usize {
-        index - (index % Self::level_width())
-    }
-
     /// Returns a [NonZeroUsize] version of *ACC*. Workaround for using
     /// [NonZeroUsize] in const generics.
     const fn non_zero_acc() -> NonZeroU8 {
@@ -126,6 +122,46 @@ impl<const BUCKET_SIZE: usize, const ACC: u8> FlatRoutingTable<BUCKET_SIZE, ACC>
     fn bucket_mut(&mut self, of: &NodeId) -> &mut Bucket<BUCKET_SIZE> {
         let index = self.get_bucket_index(of);
         self.buckets.index_mut(index)
+    }
+
+    /// Indices of all [Bucket]s in _ascending_ XOR distance of their prefix to `target`.
+    fn buckets_by_distance(&self, target: &NodeId) -> impl Iterator<Item = usize> {
+        let width = Self::level_width();
+        let last = self.buckets.len() - 1;
+        let levels = last / width;
+        let root_xor_target = self
+            .root
+            .shared_prefix_len(target, Self::non_zero_acc())
+            .expect("grouping is checked on initialization")
+            .xor;
+        let target_xor_root = move |level: usize| {
+            // Example: root = 10 11 [11] 00 11 11 11
+            // level = 2; ACC=2
+            // bit_index = 14 - (2+1)*2 = 8
+            // root_bits = [11]
+            let bit_index = NodeId::BITS
+                .checked_sub((level as u8 + 1) * ACC)
+                .expect("level within NodeId size");
+            root_xor_target
+                .bits(bit_index, Self::non_zero_acc())
+                .expect("level within NodeId  size") as usize
+        };
+        // Buckets are stored in descending xor distance to root (on each level)
+        // * bucket offset on level: `width - target_xor_root(level)`
+        // * adding delta will increase XOR distance by delta
+        // => yields bucket indices in ascending order
+        let index = move |level: usize, delta: usize| {
+            level * width + width - (delta ^ target_xor_root(level))
+        };
+
+        // collect only from 0 to target_xor_root(level) on down
+        // 0..0 = {} on buckets up the target's bucket
+        let down = (0..levels)
+            .flat_map(move |level| (0..target_xor_root(level)).map(move |d| index(level, d)));
+        let up = (0..levels).rev().flat_map(move |level| {
+            (target_xor_root(level) + 1..=width).map(move |d| index(level, d))
+        });
+        down.chain(std::iter::once(last)).chain(up)
     }
 }
 
@@ -272,205 +308,35 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
         target.shared_prefix_len(&self.root, shared_prefix_grouping)?;
 
         let mut result = Vec::with_capacity(n); // reallocation result >= n unavoidable
+        //
+        let last_idx = self.buckets.len() - 1;
+        let target_idx = self.get_bucket_index(target);
+        for idx in self.buckets_by_distance(target) {
+            let contacts = self.buckets[idx].iter_valid_with_prefix(target, shared_prefix_grouping);
+            if idx == last_idx {
+                let mut contacts: Vec<_> = contacts.collect();
+                contacts.sort_unstable_by(sorter_xor);
 
-        let target_bucket_index = self.get_bucket_index(target);
-        let last_bucket_index = self.buckets.len().saturating_sub(1);
-        let level_width = Self::level_width();
-
-        let target_level_start_index = Self::first_bucket_on_level(target_bucket_index);
-        let target_level = target_level_start_index / level_width;
-        assert_eq!(
-            target_level_start_index % level_width,
-            0,
-            "The start index of a level must be a multiple of the level width ({level_width})"
-        );
-
-        // Collect contacts of last bucket.
-        if target_bucket_index == last_bucket_index {
-            result.extend(
-                self.buckets[target_bucket_index]
-                    .iter_valid_with_prefix(target, shared_prefix_grouping),
-            );
-            tracing::trace!(
-                target: "routing_table::flat_routing_table",
-                index = target_bucket_index,
-                reason = "Last bucket is bucket of target",
-                "Consider valid contacts of bucket"
-            );
-
-            result.sort_unstable_by(sorter_xor);
-
-            // Prohibit return of additional valid contacts of bucket
-            // to prevent incorrect proximity neighbor selection on the false
-            // assumption that all provide the "same prefix progress".
-            tracing::trace!(
-                target: "routing_table::flat_routing_table",
-                "Truncate contacts of last bucket",
-            );
-            result.truncate(n);
-
-            if result.len() >= n || self.buckets.len() == 1 {
-                return Ok(result);
+                // Prohibit return of additional valid contacts of bucket
+                // to prevent incorrect proximity neighbor selection on the false
+                // assumption that all provide the "same prefix progress".
+                contacts.truncate(n);
+                result.extend(contacts);
+            } else if idx == target_idx {
+                // Target's bucket: Contacts can have different shared prefix
+                let mut contacts: Vec<_> = contacts.collect();
+                contacts.sort_unstable_by(sorter_xor);
+                result.extend(contacts);
+            } else {
+                result.extend(contacts);
             }
-        } else {
-            // Collect buckets _at_ level of target's bucket in descending xor-metric.
-            //
-            // We also reason about the splittable prefix to determine when to
-            // collect contacts down the tree.
 
-            // ONE: Determine the order of the buckets at level of target's bucket.
-
-            // Example: root = 10 11 [11] 00 11 11 11
-            // target_level = 2; ACC=2
-            // bit_index = 14 - (2+1)*2 = 8
-            // root_bits = [11]
-            let bit_index = NodeId::BITS
-                .checked_sub((target_level + 1) as u8 * ACC)
-                .expect("target_level exceeds the maximum possible depth for the NodeId size");
-            // Bits at the current level that determine the bucket index.
-            let root_bits_at_level =
-                self.root
-                    .bits(bit_index, Self::non_zero_acc())
-                    .expect("target_level depth exceeds NodeId bit size") as usize;
-            let target_bits_at_level = target
-                .bits(bit_index, Self::non_zero_acc())
-                .expect("target_level depth exceeds NodeId bit size")
-                as usize;
-
-            // Determine the order of buckets at this level based on their XOR distance to the target.
-            // We include 'level_width' to represent the path to deeper levels (the "splittable" prefix).
-            let target_xor_root_at_level = root_bits_at_level ^ target_bits_at_level;
-            let mut sorted_offsets_at_level: Vec<_> = (0..=level_width)
-                .map(|relative_offset| {
-                    // Buckets are stored in the table per level by descending xor-metric to root
-                    // An additional xor by 'target_bits_at_level' yields XOR-distance to the target.
-                    let bucket_xor_target =
-                        (level_width - relative_offset) ^ target_xor_root_at_level;
-
-                    (relative_offset, bucket_xor_target)
-                })
-                .collect();
-            // sort by xor of bucket prefix bits to corresponding target bits
-            sorted_offsets_at_level.sort_unstable_by_key(|(_, xor)| *xor);
-
-            debug_assert_eq!(
-                target_level * level_width + sorted_offsets_at_level[0].0,
-                target_bucket_index,
-                "Collect target's bucket first"
-            );
-
-            // TWO: Collect contacts of buckets in descending xor-metric order.
-
-            let level_span = tracing::trace_span!(
-                target: "routing_table::flat_routing_table",
-                "Collecting nodes of level",
-                level = target_level,
-                reason = "Bucket-level of target",
-            );
-            for (bucket_offset, _) in sorted_offsets_at_level {
-                if bucket_offset == level_width {
-                    // Splittable bucket prefix: Explore deeper levels.
-                    //
-                    // All contacts of deeper buckets share the prefix of the root up to and
-                    // including this level, so they all make the same prefix progress
-                    // towards the target and their order by XOR-metric is determined by
-                    // bits of deeper levels. Buckets of deeper levels aren't ordered by
-                    // XOR-metric to the target (e.g., the bucket of the next level is
-                    // farther than all buckets below it if the target shares the root's
-                    // bits at that level), so collect all of them before returning.
-                    let deeper_start_index = target_level_start_index + level_width;
-                    let _span = tracing::trace_span!(
-                        target: "routing_table::flat_routing_table",
-                        "Collecting nodes of deeper levels",
-                        level = target_level + 1,
-                    )
-                    .entered();
-                    let deeper_content = self.buckets[deeper_start_index..]
-                        .iter()
-                        .enumerate()
-                        .flat_map(|(offset, bucket)| {
-                            let index = deeper_start_index + offset;
-                            assert_ne!(
-                                index, target_bucket_index,
-                                "No duplicate collection of target's bucket"
-                            );
-
-                            tracing::trace!(
-                                target: "routing_table::flat_routing_table",
-                                index,
-                                ?bucket,
-                                "Consider valid contacts of bucket"
-                            );
-
-                            bucket.iter_valid_with_prefix(target, shared_prefix_grouping)
-                        });
-                    result.extend(deeper_content);
-
-                    if result.len() >= n {
-                        result.sort_unstable_by(sorter_xor);
-                        return Ok(result);
-                    }
-                } else {
-                    // Unsplittable bucket prefix:
-                    // Simply collect contacts of corresponding bucket
-                    let index = target_level_start_index + bucket_offset;
-                    let bucket = &self.buckets[index];
-
-                    let _span = level_span.enter();
-                    tracing::trace!(
-                        target: "routing_table::flat_routing_table",
-                        index,
-                        ?bucket,
-                        "Consider valid contacts of bucket"
-                    );
-
-                    result.extend(bucket.iter_valid_with_prefix(target, shared_prefix_grouping));
-
-                    if result.len() >= n {
-                        result.sort_unstable_by(sorter_xor);
-                        return Ok(result);
-                    }
-                }
-            }
-        }
-
-        // Collect bucket levels going up from the level of target's bucket.
-        for (relative_level, buckets) in self.buckets[..target_level_start_index]
-            .rchunks_exact(level_width)
-            .enumerate()
-        {
-            let current_level = target_level - relative_level - 1;
-            tracing::trace!(
-                target: "routing_table::flat_routing_table",
-                level = current_level,
-                dlvl = -(1 + relative_level as isize),
-                "Collecting nodes of level"
-            );
-
-            let level_content = buckets.iter().enumerate().flat_map(|(offset, bucket)| {
-                let index = current_level * level_width + offset;
-                assert_ne!(
-                    index, target_bucket_index,
-                    "No duplicate collection of target's bucket"
-                );
-
-                tracing::trace!(
-                    target: "routing_table::flat_routing_table",
-                    index,
-                    ?bucket,
-                    "Consider valid contacts of bucket"
-                );
-                bucket.iter_valid_with_prefix(target, shared_prefix_grouping)
-            });
-            result.extend(level_content);
-
+            // Buckets cover disjoint XOR ranges: contacts of later buckets can't be closer.
             if result.len() >= n {
-                result.sort_unstable_by(sorter_xor);
-                return Ok(result);
+                break;
             }
         }
 
-        result.sort_unstable_by(sorter_xor);
         Ok(result)
     }
 
