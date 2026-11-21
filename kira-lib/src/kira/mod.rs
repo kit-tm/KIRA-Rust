@@ -25,10 +25,13 @@ use channels::{
 };
 use futures::StreamExt;
 pub use kira_forwarding::AsyncForwardingTables;
-use kira_forwarding::tables::{
-    AsyncNodeIdTable,
-    AsyncPathIdTable,
-    handle_r2kad_request,
+use kira_forwarding::{
+    domain::r2kad::ForwardingTablesUpdate,
+    tables::{
+        AsyncNodeIdTable,
+        AsyncPathIdTable,
+        handle_r2kad_request,
+    },
 };
 pub use kira_r2kad::r2kad::R2Kad;
 use kira_r2kad::{
@@ -147,11 +150,14 @@ where
         tokio::task::Builder::new()
             .name("KIRA: Forwarding Tables Channel").spawn(async move {
             loop {
-                let Some((req, kira_span)) = fwtables_rx.recv().await else {
+                let Some((req, kira_span)): Option<(ForwardingTablesUpdate, tracing::Span)> =
+                    fwtables_rx.recv().await
+                else {
                     break;
                 };
+                let update = req.to_string();
                 if let Err(e) = handle_r2kad_request(&mut forwarding_tables, req).instrument(kira_span).await {
-                    log::error!(target: "forwarding_tables", "Handling a ForwardingTablesUpdate failed: {e}");
+                    log::error!(target: "forwarding_tables", "Handling a ForwardingTablesUpdate failed: {e} [{update}]");
                 }
             }
         }).unwrap();
