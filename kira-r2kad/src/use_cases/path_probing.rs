@@ -100,6 +100,9 @@ pub struct PathProbingConfig {
     pub path_setup_timeout: Duration,
     /// How paths to contacts are split into path segments.
     pub segmentation: PathSegmentation,
+    /// Probe the active paths traversing or ending at a contact whose [StateSeqNr] increased,
+    /// as one of its links on these paths may have failed (see `probe_paths_via`).
+    pub probe_paths_on_ssn_increase: bool,
     /// Minimum interval between two probes of a proposed (not yet inserted) contact,
     /// unless the newly proposed path is shorter than the probed one.
     ///
@@ -122,6 +125,7 @@ impl Default for PathProbingConfig {
             path_refresh_interval: Duration::from_secs(30),
             path_setup_timeout: Duration::from_secs(2),
             segmentation: PathSegmentation::default(),
+            probe_paths_on_ssn_increase: true,
             proposed_contact_holddown: Duration::from_secs(40),
         }
     }
@@ -1021,7 +1025,9 @@ where
                         );
                     }
                     ContactEvent::Updated { new, old } => {
-                        if new.state_seq_nr() > old.state_seq_nr() {
+                        if self.config.probe_paths_on_ssn_increase
+                            && new.state_seq_nr() > old.state_seq_nr()
+                        {
                             self.probe_paths_via(context, new.id());
                         }
                         // in case there is a new proposed path present, probe it in case it is not a ULN
