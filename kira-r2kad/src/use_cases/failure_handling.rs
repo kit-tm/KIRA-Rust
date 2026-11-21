@@ -4,6 +4,7 @@ use std::{
         HashSet,
     },
     marker::PhantomData,
+    net::Ipv6Addr,
     num::{
         NonZeroU32,
         NonZeroU64,
@@ -29,6 +30,7 @@ use crate::{
         NotVia,
         NotViaState,
         NotViaStateList,
+        PathId,
         ProtocolMessage,
         ProtocolMessageKind,
         RoutingTable,
@@ -39,6 +41,7 @@ use crate::{
         UnderlayNeighborId,
         UnderlayNeighborUpdate,
         VicinityGraph,
+        protocol_event::DroppedPacket,
         protocol_message::{
             CommonHeader,
             ErrorData,
@@ -67,6 +70,17 @@ use crate::{
 };
 
 const REDISCOVERY_WAITTIME_RATELIMIT: Duration = Duration::from_millis(100);
+/// How long the PathIds forwarded via a lost underlay neighbor are remembered, to name the
+/// failed link to nodes still using such a path (see [DroppedPacket]).
+const LOST_PATH_MEMORY: Duration = Duration::from_secs(30);
+/// Minimum interval between two notifications of the same node about the same obsolete path.
+const DROPPED_PACKET_NOTIFICATION_INTERVAL: Duration = Duration::from_secs(1);
+
+/// Returns if the PathIP (containing the first 112 bits of a [PathId]) belongs to the
+/// [PathId], independent of the PathIP prefix.
+fn is_path_ip_of(path_ip: &Ipv6Addr, path_id: &PathId) -> bool {
+    path_id.as_ref().get(..14) == Some(&path_ip.octets()[2..])
+}
 const REDISCOVERY_WAITTIME_ULN: Duration = Duration::from_millis(100);
 const REDISCOVERY_WAITTIME_CLOSEST_NEIGHBORS: Duration = Duration::from_millis(500);
 const REDISCOVERY_WAITTIME_CONTACT_WITH_ULN: Duration = Duration::from_millis(1000);
@@ -199,6 +213,11 @@ pub struct FailureHandling<C, const BUCKET_SIZE: usize> {
     rate_limit_rediscoveries: HashMap<TimerId, NodeId>,
     /// Contacts with a proposed vicinity alternative and their postponed rediscovery timer
     pending_vicinity_alternatives: HashMap<NodeId, TimerId>,
+    /// Incoming PathIds of entries that forwarded via a lost underlay neighbor, with the
+    /// neighbor and when it was lost
+    lost_paths: HashMap<PathId, (NodeId, Timestamp)>,
+    /// Last notification about a dropped packet per encapsulator and PathIP
+    dropped_packet_notifications: HashMap<(NodeId, Ipv6Addr), Timestamp>,
 }
 
 impl<C, const BUCKET_SIZE: usize> FailureHandling<C, BUCKET_SIZE> {
@@ -211,6 +230,8 @@ impl<C, const BUCKET_SIZE: usize> FailureHandling<C, BUCKET_SIZE> {
             scheduled_rediscoveries: HashMap::new(),
             rate_limit_rediscoveries: HashMap::new(),
             pending_vicinity_alternatives: HashMap::new(),
+            lost_paths: HashMap::new(),
+            dropped_packet_notifications: HashMap::new(),
         }
     }
 }
@@ -798,14 +819,112 @@ where
 
     /// Find all contacts whose paths start with underlay neighbors affected by the outage of an interface
     /// (there may be several ULNs behind a single interface)
-    fn invalidate_affected_contacts(&self, context: &C, ulnid: UnderlayNeighborId) {
-        let mut rt = context.routing_table_mut();
+    /// Remembers the incoming PathIds of the entries forwarding via the lost underlay
+    /// neighbor, before they are removed (see
+    /// [PrecomputePathIds](super::precompute_paths_and_path_ids::PrecomputePathIds)).
+    ///
+    /// Only if the connection leads to a single neighbor, the failed link is known.
+    fn remember_lost_paths(
+        &mut self,
+        context: &C,
+        ulnid: &UnderlayNeighborId,
+        neighbors: &HashSet<NodeId>,
+    ) {
+        self.lost_paths
+            .retain(|_, (_, lost)| lost.to_age_duration() <= LOST_PATH_MEMORY);
+        let [neighbor] = neighbors.iter().collect::<Vec<_>>()[..] else {
+            return;
+        };
+        let now = Timestamp::now();
+        for (in_path_id, entry) in context.fwd_state().iter() {
+            if entry.next_hop() == Some(ulnid) {
+                self.lost_paths.insert(in_path_id.clone(), (*neighbor, now));
+            }
+        }
+    }
 
+    /// Notifies the node that encapsulated a packet dropped by the forwarding tier about the
+    /// failed link of its obsolete path, so that it doesn't wait for a probe to fail.
+    ///
+    /// The [ErrorData::SegmentFailure] is sent over the path to the node, if it is a contact,
+    /// or towards it via the closest contact. It is lost if it encounters a failed link
+    /// itself, and it is not sent if the failed link is unknown, e.g., the entry expired.
+    fn notify_dropped_packet(&mut self, context: &C, dropped: DroppedPacket) {
+        let key = (dropped.encapsulator, dropped.path_ip);
+        if self
+            .dropped_packet_notifications
+            .get(&key)
+            .is_some_and(|last| last.to_age_duration() < DROPPED_PACKET_NOTIFICATION_INTERVAL)
+        {
+            return;
+        }
+        self.dropped_packet_notifications
+            .retain(|_, last| last.to_age_duration() < DROPPED_PACKET_NOTIFICATION_INTERVAL);
+
+        let Some(lost_neighbor) = self
+            .lost_paths
+            .iter()
+            .find(|(path_id, (_, lost))| {
+                is_path_ip_of(&dropped.path_ip, path_id)
+                    && lost.to_age_duration() <= LOST_PATH_MEMORY
+            })
+            .map(|(_, (neighbor, _))| *neighbor)
+        else {
+            log::debug!(target: "failure_handling", "Dropped packet of {} with PathIP {}: failed link unknown, no notification", dropped.encapsulator, dropped.path_ip);
+            return;
+        };
+
+        let root_id = *context.root_id();
+        if dropped.encapsulator == root_id {
+            return;
+        }
+        let path = {
+            let rt = context.routing_table();
+            rt.contact(&dropped.encapsulator)
+                .filter(|contact| contact.is_valid())
+                .cloned()
+                .or_else(|| rt.next_hop(&dropped.encapsulator))
+                .and_then(|contact| contact.path().cloned())
+        };
+        let Some(path) = path else {
+            log::debug!(target: "failure_handling", "No route to {} to notify it about failed link to {lost_neighbor}", dropped.encapsulator);
+            return;
+        };
+
+        let failed_link = Link::new(root_id, lost_neighbor);
+        log::debug!(target: "failure_handling", "Notifying {} about failed link {failed_link} of its obsolete path (PathIP {}) via {path}", dropped.encapsulator, dropped.path_ip);
+        let message = ReqRspMessage {
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::Error,
+                root_id,
+                dropped.encapsulator,
+                Some(Nonce::random()),
+                *context.uln_table().state_seq_nr(),
+                context.uln_table().size(),
+            ),
+            data: ErrorData::SegmentFailure {
+                failed_link,
+                source: root_id,
+            },
+            not_via: None,
+            source_route: SourceRoute::new(root_id, path),
+        };
+        self.dropped_packet_notifications
+            .insert(key, Timestamp::now());
+        context
+            .runtime()
+            .send_message(message, context.uln_table().deref(), context.root_id());
+    }
+
+    fn invalidate_affected_contacts(&mut self, context: &C, ulnid: UnderlayNeighborId) {
         let affected_underlay_neighbors = context
             .uln_table()
             .iter()
             .filter_map(|(id, (via, _))| if via == &ulnid { Some(*id) } else { None })
             .collect::<HashSet<_>>();
+        self.remember_lost_paths(context, &ulnid, &affected_underlay_neighbors);
+
+        let mut rt = context.routing_table_mut();
 
         log::trace!(target: "failure_handling", "Underlay neighbors affected by interface {ulnid:?} down: {affected_underlay_neighbors:?}");
 
@@ -977,8 +1096,8 @@ where
                 self.invalidate_affected_contacts(context, ulnid);
             }
             UseCaseEvent::DroppedPacket(dropped) => {
-                // TODO: notify the encapsulator about the obsolete path (SegmentFailure)
                 log::debug!(target: "failure_handling", "Forwarding tier dropped a packet with unknown PathIP {} of {} (destination {:?})", dropped.path_ip, dropped.encapsulator, dropped.destination);
+                self.notify_dropped_packet(context, dropped);
             }
             _ => {}
         }
@@ -1449,5 +1568,111 @@ mod tests {
         fh.handle_event(&ctx, UseCaseEvent::Timer(timer)).unwrap();
         assert!(sent_find_node_reqs(&ctx).is_empty(), "no rediscovery sent");
         assert!(contact(&ctx, x()).is_invalid(), "x is invalid again");
+    }
+
+    /// Encapsulating node of dropped packets, a contact via [a]
+    fn encapsulator() -> NodeId {
+        NodeId::with_msb(5)
+    }
+
+    /// Setup where [root] forwards the path of `in_path_id` via [b], and [encapsulator] is a
+    /// contact via [a]; then the link to [b] fails.
+    fn setup_lost_path() -> (FH, Ctx, PathId) {
+        let (mut fh, ctx) = setup(false);
+        let in_path_id = PathId::from_shake256(&[root(), b(), x()]);
+        let _ = ctx
+            .fwd_state_mut()
+            .add_precalc(crate::domain::forwarding::PathIdEntry::Forward(
+                crate::domain::forwarding::PathIdForwardingEntry {
+                    in_path_id: in_path_id.clone(),
+                    out_path_id: PathId::from_shake256(&[b(), x()]),
+                    next_hop: ulnid(2),
+                },
+            ));
+        ctx.routing_table_mut()
+            .add(Contact::new(path(&[a(), encapsulator()]), ssn()))
+            .unwrap();
+        fh.handle_event(
+            &ctx,
+            UseCaseEvent::UnderlayUpdate(UnderlayNeighborUpdate::UnderlayNeighborDown(ulnid(2))),
+        )
+        .unwrap();
+        let _ = ctx.runtime().output().count();
+        (fh, ctx, in_path_id)
+    }
+
+    fn dropped(path_id: &PathId) -> UseCaseEvent {
+        UseCaseEvent::DroppedPacket(DroppedPacket {
+            encapsulator: encapsulator(),
+            path_ip: crate::domain::IpPrefixes::default().path_ip(path_id),
+            destination: Some(x()),
+        })
+    }
+
+    /// SegmentFailures sent since the last call with their destination and route
+    fn sent_segment_failures(ctx: &Ctx) -> Vec<(NodeId, Link, Vec<NodeId>)> {
+        ctx.runtime()
+            .output()
+            .filter_map(|output| match output {
+                Output::SendProtocolMessage(ProtocolMessage::Error(error), _) => {
+                    match &error.data {
+                        ErrorData::SegmentFailure { failed_link, .. } => Some((
+                            *error.common_header.dest_id(),
+                            failed_link.clone(),
+                            Path::from(error.source_route.clone()).as_ref().to_vec(),
+                        )),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn dropped_packet_on_lost_path_notifies_encapsulator() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut fh, ctx, in_path_id) = setup_lost_path();
+
+        fh.handle_event(&ctx, dropped(&in_path_id)).unwrap();
+        assert_eq!(
+            sent_segment_failures(&ctx),
+            [(
+                encapsulator(),
+                Link::new(root(), b()),
+                vec![root(), a(), encapsulator()]
+            )],
+            "the failed link is named to the encapsulator over its path"
+        );
+
+        // further packets of the same path within the interval are not reported again
+        fh.handle_event(&ctx, dropped(&in_path_id)).unwrap();
+        assert!(sent_segment_failures(&ctx).is_empty());
+        clock.advance(DROPPED_PACKET_NOTIFICATION_INTERVAL);
+        fh.handle_event(&ctx, dropped(&in_path_id)).unwrap();
+        assert_eq!(sent_segment_failures(&ctx).len(), 1);
+    }
+
+    #[test]
+    fn dropped_packet_with_unknown_failed_link_is_not_reported() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut fh, ctx, _) = setup_lost_path();
+
+        // e.g., the entry expired
+        fh.handle_event(&ctx, dropped(&PathId::from_shake256(&[root(), a(), x()])))
+            .unwrap();
+
+        assert!(sent_segment_failures(&ctx).is_empty());
+    }
+
+    #[test]
+    fn lost_paths_are_forgotten() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut fh, ctx, in_path_id) = setup_lost_path();
+        clock.advance(LOST_PATH_MEMORY + Duration::from_secs(1));
+
+        fh.handle_event(&ctx, dropped(&in_path_id)).unwrap();
+
+        assert!(sent_segment_failures(&ctx).is_empty());
     }
 }

@@ -27,6 +27,7 @@ use netlink_packet_netfilter::{
     nflog::{
         ConfigCmd,
         ConfigMode,
+        ConfigNla,
         PacketNla,
         ULogMessage,
         config_request,
@@ -135,6 +136,8 @@ pub async fn listen_dropped_packets(
             vec![
                 ConfigCmd::Bind.into(),
                 ConfigMode::new_packet(DROP_NFLOG_SNAPLEN).into(),
+                // deliver every packet right away instead of batching them for up to a second
+                ConfigNla::QThresh(1),
             ],
         );
         let mut response = handle

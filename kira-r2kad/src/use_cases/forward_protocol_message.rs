@@ -565,6 +565,43 @@ where
         );
     }
 
+    /// Forwards an error message whose source route ended before its destination: over the
+    /// path to the destination, if it is a contact, or to the closest contact making progress
+    /// towards it (XOR metric), so that it can't loop. Without such a contact it is dropped.
+    fn route_error_onwards(&self, context: &C, mut message: ProtocolMessage) -> HandlingResult {
+        let ProtocolMessage::Error(error) = &message else {
+            unreachable!("only error messages are routed onwards");
+        };
+        let destination = *error.common_header.dest_id();
+        let path = {
+            let rt = context.routing_table();
+            rt.contact(&destination)
+                .filter(|contact| contact.is_valid())
+                .cloned()
+                .or_else(|| rt.next_hop(&destination))
+                .and_then(|contact| contact.path().cloned())
+        };
+        let Some(path) = path else {
+            tracing::debug!(
+                target: "forward_protocol_message",
+                %destination,
+                reason = "no contact closer to the destination",
+                "Dropping error message"
+            );
+            return HandlingResult::Handled;
+        };
+        tracing::debug!(target: "forward_protocol_message", %destination, %path, "Routing error message onwards");
+        let source_route = message
+            .source_route_mut()
+            .expect("error messages have a source route");
+        source_route.extend(path);
+        source_route.advance();
+        context
+            .runtime()
+            .send_message(message, context.uln_table().deref(), context.root_id());
+        HandlingResult::Handled
+    }
+
     /// Forwards the [ProtocolMessage] to the next hop.
     ///
     /// Returns if the message was forwarded.
@@ -618,6 +655,14 @@ where
                 target: "forward_protocol_message",
                 "SourceRoute finished",
             );
+            // e.g., a notification about a dropped packet towards a node that isn't a contact
+            if let ProtocolMessage::Error(error) = &message
+                && matches!(error.data, ErrorData::SegmentFailure { .. })
+                // final destination, not the end of the source route
+                && error.common_header.dest_id() != context.root_id()
+            {
+                return self.route_error_onwards(context, message);
+            }
             return HandlingResult::NotHandled;
         };
 
@@ -1352,5 +1397,83 @@ mod tests {
         receive(&ctx, unreachable_update(z, 0));
 
         assert!(ctx.routing_table().contact(&z).unwrap().is_valid());
+    }
+
+    /// SegmentFailure from `reporter` via [neighbor] that ends at root, but is destined to
+    /// `destination`.
+    fn segment_failure_towards(reporter: NodeId, destination: NodeId) -> ProtocolMessage {
+        let mut source_route =
+            SourceRoute::new(reporter, Path::try_from(&[neighbor(), root()][..]).unwrap());
+        source_route.advance();
+        source_route.advance();
+        ProtocolMessage::Error(ReqRspMessage {
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::Error,
+                reporter,
+                destination,
+                Some(Nonce::random()),
+                StateSeqNr::Value(ssn(1)),
+                0,
+            ),
+            data: ErrorData::SegmentFailure {
+                failed_link: Link::new(reporter, NodeId::with_msb(9)),
+                source: reporter,
+            },
+            not_via: None,
+            source_route,
+        })
+    }
+
+    /// Routes of the messages sent since the last call
+    fn sent_routes(ctx: &Ctx) -> Vec<Vec<NodeId>> {
+        ctx.runtime()
+            .output()
+            .filter_map(|output| match output {
+                crate::Output::SendProtocolMessage(message, _) => Some(
+                    Path::from(message.source_route()?.clone())
+                        .as_ref()
+                        .to_vec(),
+                ),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn segment_failure_is_routed_onwards_to_its_destination() {
+        let _clock = crate::tests::TestClock::new();
+        let ctx = context();
+        bidirectional(&ctx, neighbor());
+        let reporter = NodeId::with_msb(7);
+        let destination = NodeId::with_msb(8);
+        let mut to_destination = Path::try_from(&[neighbor(), destination][..]).unwrap();
+        to_destination.set_valid();
+        ctx.routing_table_mut()
+            .add(Contact::new(to_destination, ssn(1)))
+            .unwrap();
+
+        let result = receive(&ctx, segment_failure_towards(reporter, destination));
+
+        assert!(matches!(result, HandlingResult::Handled));
+        assert_eq!(
+            sent_routes(&ctx),
+            [vec![reporter, neighbor(), root(), neighbor(), destination]],
+            "the route is extended by the path to the destination"
+        );
+    }
+
+    #[test]
+    fn segment_failure_without_route_to_its_destination_is_dropped() {
+        let _clock = crate::tests::TestClock::new();
+        let ctx = context();
+        bidirectional(&ctx, neighbor());
+
+        let result = receive(
+            &ctx,
+            segment_failure_towards(NodeId::with_msb(7), NodeId::with_msb(8)),
+        );
+
+        assert!(matches!(result, HandlingResult::Handled));
+        assert!(sent_routes(&ctx).is_empty());
     }
 }

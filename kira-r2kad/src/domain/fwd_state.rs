@@ -93,7 +93,8 @@ impl FwdStateEntry {
             .intersects(FwdEntryFlags::PRECALC | FwdEntryFlags::LOCAL)
     }
 
-    fn next_hop(&self) -> Option<&UnderlayNeighborId> {
+    /// Returns the underlay neighbor the entry forwards to, if any.
+    pub fn next_hop(&self) -> Option<&UnderlayNeighborId> {
         match &self.entry {
             PathIdEntry::Forward(PathIdForwardingEntry { next_hop, .. }) => Some(next_hop),
             PathIdEntry::Decapsulate(PathIdDecapsulationEntry {
