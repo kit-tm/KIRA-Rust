@@ -66,6 +66,8 @@ pub enum DeriveFwdTableEntriesState {
     Initialized,
     Running {
         bucket_prefix_entries: HashMap<usize, NodeIdSubnet>,
+        /// The contact each bucket prefix entry is derived from
+        bucket_prefix_contacts: HashMap<usize, NodeId>,
         /// Entries of the PathId forwarding table used by the contacts, i.e.,
         /// the entries of the first segments of their paths.
         local_entries: HashMap<NodeId, PathIdEntry>,
@@ -122,7 +124,7 @@ where
         self.set_local_entry(context, node_id, None);
 
         let DeriveFwdTableEntriesState::Running {
-            bucket_prefix_entries,
+            bucket_prefix_contacts,
             ..
         } = &mut self.state
         else {
@@ -142,9 +144,10 @@ where
         //
         // The bucket prefix size doesn't change on contact removals.
         // We don't merge buckets.
-        if bucket_prefix_entries
+        // (The NodeId of the bucket prefix is the prefix, not the contact it is derived from.)
+        if bucket_prefix_contacts
             .get(&bucket_index)
-            .is_some_and(|prefix_entry| prefix_entry.node_id() != node_id)
+            .is_some_and(|prefix_contact| prefix_contact != node_id)
         {
             return Ok(());
         }
@@ -245,14 +248,18 @@ where
         };
 
         // derive one prefix entry of the bucket using proximity neighbor selection
-        let Some(prefix_entry) = self.derive_bucket_prefix_entry(context, bucket_index)? else {
+        let Some((prefix_entry, prefix_contact)) =
+            self.derive_bucket_prefix_entry(context, bucket_index)?
+        else {
             let DeriveFwdTableEntriesState::Running {
                 bucket_prefix_entries,
+                bucket_prefix_contacts,
                 ..
             } = &mut self.state
             else {
                 panic!("update_bucket called without running DeriveFwdTableEntries");
             };
+            bucket_prefix_contacts.remove(&bucket_index);
 
             // remove old entry of bucket
             let Some(old_prefix) = bucket_prefix_entries.remove(&bucket_index) else {
@@ -276,11 +283,13 @@ where
 
         let DeriveFwdTableEntriesState::Running {
             bucket_prefix_entries,
+            bucket_prefix_contacts,
             ..
         } = &mut self.state
         else {
             panic!("update_bucket called without running DeriveFwdTableEntries");
         };
+        bucket_prefix_contacts.insert(bucket_index, prefix_contact);
 
         let new_prefix = prefix_entry.destination();
         // register new bucket prefix (NodeIdSubnet) and remove old one if changed
@@ -494,7 +503,7 @@ where
         &self,
         context: &C,
         bucket_index: usize,
-    ) -> Result<Option<NodeIdEntry>, DeriveFwdEntriesError> {
+    ) -> Result<Option<(NodeIdEntry, NodeId)>, DeriveFwdEntriesError> {
         let rt = context.routing_table();
         let bucket: &Bucket<_> = rt.bucket_by_index(bucket_index);
         let iter = bucket.iter();
@@ -557,7 +566,7 @@ where
             "derived prefix entry"
         );
 
-        Ok(Some(entry))
+        Ok(Some((entry, *closest.id())))
     }
 }
 
@@ -781,6 +790,7 @@ where
 
         self.state = DeriveFwdTableEntriesState::Running {
             bucket_prefix_entries: HashMap::with_capacity(2),
+            bucket_prefix_contacts: HashMap::with_capacity(2),
             local_entries: HashMap::new(),
         };
 
@@ -1621,6 +1631,53 @@ mod tests {
             // the shorter path of x can't be used by this node yet
             assert_eq!(bucket_entries[0].out_path_id, hash(2..=5));
             assert_eq!(bucket_entries[0].second_path_id, Some(hash(5..=8)));
+        }
+
+        /// Bucket prefix entries (whose prefix is zero) created since the last call
+        fn bucket_entries(ctx: &Ctx) -> Vec<NodeIdEncapsulationEntry> {
+            ctx.runtime()
+                .output()
+                .filter_map(|output| match output {
+                    Output::UpdateForwardingTables(ForwardingTablesUpdate::NodeIdTableUpdate(
+                        NodeIdTableUpdate::CreateOrUpdate(NodeIdEntry::Encapsulate(entry)),
+                    )) if entry.destination.node_id() == &node(0) => Some(entry),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        #[test]
+        fn bucket_entry_of_invalidated_contact_is_derived_anew() {
+            let _clock = crate::tests::TestClock::new();
+            let (mut use_case, ctx) = setup();
+            let near = contact(2); // 2 3
+            let far = contact(3); // 2 3 4
+            ctx.routing_table_mut().add(near.clone()).unwrap();
+            ctx.routing_table_mut().add(far.clone()).unwrap();
+            handle(&mut use_case, &ctx, ContactEvent::New(near.clone()));
+            handle(&mut use_case, &ctx, ContactEvent::New(far));
+            assert_eq!(
+                bucket_entries(&ctx).last().unwrap().out_path_id,
+                hash(2..=3),
+                "the shorter path is used"
+            );
+
+            // the contact used by the bucket entry becomes unreachable
+            let mut invalid = near.clone();
+            invalid.set_invalid(crate::domain::NotViaStateList::default());
+            *ctx.routing_table_mut().contact_mut(near.id()).unwrap() = invalid.clone();
+            handle(
+                &mut use_case,
+                &ctx,
+                ContactEvent::Updated {
+                    new: Box::new(invalid),
+                    old: Box::new(near),
+                },
+            );
+
+            let entries = bucket_entries(&ctx);
+            assert_eq!(entries.len(), 1, "bucket entry derived anew: {entries:?}");
+            assert_eq!(entries[0].out_path_id, hash(2..=4));
         }
 
         #[test]
