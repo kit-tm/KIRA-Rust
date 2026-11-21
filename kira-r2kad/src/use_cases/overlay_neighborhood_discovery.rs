@@ -3,7 +3,6 @@ use std::{
     fmt::Debug,
     marker::PhantomData,
     num::{
-        NonZeroU8,
         NonZeroU32,
         NonZeroU64,
     },
@@ -16,7 +15,6 @@ use tracing::instrument;
 
 use crate::{
     domain::{
-        GroupingError,
         NodeId,
         Nonce,
         ProtocolMessage,
@@ -76,8 +74,6 @@ pub struct ONDConfig<const BUCKET_SIZE: usize> {
     ///
     /// Defaults to *250ms*.
     pub backoff_starting_duration: Duration,
-    /// Number of grouped bits used for calculating the shared prefix of two [NodeIds](crate::domain::NodeId).
-    pub shared_prefix_bits_grouping: NonZeroU8,
 }
 
 impl<const BUCKET_SIZE: usize> Default for ONDConfig<BUCKET_SIZE> {
@@ -91,7 +87,6 @@ impl<const BUCKET_SIZE: usize> Default for ONDConfig<BUCKET_SIZE> {
             backoff_base: NonZeroU32::new(2).unwrap(),
             backoff_max_retries: NonZeroU32::new(10).unwrap(), // 0,25s*1024=256s = 4min 16s
             backoff_starting_duration: Duration::from_millis(250),
-            shared_prefix_bits_grouping: NonZeroU8::MIN,
         }
     }
 }
@@ -177,26 +172,20 @@ pub struct OverlayNeighborhoodDiscovery<C, const BUCKET_SIZE: usize> {
 
 impl<C, const BUCKET_SIZE: usize> Default for OverlayNeighborhoodDiscovery<C, BUCKET_SIZE> {
     fn default() -> Self {
-        Self::new(ONDConfig::default()).expect("default shared prefix should be valid")
+        Self::new(ONDConfig::default())
     }
 }
 
 impl<C, const BUCKET_SIZE: usize> OverlayNeighborhoodDiscovery<C, BUCKET_SIZE> {
     /// Create a new [OverlayNeighborhoodDiscovery] from an [ONDConfig].
-    pub fn new(config: ONDConfig<BUCKET_SIZE>) -> Result<Self, GroupingError> {
-        if config.shared_prefix_bits_grouping.get() > NodeId::BITS {
-            return Err(GroupingError::Invalid {
-                group_size: config.shared_prefix_bits_grouping,
-            });
-        }
-
-        Ok(Self {
+    pub fn new(config: ONDConfig<BUCKET_SIZE>) -> Self {
+        Self {
             _pd: PhantomData,
             state: ONDState::Initialized,
             exploration_interval: config.random_exploration_interval,
             exploration_progress: true,
             config,
-        })
+        }
     }
 }
 
@@ -285,14 +274,7 @@ where
 
         let new_nonce = Nonce::random();
 
-        let closest_via_contacts = context
-            .routing_table()
-            .closest(
-                context.root_id(),
-                3,
-                self.config.shared_prefix_bits_grouping,
-            )
-            .expect("config should have been checked before");
+        let closest_via_contacts = context.routing_table().closest(context.root_id(), 3);
 
         // Get the path to the closest node of ourselves
         // in case the previous FindNodeReq failed, we try to avoid that contact,
@@ -403,8 +385,7 @@ where
 
         let closest_contact_path = context
             .routing_table()
-            .closest(&random_id, 1, self.config.shared_prefix_bits_grouping)
-            .expect("grouping was checked on initialization")
+            .closest(&random_id, 1)
             .first() // TODO: Proximity Neighbor Selection
             .map(|(_, contact)| contact.path().unwrap()) // closest returns only valid contacts
             .cloned();
@@ -766,7 +747,7 @@ mod tests {
                 connection_id: ConnectionId(1),
             },
         );
-        let mut ond = Ond::new(ONDConfig::default()).unwrap();
+        let mut ond = Ond::new(ONDConfig::default());
         ond.start(&ctx).unwrap();
         (ond, ctx)
     }

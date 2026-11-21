@@ -1,7 +1,6 @@
 use std::{
     cmp::Ordering,
     collections::HashSet,
-    num::NonZeroU8,
     ops::DerefMut,
 };
 
@@ -17,7 +16,6 @@ use crate::domain::{
     Bucket,
     Contact,
     ContactLabels,
-    GroupingError,
     Link,
     NodeId,
     NotViaState,
@@ -241,12 +239,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
     ///   The caller has to select nodes with longer shared prefix
     ///   length first.
     ///
-    fn closest(
-        &self,
-        target: &NodeId,
-        n: usize,
-        shared_prefix_grouping: NonZeroU8,
-    ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError>;
+    fn closest(&self, target: &NodeId, n: usize) -> Vec<(SharedPrefix, Contact)>;
 
     /// Returns the next overlay hop to the given [NodeId]
     /// This method returns [None] if we are the closest overlay hop.
@@ -259,24 +252,18 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         target = "routing_table",
         level=Level::DEBUG,
         skip(self)
-        ret, err,
+        ret,
     )]
-    fn next_hop(
-        &self,
-        target: &NodeId,
-        shared_prefix_grouping: NonZeroU8,
-    ) -> Result<Option<Contact>, GroupingError> {
-        let closest = self.closest(target, 1, shared_prefix_grouping)?;
+    fn next_hop(&self, target: &NodeId) -> Option<Contact> {
+        let closest = self.closest(target, 1);
         let (nearest_prefix, nearest) = match closest.first() {
             None => {
                 tracing::warn!(target: "routing_table", "Node is isolated!");
-                return Ok(None);
+                return None;
             } // table empty => we are the next hop
             Some((nearest_prefix, contact)) => (nearest_prefix, contact),
         };
-        let root_prefix = self
-            .root()
-            .shared_prefix_len(target, shared_prefix_grouping)?;
+        let root_prefix = self.root().shared_prefix_len(target);
 
         // Check if root has longer shared prefix length.
         // Don't output next hop because root is closest.
@@ -289,7 +276,7 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
                 %nearest,
                 "Next hop is root",
             );
-            return Ok(None);
+            return None;
         }
 
         // Strictly select by XOR-metric if no prefix progress can be made.
@@ -306,18 +293,17 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
             );
 
             return if root_prefix.xor < nearest_prefix.xor {
-                Ok(None)
+                None
             } else {
                 // Closest doesn't sort contacts strictly by XOR-metric (except last bucket).
                 // Only sorting by shared prefix length can be assumed.
 
                 let nearest_prefix_len = nearest_prefix.bit_len();
-                let next_hop = closest
+                closest
                     .into_iter()
                     .take_while(|(prefix, _)| prefix.length == nearest_prefix_len)
                     .min_by(strict_xor_metric)
-                    .map(|(_, c)| c);
-                Ok(next_hop)
+                    .map(|(_, c)| c)
             };
         }
 
@@ -344,13 +330,11 @@ pub trait RoutingTable<'a, const BUCKET_SIZE: usize> {
         // If multiple (valid) contacts with the same shared prefix
         // exist, select by contact's path length.
         let nearest_prefix_len = nearest_prefix.bit_len();
-        let next_hop = closest
+        return closest
             .into_iter()
             .take_while(|(prefix, _)| prefix.bit_len() == nearest_prefix_len)
             .min_by(proximity_neighbor_selection)
             .map(|(_, c)| c);
-
-        return Ok(next_hop);
 
         #[tracing::instrument(level = Level::TRACE, ret)]
         fn strict_xor_metric(
@@ -458,7 +442,7 @@ mod tests {
         let root = NodeId::ZERO;
         let target = NodeId::MAX;
         let table = table_factory(root);
-        let res = table.next_hop(&target, NonZeroU8::new(1).unwrap()).unwrap();
+        let res = table.next_hop(&target);
         assert!(res.is_none());
     }
 
@@ -494,7 +478,7 @@ mod tests {
         );
         table.add(contact).unwrap();
 
-        let res = table.next_hop(&target, NonZeroU8::new(1).unwrap()).unwrap();
+        let res = table.next_hop(&target);
         assert!(res.is_none(), "Root is closer than contact");
     }
 
@@ -532,7 +516,7 @@ mod tests {
 
         // Case 1: Contact XOR is smaller
         let target = NodeId::MAX;
-        let res = table.next_hop(&target, NonZeroU8::new(1).unwrap()).unwrap();
+        let res = table.next_hop(&target);
         assert_eq!(
             res.unwrap().id(),
             c.id(),
@@ -541,7 +525,7 @@ mod tests {
 
         // Case 2: Root XOR is smaller
         let target = NodeId::MAX ^ NodeId::with_msb(0x0f);
-        let res = table.next_hop(&target, NonZeroU8::new(1).unwrap()).unwrap();
+        let res = table.next_hop(&target);
         assert!(res.is_none(), "Root XOR is smaller, should return None");
     }
 

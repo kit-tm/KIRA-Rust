@@ -1,10 +1,7 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    num::{
-        NonZeroU8,
-        NonZeroUsize,
-    },
+    num::NonZeroUsize,
     ops::Deref,
     time::Duration,
 };
@@ -111,11 +108,7 @@ where
     C::UnderlayNeighborTable: ULNTable,
     T: Debug,
 {
-    // TODO: support other shared_prefix_grouping via config
-    let closest_node = context
-        .routing_table()
-        .next_hop(&overlay_destination, NonZeroU8::MIN)
-        .expect("Shared Prefix Grouping should be valid");
+    let closest_node = context.routing_table().next_hop(&overlay_destination);
 
     let path = if let Some(path) = closest_node.and_then(Contact::into_path) {
         path

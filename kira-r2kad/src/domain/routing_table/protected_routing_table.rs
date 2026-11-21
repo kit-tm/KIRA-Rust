@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    num::NonZeroU8,
-};
+use std::collections::HashMap;
 
 use rand::RngExt as _;
 use tracing::Level;
@@ -11,7 +8,6 @@ use crate::domain::{
     Contact,
     ContactLabels,
     ContactState,
-    GroupingError,
     NodeId,
     RoutingTable,
     hasher::Hasher,
@@ -243,25 +239,15 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
         level = Level::TRACE,
         target = "routing_table::protected_routing_table",
         skip(self),
-        ret, err
+        ret
     )]
-    fn closest(
-        &self,
-        target: &NodeId,
-        n: usize,
-        shared_prefix_grouping: NonZeroU8,
-    ) -> Result<Vec<PrefixContact>, GroupingError> {
-        let mut closest = self.inner.closest(target, n, shared_prefix_grouping)?;
+    fn closest(&self, target: &NodeId, n: usize) -> Vec<PrefixContact> {
+        let mut closest = self.inner.closest(target, n);
         closest.extend(
             self.protected_contacts
                 .values()
                 .filter(|contact| contact.state() == &ContactState::Valid)
-                .map(|contact| {
-                    let prefix = target
-                        .shared_prefix_len(contact.id(), shared_prefix_grouping)
-                        .expect("grouping should be checked before");
-                    (prefix, contact.clone())
-                }),
+                .map(|contact| (target.shared_prefix_len(contact.id()), contact.clone())),
         );
         closest.sort_unstable_by(sorter_xor);
 
@@ -283,7 +269,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
             }
         }
 
-        Ok(closest)
+        closest
     }
 
     fn iter(&self) -> impl Iterator<Item = &Contact> {
@@ -307,7 +293,6 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZeroU8;
 
     use crate::domain::{
         Contact,
@@ -406,9 +391,7 @@ mod tests {
             .extend(false, contacts.clone())
             .expect("failed to insert all contacts");
 
-        let closest = routing_table.closest(&NodeId::ZERO, 20, NonZeroU8::MIN);
-        assert!(closest.is_ok(), "Returned None");
-        let closest = closest.unwrap();
+        let closest = routing_table.closest(&NodeId::ZERO, 20);
         let first = closest.first();
         assert!(first.is_some(), "Returned no closest contacts");
         let (_, contact) = first.unwrap();
@@ -453,9 +436,7 @@ mod tests {
             .extend(false, contacts.clone())
             .expect("failed to insert all contacts");
 
-        let closest = routing_table.closest(&NodeId::ZERO, 1, NonZeroU8::MIN);
-        assert!(closest.is_ok(), "Returned None");
-        let closest = closest.unwrap();
+        let closest = routing_table.closest(&NodeId::ZERO, 1);
         let first = closest.first();
         assert!(first.is_some(), "Returned no closest contacts");
         let (_, contact) = first.unwrap();
@@ -493,9 +474,7 @@ mod tests {
             .extend(false, contacts.clone())
             .expect("failed to insert all contacts");
 
-        let closest = routing_table.closest(&NodeId::ZERO, 1, NonZeroU8::MIN);
-        assert!(closest.is_ok(), "Returned None");
-        let closest = closest.unwrap();
+        let closest = routing_table.closest(&NodeId::ZERO, 1);
         let first = closest.first();
         assert!(first.is_some(), "Returned no closest contacts");
         let (_, contact) = first.unwrap();
@@ -528,9 +507,7 @@ mod tests {
             .extend(false, contacts.clone())
             .expect("failed to insert all contacts");
 
-        let closest = routing_table.closest(&NodeId::ZERO, 20, NonZeroU8::MIN);
-        assert!(closest.is_ok(), "Returned error: {closest:?}");
-        let closest = closest.unwrap();
+        let closest = routing_table.closest(&NodeId::ZERO, 20);
         assert!(
             closest.is_empty(),
             "Returned closest contacts: {closest:#?}"
@@ -570,8 +547,7 @@ mod tests {
 
         let query_id = NodeId::with_msb(0b1100_0001);
         let results: Vec<_> = table
-            .closest(&query_id, 1, NonZeroU8::new(1).unwrap())
-            .unwrap()
+            .closest(&query_id, 1)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -616,8 +592,7 @@ mod tests {
 
         let query_id = NodeId::with_msb(0b1100_0001);
         let results: Vec<_> = table
-            .closest(&query_id, 1, NonZeroU8::new(1).unwrap())
-            .unwrap()
+            .closest(&query_id, 1)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -634,8 +609,7 @@ mod tests {
 
         let query_id = NodeId::with_msb(0b1100_0001);
         let results: Vec<_> = table
-            .closest(&query_id, 2, NonZeroU8::new(1).unwrap())
-            .unwrap()
+            .closest(&query_id, 2)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();

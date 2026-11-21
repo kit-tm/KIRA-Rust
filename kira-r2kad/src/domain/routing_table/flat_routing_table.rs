@@ -3,6 +3,10 @@ use std::{
     ops::IndexMut,
 };
 
+use derive_more::{
+    Display,
+    Error,
+};
 use rand::RngExt as _;
 use tracing::{
     Level,
@@ -12,7 +16,6 @@ use tracing::{
 use crate::domain::{
     Bucket,
     Contact,
-    GroupingError,
     NodeId,
     RoutingTable,
     SharedPrefix,
@@ -31,6 +34,19 @@ use crate::domain::{
 };
 
 pub const DEFAULT_ACCELERATION: u8 = 1;
+
+/// Error on creating a [FlatRoutingTable] with an invalid acceleration (*ACC*).
+///
+/// The acceleration is the number of bits per digit of the bucket layout and has to be
+/// in `1..=`[NodeId::BITS].
+#[derive(Debug, Eq, PartialEq, Display, Error)]
+#[display(
+    "Invalid acceleration: has to be in 1..={}, but was {acc}",
+    NodeId::BITS
+)]
+pub struct InvalidAccelerationError {
+    pub acc: u8,
+}
 
 /// A [RoutingTable] implemented as flat array of [Bucket]s.
 ///
@@ -65,14 +81,14 @@ impl FlatRoutingTable<DEFAULT_BUCKET_SIZE, DEFAULT_ACCELERATION> {
 
 impl<const BUCKET_SIZE: usize, const ACC: u8> FlatRoutingTable<BUCKET_SIZE, ACC> {
     /// Creates a [RoutingTable] with 0 capacity.
-    pub fn new(root: NodeId) -> Result<Self, GroupingError> {
+    pub fn new(root: NodeId) -> Result<Self, InvalidAccelerationError> {
         Self::with_buckets(root, vec![Bucket::new()])
     }
 
     /// Create a [RoutingTable] with the capacity of its maximum possible number of buckets.
     ///
     /// That is equal to the [NodeId] Size in Bits.
-    pub fn with_full_capacity(root: NodeId) -> Result<Self, GroupingError> {
+    pub fn with_full_capacity(root: NodeId) -> Result<Self, InvalidAccelerationError> {
         let mut buckets = Vec::with_capacity(Self::max_buckets());
         buckets.push(Bucket::new());
         Self::with_buckets(root, buckets)
@@ -83,11 +99,9 @@ impl<const BUCKET_SIZE: usize, const ACC: u8> FlatRoutingTable<BUCKET_SIZE, ACC>
     fn with_buckets(
         root: NodeId,
         buckets: Vec<Bucket<BUCKET_SIZE>>,
-    ) -> Result<Self, GroupingError> {
+    ) -> Result<Self, InvalidAccelerationError> {
         if ACC > NodeId::BITS || ACC == 0 {
-            return Err(GroupingError::Invalid {
-                group_size: NonZeroU8::try_from(ACC).unwrap_or(NonZeroU8::MAX),
-            });
+            return Err(InvalidAccelerationError { acc: ACC });
         }
         Ok(Self { buckets, root })
     }
@@ -129,11 +143,7 @@ impl<const BUCKET_SIZE: usize, const ACC: u8> FlatRoutingTable<BUCKET_SIZE, ACC>
         let width = Self::level_width();
         let last = self.buckets.len() - 1;
         let levels = last / width;
-        let root_xor_target = self
-            .root
-            .shared_prefix_len(target, Self::non_zero_acc())
-            .expect("grouping is checked on initialization")
-            .xor;
+        let root_xor_target = self.root ^ *target;
         let target_xor_root = move |level: usize| {
             // Example: root = 10 11 [11] 00 11 11 11
             // level = 2; ACC=2
@@ -296,23 +306,15 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
         level = Level::TRACE,
         target = "routing_table::flat_routing_table",
         skip(self),
-        ret, err
+        ret
     )]
-    fn closest(
-        &self,
-        target: &NodeId,
-        n: usize,
-        shared_prefix_grouping: NonZeroU8,
-    ) -> Result<Vec<PrefixContact>, GroupingError> {
-        // check for valid grouping first because we don't want unexpectedly panic inside iters
-        target.shared_prefix_len(&self.root, shared_prefix_grouping)?;
-
+    fn closest(&self, target: &NodeId, n: usize) -> Vec<PrefixContact> {
         let mut result = Vec::with_capacity(n); // reallocation result >= n unavoidable
         //
         let last_idx = self.buckets.len() - 1;
         let target_idx = self.get_bucket_index(target);
         for idx in self.buckets_by_distance(target) {
-            let contacts = self.buckets[idx].iter_valid_with_prefix(target, shared_prefix_grouping);
+            let contacts = self.buckets[idx].iter_valid_with_prefix(target);
             if idx == last_idx {
                 let mut contacts: Vec<_> = contacts.collect();
                 contacts.sort_unstable_by(sorter_xor);
@@ -337,7 +339,7 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
             }
         }
 
-        Ok(result)
+        result
     }
 
     fn iter(&self) -> impl Iterator<Item = &Contact> {
@@ -363,11 +365,10 @@ impl<'a, const BUCKET_SIZE: usize, const ACC: u8> RoutingTable<'a, BUCKET_SIZE>
     fn get_bucket_index(&self, of: &NodeId) -> usize {
         let SharedPrefix {
             xor: delta,
-            length: prefix_len,
-        } = self
-            .root
-            .shared_prefix_len(of, Self::non_zero_acc())
-            .expect("grouping is checked on initialization");
+            length: prefix_bits,
+        } = self.root.shared_prefix_len(of);
+        // shared prefix length in digits of ACC bits
+        let prefix_len = prefix_bits / ACC;
 
         // bitindex is now the index of the LSB of the first non-zero digit in delta
         // Example: delta = 00 00 00 01 10 11 10; ACC = 2
@@ -442,6 +443,21 @@ mod tests {
     fn sorted_xor<C>((a, _): &(SharedPrefix, C), (b, _): &(SharedPrefix, C)) -> bool {
         assert_ne!(a, b, "duplicate contacts");
         a.cmp(b) != Ordering::Greater
+    }
+
+    #[test]
+    fn test_invalid_acceleration() {
+        assert_eq!(
+            FlatRoutingTable::<1, 0>::new(NodeId::ZERO).unwrap_err(),
+            InvalidAccelerationError { acc: 0 }
+        );
+        assert_eq!(
+            FlatRoutingTable::<1, { NodeId::BITS + 1 }>::new(NodeId::ZERO).unwrap_err(),
+            InvalidAccelerationError {
+                acc: NodeId::BITS + 1
+            }
+        );
+        assert!(FlatRoutingTable::<1, { NodeId::BITS }>::new(NodeId::ZERO).is_ok());
     }
 
     #[test]
@@ -634,7 +650,7 @@ mod tests {
     fn test_closest_empty() -> Result<(), Box<dyn Error>> {
         crate::tests::init();
         let table = FlatRoutingTable::<2, 2>::new(NodeId::ZERO)?;
-        let results = table.closest(&NodeId::ONE, 10, NonZeroU8::new(2).unwrap())?;
+        let results = table.closest(&NodeId::ONE, 10);
         assert!(results.is_empty());
         Ok(())
     }
@@ -662,7 +678,7 @@ mod tests {
 
         let query_id = NodeId::with_msb(0b1110_0000);
         let results: Vec<_> = table
-            .closest(&query_id, 10, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 10)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -722,7 +738,7 @@ mod tests {
         let query_id = NodeId::with_msb(0b1100_0001);
         // Bucket 1... consists of the two closest entries 1100... and 1000...
         let results: Vec<_> = table
-            .closest(&query_id, 2, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 2)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -764,7 +780,7 @@ mod tests {
         // Bucket 1... has the closest entries 1100...
         // and two equally distanced entries 1000..., 1011... (some returned)
         let results: Vec<_> = table
-            .closest(&query_id, 2, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 2)
             .into_iter()
             .map(|(shared_prefix, contact)| (shared_prefix, *contact.id()))
             .collect();
@@ -818,7 +834,7 @@ mod tests {
         // and two equally distanced entries 1000..., 1011... (none returned)
         let query_id = NodeId::with_msb(0b1100_0001);
         let results: Vec<_> = table
-            .closest(&query_id, 1, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 1)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -871,7 +887,7 @@ mod tests {
         // but 1000... is closer by XOR-metric
         // 1011... shouldn't be returned
         let results: Vec<_> = table
-            .closest(&query_id, 2, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 2)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -920,7 +936,7 @@ mod tests {
         // Closest should look into buckets down the tree
         // (deeper buckets) and return at least one contact
         let results: Vec<_> = table
-            .closest(&query_id, 2, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 2)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -978,7 +994,7 @@ mod tests {
         // Bucket 0... has only one node but we want two
         // Closest should look into buckets up the tree and return at least one contact
         let results: Vec<_> = table
-            .closest(&query_id, 2, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 2)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -1040,7 +1056,7 @@ mod tests {
         // Bucket 1... consists of the two closest contacts 1100... and 1000...
         // but shouldn't return 1100 because it is invalid
         let results: Vec<_> = table
-            .closest(&query_id, 1, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 1)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -1088,7 +1104,7 @@ mod tests {
         // but shouldn't return 1100 because it is invalid.
         // Closest has to look down the tree for another node.
         let results: Vec<_> = table
-            .closest(&query_id, 2, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 2)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -1130,7 +1146,7 @@ mod tests {
         // Bucket 11... consists of 1100...
         // Closest should look at other bucket 10... (same level)
         let results: Vec<_> = table
-            .closest(&query_id, 2, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 2)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -1179,7 +1195,7 @@ mod tests {
 
         let query_id = NodeId::with_msb(0b0000_0001);
         let results: Vec<_> = table
-            .closest(&query_id, 1, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 1)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -1221,7 +1237,7 @@ mod tests {
 
         let query_id = NodeId::with_msb(0b0000_0001);
         let results: Vec<_> = table
-            .closest(&query_id, 2, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 2)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -1274,7 +1290,7 @@ mod tests {
         // Bucket 11... consists of 1100...
         // Closest should look at other buckets of the same depth
         let results: Vec<_> = table
-            .closest(&query_id, 4, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 4)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -1324,7 +1340,7 @@ mod tests {
 
         let query_id = NodeId::with_msb(0b1111_0000);
         let results: Vec<_> = table
-            .closest(&query_id, 10, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 10)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -1339,7 +1355,7 @@ mod tests {
     }
 
     #[test]
-    fn test_closest_different_grouping() -> Result<(), Box<dyn Error>> {
+    fn test_closest_shared_prefix_len() -> Result<(), Box<dyn Error>> {
         let _clock = crate::tests::TestClock::new();
         crate::tests::init();
         let root = NodeId::ZERO;
@@ -1351,33 +1367,14 @@ mod tests {
             SafeStateSeqNr::try_from(1).unwrap(),
         ))?;
 
-        let query_id = NodeId::with_msb(0b1000_0000);
-
-        // Grouping 1: prefix len is 1 (1...)
-        let results = table.closest(&query_id, 10, NonZeroU8::new(1).unwrap())?;
+        // prefix len is 1 (1...)
+        let results = table.closest(&NodeId::with_msb(0b1000_0000), 10);
         assert_eq!(results[0].0.bit_len(), 1);
         assert_eq!(results.len(), 1);
 
-        // Grouping 2: prefix len is 0 (first 2 bits are 11 vs 10, so first group of 2 bits doesn't match)
-        let results = table.closest(&query_id, 10, NonZeroU8::new(2).unwrap())?;
-        assert_eq!(results[0].0.bit_len(), 0);
-        assert_eq!(results.len(), 1);
-
-        let query_id = NodeId::with_msb(0b1100_1000);
-
-        // Grouping 1: prefix len is 4 (1100...)
-        let results = table.closest(&query_id, 10, NonZeroU8::new(1).unwrap())?;
+        // prefix len is 4 (1100...)
+        let results = table.closest(&NodeId::with_msb(0b1100_1000), 10);
         assert_eq!(results[0].0.bit_len(), 4);
-        assert_eq!(results.len(), 1);
-
-        // Grouping 2: prefix len is 2 (11_00...)
-        let results = table.closest(&query_id, 10, NonZeroU8::new(2).unwrap())?;
-        assert_eq!(results[0].0.bit_len(), 2);
-        assert_eq!(results.len(), 1);
-
-        // Grouping 3: prefix len is 1 (110....)
-        let results = table.closest(&query_id, 10, NonZeroU8::new(3).unwrap())?;
-        assert_eq!(results[0].0.bit_len(), 1);
         assert_eq!(results.len(), 1);
 
         Ok(())
@@ -1407,7 +1404,7 @@ mod tests {
 
             for node_id in nodes.iter() {
                 // return all nodes on closest
-                let results = table.closest(node_id, BUCKET_SIZE, NonZeroU8::new(1).unwrap())?;
+                let results = table.closest(node_id, BUCKET_SIZE);
                 assert_eq!(results.len(), nodes.len() - 1, "return all nodes");
 
                 if node_id != &root {
@@ -1476,7 +1473,7 @@ mod tests {
         // QUERY: ROOT
         let query_id = root;
         let results: Vec<_> = table
-            .closest(&query_id, 4, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 4)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -1509,7 +1506,7 @@ mod tests {
         // QUERY: k9
         let query_id = nodes[9];
         let results: Vec<_> = table
-            .closest(&query_id, 3, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 3)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -1534,7 +1531,7 @@ mod tests {
         // QUERY: k1 ^ 1
         let query_id = nodes[1] ^ NodeId::ONE;
         let results: Vec<_> = table
-            .closest(&query_id, 5, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 5)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -1617,7 +1614,7 @@ mod tests {
         // QUERY: ROOT
         let query_id = root;
         let results: Vec<_> = table
-            .closest(&query_id, 4, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 4)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -1650,7 +1647,7 @@ mod tests {
         // QUERY: k9
         let query_id = nodes[9];
         let results: Vec<_> = table
-            .closest(&query_id, 3, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 3)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -1675,7 +1672,7 @@ mod tests {
         // QUERY: k1 ^ 1
         let query_id = nodes[1] ^ NodeId::ONE;
         let results: Vec<_> = table
-            .closest(&query_id, 5, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 5)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -1761,7 +1758,7 @@ mod tests {
         // QUERY: ROOT
         let query_id = root;
         let results: Vec<_> = table
-            .closest(&query_id, 4, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 4)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -1795,7 +1792,7 @@ mod tests {
         // QUERY: k9
         let query_id = nodes[9];
         let results: Vec<_> = table
-            .closest(&query_id, 3, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 3)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -1825,7 +1822,7 @@ mod tests {
         // QUERY: k1 ^ 1
         let query_id = nodes[1] ^ NodeId::ONE;
         let results: Vec<_> = table
-            .closest(&query_id, 5, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 5)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -1915,7 +1912,7 @@ mod tests {
         // QUERY: ROOT
         let query_id = root;
         let results: Vec<_> = table
-            .closest(&query_id, 4, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 4)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -1949,7 +1946,7 @@ mod tests {
         // QUERY: k9
         let query_id = nodes[9];
         let results: Vec<_> = table
-            .closest(&query_id, 3, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 3)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -1979,7 +1976,7 @@ mod tests {
         // QUERY: k1 ^ 1
         let query_id = nodes[1] ^ NodeId::ONE;
         let results: Vec<_> = table
-            .closest(&query_id, 5, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 5)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -2074,7 +2071,7 @@ mod tests {
         // QUERY: ROOT
         let query_id = root;
         let results: Vec<_> = table
-            .closest(&query_id, 4, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 4)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -2102,7 +2099,7 @@ mod tests {
         // QUERY: k9
         let query_id = nodes[9];
         let results: Vec<_> = table
-            .closest(&query_id, 8, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 8)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -2145,7 +2142,7 @@ mod tests {
         // QUERY: k1 ^ 1
         let query_id = nodes[1] ^ NodeId::ONE;
         let results: Vec<_> = table
-            .closest(&query_id, 5, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 5)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -2233,7 +2230,7 @@ mod tests {
         // QUERY: ROOT
         let query_id = root;
         let results: Vec<_> = table
-            .closest(&query_id, 4, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 4)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -2261,7 +2258,7 @@ mod tests {
         // QUERY: k9
         let query_id = nodes[9];
         let results: Vec<_> = table
-            .closest(&query_id, 8, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 8)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -2304,7 +2301,7 @@ mod tests {
         // QUERY: k1 ^ 1
         let query_id = nodes[1] ^ NodeId::ONE;
         let results: Vec<_> = table
-            .closest(&query_id, 5, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 5)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -2384,7 +2381,7 @@ mod tests {
         assert_eq!(table.get_bucket_index(&farther), 3);
         assert_eq!(table.get_bucket_index(&closest), 4);
 
-        let res = table.next_hop(&target, NonZeroU8::MIN).unwrap();
+        let res = table.next_hop(&target);
         assert_eq!(
             res.as_ref().map(Contact::id),
             Some(&closest),

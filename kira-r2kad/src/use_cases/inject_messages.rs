@@ -2,7 +2,6 @@ use std::{
     collections::HashMap,
     error::Error,
     marker::PhantomData,
-    num::NonZeroU8,
     ops::Deref,
     time::Instant,
 };
@@ -11,7 +10,6 @@ use tracing::instrument;
 
 use crate::{
     domain::{
-        GroupingError,
         NodeId,
         Nonce,
         ProtocolMessage,
@@ -77,56 +75,26 @@ pub enum InjectionResult {
     Timeout,
 }
 
-/// Configuration for message injection in general.
-#[derive(Debug)]
-pub struct InjectMessagesConfig {
-    /// Grouping to use.
-    ///
-    /// Will be used when a FindNodeReq is injected and the closest node needs to be found.
-    pub shared_prefix_grouping: NonZeroU8,
-}
-
-impl Default for InjectMessagesConfig {
-    fn default() -> Self {
-        Self {
-            shared_prefix_grouping: NonZeroU8::new(1).unwrap(),
-        }
-    }
-}
-
 /// [UseCase] for externals to inject messages into the network.
 ///
 /// Will yield results through the given [InjectionResultSender] (`TS`).
 #[derive(Debug)]
 pub struct InjectMessages<C, IRS, const BUCKET_SIZE: usize> {
     _pd: PhantomData<C>,
-    config: InjectMessagesConfig,
     state: ReactiveUseCaseState,
     injection_result_sender: IRS,
     nonces: HashMap<Nonce, Instant>,
 }
 
 impl<C, TS, const BUCKET_SIZE: usize> InjectMessages<C, TS, BUCKET_SIZE> {
-    /// Creates a new [InjectMessages] instance and checks the grouping before.
-    pub fn new(
-        config: InjectMessagesConfig,
-        sender: TS,
-    ) -> Result<InjectMessages<C, TS, BUCKET_SIZE>, GroupingError> {
-        if config.shared_prefix_grouping.get() > NodeId::BITS {
-            return Err(GroupingError::Invalid {
-                group_size: config.shared_prefix_grouping,
-            });
-        }
-
-        let use_case = Self {
+    /// Creates a new [InjectMessages] instance.
+    pub fn new(sender: TS) -> InjectMessages<C, TS, BUCKET_SIZE> {
+        Self {
             _pd: Default::default(),
-            config,
             state: ReactiveUseCaseState::default(),
             injection_result_sender: sender,
             nonces: HashMap::new(),
-        };
-
-        Ok(use_case)
+        }
     }
 }
 
@@ -147,10 +115,7 @@ where
         target = "inject_messages",
         "inject_messages",
         skip(self, context, event),
-        fields(
-            state = ?self.state,
-            config = ?self.config
-        )
+        fields(state = ?self.state)
     )]
     fn handle_event(
         &mut self,
@@ -161,8 +126,7 @@ where
             UseCaseEvent::InjectMessage(nonce, InjectionMessageData::FindNode(data, target)) => {
                 let closest_route = context
                     .routing_table()
-                    .closest(&target, 1, self.config.shared_prefix_grouping)
-                    .expect("grouping has to be checked on init")
+                    .closest(&target, 1)
                     .first() // TODO: Proximity Neighbor Selection
                     .map(|(_, contact)| {
                         SourceRoute::new(*context.root_id(), contact.path().unwrap().clone())

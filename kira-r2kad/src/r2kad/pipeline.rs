@@ -111,8 +111,7 @@ impl<C, const BUCKET_SIZE: usize> R2KadPipeline<C, BUCKET_SIZE> {
         let handle_api = HandleApi::default();
         let contact_update = HandleContactUpdate::default();
         let overlay_disc = HandleOverlayDiscovery::default();
-        let on_disc = OverlayNeighborhoodDiscovery::<_, BUCKET_SIZE>::new(Default::default())
-            .expect("default grouping should be valid");
+        let on_disc = OverlayNeighborhoodDiscovery::<_, BUCKET_SIZE>::new(Default::default());
         let vicinity_disc = VicinityDiscovery::default();
 
         let path_probing = PathProbing::new(PathProbingConfig {
@@ -123,8 +122,7 @@ impl<C, const BUCKET_SIZE: usize> R2KadPipeline<C, BUCKET_SIZE> {
 
         //let mut inject_messages = if let Some(injection_sender) = injection_sender.as_ref() {
         //    let mut inject_messages =
-        //        InjectMessages::new(Default::default(), injection_sender.clone())
-        //            .expect("default grouping should be valid");
+        //        InjectMessages::new(injection_sender.clone());
         //    if let Err(e) = inject_messages.start(&context) {
         //        log::error!("Failed to start inject messages UseCase: {}", e);
         //        return;

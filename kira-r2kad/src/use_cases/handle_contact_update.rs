@@ -2,10 +2,7 @@ use std::{
     collections::HashMap,
     marker::PhantomData,
     mem,
-    num::{
-        NonZeroU8,
-        NonZeroUsize,
-    },
+    num::NonZeroUsize,
     ops::Deref,
     time::Duration,
 };
@@ -57,8 +54,6 @@ pub struct HandleContactUpdateConfig {
     /// Number of ID-wise (XOR metric) closest overlay neighbors to notify of a change to the
     /// routing table, four as default
     pub notified_overlay_neighbors: NonZeroUsize,
-    /// Number of bits to group for determining the closeness of contacts
-    pub grouping_bits: NonZeroU8,
     /// Mean time to hold back updates that include an unreachable contact.
     pub urgent_hold_time: Duration,
     /// Mean time to hold back all other updates.
@@ -69,7 +64,6 @@ impl Default for HandleContactUpdateConfig {
     fn default() -> Self {
         HandleContactUpdateConfig {
             notified_overlay_neighbors: NonZeroUsize::new(4).unwrap(),
-            grouping_bits: NonZeroU8::MIN,
             urgent_hold_time: URGENT_UPDATE_HOLD_TIME,
             normal_hold_time: NORMAL_UPDATE_HOLD_TIME,
         }
@@ -233,12 +227,7 @@ where
         // closest() may return more contacts with the same shared prefix length
         let mut neighbors: Vec<Contact> = context
             .routing_table()
-            .closest(
-                root,
-                self.config.notified_overlay_neighbors.get(),
-                self.config.grouping_bits,
-            )
-            .expect("type didn't prevent invalid grouping")
+            .closest(root, self.config.notified_overlay_neighbors.get())
             .into_iter()
             .map(|(_, contact)| contact)
             .collect();

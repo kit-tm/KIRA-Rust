@@ -5,7 +5,6 @@ use std::{
     },
     marker::PhantomData,
     num::{
-        NonZeroU8,
         NonZeroU32,
         NonZeroU64,
         NonZeroUsize,
@@ -96,8 +95,6 @@ const VICINITY_ALTERNATIVE_TIMEOUT: Duration = Duration::from_millis(100);
 ///   starts: 100ms.
 #[derive(Debug)]
 pub struct FailureHandlingConfig {
-    /// Number of bits used for determining closest overlay neighbors.
-    pub grouping_bits: NonZeroU8,
     /// Number of contacts to try for rediscovery (normally same as bucket size)
     pub number_via_contacts: NonZeroUsize,
     /// Interval used to generate random timeout durations based on distance to failing contact
@@ -115,7 +112,6 @@ pub struct FailureHandlingConfig {
 impl Default for FailureHandlingConfig {
     fn default() -> Self {
         Self {
-            grouping_bits: NonZeroU8::new(1).unwrap(),
             number_via_contacts: NonZeroUsize::new(20).unwrap(),
             backoff_timeout_interval: RediscoveryTimeoutInterval::default(),
             max_retry_rounds: NonZeroU32::new(5).unwrap(),
@@ -553,12 +549,7 @@ where
         // in isolation or drastic failure scenarios it may be the case that no via contacts can be found
         let closest_via_contacts = context
             .routing_table()
-            .closest(
-                contact.id(),
-                self.config.number_via_contacts.get(),
-                self.config.grouping_bits,
-            )
-            .expect("invalid config");
+            .closest(contact.id(), self.config.number_via_contacts.get());
 
         let initial_wait_time = self.get_rediscovery_wait_time(context, &contact);
         // if the alternative is validated in time, the contact gets valid and no rediscovery is necessary
@@ -654,12 +645,7 @@ where
                 // note that this list may be actually empty
                 let new_via_contact_list = context
                     .routing_table()
-                    .closest(
-                        &node_id,
-                        self.config.number_via_contacts.get(),
-                        self.config.grouping_bits,
-                    )
-                    .expect("invalid config")
+                    .closest(&node_id, self.config.number_via_contacts.get())
                     .iter()
                     .map(|(_, x)| *x.id())
                     .collect();

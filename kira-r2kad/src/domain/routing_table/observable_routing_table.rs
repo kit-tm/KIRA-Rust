@@ -4,7 +4,6 @@ use std::{
         Formatter,
     },
     marker::PhantomData,
-    num::NonZeroU8,
     ops::{
         Deref,
         DerefMut,
@@ -16,7 +15,6 @@ use derive_more::derive::Display;
 use crate::domain::{
     Bucket,
     Contact,
-    GroupingError,
     NodeId,
     RoutingTable,
     SharedPrefix,
@@ -310,21 +308,12 @@ where
     // Use default implementations of insert or extend.
     // Reusing inner's implementations would result in missed events.
 
-    fn closest(
-        &self,
-        to: &NodeId,
-        n: usize,
-        shared_prefix_grouping: NonZeroU8,
-    ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError> {
-        self.inner.closest(to, n, shared_prefix_grouping)
+    fn closest(&self, to: &NodeId, n: usize) -> Vec<(SharedPrefix, Contact)> {
+        self.inner.closest(to, n)
     }
 
-    fn next_hop(
-        &self,
-        target: &NodeId,
-        shared_prefix_grouping: NonZeroU8,
-    ) -> Result<Option<Contact>, GroupingError> {
-        self.inner.next_hop(target, shared_prefix_grouping)
+    fn next_hop(&self, target: &NodeId) -> Option<Contact> {
+        self.inner.next_hop(target)
     }
 
     fn iter(&self) -> impl Iterator<Item = &Contact> {
