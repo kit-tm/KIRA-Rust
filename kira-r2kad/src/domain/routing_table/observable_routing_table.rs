@@ -274,16 +274,12 @@ where
     }
 
     fn split_bucket(&mut self, id: &NodeId) -> Result<usize, BucketSplitError> {
-        let bucket_old = self.inner.bucket(id).clone();
         let index = self.inner.split_bucket(id)?;
 
-        if bucket_old
-            .iter()
-            .zip(self.inner.bucket_by_index(index))
-            .any(|(a, b)| a.path() != b.path())
-        {
-            self.notify_all(RoutingTableEvent::UpdatedBucket(index));
-        }
+        // The contacts of the split bucket are distributed to it and the new buckets, so its
+        // contacts changed, even if it became empty (e.g., its prefix entry has to be derived
+        // anew, as its contact may have moved to a deeper bucket).
+        self.notify_all(RoutingTableEvent::UpdatedBucket(index));
 
         self.notify_all(RoutingTableEvent::NewBucket(index + 1));
         Ok(index)
@@ -456,6 +452,38 @@ mod tests {
             single_bucket::SingleBucketRT,
         },
     };
+
+    #[test]
+    fn split_reports_bucket_that_became_empty() {
+        let _clock = crate::tests::TestClock::new();
+        // one bit per level: the contact 0...01 moves from bucket 0 to the new deepest bucket
+        let mut rt =
+            crate::domain::routing_table::flat_routing_table::FlatRoutingTable::<1, 1>::new(
+                NodeId::ZERO,
+            )
+            .unwrap();
+        rt.add(Contact::new(
+            Path::from(NodeId::ONE),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        ))
+        .unwrap();
+        let mut observable = ObservableRoutingTable::from(rt);
+        let events = Arc::new(RwLock::new(vec![]));
+        let observable_events = Arc::clone(&events);
+        observable.add_observer(move |event| observable_events.write().unwrap().push(event));
+
+        assert_eq!(observable.split_bucket(&NodeId::ONE), Ok(0));
+        assert!(observable.bucket_by_index(0).is_empty());
+        let events = events.read().unwrap();
+        assert!(
+            events.contains(&RoutingTableEvent::UpdatedBucket(0)),
+            "{events:?}"
+        );
+        assert!(
+            events.contains(&RoutingTableEvent::NewBucket(1)),
+            "{events:?}"
+        );
+    }
 
     #[test]
     fn add_contact() {
