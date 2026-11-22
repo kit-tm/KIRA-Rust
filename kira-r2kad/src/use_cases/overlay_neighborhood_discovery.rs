@@ -168,6 +168,10 @@ pub struct OverlayNeighborhoodDiscovery<C, const BUCKET_SIZE: usize> {
     exploration_interval: Duration,
     /// The routing table or underlay vicinity changed since the last exploration round
     exploration_progress: bool,
+    /// The next exploration round refreshes an empty bucket (alternating with random IDs)
+    refresh_bucket: bool,
+    /// Index of the bucket to refresh next, if empty (round robin over the empty buckets)
+    next_refreshed_bucket: usize,
 }
 
 impl<C, const BUCKET_SIZE: usize> Default for OverlayNeighborhoodDiscovery<C, BUCKET_SIZE> {
@@ -184,6 +188,8 @@ impl<C, const BUCKET_SIZE: usize> OverlayNeighborhoodDiscovery<C, BUCKET_SIZE> {
             state: ONDState::Initialized,
             exploration_interval: config.random_exploration_interval,
             exploration_progress: true,
+            refresh_bucket: false,
+            next_refreshed_bucket: 0,
             config,
         }
     }
@@ -349,6 +355,33 @@ where
         Ok(())
     }
 
+    /// Target of the next exploration round.
+    ///
+    /// Every other round refreshes an empty bucket (except the deepest one) like Kademlia's
+    /// bucket refresh, going round robin over the empty buckets: a random target inside the
+    /// bucket leads to the nodes of its subtree, if there are any. A random target finds such a
+    /// node only by chance, e.g., the only node of a subtree of 1/8 of the ID space, which takes
+    /// long while the exploration backs off. The other rounds use random targets.
+    fn exploration_target(&mut self, context: &C) -> NodeId {
+        self.refresh_bucket = !self.refresh_bucket;
+        if self.refresh_bucket {
+            let rt = context.routing_table();
+            let empty = empty_buckets(&*rt);
+            if let Some(&bucket_index) = empty
+                .iter()
+                .find(|&&index| index >= self.next_refreshed_bucket)
+                .or(empty.first())
+            {
+                self.next_refreshed_bucket = bucket_index + 1;
+                if let Some(target) = random_id_in_bucket(&*rt, bucket_index) {
+                    log::trace!(target: "overlay_neighborhood_discovery", "Refreshing empty bucket {bucket_index} with target {target}");
+                    return target;
+                }
+            }
+        }
+        NodeId::random()
+    }
+
     /// Sends a new FindNodeReq with random target to explore the ID space for new and better contacts and routes
     fn send_next_request_to_random_id(
         &mut self,
@@ -371,6 +404,7 @@ where
             (self.exploration_interval * 2).min(self.config.random_exploration_max_interval)
         };
         let exploration_interval = self.exploration_interval;
+        let random_id = self.exploration_target(context);
         let ONDState::Running { timer_contexts, .. } = &mut self.state else {
             panic!("Called send_next_request_to_random_id in non-running state!");
         };
@@ -381,7 +415,6 @@ where
         log::trace!(target: "overlay_neighborhood_discovery", "Next random exploration in about {exploration_interval:?}");
 
         let new_nonce = Nonce::random();
-        let random_id = NodeId::random();
 
         let closest_contact_path = context
             .routing_table()
@@ -689,6 +722,39 @@ where
     }
 }
 
+/// Indices of the empty buckets of the routing table, except the deepest one (which contains
+/// the root's own part of the ID space).
+fn empty_buckets<'a, const BUCKET_SIZE: usize>(
+    rt: &impl RoutingTable<'a, BUCKET_SIZE>,
+) -> Vec<usize> {
+    let deepest = rt.get_bucket_index(rt.root());
+    (0..deepest)
+        .filter(|&index| rt.bucket_by_index(index).is_empty())
+        .collect()
+}
+
+/// A random [NodeId] in the bucket with the given index, or None if none was found.
+///
+/// The IDs of a bucket share the prefix of the root up to the bucket's level; the remaining
+/// bits are drawn until the ID falls into the bucket (one of the buckets of the level).
+fn random_id_in_bucket<'a, const BUCKET_SIZE: usize>(
+    rt: &impl RoutingTable<'a, BUCKET_SIZE>,
+    bucket_index: usize,
+) -> Option<NodeId> {
+    // the prefix length of the first level is the number of bits per level
+    let level_bits = rt.get_bucket_prefix_length(0);
+    let shared = rt
+        .get_bucket_prefix_length(bucket_index)
+        .checked_sub(level_bits)?;
+    let root_prefix = rt.root().prefix(shared);
+    (0..64)
+        .map(|_| {
+            let random = NodeId::random();
+            root_prefix ^ (random ^ random.prefix(shared))
+        })
+        .find(|id| rt.get_bucket_index(id) == bucket_index)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -988,5 +1054,48 @@ mod tests {
             exploration(&ond).1,
             ONDConfig::<BUCKET_SIZE>::default().random_exploration_interval
         );
+    }
+
+    mod bucket_refresh {
+        use super::*;
+        use crate::domain::routing_table::flat_routing_table::FlatRoutingTable;
+
+        /// Table of the root 0 with one bit per level, whose buckets 0 (prefix 1) and 1 (prefix
+        /// 01) are empty and whose deepest bucket 2 holds the contact 0...01.
+        fn table() -> FlatRoutingTable<1, 1> {
+            let mut table = FlatRoutingTable::<1, 1>::new(NodeId::ZERO).unwrap();
+            table
+                .add(Contact::new(
+                    Path::from(NodeId::ONE),
+                    SafeStateSeqNr::try_from(1).unwrap(),
+                ))
+                .unwrap();
+            table.split_bucket(&NodeId::ONE).unwrap();
+            table.split_bucket(&NodeId::ONE).unwrap();
+            table
+        }
+
+        #[test]
+        fn empty_buckets_exclude_the_deepest_one() {
+            let _clock = crate::tests::TestClock::new();
+            let table = table();
+            assert_eq!(table.get_bucket_index(&NodeId::ONE), 2);
+            assert_eq!(empty_buckets(&table), vec![0, 1]);
+        }
+
+        #[test]
+        fn random_ids_fall_into_the_bucket() {
+            let _clock = crate::tests::TestClock::new();
+            let table = table();
+            for bucket_index in [0, 1] {
+                for _ in 0..100 {
+                    let id = random_id_in_bucket(&table, bucket_index).unwrap();
+                    assert_eq!(table.get_bucket_index(&id), bucket_index, "{id}");
+                }
+            }
+            // prefix 01
+            let id = random_id_in_bucket(&table, 1).unwrap();
+            assert_eq!(id.prefix(2), NodeId::with_msb(0b0100_0000));
+        }
     }
 }
