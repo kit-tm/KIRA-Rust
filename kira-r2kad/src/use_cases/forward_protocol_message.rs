@@ -36,6 +36,7 @@ use crate::{
         ULNState,
         ULNTable,
         UnderlayNeighborId,
+        UnderlayNeighborSource,
         VicinityGraph,
         insertion_strategy::InsertionStrategyResult,
         path::{
@@ -617,7 +618,15 @@ where
         )
         ret(level = Level::TRACE),
     )]
-    fn handle_forwarding(&self, context: &C, mut message: ProtocolMessage) -> HandlingResult {
+    /// Forwards the message to the next hop of its source route, if any.
+    ///
+    /// A `local` message was sent by ourselves to ourselves.
+    fn handle_forwarding(
+        &self,
+        context: &C,
+        mut message: ProtocolMessage,
+        local: bool,
+    ) -> HandlingResult {
         let Some(source_route) = message.source_route_mut() else {
             // ULNHello messages have no source route and need no forwarding
             return HandlingResult::NotHandled;
@@ -638,7 +647,9 @@ where
         }
 
         // touch last_seen value of ULN that forwarded the message to us
-        if let Some(entry) = context
+        if local {
+            // not forwarded by an underlay neighbor
+        } else if let Some(entry) = context
             .vicinity_graph_mut()
             .entry_mut(source_route.prev_hop())
         {
@@ -739,7 +750,14 @@ where
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
         // this use case only handles message events
-        if let UseCaseEvent::Message(message, _uln_source) = event {
+        if let UseCaseEvent::Message(message, uln_source) = event {
+            // A message to ourselves (e.g., a FetchReq or FindNodeReq for a key we are
+            // closest to, or the response to it) neither arrived from an underlay neighbor
+            // nor carries information about another node.
+            if matches!(uln_source, UnderlayNeighborSource::Local) {
+                return Ok(self.handle_forwarding(context, message, true));
+            }
+
             if let Some(source_route) = message.source_route() {
                 // Current hop has to be us, do not use misrouted packets
                 // to extract information
@@ -772,7 +790,7 @@ where
                 return Ok(HandlingResult::Handled);
             }
 
-            Ok(self.handle_forwarding(context, message))
+            Ok(self.handle_forwarding(context, message, false))
         } else {
             Ok(HandlingResult::NotHandled)
         }
@@ -793,7 +811,6 @@ mod tests {
             Nonce,
             SafeStateSeqNr,
             StateSeqNr,
-            UnderlayNeighborSource,
             insertion_strategy::UNSStrategy,
             path::ShortestFirstPathSimplifier,
             protocol_message::{
@@ -1017,6 +1034,46 @@ mod tests {
 
     fn source() -> NodeId {
         NodeId::with_msb(5)
+    }
+
+    fn receive_from(
+        ctx: &Ctx,
+        message: ProtocolMessage,
+        uln_source: UnderlayNeighborSource,
+    ) -> HandlingResult {
+        ForwardProtocolMessage::<Ctx, BUCKET_SIZE>::default()
+            .handle_event(ctx, UseCaseEvent::Message(message, uln_source))
+            .unwrap()
+    }
+
+    #[test]
+    fn message_to_ourselves_is_passed_on() {
+        let _clock = crate::tests::TestClock::new();
+        let ctx = context();
+        // as sent by the DHT if root is closest to the key: source route [root, root]
+        let message = routed_message(&[root()]);
+
+        let result = receive_from(&ctx, message, UnderlayNeighborSource::Local);
+
+        assert!(
+            matches!(result, HandlingResult::NotHandled),
+            "the other use cases have to handle the message"
+        );
+    }
+
+    #[test]
+    fn message_from_unavailable_underlay_neighbor_is_dropped() {
+        let _clock = crate::tests::TestClock::new();
+        let ctx = context();
+        let message = routed_message(&[source(), neighbor()]);
+
+        let result = receive_from(
+            &ctx,
+            message,
+            UnderlayNeighborSource::UnderlayNeighbor(ulnid()),
+        );
+
+        assert!(matches!(result, HandlingResult::Handled), "dropped");
     }
 
     /// [routed_message] from a sender with the given sequence number and degree.
