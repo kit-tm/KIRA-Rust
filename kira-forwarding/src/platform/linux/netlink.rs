@@ -253,6 +253,8 @@ impl RouteNetlink {
     }
 
     /// Stops [encapsulating](Self::replace_seg6_route) packets with destination `node_id`.
+    ///
+    /// Doesn't fail if the route doesn't exist (anymore).
     #[tracing::instrument(
         level = "trace",
         target = "native_fwd_table::netlink",
@@ -278,13 +280,9 @@ impl RouteNetlink {
 
         let msg = NetlinkMessage::new(nl_hdr, RouteNetlinkMessage::DelRoute(rt_msg).into());
 
-        let mut response = self.handle_rtnetlink.request(msg, SocketAddr::new(0, 0))?;
-
-        while let Some(response) = response.next().await {
-            if let NetlinkPayload::Error(err) = response.payload {
-                return Err(err.into());
-            }
-        }
+        // The kernel removes the routes via an interface once it goes down,
+        // so the route may be gone already.
+        request_ignoring(&self.handle_rtnetlink, msg, &[ESRCH]).await?;
 
         log::debug!(target: "native_fwd_table::netlink", "seg6 route deleted: {node_id}");
 
@@ -396,6 +394,8 @@ impl RouteNetlink {
 
     /// Deletes a [neighbor route].
     ///
+    /// Doesn't fail if the route doesn't exist (anymore).
+    ///
     /// [neighbor route]: Self::replace_neighbor_route
     #[tracing::instrument(
         level = "trace",
@@ -429,13 +429,9 @@ impl RouteNetlink {
 
         let msg = NetlinkMessage::new(nl_hdr, RouteNetlinkMessage::DelRoute(rt_msg).into());
 
-        let mut response = self.handle_rtnetlink.request(msg, SocketAddr::new(0, 0))?;
-
-        while let Some(response) = response.next().await {
-            if let NetlinkPayload::Error(err) = response.payload {
-                return Err(err.into());
-            }
-        }
+        // The kernel removes the routes via an interface once it goes down,
+        // so the route may be gone already.
+        request_ignoring(&self.handle_rtnetlink, msg, &[ESRCH]).await?;
 
         log::debug!(target: "native_fwd_table::netlink", "route deleted: {} dev {}", node_id, interface_id);
 
