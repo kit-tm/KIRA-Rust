@@ -63,6 +63,7 @@ use crate::{
     },
     ebpf::{
         self,
+        DropEvents,
         PathTable,
     },
     netlink::{
@@ -94,6 +95,8 @@ pub struct Srv6FwdTables<I> {
 
     routes: RouteNetlink,
     path_table: PathTable,
+    /// Reports of packets dropped because of an unknown PathIP, until taken.
+    drop_events: Option<DropEvents>,
     interface_id_table: HashMap<UnderlayNeighborId, InterfaceId>,
     underlay_information_provider: I,
 }
@@ -120,7 +123,7 @@ impl<I> Srv6FwdTables<I> {
         // a previous instance (e.g., after a crash) may have left its routes behind
         remove_routes(&handle_rtnetlink, &ip_prefixes).await?;
 
-        let (mut program, path_table) = ebpf::load(&ip_prefixes)?;
+        let (mut program, path_table, drop_events) = ebpf::load(&ip_prefixes)?;
         log::debug!(target: "srv6_fwd_table", "Loaded eBPF program successfully");
 
         let routes = RouteNetlink::new(handle_rtnetlink, ip_prefixes);
@@ -147,6 +150,7 @@ impl<I> Srv6FwdTables<I> {
             Self {
                 routes,
                 path_table,
+                drop_events: Some(drop_events),
                 node_id_table: Default::default(),
                 path_id_table: Default::default(),
                 interface_id_table: Default::default(),
@@ -154,6 +158,14 @@ impl<I> Srv6FwdTables<I> {
             },
             attaching,
         ))
+    }
+}
+
+impl<I> Srv6FwdTables<I> {
+    /// The reports of the packets the eBPF program dropped because of an unknown PathIP,
+    /// see [DropEvents::listen]. Returns `None` after the first call.
+    pub fn take_drop_events(&mut self) -> Option<DropEvents> {
+        self.drop_events.take()
     }
 }
 

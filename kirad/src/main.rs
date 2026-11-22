@@ -432,7 +432,7 @@ async fn main() {
                 connection.abort();
             }
 
-            let (fwd_tables, attach) = Srv6FwdTables::new(
+            let (mut fwd_tables, attach) = Srv6FwdTables::new(
                 root_id,
                 ip_prefixes,
                 handle_rtnetlink.clone(),
@@ -453,8 +453,23 @@ async fn main() {
                 attach,
             };
 
+            // packets the eBPF program dropped because of an obsolete path
+            let (dropped_tx, dropped_rx) = tokio::sync::mpsc::channel(DROPPED_PACKETS_BUFFER);
+            let drop_events = fwd_tables
+                .take_drop_events()
+                .expect("drop events are taken only once");
+            tokio::task::Builder::new()
+                .name("Dropped packets (eBPF)")
+                .spawn(async move {
+                    if let Err(e) = drop_events.listen(ip_prefixes, dropped_tx).await {
+                        log::warn!("No notification about packets with unknown PathIP: {e}");
+                    }
+                })
+                .unwrap();
+
             let kira =
-                Kira::with_components(r2kad, fwd_tables, underlay_updates2, pm_receiver, pm_sender);
+                Kira::with_components(r2kad, fwd_tables, underlay_updates2, pm_receiver, pm_sender)
+                    .with_dropped_packets(dropped_rx);
             let kira = tokio::task::Builder::new()
                 .name("KIRA main loop")
                 .spawn(kira.start())

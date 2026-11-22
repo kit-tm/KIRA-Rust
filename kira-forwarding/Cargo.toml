@@ -14,7 +14,7 @@ nft = ["netlink"]
 # SRv6 encapsulation with an eBPF program handling the PathIDs.
 # Building the eBPF program requires a nightly toolchain with the `rust-src` component
 # and `bpf-linker`.
-srv6 = ["nft", "aya", "aya-build", "kira-forwarding-common/user"]
+srv6 = ["nft", "aya", "aya-build", "kira-forwarding-common/user", "tokio/net", "tokio/macros"]
 netlink = [
   "netlink-proto",
   "netlink-packet-core",

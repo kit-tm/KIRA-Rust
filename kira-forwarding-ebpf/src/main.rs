@@ -12,8 +12,11 @@
 //!
 //! Everything else is left to the network stack: forwarding to the next hop of a PathIP,
 //! local delivery or forwarding of decapsulated packets and the encapsulation of packets
-//! (`seg6` routes). Packets with unknown PathIPs are passed on unchanged, so the network stack
-//! answers them with an ICMPv6 error.
+//! (`seg6` routes).
+//!
+//! Packets with unknown PathIPs, e.g., as the link to the next hop failed, are dropped and
+//! reported to the routing tier (rate limited), which notifies the node that used the
+//! obsolete path.
 
 #![cfg_attr(target_arch = "bpf", no_std)]
 #![cfg_attr(target_arch = "bpf", no_main)]
