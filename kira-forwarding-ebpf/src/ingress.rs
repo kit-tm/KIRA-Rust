@@ -52,6 +52,8 @@ const ETH_P_IPV6: [u8; 2] = [0x86, 0xdd];
 const IPV6_HDR_LEN: usize = 40;
 /// Offset of the Next Header field in the IPv6 header.
 const IPV6_NEXT_HDR_OFFSET: usize = 6;
+/// Offset of the Hop Limit field in the IPv6 header.
+const IPV6_HOP_LIMIT_OFFSET: usize = 7;
 /// Offset of the source address in the IPv6 header.
 const IPV6_SRC_OFFSET: usize = 8;
 /// Offset of the destination address in the IPv6 header.
@@ -218,9 +220,20 @@ fn inner_destination(ctx: &TcContext) -> Option<[u8; 16]> {
 
 /// Removes the outer headers of the given length following the Ethernet header.
 ///
-/// The inner IPv6 packet is handled by the network stack afterwards.
+/// The inner IPv6 packet is handled by the network stack afterwards. It takes over the
+/// outer hop limit if that is lower: the kernel encapsulates the inner packet for the next
+/// path without decrementing its hop limit and copies it into the new outer header, so the
+/// hops on the paths have to be counted in the inner header. Otherwise a packet caught in
+/// a transient routing loop would circle forever.
 #[inline(always)]
 fn decapsulate(ctx: &TcContext, outer_len: usize) -> Result<i32, i64> {
+    let outer_hop_limit: u8 = ctx.load(ETH_HDR_LEN + IPV6_HOP_LIMIT_OFFSET)?;
+    let inner_hop_limit_offset = ETH_HDR_LEN + outer_len + IPV6_HOP_LIMIT_OFFSET;
+    let inner_hop_limit: u8 = ctx.load(inner_hop_limit_offset)?;
+    if outer_hop_limit < inner_hop_limit {
+        // the hop limit isn't covered by the checksums of the transport protocols
+        ctx.store(inner_hop_limit_offset, &outer_hop_limit, 0)?;
+    }
     ctx.adjust_room(-(outer_len as i32), BPF_ADJ_ROOM_MAC, 0)?;
     Ok(TC_ACT_OK as i32)
 }
