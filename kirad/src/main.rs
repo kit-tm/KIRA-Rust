@@ -17,6 +17,7 @@ use kira_forwarding::{
 use kira_forwarding::{
     netlink::{
         NETLINK_NETFILTER,
+        NETLINK_ROUTE,
         NetfilterNetlinkHandle,
         RouteNetlinkHandle,
         new_connection,
@@ -287,12 +288,22 @@ async fn main() {
     );
 
     // start underlay observation
-    let (connection, handle, mut underlay_updates, handle_rtnetlink) =
+    let (connection, handle, mut underlay_updates, _) =
         observe_underlay(excluded_interfaces.clone())
             .expect("observing underlay neighborhood failed");
     tokio::task::Builder::new()
         .name("Underlay Connection")
         .spawn(connection)
+        .unwrap();
+
+    // A netlink socket of its own for the forwarding tier: the kernel refuses a dump while
+    // another one is running on the same socket (EBUSY), e.g., the initial dump of the links
+    // by the underlay observer and the dump of the routes left behind by a previous instance.
+    let (connection_rtnetlink, handle_rtnetlink, _) =
+        new_connection(NETLINK_ROUTE).expect("netlink socket for the forwarding tier");
+    tokio::task::Builder::new()
+        .name("Forwarding Netlink Connection")
+        .spawn(connection_rtnetlink)
         .unwrap();
 
     // duplicate mpsc underlay updates channel for fwd_tables and R²/KAD
