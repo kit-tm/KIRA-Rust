@@ -28,7 +28,7 @@ from PIL import Image
 from term_image.image import AutoImage
 
 from kira_nest.nest.imager import KIRAImager
-from kira_nest.nest.link import KIRALink
+from kira_nest.nest.link import ForeignLink, KIRALink, VxlanLink
 from kira_nest.nest.node import KIRANode
 from kira_nest.nest.shell.util import (
     StoreKIRAIP,
@@ -71,11 +71,12 @@ class DebugShell[T](Cmd):
         self.post_process_log_files = post_process_log_files
 
         base = f"{YELLOW}ntest{RESET}"
-        prefix = (
-            f"{GREEN}unshared{RESET}"
-            if unshared
-            else f"{RED}{socket.gethostname()}{RESET}"
-        )
+        if unshared:
+            prefix = f"{GREEN}unshared{RESET}"
+        elif test.cluster is not None:
+            prefix = f"{RED}{test.cluster.local}{RESET}"
+        else:
+            prefix = f"{RED}{socket.gethostname()}{RESET}"
         self.prompt = f"{base}{BLUE}@{RESET}{prefix} {BOLD}${RESET} "
 
     @cached_property
@@ -141,6 +142,12 @@ class DebugShell[T](Cmd):
     _pingall_parser.add_argument(
         "-v", "--verbose", action="store_true", help="more verbose pings"
     )
+    _pingall_parser.add_argument(
+        "-l",
+        "--local",
+        action="store_true",
+        help="ping only nodes on this host (with --cluster)",
+    )
 
     # TODO: support pinging specific and partial node pairs
     @with_argparser(_pingall_parser)
@@ -148,21 +155,29 @@ class DebugShell[T](Cmd):
         failed = args.failed or self.quiet
         verbose = 2 if args.verbose else 0
 
-        conn = dict(self.test.topology.connected_components())
+        topology = self.test.topology
+        conn = topology.component_ids()
         component_sizes = Counter(conn.values())
-        for x in self.test.topology.nodes:
+        # destinations: also the nodes on other hosts, by their configured NodeIP
+        destinations = [
+            (tid, cfg)
+            for tid, cfg in topology.configs()
+            if not args.local or topology.is_local(tid)
+        ]
+        for x in topology.nodes:
+            x_tid = topology.tid(x)
             # down links isolate the node: there is no one to ping
-            if component_sizes[conn[x]] == 1:
+            if component_sizes[conn[x_tid]] == 1:
                 print(f"{x:>3} is isolated (all its links are down), not pinged")
                 continue
-            for y in self.test.topology.nodes:
-                if x == y or conn[x] != conn[y]:
+            for y_tid, y_cfg in destinations:
+                if x_tid == y_tid or conn[x_tid] != conn[y_tid]:
                     continue
+                y = y_cfg.name
 
                 if not self.quiet:
                     print(f"Pinging {x:>3} --> {y:>3} ...", end="\r")
-                ip_y = y.node_id.to_node_ip()
-                ip_y = Address(str(ip_y))
+                ip_y = Address(str(y_cfg.ipv6))
                 ping_failed = not x.ping(ip_y, packets=1, verbose=verbose)
 
                 if verbose == 0:
@@ -614,6 +629,11 @@ class DebugShell[T](Cmd):
                 if not self.quiet and not args.verbose:
                     print(f"{src:>3} --> {dst:>3} ...", end="\r")
                 success = self.test.traceroute(src, dst, verbose=args.verbose)
+                if success is None:
+                    # left this host, the rest of the path can't be followed
+                    end = "\r" if args.failed else "\n"
+                    print(f"{src:>3} --> {dst:>3} ↷ (via other host)", end=end)
+                    continue
                 end = "\r" if args.failed and success else "\n"
                 mark = "✓   " if success else "✗   "
                 print(f"{src:>3} --> {dst:>3} {mark}", end=end, flush=True)
@@ -672,18 +692,16 @@ class DebugShell[T](Cmd):
             # all links from x
             ys_tid = [y_tid for y_tid, _ in self.test.topology.links[x_tid, ...]]
 
-        if mode:
-            mode_sym = "✔"
-            mode_fn = KIRALink.up
-        else:
-            mode_sym = "✗"
-            mode_fn = KIRALink.down
+        mode_sym = "✔" if mode else "✗"
 
         for y_tid in ys_tid:
-            node_y = self.test.topology.nodes[y_tid]
+            node_y = self.test.topology.name(y_tid)
             link = self.test.topology.links[x_tid, y_tid]
             assert isinstance(link, KIRALink)
-            mode_fn(link)
+            if mode:
+                link.up()
+            else:
+                link.down()
 
             if not self.quiet:
                 print(f"{node_x:>3} -{mode_sym}- {node_y:>3} ...")
@@ -753,7 +771,9 @@ class DebugShell[T](Cmd):
 
     @property
     def _stop_parser(self) -> argparse.ArgumentParser:
-        return self._daemon_parser("Stops kirad of the node (links stay up).", kill=True)
+        return self._daemon_parser(
+            "Stops kirad of the node (links stay up).", kill=True
+        )
 
     @with_argparser("_stop_parser")
     def do_stop(self, args: argparse.Namespace) -> None:
@@ -817,17 +837,23 @@ class DebugShell[T](Cmd):
 
         if node is None:
             for x_tid, y_tid, link in self.test.topology.links:
-                x = self.test.topology.nodes[x_tid]
-                y = self.test.topology.nodes[y_tid]
-                up_indicator = "-" if link.is_up() else "✗"
-                print(f"{x:>3} -{up_indicator}- {y:>3}")
+                if isinstance(link, ForeignLink):
+                    continue  # listed by the other hosts
+                self._print_link(x_tid, y_tid, link)
         else:
-            x = node
-            x_tid = self.test.topology.tid(x)
+            x_tid = self.test.topology.tid(node)
             for y_tid, link in self.test.topology.links[x_tid, ...]:
-                y = self.test.topology.nodes[y_tid]
-                up_indicator = "-" if link.is_up() else "✗"
-                print(f"{x:>3} -{up_indicator}- {y:>3}")
+                self._print_link(x_tid, y_tid, link)
+
+    def _print_link(self, x_tid: T, y_tid: T, link: KIRALink) -> None:
+        topology = self.test.topology
+        if not topology.is_local(x_tid):
+            x_tid, y_tid = y_tid, x_tid
+        x = topology.name(x_tid)
+        y = topology.name(y_tid)
+        up_indicator = "-" if link.is_up() else "✗"
+        remote = f" (on host {link.remote_host})" if isinstance(link, VxlanLink) else ""
+        print(f"{x:>3} -{up_indicator}- {y:>3}{remote}")
 
     @property
     def _edge_parser(self) -> argparse.ArgumentParser:
@@ -897,7 +923,7 @@ class DebugShell[T](Cmd):
 
         interfaces_str = ""
         for y_tid in ys_tid:
-            node_y = self.test.topology.nodes[y_tid]
+            node_y = self.test.topology.name(y_tid)
             link = self.test.topology.links[x_tid, y_tid]
             assert isinstance(link, KIRALink)
             interface = link.id(node_x)
@@ -914,6 +940,25 @@ class DebugShell[T](Cmd):
         for n in self.test.topology.nodes:
             nid = n.node_id
             print(f"{n:>3} {nid}")
+
+    def do_hosts(self, arg: str) -> None:
+        "List the hosts of the cluster and the nodes each one emulates."
+        _ = arg
+        cluster = self.test.cluster
+        if cluster is None:
+            print("Not running in a cluster (see nesttest --cluster).")
+            return
+        print(cluster.describe())
+        for host in cluster.hosts.values():
+            names = sorted(
+                (
+                    self.test.topology.name(tid)
+                    for tid, h in cluster.assignment.items()
+                    if h == host.name
+                ),
+                key=lambda n: (n.rstrip("0123456789"), len(n), n),
+            )
+            print(f"{host.name}: {' '.join(names)}")
 
     def do_show_graph(self, arg: str) -> None:
         "Show the current graph of the topology."
@@ -942,16 +987,17 @@ class DebugShell[T](Cmd):
         tid = self.test.topology.tid(node)
         topo_node = self.test.topology.topology_nodes[tid]
 
-        # sort topo-ids like `k17` in expected order
-        def _srt(n: KIRANode) -> tuple[str | KIRANode, int]:
-            match = re.match(r"([a-zA-Z]+)(\d+)", n.name)
+        # sort names like `k17` in expected order
+        def _srt(name: str) -> tuple[str, int]:
+            match = re.match(r"([a-zA-Z]+)(\d+)", name)
             if match:
                 alpha, num = match.groups()
                 return (alpha, int(num))
-            return (n, 0)
+            return (name, 0)
 
-        def _sorted(iiter: Iterable[T | NodeID | NodeIP | str]) -> Iterable[KIRANode]:
-            return sorted(map(lambda t: self.test.topology.nodes[t], iiter), key=_srt)
+        # names, also of nodes on other hosts
+        def _sorted(iiter: Iterable[T | NodeID | NodeIP]) -> Iterable[str]:
+            return sorted(map(self.test.topology.display, iiter), key=_srt)
 
         if not self.quiet:
             print("Theoretical Vicinity:")

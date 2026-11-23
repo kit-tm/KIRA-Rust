@@ -17,6 +17,7 @@ from kira_common.domain import (
     ENV_PATH_IP_PREFIX,
     IPPrefixes,
     KiraIP,
+    NodeIP,
     Path,
     PathIP,
     get_ip_prefixes,
@@ -30,7 +31,8 @@ from nest.topology_map import TopologyMap
 from networkx import Graph
 
 from kira_nest.domain.topology import KIRATopology
-from kira_nest.nest.link import KIRALink
+from kira_nest.nest.cluster import Cluster
+from kira_nest.nest.link import ForeignLink, KIRALink, VxlanLink
 from kira_nest.nest.node import KIRANode
 
 logger = logging.getLogger(__name__)
@@ -54,6 +56,9 @@ class KIRATest[T]:  # T = topology id type, usually int or str
     ip_prefixes : IPPrefixes, optional
         Prefixes of NodeIPs and PathIPs used by all nodes.
         Defaults to the prefixes from the environment variables also used by kirad.
+    cluster : Cluster, optional
+        Emulate only the nodes assigned to this host of the cluster and connect them
+        to nodes on other hosts over VXLAN (see `kira_nest.nest.cluster`).
 
     The daemons and namespaces exist until `close()` (also on leaving a `with` block).
     Tests that are still running at interpreter exit are closed then.
@@ -62,13 +67,15 @@ class KIRATest[T]:  # T = topology id type, usually int or str
     # tests whose daemons may still run
     _running: ClassVar[list["KIRATest"]] = []
 
-    def __init__(
+    def __init__(  # noqa: PLR0912, PLR0915
         self,
         config: Graph | pathlib.Path,
         kirad_binary: pathlib.Path = pathlib.Path("./target/debug/kirad"),
         perf: set[T] | None = None,
         otel_ip: IPv4Network | None = None,
         ip_prefixes: IPPrefixes | None = None,
+        *,
+        cluster: Cluster | None = None,
     ) -> None:
         self._otel_ip = otel_ip or IPv4Network("10.42.0.0/24")
 
@@ -88,6 +95,11 @@ class KIRATest[T]:  # T = topology id type, usually int or str
         else:
             self.topology = KIRATopology(config)
 
+        self.cluster = cluster
+        if cluster is not None:
+            cluster.assign(self.topology.topology)
+            logger.info(f"Cluster hosts: {cluster.describe()}")
+
         self.kirad_binary = kirad_binary
         self.processes: list[Popen] = []
         # arguments and wrapper of each node's kirad to start it again
@@ -101,12 +113,18 @@ class KIRATest[T]:  # T = topology id type, usually int or str
 
         # Create the Nest topology according to the configuration
         for tid, cfg in self.topology.configs():
+            if cluster is not None and not cluster.is_local(tid):
+                continue
             node = KIRANode(cfg)
             node.enable_ip_forwarding(True, True)
             self.topology.nodes[tid] = node
 
         logger.info("Setting up interfaces ...")
         for x, y in self.topology.edges():
+            if cluster is not None and not (
+                cluster.is_local(x) and cluster.is_local(y)
+            ):
+                continue  # see _setup_cluster_links
             nx = self.topology.nodes[x]
             ny = self.topology.nodes[y]
 
@@ -116,10 +134,14 @@ class KIRATest[T]:  # T = topology id type, usually int or str
 
             # safe interfaces for later
             self.topology.links[x, y] = KIRALink(if_x, if_y)
+        if cluster is not None:
+            self._setup_cluster_links(cluster)
 
         logger.info("Starting daemons ...")
         for tid, cfg in self.topology.configs():
-            node = self.topology.nodes[tid]
+            node = self.topology.nodes.get(tid)
+            if node is None:
+                continue  # emulated on another host
             args: list[str] = []
 
             # kirad inherits the environment, so arguments must override set variables
@@ -142,6 +164,25 @@ class KIRATest[T]:  # T = topology id type, usually int or str
             kira_process = node.start(kirad_binary, *args, wrapper=wrapper)
             self.processes.append(kira_process)
             self._daemons[tid] = (args, wrapper)
+
+    def _setup_cluster_links(self, cluster: Cluster) -> None:
+        """Sets up the links to nodes on other hosts and between them."""
+        graph = self.topology.topology
+        cross_links = cluster.cross_links(graph)
+        logger.info(f"Setting up {len(cross_links)} VXLAN links to other hosts ...")
+        for link in cross_links:
+            node = self.topology.nodes[link.local_tid]
+            ifname = cluster.create_vxlan(link, node.id, node.config.ipv6.compressed)
+            self.topology.links[link.local_tid, link.remote_tid] = VxlanLink(
+                node, ifname, link.remote_host.name
+            )
+
+        # the theoretical view of the vicinities needs the links beyond this host
+        for x, y in graph.edges():
+            if not (cluster.is_local(x) or cluster.is_local(y)):
+                self.topology.links[x, y] = ForeignLink(
+                    cluster.host_of(x), cluster.host_of(y)
+                )
 
     def __enter__(self) -> Self:
         return self
@@ -326,29 +367,38 @@ class KIRATest[T]:  # T = topology id type, usually int or str
                 return str(node)
             case None:
                 return "???"
-            case tid:
-                try:
-                    node = self.topology.nodes[tid]
-                    return str(node)
-                except KeyError:
-                    return "???"
+            case key:
+                # also nodes on other hosts
+                return self.topology.display(key)
 
     def _display_path(self, path: Path | None) -> str:
         if path is None:
             return "???"
         else:
-            return ", ".join(
-                self._display_node(self.topology.nodes[hop]) for hop in path
-            )
+            return ", ".join(self.topology.display(hop) for hop in path)
+
+    def remote_host(self, ip: NodeIP) -> str | None:
+        """The host emulating the node with the NodeIP, if it is not this one."""
+        if self.cluster is None:
+            return None
+        try:
+            tid = self.topology.topology_nodes[ip].tid
+        except KeyError:
+            return None
+        host = self.cluster.host_of(tid)
+        return None if host == self.cluster.local else host
 
     def traceroute(  # noqa: PLR0911,PLR0912,PLR0915
         self, start: KIRANode, dest: KIRANode, maxhops: int = 50, verbose: bool = False
-    ) -> bool:
+    ) -> bool | None:
         """
         Follows the forwarding tables of the nodes from `start` to `dest`.
 
         The packet carries a stack of destination IPs: the NodeIP of `dest` at the
         bottom and on top of it the PathIPs of the path segments it is forwarded on.
+
+        Returns None if the packet is forwarded to a node on another host, whose
+        forwarding tables can't be followed from here.
         """
         current_hop = start
         current_ip = current_hop.node_id.to_node_ip()
@@ -410,6 +460,12 @@ class KIRATest[T]:  # T = topology id type, usually int or str
                 print(f"{current_hop:<3} : ERR : Can't determine next ip")
                 return False
             next_hop = self.topology.nodes.get(next_ip)
+            if next_hop is None and (host := self.remote_host(next_ip)) is not None:
+                log(
+                    f"FORWARD to {self.topology.display(next_ip)} on host {host},"
+                    " not traced further"
+                )
+                return None
             if next_hop is None:
                 print(
                     f"{current_hop:<3} : ERR :"

@@ -125,6 +125,56 @@ sudo sysctl -w net.ipv6.neigh.default.gc_thresh1=8192 \
 The setting lasts until the next reboot. To keep it, add the same values to a file in
 `/etc/sysctl.d/`, e.g. `/etc/sysctl.d/90-kira-nest.conf`.
 
+## Topologies spanning several hosts
+
+_nesttest_ can emulate one topology on several hosts together, e.g. to go beyond
+the nodes a single host can run. Every host loads the same GML file and the same
+cluster file, emulates only the nodes assigned to it and connects them to the nodes
+on other hosts over VXLAN tunnels. The hosts derive the assignment of the nodes and
+the tunnels from the two files alone, so they don't need to talk to each other.
+
+The cluster file (TOML) names the hosts and their underlay addresses:
+```toml
+# all optional: underlay interface, VNI of the first tunnel, UDP port, MTU in the nodes
+device = "eth0"
+vni_base = 1000
+port = 4789
+mtu = 1450
+
+[hosts.alpha]
+address = "192.0.2.1"
+
+[hosts.beta]
+address = "192.0.2.2"
+nodes = ["k7", "k8"]  # optional: nodes pinned to this host (labels or names)
+```
+
+Start _nesttest_ on every host at about the same time, as root, with the same
+files, `kirad` version and environment (e.g. `KIRA_FORWARDING`):
+```sh
+sudo uv --project=./tests/kira-test run nesttest big.gml --cluster cluster.toml --host alpha
+```
+`--host` defaults to the hostname. The NodeIDs must be the same on all hosts: either
+the GML file contains them (see `alter_gml_config`) or all hosts pass the same `--seed`.
+
+A node is assigned to the host named by its GML attribute `host`, otherwise to the
+host listing it in `nodes`, otherwise automatically: in the order of the cluster file,
+every host grows a connected region of the remaining nodes until it has an equal
+share of them. Type `hosts` in the shell to see the assignment.
+
+Notes:
+- UDP port 4789 (or `port`) must be open between the hosts. Unshare isolation isn't
+  available with `--cluster`.
+- VXLAN adds 50 bytes (70 over IPv6), so the tunnels have a smaller MTU than the veth
+  links unless the underlay supports larger frames and you raise `mtu`.
+- Each shell sees the nodes of its host only: `checkup`, `check`, `vicinity` and
+  `traceroute` work on local nodes. `check` and `vicinity` compare with the whole
+  topology, also beyond the host. `traceroute` stops where a packet leaves the host
+  (shown as `↷`). `pingall` pings the NodeIPs of all nodes, also on other hosts
+  (`pingall --local` only local ones).
+- `link`, `down` and `up` change only the local end of a tunnel. That is enough to
+  cut the link, but the other host assumes it is still up in its own checks.
+
 # Development
 
 This project uses the Python project manager [uv].
