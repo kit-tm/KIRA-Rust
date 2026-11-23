@@ -18,6 +18,9 @@ def test_dht_store_fetch(kirad_small_k, kira_topo, conn_helpers, subtests):
 
     # Network appears functional
     conn_helpers.checkup_timeout(test, timeout=1)
+    # the nodes need a moment to discover their underlay neighbors; if the routing
+    # doesn't converge, the sweep fails
+    conn_helpers.converge(test)
     conn_helpers.retry_sweep(test, conn_helpers.ping_check, test_msg="ping")
     comps = dict(test.topology.connected_components())
 
