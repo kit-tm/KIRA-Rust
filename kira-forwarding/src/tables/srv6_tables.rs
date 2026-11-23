@@ -67,7 +67,9 @@ use crate::{
         PathTable,
     },
     netlink::{
+        NETLINK_ROUTE,
         RouteNetlink,
+        new_connection,
         remove_routes,
     },
     tables::{
@@ -127,9 +129,23 @@ impl<I> Srv6FwdTables<I> {
         log::debug!(target: "srv6_fwd_table", "Loaded eBPF program successfully");
 
         let routes = RouteNetlink::new(handle_rtnetlink, ip_prefixes);
+
+        // A netlink connection of its own for attaching the NodeIP to interfaces: the kernel
+        // handles the requests of a socket in order, and adding an address may take long while
+        // many interfaces come up. Meanwhile, the entries of the forwarding tables were held
+        // back, and packets of neighbors that already learned about new paths were dropped.
+        let (attach_routes, attach_connection) = match new_connection(NETLINK_ROUTE) {
+            Ok((connection, handle, _)) => {
+                (RouteNetlink::new(handle, ip_prefixes), Some(connection))
+            }
+            Err(e) => {
+                log::warn!(target: "srv6_fwd_table", "No netlink connection of its own for attaching NodeIPs to interfaces: {e}");
+                (routes.clone(), None)
+            }
+        };
         let attaching = {
-            let routes = routes.clone();
-            async move {
+            let routes = attach_routes;
+            let attach = async move {
                 while let Some(update) = underlay_updates.next().await {
                     if let UnderlayNeighborUpdate::InterfaceUp(id) = update {
                         if let Err(e) = routes.attach_node_id_ip(&root_id, id).await {
@@ -142,6 +158,14 @@ impl<I> Srv6FwdTables<I> {
                     // the receiver may be gone on shutdown, the program stays attached until
                     // this future is dropped
                     let _ = prepared_updates.unbounded_send(update);
+                }
+            };
+            async move {
+                match attach_connection {
+                    Some(connection) => {
+                        futures::future::select(Box::pin(connection), Box::pin(attach)).await;
+                    }
+                    None => attach.await,
                 }
             }
         };
