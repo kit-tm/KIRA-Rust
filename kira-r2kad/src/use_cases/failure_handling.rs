@@ -77,6 +77,11 @@ const REDISCOVERY_WAITTIME_ULN: Duration = Duration::from_millis(100);
 const REDISCOVERY_WAITTIME_CLOSEST_NEIGHBORS: Duration = Duration::from_millis(500);
 const REDISCOVERY_WAITTIME_CONTACT_WITH_ULN: Duration = Duration::from_millis(1000);
 const REDISCOVERY_WAITTIME_OTHER: Duration = Duration::from_millis(2000);
+/// Wait time for the contact rediscovered first of a bucket without valid contacts.
+///
+/// Its subtree is unreachable until a contact is valid again. The other invalidated contacts
+/// keep their wait time: the new path into the subtree usually repairs them meanwhile.
+const REDISCOVERY_WAITTIME_UNREACHABLE_BUCKET: Duration = Duration::from_millis(100);
 const REDISCOVERY_TIMEOUT_MAX: Duration = Duration::from_millis(250);
 const VICINITY_ALTERNATIVE_TIMEOUT: Duration = Duration::from_millis(100);
 
@@ -237,12 +242,32 @@ where
     fn get_rediscovery_wait_time(&self, context: &C, contact: &Contact) -> Duration {
         match contact {
             contact if contact.is_uln() => REDISCOVERY_WAITTIME_ULN,
+            contact if Self::is_first_of_unreachable_bucket(context, contact) => {
+                REDISCOVERY_WAITTIME_UNREACHABLE_BUCKET
+            }
             contact if context.routing_table().is_close_contact(contact.id()) => {
                 REDISCOVERY_WAITTIME_CLOSEST_NEIGHBORS
             }
             contact if contact.has_broken_first_hop() => REDISCOVERY_WAITTIME_CONTACT_WITH_ULN,
             _ => REDISCOVERY_WAITTIME_OTHER,
         }
+    }
+
+    /// Returns if the bucket of the contact has no valid contact and the contact has the
+    /// shortest path of its contacts (ties broken by the smaller NodeId), so that exactly one
+    /// of them is rediscovered quickly.
+    fn is_first_of_unreachable_bucket(context: &C, contact: &Contact) -> bool {
+        let rt = context.routing_table();
+        let bucket = rt.bucket(contact.id());
+        if bucket.iter().any(|other| other.is_valid()) {
+            return false;
+        }
+        let key = |c: &Contact| (c.path().map_or(usize::MAX, |path| path.size()), *c.id());
+        bucket
+            .iter()
+            .filter(|other| other.path().is_some())
+            .min_by_key(|other| key(other))
+            .is_some_and(|first| first.id() == contact.id())
     }
 
     // this should be called only from immediate error msgs, because the NotVia is using the current time
@@ -1468,6 +1493,106 @@ mod tests {
         assert_eq!(ctx.runtime().removed_timers(), vec![timer]);
         assert!(fh.pending_vicinity_alternatives.is_empty());
         assert!(!fh.scheduled_rediscoveries.contains_key(&timer));
+    }
+
+    /// Context with the underlay neighbor [a] and the remote contacts `y` (via a, c) and `z`
+    /// (via a, c, d) in the only bucket, plus the remote contact `w` (via a, e) if `with_w`.
+    /// Returns the ids of y, z and w.
+    fn setup_remote_contacts(with_w: bool) -> (FH, Ctx, [NodeId; 3]) {
+        crate::tests::init();
+        let ctx = Ctx::new(ContextConfig {
+            root_id: root(),
+            routing_table: SingleBucketRT::<BUCKET_SIZE>::new(root()),
+            runtime: TestingUseCaseRuntime::with_unique_timer_ids(),
+            insertion_strategy: (),
+            uln_table: InMemoryULNTable::new(),
+            vicinity_graph: PetVicinityGraph::new(root()),
+        });
+        ctx.uln_table_mut().insert(a(), ulnid(1));
+        ctx.vicinity_graph_mut()
+            .insert(a(), &root(), ssn())
+            .unwrap();
+        let [c, d, e, y, z, w] = [6, 7, 8, 9, 10, 11].map(NodeId::with_msb);
+        let mut paths = vec![path(&[a(), c, y]), path(&[a(), c, d, z])];
+        if with_w {
+            paths.push(path(&[a(), e, w]));
+        }
+        for path in paths {
+            let contact = Contact::new(path, ssn());
+            assert!(contact.is_valid());
+            ctx.routing_table_mut().add(contact).unwrap();
+        }
+        let mut fh = FH::new(FailureHandlingConfig::default());
+        fh.start(&ctx).unwrap();
+        (fh, ctx, [y, z, w])
+    }
+
+    /// Invalidates the contacts with the failed link (c, d) or (a, c) at once and only then
+    /// hands the changes to failure handling, as the routing table events are queued.
+    /// Returns the wait times of the scheduled rediscoveries.
+    fn invalidate_at_once(fh: &mut FH, ctx: &Ctx, nodes: &[NodeId]) -> Vec<Duration> {
+        let failed_link = Link::new(a(), NodeId::with_msb(6));
+        let old: Vec<_> = nodes.iter().map(|node| contact(ctx, *node)).collect();
+        for node in nodes {
+            ctx.routing_table_mut()
+                .contact_mut(node)
+                .unwrap()
+                .set_invalid(NotViaStateList::from(NotViaState::new(
+                    failed_link.clone(),
+                    Timestamp::now(),
+                )));
+        }
+        for (node, old) in nodes.iter().zip(old) {
+            let new = contact(ctx, *node);
+            fh.handle_event(
+                ctx,
+                UseCaseEvent::Contact(Box::new(ContactEvent::Updated {
+                    new: Box::new(new),
+                    old: Box::new(old),
+                })),
+            )
+            .unwrap();
+        }
+        nodes
+            .iter()
+            .map(|node| {
+                let (timer, _) = fh
+                    .scheduled_rediscoveries
+                    .iter()
+                    .find(|(_, contact)| *contact == node)
+                    .expect("rediscovery scheduled");
+                timer_duration(ctx, *timer)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn first_contact_of_unreachable_bucket_is_rediscovered_quickly() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut fh, ctx, [y, z, _]) = setup_remote_contacts(false);
+
+        let waits = invalidate_at_once(&mut fh, &ctx, &[z, y]);
+        // y has the shorter path, z waits for its repair by the new path into the subtree
+        assert_eq!(waits[1], REDISCOVERY_WAITTIME_UNREACHABLE_BUCKET);
+        assert!(
+            waits[0] > REDISCOVERY_WAITTIME_UNREACHABLE_BUCKET,
+            "{waits:?}"
+        );
+    }
+
+    #[test]
+    fn bucket_with_valid_contact_keeps_wait_times() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut fh, ctx, [y, z, _]) = setup_remote_contacts(true);
+
+        // w (via a, e) stays valid
+        let waits = invalidate_at_once(&mut fh, &ctx, &[z, y]);
+        assert!(
+            waits
+                .iter()
+                .all(|wait| *wait > REDISCOVERY_WAITTIME_UNREACHABLE_BUCKET),
+            "{waits:?}"
+        );
     }
 
     #[test]
