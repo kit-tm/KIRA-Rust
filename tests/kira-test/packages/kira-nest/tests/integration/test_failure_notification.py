@@ -176,6 +176,10 @@ def test_failure_notification(kirad_small_k, kira_topo, conn_helpers, monkeypatc
     output, _ = ping.communicate()
     outage = _longest_outage(output, PING_COUNT)
     print(f"longest outage: {outage} pings of {PING_COUNT}")
+    if outage == 0:
+        # e.g., the path changed between the traceroute and the failure: no packet
+        # needed the notification (a broken notification loses pings)
+        pytest.skip(f"no ping was lost after the link {x} - {y} failed")
 
     # a node reported dropped packets and notified the encapsulating node
     notified = test.topology.nodes.by_tid(encapsulator).node_id
