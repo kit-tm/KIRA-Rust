@@ -1,4 +1,5 @@
 from collections import Counter
+from pathlib import Path
 
 import networkx as nx
 import pytest
@@ -37,6 +38,85 @@ def test_assignment_is_balanced_and_contiguous() -> None:
     for host in "abc":
         part = [tid for tid, h in assignment.items() if h == host]
         assert nx.is_connected(graph.subgraph(part))
+
+
+def hosts(n: int) -> dict:
+    raw = {f"h{i}": {"address": f"192.0.2.{i + 1}"} for i in range(n)}
+    return Cluster.from_dict({"hosts": raw}, "h0").hosts
+
+
+def as_str(graph: nx.Graph) -> nx.Graph:
+    return nx.relabel_nodes(nx.convert_node_labels_to_integers(graph), str)
+
+
+TOPOS = Path(__file__).resolve().parents[5] / "topos"
+
+# meshed topologies like those of the tests, which can be split into connected parts
+GRAPHS = {
+    "minimal": nx.read_gml(TOPOS / "minimal.gml"),
+    "large": nx.read_gml(TOPOS / "large.gml"),
+    "large-100": nx.read_gml(TOPOS / "large-100.gml"),
+    "grid": as_str(nx.grid_2d_graph(12, 12)),
+    "small-world": as_str(nx.connected_watts_strogatz_graph(200, 6, 0.1, seed=1)),
+}
+# a tree can't always be split into equal connected parts, nor can the greedy
+# refinement always split a barbell so
+HARD_GRAPHS = {
+    "tree": as_str(nx.balanced_tree(3, 4)),
+    "barbell": as_str(nx.barbell_graph(15, 10)),
+}
+
+
+def assert_balanced(assignment: dict, n_hosts: int) -> Counter:
+    sizes = Counter(assignment.values())
+    assert len(sizes) == n_hosts
+    assert max(sizes.values()) - min(sizes.values()) <= 1
+    return sizes
+
+
+@pytest.mark.parametrize("name", GRAPHS)
+@pytest.mark.parametrize("n_hosts", [2, 3, 4, 6, 7])
+def test_every_part_is_connected_and_balanced(name: str, n_hosts: int) -> None:
+    graph = GRAPHS[name]
+    assignment = assign_nodes(graph, hosts(n_hosts))
+
+    sizes = assert_balanced(assignment, n_hosts)
+    for host in sizes:
+        part = [tid for tid, h in assignment.items() if h == host]
+        assert nx.is_connected(graph.subgraph(part)), (host, sizes)
+
+
+@pytest.mark.parametrize("name", HARD_GRAPHS)
+@pytest.mark.parametrize("n_hosts", [2, 4, 7])
+def test_balance_is_kept_without_connected_split(name: str, n_hosts: int) -> None:
+    assert_balanced(assign_nodes(HARD_GRAPHS[name], hosts(n_hosts)), n_hosts)
+
+
+def test_no_host_is_left_empty() -> None:
+    # equal shares rounded up (20 / 6 -> 4) would leave the last host empty
+    assignment = assign_nodes(ring(20), hosts(6))
+    assert sorted(Counter(assignment.values()).values()) == [3, 3, 3, 3, 4, 4]
+
+
+def test_cut_is_small_on_a_grid() -> None:
+    graph = GRAPHS["grid"]
+    # two halves of a 12x12 grid are separated by 12 links, any split needs that
+    cut = cross_host_edges(graph, assign_nodes(graph, hosts(2)))
+    assert len(cut) <= 20  # noqa: PLR2004
+
+
+def test_more_pinned_nodes_than_a_share() -> None:
+    graph = ring(12)
+    raw = {
+        "hosts": {
+            "a": {"address": "192.0.2.1", "nodes": [str(i) for i in range(8)]},
+            "b": {"address": "192.0.2.2"},
+            "c": {"address": "192.0.2.3"},
+        }
+    }
+    assignment = assign_nodes(graph, Cluster.from_dict(raw, "a").hosts)
+    assert all(assignment[str(i)] == "a" for i in range(8))
+    assert Counter(assignment.values()) == {"a": 8, "b": 2, "c": 2}
 
 
 def test_assignment_is_deterministic_regardless_of_insertion_order() -> None:

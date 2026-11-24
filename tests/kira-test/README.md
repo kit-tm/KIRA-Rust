@@ -158,9 +158,12 @@ sudo uv --project=./tests/kira-test run nesttest big.gml --cluster cluster.toml 
 the GML file contains them (see `alter_gml_config`) or all hosts pass the same `--seed`.
 
 A node is assigned to the host named by its GML attribute `host`, otherwise to the
-host listing it in `nodes`, otherwise automatically: in the order of the cluster file,
-every host grows a connected region of the remaining nodes until it has an equal
-share of them. Type `hosts` in the shell to see the assignment.
+host listing it in `nodes`, otherwise automatically: every host gets an equal share
+of the nodes, as one connected region with few links to other hosts. The regions
+grow together from seeds far apart and are then improved by swapping nodes between
+hosts. Some topologies, like trees, can't be split into equal connected parts; then
+a host's region may consist of several pieces (pin nodes to change that). Type
+`hosts` in the shell to see the assignment.
 
 Notes:
 - UDP port 4789 (or `port`) must be open between the hosts. Unshare isolation isn't

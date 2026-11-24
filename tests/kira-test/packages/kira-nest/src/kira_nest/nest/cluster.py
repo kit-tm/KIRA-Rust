@@ -25,10 +25,13 @@ A cluster file (TOML) looks like this::
     nodes = ["k7", "k8"]      # optional: nodes pinned to this host (labels or names)
 
 A node is assigned to a host by its GML attribute `host`, otherwise by the `nodes`
-list of a host, otherwise automatically: in the order of the cluster file, each host
-grows a connected region of the remaining nodes (breadth first from its pinned nodes
-or the first free node) until it has an equal share of all nodes. So all hosts
-emulate about equally many nodes and few links cross hosts.
+list of a host, otherwise automatically. Every host gets an equal share of the nodes
+(at most one node more than another host, unless pinned nodes demand more). The hosts
+start from seeds far apart (or their pinned nodes) and grow their regions together,
+each taking the free neighbor with the most links into its region. Then swaps of
+nodes between hosts join pieces of regions and cut links between hosts, as long as
+that keeps the sizes. The regions are connected if the topology allows that with
+equal shares, which meshed topologies do, but not every tree.
 """
 
 from __future__ import annotations
@@ -257,58 +260,193 @@ def assign_nodes(graph: nx.Graph, hosts: dict[str, ClusterHost]) -> dict[Hashabl
                     f"node {key} is assigned to {assignment[tid]} and {host.name}"
                 )
 
-    # grow a region of the remaining nodes for each host in the order of the cluster
-    # file, breadth first from the hosts' pinned nodes or else from the first free
-    # node, until each host has an equal share of all nodes
-    share = math.ceil(graph.number_of_nodes() / len(hosts))
-    load = Counter(assignment.values())
-    for name in hosts:
-        seeds = sorted(
-            (tid for tid, host in assignment.items() if host == name), key=_sort_key
-        )
-        for tid in _grow_region(graph, assignment, seeds, share - load[name]):
-            assignment[tid] = name
-            load[name] += 1
-    # pinned nodes exceeded the shares: the least loaded hosts take the rest
-    for tid in sorted(graph, key=_sort_key):
-        if tid not in assignment:
-            name = min(hosts, key=lambda h: load[h])
-            assignment[tid] = name
-            load[name] += 1
+    pinned = set(assignment)
+    order = {tid: i for i, tid in enumerate(sorted(graph, key=_sort_key))}
+    targets = _targets(graph.number_of_nodes(), hosts, Counter(assignment.values()))
+    _place_seeds(graph, assignment, targets, order)
+    _grow_regions(graph, assignment, targets, order)
+    _refine(graph, assignment, pinned, order)
     return assignment
 
 
-def _grow_region(
-    graph: nx.Graph,
-    assigned: dict[Hashable, str],
-    seeds: list[Hashable],
-    size: int,
-) -> Iterable[Hashable]:
-    """Yields up to `size` unassigned nodes in breadth first order from the seeds.
+def _targets(n: int, hosts: dict[str, ClusterHost], pinned: Counter) -> dict[str, int]:
+    """Number of nodes per host: equal shares, but at least the pinned nodes."""
+    base, extra = divmod(n, len(hosts))
+    targets = {
+        name: max(base + (i < extra), pinned[name]) for i, name in enumerate(hosts)
+    }
+    # pinned nodes beyond a share are taken from the shares of the largest others
+    while sum(targets.values()) > n:
+        name = max(
+            (h for h in hosts if targets[h] > pinned[h]),
+            key=lambda h: targets[h] - pinned[h],
+        )
+        targets[name] -= 1
+    return targets
 
-    When the region can't grow anymore, it continues from the first unassigned node.
-    """
-    taken: set[Hashable] = set()
-    order = sorted(graph, key=_sort_key)
-    queue = deque(seeds)
-    seen = set(seeds)
-    while len(taken) < size:
-        if not queue:
-            start = next(
-                (t for t in order if t not in assigned and t not in taken), None
-            )
-            if start is None:
-                return
-            queue.append(start)
-            seen.add(start)
+
+def _distances(graph: nx.Graph, sources: Iterable[Hashable]) -> dict[Hashable, int]:
+    """Hop counts from the nearest source (breadth first)."""
+    dist = dict.fromkeys(sources, 0)
+    queue = deque(dist)
+    while queue:
         tid = queue.popleft()
-        if tid not in assigned:
-            taken.add(tid)
-            yield tid
-        for neighbor in sorted(graph[tid], key=_sort_key):
-            if neighbor not in seen and neighbor not in assigned:
-                seen.add(neighbor)
+        for neighbor in graph[tid]:
+            if neighbor not in dist:
+                dist[neighbor] = dist[tid] + 1
                 queue.append(neighbor)
+    return dist
+
+
+def _place_seeds(
+    graph: nx.Graph,
+    assignment: dict[Hashable, str],
+    targets: dict[str, int],
+    order: dict[Hashable, int],
+) -> None:
+    """Seeds each host without pinned nodes with a node far from all other regions.
+
+    Nodes unreachable from the regions count as farthest, so further components of
+    the graph get seeds of their own.
+    """
+    regions = set(assignment.values())
+    for name, target in targets.items():
+        if name in regions or target == 0:
+            continue
+        # without any region yet, start at the periphery
+        sources = assignment or [min(order, key=order.__getitem__)]
+        dist = _distances(graph, sources)
+        seed = max(
+            (tid for tid in graph if tid not in assignment),
+            key=lambda t: (dist.get(t, math.inf), -order[t]),
+        )
+        assignment[seed] = name
+
+
+def _grow_regions(
+    graph: nx.Graph,
+    assignment: dict[Hashable, str],
+    targets: dict[str, int],
+    order: dict[Hashable, int],
+) -> None:
+    """Grows the regions of all hosts together until they reach their targets.
+
+    The host furthest from its target takes next. It takes the free neighbor of its
+    region with the most links into the region, which keeps the regions compact.
+    """
+    hosts = list(targets)
+    load: Counter = Counter()
+    # free neighbors of each region and their numbers of links into it
+    frontier: dict[str, dict[Hashable, int]] = {name: {} for name in hosts}
+
+    def take(tid: Hashable, name: str) -> None:
+        assignment[tid] = name
+        load[name] += 1
+        for f in frontier.values():
+            f.pop(tid, None)
+        for neighbor in graph[tid]:
+            if neighbor not in assignment:
+                frontier[name][neighbor] = frontier[name].get(neighbor, 0) + 1
+
+    for tid, name in list(assignment.items()):
+        take(tid, name)
+
+    while len(assignment) < graph.number_of_nodes():
+        name = min(
+            (h for h in hosts if load[h] < targets[h]),
+            key=lambda h: (load[h] / targets[h], hosts.index(h)),
+        )
+        if frontier[name]:
+            f = frontier[name]
+            tid = max(f, key=lambda t: (f[t], -order[t]))
+        else:
+            # enclosed by other regions: the nearest free node, or any free one
+            dist = _distances(graph, [t for t, h in assignment.items() if h == name])
+            tid = min(
+                (t for t in graph if t not in assignment),
+                key=lambda t: (dist.get(t, math.inf), order[t]),
+            )
+        take(tid, name)
+
+
+def _refine(
+    graph: nx.Graph,
+    assignment: dict[Hashable, str],
+    pinned: set[Hashable],
+    order: dict[Hashable, int],
+) -> None:
+    """Swaps pairs of boundary nodes between hosts to join and compact the parts.
+
+    Like Kernighan-Lin, but greedy. A swap must reduce the stray nodes (nodes outside
+    the largest connected piece of their part) or, with as many stray nodes, the
+    links between hosts. Each swap reduces (stray nodes, cut links), so it ends.
+    The sizes of the parts stay the same, and pinned nodes stay where they are.
+    """
+    parts: dict[str, set[Hashable]] = {}
+    for tid, name in assignment.items():
+        parts.setdefault(name, set()).add(tid)
+    stray = {name: _stray(graph, nodes) for name, nodes in parts.items()}
+
+    while True:
+        for key, u, v in _swap_candidates(graph, assignment, pinned, order, stray):
+            gain = -key[1]
+            a, b = assignment[u], assignment[v]
+            new_a = parts[a] - {u} | {v}
+            new_b = parts[b] - {v} | {u}
+            stray_a, stray_b = _stray(graph, new_a), _stray(graph, new_b)
+            before, after = stray[a] + stray[b], stray_a + stray_b
+            if after < before or (after == before and gain > 0):
+                parts[a], parts[b] = new_a, new_b
+                stray[a], stray[b] = stray_a, stray_b
+                assignment[u], assignment[v] = b, a
+                break
+        else:
+            return
+
+
+def _stray(graph: nx.Graph, nodes: set[Hashable]) -> int:
+    """Number of nodes outside the largest connected piece of the nodes."""
+    largest = max(len(c) for c in nx.connected_components(graph.subgraph(nodes)))
+    return len(nodes) - largest
+
+
+def _swap_candidates(
+    graph: nx.Graph,
+    assignment: dict[Hashable, str],
+    pinned: set[Hashable],
+    order: dict[Hashable, int],
+    stray: dict[str, int],
+) -> list[tuple[tuple[int, int, int], Hashable, Hashable]]:
+    """Swaps of boundary nodes u and v between two hosts, the most promising first.
+
+    Swaps out of parts with stray nodes come first, then by links saved. Swaps
+    saving no links are only included between parts with stray nodes.
+    """
+
+    def links(tid: Hashable, name: str) -> int:
+        return sum(1 for n in graph[tid] if assignment[n] == name)
+
+    # links saved by moving boundary node u from host a to host b
+    moves: dict[tuple[str, str], list[tuple[int, Hashable]]] = {}
+    for u in sorted(graph, key=order.__getitem__):
+        if u in pinned:
+            continue
+        a = assignment[u]
+        for b in sorted({assignment[n] for n in graph[u]} - {a}):
+            moves.setdefault((a, b), []).append((links(u, b) - links(u, a), u))
+
+    swaps = []
+    for (a, b), moves_ab in moves.items():
+        if a > b:
+            continue
+        defragment = stray[a] + stray[b] > 0
+        for gain_u, u in moves_ab:
+            for gain_v, v in moves.get((b, a), ()):
+                gain = gain_u + gain_v - 2 * graph.has_edge(u, v)
+                if gain > 0 or defragment:
+                    swaps.append(((-defragment, -gain, order[u] + order[v]), u, v))
+    swaps.sort(key=lambda s: s[0])
+    return swaps
 
 
 def cross_host_edges(
