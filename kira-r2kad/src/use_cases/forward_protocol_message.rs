@@ -331,33 +331,43 @@ where
             .filter(|notvia| !notvia.link.contains(context.root_id()))
             .map(|notvia| NotVia::from((notvia.link.clone(), notvia.age.saturating_add(delay))))
             .collect::<Vec<NotVia>>();
+        if filtered_not_via_data.is_empty() {
+            return;
+        }
 
         let mut routing_table = context.routing_table_mut();
 
-        // invalidate contacts that have older path information than notvia and whose active path contain a notvia link
-        for mut contact in routing_table
-            .iter_mut()
-            .filter(|c| c.is_valid() && c.path().is_some())
-        {
-            // collect all failed links on the active path before invalidating it,
-            // because invalidate() refreshes last_validated
-            let path = contact.path().unwrap();
-            let Some(last_validated) = path.get_last_validated().copied() else {
+        // Find the contacts to invalidate with shared references first: a write guard clones
+        // its contact and compares it on drop, which is far too costly to do for every contact
+        // on every message carrying not-via data, while only a few contacts actually change.
+        // Invalidate contacts that have older path information than a notvia and whose active
+        // path contains its link. Collect all failed links on the active path before
+        // invalidating it, because invalidating refreshes last_validated.
+        let to_invalidate: Vec<(NodeId, HashSet<NotViaState>)> = routing_table
+            .iter()
+            .filter(|contact| contact.is_valid())
+            .filter_map(|contact| {
+                let path = contact.path()?;
+                let last_validated = *path.get_last_validated()?;
+                let failed: HashSet<NotViaState> = filtered_not_via_data
+                    .iter()
+                    .filter(|entry| {
+                        last_validated < Timestamp::from(entry.age)
+                            && path.contains_link(&entry.link)
+                    })
+                    .map(|entry| NotViaState::from(entry.clone()))
+                    .collect();
+                (!failed.is_empty()).then(|| (*contact.id(), failed))
+            })
+            .collect();
+
+        for (id, failed) in to_invalidate {
+            let Some(mut contact) = routing_table.contact_mut(&id) else {
                 continue;
             };
-            let failed: HashSet<NotViaState> = filtered_not_via_data
-                .iter()
-                .filter(|entry| {
-                    last_validated < Timestamp::from(entry.age) && path.contains_link(&entry.link)
-                })
-                .map(|entry| NotViaState::from(entry.clone()))
-                .collect();
-            if failed.is_empty() {
-                continue;
-            }
             let failed_links = failed.len();
             contact.set_invalid(NotViaStateList::from(failed));
-            tracing::debug!(target: "forward_protocol_message", %source, invalidated_contact = %contact.id(), failed_links, "Invalidated contact based on not-via data");
+            tracing::debug!(target: "forward_protocol_message", %source, invalidated_contact = %id, failed_links, "Invalidated contact based on not-via data");
         }
     }
 
