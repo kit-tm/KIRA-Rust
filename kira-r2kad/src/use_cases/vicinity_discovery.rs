@@ -1615,6 +1615,8 @@ where
     type Value = ();
 
     #[instrument(
+        // the state is formatted for every event: only when tracing
+        level = Level::TRACE,
         target = "vicinity_discovery",
         "vicinity_discovery",
         skip(self, context, event),

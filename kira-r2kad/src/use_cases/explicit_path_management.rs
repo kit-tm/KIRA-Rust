@@ -361,6 +361,8 @@ where
     type Value = HandlingResult;
 
     #[instrument(
+        // the state is formatted for every event: only when tracing
+        level = Level::TRACE,
         target = "explicit_path_management",
         "explicit_path_management",
         skip(self, context, event),

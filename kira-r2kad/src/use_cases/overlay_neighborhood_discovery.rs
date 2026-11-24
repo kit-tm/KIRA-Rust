@@ -11,7 +11,10 @@ use std::{
 };
 
 use derive_more::Display;
-use tracing::instrument;
+use tracing::{
+    Level,
+    instrument,
+};
 
 use crate::{
     domain::{
@@ -599,6 +602,8 @@ where
     /// As this reacts to Errors, changes to the RoutingTable must occur before delegating
     /// the event to this method.
     #[instrument(
+        // the state is formatted for every event: only when tracing
+        level = Level::TRACE,
         target = "overlay_neighborhood_discovery",
         "overlay_neighborhood_discovery",
         skip(self, context, event),

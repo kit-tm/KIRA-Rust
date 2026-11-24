@@ -8,7 +8,10 @@ use std::{
     },
 };
 
-use tracing::instrument;
+use tracing::{
+    Level,
+    instrument,
+};
 
 use crate::{
     domain::{
@@ -832,6 +835,8 @@ where
     type Value = ();
 
     #[instrument(
+        // the state is formatted for every event: only when tracing
+        level = Level::TRACE,
         target = "path_probing",
         "path_probing",
         skip(self, context, event),

@@ -7,6 +7,7 @@ use std::{
 
 use derive_more::derive::Display;
 use tracing::{
+    Level,
     field,
     instrument,
 };
@@ -582,6 +583,8 @@ where
     type Value = ();
 
     #[instrument(
+        // the state is formatted for every event: only when tracing
+        level = Level::TRACE,
         target = "derive_fwd_table_entries",
         "derive_fwd_table_entries",
         skip(self, context, event),

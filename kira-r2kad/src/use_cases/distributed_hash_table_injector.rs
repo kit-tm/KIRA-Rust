@@ -618,6 +618,8 @@ where
     type Value = ();
 
     #[instrument(
+        // the state is formatted for every event: only when tracing
+        level = Level::TRACE,
         target = "distributed_hash_table",
         "distributed_hash_table",
         skip(self, context, event),

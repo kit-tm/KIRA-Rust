@@ -7,7 +7,10 @@ use std::{
     time::Duration,
 };
 
-use tracing::instrument;
+use tracing::{
+    Level,
+    instrument,
+};
 
 use crate::{
     domain::{
@@ -315,6 +318,8 @@ where
     type Value = ();
 
     #[instrument(
+        // the state is formatted for every event: only when tracing
+        level = Level::TRACE,
         target = "handle_contact_update",
         "handle_contact_update",
         skip(self, context, event),

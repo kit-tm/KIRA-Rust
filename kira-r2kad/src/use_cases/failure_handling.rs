@@ -18,7 +18,10 @@ use derive_more::derive::{
     Display,
     Error,
 };
-use tracing::instrument;
+use tracing::{
+    Level,
+    instrument,
+};
 
 use crate::{
     domain::{
@@ -985,6 +988,8 @@ where
     type Value = ();
 
     #[instrument(
+        // the state is formatted for every event: only when tracing
+        level = Level::TRACE,
         target = "failure_handling",
         "failure_handling",
         skip(self, context, event),

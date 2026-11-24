@@ -244,6 +244,8 @@ where
     type Value = ();
 
     #[instrument(
+        // the state is formatted for every event: only when tracing
+        level = Level::TRACE,
         target = "precompute_paths_and_path_ids",
         "precompute_paths_and_path_ids",
         skip(self, context, event),
