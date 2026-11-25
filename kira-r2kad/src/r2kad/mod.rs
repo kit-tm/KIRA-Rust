@@ -380,7 +380,7 @@ where
     /// Timers due before `received_at` fire before the input, the others after it: a response
     /// that arrived in time cancels the timeout of its request, also when the node processes
     /// it late. The time the input waited is the queueing delay that lengthens the timeouts of
-    /// requests (see [load](self::load)).
+    /// requests (see [load]).
     pub fn handle_received(
         &mut self,
         received_event: Input,
