@@ -14,6 +14,13 @@ from nest.topology import Address
 
 logger = logging.getLogger(__name__)
 
+# Sweeps check all node pairs of small topologies and random samples of larger ones, so
+# that the tests of all topologies take reasonable time.
+# Pings: all pairs of topologies up to about 20 nodes.
+PING_SWEEP_MAX_PAIRS = 500
+# Traceroutes query the forwarding state of every hop, so they are sampled earlier.
+TRACEROUTE_SWEEP_MAX_PAIRS = 200
+
 TOPOS_DIR = REPO_ROOT / "tests" / "topos"
 assert TOPOS_DIR.exists(), "kira-test topos not found"
 
@@ -120,6 +127,9 @@ def stop_daemons():
 
 
 class ConnectivityHelpers:
+    PING_SWEEP_MAX_PAIRS = PING_SWEEP_MAX_PAIRS
+    TRACEROUTE_SWEEP_MAX_PAIRS = TRACEROUTE_SWEEP_MAX_PAIRS
+
     def __init__(self, subtests):
         self.subtests = subtests
 
@@ -134,14 +144,14 @@ class ConnectivityHelpers:
         cool_down=1.0,
         respect_connected_components=True,
         gate=True,
-        sample=None,
+        max_pairs=PING_SWEEP_MAX_PAIRS,
     ):
         """
         Sweeps through all node pairs, retrying failing checks across multiple passes.
 
-        With `sample`, only that many random pairs of different nodes are checked,
-        e.g., for expensive checks like traceroutes (reproducible with the seed of
-        pytest-randomly).
+        Topologies with more than `max_pairs` pairs of different nodes get a random
+        sample of that many pairs (reproducible with the seed of pytest-randomly), so
+        only small topologies are swept fully. `max_pairs=None` always sweeps all pairs.
         """
         if fail_msg is None:
             fail_msg = test_msg.capitalize()
@@ -159,10 +169,11 @@ class ConnectivityHelpers:
             ]
         else:
             pairs = [(src, dst) for src in node_list for dst in node_list]
-        if sample is not None:
-            pairs = [(src, dst) for src, dst in pairs if src != dst]
-            if len(pairs) > sample:
-                pairs = random.sample(pairs, sample)
+        # a node reaches itself anyway
+        pairs = [(src, dst) for src, dst in pairs if src != dst]
+        if max_pairs is not None and len(pairs) > max_pairs:
+            logger.info(f"{test_msg}: checking {max_pairs} of {len(pairs)} node pairs")
+            pairs = random.sample(pairs, max_pairs)
         pending = list(pairs)
 
         for attempt in range(max_attempts):

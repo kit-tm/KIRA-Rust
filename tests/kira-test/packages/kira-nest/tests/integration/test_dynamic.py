@@ -9,8 +9,6 @@ CONVERGENCE_GRACE_SECS = 5
 # we retry pings 5 times because dynamic scenario may
 # not have converged fully after 3 tries in edge cases
 RETRIES = 5
-# node pairs pinged after each change of the topology
-PING_SAMPLE = 500
 
 
 def test_dynamic_isolated_node_failure(
@@ -23,9 +21,8 @@ def test_dynamic_isolated_node_failure(
     candidates = random.sample(node_list, round(0.3 * len(node_list)))
 
     conn_helpers.checkup_timeout(test, timeout=1)
-    conn_helpers.retry_sweep(
-        test, conn_helpers.ping_check, test_msg="ping", sample=PING_SAMPLE
-    )
+    conn_helpers.converge(test)
+    conn_helpers.retry_sweep(test, conn_helpers.ping_check, test_msg="ping")
 
     ### Network is assumed to be running okay here ###
 
@@ -63,7 +60,6 @@ def test_dynamic_isolated_node_failure(
             test,
             conn_helpers.ping_check,
             test_msg=f"ping (isolated {isolated_node})",
-            sample=PING_SAMPLE,
         )
 
         ### Reconnect node ###
@@ -89,7 +85,6 @@ def test_dynamic_isolated_node_failure(
             conn_helpers.ping_check,
             max_attempts=RETRIES,
             test_msg=f"ping (restored {isolated_node})",
-            sample=PING_SAMPLE,
         )
 
 
@@ -101,9 +96,8 @@ def test_dynamic_random_link_failure(kirad_small_k, kira_topo, subtests, conn_he
     candidates = random.sample(links_list, round(0.3 * len(links_list)))
 
     conn_helpers.checkup_timeout(test, timeout=1)
-    conn_helpers.retry_sweep(
-        test, conn_helpers.ping_check, test_msg="ping", sample=PING_SAMPLE
-    )
+    conn_helpers.converge(test)
+    conn_helpers.retry_sweep(test, conn_helpers.ping_check, test_msg="ping")
 
     ### Network is assumed to be running okay here ###
 
@@ -126,7 +120,6 @@ def test_dynamic_random_link_failure(kirad_small_k, kira_topo, subtests, conn_he
             conn_helpers.ping_check,
             max_attempts=RETRIES,
             test_msg=f"ping (link failure: {u} -✗- {v})",
-            sample=PING_SAMPLE,
         )
 
         ### Reconnect link ###
@@ -150,7 +143,6 @@ def test_dynamic_random_link_failure(kirad_small_k, kira_topo, subtests, conn_he
             conn_helpers.ping_check,
             max_attempts=RETRIES,
             test_msg=f"ping (link restored: {u} -✔- {v})",
-            sample=PING_SAMPLE,
         )
 
 
@@ -162,9 +154,8 @@ def test_dynamic_random_link_failures(kirad_small_k, kira_topo, subtests, conn_h
     candidates = random.sample(links_list, round(0.3 * len(links_list)))
 
     conn_helpers.checkup_timeout(test, timeout=1)
-    conn_helpers.retry_sweep(
-        test, conn_helpers.ping_check, test_msg="ping", sample=PING_SAMPLE
-    )
+    conn_helpers.converge(test)
+    conn_helpers.retry_sweep(test, conn_helpers.ping_check, test_msg="ping")
 
     ### Network is assumed to be running okay here ###
 
@@ -187,7 +178,6 @@ def test_dynamic_random_link_failures(kirad_small_k, kira_topo, subtests, conn_h
         conn_helpers.ping_check,
         max_attempts=RETRIES,
         test_msg="ping (links failed)",
-        sample=PING_SAMPLE,
     )
 
     ### Reconnect links ###
@@ -212,7 +202,6 @@ def test_dynamic_random_link_failures(kirad_small_k, kira_topo, subtests, conn_h
         conn_helpers.ping_check,
         max_attempts=RETRIES,
         test_msg="ping (links restored)",
-        sample=PING_SAMPLE,
     )
 
 
@@ -226,9 +215,8 @@ def test_dynamic_mst(kirad_small_k, kira_topo, subtests, conn_helpers):
     mst = nx.minimum_spanning_tree(graph, weight="mst_random_weight")
 
     conn_helpers.checkup_timeout(test, timeout=1)
-    conn_helpers.retry_sweep(
-        test, conn_helpers.ping_check, test_msg="ping", sample=PING_SAMPLE
-    )
+    conn_helpers.converge(test)
+    conn_helpers.retry_sweep(test, conn_helpers.ping_check, test_msg="ping")
 
     ### Network is assumed to be running okay here ###
 
@@ -258,7 +246,6 @@ def test_dynamic_mst(kirad_small_k, kira_topo, subtests, conn_helpers):
         conn_helpers.ping_check,
         max_attempts=RETRIES,
         test_msg="ping (mst failure)",
-        sample=PING_SAMPLE,
     )
 
     ### Restore Links ###
@@ -287,5 +274,4 @@ def test_dynamic_mst(kirad_small_k, kira_topo, subtests, conn_helpers):
         conn_helpers.ping_check,
         max_attempts=RETRIES,
         test_msg="ping (mst restore)",
-        sample=PING_SAMPLE,
     )
