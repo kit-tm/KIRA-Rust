@@ -312,7 +312,7 @@ where
         );
 
         // set timeout timer
-        let timeout_timer_id = context.runtime().register_rand_timer(timeout);
+        let timeout_timer_id = context.runtime().register_rand_request_timer(timeout);
         timer_hooks.insert(timeout_timer_id, timeout_hook);
     }
 

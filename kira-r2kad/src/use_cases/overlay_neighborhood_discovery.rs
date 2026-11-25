@@ -267,6 +267,9 @@ where
             target: "overlay_neighborhood_discovery",
             "Timer next duration: {next_duration:?}"
         );
+        // the next round waits for responses of the last one (it checks them), so it waits
+        // longer under load; it fires anyway, so it's no request timer
+        let next_duration = context.runtime().request_timeout(next_duration);
         current_timer_context.timer_id = Some(context.runtime().register_timer(next_duration));
 
         // check if last message has been answered

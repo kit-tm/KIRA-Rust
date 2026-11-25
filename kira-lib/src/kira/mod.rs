@@ -61,6 +61,7 @@ use tracing::{
     debug_span,
     info_span,
     instrument,
+    trace_span,
 };
 
 #[cfg(feature = "api")]
@@ -308,8 +309,9 @@ where
 
         loop {
             // process output firstly to capture startup output
+            // TRACE: a span for every iteration
             let collect_output =
-                info_span!(target: "kira", parent: span.lock().unwrap().deref(), "collect_output");
+                trace_span!(target: "kira", parent: span.lock().unwrap().deref(), "collect_output");
             async {
                 while let Some(output) = r2kad.poll_output() {
                     let output_processing = debug_span!(target: "kira", "process_output", ?output);
@@ -334,7 +336,7 @@ where
                 log::trace!(target: "kira", "Waiting for new input events");
 
                 // only process Input events then
-                let Some(input) = channels::input_fan_in(rx_channels).await else {
+                let Some((input, received_at)) = channels::input_fan_in(rx_channels).await else {
                     log::info!(target: "kira", "Fan in channel closed and no timers left");
                     return;
                 };
@@ -343,7 +345,7 @@ where
                 let _process_input = span.enter();
 
                 let now = Instant::now();
-                if let Err(e) = r2kad.handle_input(input, now) {
+                if let Err(e) = r2kad.handle_received(input, received_at, now) {
                     log::error!(target: "kira", "Error handle_timeout: {e}");
                     return;
                 }
@@ -356,13 +358,13 @@ where
             tokio::select! {
                 biased; // poll in order since we check timers on handling input regardlessly
 
-                Some(input) = channels::input_fan_in(rx_channels) => {
+                Some((input, received_at)) = channels::input_fan_in(rx_channels) => {
                     *span.lock().unwrap() = debug_span!(target: "kira", "process_input", ?input);
                     let span = span.lock().unwrap();
                     let _process_input = span.enter();
 
                     let now = Instant::now();
-                    if let Err(e) = r2kad.handle_input(input, now) {
+                    if let Err(e) = r2kad.handle_received(input, received_at, now) {
                         tracing::error!(target: "kira", error=%e, "Error on handle_input");
                         return;
                     }

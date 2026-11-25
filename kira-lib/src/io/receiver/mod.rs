@@ -14,6 +14,8 @@ pub use kira_r2kad::domain::{
 };
 
 #[cfg(feature = "udp-tokio")]
+mod timestamp;
+#[cfg(feature = "udp-tokio")]
 pub mod udp_tokio;
 
 ///
@@ -24,20 +26,26 @@ pub mod udp_tokio;
 /// to a [ProtocolMessage] and returns it.
 #[trait_variant::make(AsyncProtocolMessageReceiver: Send)]
 pub trait LocalAsyncProtocolMessageReceiver {
-    /// Receives a [ProtocolMessage].
+    /// Receives a [ProtocolMessage] and the [Instant](std::time::Instant) it was received.
     ///
     /// Waits until a new [ProtocolMessage] arrived.
     /// Returns an Error if receiving failed.
     /// Returns [None] if no messages will be received from this [AsyncProtocolMessageReceiver] anymore.
-    async fn recv(&mut self) -> Option<Result<(ProtocolMessage, UnderlayNeighborId), RecvError>>;
+    async fn recv(&mut self) -> Option<Result<ReceivedMessage, RecvError>>;
 }
+
+/// A received [ProtocolMessage], the [UnderlayNeighborId] it was received from and when.
+///
+/// The time of receipt may be well before the message is processed, e.g., if it waited in the
+/// receive buffer of the socket.
+pub type ReceivedMessage = (ProtocolMessage, UnderlayNeighborId, std::time::Instant);
 
 /// Struct wrapping an [AsyncProtocolMessageReceiver] for implementing [Stream] and
 /// [TryStream](futures::prelude::TryStream).
 pub struct ProtocolMessageReceiverStream<R>(R);
 
 impl<R: AsyncProtocolMessageReceiver + Unpin> Stream for ProtocolMessageReceiverStream<R> {
-    type Item = Result<(ProtocolMessage, UnderlayNeighborId), RecvError>;
+    type Item = Result<ReceivedMessage, RecvError>;
 
     fn poll_next(
         self: std::pin::Pin<&mut Self>,

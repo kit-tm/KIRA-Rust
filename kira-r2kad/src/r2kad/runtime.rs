@@ -2,6 +2,7 @@ use std::{
     collections::{
         BinaryHeap,
         HashMap,
+        HashSet,
         VecDeque,
         binary_heap::PeekMut,
     },
@@ -15,6 +16,7 @@ use std::{
     },
 };
 
+use super::load::LoadEstimator;
 use crate::{
     Output,
     domain::{
@@ -64,6 +66,9 @@ pub struct R2KadRuntime {
     event_queue: RwLock<VecDeque<UseCaseEvent>>,
     output_queue: RwLock<VecDeque<Output>>,
     current_time: Mutex<Instant>,
+    load: Mutex<LoadEstimator>,
+    /// Timers waiting for responses to requests (see [UseCaseRuntime::register_request_timer]).
+    request_timers: Mutex<HashSet<TimerId>>,
 }
 
 impl R2KadRuntime {
@@ -76,7 +81,24 @@ impl R2KadRuntime {
             event_queue: RwLock::default(),
             output_queue: RwLock::default(),
             current_time: Mutex::new(startup_time),
+            load: Mutex::default(),
+            request_timers: Mutex::default(),
         }
+    }
+
+    /// Records how long a received message waited before it was processed.
+    pub fn record_queueing_delay(&self, delay: Duration) {
+        self.load.lock().unwrap().record_queueing_delay(delay);
+    }
+
+    /// Smoothed time received messages wait before they are processed.
+    pub fn queueing_delay(&self) -> Duration {
+        self.load.lock().unwrap().queueing_delay()
+    }
+
+    fn mark_request_timer(&self, id: TimerId) -> TimerId {
+        self.request_timers.lock().unwrap().insert(id);
+        id
     }
 
     /// Runtime starting at the current wall clock time, only for tests.
@@ -115,6 +137,11 @@ impl R2KadRuntime {
             log::warn!("no runtime timers set");
             return None;
         };
+
+        // a request without response in time
+        if self.request_timers.lock().unwrap().remove(&due_timer.id) {
+            self.load.lock().unwrap().record_request_timeout();
+        }
 
         // register periodic timer under same id to fire again
         if let Some(duration) = self.periodic_timers.read().unwrap().get(&due_timer.id) {
@@ -211,6 +238,26 @@ impl UseCaseRuntime for R2KadRuntime {
             .retain(|timer| timer.id != timer_id);
         // a periodic timer must not be registered again
         self.periodic_timers.write().unwrap().remove(&timer_id);
+        // e.g., the response to the request arrived
+        self.request_timers.lock().unwrap().remove(&timer_id);
+    }
+
+    fn request_timeout(&self, base: Duration) -> Duration {
+        self.load.lock().unwrap().request_timeout(base)
+    }
+
+    fn register_request_timer(&self, base: Duration) -> TimerId {
+        let id = self.register_timer(self.request_timeout(base));
+        self.mark_request_timer(id)
+    }
+
+    fn register_rand_request_timer(&self, base: Duration) -> TimerId {
+        let id = self.register_rand_timer(self.request_timeout(base));
+        self.mark_request_timer(id)
+    }
+
+    fn record_rtt_sample(&self, rtt: Duration) {
+        self.load.lock().unwrap().record_rtt(rtt);
     }
 
     fn register_periodic_timer(&self, duration: Duration) -> TimerId {
@@ -318,6 +365,46 @@ mod test {
             "No time change on registering a timer"
         );
     }
+    #[test]
+    fn request_timers_back_off_only_when_they_fire() {
+        let runtime = R2KadRuntime::new();
+        let now = Instant::now();
+        runtime.set_current_time(now);
+        let base = Duration::from_millis(250);
+
+        // the response arrived: no backoff
+        let answered = runtime.register_request_timer(base);
+        runtime.remove_timer(answered);
+        let unanswered = runtime.register_request_timer(base);
+        // periodic and other timers don't count either
+        let other = runtime.register_timer(base);
+        assert_eq!(runtime.request_timeout(base), base);
+
+        runtime.set_current_time(now + base);
+        let fired: HashSet<_> = std::iter::from_fn(|| runtime.next_timer()).collect();
+        assert_eq!(fired, HashSet::from([unanswered, other]));
+        assert_eq!(runtime.request_timeout(base), base * 2);
+
+        // a response ends the backoff
+        runtime.record_rtt_sample(Duration::from_millis(5));
+        assert_eq!(runtime.request_timeout(base), base);
+    }
+
+    #[test]
+    fn queueing_delay_lengthens_request_timeouts() {
+        let runtime = R2KadRuntime::new();
+        runtime.set_current_time(Instant::now());
+        let base = Duration::from_millis(250);
+        runtime.record_queueing_delay(Duration::from_secs(2));
+        assert_eq!(runtime.queueing_delay(), Duration::from_secs(1));
+        assert_eq!(runtime.request_timeout(base), base + Duration::from_secs(1));
+        let timer = runtime.register_request_timer(base);
+        assert_eq!(
+            runtime.timer_remaining_duration(&timer),
+            Some(base + Duration::from_secs(1))
+        );
+    }
+
     #[test]
     fn next_timer() {
         let runtime = R2KadRuntime::new();

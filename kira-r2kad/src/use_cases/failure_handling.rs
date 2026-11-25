@@ -409,8 +409,9 @@ where
             // Add rediscovery state before sending find node in case of error
             let nonce = {
                 let mut nonce = Nonce::random();
-                // TODO maybe use measured RTT instead of fixed timeout
-                let mut timer_id = context.runtime().register_timer(REDISCOVERY_TIMEOUT_MAX);
+                let mut timer_id = context
+                    .runtime()
+                    .register_request_timer(REDISCOVERY_TIMEOUT_MAX);
 
                 // TODO this should use the state in the Rediscovering state
                 while let Err(e) =
@@ -421,7 +422,9 @@ where
                         InsertionError::DuplicateNonce => nonce = Nonce::random(),
                         InsertionError::DuplicateTimer => {
                             log::warn!(target: "failure_handling", "runtime emitted duplicate timer id {} [{:?}]", timer_id, self.inflight_rediscoveries);
-                            timer_id = context.runtime().register_timer(REDISCOVERY_TIMEOUT_MAX);
+                            timer_id = context
+                                .runtime()
+                                .register_request_timer(REDISCOVERY_TIMEOUT_MAX);
                         }
                     }
                 }
@@ -759,7 +762,9 @@ where
         // Start new find node
 
         // set timer for timeout
-        let timer_id = context.runtime().register_timer(REDISCOVERY_TIMEOUT_MAX);
+        let timer_id = context
+            .runtime()
+            .register_request_timer(REDISCOVERY_TIMEOUT_MAX);
 
         let msg_id = {
             let mut msg_id = Nonce::random();

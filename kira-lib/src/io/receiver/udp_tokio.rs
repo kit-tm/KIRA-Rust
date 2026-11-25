@@ -7,6 +7,7 @@ use std::{
     net::SocketAddr,
     num::NonZeroU32,
     sync::Arc,
+    time::Instant,
 };
 
 use kira_r2kad::domain::{
@@ -74,6 +75,10 @@ impl UdpReceiver {
         root_id: NodeId,
         stats: Arc<MessageStats>,
     ) -> Self {
+        // processing may lag behind receiving under load
+        if let Err(err) = super::timestamp::enable(&socket) {
+            tracing::warn!(%err, "Failed to enable kernel timestamps of received messages");
+        }
         // Don't receive multicast ULNHello the node sent itself.
         if let Err(err) = socket.set_multicast_loop_v6(false) {
             tracing::warn!(%err, "Failed to disable multicast IPv6 loopback");
@@ -91,9 +96,9 @@ impl UdpReceiver {
         }
     }
 
-    fn deserialize(&self, buffer: &[u8]) -> Option<ProtocolMessage> {
+    fn deserialize(&self, buffer: &[u8], received_at: Instant) -> Option<ProtocolMessage> {
         // decoded information is dated by its reported age relative to the time of receipt
-        let _clock = kira_r2kad::domain::Timestamp::set_clock(std::time::Instant::now());
+        let _clock = kira_r2kad::domain::Timestamp::set_clock(received_at);
         let deserialized = match self.format.deserialize(buffer) {
             Ok(message) => message,
             Err(e) => {
@@ -119,11 +124,11 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
             message = tracing::field::Empty
         )
     )]
-    async fn recv(&mut self) -> Option<Result<(ProtocolMessage, UnderlayNeighborId), RecvError>> {
+    async fn recv(&mut self) -> Option<Result<ReceivedMessage, RecvError>> {
         let socket = Arc::clone(&self.socket);
         loop {
-            let (received_bytes, received_from) =
-                match socket.recv_from(self.buffer.as_mut_slice()).await {
+            let (received_bytes, received_from, received_at) =
+                match super::timestamp::recv_from(&socket, self.buffer.as_mut_slice()).await {
                     Ok(received) => received,
                     Err(e) => {
                         tracing::error!(
@@ -161,7 +166,8 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
                 continue;
             }
 
-            let Some(message) = self.deserialize(&self.buffer[..received_bytes]) else {
+            let Some(message) = self.deserialize(&self.buffer[..received_bytes], received_at)
+            else {
                 self.stats.record_rx_invalid(received_bytes);
                 continue;
             };
@@ -208,7 +214,7 @@ impl AsyncProtocolMessageReceiver for UdpReceiver {
                 }
             };
 
-            return Some(Ok((message, ulnid)));
+            return Some(Ok((message, ulnid, received_at)));
         }
     }
 }

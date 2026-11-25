@@ -22,11 +22,12 @@
 //!   not represented in channels but type contracts by the forwarding tier.
 //!   (see: [kira_forwarding::underlay])
 
+use std::time::Instant;
+
 use kira_forwarding::domain::r2kad::ForwardingTablesUpdate;
 use kira_r2kad::domain::{
     ProtocolMessage,
     UnderlayNeighborDestination,
-    UnderlayNeighborId,
     UnderlayNeighborUpdate,
     protocol_event::{
         DebugEvent,
@@ -44,11 +45,14 @@ use tokio::sync::mpsc::{
 };
 use tracing::Span;
 
-/// [Receiver] of [ProtocolMessages](ProtocolMessage) and the source [UnderlayNeighborId].
+use crate::io::receiver::ReceivedMessage;
+
+/// [Receiver] of [ProtocolMessages](ProtocolMessage) with the source
+/// [UnderlayNeighborId](kira_r2kad::domain::UnderlayNeighborId) and the time of receipt.
 ///
 /// See [crate::io::receiver] for implementations of message receivers.
 /// This [Receiver] is used in the [R2KadInputChannels] to construct [Input::Message] events.
-pub type MessageReceiver = Receiver<(ProtocolMessage, UnderlayNeighborId)>;
+pub type MessageReceiver = Receiver<ReceivedMessage>;
 /// [Receiver] of [ApiEvents](kira_r2kad::use_cases::ApiEvent).
 ///
 /// This [Receiver] is used in the [R2KadInputChannels] to construct [DebugEvents](DebugEvent) for [Input::Debug].
@@ -97,15 +101,20 @@ pub struct R2KadOutputChannels {
 /// Aggregates all [input channels](R2KadInputChannels) into one [InputSender].
 ///
 /// The [InputSender] can then be used to drive the progress of the routing protocol.
-#[tracing::instrument(target = "kira", skip_all)]
-pub(super) async fn input_fan_in(input_channels: &mut R2KadInputChannels) -> Option<Input> {
+/// Returns the input with the time it was received: for protocol messages the time the
+/// socket received them, otherwise now.
+// TRACE: a span for every input
+#[tracing::instrument(level = tracing::Level::TRACE, target = "kira", skip_all)]
+pub(super) async fn input_fan_in(
+    input_channels: &mut R2KadInputChannels,
+) -> Option<(Input, Instant)> {
     let input = tokio::select! {
         biased; // poll in order
         Some(underlay_update) = input_channels.underlay.recv() => {
             Input::UnderlayUpdate(underlay_update)
         }
-        Some((msg, src_ulnid)) = input_channels.protocol_input.recv() => {
-            Input::Message(msg, src_ulnid)
+        Some((msg, src_ulnid, received_at)) = input_channels.protocol_input.recv() => {
+            return Some((Input::Message(msg, src_ulnid), received_at));
         }
         Some(api) = input_channels.debug.recv() => {
             Input::Debug(api)
@@ -116,7 +125,7 @@ pub(super) async fn input_fan_in(input_channels: &mut R2KadInputChannels) -> Opt
         else => return None,
     };
 
-    Some(input)
+    Some((input, Instant::now()))
 }
 
 /// Receives from the optional [Receiver]: [None] (disabling the branch of the
