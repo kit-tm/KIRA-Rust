@@ -300,9 +300,8 @@ where
 
                 // check for all contacts that have an active path that is affected by the failed link
                 for mut contact in routing_table.iter_mut() {
-                    if let Some(active_path) = contact.path_mut()
-                        && active_path.contains_link(link)
-                    {
+                    // only read first: a mutable access copies the contact to detect changes
+                    if contact.path().is_some_and(|path| path.contains_link(link)) {
                         // invalidate path and contact now
                         contact.set_invalid(NotViaStateList::from(nvs_entry.clone()));
                     }

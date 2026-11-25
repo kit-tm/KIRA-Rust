@@ -16,7 +16,7 @@ impl PathCycleRemover for InOrderCycleRemover {
             return;
         }
 
-        let mut iter = path.ids.clone().into_iter();
+        let mut iter = Vec::clone(&path.ids).into_iter();
         let mut index = 0;
         while let Some(id) = iter.next() {
             if index == path.ids.len() {
