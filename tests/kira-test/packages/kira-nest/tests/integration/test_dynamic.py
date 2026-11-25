@@ -9,6 +9,14 @@ CONVERGENCE_GRACE_SECS = 5
 # we retry pings 5 times because dynamic scenario may
 # not have converged fully after 3 tries in edge cases
 RETRIES = 5
+# nodes or links failed one after another per test: 30 % of them, but at most this many,
+# as every round waits for the network to converge twice
+MAX_FAILURE_ROUNDS = 10
+
+
+def failure_rounds(elements: list) -> int:
+    """Number of the elements to fail one after another."""
+    return min(round(0.3 * len(elements)), MAX_FAILURE_ROUNDS)
 
 
 def test_dynamic_isolated_node_failure(
@@ -17,8 +25,9 @@ def test_dynamic_isolated_node_failure(
     test = KIRATest[str](kira_topo, kirad_binary=kirad_small_k)
     node_list = list(test.topology.nodes)
 
-    # Pick 30 % of the nodes randomly and fail them _individually_.
-    candidates = random.sample(node_list, round(0.3 * len(node_list)))
+    # Pick 30 % of the nodes (at most MAX_FAILURE_ROUNDS) randomly and fail them
+    # _individually_.
+    candidates = random.sample(node_list, failure_rounds(node_list))
 
     conn_helpers.checkup_timeout(test, timeout=1)
     conn_helpers.converge(test)
@@ -92,8 +101,9 @@ def test_dynamic_random_link_failure(kirad_small_k, kira_topo, subtests, conn_he
     test = KIRATest[str](kira_topo, kirad_binary=kirad_small_k)
     links_list = list(test.topology.links)
 
-    # Pick 30 % of the links randomly and fail them _individually_.
-    candidates = random.sample(links_list, round(0.3 * len(links_list)))
+    # Pick 30 % of the links (at most MAX_FAILURE_ROUNDS) randomly and fail them
+    # _individually_.
+    candidates = random.sample(links_list, failure_rounds(links_list))
 
     conn_helpers.checkup_timeout(test, timeout=1)
     conn_helpers.converge(test)
