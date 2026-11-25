@@ -1,5 +1,6 @@
 import logging
 import os
+import random
 import shutil
 import subprocess
 import time
@@ -122,7 +123,7 @@ class ConnectivityHelpers:
     def __init__(self, subtests):
         self.subtests = subtests
 
-    def retry_sweep(  # noqa: PLR0917
+    def retry_sweep(  # noqa: PLR0912, PLR0917
         self,
         test,
         check_func,
@@ -133,9 +134,14 @@ class ConnectivityHelpers:
         cool_down=1.0,
         respect_connected_components=True,
         gate=True,
+        sample=None,
     ):
         """
         Sweeps through all node pairs, retrying failing checks across multiple passes.
+
+        With `sample`, only that many random pairs of different nodes are checked,
+        e.g., for expensive checks like traceroutes (reproducible with the seed of
+        pytest-randomly).
         """
         if fail_msg is None:
             fail_msg = test_msg.capitalize()
@@ -153,6 +159,10 @@ class ConnectivityHelpers:
             ]
         else:
             pairs = [(src, dst) for src in node_list for dst in node_list]
+        if sample is not None:
+            pairs = [(src, dst) for src, dst in pairs if src != dst]
+            if len(pairs) > sample:
+                pairs = random.sample(pairs, sample)
         pending = list(pairs)
 
         for attempt in range(max_attempts):

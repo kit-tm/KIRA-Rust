@@ -1,5 +1,8 @@
 from kira_nest.nest.test import KIRATest
 
+# node pairs whose traceroute is checked (all pairs are pinged)
+TRACEROUTE_SAMPLE = 200
+
 
 def test_connectivity(kirad_small_k, kira_topo, conn_helpers):
     test = KIRATest[str](kira_topo, kirad_binary=kirad_small_k)
@@ -14,4 +17,6 @@ def test_connectivity(kirad_small_k, kira_topo, conn_helpers):
         test,
         lambda u, v: conn_helpers.traceroute_check(test, u, v),
         test_msg="traceroute",
+        # each traceroute queries the forwarding state of every hop
+        sample=TRACEROUTE_SAMPLE,
     )
