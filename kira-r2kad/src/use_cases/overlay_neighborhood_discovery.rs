@@ -416,8 +416,11 @@ where
         };
         let current_timer_context = &mut timer_contexts[TimerType::RandomExploration as usize];
         // arm the next round first, so that a round without a usable contact doesn't stop it
-        current_timer_context.timer_id =
-            Some(context.runtime().register_rand_timer(exploration_interval));
+        current_timer_context.timer_id = Some(
+            context
+                .runtime()
+                .register_rand_deferrable_timer(exploration_interval),
+        );
         log::trace!(target: "overlay_neighborhood_discovery", "Next random exploration in about {exploration_interval:?}");
 
         let new_nonce = Nonce::random();
@@ -535,7 +538,7 @@ where
             timer_context.timer_id = Some(
                 context
                     .runtime()
-                    .register_rand_timer(self.exploration_interval),
+                    .register_rand_deferrable_timer(self.exploration_interval),
             );
             log::trace!(target: "overlay_neighborhood_discovery", "Routing table changed: next random exploration in about {:?}", self.exploration_interval);
         }

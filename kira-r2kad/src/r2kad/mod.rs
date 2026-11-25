@@ -27,8 +27,6 @@ pub mod load;
 mod pipeline;
 pub(crate) mod runtime;
 
-/// Queueing delay of received messages from which a warning is logged.
-const LAG_WARNING: Duration = Duration::from_millis(200);
 use pipeline::R2KadPipeline;
 use runtime::R2KadRuntime;
 
@@ -43,6 +41,7 @@ use crate::{
         InsertionStrategy,
         NodeId,
         PathSegmentation,
+        ProtocolMessageKind,
         RoutingTable,
         Timestamp,
         ULNState,
@@ -82,6 +81,24 @@ use crate::{
         VicinityEvent,
     },
 };
+
+/// Queueing delay of received messages from which a warning is logged.
+const LAG_WARNING: Duration = Duration::from_millis(200);
+
+/// Whether a received message may be dropped when it waited too long to be processed.
+///
+/// Lookups only: their senders retry them, and they change no state. Responses (which end
+/// the timeouts of requests), probes (whose loss means a failed path) and requests changing
+/// state are always processed.
+fn is_sheddable(kind: ProtocolMessageKind) -> bool {
+    matches!(
+        kind,
+        ProtocolMessageKind::FindNodeReq
+            | ProtocolMessageKind::QueryRouteReq
+            | ProtocolMessageKind::ULNDiscReq
+            | ProtocolMessageKind::FetchReq
+    )
+}
 
 pub struct Builder<C, const BUCKET_SIZE: usize> {
     context: PhantomData<C>,
@@ -391,6 +408,21 @@ where
         let _clock = Timestamp::set_clock(now);
         self.context.runtime().set_current_time(now);
         debug_assert_eq!(self.context.runtime().next_event(), None);
+
+        if let Input::Message(message, _) = &received_event
+            && is_sheddable(message.kind())
+            && now - received_at > self.context.runtime().stale_request_age()
+        {
+            let kind = message.kind();
+            crate::rate_limited!(Duration::from_secs(10), |suppressed| tracing::info!(
+                target: "r2kad",
+                ?kind,
+                waited = ?(now - received_at),
+                suppressed,
+                "Dropping a lookup whose sender has given up on it"
+            ));
+            return self.handle_timeout(now);
+        }
 
         // handle input event as UseCaseEvent
         self.pipeline

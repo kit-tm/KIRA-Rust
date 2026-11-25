@@ -10,6 +10,12 @@
 //!   time remote nodes take to process them,
 //! - the time received messages wait before this node processes them (its own backlog),
 //! - a backoff doubling with every request that timed out until a response arrives again.
+//!
+//! Under load a node also sheds work:
+//! - it drops lookups that waited so long before it could process them that their senders
+//!   have given up on them ([LoadEstimator::stale_request_age]),
+//! - it defers periodic work that can wait, e.g., the random exploration of the overlay
+//!   ([LoadEstimator::load_factor]).
 
 use std::time::Duration;
 
@@ -17,6 +23,13 @@ use std::time::Duration;
 pub const MAX_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 /// Upper bound of the backoff factor of request timeouts.
 pub const MAX_BACKOFF: u32 = 8;
+/// Queueing delay per step of the [load factor](LoadEstimator::load_factor).
+pub const LOAD_FACTOR_STEP: Duration = Duration::from_millis(100);
+/// Upper bound of the [load factor](LoadEstimator::load_factor).
+pub const MAX_LOAD_FACTOR: u32 = 8;
+/// Base timeout of the requests whose [stale age](LoadEstimator::stale_request_age) is used,
+/// the shortest common one (e.g., of FindNodeReqs).
+pub const STALE_REQUEST_BASE_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// See the [module documentation](self).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,6 +104,24 @@ impl LoadEstimator {
         let timeout = base.max(rto) * self.backoff;
         timeout.min(base.max(MAX_REQUEST_TIMEOUT)) + self.queueing_delay
     }
+
+    /// Factor to stretch the intervals of periodic work that can wait: one more per
+    /// [LOAD_FACTOR_STEP] of queueing delay, at most [MAX_LOAD_FACTOR]. 1 without backlog.
+    pub fn load_factor(&self) -> u32 {
+        let steps = self.queueing_delay.as_nanos() / LOAD_FACTOR_STEP.as_nanos();
+        u32::try_from(steps)
+            .unwrap_or(u32::MAX)
+            .saturating_add(1)
+            .min(MAX_LOAD_FACTOR)
+    }
+
+    /// Time after which a received lookup isn't worth processing anymore: its sender, waiting
+    /// for the response with a timeout adapted to similar load, has given up on it.
+    ///
+    /// Twice the request timeout of [STALE_REQUEST_BASE_TIMEOUT], so at least 500ms.
+    pub fn stale_request_age(&self) -> Duration {
+        2 * self.request_timeout(STALE_REQUEST_BASE_TIMEOUT)
+    }
 }
 
 #[cfg(test)]
@@ -145,6 +176,26 @@ mod tests {
         }
         load.record_rtt(ms(10));
         assert_eq!(load.request_timeout(ms(250)), ms(250));
+    }
+
+    #[test]
+    fn load_factor_grows_with_the_queueing_delay() {
+        let mut load = LoadEstimator::default();
+        assert_eq!(load.load_factor(), 1);
+        load.record_queueing_delay(ms(500)); // smoothed 250ms
+        assert_eq!(load.load_factor(), 3);
+        for _ in 0..10 {
+            load.record_queueing_delay(Duration::from_secs(10));
+        }
+        assert_eq!(load.load_factor(), MAX_LOAD_FACTOR);
+    }
+
+    #[test]
+    fn stale_request_age_follows_the_request_timeout() {
+        let mut load = LoadEstimator::default();
+        assert_eq!(load.stale_request_age(), ms(500));
+        load.record_queueing_delay(Duration::from_secs(2)); // smoothed 1s
+        assert_eq!(load.stale_request_age(), ms(2500));
     }
 
     #[test]

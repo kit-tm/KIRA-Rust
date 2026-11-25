@@ -331,7 +331,7 @@ where
 
         let timeout_timer_id = context
             .runtime()
-            .register_rand_timer(self.config.periodic_restore);
+            .register_rand_deferrable_timer(self.config.periodic_restore);
         timer_hooks.insert(timeout_timer_id, TimerHook::PeriodicRestore(payload));
     }
 }

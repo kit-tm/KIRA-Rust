@@ -96,6 +96,11 @@ impl R2KadRuntime {
         self.load.lock().unwrap().queueing_delay()
     }
 
+    /// See [LoadEstimator::stale_request_age].
+    pub fn stale_request_age(&self) -> Duration {
+        self.load.lock().unwrap().stale_request_age()
+    }
+
     fn mark_request_timer(&self, id: TimerId) -> TimerId {
         self.request_timers.lock().unwrap().insert(id);
         id
@@ -258,6 +263,11 @@ impl UseCaseRuntime for R2KadRuntime {
 
     fn record_rtt_sample(&self, rtt: Duration) {
         self.load.lock().unwrap().record_rtt(rtt);
+    }
+
+    fn register_rand_deferrable_timer(&self, duration: Duration) -> TimerId {
+        let factor = self.load.lock().unwrap().load_factor();
+        self.register_rand_timer(duration * factor)
     }
 
     fn register_periodic_timer(&self, duration: Duration) -> TimerId {
