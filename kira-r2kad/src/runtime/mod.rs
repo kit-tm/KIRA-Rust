@@ -96,12 +96,13 @@ pub trait UseCaseRuntime {
             Some(next_hop) if next_hop == root_id => return self.broadcast_event(protocol_message),
             Some(next_hop) => {
                 let Some((uln_dest, _)) = uln_table.get(next_hop) else {
-                    tracing::warn!(
+                    crate::rate_limited!(|suppressed| tracing::warn!(
                         %next_hop,
                         reason = "uln_dest of next hop unknown",
                         ?protocol_message,
+                        suppressed,
                         "Dropping message"
-                    );
+                    ));
                     return;
                 };
                 (*uln_dest).into()

@@ -220,7 +220,10 @@ where
                         break;
                     }
                     Err(other_error) => {
-                        log::error!(target: "kira", "Sending protocol message failed: {other_error}")
+                        kira_r2kad::rate_limited!(|suppressed| log::error!(
+                            target: "kira",
+                            "Sending protocol message failed: {other_error} ({suppressed} similar messages suppressed)"
+                        ))
                     }
                 }
             }

@@ -105,12 +105,14 @@ impl UdpSender {
                 .map_err(SenderError::SendError)
             {
                 self.stats.record_tx_error();
-                tracing::error!(
+                kira_r2kad::rate_limited!(|suppressed| tracing::error!(
                     target: "message_sender",
                     interface = %interface_id,
                     addr = %ALL_KIRA_NODES,
                     %err,
-                    "Multicast to interface failed unexpectedly");
+                    suppressed,
+                    "Multicast to interface failed unexpectedly"
+                ));
             } else {
                 self.stats.record_tx(kind, buffer.len());
             }

@@ -665,10 +665,11 @@ where
         {
             entry.update_last_seen(context.runtime().current_time());
         } else {
-            tracing::error!(
+            crate::rate_limited!(|suppressed| tracing::error!(
                 target: "forward_protocol_message",
+                suppressed,
                 "no previous hop found in vicinity graph",
-            );
+            ));
         };
 
         let Some(next_hop) = source_route.next_hop() else {
@@ -692,12 +693,13 @@ where
         // Next hop is not a underlay neighbor -> Error -> Drop
         // TODO distinguish between failed next hop and wrong (non-existing hop ), see RouteFailureWrongHop
         if context.uln_table().get(next_hop).is_none() {
-            tracing::warn!(
+            crate::rate_limited!(|suppressed| tracing::warn!(
                 target: "forward_protocol_message",
                 reason = "Next hop is not an underlay neighbor",
                 ?message,
+                suppressed,
                 "Dropping message and returning an error"
-            );
+            ));
             self.handle_next_hop_failed(context, message);
             return HandlingResult::Handled;
         }
@@ -783,12 +785,13 @@ where
                 // check if current underlay neighbor is still up
                 // as interface_down events delete the ulnid from the uln_table
                 if !context.uln_table().contains_key(source_route.prev_hop()) {
-                    tracing::error!(
+                    crate::rate_limited!(|suppressed| tracing::error!(
                         target: "forward_protocol_message",
+                        suppressed,
                         "Message arrived from ULN {} that is currently not available – will drop {:?}",
                         source_route.prev_hop(),
                         message,
-                    );
+                    ));
                     return Ok(HandlingResult::Handled);
                 }
             }

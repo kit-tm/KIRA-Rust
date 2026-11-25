@@ -293,7 +293,11 @@ where
         let out_path = in_path.get(1..).filter(|out_path| !out_path.is_empty())?;
 
         let Some((next_hop, _)) = context.uln_table().get(&out_path[0]).cloned() else {
-            log::error!(target: "explicit_path_management", "Path via unknown underlay neighbor {}; Ignoring", out_path[0]);
+            crate::rate_limited!(|suppressed| log::error!(
+                target: "explicit_path_management",
+                "Path via unknown underlay neighbor {}; Ignoring ({suppressed} similar messages suppressed)",
+                out_path[0]
+            ));
             return None;
         };
 

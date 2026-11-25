@@ -8,4 +8,5 @@ pub use inflight_req_map::*;
 pub mod backoff_map;
 pub mod exponential_backoff;
 pub mod inflight_req_map;
+pub mod log_rate_limit;
 pub mod rediscovery_timeout_interval;

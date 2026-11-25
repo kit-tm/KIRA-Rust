@@ -969,12 +969,13 @@ where
         let nid = response.source();
 
         let hash_map::Entry::Occupied(entry) = pending_reqs.entry((*nid, response.kind())) else {
-            tracing::warn!(
+            crate::rate_limited!(|suppressed| tracing::warn!(
                 target: "vicinity_discovery",
                 source = %nid,
                 reason = "no_pending_req",
+                suppressed,
                 "unexpected response received",
-            );
+            ));
             return;
         };
         if let Some(perceived_nonce) = response.msg_id() {
