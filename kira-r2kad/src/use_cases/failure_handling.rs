@@ -4,8 +4,8 @@ use std::{
         HashSet,
     },
     marker::PhantomData,
+    net::Ipv6Addr,
     num::{
-        NonZeroU8,
         NonZeroU32,
         NonZeroU64,
         NonZeroUsize,
@@ -18,7 +18,10 @@ use derive_more::derive::{
     Display,
     Error,
 };
-use tracing::instrument;
+use tracing::{
+    Level,
+    instrument,
+};
 
 use crate::{
     domain::{
@@ -30,6 +33,7 @@ use crate::{
         NotVia,
         NotViaState,
         NotViaStateList,
+        PathId,
         ProtocolMessage,
         ProtocolMessageKind,
         RoutingTable,
@@ -40,6 +44,7 @@ use crate::{
         UnderlayNeighborId,
         UnderlayNeighborUpdate,
         VicinityGraph,
+        protocol_event::DroppedPacket,
         protocol_message::{
             CommonHeader,
             ErrorData,
@@ -68,10 +73,18 @@ use crate::{
 };
 
 const REDISCOVERY_WAITTIME_RATELIMIT: Duration = Duration::from_millis(100);
+/// Minimum interval between two notifications of the same node about the same obsolete path.
+const DROPPED_PACKET_NOTIFICATION_INTERVAL: Duration = Duration::from_secs(1);
+
 const REDISCOVERY_WAITTIME_ULN: Duration = Duration::from_millis(100);
 const REDISCOVERY_WAITTIME_CLOSEST_NEIGHBORS: Duration = Duration::from_millis(500);
 const REDISCOVERY_WAITTIME_CONTACT_WITH_ULN: Duration = Duration::from_millis(1000);
 const REDISCOVERY_WAITTIME_OTHER: Duration = Duration::from_millis(2000);
+/// Wait time for the contact rediscovered first of a bucket without valid contacts.
+///
+/// Its subtree is unreachable until a contact is valid again. The other invalidated contacts
+/// keep their wait time: the new path into the subtree usually repairs them meanwhile.
+const REDISCOVERY_WAITTIME_UNREACHABLE_BUCKET: Duration = Duration::from_millis(100);
 const REDISCOVERY_TIMEOUT_MAX: Duration = Duration::from_millis(250);
 const VICINITY_ALTERNATIVE_TIMEOUT: Duration = Duration::from_millis(100);
 
@@ -96,8 +109,6 @@ const VICINITY_ALTERNATIVE_TIMEOUT: Duration = Duration::from_millis(100);
 ///   starts: 100ms.
 #[derive(Debug)]
 pub struct FailureHandlingConfig {
-    /// Number of bits used for determining closest overlay neighbors.
-    pub grouping_bits: NonZeroU8,
     /// Number of contacts to try for rediscovery (normally same as bucket size)
     pub number_via_contacts: NonZeroUsize,
     /// Interval used to generate random timeout durations based on distance to failing contact
@@ -115,7 +126,6 @@ pub struct FailureHandlingConfig {
 impl Default for FailureHandlingConfig {
     fn default() -> Self {
         Self {
-            grouping_bits: NonZeroU8::new(1).unwrap(),
             number_via_contacts: NonZeroUsize::new(20).unwrap(),
             backoff_timeout_interval: RediscoveryTimeoutInterval::default(),
             max_retry_rounds: NonZeroU32::new(5).unwrap(),
@@ -203,6 +213,8 @@ pub struct FailureHandling<C, const BUCKET_SIZE: usize> {
     rate_limit_rediscoveries: HashMap<TimerId, NodeId>,
     /// Contacts with a proposed vicinity alternative and their postponed rediscovery timer
     pending_vicinity_alternatives: HashMap<NodeId, TimerId>,
+    /// Last notification about a dropped packet per encapsulator and PathIP
+    dropped_packet_notifications: HashMap<(NodeId, Ipv6Addr), Timestamp>,
 }
 
 impl<C, const BUCKET_SIZE: usize> FailureHandling<C, BUCKET_SIZE> {
@@ -215,6 +227,7 @@ impl<C, const BUCKET_SIZE: usize> FailureHandling<C, BUCKET_SIZE> {
             scheduled_rediscoveries: HashMap::new(),
             rate_limit_rediscoveries: HashMap::new(),
             pending_vicinity_alternatives: HashMap::new(),
+            dropped_packet_notifications: HashMap::new(),
         }
     }
 }
@@ -232,12 +245,32 @@ where
     fn get_rediscovery_wait_time(&self, context: &C, contact: &Contact) -> Duration {
         match contact {
             contact if contact.is_uln() => REDISCOVERY_WAITTIME_ULN,
+            contact if Self::is_first_of_unreachable_bucket(context, contact) => {
+                REDISCOVERY_WAITTIME_UNREACHABLE_BUCKET
+            }
             contact if context.routing_table().is_close_contact(contact.id()) => {
                 REDISCOVERY_WAITTIME_CLOSEST_NEIGHBORS
             }
             contact if contact.has_broken_first_hop() => REDISCOVERY_WAITTIME_CONTACT_WITH_ULN,
             _ => REDISCOVERY_WAITTIME_OTHER,
         }
+    }
+
+    /// Returns if the bucket of the contact has no valid contact and the contact has the
+    /// shortest path of its contacts (ties broken by the smaller NodeId), so that exactly one
+    /// of them is rediscovered quickly.
+    fn is_first_of_unreachable_bucket(context: &C, contact: &Contact) -> bool {
+        let rt = context.routing_table();
+        let bucket = rt.bucket(contact.id());
+        if bucket.iter().any(|other| other.is_valid()) {
+            return false;
+        }
+        let key = |c: &Contact| (c.path().map_or(usize::MAX, |path| path.size()), *c.id());
+        bucket
+            .iter()
+            .filter(|other| other.path().is_some())
+            .min_by_key(|other| key(other))
+            .is_some_and(|first| first.id() == contact.id())
     }
 
     // this should be called only from immediate error msgs, because the NotVia is using the current time
@@ -376,8 +409,9 @@ where
             // Add rediscovery state before sending find node in case of error
             let nonce = {
                 let mut nonce = Nonce::random();
-                // TODO maybe use measured RTT instead of fixed timeout
-                let mut timer_id = context.runtime().register_timer(REDISCOVERY_TIMEOUT_MAX);
+                let mut timer_id = context
+                    .runtime()
+                    .register_request_timer(REDISCOVERY_TIMEOUT_MAX);
 
                 // TODO this should use the state in the Rediscovering state
                 while let Err(e) =
@@ -388,7 +422,9 @@ where
                         InsertionError::DuplicateNonce => nonce = Nonce::random(),
                         InsertionError::DuplicateTimer => {
                             log::warn!(target: "failure_handling", "runtime emitted duplicate timer id {} [{:?}]", timer_id, self.inflight_rediscoveries);
-                            timer_id = context.runtime().register_timer(REDISCOVERY_TIMEOUT_MAX);
+                            timer_id = context
+                                .runtime()
+                                .register_request_timer(REDISCOVERY_TIMEOUT_MAX);
                         }
                     }
                 }
@@ -553,12 +589,7 @@ where
         // in isolation or drastic failure scenarios it may be the case that no via contacts can be found
         let closest_via_contacts = context
             .routing_table()
-            .closest(
-                contact.id(),
-                self.config.number_via_contacts.get(),
-                self.config.grouping_bits,
-            )
-            .expect("invalid config");
+            .closest(contact.id(), self.config.number_via_contacts.get());
 
         let initial_wait_time = self.get_rediscovery_wait_time(context, &contact);
         // if the alternative is validated in time, the contact gets valid and no rediscovery is necessary
@@ -654,12 +685,7 @@ where
                 // note that this list may be actually empty
                 let new_via_contact_list = context
                     .routing_table()
-                    .closest(
-                        &node_id,
-                        self.config.number_via_contacts.get(),
-                        self.config.grouping_bits,
-                    )
-                    .expect("invalid config")
+                    .closest(&node_id, self.config.number_via_contacts.get())
                     .iter()
                     .map(|(_, x)| *x.id())
                     .collect();
@@ -736,7 +762,9 @@ where
         // Start new find node
 
         // set timer for timeout
-        let timer_id = context.runtime().register_timer(REDISCOVERY_TIMEOUT_MAX);
+        let timer_id = context
+            .runtime()
+            .register_request_timer(REDISCOVERY_TIMEOUT_MAX);
 
         let msg_id = {
             let mut msg_id = Nonce::random();
@@ -812,14 +840,106 @@ where
 
     /// Find all contacts whose paths start with underlay neighbors affected by the outage of an interface
     /// (there may be several ULNs behind a single interface)
-    fn invalidate_affected_contacts(&self, context: &C, ulnid: UnderlayNeighborId) {
-        let mut rt = context.routing_table_mut();
+    /// Remembers the incoming PathIds of the entries forwarding via the lost underlay
+    /// neighbor, before they are removed (see
+    /// [PrecomputePathIds](super::precompute_paths_and_path_ids::PrecomputePathIds)).
+    ///
+    /// Only if the connection leads to a single neighbor, the failed link is known.
+    fn remember_lost_paths(
+        &mut self,
+        context: &C,
+        ulnid: &UnderlayNeighborId,
+        neighbors: &HashSet<NodeId>,
+    ) {
+        let [neighbor] = neighbors.iter().collect::<Vec<_>>()[..] else {
+            return;
+        };
+        let lost: Vec<PathId> = context
+            .fwd_state()
+            .iter()
+            .filter(|(_, entry)| entry.next_hop() == Some(ulnid))
+            .map(|(in_path_id, _)| in_path_id.clone())
+            .collect();
+        let failed_link = Link::new(*context.root_id(), *neighbor);
+        let mut fwd_state = context.fwd_state_mut();
+        for in_path_id in lost {
+            fwd_state.record_lost_path(in_path_id, failed_link.clone());
+        }
+    }
 
+    /// Notifies the node that encapsulated a packet dropped by the forwarding tier about the
+    /// failed link of its obsolete path, so that it doesn't wait for a probe to fail.
+    ///
+    /// The [ErrorData::SegmentFailure] is sent over the path to the node, if it is a contact,
+    /// or towards it via the closest contact. It is lost if it encounters a failed link
+    /// itself, and it is not sent if the failed link is unknown, e.g., the entry expired.
+    fn notify_dropped_packet(&mut self, context: &C, dropped: DroppedPacket) {
+        let key = (dropped.encapsulator, dropped.path_ip);
+        if self
+            .dropped_packet_notifications
+            .get(&key)
+            .is_some_and(|last| last.to_age_duration() < DROPPED_PACKET_NOTIFICATION_INTERVAL)
+        {
+            return;
+        }
+        self.dropped_packet_notifications
+            .retain(|_, last| last.to_age_duration() < DROPPED_PACKET_NOTIFICATION_INTERVAL);
+
+        let Some(failed_link) = context.fwd_state().lost_link(&dropped.path_ip).cloned() else {
+            log::debug!(target: "failure_handling", "Dropped packet of {} with PathIP {}: failed link unknown, no notification", dropped.encapsulator, dropped.path_ip);
+            return;
+        };
+
+        let root_id = *context.root_id();
+        if dropped.encapsulator == root_id {
+            return;
+        }
+        let path = {
+            let rt = context.routing_table();
+            rt.contact(&dropped.encapsulator)
+                .filter(|contact| contact.is_valid())
+                .cloned()
+                .or_else(|| rt.next_hop(&dropped.encapsulator))
+                .and_then(|contact| contact.path().cloned())
+        };
+        let Some(path) = path else {
+            log::debug!(target: "failure_handling", "No route to {} to notify it about failed link {failed_link}", dropped.encapsulator);
+            return;
+        };
+
+        log::debug!(target: "failure_handling", "Notifying {} about failed link {failed_link} of its obsolete path (PathIP {}) via {path}", dropped.encapsulator, dropped.path_ip);
+        let message = ReqRspMessage {
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::Error,
+                root_id,
+                dropped.encapsulator,
+                Some(Nonce::random()),
+                *context.uln_table().state_seq_nr(),
+                context.uln_table().size(),
+            ),
+            data: ErrorData::SegmentFailure {
+                failed_link,
+                source: root_id,
+            },
+            not_via: None,
+            source_route: SourceRoute::new(root_id, path),
+        };
+        self.dropped_packet_notifications
+            .insert(key, Timestamp::now());
+        context
+            .runtime()
+            .send_message(message, context.uln_table().deref(), context.root_id());
+    }
+
+    fn invalidate_affected_contacts(&mut self, context: &C, ulnid: UnderlayNeighborId) {
         let affected_underlay_neighbors = context
             .uln_table()
             .iter()
             .filter_map(|(id, (via, _))| if via == &ulnid { Some(*id) } else { None })
             .collect::<HashSet<_>>();
+        self.remember_lost_paths(context, &ulnid, &affected_underlay_neighbors);
+
+        let mut rt = context.routing_table_mut();
 
         log::trace!(target: "failure_handling", "Underlay neighbors affected by interface {ulnid:?} down: {affected_underlay_neighbors:?}");
 
@@ -873,6 +993,8 @@ where
     type Value = ();
 
     #[instrument(
+        // the state is formatted for every event: only when tracing
+        level = Level::TRACE,
         target = "failure_handling",
         "failure_handling",
         skip(self, context, event),
@@ -989,6 +1111,10 @@ where
             }
             UseCaseEvent::UnderlayUpdate(UnderlayNeighborUpdate::UnderlayNeighborDown(ulnid)) => {
                 self.invalidate_affected_contacts(context, ulnid);
+            }
+            UseCaseEvent::DroppedPacket(dropped) => {
+                log::debug!(target: "failure_handling", "Forwarding tier dropped a packet with unknown PathIP {} of {} (destination {:?})", dropped.path_ip, dropped.encapsulator, dropped.destination);
+                self.notify_dropped_packet(context, dropped);
             }
             _ => {}
         }
@@ -1379,6 +1505,106 @@ mod tests {
         assert!(!fh.scheduled_rediscoveries.contains_key(&timer));
     }
 
+    /// Context with the underlay neighbor [a] and the remote contacts `y` (via a, c) and `z`
+    /// (via a, c, d) in the only bucket, plus the remote contact `w` (via a, e) if `with_w`.
+    /// Returns the ids of y, z and w.
+    fn setup_remote_contacts(with_w: bool) -> (FH, Ctx, [NodeId; 3]) {
+        crate::tests::init();
+        let ctx = Ctx::new(ContextConfig {
+            root_id: root(),
+            routing_table: SingleBucketRT::<BUCKET_SIZE>::new(root()),
+            runtime: TestingUseCaseRuntime::with_unique_timer_ids(),
+            insertion_strategy: (),
+            uln_table: InMemoryULNTable::new(),
+            vicinity_graph: PetVicinityGraph::new(root()),
+        });
+        ctx.uln_table_mut().insert(a(), ulnid(1));
+        ctx.vicinity_graph_mut()
+            .insert(a(), &root(), ssn())
+            .unwrap();
+        let [c, d, e, y, z, w] = [6, 7, 8, 9, 10, 11].map(NodeId::with_msb);
+        let mut paths = vec![path(&[a(), c, y]), path(&[a(), c, d, z])];
+        if with_w {
+            paths.push(path(&[a(), e, w]));
+        }
+        for path in paths {
+            let contact = Contact::new(path, ssn());
+            assert!(contact.is_valid());
+            ctx.routing_table_mut().add(contact).unwrap();
+        }
+        let mut fh = FH::new(FailureHandlingConfig::default());
+        fh.start(&ctx).unwrap();
+        (fh, ctx, [y, z, w])
+    }
+
+    /// Invalidates the contacts with the failed link (c, d) or (a, c) at once and only then
+    /// hands the changes to failure handling, as the routing table events are queued.
+    /// Returns the wait times of the scheduled rediscoveries.
+    fn invalidate_at_once(fh: &mut FH, ctx: &Ctx, nodes: &[NodeId]) -> Vec<Duration> {
+        let failed_link = Link::new(a(), NodeId::with_msb(6));
+        let old: Vec<_> = nodes.iter().map(|node| contact(ctx, *node)).collect();
+        for node in nodes {
+            ctx.routing_table_mut()
+                .contact_mut(node)
+                .unwrap()
+                .set_invalid(NotViaStateList::from(NotViaState::new(
+                    failed_link.clone(),
+                    Timestamp::now(),
+                )));
+        }
+        for (node, old) in nodes.iter().zip(old) {
+            let new = contact(ctx, *node);
+            fh.handle_event(
+                ctx,
+                UseCaseEvent::Contact(Box::new(ContactEvent::Updated {
+                    new: Box::new(new),
+                    old: Box::new(old),
+                })),
+            )
+            .unwrap();
+        }
+        nodes
+            .iter()
+            .map(|node| {
+                let (timer, _) = fh
+                    .scheduled_rediscoveries
+                    .iter()
+                    .find(|(_, contact)| *contact == node)
+                    .expect("rediscovery scheduled");
+                timer_duration(ctx, *timer)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn first_contact_of_unreachable_bucket_is_rediscovered_quickly() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut fh, ctx, [y, z, _]) = setup_remote_contacts(false);
+
+        let waits = invalidate_at_once(&mut fh, &ctx, &[z, y]);
+        // y has the shorter path, z waits for its repair by the new path into the subtree
+        assert_eq!(waits[1], REDISCOVERY_WAITTIME_UNREACHABLE_BUCKET);
+        assert!(
+            waits[0] > REDISCOVERY_WAITTIME_UNREACHABLE_BUCKET,
+            "{waits:?}"
+        );
+    }
+
+    #[test]
+    fn bucket_with_valid_contact_keeps_wait_times() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut fh, ctx, [y, z, _]) = setup_remote_contacts(true);
+
+        // w (via a, e) stays valid
+        let waits = invalidate_at_once(&mut fh, &ctx, &[z, y]);
+        assert!(
+            waits
+                .iter()
+                .all(|wait| *wait > REDISCOVERY_WAITTIME_UNREACHABLE_BUCKET),
+            "{waits:?}"
+        );
+    }
+
     #[test]
     fn without_vicinity_alternative_rediscovery_is_not_postponed() {
         let _clock = crate::tests::TestClock::new();
@@ -1459,5 +1685,111 @@ mod tests {
         fh.handle_event(&ctx, UseCaseEvent::Timer(timer)).unwrap();
         assert!(sent_find_node_reqs(&ctx).is_empty(), "no rediscovery sent");
         assert!(contact(&ctx, x()).is_invalid(), "x is invalid again");
+    }
+
+    /// Encapsulating node of dropped packets, a contact via [a]
+    fn encapsulator() -> NodeId {
+        NodeId::with_msb(5)
+    }
+
+    /// Setup where [root] forwards the path of `in_path_id` via [b], and [encapsulator] is a
+    /// contact via [a]; then the link to [b] fails.
+    fn setup_lost_path() -> (FH, Ctx, PathId) {
+        let (mut fh, ctx) = setup(false);
+        let in_path_id = PathId::from_shake256(&[root(), b(), x()]);
+        let _ = ctx
+            .fwd_state_mut()
+            .add_precalc(crate::domain::forwarding::PathIdEntry::Forward(
+                crate::domain::forwarding::PathIdForwardingEntry {
+                    in_path_id: in_path_id.clone(),
+                    out_path_id: PathId::from_shake256(&[b(), x()]),
+                    next_hop: ulnid(2),
+                },
+            ));
+        ctx.routing_table_mut()
+            .add(Contact::new(path(&[a(), encapsulator()]), ssn()))
+            .unwrap();
+        fh.handle_event(
+            &ctx,
+            UseCaseEvent::UnderlayUpdate(UnderlayNeighborUpdate::UnderlayNeighborDown(ulnid(2))),
+        )
+        .unwrap();
+        let _ = ctx.runtime().output().count();
+        (fh, ctx, in_path_id)
+    }
+
+    fn dropped(path_id: &PathId) -> UseCaseEvent {
+        UseCaseEvent::DroppedPacket(DroppedPacket {
+            encapsulator: encapsulator(),
+            path_ip: crate::domain::IpPrefixes::default().path_ip(path_id),
+            destination: Some(x()),
+        })
+    }
+
+    /// SegmentFailures sent since the last call with their destination and route
+    fn sent_segment_failures(ctx: &Ctx) -> Vec<(NodeId, Link, Vec<NodeId>)> {
+        ctx.runtime()
+            .output()
+            .filter_map(|output| match output {
+                Output::SendProtocolMessage(ProtocolMessage::Error(error), _) => {
+                    match &error.data {
+                        ErrorData::SegmentFailure { failed_link, .. } => Some((
+                            *error.common_header.dest_id(),
+                            failed_link.clone(),
+                            Path::from(error.source_route.clone()).as_ref().to_vec(),
+                        )),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn dropped_packet_on_lost_path_notifies_encapsulator() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut fh, ctx, in_path_id) = setup_lost_path();
+
+        fh.handle_event(&ctx, dropped(&in_path_id)).unwrap();
+        assert_eq!(
+            sent_segment_failures(&ctx),
+            [(
+                encapsulator(),
+                Link::new(root(), b()),
+                vec![root(), a(), encapsulator()]
+            )],
+            "the failed link is named to the encapsulator over its path"
+        );
+
+        // further packets of the same path within the interval are not reported again
+        fh.handle_event(&ctx, dropped(&in_path_id)).unwrap();
+        assert!(sent_segment_failures(&ctx).is_empty());
+        clock.advance(DROPPED_PACKET_NOTIFICATION_INTERVAL);
+        fh.handle_event(&ctx, dropped(&in_path_id)).unwrap();
+        assert_eq!(sent_segment_failures(&ctx).len(), 1);
+    }
+
+    #[test]
+    fn dropped_packet_with_unknown_failed_link_is_not_reported() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut fh, ctx, _) = setup_lost_path();
+
+        // e.g., the entry expired
+        fh.handle_event(&ctx, dropped(&PathId::from_shake256(&[root(), a(), x()])))
+            .unwrap();
+
+        assert!(sent_segment_failures(&ctx).is_empty());
+    }
+
+    #[test]
+    fn lost_paths_are_forgotten() {
+        let mut clock = crate::tests::TestClock::new();
+        let (mut fh, ctx, in_path_id) = setup_lost_path();
+        clock.advance(crate::domain::fwd_state::LOST_PATH_MEMORY + Duration::from_secs(1));
+
+        fh.handle_event(&ctx, dropped(&in_path_id)).unwrap();
+
+        assert!(sent_segment_failures(&ctx).is_empty());
     }
 }

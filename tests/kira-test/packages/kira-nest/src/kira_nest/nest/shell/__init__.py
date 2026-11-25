@@ -2,9 +2,11 @@ import argparse
 import logging
 import os
 import random
+import socket
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import networkx as nx
 from kira_common.domain import (
@@ -16,6 +18,9 @@ from kira_common.domain import (
 from kira_common.paths import REPO_ROOT
 
 from kira_nest.unshare import probe_netns_cap, unshare_emulation
+
+if TYPE_CHECKING:
+    from kira_nest.nest.cluster import Cluster
 
 # exit codes
 ERR_CMD_FAILED = 1
@@ -95,7 +100,65 @@ def build_arg_parser() -> argparse.ArgumentParser:
             f" (default: ${ENV_PATH_IP_PREFIX} or {default_prefixes.path_ip})"
         ),
     )
+    parser.add_argument(
+        "--start-interval",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help=(
+            "start the daemons staggered, waiting SECONDS after each batch"
+            " (see --start-batch), e.g. to keep a host with many nodes responsive"
+        ),
+    )
+    parser.add_argument(
+        "--start-batch",
+        type=int,
+        default=None,
+        metavar="N",
+        help="number of daemons started at once with --start-interval (default: 1)",
+    )
+    parser.add_argument(
+        "--cluster",
+        type=Path,
+        default=None,
+        help=(
+            "TOML file of the hosts emulating the topology together (see"
+            " kira_nest.nest.cluster): only the nodes of this host are emulated,"
+            " links to nodes on other hosts are VXLAN tunnels"
+        ),
+    )
+    parser.add_argument(
+        "--host",
+        default=None,
+        help="name of this host in the cluster file (default: the hostname)",
+    )
     return parser
+
+
+def cluster_from_args(
+    parser: argparse.ArgumentParser, args: argparse.Namespace, graph: nx.Graph
+) -> "Cluster | None":
+    from kira_nest.nest.cluster import Cluster, ClusterError  # noqa: PLC0415
+
+    if args.cluster is None:
+        if args.host is not None:
+            parser.error("--host requires --cluster")
+        return None
+    try:
+        cluster = Cluster.load(args.cluster, args.host or socket.gethostname())
+    except (OSError, ClusterError) as e:
+        parser.error(f"cluster file {args.cluster}: {e}")
+
+    # all hosts have to derive the same NodeIDs
+    missing = [
+        tid for tid, cfg in graph.nodes(data="config") if not (cfg or {}).get("node_id")
+    ]
+    if missing and args.seed is None:
+        parser.error(
+            f"{len(missing)} nodes have no node_id in the GML file: pass the same"
+            " --seed on all hosts or bake the NodeIDs in with alter_gml_config"
+        )
+    return cluster
 
 
 def ip_prefixes_from_args(
@@ -115,11 +178,11 @@ def ip_prefixes_from_args(
         parser.error(str(e))
 
 
-def run_shell() -> None:  # noqa: PLR0912
+def run_shell() -> None:  # noqa: PLR0912, PLR0915
     parser = build_arg_parser()
     args = parser.parse_args()
     ip_prefixes = ip_prefixes_from_args(parser, args)
-    if args.seed:
+    if args.seed is not None:
         random.seed(args.seed)
 
     # Load the configuration from the GML file
@@ -129,7 +192,14 @@ def run_shell() -> None:  # noqa: PLR0912
     else:
         graph = nx.readwrite.read_gml(args.test_gml)
 
-    if not args.otel:
+    cluster = cluster_from_args(parser, args, graph)
+
+    if cluster is not None:
+        # the VXLAN tunnels need the network of the host
+        if not probe_netns_cap():
+            parser.error("--cluster requires root (CAP_SYS_ADMIN and CAP_NET_ADMIN)")
+        unshared = False
+    elif not args.otel:
         # run emulation completely isolated from host Linux system
         # this allows us to run NeST without CAP_SYS_ADMIN (needed for netns creation)
         unshared = False if probe_netns_cap() else unshare_emulation()
@@ -153,6 +223,9 @@ def run_shell() -> None:  # noqa: PLR0912
         kirad_binary=args.binary,
         perf=args.flamegraph,
         ip_prefixes=ip_prefixes,
+        cluster=cluster,
+        start_interval=args.start_interval,
+        start_batch=args.start_batch,
     )
     shell = DebugShell(
         test, unshared=unshared, post_process_log_files=args.log_processing

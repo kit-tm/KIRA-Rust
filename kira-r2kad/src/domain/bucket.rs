@@ -1,7 +1,6 @@
 use std::{
     fmt::Formatter,
     iter::FusedIterator,
-    num::NonZeroU8,
 };
 
 use derive_more::{
@@ -228,24 +227,14 @@ impl<const SIZE: usize> Bucket<SIZE> {
     /// Returns an iterator over all [_valid_] contacts in the bucket, paired with their
     /// [SharedPrefix] relative to a `target`.
     ///
-    /// # Panics
-    ///
-    /// Panics if `shared_prefix_grouping` is invalid for the system's [NodeId] size.
-    ///
     /// [_valid_]: crate::domain::contact::ContactState::Valid
     pub fn iter_valid_with_prefix(
         &self,
         target: &NodeId,
-        shared_prefix_grouping: NonZeroU8,
     ) -> impl Iterator<Item = (SharedPrefix, Contact)> {
         self.iter()
             .filter(|c| c.state() == &ContactState::Valid)
-            .map(move |c| {
-                let prefix = target
-                    .shared_prefix_len(c.id(), shared_prefix_grouping)
-                    .expect("checked shared_prefix_grouping on root");
-                (prefix, c.clone())
-            })
+            .map(move |c| (target.shared_prefix_len(c.id()), c.clone()))
     }
 }
 

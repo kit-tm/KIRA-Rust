@@ -17,11 +17,13 @@ use kira_forwarding::{
 use kira_forwarding::{
     netlink::{
         NETLINK_NETFILTER,
+        NETLINK_ROUTE,
         NetfilterNetlinkHandle,
         RouteNetlinkHandle,
         new_connection,
         remove_forwarding_state,
     },
+    nflog::listen_dropped_packets,
     tables::native_tables::NativeFwdTables,
 };
 use kira_lib::{
@@ -60,6 +62,10 @@ const BUCKET_SIZE: usize = 3;
 #[cfg(not(feature = "small_buckets"))]
 // for large networks the recommendation is 40
 const BUCKET_SIZE: usize = 20;
+
+/// Buffer of the packets the forwarding tier dropped because of an unknown PathIP, which
+/// are discarded while it is full.
+const DROPPED_PACKETS_BUFFER: usize = 64;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -282,12 +288,22 @@ async fn main() {
     );
 
     // start underlay observation
-    let (connection, handle, mut underlay_updates, handle_rtnetlink) =
+    let (connection, handle, mut underlay_updates, _) =
         observe_underlay(excluded_interfaces.clone())
             .expect("observing underlay neighborhood failed");
     tokio::task::Builder::new()
         .name("Underlay Connection")
         .spawn(connection)
+        .unwrap();
+
+    // A netlink socket of its own for the forwarding tier: the kernel refuses a dump while
+    // another one is running on the same socket (EBUSY), e.g., the initial dump of the links
+    // by the underlay observer and the dump of the routes left behind by a previous instance.
+    let (connection_rtnetlink, handle_rtnetlink, _) =
+        new_connection(NETLINK_ROUTE).expect("netlink socket for the forwarding tier");
+    tokio::task::Builder::new()
+        .name("Forwarding Netlink Connection")
+        .spawn(connection_rtnetlink)
         .unwrap();
 
     // duplicate mpsc underlay updates channel for fwd_tables and R²/KAD
@@ -391,8 +407,20 @@ async fn main() {
                 .spawn(attach_ips)
                 .unwrap();
 
+            // packets the forwarding tier dropped because of an obsolete path
+            let (dropped_tx, dropped_rx) = tokio::sync::mpsc::channel(DROPPED_PACKETS_BUFFER);
+            tokio::task::Builder::new()
+                .name("Dropped packets (NFLOG)")
+                .spawn(async move {
+                    if let Err(e) = listen_dropped_packets(ip_prefixes, dropped_tx).await {
+                        log::warn!("No notification about packets with unknown PathIP: {e}");
+                    }
+                })
+                .unwrap();
+
             let kira =
-                Kira::with_components(r2kad, fwd_tables, underlay_updates2, pm_receiver, pm_sender);
+                Kira::with_components(r2kad, fwd_tables, underlay_updates2, pm_receiver, pm_sender)
+                    .with_dropped_packets(dropped_rx);
             let kira = tokio::task::Builder::new()
                 .name("KIRA main loop")
                 .spawn(kira.start())
@@ -415,7 +443,7 @@ async fn main() {
                 connection.abort();
             }
 
-            let (fwd_tables, attach) = Srv6FwdTables::new(
+            let (mut fwd_tables, attach) = Srv6FwdTables::new(
                 root_id,
                 ip_prefixes,
                 handle_rtnetlink.clone(),
@@ -436,8 +464,23 @@ async fn main() {
                 attach,
             };
 
+            // packets the eBPF program dropped because of an obsolete path
+            let (dropped_tx, dropped_rx) = tokio::sync::mpsc::channel(DROPPED_PACKETS_BUFFER);
+            let drop_events = fwd_tables
+                .take_drop_events()
+                .expect("drop events are taken only once");
+            tokio::task::Builder::new()
+                .name("Dropped packets (eBPF)")
+                .spawn(async move {
+                    if let Err(e) = drop_events.listen(ip_prefixes, dropped_tx).await {
+                        log::warn!("No notification about packets with unknown PathIP: {e}");
+                    }
+                })
+                .unwrap();
+
             let kira =
-                Kira::with_components(r2kad, fwd_tables, underlay_updates2, pm_receiver, pm_sender);
+                Kira::with_components(r2kad, fwd_tables, underlay_updates2, pm_receiver, pm_sender)
+                    .with_dropped_packets(dropped_rx);
             let kira = tokio::task::Builder::new()
                 .name("KIRA main loop")
                 .spawn(kira.start())

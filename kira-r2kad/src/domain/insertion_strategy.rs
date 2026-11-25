@@ -2,6 +2,7 @@ use std::{
     fmt::Debug,
     marker::PhantomData,
     ops::Deref as _,
+    time::Duration,
 };
 
 use tracing::{
@@ -28,6 +29,21 @@ use crate::domain::{
 /// Signals if a change to the [Path](crate::domain::path::Path) of a contact happened.
 ///
 /// This doesn't address changes to the other fields of the [Contact].
+/// Minimum time a contact in a full bucket must have been unreachable (not valid and not
+/// heard of) before a validated contact may replace it.
+///
+/// Contacts are kept during short outages while they are rediscovered. A contact that
+/// stays unreachable, e.g., in another part of a split network, must not block reachable
+/// contacts of its bucket until it is declared dead.
+pub const UNREACHABLE_CONTACT_REPLACEMENT_AGE: Duration = Duration::from_secs(3);
+
+/// Returns if the contact has been unreachable long enough to be replaced, see
+/// [UNREACHABLE_CONTACT_REPLACEMENT_AGE].
+fn is_replaceable_unreachable(contact: &Contact) -> bool {
+    !contact.is_valid()
+        && contact.last_seen().to_age_duration() >= UNREACHABLE_CONTACT_REPLACEMENT_AGE
+}
+
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum InsertionStrategyResult {
     Dropped,
@@ -148,10 +164,9 @@ where
             return false;
         };
         table.has_room_for(contact)
-            || table
-                .bucket(contact.id())
-                .iter()
-                .any(|c| c.path().is_some_and(|p| p.size() > path.size()))
+            || table.bucket(contact.id()).iter().any(|c| {
+                c.path().is_some_and(|p| p.size() > path.size()) || is_replaceable_unreachable(c)
+            })
     }
 
     /// Update an existing contact in the table instead of inserting.
@@ -264,7 +279,14 @@ where
         let replaceable = bucket
             .iter()
             .filter(|c| c.path().unwrap().size() > contact.path().unwrap().size())
-            .max_by_key(|c| c.path().unwrap().size());
+            .max_by_key(|c| c.path().unwrap().size())
+            // otherwise the contact unreachable for the longest time
+            .or_else(|| {
+                bucket
+                    .iter()
+                    .filter(|c| is_replaceable_unreachable(c))
+                    .min_by_key(|c| *c.last_seen())
+            });
 
         if let Some(replaceable) = replaceable.cloned() {
             // since contact is a candidate we are interested in,
@@ -281,7 +303,11 @@ where
 
             tracing::debug!(
                 target: "routing_table",
-                reason = "proximity_neighbor_selection",
+                reason = if replaceable.is_valid() {
+                    "proximity_neighbor_selection"
+                } else {
+                    "unreachable_contact"
+                },
                 old = %replaceable, // contains original contact
                 new = %replaceable_mut.deref(), // contains the new substitute
                 node = %replaceable_mut.id(),
@@ -851,6 +877,85 @@ mod tests {
 
         assert_eq!(result, InsertionStrategyResult::NeedsValidation);
         assert!(!rt.contains(&NodeId::from(99)));
+    }
+
+    /// Fills the bucket with contacts via `uln` with single-hop paths that became unreachable.
+    fn fill_bucket_with_unreachable(
+        strategy: &mut UNSStrategy<
+            SingleBucketRT<BUCKET_SIZE>,
+            InOrderCycleRemover,
+            NoopSimplifier,
+            BUCKET_SIZE,
+        >,
+        rt: &mut SingleBucketRT<BUCKET_SIZE>,
+        un: &InMemoryULNTable,
+        uln: NodeId,
+    ) {
+        fill_bucket(strategy, rt, un, uln, 2);
+        for i in 0..u128::try_from(BUCKET_SIZE).unwrap() {
+            rt.contact_mut(&NodeId::from(10 + i))
+                .unwrap()
+                .set_invalid(crate::domain::NotViaStateList::default());
+        }
+    }
+
+    #[test]
+    fn long_unreachable_contact_is_replaced_by_valid_contact() {
+        let mut clock = crate::tests::TestClock::new();
+        crate::tests::init();
+        let uln = NodeId::from(1);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(NodeId::ZERO);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+        fill_bucket_with_unreachable(&mut strategy, &mut rt, &un, uln);
+        // the first one is unreachable for the longest time
+        clock.advance(std::time::Duration::from_secs(1));
+        for i in 1..u128::try_from(BUCKET_SIZE).unwrap() {
+            rt.contact_mut(&NodeId::from(10 + i))
+                .unwrap()
+                .set_last_seen_now();
+        }
+        clock.advance(UNREACHABLE_CONTACT_REPLACEMENT_AGE);
+
+        // a path of the same length doesn't improve the bucket otherwise
+        let result = strategy.insert(contact(&[uln, NodeId::from(99)], 1), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::Replaced(NodeId::from(10)));
+        assert!(rt.contains(&NodeId::from(99)));
+    }
+
+    #[test]
+    fn recently_unreachable_contact_is_kept() {
+        let mut clock = crate::tests::TestClock::new();
+        crate::tests::init();
+        let uln = NodeId::from(1);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(NodeId::ZERO);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+        fill_bucket_with_unreachable(&mut strategy, &mut rt, &un, uln);
+        clock.advance(UNREACHABLE_CONTACT_REPLACEMENT_AGE - std::time::Duration::from_millis(1));
+
+        // it may be rediscovered soon
+        let result = strategy.insert(contact(&[uln, NodeId::from(99)], 1), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::Dropped);
+        assert!(!rt.contains(&NodeId::from(99)));
+    }
+
+    #[test]
+    fn reported_contact_replacing_unreachable_contact_needs_validation() {
+        let mut clock = crate::tests::TestClock::new();
+        crate::tests::init();
+        let uln = NodeId::from(1);
+        let mut rt = SingleBucketRT::<BUCKET_SIZE>::new(NodeId::ZERO);
+        let un = uln_table_with(&[uln]);
+        let mut strategy = strategy();
+        fill_bucket_with_unreachable(&mut strategy, &mut rt, &un, uln);
+        clock.advance(UNREACHABLE_CONTACT_REPLACEMENT_AGE);
+
+        let result = strategy.insert(unknown_contact(&[uln, NodeId::from(99)], 1), &mut rt, &un);
+
+        assert_eq!(result, InsertionStrategyResult::NeedsValidation);
     }
 
     #[test]

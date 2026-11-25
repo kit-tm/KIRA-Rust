@@ -38,6 +38,7 @@ futures = { workspace = true }
 log = { workspace = true }
 kira-r2kad = { path = "../kira-r2kad", features = ["serde"] }
 kira-forwarding = { path = "../kira-forwarding", default-features = false }
+nix = { version = "0.32", features = ["net", "socket", "uio", "time"] }
 tokio = { workspace = true, features = [
   "rt",
   "time",

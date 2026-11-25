@@ -25,10 +25,13 @@ use channels::{
 };
 use futures::StreamExt;
 pub use kira_forwarding::AsyncForwardingTables;
-use kira_forwarding::tables::{
-    AsyncNodeIdTable,
-    AsyncPathIdTable,
-    handle_r2kad_request,
+use kira_forwarding::{
+    domain::r2kad::ForwardingTablesUpdate,
+    tables::{
+        AsyncNodeIdTable,
+        AsyncPathIdTable,
+        handle_r2kad_request,
+    },
 };
 pub use kira_r2kad::r2kad::R2Kad;
 use kira_r2kad::{
@@ -58,6 +61,7 @@ use tracing::{
     debug_span,
     info_span,
     instrument,
+    trace_span,
 };
 
 #[cfg(feature = "api")]
@@ -147,11 +151,14 @@ where
         tokio::task::Builder::new()
             .name("KIRA: Forwarding Tables Channel").spawn(async move {
             loop {
-                let Some((req, kira_span)) = fwtables_rx.recv().await else {
+                let Some((req, kira_span)): Option<(ForwardingTablesUpdate, tracing::Span)> =
+                    fwtables_rx.recv().await
+                else {
                     break;
                 };
+                let update = req.to_string();
                 if let Err(e) = handle_r2kad_request(&mut forwarding_tables, req).instrument(kira_span).await {
-                    log::error!(target: "forwarding_tables", "Handling a ForwardingTablesUpdate failed: {e}");
+                    log::error!(target: "forwarding_tables", "Handling a ForwardingTablesUpdate failed: {e} [{update}]");
                 }
             }
         }).unwrap();
@@ -214,7 +221,10 @@ where
                         break;
                     }
                     Err(other_error) => {
-                        log::error!(target: "kira", "Sending protocol message failed: {other_error}")
+                        kira_r2kad::rate_limited!(|suppressed| log::error!(
+                            target: "kira",
+                            "Sending protocol message failed: {other_error} ({suppressed} similar messages suppressed)"
+                        ))
                     }
                 }
             }
@@ -225,6 +235,7 @@ where
             debug: api_rx,
             protocol_input: pm_receiver_rx,
             underlay: underlay_rx,
+            dropped_packets: None,
         };
 
         let tx_channels = R2KadOutputChannels {
@@ -236,6 +247,17 @@ where
     }
 }
 impl<C, const BUCKET_SIZE: usize, FT> Kira<C, BUCKET_SIZE, FT> {
+    /// Feeds the data packets the forwarding tier dropped because of an unknown PathIP into
+    /// the routing protocol, e.g., from
+    /// [listen_dropped_packets](kira_forwarding::nflog::listen_dropped_packets).
+    pub fn with_dropped_packets(
+        mut self,
+        dropped_packets: channels::DroppedPacketReceiver,
+    ) -> Self {
+        self.rx_channels.dropped_packets = Some(dropped_packets);
+        self
+    }
+
     /// Create a new [Kira] instance.
     ///
     /// This instance can be started using [Kira::start].
@@ -287,8 +309,9 @@ where
 
         loop {
             // process output firstly to capture startup output
+            // TRACE: a span for every iteration
             let collect_output =
-                info_span!(target: "kira", parent: span.lock().unwrap().deref(), "collect_output");
+                trace_span!(target: "kira", parent: span.lock().unwrap().deref(), "collect_output");
             async {
                 while let Some(output) = r2kad.poll_output() {
                     let output_processing = debug_span!(target: "kira", "process_output", ?output);
@@ -313,7 +336,7 @@ where
                 log::trace!(target: "kira", "Waiting for new input events");
 
                 // only process Input events then
-                let Some(input) = channels::input_fan_in(rx_channels).await else {
+                let Some((input, received_at)) = channels::input_fan_in(rx_channels).await else {
                     log::info!(target: "kira", "Fan in channel closed and no timers left");
                     return;
                 };
@@ -322,7 +345,7 @@ where
                 let _process_input = span.enter();
 
                 let now = Instant::now();
-                if let Err(e) = r2kad.handle_input(input, now) {
+                if let Err(e) = r2kad.handle_received(input, received_at, now) {
                     log::error!(target: "kira", "Error handle_timeout: {e}");
                     return;
                 }
@@ -335,13 +358,13 @@ where
             tokio::select! {
                 biased; // poll in order since we check timers on handling input regardlessly
 
-                Some(input) = channels::input_fan_in(rx_channels) => {
+                Some((input, received_at)) = channels::input_fan_in(rx_channels) => {
                     *span.lock().unwrap() = debug_span!(target: "kira", "process_input", ?input);
                     let span = span.lock().unwrap();
                     let _process_input = span.enter();
 
                     let now = Instant::now();
-                    if let Err(e) = r2kad.handle_input(input, now) {
+                    if let Err(e) = r2kad.handle_received(input, received_at, now) {
                         tracing::error!(target: "kira", error=%e, "Error on handle_input");
                         return;
                     }

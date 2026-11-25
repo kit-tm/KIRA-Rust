@@ -7,22 +7,31 @@
 //! removed from the forwarding tables once nobody requires it anymore.
 //!
 //! Entries that are precomputed or used by local contacts are removed as soon as this reason
-//! ceases to exist and no other is left. Entries requested by other nodes are _soft state_:
-//! they have to be refreshed periodically (by PathSetupReq or ProbeReq messages traveling
-//! along the path) and are removed by the
+//! ceases to exist and no other is left, unless other nodes have used them. Entries requested
+//! by other nodes are _soft state_: they have to be refreshed periodically (by PathSetupReq or
+//! ProbeReq messages traveling along the path) and are removed by the
 //! [garbage collection](PathIdFwdState::garbage_collect) otherwise.
+//!
+//! The interest of other nodes isn't tracked per node: a PathTeardownReq of one of them or the
+//! precomputation of the entry clears it, although others may still use the entry. So an entry
+//! other nodes have used is kept as soft state when its last other reason ceases to exist.
+//! Their packets then continue to the failed link of an obsolete path, whose node knows the
+//! failed link and notifies them, and the garbage collection removes the entry once nobody
+//! refreshes it anymore.
 
 use std::{
     collections::{
         HashMap,
         hash_map::Entry,
     },
+    net::Ipv6Addr,
     time::Duration,
 };
 
 use bitflags::bitflags;
 
 use crate::domain::{
+    Link,
     PathId,
     Timestamp,
     UnderlayNeighborId,
@@ -93,7 +102,8 @@ impl FwdStateEntry {
             .intersects(FwdEntryFlags::PRECALC | FwdEntryFlags::LOCAL)
     }
 
-    fn next_hop(&self) -> Option<&UnderlayNeighborId> {
+    /// Returns the underlay neighbor the entry forwards to, if any.
+    pub fn next_hop(&self) -> Option<&UnderlayNeighborId> {
         match &self.entry {
             PathIdEntry::Forward(PathIdForwardingEntry { next_hop, .. }) => Some(next_hop),
             PathIdEntry::Decapsulate(PathIdDecapsulationEntry {
@@ -113,9 +123,42 @@ impl FwdStateEntry {
 #[derive(Debug, Default)]
 pub struct PathIdFwdState {
     entries: HashMap<PathId, FwdStateEntry>,
+    /// Incoming PathIds of entries removed because a link of their path failed, with the
+    /// failed link and when it was recorded (see [Self::lost_link])
+    lost_paths: HashMap<PathId, (Link, Timestamp)>,
+}
+
+/// How long the failed link of a removed entry is remembered, to name it to nodes still
+/// using the path (see [PathIdFwdState::lost_link]).
+pub const LOST_PATH_MEMORY: Duration = Duration::from_secs(30);
+
+/// Returns if the PathIP (containing the first 112 bits of a [PathId]) belongs to the
+/// [PathId], independent of the PathIP prefix.
+fn is_path_ip_of(path_ip: &Ipv6Addr, path_id: &PathId) -> bool {
+    path_id.as_ref().get(..14) == Some(&path_ip.octets()[2..])
 }
 
 impl PathIdFwdState {
+    /// Records that the entry with the incoming [PathId] was (or is about to be) removed
+    /// because the link of its path failed.
+    pub fn record_lost_path(&mut self, in_path_id: PathId, failed_link: Link) {
+        self.lost_paths
+            .retain(|_, (_, recorded)| recorded.to_age_duration() <= LOST_PATH_MEMORY);
+        self.lost_paths
+            .insert(in_path_id, (failed_link, Timestamp::now()));
+    }
+
+    /// Returns the failed link of the path of a removed entry recorded within
+    /// [LOST_PATH_MEMORY], identified by the PathIP of its incoming [PathId].
+    pub fn lost_link(&self, path_ip: &Ipv6Addr) -> Option<&Link> {
+        self.lost_paths
+            .iter()
+            .find(|(path_id, (_, recorded))| {
+                is_path_ip_of(path_ip, path_id) && recorded.to_age_duration() <= LOST_PATH_MEMORY
+            })
+            .map(|(_, (link, _))| link)
+    }
+
     /// Returns the entry with the given incoming [PathId].
     pub fn get(&self, in_path_id: &PathId) -> Option<&FwdStateEntry> {
         self.entries.get(in_path_id)
@@ -211,8 +254,15 @@ impl PathIdFwdState {
         self.remove_if_unrequired(in_path_id)
     }
 
+    /// Removes the entry if nothing requires it anymore, or keeps it as soft state if other
+    /// nodes have used it (see the module documentation).
     fn remove_if_unrequired(&mut self, in_path_id: &PathId) -> Option<PathIdTableUpdate> {
-        if !self.entries.get(in_path_id)?.flags.is_empty() {
+        let state = self.entries.get_mut(in_path_id)?;
+        if !state.flags.is_empty() {
+            return None;
+        }
+        if state.used {
+            state.flags.insert(FwdEntryFlags::FOREIGN);
             return None;
         }
         self.entries.remove(in_path_id);
@@ -461,6 +511,60 @@ mod tests {
     }
 
     #[test]
+    fn used_entry_survives_release_by_local_contact_after_teardown() {
+        let mut clock = TestClock::new();
+        let mut state = PathIdFwdState::default();
+        state.add_local(entry(1));
+        // another node uses the entry of the local contact (ProbeReq), another one tears its
+        // path down (the interest of the nodes isn't tracked per node)
+        state.add_foreign(entry(1));
+        state.unset_foreign(&path_id(1));
+
+        // kept as soft state, others may still use it
+        assert!(state.release_local(&path_id(1)).is_none());
+        assert_eq!(
+            state.get(&path_id(1)).unwrap().flags(),
+            FwdEntryFlags::FOREIGN
+        );
+
+        // a refresh keeps it, the garbage collection removes it without
+        clock.advance(MAX_AGE);
+        assert!(state.refresh(&path_id(1)));
+        clock.advance(MAX_AGE);
+        assert!(state.garbage_collect(MAX_AGE).is_empty());
+        clock.advance(Duration::from_secs(1));
+        assert_eq!(removed(&state.garbage_collect(MAX_AGE)), [path_id(1)]);
+    }
+
+    #[test]
+    fn used_entry_survives_removal_of_precomputed_path() {
+        let _clock = TestClock::new();
+        let mut state = PathIdFwdState::default();
+        state.add_precalc(entry(1));
+        // the interest of other nodes in a precomputed entry is not recorded
+        state.add_foreign(entry(1));
+
+        assert!(state.del_precalc(&path_id(1)).is_none());
+        assert_eq!(
+            state.get(&path_id(1)).unwrap().flags(),
+            FwdEntryFlags::FOREIGN
+        );
+    }
+
+    #[test]
+    fn unused_local_entry_is_removed_on_release() {
+        let _clock = TestClock::new();
+        let mut state = PathIdFwdState::default();
+        state.add_local(entry(1));
+
+        assert!(matches!(
+            state.release_local(&path_id(1)),
+            Some(PathIdTableUpdate::Remove(id)) if id == path_id(1)
+        ));
+        assert!(state.is_empty());
+    }
+
+    #[test]
     fn entry_is_removed_with_its_precomputed_path() {
         let _clock = TestClock::new();
         let mut state = PathIdFwdState::default();
@@ -545,5 +649,22 @@ mod tests {
         expected.sort_by_key(|id| id.as_ref().to_vec());
         assert_eq!(removed, expected);
         assert_eq!(state.len(), 2);
+    }
+
+    #[test]
+    fn failed_link_of_lost_path_is_found_by_its_path_ip() {
+        let mut clock = crate::tests::TestClock::new();
+        let mut state = PathIdFwdState::default();
+        let lost = PathId::from_shake256(&[NodeId::with_msb(1), NodeId::with_msb(2)]);
+        let other = PathId::from_shake256(&[NodeId::with_msb(1), NodeId::with_msb(3)]);
+        let link = Link::new(NodeId::with_msb(1), NodeId::with_msb(2));
+        let prefixes = crate::domain::IpPrefixes::default();
+
+        state.record_lost_path(lost.clone(), link.clone());
+
+        assert_eq!(state.lost_link(&prefixes.path_ip(&lost)), Some(&link));
+        assert_eq!(state.lost_link(&prefixes.path_ip(&other)), None);
+        clock.advance(LOST_PATH_MEMORY + Duration::from_millis(1));
+        assert_eq!(state.lost_link(&prefixes.path_ip(&lost)), None, "forgotten");
     }
 }

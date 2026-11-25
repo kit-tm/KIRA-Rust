@@ -6,6 +6,8 @@ def test_connectivity(kirad_small_k, kira_topo, conn_helpers):
 
     # All nodes come up within one second
     conn_helpers.checkup_timeout(test, timeout=1)
+    # and discover their vicinity
+    conn_helpers.converge(test)
 
     # All nodes can reach each other using pings (checks fast forwarding layer)
     conn_helpers.retry_sweep(test, conn_helpers.ping_check, test_msg="ping")
@@ -14,4 +16,5 @@ def test_connectivity(kirad_small_k, kira_topo, conn_helpers):
         test,
         lambda u, v: conn_helpers.traceroute_check(test, u, v),
         test_msg="traceroute",
+        max_pairs=conn_helpers.TRACEROUTE_SWEEP_MAX_PAIRS,
     )

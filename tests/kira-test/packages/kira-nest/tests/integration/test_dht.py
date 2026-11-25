@@ -4,6 +4,12 @@ from kira_nest.nest.test import KIRATest
 
 VALUE = "Psssst... This is a secret!"
 KEYS = ["top", "abc", "_key_", "hello world"]
+# responses of kirad to a successful store (StoreOK in kira-lib/src/api/domain/dht.rs)
+STORED = (
+    "Created hashtable entry.",
+    "Updated existing hashtable entry.",
+    "Inserted data into an existing hashtable entry.",
+)
 
 
 def test_dht_store_fetch(kirad_small_k, kira_topo, conn_helpers, subtests):
@@ -12,6 +18,9 @@ def test_dht_store_fetch(kirad_small_k, kira_topo, conn_helpers, subtests):
 
     # Network appears functional
     conn_helpers.checkup_timeout(test, timeout=1)
+    # the nodes need a moment to discover their underlay neighbors; if the routing
+    # doesn't converge, the sweep fails
+    conn_helpers.converge(test)
     conn_helpers.retry_sweep(test, conn_helpers.ping_check, test_msg="ping")
     comps = dict(test.topology.connected_components())
 
@@ -25,7 +34,8 @@ def test_dht_store_fetch(kirad_small_k, kira_topo, conn_helpers, subtests):
 
         with subtests.test(msg="store", src=str(n_store), key=key, value=VALUE):
             store_res = n_store.api.store(key, VALUE)
-            assert store_res is not None, "Store failed"
+            # the API returns the error message (e.g., a timeout) instead of None
+            assert store_res in STORED, f"Store failed: {store_res}"
 
         for n_fetch in ns_fetch:
             with subtests.test(msg="fetch", src=str(n_fetch), key=key, value=VALUE):

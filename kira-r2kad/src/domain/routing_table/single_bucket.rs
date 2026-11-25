@@ -1,5 +1,3 @@
-use std::num::NonZeroU8;
-
 use rand::RngExt as _;
 use tracing::Level;
 
@@ -7,7 +5,6 @@ use crate::domain::{
     Bucket,
     Contact,
     ContactState,
-    GroupingError,
     NodeId,
     NotViaStateList,
     RoutingTable,
@@ -131,27 +128,16 @@ impl<'a, const BUCKET_SIZE: usize> RoutingTable<'a, BUCKET_SIZE> for SingleBucke
     #[tracing::instrument(
         level = Level::TRACE,
         target = "routing_table::single_bucket",
-        ret, err
+        ret
     )]
-    fn closest(
-        &self,
-        target: &NodeId,
-        n: usize,
-        shared_prefix_grouping: NonZeroU8,
-    ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError> {
-        // check for valid grouping first because we don't want unexpectedly panic inside iters
-        target.shared_prefix_len(&self.root_id, shared_prefix_grouping)?;
-
-        let mut result: Vec<_> = self
-            .bucket
-            .iter_valid_with_prefix(target, shared_prefix_grouping)
-            .collect();
+    fn closest(&self, target: &NodeId, n: usize) -> Vec<(SharedPrefix, Contact)> {
+        let mut result: Vec<_> = self.bucket.iter_valid_with_prefix(target).collect();
 
         // always strictly by XOR-metric because last bucket
         result.sort_unstable_by(sorter_xor);
         result.truncate(n); // no additional contacts
 
-        Ok(result)
+        result
     }
 
     fn iter(&self) -> impl Iterator<Item = &Contact> {
@@ -239,7 +225,7 @@ mod tests {
 
         let query_id = NodeId::with_msb(0b1110_0000);
         let results: Vec<_> = table
-            .closest(&query_id, 2, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 2)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();
@@ -296,7 +282,7 @@ mod tests {
         // Bucket 1... consists of the two closest entries 1100... and 1000...
         // but shouldn't return 1100 because it is invalid
         let results: Vec<_> = table
-            .closest(&query_id, 1, NonZeroU8::new(1).unwrap())?
+            .closest(&query_id, 1)
             .into_iter()
             .map(|(sp, contact)| (sp, *contact.id()))
             .collect();

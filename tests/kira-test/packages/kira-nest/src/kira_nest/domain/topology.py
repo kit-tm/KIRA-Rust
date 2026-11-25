@@ -228,6 +228,33 @@ class KIRATopology[T: str | int]:
     def edges(self) -> OutEdgeView:
         return self.topology.edges
 
+    def name(self, tid: T) -> str:
+        """Name of the node, also of nodes emulated on other hosts."""
+        cfg = self.topology.nodes[tid][self._CONFIG_ID]
+        assert isinstance(cfg, NodeConfig)
+        return cfg.name
+
+    def display(self, key: T | NodeID | NodeIP) -> str:
+        """Name of the node with the topology id, NodeID or NodeIP, or `???`."""
+        try:
+            return self.name(self.topology_nodes[key].tid)
+        except KeyError:
+            return "???"
+
+    def is_local(self, tid: T) -> bool:
+        """Whether the node is emulated on this host."""
+        return self.nodes.get(tid) is not None
+
+    def component_ids(self) -> dict[T, int]:
+        """Connected component of each node (also remote ones) over links up."""
+        down_edges = list((u, v) for u, v, link in self.links if link.is_down())
+        graph = nx.restricted_view(self.topology, [], down_edges)
+        return {
+            tid: comp_id
+            for comp_id, component in enumerate(nx.connected_components(graph))
+            for tid in component
+        }
+
     def connected_components(self) -> Iterator[tuple[KIRANode, int]]:
         """Computes and yields the connected components of the topology.
 
@@ -238,10 +265,10 @@ class KIRATopology[T: str | int]:
         Yields:
             tuple[KIRANode, int]: A tuple containing the `KIRANode` instance
             and its integer component identifier (ID).
-        """
 
-        down_edges = list((u, v) for u, v, link in self.links if link.is_down())
-        graph = nx.restricted_view(self.topology, [], down_edges)
-        for comp_id, component in enumerate(nx.connected_components(graph)):
-            for node in component:
-                yield self.nodes[node], comp_id
+        Nodes emulated on other hosts are left out.
+        """
+        for tid, comp_id in self.component_ids().items():
+            node = self.nodes.get(tid)
+            if node is not None:
+                yield node, comp_id

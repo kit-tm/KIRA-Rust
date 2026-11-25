@@ -53,6 +53,44 @@ pub trait UseCaseRuntime {
     /// Get the [Duration] left of a timer if one is known by the [TimerId].
     fn timer_remaining_duration(&self, timer: &TimerId) -> Option<Duration>;
 
+    /// Timeout of a request with the configured timeout `base`, adapted to the load of the node
+    /// and the network (see [LoadEstimator](crate::r2kad::load::LoadEstimator)).
+    ///
+    /// Runtimes without load estimates return `base`.
+    fn request_timeout(&self, base: Duration) -> Duration {
+        base
+    }
+
+    /// Creates a timer for waiting for the response to a request, with the
+    /// [request_timeout](Self::request_timeout) for `base`.
+    ///
+    /// The use case removes it when the response arrives. If it fires instead, the runtime
+    /// may back off the timeouts of further requests.
+    fn register_request_timer(&self, base: Duration) -> TimerId {
+        self.register_timer(self.request_timeout(base))
+    }
+
+    /// [register_request_timer](Self::register_request_timer) with a random factor like
+    /// [register_rand_timer](Self::register_rand_timer).
+    fn register_rand_request_timer(&self, base: Duration) -> TimerId {
+        self.register_rand_timer(self.request_timeout(base))
+    }
+
+    /// Records the round-trip time of a request and its response for the
+    /// [request_timeout](Self::request_timeout).
+    fn record_rtt_sample(&self, rtt: Duration) {
+        let _ = rtt;
+    }
+
+    /// [register_rand_timer](Self::register_rand_timer) for periodic work that can wait while
+    /// the node is overloaded: the duration is stretched by the
+    /// [load factor](crate::r2kad::load::LoadEstimator::load_factor).
+    ///
+    /// Not for work that detects failures or keeps state from expiring.
+    fn register_rand_deferrable_timer(&self, duration: Duration) -> TimerId {
+        self.register_rand_timer(duration)
+    }
+
     /// Get the current time.
     fn current_time(&self) -> Instant;
 
@@ -96,12 +134,13 @@ pub trait UseCaseRuntime {
             Some(next_hop) if next_hop == root_id => return self.broadcast_event(protocol_message),
             Some(next_hop) => {
                 let Some((uln_dest, _)) = uln_table.get(next_hop) else {
-                    tracing::warn!(
+                    crate::rate_limited!(|suppressed| tracing::warn!(
                         %next_hop,
                         reason = "uln_dest of next hop unknown",
                         ?protocol_message,
+                        suppressed,
                         "Dropping message"
-                    );
+                    ));
                     return;
                 };
                 (*uln_dest).into()
@@ -131,6 +170,26 @@ impl<UR: UseCaseRuntime, D: Deref<Target = UR>> UseCaseRuntime for D {
 
     fn timer_remaining_duration(&self, timer: &TimerId) -> Option<Duration> {
         self.deref().timer_remaining_duration(timer)
+    }
+
+    fn request_timeout(&self, base: Duration) -> Duration {
+        self.deref().request_timeout(base)
+    }
+
+    fn register_request_timer(&self, base: Duration) -> TimerId {
+        self.deref().register_request_timer(base)
+    }
+
+    fn register_rand_request_timer(&self, base: Duration) -> TimerId {
+        self.deref().register_rand_request_timer(base)
+    }
+
+    fn record_rtt_sample(&self, rtt: Duration) {
+        self.deref().record_rtt_sample(rtt)
+    }
+
+    fn register_rand_deferrable_timer(&self, duration: Duration) -> TimerId {
+        self.deref().register_rand_deferrable_timer(duration)
     }
 
     fn current_time(&self) -> Instant {

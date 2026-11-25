@@ -8,7 +8,10 @@ use std::{
     },
 };
 
-use tracing::instrument;
+use tracing::{
+    Level,
+    instrument,
+};
 
 use crate::{
     domain::{
@@ -100,6 +103,9 @@ pub struct PathProbingConfig {
     pub path_setup_timeout: Duration,
     /// How paths to contacts are split into path segments.
     pub segmentation: PathSegmentation,
+    /// Probe the active paths traversing or ending at a contact whose [StateSeqNr] increased,
+    /// as one of its links on these paths may have failed (see `probe_paths_via`).
+    pub probe_paths_on_ssn_increase: bool,
     /// Minimum interval between two probes of a proposed (not yet inserted) contact,
     /// unless the newly proposed path is shorter than the probed one.
     ///
@@ -122,6 +128,7 @@ impl Default for PathProbingConfig {
             path_refresh_interval: Duration::from_secs(30),
             path_setup_timeout: Duration::from_secs(2),
             segmentation: PathSegmentation::default(),
+            probe_paths_on_ssn_increase: true,
             proposed_contact_holddown: Duration::from_secs(40),
         }
     }
@@ -292,7 +299,7 @@ where
 
         Self::send_probe_message(context, path_to_probe, nonce);
 
-        let timeout_timer = context.runtime().register_timer(timeout);
+        let timeout_timer = context.runtime().register_request_timer(timeout);
         probe_timers.insert(timeout_timer, nonce);
         requests_in_flight.insert(
             nonce,
@@ -433,7 +440,7 @@ where
         let path = probe.path.clone();
         let timeout = self.request_timeout(&path) * 2;
         Self::send_probe_message(context, &path, nonce);
-        let timeout_timer = context.runtime().register_timer(timeout);
+        let timeout_timer = context.runtime().register_request_timer(timeout);
         if let PathProbingState::Running { probe_timers, .. } = &mut self.state {
             probe_timers.insert(timeout_timer, nonce);
         }
@@ -828,6 +835,8 @@ where
     type Value = ();
 
     #[instrument(
+        // the state is formatted for every event: only when tracing
+        level = Level::TRACE,
         target = "path_probing",
         "path_probing",
         skip(self, context, event),
@@ -887,6 +896,7 @@ where
                             // path (PathIds are unidirectional, so only our probes count)
                             active_path.update_last_path_refresh(Timestamp::now());
                             if let Some(rtt) = rtt {
+                                context.runtime().record_rtt_sample(rtt);
                                 active_path.record_rtt(rtt);
                             }
                         } else {
@@ -911,6 +921,7 @@ where
                             // this probe message confirms the proposed path
                             proposed_path.set_valid();
                             if let Some(rtt) = rtt {
+                                context.runtime().record_rtt_sample(rtt);
                                 proposed_path.record_rtt(rtt);
                             }
                         }
@@ -1021,7 +1032,9 @@ where
                         );
                     }
                     ContactEvent::Updated { new, old } => {
-                        if new.state_seq_nr() > old.state_seq_nr() {
+                        if self.config.probe_paths_on_ssn_increase
+                            && new.state_seq_nr() > old.state_seq_nr()
+                        {
                             self.probe_paths_via(context, new.id());
                         }
                         // in case there is a new proposed path present, probe it in case it is not a ULN

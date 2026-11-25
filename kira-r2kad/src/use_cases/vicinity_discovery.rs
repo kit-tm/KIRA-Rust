@@ -570,7 +570,9 @@ where
         );
 
         // set timeout timer
-        let timeout_timer_id = context.runtime().register_rand_timer(initial_timeout);
+        let timeout_timer_id = context
+            .runtime()
+            .register_rand_request_timer(initial_timeout);
         timer_hooks.insert(timeout_timer_id, timeout_hook);
 
         pending_reqs.insert(
@@ -676,7 +678,7 @@ where
         context.runtime().remove_timer(req_state.timer_id);
         timer_hooks.remove(&req_state.timer_id);
         let timeout = timeout.min(req_state.timeout);
-        let timeout_timer_id = context.runtime().register_rand_timer(timeout);
+        let timeout_timer_id = context.runtime().register_rand_request_timer(timeout);
         timer_hooks.insert(timeout_timer_id, TimerHook::TimeoutULNDiscReq(destination));
         req_state.timer_id = timeout_timer_id;
         req_state.timeout = timeout;
@@ -927,6 +929,7 @@ where
     /// Records the round-trip time of a request at the responding contact, if the response
     /// arrived over the contact's active path.
     fn record_rtt(context: &C, response: &ProtocolMessage, rtt: Duration) {
+        context.runtime().record_rtt_sample(rtt);
         // path from us to the responder, reversed from the traveled source route
         let path = match response.source_route() {
             Some(source_route) => {
@@ -938,10 +941,18 @@ where
             // ULNDiscRsp are sent directly
             None => Path::from(*response.source()),
         };
+        // check first without a mutable access, which copies the contact
+        let over_active_path = context
+            .routing_table()
+            .contact(response.source())
+            .and_then(Contact::path)
+            .is_some_and(|active_path| active_path.is_same_path_as(&path));
+        if !over_active_path {
+            return;
+        }
         let mut routing_table = context.routing_table_mut();
         if let Some(mut contact) = routing_table.contact_mut(response.source())
             && let Some(active_path) = contact.path_mut()
-            && active_path.is_same_path_as(&path)
         {
             active_path.record_rtt(rtt);
         }
@@ -969,12 +980,13 @@ where
         let nid = response.source();
 
         let hash_map::Entry::Occupied(entry) = pending_reqs.entry((*nid, response.kind())) else {
-            tracing::warn!(
+            crate::rate_limited!(|suppressed| tracing::warn!(
                 target: "vicinity_discovery",
                 source = %nid,
                 reason = "no_pending_req",
+                suppressed,
                 "unexpected response received",
-            );
+            ));
             return;
         };
         if let Some(perceived_nonce) = response.msg_id() {
@@ -1615,6 +1627,8 @@ where
     type Value = ();
 
     #[instrument(
+        // the state is formatted for every event: only when tracing
+        level = Level::TRACE,
         target = "vicinity_discovery",
         "vicinity_discovery",
         skip(self, context, event),
@@ -1904,7 +1918,8 @@ where
                         // register new timer with doubled timeout
                         let timeout = timeout * 2;
                         resend_req_span.record("timeout_ms", timeout.as_millis());
-                        let timeout_timer_id = context.runtime().register_rand_timer(timeout);
+                        let timeout_timer_id =
+                            context.runtime().register_rand_request_timer(timeout);
                         timer_hooks
                             .insert(timeout_timer_id, TimerHook::TimeoutULNDiscReq(destination));
 
@@ -2025,7 +2040,8 @@ where
                         // register new timeout timer
                         let timeout = timeout * 2;
                         resend_req_span.record("timeout_ms", timeout.as_millis());
-                        let timeout_timer_id = context.runtime().register_rand_timer(timeout);
+                        let timeout_timer_id =
+                            context.runtime().register_rand_request_timer(timeout);
                         timer_hooks.insert(
                             timeout_timer_id,
                             TimerHook::TimeoutQueryRouteReq(destination),

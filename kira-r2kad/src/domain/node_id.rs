@@ -130,44 +130,19 @@ impl NodeId {
         }
     }
 
-    /// Returns the shared prefix length in number of bits
-    pub fn shared_prefix_bits(&self, other: &Self) -> SharedPrefix {
-        self.shared_prefix_len(other, NonZeroU8::MIN)
-            .expect("group size of one is always valid")
-    }
-
-    /// Returns the shared prefix length in number of groups of bits that match
+    /// Returns the shared prefix (length in number of bits) of two [NodeId]s.
     ///
     /// # Notes
     ///
     /// This algorithm uses basic operations for computing the shared prefix.
     /// As this function is used every time a packet arrives optimizing it may be
     /// worth the effort.
-    pub fn shared_prefix_len(
-        &self,
-        other: &Self,
-        bits_per_group: NonZeroU8,
-    ) -> Result<SharedPrefix, GroupingError> {
-        if bits_per_group.get() > Self::BITS {
-            return Err(GroupingError::Invalid {
-                group_size: bits_per_group,
-            });
-        }
-        let bits_per_group = bits_per_group.get();
-
+    pub fn shared_prefix_len(&self, other: &Self) -> SharedPrefix {
         let xor: Self = self ^ other;
-
-        if self == other {
-            return Ok(SharedPrefix {
-                xor,
-                length: Self::BITS / bits_per_group,
-            });
-        }
-
-        Ok(SharedPrefix {
+        SharedPrefix {
             xor,
-            length: xor.leading_zeros() / bits_per_group,
-        })
+            length: xor.leading_zeros(),
+        }
     }
 
     /// Returns the bit at the index starting from LSB. Returns either 0 or 1.
@@ -420,19 +395,6 @@ impl Ord for SharedPrefix {
     }
 }
 
-/// Error occurring on calculating the shared prefix.
-///
-/// Occurs if the grouping in bits for the computation is invalid.
-#[derive(Debug, Eq, PartialEq, Display, Error)]
-pub enum GroupingError {
-    #[display(
-        "Invalid Grouping: has to be <= {}, but was {}",
-        NodeId::BITS,
-        group_size
-    )]
-    Invalid { group_size: NonZeroU8 },
-}
-
 // /// Creates a [NodeId] from a byte array. The resulting [NodeId] has the same size as the given array.
 // impl From<[u8; NodeId::SIZE]> for NodeId {
 //     fn from(inner: [u8; NodeId::SIZE]) -> Self {
@@ -664,73 +626,40 @@ mod tests {
         let zero = NodeId::ZERO;
         let one = NodeId::with_msb(1);
 
-        assert_eq!(zero.shared_prefix_bits(&one).bit_len(), 7);
+        assert_eq!(zero.shared_prefix_len(&one).bit_len(), 7);
 
         let zero = NodeId::ZERO;
         let one = NodeId::ONE;
 
-        assert_eq!(zero.shared_prefix_bits(&one).bit_len(), NodeId::BITS - 1);
+        assert_eq!(zero.shared_prefix_len(&one).bit_len(), NodeId::BITS - 1);
 
         let one = NodeId::ONE;
         let valid = NodeId::from(0x0000_0001_80FF_0000_0000_0000_0000u128);
 
-        assert_eq!(one.shared_prefix_bits(&valid).bit_len(), 31);
+        assert_eq!(one.shared_prefix_len(&valid).bit_len(), 31);
 
         let one = NodeId::ONE;
         let valid = NodeId::from(0x0000_0000_80FF_0000_0000_0000_0000u128);
 
-        assert_eq!(one.shared_prefix_bits(&valid).bit_len(), 32);
+        assert_eq!(one.shared_prefix_len(&valid).bit_len(), 32);
     }
 
     #[test]
     fn prefix_len_self() {
         assert_eq!(
-            NodeId::ZERO.shared_prefix_len(&NodeId::ZERO, NonZeroU8::MIN),
-            Ok(SharedPrefix {
+            NodeId::ZERO.shared_prefix_len(&NodeId::ZERO),
+            SharedPrefix {
                 xor: NodeId::ZERO,
                 length: NodeId::BITS,
-            })
+            }
         );
     }
 
     #[test]
     fn prefix_length_smoke_test() {
-        let zero = NodeId::ZERO;
-        let one = NodeId::ONE;
-
-        assert_eq!(
-            zero.shared_prefix_len(&one, NonZeroU8::new(1).unwrap())
-                .map(SharedPrefix::into_bit_len),
-            Ok(NodeId::BITS - 1)
-        );
-
         let first = NodeId::from(0x1234_5678_9a3f_0000_0000_0000_1101u128);
         let second = NodeId::from(0x1234_5678_9a4f_0000_0000_0000_1101u128);
-        assert_eq!(
-            first
-                .shared_prefix_len(&second, NonZeroU8::new(1).unwrap())
-                .map(SharedPrefix::into_bit_len),
-            Ok(41)
-        );
-
-        assert_eq!(
-            zero.shared_prefix_len(&one, NonZeroU8::new(2).unwrap())
-                .map(SharedPrefix::into_bit_len),
-            Ok((NodeId::BITS / 2) - 1)
-        );
-        assert_eq!(
-            zero.shared_prefix_len(&one, NonZeroU8::new(4).unwrap())
-                .map(SharedPrefix::into_bit_len),
-            Ok((NodeId::BITS / 4) - 1)
-        );
-
-        let valid = NodeId::from(0b10000000_11111111_00000000);
-
-        assert_eq!(
-            one.shared_prefix_len(&valid, NonZeroU8::new(8).unwrap())
-                .map(SharedPrefix::into_bit_len),
-            Ok(11)
-        );
+        assert_eq!(first.shared_prefix_len(&second).bit_len(), 41);
     }
 
     #[test]

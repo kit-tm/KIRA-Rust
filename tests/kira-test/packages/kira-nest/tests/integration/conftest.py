@@ -1,5 +1,6 @@
 import logging
 import os
+import random
 import shutil
 import subprocess
 import time
@@ -12,6 +13,13 @@ from kira_nest.nest.test import KIRATest
 from nest.topology import Address
 
 logger = logging.getLogger(__name__)
+
+# Sweeps check all node pairs of small topologies and random samples of larger ones, so
+# that the tests of all topologies take reasonable time.
+# Pings: all pairs of topologies up to about 20 nodes.
+PING_SWEEP_MAX_PAIRS = 500
+# Traceroutes query the forwarding state of every hop, so they are sampled earlier.
+TRACEROUTE_SWEEP_MAX_PAIRS = 200
 
 TOPOS_DIR = REPO_ROOT / "tests" / "topos"
 assert TOPOS_DIR.exists(), "kira-test topos not found"
@@ -119,10 +127,13 @@ def stop_daemons():
 
 
 class ConnectivityHelpers:
+    PING_SWEEP_MAX_PAIRS = PING_SWEEP_MAX_PAIRS
+    TRACEROUTE_SWEEP_MAX_PAIRS = TRACEROUTE_SWEEP_MAX_PAIRS
+
     def __init__(self, subtests):
         self.subtests = subtests
 
-    def retry_sweep(  # noqa: PLR0917
+    def retry_sweep(  # noqa: PLR0912, PLR0917
         self,
         test,
         check_func,
@@ -133,9 +144,14 @@ class ConnectivityHelpers:
         cool_down=1.0,
         respect_connected_components=True,
         gate=True,
+        max_pairs=PING_SWEEP_MAX_PAIRS,
     ):
         """
         Sweeps through all node pairs, retrying failing checks across multiple passes.
+
+        Topologies with more than `max_pairs` pairs of different nodes get a random
+        sample of that many pairs (reproducible with the seed of pytest-randomly), so
+        only small topologies are swept fully. `max_pairs=None` always sweeps all pairs.
         """
         if fail_msg is None:
             fail_msg = test_msg.capitalize()
@@ -153,6 +169,11 @@ class ConnectivityHelpers:
             ]
         else:
             pairs = [(src, dst) for src in node_list for dst in node_list]
+        # a node reaches itself anyway
+        pairs = [(src, dst) for src, dst in pairs if src != dst]
+        if max_pairs is not None and len(pairs) > max_pairs:
+            logger.info(f"{test_msg}: checking {max_pairs} of {len(pairs)} node pairs")
+            pairs = random.sample(pairs, max_pairs)
         pending = list(pairs)
 
         for attempt in range(max_attempts):
@@ -208,6 +229,42 @@ class ConnectivityHelpers:
 
         if gate:
             assert not failed, "All nodes have to be up"
+
+    @staticmethod
+    def converge(test, timeout=60.0, interval=0.5):
+        """Waits until every node knows its vicinity of the topology, at most `timeout`
+        seconds.
+
+        A node knows its vicinity when its vicinity graph contains all nodes and edges
+        of its vicinity in the topology (like the `check` command of nesttest). The
+        nodes need a moment after starting to discover their underlay neighbors and
+        vicinity.
+        Doesn't fail the test: the checks that follow fail if the routing doesn't
+        converge. Returns whether it converged.
+        """
+        topology = test.topology
+
+        def knows_vicinity(node):
+            topo_node = topology.topology_nodes[topology.tid(node)]
+            # a node whose API doesn't answer knows nothing
+            return (
+                next(topo_node.unknown_vicinity(node), None) is None
+                and next(topo_node.unknown_vicinity_edges(node), None) is None
+            )
+
+        deadline = time.monotonic() + timeout
+        pending = list(topology.nodes)
+        while True:
+            pending = [node for node in pending if not knows_vicinity(node)]
+            if not pending:
+                return True
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    f"{len(pending)} nodes don't know their vicinity after {timeout}s:"
+                    f" {', '.join(map(str, pending))}"
+                )
+                return False
+            time.sleep(interval)
 
     @staticmethod
     def ping_check(src, dst):

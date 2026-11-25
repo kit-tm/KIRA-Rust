@@ -63,10 +63,13 @@ use crate::{
     },
     ebpf::{
         self,
+        DropEvents,
         PathTable,
     },
     netlink::{
+        NETLINK_ROUTE,
         RouteNetlink,
+        new_connection,
         remove_routes,
     },
     tables::{
@@ -94,6 +97,8 @@ pub struct Srv6FwdTables<I> {
 
     routes: RouteNetlink,
     path_table: PathTable,
+    /// Reports of packets dropped because of an unknown PathIP, until taken.
+    drop_events: Option<DropEvents>,
     interface_id_table: HashMap<UnderlayNeighborId, InterfaceId>,
     underlay_information_provider: I,
 }
@@ -120,13 +125,27 @@ impl<I> Srv6FwdTables<I> {
         // a previous instance (e.g., after a crash) may have left its routes behind
         remove_routes(&handle_rtnetlink, &ip_prefixes).await?;
 
-        let (mut program, path_table) = ebpf::load(&ip_prefixes)?;
+        let (mut program, path_table, drop_events) = ebpf::load(&ip_prefixes)?;
         log::debug!(target: "srv6_fwd_table", "Loaded eBPF program successfully");
 
         let routes = RouteNetlink::new(handle_rtnetlink, ip_prefixes);
+
+        // A netlink connection of its own for attaching the NodeIP to interfaces: the kernel
+        // handles the requests of a socket in order, and adding an address may take long while
+        // many interfaces come up. Meanwhile, the entries of the forwarding tables were held
+        // back, and packets of neighbors that already learned about new paths were dropped.
+        let (attach_routes, attach_connection) = match new_connection(NETLINK_ROUTE) {
+            Ok((connection, handle, _)) => {
+                (RouteNetlink::new(handle, ip_prefixes), Some(connection))
+            }
+            Err(e) => {
+                log::warn!(target: "srv6_fwd_table", "No netlink connection of its own for attaching NodeIPs to interfaces: {e}");
+                (routes.clone(), None)
+            }
+        };
         let attaching = {
-            let routes = routes.clone();
-            async move {
+            let routes = attach_routes;
+            let attach = async move {
                 while let Some(update) = underlay_updates.next().await {
                     if let UnderlayNeighborUpdate::InterfaceUp(id) = update {
                         if let Err(e) = routes.attach_node_id_ip(&root_id, id).await {
@@ -140,6 +159,14 @@ impl<I> Srv6FwdTables<I> {
                     // this future is dropped
                     let _ = prepared_updates.unbounded_send(update);
                 }
+            };
+            async move {
+                match attach_connection {
+                    Some(connection) => {
+                        futures::future::select(Box::pin(connection), Box::pin(attach)).await;
+                    }
+                    None => attach.await,
+                }
             }
         };
 
@@ -147,6 +174,7 @@ impl<I> Srv6FwdTables<I> {
             Self {
                 routes,
                 path_table,
+                drop_events: Some(drop_events),
                 node_id_table: Default::default(),
                 path_id_table: Default::default(),
                 interface_id_table: Default::default(),
@@ -154,6 +182,14 @@ impl<I> Srv6FwdTables<I> {
             },
             attaching,
         ))
+    }
+}
+
+impl<I> Srv6FwdTables<I> {
+    /// The reports of the packets the eBPF program dropped because of an unknown PathIP,
+    /// see [DropEvents::listen]. Returns `None` after the first call.
+    pub fn take_drop_events(&mut self) -> Option<DropEvents> {
+        self.drop_events.take()
     }
 }
 

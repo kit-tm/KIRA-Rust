@@ -194,27 +194,37 @@ where
                         entry.to_string(),
                     ));
                 }
+                // If the prefix length is != 128, a subnet route is configured.
+                // This means that an already existing and configured path to a contact is used.
+                // The via route to this contact is already configured.
+                // To avoid unnecessary reconfiguration we don't configure the via route again.
+                //
+                // The next hop is resolved before any route is changed: it may have vanished
+                // meanwhile, and a route installed without being recorded in the table
+                // wouldn't be removed later (a black hole for the destination).
+                let via = if prefix_length == 128 {
+                    Some(
+                        self.underlay_information_provider
+                            .get_information(next_hop)
+                            .await
+                            .map_err(|e| {
+                                error::FwdTableError::UnderlayInformationProviderErr(Box::new(e))
+                            })?
+                            .ok_or_else(|| {
+                                error::FwdTableError::UnknownUnderlayNeighborId(*next_hop)
+                            })?,
+                    )
+                } else {
+                    None
+                };
+
                 log::trace!(target: "native_fwd_table", "Trying to replace encap route {destination:?} dst {out_path_id:?}");
                 self.netlink
                     .replace_encap_route(destination, out_path_id)
                     .await?;
 
-                // If the prefix length is != 128, a subnet route is configured.
-                // This means that an already existing and configured path to a contact is used.
-                // The via route to this contact is already configured.
-                // To avoid unnecessary reconfiguration we don't configure the via route again.
-                if prefix_length == 128 {
+                if let Some(next_hop) = via {
                     log::trace!(target: "native_fwd_table", "Trying to replace route to {:?} via {:?}", out_path_id, next_hop);
-                    let next_hop = self
-                        .underlay_information_provider
-                        .get_information(next_hop)
-                        .await
-                        .map_err(|e| {
-                            error::FwdTableError::UnderlayInformationProviderErr(Box::new(e))
-                        })?
-                        .ok_or_else(|| {
-                            error::FwdTableError::UnknownUnderlayNeighborId(*next_hop)
-                        })?;
                     self.netlink
                         .replace_via_route(out_path_id, &next_hop)
                         .await

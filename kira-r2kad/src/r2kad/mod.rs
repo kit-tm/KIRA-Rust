@@ -6,7 +6,10 @@ use std::{
     marker::PhantomData,
     ops::Deref,
     sync::Arc,
-    time::Instant,
+    time::{
+        Duration,
+        Instant,
+    },
 };
 
 use derive_more::derive::{
@@ -20,8 +23,10 @@ use tracing::{
     instrument,
 };
 
+pub mod load;
 mod pipeline;
 pub(crate) mod runtime;
+
 use pipeline::R2KadPipeline;
 use runtime::R2KadRuntime;
 
@@ -36,6 +41,7 @@ use crate::{
         InsertionStrategy,
         NodeId,
         PathSegmentation,
+        ProtocolMessageKind,
         RoutingTable,
         Timestamp,
         ULNState,
@@ -75,6 +81,24 @@ use crate::{
         VicinityEvent,
     },
 };
+
+/// Queueing delay of received messages from which a warning is logged.
+const LAG_WARNING: Duration = Duration::from_millis(200);
+
+/// Whether a received message may be dropped when it waited too long to be processed.
+///
+/// Lookups only: their senders retry them, and they change no state. Responses (which end
+/// the timeouts of requests), probes (whose loss means a failed path) and requests changing
+/// state are always processed.
+fn is_sheddable(kind: ProtocolMessageKind) -> bool {
+    matches!(
+        kind,
+        ProtocolMessageKind::FindNodeReq
+            | ProtocolMessageKind::QueryRouteReq
+            | ProtocolMessageKind::ULNDiscReq
+            | ProtocolMessageKind::FetchReq
+    )
+}
 
 pub struct Builder<C, const BUCKET_SIZE: usize> {
     context: PhantomData<C>,
@@ -347,11 +371,58 @@ where
     /// Process received [Input] event.
     #[instrument(level = Level::DEBUG, target = "r2kad", skip_all, fields(reason = ?received_event))]
     pub fn handle_input(&mut self, received_event: Input, now: Instant) -> Result<()> {
-        let _clock = Timestamp::set_clock(now);
-        // just to be safe we check for due timers
-        self.handle_timeout(now)?;
+        self.handle_received(received_event, now, now)
+    }
 
+    /// Handles an input received at `received_at` (e.g., a protocol message that waited in
+    /// the receive buffer of a socket) at `now`.
+    ///
+    /// Timers due before `received_at` fire before the input, the others after it: a response
+    /// that arrived in time cancels the timeout of its request, also when the node processes
+    /// it late. The time the input waited is the queueing delay that lengthens the timeouts of
+    /// requests (see [load]).
+    pub fn handle_received(
+        &mut self,
+        received_event: Input,
+        received_at: Instant,
+        now: Instant,
+    ) -> Result<()> {
+        // within the time already handled and now
+        let received_at = received_at
+            .max(self.context.runtime().current_time())
+            .min(now);
+        self.handle_timeout(received_at)?;
+
+        let runtime = self.context.runtime();
+        runtime.record_queueing_delay(now - received_at);
+        let lag = runtime.queueing_delay();
+        if lag > LAG_WARNING {
+            crate::rate_limited!(Duration::from_secs(10), |suppressed| tracing::warn!(
+                target: "r2kad",
+                ?lag,
+                suppressed,
+                "Processing lags behind: received messages wait before they are handled"
+            ));
+        }
+
+        let _clock = Timestamp::set_clock(now);
+        self.context.runtime().set_current_time(now);
         debug_assert_eq!(self.context.runtime().next_event(), None);
+
+        if let Input::Message(message, _) = &received_event
+            && is_sheddable(message.kind())
+            && now - received_at > self.context.runtime().stale_request_age()
+        {
+            let kind = message.kind();
+            crate::rate_limited!(Duration::from_secs(10), |suppressed| tracing::info!(
+                target: "r2kad",
+                ?kind,
+                waited = ?(now - received_at),
+                suppressed,
+                "Dropping a lookup whose sender has given up on it"
+            ));
+            return self.handle_timeout(now);
+        }
 
         // handle input event as UseCaseEvent
         self.pipeline
@@ -362,7 +433,8 @@ where
             self.pipeline.process_event(&self.context, event)?;
         }
 
-        Ok(())
+        // timers that became due while the input waited
+        self.handle_timeout(now)
     }
 
     /// Handle a timeout.

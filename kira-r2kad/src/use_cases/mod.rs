@@ -67,6 +67,8 @@ pub enum UseCaseEvent {
     InjectMessage(Option<Nonce>, InjectionMessageData),
     UnderlayUpdate(UnderlayNeighborUpdate),
     API(ApiEvent),
+    /// The forwarding tier dropped a data packet with an obsolete path.
+    DroppedPacket(crate::domain::protocol_event::DroppedPacket),
 }
 
 /// Protocol message data to inject into the network.

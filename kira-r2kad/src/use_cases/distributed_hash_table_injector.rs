@@ -313,7 +313,7 @@ where
         );
 
         // set timeout timer
-        let timeout_timer_id = context.runtime().register_rand_timer(timeout);
+        let timeout_timer_id = context.runtime().register_rand_request_timer(timeout);
         timer_hooks.insert(timeout_timer_id, timeout_hook);
     }
 
@@ -331,7 +331,7 @@ where
 
         let timeout_timer_id = context
             .runtime()
-            .register_rand_timer(self.config.periodic_restore);
+            .register_rand_deferrable_timer(self.config.periodic_restore);
         timer_hooks.insert(timeout_timer_id, TimerHook::PeriodicRestore(payload));
     }
 }
@@ -618,6 +618,8 @@ where
     type Value = ();
 
     #[instrument(
+        // the state is formatted for every event: only when tracing
+        level = Level::TRACE,
         target = "distributed_hash_table",
         "distributed_hash_table",
         skip(self, context, event),

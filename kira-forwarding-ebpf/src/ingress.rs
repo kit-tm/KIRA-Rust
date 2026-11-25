@@ -1,16 +1,27 @@
 use aya_ebpf::{
     bindings::{
         TC_ACT_OK,
+        TC_ACT_SHOT,
         bpf_adj_room_mode::BPF_ADJ_ROOM_MAC,
     },
+    helpers::bpf_ktime_get_ns,
     macros::{
         classifier,
         map,
     },
-    maps::HashMap,
+    maps::{
+        HashMap,
+        LruHashMap,
+        RingBuf,
+    },
     programs::TcContext,
 };
 use kira_forwarding_common::{
+    DROP_EVENTS_SIZE,
+    DROP_REPORT_INTERVAL_NS,
+    DROP_REPORTS_SIZE,
+    DropReportKey,
+    DroppedPacketEvent,
     PATH_TABLE_SIZE,
     PathAction,
     PathIp,
@@ -19,6 +30,15 @@ use kira_forwarding_common::{
 /// Incoming PathIPs and what to do with their packets.
 #[map]
 static PATH_TABLE: HashMap<PathIp, PathAction> = HashMap::with_max_entries(PATH_TABLE_SIZE, 0);
+
+/// Packets dropped because of an unknown PathIP, read by the routing tier.
+#[map]
+static DROP_EVENTS: RingBuf = RingBuf::with_byte_size(DROP_EVENTS_SIZE, 0);
+
+/// Time of the last report per source and PathIP, for rate limiting the reports.
+#[map]
+static DROP_REPORTS: LruHashMap<DropReportKey, u64> =
+    LruHashMap::with_max_entries(DROP_REPORTS_SIZE, 0);
 
 /// The 16 bit prefix of all PathIPs in network byte order, set when the program is loaded.
 #[unsafe(no_mangle)]
@@ -32,6 +52,10 @@ const ETH_P_IPV6: [u8; 2] = [0x86, 0xdd];
 const IPV6_HDR_LEN: usize = 40;
 /// Offset of the Next Header field in the IPv6 header.
 const IPV6_NEXT_HDR_OFFSET: usize = 6;
+/// Offset of the Hop Limit field in the IPv6 header.
+const IPV6_HOP_LIMIT_OFFSET: usize = 7;
+/// Offset of the source address in the IPv6 header.
+const IPV6_SRC_OFFSET: usize = 8;
 /// Offset of the destination address in the IPv6 header.
 const IPV6_DST_OFFSET: usize = 24;
 
@@ -93,8 +117,10 @@ fn try_kira_ingress(ctx: &TcContext) -> Result<i32, i64> {
         // SAFETY: the value is copied before the map can be changed by this program,
         // which never writes to the map.
         let Some(action) = (unsafe { PATH_TABLE.get(&dst) }).copied() else {
-            // unknown PathIP: the network stack reports the missing route
-            return Ok(TC_ACT_OK as i32);
+            // unknown PathIP, e.g., the link to the next hop failed: the routing tier
+            // notifies the node that used the obsolete path
+            report_dropped(ctx, dst);
+            return Ok(TC_ACT_SHOT as i32);
         };
 
         if action.kind == PathAction::SWAP {
@@ -146,11 +172,68 @@ fn try_kira_ingress(ctx: &TcContext) -> Result<i32, i64> {
     Ok(TC_ACT_OK as i32)
 }
 
+/// Reports a packet with the unknown PathIP `path_ip` to the routing tier, at most once per
+/// [DROP_REPORT_INTERVAL_NS] for the same source and PathIP.
+#[inline(always)]
+fn report_dropped(ctx: &TcContext, path_ip: PathIp) {
+    let Ok(source) = ctx.load::<[u8; 16]>(ETH_HDR_LEN + IPV6_SRC_OFFSET) else {
+        return;
+    };
+    let key = DropReportKey { source, path_ip };
+    // SAFETY: bpf_ktime_get_ns has no preconditions.
+    let now = unsafe { bpf_ktime_get_ns() };
+    // SAFETY: the value is copied right away.
+    if let Some(last) = unsafe { DROP_REPORTS.get(&key) }.copied()
+        && now.wrapping_sub(last) < DROP_REPORT_INTERVAL_NS
+    {
+        return;
+    }
+    let _ = DROP_REPORTS.insert(&key, &now, 0);
+
+    let event = DroppedPacketEvent {
+        source,
+        path_ip,
+        destination: inner_destination(ctx).unwrap_or([0; 16]),
+    };
+    // a full ring buffer loses the report
+    let _ = DROP_EVENTS.output(&event, 0);
+}
+
+/// Destination address of the encapsulated IPv6 packet, behind the outer IPv6 header and an
+/// optional Segment Routing Header.
+#[inline(always)]
+fn inner_destination(ctx: &TcContext) -> Option<[u8; 16]> {
+    let next_header: u8 = ctx.load(ETH_HDR_LEN + IPV6_NEXT_HDR_OFFSET).ok()?;
+    let inner_offset = if next_header == IPPROTO_IPV6 {
+        ETH_HDR_LEN + IPV6_HDR_LEN
+    } else if next_header == IPPROTO_ROUTING {
+        let srh: SrhFixed = ctx.load(ETH_HDR_LEN + IPV6_HDR_LEN).ok()?;
+        if srh.next_header != IPPROTO_IPV6 {
+            return None;
+        }
+        ETH_HDR_LEN + IPV6_HDR_LEN + SRH_FIXED_LEN + (srh.hdr_ext_len as usize) * 8
+    } else {
+        return None;
+    };
+    ctx.load(inner_offset + IPV6_DST_OFFSET).ok()
+}
+
 /// Removes the outer headers of the given length following the Ethernet header.
 ///
-/// The inner IPv6 packet is handled by the network stack afterwards.
+/// The inner IPv6 packet is handled by the network stack afterwards. It takes over the
+/// outer hop limit if that is lower: the kernel encapsulates the inner packet for the next
+/// path without decrementing its hop limit and copies it into the new outer header, so the
+/// hops on the paths have to be counted in the inner header. Otherwise a packet caught in
+/// a transient routing loop would circle forever.
 #[inline(always)]
 fn decapsulate(ctx: &TcContext, outer_len: usize) -> Result<i32, i64> {
+    let outer_hop_limit: u8 = ctx.load(ETH_HDR_LEN + IPV6_HOP_LIMIT_OFFSET)?;
+    let inner_hop_limit_offset = ETH_HDR_LEN + outer_len + IPV6_HOP_LIMIT_OFFSET;
+    let inner_hop_limit: u8 = ctx.load(inner_hop_limit_offset)?;
+    if outer_hop_limit < inner_hop_limit {
+        // the hop limit isn't covered by the checksums of the transport protocols
+        ctx.store(inner_hop_limit_offset, &outer_hop_limit, 0)?;
+    }
     ctx.adjust_room(-(outer_len as i32), BPF_ADJ_ROOM_MAC, 0)?;
     Ok(TC_ACT_OK as i32)
 }

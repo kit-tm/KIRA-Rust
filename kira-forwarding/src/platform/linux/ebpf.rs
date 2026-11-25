@@ -3,6 +3,7 @@
 //! The program (`kira-forwarding-ebpf`) is built by the build script of this crate and
 //! embedded into the binary. It is attached to the ingress of the underlay interfaces and
 //! handles the packets whose destination is a PathIP according to the [PathTable].
+//! Packets with an unknown PathIP are dropped and reported through [DropEvents].
 
 use std::{
     collections::HashSet,
@@ -17,6 +18,7 @@ use aya::{
         HashMap,
         MapData,
         MapError,
+        RingBuf,
     },
     programs::{
         ProgramError,
@@ -31,11 +33,21 @@ use derive_more::derive::{
     From,
 };
 use kira_forwarding_common::{
+    DROP_EVENTS,
+    DroppedPacketEvent,
     INGRESS_PROGRAM,
     PATH_IP_PREFIX,
     PATH_TABLE,
     PathAction,
     PathIp,
+};
+use kira_r2kad::domain::protocol_event::DroppedPacket;
+use tokio::{
+    io::unix::AsyncFd,
+    sync::mpsc::{
+        Sender,
+        error::TrySendError,
+    },
 };
 
 use crate::domain::{
@@ -74,9 +86,9 @@ pub type Result<T> = std::result::Result<T, ForwardingEbpfError>;
 /// Loads the eBPF program for PathIPs with the prefix given by `ip_prefixes`.
 ///
 /// Returns the program, which has to be [attached](IngressProgram::attach) to the underlay
-/// interfaces, and the table of the PathIPs it handles.
+/// interfaces, the table of the PathIPs it handles and the reports of the packets it dropped.
 /// The program is detached from all interfaces once the [IngressProgram] is dropped.
-pub fn load(ip_prefixes: &IpPrefixes) -> Result<(IngressProgram, PathTable)> {
+pub fn load(ip_prefixes: &IpPrefixes) -> Result<(IngressProgram, PathTable, DropEvents)> {
     let path_ip_prefix = ip_prefixes.path_ip_prefix().bits().to_be_bytes();
     let mut ebpf = EbpfLoader::new()
         .override_global(PATH_IP_PREFIX, &path_ip_prefix, true)
@@ -93,12 +105,18 @@ pub fn load(ip_prefixes: &IpPrefixes) -> Result<(IngressProgram, PathTable)> {
         .ok_or(ForwardingEbpfError::Missing(PATH_TABLE))?;
     let map = HashMap::try_from(map)?;
 
+    let events = ebpf
+        .take_map(DROP_EVENTS)
+        .ok_or(ForwardingEbpfError::Missing(DROP_EVENTS))?;
+    let events = RingBuf::try_from(events)?;
+
     Ok((
         IngressProgram {
             ebpf,
             attached: HashSet::new(),
         },
         PathTable { map },
+        DropEvents { events },
     ))
 }
 
@@ -175,5 +193,126 @@ impl PathTable {
         }
         log::debug!(target: "srv6_fwd_table::ebpf", "path table entry removed: {in_path_ip}");
         Ok(())
+    }
+}
+
+/// Reports of the packets the [IngressProgram] dropped because of an unknown PathIP.
+pub struct DropEvents {
+    events: RingBuf<MapData>,
+}
+
+impl std::fmt::Debug for DropEvents {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DropEvents").finish_non_exhaustive()
+    }
+}
+
+impl DropEvents {
+    /// Receives the reports of dropped packets and sends them to `dropped` until the channel
+    /// is closed.
+    ///
+    /// Reports are discarded while the channel is full: the routing tier only needs to learn
+    /// about obsolete paths, not about every packet (the eBPF program also limits the reports
+    /// per source and PathIP).
+    pub async fn listen(
+        self,
+        ip_prefixes: IpPrefixes,
+        dropped: Sender<DroppedPacket>,
+    ) -> std::io::Result<()> {
+        // The ring buffer owns its file descriptor and is owned by the AsyncFd, so the
+        // descriptor can't be closed while registered (the I/O safety issue of `new`).
+        // `AsyncFd::register` would need unsafe code, which this crate forbids.
+        #[allow(deprecated)]
+        let mut events = AsyncFd::new(self.events)?;
+        loop {
+            let mut guard = tokio::select! {
+                guard = events.readable_mut() => guard?,
+                () = dropped.closed() => return Ok(()),
+            };
+            let ring = guard.get_inner_mut();
+            while let Some(item) = ring.next() {
+                let Some(packet) = parse_event(&item, &ip_prefixes) else {
+                    continue;
+                };
+                log::debug!(target: "srv6_fwd_table::ebpf", "dropped packet with unknown PathIP {}", packet.path_ip);
+                match dropped.try_send(packet) {
+                    Ok(()) | Err(TrySendError::Full(_)) => {}
+                    Err(TrySendError::Closed(_)) => return Ok(()),
+                }
+            }
+            guard.clear_ready();
+        }
+    }
+}
+
+/// Converts a [DroppedPacketEvent] of the eBPF program.
+///
+/// Returns `None` if the event is malformed or the packet wasn't encapsulated by a KIRA node.
+fn parse_event(bytes: &[u8], ip_prefixes: &IpPrefixes) -> Option<DroppedPacket> {
+    const ADDR: usize = 16;
+    let field = |index: usize| -> Option<[u8; ADDR]> {
+        bytes.get(index * ADDR..(index + 1) * ADDR)?.try_into().ok()
+    };
+    // the fields of DroppedPacketEvent in their order (repr(C), byte arrays only)
+    let event = DroppedPacketEvent {
+        source: field(0)?,
+        path_ip: field(1)?,
+        destination: field(2)?,
+    };
+    let encapsulator = ip_prefixes.node_id(&Ipv6Addr::from(event.source))?;
+    let path_ip = Ipv6Addr::from(event.path_ip);
+    if !ip_prefixes.is_path_ip(&path_ip) {
+        return None;
+    }
+    let destination = ip_prefixes.node_id(&Ipv6Addr::from(event.destination));
+    Some(DroppedPacket {
+        encapsulator,
+        path_ip,
+        destination,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use kira_r2kad::domain::{
+        NodeId,
+        PathId,
+    };
+
+    use super::*;
+
+    #[test]
+    fn parses_dropped_packet_events() {
+        let ip_prefixes = IpPrefixes::default();
+        let encapsulator = NodeId::with_msb(3);
+        let destination = NodeId::with_msb(5);
+        let path_ip = ip_prefixes.path_ip(&PathId::from_shake256(&[NodeId::with_msb(4)]));
+
+        let mut bytes = Vec::new();
+        bytes.extend(ip_prefixes.node_ip(&encapsulator).octets());
+        bytes.extend(path_ip.octets());
+        bytes.extend(ip_prefixes.node_ip(&destination).octets());
+        assert_eq!(bytes.len(), size_of::<DroppedPacketEvent>());
+
+        assert_eq!(
+            parse_event(&bytes, &ip_prefixes),
+            Some(DroppedPacket {
+                encapsulator,
+                path_ip,
+                destination: Some(destination),
+            })
+        );
+
+        // unknown inner destination
+        bytes[32..].fill(0);
+        assert_eq!(
+            parse_event(&bytes, &ip_prefixes).map(|packet| packet.destination),
+            Some(None)
+        );
+        // truncated
+        assert_eq!(parse_event(&bytes[..40], &ip_prefixes), None);
+        // no PathIP
+        bytes[16..32].copy_from_slice(&ip_prefixes.node_ip(&destination).octets());
+        assert_eq!(parse_event(&bytes, &ip_prefixes), None);
     }
 }

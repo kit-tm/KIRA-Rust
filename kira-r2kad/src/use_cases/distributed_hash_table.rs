@@ -7,7 +7,6 @@ use std::{
     fmt::Debug,
     marker::PhantomData,
     num::{
-        NonZeroU8,
         NonZeroU64,
         NonZeroUsize,
     },
@@ -25,7 +24,6 @@ use crate::{
         Age,
         Contact,
         ContactState,
-        GroupingError,
         NodeId,
         Nonce,
         Path,
@@ -126,8 +124,6 @@ pub struct DistributedHashTableConfig {
 
     /// TODO: DOCUMENT
     pub republish_suppression_window: Duration,
-
-    pub shared_prefix_bits_grouping: NonZeroU8,
 }
 
 impl Default for DistributedHashTableConfig {
@@ -143,8 +139,6 @@ impl Default for DistributedHashTableConfig {
     ///     DEFAULT_KEY_VALUE_TIMEOUT
     /// };
     /// use kira_r2kad::domain::dht::{DEFAULT_TIMEOUT, RedundancyFactor};
-    /// use std::num::NonZeroU8;
-    ///
     ///
     /// let config = DistributedHashTableConfig::default();
     ///
@@ -152,7 +146,6 @@ impl Default for DistributedHashTableConfig {
     /// assert_eq!(config.collect_interval, DEFAULT_COLLECT_INTERVAL);
     /// assert_eq!(config.key_value_timeout, DEFAULT_KEY_VALUE_TIMEOUT);
     /// assert_eq!(config.republish_suppression_window, DEFAULT_REPUBLISH_SUPPRESSION_WINDOW);
-    /// assert_eq!(config.shared_prefix_bits_grouping, NonZeroU8::MIN);
     /// assert_eq!(config.redundancy_factor, RedundancyFactor::default());
     /// ```
     fn default() -> Self {
@@ -161,7 +154,6 @@ impl Default for DistributedHashTableConfig {
             collect_interval: DEFAULT_COLLECT_INTERVAL,
             key_value_timeout: DEFAULT_KEY_VALUE_TIMEOUT,
             republish_suppression_window: DEFAULT_REPUBLISH_SUPPRESSION_WINDOW,
-            shared_prefix_bits_grouping: NonZeroU8::MIN,
             redundancy_factor: RedundancyFactor::default(),
         }
     }
@@ -254,20 +246,13 @@ impl<C, H: Default, const BUCKET_SIZE: usize> DistributedHashTable<C, H, BUCKET_
     /// # Arguments
     ///
     /// - `config` - The configuration object for the [DistributedHashTable].
-    pub fn new(config: DistributedHashTableConfig) -> Result<Self, GroupingError> {
-        // TODO: Avoid errors by creating SharedPrefixGrouping newtype that enforces invariant upon creation
-        if config.shared_prefix_bits_grouping.get() > NodeId::BITS {
-            return Err(GroupingError::Invalid {
-                group_size: config.shared_prefix_bits_grouping,
-            });
-        };
-
-        Ok(Self {
+    pub fn new(config: DistributedHashTableConfig) -> Self {
+        Self {
             _c: PhantomData,
             state: DHTState::default(),
             config,
             hash_table: H::default(),
-        })
+        }
     }
 }
 
@@ -275,7 +260,6 @@ impl<C, H: Default, const BUCKET_SIZE: usize> Default for DistributedHashTable<C
     /// Constructs a new [DistributedHashTable] instance with the default configuration.
     fn default() -> Self {
         Self::new(DistributedHashTableConfig::default())
-            .expect("Valid grouping with default config")
     }
 }
 
@@ -328,7 +312,7 @@ where
         );
 
         // set timeout timer
-        let timeout_timer_id = context.runtime().register_rand_timer(timeout);
+        let timeout_timer_id = context.runtime().register_rand_request_timer(timeout);
         timer_hooks.insert(timeout_timer_id, timeout_hook);
     }
 
@@ -540,11 +524,7 @@ where
         }
 
         // route to next overlay hop
-        match context
-            .routing_table()
-            .next_hop(destination, self.config.shared_prefix_bits_grouping)
-            .expect("grouping has to be checked on initialization")
-        {
+        match context.routing_table().next_hop(destination) {
             Some(next_overlay_hop) => {
                 assert_eq!(
                     next_overlay_hop.state(),
@@ -650,11 +630,7 @@ where
         }
 
         // route to next overlay hop (ideally this results in key-based routing)
-        match context
-            .routing_table()
-            .next_hop(destination, self.config.shared_prefix_bits_grouping)
-            .expect("grouping has to be checked on initialization")
-        {
+        match context.routing_table().next_hop(destination) {
             Some(next_overlay_hop) => {
                 assert_eq!(
                     next_overlay_hop.state(),
@@ -749,14 +725,8 @@ where
         let now = context.runtime().current_time();
 
         for (key, values) in self.hash_table.fetch_all() {
-            let contact_prefix = contact
-                .id()
-                .shared_prefix_len(key, self.config.shared_prefix_bits_grouping)
-                .expect("grouping has to be checked on initialization");
-            let root_prefix = context
-                .root_id()
-                .shared_prefix_len(key, self.config.shared_prefix_bits_grouping)
-                .expect("grouping has to be checked on initialization");
+            let contact_prefix = contact.id().shared_prefix_len(key);
+            let root_prefix = context.root_id().shared_prefix_len(key);
 
             // FIXME: Don't republish to closer node if key-value pair is only kept
             // at the node for redundancy <=> node is not closest to key
@@ -965,6 +935,8 @@ where
     type Value = ();
 
     #[instrument(
+        // the state is formatted for every event: only when tracing
+        level = Level::TRACE,
         target = "distributed_hash_table",
         "distributed_hash_table",
         skip(self, context, event),
@@ -1271,7 +1243,7 @@ mod tests {
             collect_interval: Duration::from_secs(1),
             ..DistributedHashTableConfig::default()
         };
-        let mut dht = DistributedHashTable::<_, SingleValueHashTable, 20>::new(config).unwrap();
+        let mut dht = DistributedHashTable::<_, SingleValueHashTable, 20>::new(config);
         dht.start(&sync_context).unwrap();
 
         let key = NodeId::with_lsb(2);

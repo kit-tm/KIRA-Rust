@@ -17,7 +17,10 @@ use tracing::{
 use crate::{
     domain::{
         Hasher,
+        Link,
         NodeId,
+        Path,
+        PathId,
         RoutingTable,
         ULNState,
         UnderlayNeighborId,
@@ -72,6 +75,9 @@ pub struct PrecomputePathIds<C, const BUCKET_SIZE: usize> {
     state: PrecomputeState,
     config: PrecomputePathIdsConfig,
     old_entries: HashSet<PathIdEntry>,
+    /// Paths of the precomputed entries by incoming PathId, to name the failed link of a
+    /// path that disappeared from the vicinity
+    old_paths: HashMap<PathId, Path>,
 }
 
 impl<C, const BUCKET_SIZE: usize> PrecomputePathIds<C, BUCKET_SIZE> {
@@ -81,6 +87,7 @@ impl<C, const BUCKET_SIZE: usize> PrecomputePathIds<C, BUCKET_SIZE> {
             state: PrecomputeState::default(),
             config,
             old_entries: HashSet::new(),
+            old_paths: HashMap::new(),
         }
     }
 }
@@ -109,8 +116,9 @@ where
         &self,
         context: &C,
         graph: &C::VicinityGraph,
-    ) -> HashSet<PathIdEntry> {
+    ) -> (HashSet<PathIdEntry>, HashMap<PathId, Path>) {
         let mut entries = HashSet::new();
+        let mut paths = HashMap::new();
         for in_path in graph.vicinity_paths() {
             debug_assert!(
                 in_path.size() <= VICINITY_RADIUS,
@@ -132,14 +140,24 @@ where
                 continue;
             };
 
+            let in_path_id = self.config.hasher.hash(&in_path);
             let entry = PathIdEntry::Forward(PathIdForwardingEntry {
-                in_path_id: self.config.hasher.hash(&in_path),
+                in_path_id: in_path_id.clone(),
                 out_path_id: self.config.hasher.hash(&out_path),
                 next_hop: ulnid,
             });
             entries.insert(entry);
+            paths.insert(in_path_id, in_path);
         }
-        entries
+        (entries, paths)
+    }
+
+    /// Returns the first link of the path that is missing in the vicinity graph.
+    fn failed_link(path: &Path, graph: &C::VicinityGraph) -> Option<Link> {
+        let ids = path.as_ref();
+        ids.iter().zip(ids.iter().skip(1)).find_map(|(a, b)| {
+            (!graph.vicinity(a).any(|neighbor| &neighbor == b)).then(|| Link::new(*a, *b))
+        })
     }
 
     #[instrument(
@@ -148,11 +166,27 @@ where
         skip_all,
     )]
     fn precompute_paths_and_ids(&mut self, context: &C) {
-        let graph_entries = self.gen_entries_from_graph(context, &context.vicinity_graph());
+        let (graph_entries, graph_paths) =
+            self.gen_entries_from_graph(context, &context.vicinity_graph());
         let new_entries = graph_entries.difference(&self.old_entries);
         let deleted_entries = self.old_entries.difference(&graph_entries);
 
         tracing::debug!(target: "precompute_paths_and_path_ids", ?new_entries, ?deleted_entries, "changes of paths in the vicinity");
+        // nodes still using a deleted path are told the failed link (see FailureHandling)
+        {
+            let graph = context.vicinity_graph();
+            let mut fwd_state = context.fwd_state_mut();
+            for deleted_entry in deleted_entries.clone() {
+                let in_path_id = deleted_entry.in_path_id();
+                if let Some(failed_link) = self
+                    .old_paths
+                    .get(in_path_id)
+                    .and_then(|path| Self::failed_link(path, &graph))
+                {
+                    fwd_state.record_lost_path(in_path_id.clone(), failed_link);
+                }
+            }
+        }
         // The entries may also be required by local contacts or other nodes,
         // so the shared forwarding state decides on the actual changes.
         for deleted_entry in deleted_entries {
@@ -171,6 +205,7 @@ where
         }
 
         self.old_entries = graph_entries;
+        self.old_paths = graph_paths;
         context.vicinity_graph_mut().vicinity_processed();
     }
 
@@ -209,6 +244,8 @@ where
     type Value = ();
 
     #[instrument(
+        // the state is formatted for every event: only when tracing
+        level = Level::TRACE,
         target = "precompute_paths_and_path_ids",
         "precompute_paths_and_path_ids",
         skip(self, context, event),
@@ -475,5 +512,39 @@ mod tests {
             UseCaseEvent::Vicinity(VicinityEvent::Changed),
         );
         assert_eq!(fwd_table_updates(&ctx), (entries_via_b(), HashSet::new()));
+    }
+
+    #[test]
+    fn failed_link_of_vanished_path_is_recorded() {
+        let _clock = crate::tests::TestClock::new();
+        let (mut pp, ctx) = setup();
+        handle(
+            &mut pp,
+            &ctx,
+            UseCaseEvent::Vicinity(VicinityEvent::Changed),
+        );
+        let _ = fwd_table_updates(&ctx);
+
+        // the link of the underlay neighbor b to x fails
+        {
+            let mut vg = ctx.vicinity_graph_mut();
+            assert!(vg.remove_edge(&b(), &x()));
+            let _ = vg.retain_vicinity().count();
+        }
+        handle(
+            &mut pp,
+            &ctx,
+            UseCaseEvent::Vicinity(VicinityEvent::Changed),
+        );
+
+        let removed = path_id(&[root(), b(), x()]);
+        assert_eq!(fwd_table_updates(&ctx).1, HashSet::from([removed.clone()]));
+        let path_ip = crate::domain::IpPrefixes::default().path_ip(&removed);
+        assert_eq!(
+            ctx.fwd_state().lost_link(&path_ip),
+            Some(&Link::new(b(), x()))
+        );
+        let kept = crate::domain::IpPrefixes::default().path_ip(&path_id(&[root(), b()]));
+        assert_eq!(ctx.fwd_state().lost_link(&kept), None);
     }
 }

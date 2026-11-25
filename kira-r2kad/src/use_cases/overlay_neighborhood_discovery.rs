@@ -3,7 +3,6 @@ use std::{
     fmt::Debug,
     marker::PhantomData,
     num::{
-        NonZeroU8,
         NonZeroU32,
         NonZeroU64,
     },
@@ -12,11 +11,13 @@ use std::{
 };
 
 use derive_more::Display;
-use tracing::instrument;
+use tracing::{
+    Level,
+    instrument,
+};
 
 use crate::{
     domain::{
-        GroupingError,
         NodeId,
         Nonce,
         ProtocolMessage,
@@ -76,8 +77,6 @@ pub struct ONDConfig<const BUCKET_SIZE: usize> {
     ///
     /// Defaults to *250ms*.
     pub backoff_starting_duration: Duration,
-    /// Number of grouped bits used for calculating the shared prefix of two [NodeIds](crate::domain::NodeId).
-    pub shared_prefix_bits_grouping: NonZeroU8,
 }
 
 impl<const BUCKET_SIZE: usize> Default for ONDConfig<BUCKET_SIZE> {
@@ -91,7 +90,6 @@ impl<const BUCKET_SIZE: usize> Default for ONDConfig<BUCKET_SIZE> {
             backoff_base: NonZeroU32::new(2).unwrap(),
             backoff_max_retries: NonZeroU32::new(10).unwrap(), // 0,25s*1024=256s = 4min 16s
             backoff_starting_duration: Duration::from_millis(250),
-            shared_prefix_bits_grouping: NonZeroU8::MIN,
         }
     }
 }
@@ -173,30 +171,30 @@ pub struct OverlayNeighborhoodDiscovery<C, const BUCKET_SIZE: usize> {
     exploration_interval: Duration,
     /// The routing table or underlay vicinity changed since the last exploration round
     exploration_progress: bool,
+    /// The next exploration round refreshes an empty bucket (alternating with random IDs)
+    refresh_bucket: bool,
+    /// Index of the bucket to refresh next, if empty (round robin over the empty buckets)
+    next_refreshed_bucket: usize,
 }
 
 impl<C, const BUCKET_SIZE: usize> Default for OverlayNeighborhoodDiscovery<C, BUCKET_SIZE> {
     fn default() -> Self {
-        Self::new(ONDConfig::default()).expect("default shared prefix should be valid")
+        Self::new(ONDConfig::default())
     }
 }
 
 impl<C, const BUCKET_SIZE: usize> OverlayNeighborhoodDiscovery<C, BUCKET_SIZE> {
     /// Create a new [OverlayNeighborhoodDiscovery] from an [ONDConfig].
-    pub fn new(config: ONDConfig<BUCKET_SIZE>) -> Result<Self, GroupingError> {
-        if config.shared_prefix_bits_grouping.get() > NodeId::BITS {
-            return Err(GroupingError::Invalid {
-                group_size: config.shared_prefix_bits_grouping,
-            });
-        }
-
-        Ok(Self {
+    pub fn new(config: ONDConfig<BUCKET_SIZE>) -> Self {
+        Self {
             _pd: PhantomData,
             state: ONDState::Initialized,
             exploration_interval: config.random_exploration_interval,
             exploration_progress: true,
+            refresh_bucket: false,
+            next_refreshed_bucket: 0,
             config,
-        })
+        }
     }
 }
 
@@ -269,6 +267,9 @@ where
             target: "overlay_neighborhood_discovery",
             "Timer next duration: {next_duration:?}"
         );
+        // the next round waits for responses of the last one (it checks them), so it waits
+        // longer under load; it fires anyway, so it's no request timer
+        let next_duration = context.runtime().request_timeout(next_duration);
         current_timer_context.timer_id = Some(context.runtime().register_timer(next_duration));
 
         // check if last message has been answered
@@ -285,14 +286,7 @@ where
 
         let new_nonce = Nonce::random();
 
-        let closest_via_contacts = context
-            .routing_table()
-            .closest(
-                context.root_id(),
-                3,
-                self.config.shared_prefix_bits_grouping,
-            )
-            .expect("config should have been checked before");
+        let closest_via_contacts = context.routing_table().closest(context.root_id(), 3);
 
         // Get the path to the closest node of ourselves
         // in case the previous FindNodeReq failed, we try to avoid that contact,
@@ -367,6 +361,33 @@ where
         Ok(())
     }
 
+    /// Target of the next exploration round.
+    ///
+    /// Every other round refreshes an empty bucket (except the deepest one) like Kademlia's
+    /// bucket refresh, going round robin over the empty buckets: a random target inside the
+    /// bucket leads to the nodes of its subtree, if there are any. A random target finds such a
+    /// node only by chance, e.g., the only node of a subtree of 1/8 of the ID space, which takes
+    /// long while the exploration backs off. The other rounds use random targets.
+    fn exploration_target(&mut self, context: &C) -> NodeId {
+        self.refresh_bucket = !self.refresh_bucket;
+        if self.refresh_bucket {
+            let rt = context.routing_table();
+            let empty = empty_buckets(&*rt);
+            if let Some(&bucket_index) = empty
+                .iter()
+                .find(|&&index| index >= self.next_refreshed_bucket)
+                .or(empty.first())
+            {
+                self.next_refreshed_bucket = bucket_index + 1;
+                if let Some(target) = random_id_in_bucket(&*rt, bucket_index) {
+                    log::trace!(target: "overlay_neighborhood_discovery", "Refreshing empty bucket {bucket_index} with target {target}");
+                    return target;
+                }
+            }
+        }
+        NodeId::random()
+    }
+
     /// Sends a new FindNodeReq with random target to explore the ID space for new and better contacts and routes
     fn send_next_request_to_random_id(
         &mut self,
@@ -389,22 +410,24 @@ where
             (self.exploration_interval * 2).min(self.config.random_exploration_max_interval)
         };
         let exploration_interval = self.exploration_interval;
+        let random_id = self.exploration_target(context);
         let ONDState::Running { timer_contexts, .. } = &mut self.state else {
             panic!("Called send_next_request_to_random_id in non-running state!");
         };
         let current_timer_context = &mut timer_contexts[TimerType::RandomExploration as usize];
         // arm the next round first, so that a round without a usable contact doesn't stop it
-        current_timer_context.timer_id =
-            Some(context.runtime().register_rand_timer(exploration_interval));
+        current_timer_context.timer_id = Some(
+            context
+                .runtime()
+                .register_rand_deferrable_timer(exploration_interval),
+        );
         log::trace!(target: "overlay_neighborhood_discovery", "Next random exploration in about {exploration_interval:?}");
 
         let new_nonce = Nonce::random();
-        let random_id = NodeId::random();
 
         let closest_contact_path = context
             .routing_table()
-            .closest(&random_id, 1, self.config.shared_prefix_bits_grouping)
-            .expect("grouping was checked on initialization")
+            .closest(&random_id, 1)
             .first() // TODO: Proximity Neighbor Selection
             .map(|(_, contact)| contact.path().unwrap()) // closest returns only valid contacts
             .cloned();
@@ -515,7 +538,7 @@ where
             timer_context.timer_id = Some(
                 context
                     .runtime()
-                    .register_rand_timer(self.exploration_interval),
+                    .register_rand_deferrable_timer(self.exploration_interval),
             );
             log::trace!(target: "overlay_neighborhood_discovery", "Routing table changed: next random exploration in about {:?}", self.exploration_interval);
         }
@@ -585,6 +608,8 @@ where
     /// As this reacts to Errors, changes to the RoutingTable must occur before delegating
     /// the event to this method.
     #[instrument(
+        // the state is formatted for every event: only when tracing
+        level = Level::TRACE,
         target = "overlay_neighborhood_discovery",
         "overlay_neighborhood_discovery",
         skip(self, context, event),
@@ -708,6 +733,39 @@ where
     }
 }
 
+/// Indices of the empty buckets of the routing table, except the deepest one (which contains
+/// the root's own part of the ID space).
+fn empty_buckets<'a, const BUCKET_SIZE: usize>(
+    rt: &impl RoutingTable<'a, BUCKET_SIZE>,
+) -> Vec<usize> {
+    let deepest = rt.get_bucket_index(rt.root());
+    (0..deepest)
+        .filter(|&index| rt.bucket_by_index(index).is_empty())
+        .collect()
+}
+
+/// A random [NodeId] in the bucket with the given index, or None if none was found.
+///
+/// The IDs of a bucket share the prefix of the root up to the bucket's level; the remaining
+/// bits are drawn until the ID falls into the bucket (one of the buckets of the level).
+fn random_id_in_bucket<'a, const BUCKET_SIZE: usize>(
+    rt: &impl RoutingTable<'a, BUCKET_SIZE>,
+    bucket_index: usize,
+) -> Option<NodeId> {
+    // the prefix length of the first level is the number of bits per level
+    let level_bits = rt.get_bucket_prefix_length(0);
+    let shared = rt
+        .get_bucket_prefix_length(bucket_index)
+        .checked_sub(level_bits)?;
+    let root_prefix = rt.root().prefix(shared);
+    (0..64)
+        .map(|_| {
+            let random = NodeId::random();
+            root_prefix ^ (random ^ random.prefix(shared))
+        })
+        .find(|id| rt.get_bucket_index(id) == bucket_index)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -766,7 +824,7 @@ mod tests {
                 connection_id: ConnectionId(1),
             },
         );
-        let mut ond = Ond::new(ONDConfig::default()).unwrap();
+        let mut ond = Ond::new(ONDConfig::default());
         ond.start(&ctx).unwrap();
         (ond, ctx)
     }
@@ -1007,5 +1065,48 @@ mod tests {
             exploration(&ond).1,
             ONDConfig::<BUCKET_SIZE>::default().random_exploration_interval
         );
+    }
+
+    mod bucket_refresh {
+        use super::*;
+        use crate::domain::routing_table::flat_routing_table::FlatRoutingTable;
+
+        /// Table of the root 0 with one bit per level, whose buckets 0 (prefix 1) and 1 (prefix
+        /// 01) are empty and whose deepest bucket 2 holds the contact 0...01.
+        fn table() -> FlatRoutingTable<1, 1> {
+            let mut table = FlatRoutingTable::<1, 1>::new(NodeId::ZERO).unwrap();
+            table
+                .add(Contact::new(
+                    Path::from(NodeId::ONE),
+                    SafeStateSeqNr::try_from(1).unwrap(),
+                ))
+                .unwrap();
+            table.split_bucket(&NodeId::ONE).unwrap();
+            table.split_bucket(&NodeId::ONE).unwrap();
+            table
+        }
+
+        #[test]
+        fn empty_buckets_exclude_the_deepest_one() {
+            let _clock = crate::tests::TestClock::new();
+            let table = table();
+            assert_eq!(table.get_bucket_index(&NodeId::ONE), 2);
+            assert_eq!(empty_buckets(&table), vec![0, 1]);
+        }
+
+        #[test]
+        fn random_ids_fall_into_the_bucket() {
+            let _clock = crate::tests::TestClock::new();
+            let table = table();
+            for bucket_index in [0, 1] {
+                for _ in 0..100 {
+                    let id = random_id_in_bucket(&table, bucket_index).unwrap();
+                    assert_eq!(table.get_bucket_index(&id), bucket_index, "{id}");
+                }
+            }
+            // prefix 01
+            let id = random_id_in_bucket(&table, 1).unwrap();
+            assert_eq!(id.prefix(2), NodeId::with_msb(0b0100_0000));
+        }
     }
 }

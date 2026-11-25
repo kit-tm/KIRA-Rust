@@ -36,6 +36,7 @@ use crate::{
         ULNState,
         ULNTable,
         UnderlayNeighborId,
+        UnderlayNeighborSource,
         VicinityGraph,
         insertion_strategy::InsertionStrategyResult,
         path::{
@@ -299,9 +300,8 @@ where
 
                 // check for all contacts that have an active path that is affected by the failed link
                 for mut contact in routing_table.iter_mut() {
-                    if let Some(active_path) = contact.path_mut()
-                        && active_path.contains_link(link)
-                    {
+                    // only read first: a mutable access copies the contact to detect changes
+                    if contact.path().is_some_and(|path| path.contains_link(link)) {
                         // invalidate path and contact now
                         contact.set_invalid(NotViaStateList::from(nvs_entry.clone()));
                     }
@@ -330,33 +330,43 @@ where
             .filter(|notvia| !notvia.link.contains(context.root_id()))
             .map(|notvia| NotVia::from((notvia.link.clone(), notvia.age.saturating_add(delay))))
             .collect::<Vec<NotVia>>();
+        if filtered_not_via_data.is_empty() {
+            return;
+        }
 
         let mut routing_table = context.routing_table_mut();
 
-        // invalidate contacts that have older path information than notvia and whose active path contain a notvia link
-        for mut contact in routing_table
-            .iter_mut()
-            .filter(|c| c.is_valid() && c.path().is_some())
-        {
-            // collect all failed links on the active path before invalidating it,
-            // because invalidate() refreshes last_validated
-            let path = contact.path().unwrap();
-            let Some(last_validated) = path.get_last_validated().copied() else {
+        // Find the contacts to invalidate with shared references first: a write guard clones
+        // its contact and compares it on drop, which is far too costly to do for every contact
+        // on every message carrying not-via data, while only a few contacts actually change.
+        // Invalidate contacts that have older path information than a notvia and whose active
+        // path contains its link. Collect all failed links on the active path before
+        // invalidating it, because invalidating refreshes last_validated.
+        let to_invalidate: Vec<(NodeId, HashSet<NotViaState>)> = routing_table
+            .iter()
+            .filter(|contact| contact.is_valid())
+            .filter_map(|contact| {
+                let path = contact.path()?;
+                let last_validated = *path.get_last_validated()?;
+                let failed: HashSet<NotViaState> = filtered_not_via_data
+                    .iter()
+                    .filter(|entry| {
+                        last_validated < Timestamp::from(entry.age)
+                            && path.contains_link(&entry.link)
+                    })
+                    .map(|entry| NotViaState::from(entry.clone()))
+                    .collect();
+                (!failed.is_empty()).then(|| (*contact.id(), failed))
+            })
+            .collect();
+
+        for (id, failed) in to_invalidate {
+            let Some(mut contact) = routing_table.contact_mut(&id) else {
                 continue;
             };
-            let failed: HashSet<NotViaState> = filtered_not_via_data
-                .iter()
-                .filter(|entry| {
-                    last_validated < Timestamp::from(entry.age) && path.contains_link(&entry.link)
-                })
-                .map(|entry| NotViaState::from(entry.clone()))
-                .collect();
-            if failed.is_empty() {
-                continue;
-            }
             let failed_links = failed.len();
             contact.set_invalid(NotViaStateList::from(failed));
-            tracing::debug!(target: "forward_protocol_message", %source, invalidated_contact = %contact.id(), failed_links, "Invalidated contact based on not-via data");
+            tracing::debug!(target: "forward_protocol_message", %source, invalidated_contact = %id, failed_links, "Invalidated contact based on not-via data");
         }
     }
 
@@ -565,6 +575,43 @@ where
         );
     }
 
+    /// Forwards an error message whose source route ended before its destination: over the
+    /// path to the destination, if it is a contact, or to the closest contact making progress
+    /// towards it (XOR metric), so that it can't loop. Without such a contact it is dropped.
+    fn route_error_onwards(&self, context: &C, mut message: ProtocolMessage) -> HandlingResult {
+        let ProtocolMessage::Error(error) = &message else {
+            unreachable!("only error messages are routed onwards");
+        };
+        let destination = *error.common_header.dest_id();
+        let path = {
+            let rt = context.routing_table();
+            rt.contact(&destination)
+                .filter(|contact| contact.is_valid())
+                .cloned()
+                .or_else(|| rt.next_hop(&destination))
+                .and_then(|contact| contact.path().cloned())
+        };
+        let Some(path) = path else {
+            tracing::debug!(
+                target: "forward_protocol_message",
+                %destination,
+                reason = "no contact closer to the destination",
+                "Dropping error message"
+            );
+            return HandlingResult::Handled;
+        };
+        tracing::debug!(target: "forward_protocol_message", %destination, %path, "Routing error message onwards");
+        let source_route = message
+            .source_route_mut()
+            .expect("error messages have a source route");
+        source_route.extend(path);
+        source_route.advance();
+        context
+            .runtime()
+            .send_message(message, context.uln_table().deref(), context.root_id());
+        HandlingResult::Handled
+    }
+
     /// Forwards the [ProtocolMessage] to the next hop.
     ///
     /// Returns if the message was forwarded.
@@ -580,7 +627,15 @@ where
         )
         ret(level = Level::TRACE),
     )]
-    fn handle_forwarding(&self, context: &C, mut message: ProtocolMessage) -> HandlingResult {
+    /// Forwards the message to the next hop of its source route, if any.
+    ///
+    /// A `local` message was sent by ourselves to ourselves.
+    fn handle_forwarding(
+        &self,
+        context: &C,
+        mut message: ProtocolMessage,
+        local: bool,
+    ) -> HandlingResult {
         let Some(source_route) = message.source_route_mut() else {
             // ULNHello messages have no source route and need no forwarding
             return HandlingResult::NotHandled;
@@ -601,16 +656,19 @@ where
         }
 
         // touch last_seen value of ULN that forwarded the message to us
-        if let Some(entry) = context
+        if local {
+            // not forwarded by an underlay neighbor
+        } else if let Some(entry) = context
             .vicinity_graph_mut()
             .entry_mut(source_route.prev_hop())
         {
             entry.update_last_seen(context.runtime().current_time());
         } else {
-            tracing::error!(
+            crate::rate_limited!(|suppressed| tracing::error!(
                 target: "forward_protocol_message",
+                suppressed,
                 "no previous hop found in vicinity graph",
-            );
+            ));
         };
 
         let Some(next_hop) = source_route.next_hop() else {
@@ -618,6 +676,14 @@ where
                 target: "forward_protocol_message",
                 "SourceRoute finished",
             );
+            // e.g., a notification about a dropped packet towards a node that isn't a contact
+            if let ProtocolMessage::Error(error) = &message
+                && matches!(error.data, ErrorData::SegmentFailure { .. })
+                // final destination, not the end of the source route
+                && error.common_header.dest_id() != context.root_id()
+            {
+                return self.route_error_onwards(context, message);
+            }
             return HandlingResult::NotHandled;
         };
 
@@ -626,12 +692,13 @@ where
         // Next hop is not a underlay neighbor -> Error -> Drop
         // TODO distinguish between failed next hop and wrong (non-existing hop ), see RouteFailureWrongHop
         if context.uln_table().get(next_hop).is_none() {
-            tracing::warn!(
+            crate::rate_limited!(|suppressed| tracing::warn!(
                 target: "forward_protocol_message",
                 reason = "Next hop is not an underlay neighbor",
                 ?message,
+                suppressed,
                 "Dropping message and returning an error"
-            );
+            ));
             self.handle_next_hop_failed(context, message);
             return HandlingResult::Handled;
         }
@@ -694,7 +761,14 @@ where
         event: UseCaseEvent,
     ) -> Result<Self::Value, Self::Error> {
         // this use case only handles message events
-        if let UseCaseEvent::Message(message, _uln_source) = event {
+        if let UseCaseEvent::Message(message, uln_source) = event {
+            // A message to ourselves (e.g., a FetchReq or FindNodeReq for a key we are
+            // closest to, or the response to it) neither arrived from an underlay neighbor
+            // nor carries information about another node.
+            if matches!(uln_source, UnderlayNeighborSource::Local) {
+                return Ok(self.handle_forwarding(context, message, true));
+            }
+
             if let Some(source_route) = message.source_route() {
                 // Current hop has to be us, do not use misrouted packets
                 // to extract information
@@ -710,12 +784,13 @@ where
                 // check if current underlay neighbor is still up
                 // as interface_down events delete the ulnid from the uln_table
                 if !context.uln_table().contains_key(source_route.prev_hop()) {
-                    tracing::error!(
+                    crate::rate_limited!(|suppressed| tracing::error!(
                         target: "forward_protocol_message",
+                        suppressed,
                         "Message arrived from ULN {} that is currently not available – will drop {:?}",
                         source_route.prev_hop(),
                         message,
-                    );
+                    ));
                     return Ok(HandlingResult::Handled);
                 }
             }
@@ -727,7 +802,7 @@ where
                 return Ok(HandlingResult::Handled);
             }
 
-            Ok(self.handle_forwarding(context, message))
+            Ok(self.handle_forwarding(context, message, false))
         } else {
             Ok(HandlingResult::NotHandled)
         }
@@ -748,7 +823,6 @@ mod tests {
             Nonce,
             SafeStateSeqNr,
             StateSeqNr,
-            UnderlayNeighborSource,
             insertion_strategy::UNSStrategy,
             path::ShortestFirstPathSimplifier,
             protocol_message::{
@@ -972,6 +1046,46 @@ mod tests {
 
     fn source() -> NodeId {
         NodeId::with_msb(5)
+    }
+
+    fn receive_from(
+        ctx: &Ctx,
+        message: ProtocolMessage,
+        uln_source: UnderlayNeighborSource,
+    ) -> HandlingResult {
+        ForwardProtocolMessage::<Ctx, BUCKET_SIZE>::default()
+            .handle_event(ctx, UseCaseEvent::Message(message, uln_source))
+            .unwrap()
+    }
+
+    #[test]
+    fn message_to_ourselves_is_passed_on() {
+        let _clock = crate::tests::TestClock::new();
+        let ctx = context();
+        // as sent by the DHT if root is closest to the key: source route [root, root]
+        let message = routed_message(&[root()]);
+
+        let result = receive_from(&ctx, message, UnderlayNeighborSource::Local);
+
+        assert!(
+            matches!(result, HandlingResult::NotHandled),
+            "the other use cases have to handle the message"
+        );
+    }
+
+    #[test]
+    fn message_from_unavailable_underlay_neighbor_is_dropped() {
+        let _clock = crate::tests::TestClock::new();
+        let ctx = context();
+        let message = routed_message(&[source(), neighbor()]);
+
+        let result = receive_from(
+            &ctx,
+            message,
+            UnderlayNeighborSource::UnderlayNeighbor(ulnid()),
+        );
+
+        assert!(matches!(result, HandlingResult::Handled), "dropped");
     }
 
     /// [routed_message] from a sender with the given sequence number and degree.
@@ -1352,5 +1466,83 @@ mod tests {
         receive(&ctx, unreachable_update(z, 0));
 
         assert!(ctx.routing_table().contact(&z).unwrap().is_valid());
+    }
+
+    /// SegmentFailure from `reporter` via [neighbor] that ends at root, but is destined to
+    /// `destination`.
+    fn segment_failure_towards(reporter: NodeId, destination: NodeId) -> ProtocolMessage {
+        let mut source_route =
+            SourceRoute::new(reporter, Path::try_from(&[neighbor(), root()][..]).unwrap());
+        source_route.advance();
+        source_route.advance();
+        ProtocolMessage::Error(ReqRspMessage {
+            common_header: CommonHeader::new(
+                ProtocolMessageKind::Error,
+                reporter,
+                destination,
+                Some(Nonce::random()),
+                StateSeqNr::Value(ssn(1)),
+                0,
+            ),
+            data: ErrorData::SegmentFailure {
+                failed_link: Link::new(reporter, NodeId::with_msb(9)),
+                source: reporter,
+            },
+            not_via: None,
+            source_route,
+        })
+    }
+
+    /// Routes of the messages sent since the last call
+    fn sent_routes(ctx: &Ctx) -> Vec<Vec<NodeId>> {
+        ctx.runtime()
+            .output()
+            .filter_map(|output| match output {
+                crate::Output::SendProtocolMessage(message, _) => Some(
+                    Path::from(message.source_route()?.clone())
+                        .as_ref()
+                        .to_vec(),
+                ),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn segment_failure_is_routed_onwards_to_its_destination() {
+        let _clock = crate::tests::TestClock::new();
+        let ctx = context();
+        bidirectional(&ctx, neighbor());
+        let reporter = NodeId::with_msb(7);
+        let destination = NodeId::with_msb(8);
+        let mut to_destination = Path::try_from(&[neighbor(), destination][..]).unwrap();
+        to_destination.set_valid();
+        ctx.routing_table_mut()
+            .add(Contact::new(to_destination, ssn(1)))
+            .unwrap();
+
+        let result = receive(&ctx, segment_failure_towards(reporter, destination));
+
+        assert!(matches!(result, HandlingResult::Handled));
+        assert_eq!(
+            sent_routes(&ctx),
+            [vec![reporter, neighbor(), root(), neighbor(), destination]],
+            "the route is extended by the path to the destination"
+        );
+    }
+
+    #[test]
+    fn segment_failure_without_route_to_its_destination_is_dropped() {
+        let _clock = crate::tests::TestClock::new();
+        let ctx = context();
+        bidirectional(&ctx, neighbor());
+
+        let result = receive(
+            &ctx,
+            segment_failure_towards(NodeId::with_msb(7), NodeId::with_msb(8)),
+        );
+
+        assert!(matches!(result, HandlingResult::Handled));
+        assert!(sent_routes(&ctx).is_empty());
     }
 }

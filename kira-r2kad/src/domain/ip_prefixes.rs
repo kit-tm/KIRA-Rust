@@ -43,6 +43,11 @@ impl Ipv6Prefix16 {
         self.0
     }
 
+    /// Returns if the address has this prefix.
+    pub const fn contains(&self, address: &Ipv6Addr) -> bool {
+        (address.to_bits() >> (Ipv6Addr::BITS - Ipv6Prefix16::LENGTH as u32)) as u16 == self.0
+    }
+
     /// Returns the address with this prefix and the given 112 bits.
     const fn address(&self, suffix: u128) -> Ipv6Addr {
         const SUFFIX_BITS: u32 = Ipv6Addr::BITS - Ipv6Prefix16::LENGTH as u32;
@@ -144,6 +149,21 @@ impl IpPrefixes {
         )
     }
 
+    /// Returns the [NodeId] of a NodeIP, or [None] if the address is no NodeIP.
+    pub fn node_id(&self, node_ip: &Ipv6Addr) -> Option<NodeId> {
+        self.node_ip
+            .contains(node_ip)
+            .then(|| NodeId::from(node_ip.to_bits() & ((1 << NodeId::BITS) - 1)))
+    }
+
+    /// Returns if the address is a PathIP.
+    ///
+    /// The [PathId] can't be derived from it, as it contains only the first 112 bits of the
+    /// [PathId]: compare it to the [PathIP](Self::path_ip) of a [PathId] instead.
+    pub fn is_path_ip(&self, address: &Ipv6Addr) -> bool {
+        self.path_ip.contains(address)
+    }
+
     /// Returns the PathIP of the [PathId], which contains the first 112 bits of the [PathId].
     pub fn path_ip(&self, path_id: &PathId) -> Ipv6Addr {
         let mut bytes = [0; 16];
@@ -164,6 +184,19 @@ impl Default for IpPrefixes {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn node_id_and_path_ip_are_recognized() {
+        let prefixes = IpPrefixes::default();
+        let node_id = NodeId::with_msb(7);
+        let node_ip = prefixes.node_ip(&node_id);
+        assert_eq!(prefixes.node_id(&node_ip), Some(node_id));
+        assert!(!prefixes.is_path_ip(&node_ip));
+
+        let path_ip = prefixes.path_ip(&PathId::from_shake256(&[node_id]));
+        assert!(prefixes.is_path_ip(&path_ip));
+        assert_eq!(prefixes.node_id(&path_ip), None);
+    }
 
     #[test]
     fn parses_prefix_with_and_without_length() {

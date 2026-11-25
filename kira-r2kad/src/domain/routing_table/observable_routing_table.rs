@@ -4,7 +4,6 @@ use std::{
         Formatter,
     },
     marker::PhantomData,
-    num::NonZeroU8,
     ops::{
         Deref,
         DerefMut,
@@ -16,7 +15,6 @@ use derive_more::derive::Display;
 use crate::domain::{
     Bucket,
     Contact,
-    GroupingError,
     NodeId,
     RoutingTable,
     SharedPrefix,
@@ -136,9 +134,14 @@ fn notify_all<const BUCKET_SIZE: usize>(
         return;
     }
 
-    for observable in observers {
+    // the last observer gets the event itself: it holds two contacts
+    let Some((last, others)) = observers.split_last() else {
+        return;
+    };
+    for observable in others {
         observable.notify(event.clone());
     }
+    last.notify(event);
 }
 
 /// A type which implements [RoutingTable] but doesn't support observability.
@@ -250,8 +253,8 @@ where
 
     fn contact_mut(&'a mut self, id: &NodeId) -> Option<Self::ContactWriteGuard> {
         self.inner.contact_mut(id).map(|contact| ContactWriteGuard {
-            observers: &mut self.observers,
-            original: Contact::clone(contact.deref()),
+            observers: &self.observers,
+            original: None,
             contact,
         })
     }
@@ -276,16 +279,12 @@ where
     }
 
     fn split_bucket(&mut self, id: &NodeId) -> Result<usize, BucketSplitError> {
-        let bucket_old = self.inner.bucket(id).clone();
         let index = self.inner.split_bucket(id)?;
 
-        if bucket_old
-            .iter()
-            .zip(self.inner.bucket_by_index(index))
-            .any(|(a, b)| a.path() != b.path())
-        {
-            self.notify_all(RoutingTableEvent::UpdatedBucket(index));
-        }
+        // The contacts of the split bucket are distributed to it and the new buckets, so its
+        // contacts changed, even if it became empty (e.g., its prefix entry has to be derived
+        // anew, as its contact may have moved to a deeper bucket).
+        self.notify_all(RoutingTableEvent::UpdatedBucket(index));
 
         self.notify_all(RoutingTableEvent::NewBucket(index + 1));
         Ok(index)
@@ -310,21 +309,12 @@ where
     // Use default implementations of insert or extend.
     // Reusing inner's implementations would result in missed events.
 
-    fn closest(
-        &self,
-        to: &NodeId,
-        n: usize,
-        shared_prefix_grouping: NonZeroU8,
-    ) -> Result<Vec<(SharedPrefix, Contact)>, GroupingError> {
-        self.inner.closest(to, n, shared_prefix_grouping)
+    fn closest(&self, to: &NodeId, n: usize) -> Vec<(SharedPrefix, Contact)> {
+        self.inner.closest(to, n)
     }
 
-    fn next_hop(
-        &self,
-        target: &NodeId,
-        shared_prefix_grouping: NonZeroU8,
-    ) -> Result<Option<Contact>, GroupingError> {
-        self.inner.next_hop(target, shared_prefix_grouping)
+    fn next_hop(&self, target: &NodeId) -> Option<Contact> {
+        self.inner.next_hop(target)
     }
 
     fn iter(&self) -> impl Iterator<Item = &Contact> {
@@ -375,7 +365,7 @@ where
 
         next.map(|contact| ContactWriteGuard {
             observers: self.observers,
-            original: Contact::clone(&contact),
+            original: None,
             contact,
         })
     }
@@ -385,13 +375,17 @@ where
 /// [Contact].
 ///
 /// Emits a [RoutingTableEvent::UpdatedContact] on [Drop] only if the [Contact] actually changed.
+/// All changes go through [DerefMut], which keeps a copy of the original contact on first use.
 /// As a smart pointer this type dereferences to the updated [Contact].
 pub struct ContactWriteGuard<'a, C, const BUCKET_SIZE: usize>
 where
     C: DerefMut<Target = Contact>,
 {
     observers: &'a [Box<dyn RoutingTableObserver<BUCKET_SIZE>>],
-    original: Contact,
+    /// The contact before the first mutable access, taken then. [None] if the contact wasn't
+    /// accessed mutably (e.g., while iterating over all contacts to change a few) or there are
+    /// no observers to notify.
+    original: Option<Contact>,
     contact: C,
 }
 
@@ -411,6 +405,9 @@ where
     C: DerefMut<Target = Contact>,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
+        if self.original.is_none() && !self.observers.is_empty() {
+            self.original = Some(self.contact.deref().clone());
+        }
         self.contact.deref_mut()
     }
 }
@@ -421,6 +418,9 @@ where
     C: DerefMut<Target = Contact>,
 {
     fn drop(&mut self) {
+        let Some(original) = self.original.take() else {
+            return;
+        };
         // Contacts compare equal irrespective of path attributes. The first refresh of the
         // active path (e.g., its setup was confirmed) establishes its forwarding state, so
         // the forwarding entries can be derived now: this change has to be notified as well.
@@ -429,14 +429,14 @@ where
                 .path()
                 .is_some_and(|path| path.get_last_path_refresh().is_some())
         };
-        if self.contact.deref() != &self.original
-            || refreshed(self.contact.deref()) != refreshed(&self.original)
+        if self.contact.deref() != &original
+            || refreshed(self.contact.deref()) != refreshed(&original)
         {
             notify_all(
                 self.observers,
                 RoutingTableEvent::UpdatedContact {
                     new: Box::new(self.contact.clone()),
-                    old: Box::new(self.original.clone()),
+                    old: Box::new(original),
                 },
             );
         }
@@ -467,6 +467,76 @@ mod tests {
             single_bucket::SingleBucketRT,
         },
     };
+
+    #[test]
+    fn split_reports_bucket_that_became_empty() {
+        let _clock = crate::tests::TestClock::new();
+        // one bit per level: the contact 0...01 moves from bucket 0 to the new deepest bucket
+        let mut rt =
+            crate::domain::routing_table::flat_routing_table::FlatRoutingTable::<1, 1>::new(
+                NodeId::ZERO,
+            )
+            .unwrap();
+        rt.add(Contact::new(
+            Path::from(NodeId::ONE),
+            SafeStateSeqNr::try_from(1).unwrap(),
+        ))
+        .unwrap();
+        let mut observable = ObservableRoutingTable::from(rt);
+        let events = Arc::new(RwLock::new(vec![]));
+        let observable_events = Arc::clone(&events);
+        observable.add_observer(move |event| observable_events.write().unwrap().push(event));
+
+        assert_eq!(observable.split_bucket(&NodeId::ONE), Ok(0));
+        assert!(observable.bucket_by_index(0).is_empty());
+        let events = events.read().unwrap();
+        assert!(
+            events.contains(&RoutingTableEvent::UpdatedBucket(0)),
+            "{events:?}"
+        );
+        assert!(
+            events.contains(&RoutingTableEvent::NewBucket(1)),
+            "{events:?}"
+        );
+    }
+
+    #[test]
+    fn iterating_mutably_notifies_only_changed_contacts() {
+        let _clock = crate::tests::TestClock::new();
+        let [a, b] = [2, 3].map(NodeId::with_msb);
+        let mut rt = SingleBucketRT::<10>::new(NodeId::ONE);
+        for node in [a, b] {
+            let contact = Contact::new(Path::from(node), SafeStateSeqNr::try_from(2).unwrap());
+            rt.add(contact).unwrap();
+        }
+        let mut observable = ObservableRoutingTable::from(rt);
+        let events = Arc::new(RwLock::new(vec![]));
+        let observable_events = Arc::clone(&events);
+        observable.add_observer(move |event| observable_events.write().unwrap().push(event));
+
+        // reading only: nothing changed, nothing notified
+        for contact in observable.iter_mut() {
+            assert!(contact.path().is_some());
+        }
+        assert!(events.read().unwrap().is_empty());
+
+        // changing one contact notifies its old and new state
+        let old_b = observable.contact(&b).unwrap().clone();
+        for mut contact in observable.iter_mut() {
+            if contact.id() == &b {
+                contact.set_invalid(NotViaStateList::default());
+            }
+        }
+        let events = events.read().unwrap();
+        let new_b = observable.contact(&b).unwrap().clone();
+        assert_eq!(
+            *events,
+            vec![RoutingTableEvent::UpdatedContact {
+                new: Box::new(new_b),
+                old: Box::new(old_b),
+            }]
+        );
+    }
 
     #[test]
     fn add_contact() {

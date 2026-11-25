@@ -1,7 +1,10 @@
 use std::{
     ops::Index,
     slice::SliceIndex,
-    sync::LazyLock,
+    sync::{
+        Arc,
+        LazyLock,
+    },
     time::Duration,
 };
 
@@ -60,7 +63,9 @@ pub enum PathState {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Path {
-    ids: Vec<NodeId>,
+    /// Shared between clones until one of them changes it (copy on write): contacts with their
+    /// paths are cloned often, e.g., to detect their changes.
+    ids: Arc<Vec<NodeId>>,
     #[cfg_attr(feature = "serde", serde(skip))]
     path_state: PathState,
     /// Instant when the path was successfully validated by a PathProbe or invalidated by an error.
@@ -89,7 +94,7 @@ impl TryFrom<Vec<NodeId>> for Path {
         }
 
         Ok(Self {
-            ids: value,
+            ids: Arc::new(value),
             path_state: Default::default(),
             last_validated: None,
             last_path_refresh: None,
@@ -111,7 +116,7 @@ impl TryFrom<&[NodeId]> for Path {
         }
 
         Ok(Self {
-            ids: Vec::from(slice),
+            ids: Arc::new(Vec::from(slice)),
             path_state: Default::default(),
             last_validated: None,
             last_path_refresh: None,
@@ -127,7 +132,7 @@ impl<const PATH_SIZE: usize> From<[NodeId; PATH_SIZE]> for Path {
             panic!("{}", EmptyPathError);
         }
         Self {
-            ids: Vec::from(raw),
+            ids: Arc::new(Vec::from(raw)),
             path_state: PathState::Valid,
             last_validated: None,
             last_path_refresh: None,
@@ -139,7 +144,7 @@ impl<const PATH_SIZE: usize> From<[NodeId; PATH_SIZE]> for Path {
 impl From<NodeId> for Path {
     fn from(raw: NodeId) -> Self {
         Self {
-            ids: vec![raw],
+            ids: Arc::new(vec![raw]),
             path_state: PathState::Valid,
             last_validated: None,
             last_path_refresh: None,
@@ -150,7 +155,7 @@ impl From<NodeId> for Path {
 
 impl From<Path> for Vec<NodeId> {
     fn from(path: Path) -> Self {
-        path.ids
+        Arc::unwrap_or_clone(path.ids)
     }
 }
 
@@ -163,7 +168,7 @@ impl FromIterator<NodeId> for Result<Path, EmptyPathError> {
         }
 
         Ok(Path {
-            ids: vec,
+            ids: Arc::new(vec),
             path_state: PathState::Valid,
             last_validated: None,
             last_path_refresh: None,
@@ -173,9 +178,14 @@ impl FromIterator<NodeId> for Result<Path, EmptyPathError> {
 }
 
 impl Path {
+    /// The [NodeId]s to change, copied first if other clones share them.
+    fn ids_mut(&mut self) -> &mut Vec<NodeId> {
+        Arc::make_mut(&mut self.ids)
+    }
+
     // set path to None and clear everything else
     pub fn clear(&mut self) {
-        self.ids.clear();
+        self.ids_mut().clear();
         self.path_state = Default::default();
         self.last_validated = None;
         self.last_path_refresh = None;
@@ -183,7 +193,7 @@ impl Path {
 
     /// Reverses the [Path] in-place.
     pub fn reverse(&mut self) {
-        self.ids.reverse();
+        self.ids_mut().reverse();
     }
 
     /// Size of the [Path] in numbers of Nodes.
@@ -235,12 +245,12 @@ impl Path {
 
     /// Pushs a [NodeId] to the end of the [Path].
     pub fn push(&mut self, id: NodeId) {
-        self.ids.push(id);
+        self.ids_mut().push(id);
     }
 
     /// pops a [NodeId] to the end of the [Path].
     pub fn pop(&mut self) -> Option<NodeId> {
-        self.ids.pop()
+        self.ids_mut().pop()
     }
 
     /// Remove all entries inside the interval [start_index, end_index).
@@ -250,7 +260,7 @@ impl Path {
         assert!(end_index <= self.ids.len());
         let num = end_index - start_index;
         for _ in 0..num {
-            self.ids.remove(start_index);
+            self.ids_mut().remove(start_index);
         }
     }
 
@@ -266,10 +276,10 @@ impl Path {
         }
         // Remove all elements to replace
         for _ in 0..(end_index - start_index + 1) {
-            self.ids.remove(start_index);
+            self.ids_mut().remove(start_index);
         }
         for (i, id) in part.into_iter().enumerate() {
-            self.ids.insert(start_index + i, id);
+            self.ids_mut().insert(start_index + i, id);
         }
     }
 
@@ -298,8 +308,8 @@ impl Path {
         debug_assert!(self.last() == other_path.last()); // paths should have the same destination
         self.ids.len() < other_path.ids.len()
             || (self.ids.len() == other_path.ids.len()
-                && (self.path_hasher().hash(&self.ids) ^ &*ANCHOR_NODE_ID)
-                    < self.path_hasher().hash(&other_path.ids) ^ &*ANCHOR_NODE_ID)
+                && (self.path_hasher().hash(self.ids.as_slice()) ^ &*ANCHOR_NODE_ID)
+                    < self.path_hasher().hash(other_path.ids.as_slice()) ^ &*ANCHOR_NODE_ID)
     }
 
     /// returns true if this path is same
@@ -417,7 +427,7 @@ impl Path {
 
 impl Extend<NodeId> for Path {
     fn extend<T: IntoIterator<Item = NodeId>>(&mut self, iter: T) {
-        self.ids.extend(iter);
+        self.ids_mut().extend(iter);
     }
 }
 
@@ -467,7 +477,7 @@ impl IntoIterator for Path {
     type Item = NodeId;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.ids.into_iter()
+        Arc::unwrap_or_clone(self.ids).into_iter()
     }
 }
 
