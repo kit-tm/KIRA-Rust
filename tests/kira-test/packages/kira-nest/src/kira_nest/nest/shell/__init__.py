@@ -101,6 +101,23 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--start-interval",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help=(
+            "start the daemons staggered, waiting SECONDS after each batch"
+            " (see --start-batch), e.g. to keep a host with many nodes responsive"
+        ),
+    )
+    parser.add_argument(
+        "--start-batch",
+        type=int,
+        default=None,
+        metavar="N",
+        help="number of daemons started at once with --start-interval (default: 1)",
+    )
+    parser.add_argument(
         "--cluster",
         type=Path,
         default=None,
@@ -207,6 +224,8 @@ def run_shell() -> None:  # noqa: PLR0912, PLR0915
         perf=args.flamegraph,
         ip_prefixes=ip_prefixes,
         cluster=cluster,
+        start_interval=args.start_interval,
+        start_batch=args.start_batch,
     )
     shell = DebugShell(
         test, unshared=unshared, post_process_log_files=args.log_processing

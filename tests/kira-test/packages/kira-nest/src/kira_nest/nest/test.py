@@ -59,6 +59,11 @@ class KIRATest[T]:  # T = topology id type, usually int or str
     cluster : Cluster, optional
         Emulate only the nodes assigned to this host of the cluster and connect them
         to nodes on other hosts over VXLAN (see `kira_nest.nest.cluster`).
+    start_interval : float, optional
+        Start the daemons staggered: wait this many seconds after each `start_batch`
+        daemons, so not all nodes contend for the CPU while they come up.
+    start_batch : int, optional
+        Number of daemons started at once with `start_interval` (default: 1).
 
     The daemons and namespaces exist until `close()` (also on leaving a `with` block).
     Tests that are still running at interpreter exit are closed then.
@@ -76,6 +81,8 @@ class KIRATest[T]:  # T = topology id type, usually int or str
         ip_prefixes: IPPrefixes | None = None,
         *,
         cluster: Cluster | None = None,
+        start_interval: float | None = None,
+        start_batch: int | None = None,
     ) -> None:
         self._otel_ip = otel_ip or IPv4Network("10.42.0.0/24")
 
@@ -138,10 +145,16 @@ class KIRATest[T]:  # T = topology id type, usually int or str
             self._setup_cluster_links(cluster)
 
         logger.info("Starting daemons ...")
+        if start_batch is not None and start_batch < 1:
+            raise ValueError("start_batch must be at least 1")
+        started = 0
         for tid, cfg in self.topology.configs():
             node = self.topology.nodes.get(tid)
             if node is None:
                 continue  # emulated on another host
+            if start_interval and started and started % (start_batch or 1) == 0:
+                time.sleep(start_interval)
+            started += 1
             args: list[str] = []
 
             # kirad inherits the environment, so arguments must override set variables
