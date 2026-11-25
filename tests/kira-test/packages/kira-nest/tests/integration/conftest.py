@@ -210,6 +210,42 @@ class ConnectivityHelpers:
             assert not failed, "All nodes have to be up"
 
     @staticmethod
+    def converge(test, timeout=60.0, interval=0.5):
+        """Waits until every node knows its vicinity of the topology, at most `timeout`
+        seconds.
+
+        A node knows its vicinity when its vicinity graph contains all nodes and edges
+        of its vicinity in the topology (like the `check` command of nesttest). The
+        nodes need a moment after starting to discover their underlay neighbors and
+        vicinity.
+        Doesn't fail the test: the checks that follow fail if the routing doesn't
+        converge. Returns whether it converged.
+        """
+        topology = test.topology
+
+        def knows_vicinity(node):
+            topo_node = topology.topology_nodes[topology.tid(node)]
+            # a node whose API doesn't answer knows nothing
+            return (
+                next(topo_node.unknown_vicinity(node), None) is None
+                and next(topo_node.unknown_vicinity_edges(node), None) is None
+            )
+
+        deadline = time.monotonic() + timeout
+        pending = list(topology.nodes)
+        while True:
+            pending = [node for node in pending if not knows_vicinity(node)]
+            if not pending:
+                return True
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    f"{len(pending)} nodes don't know their vicinity after {timeout}s:"
+                    f" {', '.join(map(str, pending))}"
+                )
+                return False
+            time.sleep(interval)
+
+    @staticmethod
     def ping_check(src, dst):
         if src == dst:
             return True
